@@ -67,7 +67,7 @@ jobs:
         context: .
         file: ./app/backend/Dockerfile
         push: true
-        tags: thetalogics/resume-backend:latest
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-backend:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
@@ -76,7 +76,7 @@ jobs:
       with:
         context: ./app/frontend
         push: true
-        tags: thetalogics/resume-frontend:latest
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-frontend:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
 

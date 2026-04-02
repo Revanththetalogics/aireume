@@ -16,7 +16,7 @@ services:
       start_period: 60s
 
   backend:
-    image: thetalogics/resume-backend:latest
+    image: revanth2245/resume-backend:latest
     container_name: resume-screener-backend
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -34,7 +34,7 @@ services:
       retries: 3
 
   frontend:
-    image: thetalogics/resume-frontend:latest
+    image: revanth2245/resume-frontend:latest
     container_name: resume-screener-frontend
     depends_on:
       - backend
