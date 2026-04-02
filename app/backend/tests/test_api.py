@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, AsyncMock
 import io
+from app.backend.db.database import Base, engine
 
 
 class TestAPIEndpoints:
@@ -30,7 +31,7 @@ Python, JavaScript, React
 
 WORK EXPERIENCE
 Senior Dev | Company A
-January 2020 – Present
+January 2020 - Present
 Building apps
 
 EDUCATION
@@ -84,6 +85,8 @@ BS Computer Science
         assert response.status_code == 422
 
     def test_history_endpoint(self, client):
+        # Ensure tables are created
+        Base.metadata.create_all(bind=engine)
         response = client.get("/api/history")
         assert response.status_code == 200
         assert isinstance(response.json(), list)

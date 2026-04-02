@@ -67,17 +67,17 @@ Python, JavaScript, React, Node.js, PostgreSQL, AWS, Docker, Kubernetes
 WORK EXPERIENCE
 
 Senior Software Engineer | TechCorp Inc.
-January 2020 – Present
+January 2020 - Present
 - Led development of microservices architecture
 - Managed team of 5 engineers
 
 Software Engineer | StartupXYZ
-June 2017 – December 2019
+June 2017 - December 2019
 - Built React frontend and Node.js backend
 - Implemented CI/CD pipelines
 
 Junior Developer | SmallCo
-March 2015 – May 2017
+March 2015 - May 2017
 - Developed internal tools using Python
 - Maintained legacy systems
 

@@ -18,6 +18,8 @@ class ResumeParser:
             return self._extract_pdf(file_bytes)
         elif filename.lower().endswith(('.docx', '.doc')):
             return self._extract_docx(file_bytes)
+        elif filename.lower().endswith('.txt'):
+            return file_bytes.decode('utf-8')
         else:
             raise ValueError(f"Unsupported file format: {filename}")
 
