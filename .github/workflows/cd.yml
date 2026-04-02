@@ -80,20 +80,5 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Trigger Portainer Webhook
-      env:
-        PORTAINER_WEBHOOK: ${{ secrets.PORTAINER_WEBHOOK_URL }}
-      run: |
-        if [ -z "$PORTAINER_WEBHOOK" ]; then
-          echo "PORTAINER_WEBHOOK_URL secret not set. Skipping auto-deploy."
-          echo "Images pushed to Docker Hub. Manually redeploy in Portainer."
-          exit 0
-        fi
-        
-        echo "Triggering Portainer webhook..."
-        curl -X POST "$PORTAINER_WEBHOOK" || echo "Webhook failed - may need manual deploy"
+  # Note: Deployment is handled by Watchtower on the VPS
+  # Watchtower automatically pulls new images every 5 minutes
