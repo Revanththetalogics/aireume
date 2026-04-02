@@ -26,6 +26,8 @@ jobs:
         pip install -r requirements.txt
 
     - name: Run backend tests
+      env:
+        PYTHONPATH: ${{ github.workspace }}
       run: pytest app/backend/tests/ -v
 
     - name: Set up Node.js

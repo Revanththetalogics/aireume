@@ -25,6 +25,8 @@ jobs:
         pip install pytest pytest-asyncio pytest-cov respx
 
     - name: Run backend tests
+      env:
+        PYTHONPATH: ${{ github.workspace }}
       run: |
         pytest app/backend/tests/ -v --cov=app.backend.services --cov-report=xml
 
