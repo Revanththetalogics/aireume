@@ -8,17 +8,17 @@ from sqlalchemy.orm import sessionmaker
 # Add project root to Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from app.backend.db.database import Base, get_db
+from app.backend.db import database
 from app.backend.main import app
 
 # In-memory SQLite for testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
-engine = create_engine(
+test_engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={"check_same_thread": False}
 )
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
 def override_get_db():
@@ -29,26 +29,29 @@ def override_get_db():
         db.close()
 
 
-app.dependency_overrides[get_db] = override_get_db
+# Override database module to use test engine
+database.engine = test_engine
+database.SessionLocal = TestingSessionLocal
+app.dependency_overrides[database.get_db] = override_get_db
 
 
 @pytest.fixture(scope="function")
 def db():
-    Base.metadata.create_all(bind=engine)
+    database.Base.metadata.create_all(bind=test_engine)
     db = TestingSessionLocal()
     try:
         yield db
     finally:
         db.close()
-        Base.metadata.drop_all(bind=engine)
+        database.Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture(scope="function")
 def client():
-    Base.metadata.create_all(bind=engine)
+    database.Base.metadata.create_all(bind=test_engine)
     with TestClient(app) as c:
         yield c
-    Base.metadata.drop_all(bind=engine)
+    database.Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture
