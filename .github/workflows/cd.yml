@@ -87,48 +87,33 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Setup SSH
+      env:
+        VPS_HOST: ${{ secrets.VPS_HOST }}
+        VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      run: |
+        mkdir -p ~/.ssh
+        # Write key preserving newlines
+        cat << 'PRIVATEKEY' > ~/.ssh/id_rsa
+        $VPS_SSH_KEY
+        PRIVATEKEY
+        # Remove any Windows line endings and fix format
+        sed -i 's/\r$//' ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        # Add host key
+        ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+
     - name: Deploy to VPS
       env:
         VPS_HOST: ${{ secrets.VPS_HOST }}
         VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
-        VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       run: |
-        # Setup SSH
-        mkdir -p ~/.ssh
-        
-        # Write key and fix line endings
-        printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        
-        # Debug: Show key info (first line only, for security)
-        head -1 ~/.ssh/id_rsa
-        
-        # Convert key if needed (handle different formats)
-        ssh-keygen -p -m PEM -f ~/.ssh/id_rsa -N "" 2>/dev/null || true
-        
-        # Add host key
-        ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
-
-        # Create app directory on VPS if it doesn't exist
+        # Create app directory
         ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $VPS_USERNAME@$VPS_HOST "mkdir -p /opt/resume-screener"
-
-        # Copy docker-compose and nginx config to VPS
+        
+        # Copy files
         scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa docker-compose.prod.yml $VPS_USERNAME@$VPS_HOST:/opt/resume-screener/
         scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -r app/nginx/nginx.prod.conf $VPS_USERNAME@$VPS_HOST:/opt/resume-screener/nginx/
-
-        # SSH into VPS and deploy
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $VPS_USERNAME@$VPS_HOST << 'EOF'
-          cd /opt/resume-screener
-
-          # Pull latest images
-          docker compose -f docker-compose.prod.yml pull
-
-          # Start services
-          docker compose -f docker-compose.prod.yml up -d
-
-          # Clean up old images
-          docker image prune -f
-
-          # Check status
-          docker compose -f docker-compose.prod.yml ps
-        EOF
+        
+        # Deploy
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $VPS_USERNAME@$VPS_HOST "cd /opt/resume-screener && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d"
