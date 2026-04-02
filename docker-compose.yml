@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: resume-screener-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    # On first run, exec into container and run: ollama pull llama3
+
+  backend:
+    build: ./app/backend
+    container_name: resume-screener-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - DATABASE_URL=/data/resume_screener.db
+    volumes:
+      - sqlite_data:/data
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  frontend:
+    build: ./app/frontend
+    container_name: resume-screener-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: resume-screener-nginx
+    ports:
+      - "80:80"
+      - "8000:8000"
+    volumes:
+      - ./app/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  sqlite_data:
