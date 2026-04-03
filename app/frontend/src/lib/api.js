@@ -9,10 +9,15 @@ const api = axios.create({
   }
 })
 
-export async function analyzeResume(file, jobDescription) {
+export async function analyzeResume(file, jobDescription, jobFile = null) {
   const formData = new FormData()
   formData.append('resume', file)
-  formData.append('job_description', jobDescription)
+  
+  if (jobFile) {
+    formData.append('job_file', jobFile)
+  } else {
+    formData.append('job_description', jobDescription)
+  }
 
   const response = await api.post('/analyze', formData, {
     headers: {

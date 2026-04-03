@@ -15,7 +15,8 @@ router = APIRouter(prefix="/api", tags=["analysis"])
 @router.post("/analyze", response_model=AnalysisResponse)
 async def analyze_endpoint(
     resume: UploadFile = File(...),
-    job_description: str = Form(...),
+    job_description: str = Form(None),
+    job_file: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
     # Validate file type
@@ -26,10 +27,25 @@ async def analyze_endpoint(
             detail=f"Only {allowed_extensions} files are allowed"
         )
 
+    # Validate JD input (either text or file required)
+    if not job_description and not job_file:
+        raise HTTPException(status_code=400, detail="Job description (text or file) is required")
+
     # Validate file size (10MB max)
     content = await resume.read()
     if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+        raise HTTPException(status_code=400, detail="Resume file too large (max 10MB)")
+
+    # Extract JD from file if provided
+    if job_file:
+        try:
+            jd_content = await job_file.read()
+            if len(jd_content) > 5 * 1024 * 1024:
+                raise HTTPException(status_code=400, detail="Job description file too large (max 5MB)")
+            jd_parsed = parse_resume(jd_content, job_file.filename)
+            job_description = jd_parsed["raw_text"]
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Failed to parse job description file: {str(e)}")
 
     # Step 1: Parse resume
     try:

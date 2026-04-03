@@ -9,13 +9,15 @@ import { analyzeResume } from '../lib/api'
 export default function Dashboard() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [jobDescription, setJobDescription] = useState('')
+  const [selectedJobFile, setSelectedJobFile] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
 
   const handleSubmit = async () => {
-    if (!selectedFile || !jobDescription.trim()) {
-      setError('Please upload a resume and enter a job description')
+    const hasJd = jobDescription.trim() || selectedJobFile
+    if (!selectedFile || !hasJd) {
+      setError('Please upload a resume and provide a job description (text or file)')
       return
     }
 
@@ -24,7 +26,7 @@ export default function Dashboard() {
     setResult(null)
 
     try {
-      const data = await analyzeResume(selectedFile, jobDescription)
+      const data = await analyzeResume(selectedFile, jobDescription, selectedJobFile)
       setResult(data)
     } catch (err) {
       console.error('Analysis error:', err)
@@ -68,9 +70,11 @@ export default function Dashboard() {
           onFileSelect={setSelectedFile}
           jobDescription={jobDescription}
           onJobDescriptionChange={setJobDescription}
+          onJobFileSelect={setSelectedJobFile}
           onSubmit={handleSubmit}
           isLoading={isLoading}
           selectedFile={selectedFile}
+          selectedJobFile={selectedJobFile}
           error={error}
         />
 
