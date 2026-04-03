@@ -192,7 +192,13 @@ export default function UploadForm({
               ].map(({ mode, Icon, label }) => (
                 <button
                   key={mode}
-                  onClick={() => setJdMode(mode)}
+                  onClick={() => {
+                    // Clear stale job file when leaving file-upload mode
+                    if (jdMode === 'file' && mode !== 'file') {
+                      onJobFileSelect(null)
+                    }
+                    setJdMode(mode)
+                  }}
                   className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm transition-all ${
                     jdMode === mode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600'
                   }`}

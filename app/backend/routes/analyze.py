@@ -102,15 +102,21 @@ async def analyze_endpoint(
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Resume file too large (max 10MB)")
 
-    if job_file:
+    if job_file and job_file.filename:
         try:
             jd_content = await job_file.read()
             if len(jd_content) > 5 * 1024 * 1024:
                 raise HTTPException(status_code=400, detail="Job description file too large (max 5MB)")
             jd_parsed = parse_resume(jd_content, job_file.filename)
             job_description = jd_parsed["raw_text"]
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Failed to parse job description file: {str(e)}")
+            # If text was also provided, fall back to it rather than hard-failing
+            if job_description and job_description.strip():
+                pass  # use the text JD that was sent alongside the file
+            else:
+                raise HTTPException(status_code=422, detail=f"Failed to parse job description file: {str(e)}")
 
     weights = None
     if scoring_weights:
@@ -158,13 +164,18 @@ async def batch_analyze_endpoint(
     if not job_description and not job_file:
         raise HTTPException(status_code=400, detail="Job description (text or file) is required")
 
-    if job_file:
+    if job_file and job_file.filename:
         try:
             jd_content = await job_file.read()
             jd_parsed  = parse_resume(jd_content, job_file.filename)
             job_description = jd_parsed["raw_text"]
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Failed to parse job description: {str(e)}")
+            if job_description and job_description.strip():
+                pass
+            else:
+                raise HTTPException(status_code=422, detail=f"Failed to parse job description: {str(e)}")
 
     weights = None
     if scoring_weights:
