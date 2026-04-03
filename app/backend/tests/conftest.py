@@ -294,6 +294,72 @@ def sample_mp4_bytes():
 
 
 @pytest.fixture
+def mock_ollama_transcript():
+    """Mock Ollama returning a valid transcript analysis JSON."""
+    import json as _json
+    response_body = _json.dumps({
+        "fit_score": 78,
+        "technical_depth": 72,
+        "communication_quality": 80,
+        "jd_alignment": [
+            {"requirement": "Python", "demonstrated": True,  "evidence": "5 years Python"},
+            {"requirement": "AWS",    "demonstrated": False, "evidence": None},
+        ],
+        "strengths": ["Strong Python skills", "Good communication"],
+        "areas_for_improvement": ["Cloud experience limited"],
+        "bias_note": "Evaluation based solely on demonstrated skills and knowledge in the transcript.",
+        "recommendation": "proceed",
+    })
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": response_body}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("app.backend.services.transcript_service.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_resp)
+        mock_client_cls.return_value = mock_client
+        yield mock_client
+
+
+@pytest.fixture
+def sample_vtt_transcript():
+    return """\
+WEBVTT
+
+1
+00:00:01.000 --> 00:00:06.000
+Interviewer: Tell me about your Python experience.
+
+2
+00:00:07.000 --> 00:00:15.000
+Jane: I have five years of Python building REST APIs with FastAPI.
+"""
+
+
+@pytest.fixture
+def sample_srt_transcript():
+    return """\
+1
+00:00:01,000 --> 00:00:05,000
+Can you describe your AWS experience?
+
+2
+00:00:06,000 --> 00:00:14,000
+I have three years of hands-on AWS experience with EC2, S3, and Lambda.
+"""
+
+
+@pytest.fixture
+def sample_plain_transcript():
+    return (
+        "I have been working with Python for five years, building REST APIs with FastAPI. "
+        "I led a team migrating a monolith to microservices using Docker and Kubernetes."
+    )
+
+
+@pytest.fixture
 def mock_ollama_email():
     """Mock Ollama returning a valid email JSON."""
     response_body = json.dumps({

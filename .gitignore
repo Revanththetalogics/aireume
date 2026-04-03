@@ -33,3 +33,6 @@ htmlcov/
 
 # Docker
 .docker/
+
+# Temp files
+.commit-msg.txt
