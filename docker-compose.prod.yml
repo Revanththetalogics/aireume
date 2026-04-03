@@ -1,5 +1,9 @@
 version: '3.8'
 
+# Project name scopes all containers to "aria" — safe to run alongside other stacks on the same VPS.
+# All container names, networks, and volumes are prefixed with "aria_".
+name: aria
+
 services:
   postgres:
     image: postgres:16-alpine

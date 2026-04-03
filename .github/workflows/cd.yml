@@ -115,23 +115,29 @@ jobs:
         username: ${{ secrets.VPS_USERNAME }}
         key: ${{ secrets.VPS_SSH_KEY }}
         script: |
+          set -e
+          mkdir -p /opt/aria
           cd /opt/aria
 
           # Write .env file from GitHub secrets
-          cat > .env <<EOF
+          cat > .env <<'ENVEOF'
           POSTGRES_USER=${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB=${{ secrets.POSTGRES_DB }}
           JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
           DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-          EOF
+          ENVEOF
+
+          # All commands use -p aria so they ONLY affect the "aria" project.
+          # This prevents any interference with other stacks running on this VPS.
+          COMPOSE="docker compose -p aria -f /opt/aria/docker-compose.prod.yml"
 
           # Pull latest images for the three app services
-          docker compose -f docker-compose.prod.yml pull backend frontend nginx
+          $COMPOSE pull backend frontend nginx
 
-          # Start ALL services (postgres, ollama, backend, frontend, nginx, certbot)
-          # --no-recreate skips containers that haven't changed (e.g. postgres with data)
-          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          # Start ALL services (postgres, ollama, backend, frontend, nginx, certbot).
+          # --remove-orphans is scoped to the "aria" project only — safe on shared VPS.
+          $COMPOSE up -d --remove-orphans
 
-          # Show running containers
-          docker compose -f docker-compose.prod.yml ps
+          # Show only aria project containers
+          $COMPOSE ps

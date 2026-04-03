@@ -1,5 +1,7 @@
 version: '3.8'
 
+name: aria
+
 services:
   postgres:
     image: postgres:16-alpine
