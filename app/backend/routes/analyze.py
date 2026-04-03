@@ -7,14 +7,13 @@ from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import ScreeningResult, User, Candidate
 from app.backend.models.schemas import AnalysisResponse, BatchAnalysisResponse, BatchAnalysisResult
-from app.backend.services.parser_service import parse_resume
+from app.backend.services.parser_service import parse_resume, extract_jd_text
 from app.backend.services.gap_detector import analyze_gaps
 from app.backend.services.agent_pipeline import run_agent_pipeline
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
-ALLOWED_EXTENSIONS     = ('.pdf', '.docx', '.doc')
-ALLOWED_JD_EXTENSIONS  = ('.docx',)
+ALLOWED_EXTENSIONS = ('.pdf', '.docx', '.doc')
 
 
 def _get_or_create_candidate(db: Session, parsed_data: dict, tenant_id: int) -> int | None:
@@ -104,21 +103,18 @@ async def analyze_endpoint(
         raise HTTPException(status_code=400, detail="Resume file too large (max 10MB)")
 
     if job_file and job_file.filename:
-        if not job_file.filename.lower().endswith(ALLOWED_JD_EXTENSIONS):
-            raise HTTPException(status_code=400, detail="Job description file must be a .docx file")
         try:
             jd_content = await job_file.read()
             if len(jd_content) > 5 * 1024 * 1024:
                 raise HTTPException(status_code=400, detail="Job description file too large (max 5MB)")
-            jd_parsed = parse_resume(jd_content, job_file.filename)
-            job_description = jd_parsed["raw_text"]
+            extracted = extract_jd_text(jd_content, job_file.filename)
+            if extracted.strip():
+                job_description = extracted
         except HTTPException:
             raise
         except Exception as e:
-            # If text was also provided, fall back to it rather than hard-failing
-            if job_description and job_description.strip():
-                pass  # use the text JD that was sent alongside the file
-            else:
+            # Fall back to the text JD if provided, otherwise surface the error
+            if not (job_description and job_description.strip()):
                 raise HTTPException(status_code=422, detail=f"Failed to parse job description file: {str(e)}")
 
     weights = None
@@ -168,18 +164,15 @@ async def batch_analyze_endpoint(
         raise HTTPException(status_code=400, detail="Job description (text or file) is required")
 
     if job_file and job_file.filename:
-        if not job_file.filename.lower().endswith(ALLOWED_JD_EXTENSIONS):
-            raise HTTPException(status_code=400, detail="Job description file must be a .docx file")
         try:
             jd_content = await job_file.read()
-            jd_parsed  = parse_resume(jd_content, job_file.filename)
-            job_description = jd_parsed["raw_text"]
+            extracted = extract_jd_text(jd_content, job_file.filename)
+            if extracted.strip():
+                job_description = extracted
         except HTTPException:
             raise
         except Exception as e:
-            if job_description and job_description.strip():
-                pass
-            else:
+            if not (job_description and job_description.strip()):
                 raise HTTPException(status_code=422, detail=f"Failed to parse job description: {str(e)}")
 
     weights = None

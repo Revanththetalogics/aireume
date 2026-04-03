@@ -5,6 +5,116 @@ import pdfplumber
 from docx import Document
 
 
+# ─── JD text extractor (multi-format, lenient) ───────────────────────────────
+
+def extract_jd_text(file_bytes: bytes, filename: str) -> str:
+    """
+    Extract plain text from a Job Description file.
+
+    Supports: PDF, DOCX, DOC (legacy binary), TXT, RTF, HTML/HTM, ODT,
+    Markdown, and any plain-text file regardless of extension.
+
+    Unlike parse_resume(), this function only needs raw text — it does NOT
+    return structured data and is intentionally permissive about format.
+    """
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+    # ── PDF ──────────────────────────────────────────────────────────────────
+    if ext == "pdf":
+        try:
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+            if text.strip():
+                return text
+        except Exception:
+            pass
+
+    # ── DOCX (modern Word .docx / Office Open XML) ───────────────────────────
+    if ext == "docx":
+        try:
+            doc = Document(io.BytesIO(file_bytes))
+            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+            # Also grab text from tables
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        if cell.text.strip():
+                            paragraphs.append(cell.text.strip())
+            text = "\n".join(paragraphs)
+            if text.strip():
+                return text
+        except Exception:
+            pass
+
+    # ── DOC (legacy binary Word) — best-effort ASCII extraction ──────────────
+    if ext == "doc":
+        try:
+            raw = file_bytes.decode("latin-1", errors="ignore")
+            # Remove non-printable characters except newline/tab
+            cleaned = re.sub(r"[^\x20-\x7E\n\t]", " ", raw)
+            # Collapse multiple spaces but keep newlines
+            cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+            lines = [l.strip() for l in cleaned.splitlines() if len(l.strip()) > 4]
+            text = "\n".join(lines)
+            if text.strip():
+                return text
+        except Exception:
+            pass
+
+    # ── RTF ───────────────────────────────────────────────────────────────────
+    if ext == "rtf":
+        try:
+            raw = file_bytes.decode("latin-1", errors="ignore")
+            # Strip RTF control words, groups, and backslash escapes
+            text = re.sub(r"\\[a-z]+\-?\d*\s?", " ", raw)
+            text = re.sub(r"\{[^{}]*\}", " ", text)
+            text = re.sub(r"[{}\\]", " ", text)
+            text = re.sub(r"\s+", " ", text)
+            if text.strip():
+                return text.strip()
+        except Exception:
+            pass
+
+    # ── HTML / HTM ────────────────────────────────────────────────────────────
+    if ext in ("html", "htm"):
+        try:
+            raw = file_bytes.decode("utf-8", errors="ignore")
+            text = re.sub(r"<[^>]+>", " ", raw)
+            text = re.sub(r"\s+", " ", text)
+            if text.strip():
+                return text.strip()
+        except Exception:
+            pass
+
+    # ── ODT (Open Document Text) — it's a ZIP; extract content.xml ───────────
+    if ext == "odt":
+        try:
+            import zipfile
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+                with z.open("content.xml") as f:
+                    xml = f.read().decode("utf-8", errors="ignore")
+            text = re.sub(r"<[^>]+>", " ", xml)
+            text = re.sub(r"\s+", " ", text)
+            if text.strip():
+                return text.strip()
+        except Exception:
+            pass
+
+    # ── Plain text fallback (TXT, MD, CSV, unknown, or any failed attempt) ───
+    for encoding in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
+        try:
+            text = file_bytes.decode(encoding)
+            if text.strip():
+                return text
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    raise ValueError(
+        f"Could not extract readable text from '{filename}'. "
+        "Supported formats: PDF, DOCX, DOC, TXT, RTF, HTML, ODT."
+    )
+
+
 class ResumeParser:
     def __init__(self):
         self.date_patterns = [
