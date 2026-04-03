@@ -36,6 +36,8 @@ services:
   frontend:
     image: revanth2245/resume-frontend:latest
     container_name: resume-screener-frontend
+    ports:
+      - "8080:80"
     depends_on:
       - backend
     restart: unless-stopped
