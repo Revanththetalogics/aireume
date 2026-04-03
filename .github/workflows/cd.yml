@@ -70,6 +70,7 @@ jobs:
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-backend:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        provenance: false
 
     - name: Build and push frontend
       uses: docker/build-push-action@v5
@@ -79,6 +80,7 @@ jobs:
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-frontend:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        provenance: false
 
     - name: Build and push nginx
       uses: docker/build-push-action@v5
@@ -88,6 +90,7 @@ jobs:
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-nginx:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        provenance: false
 
   # Deployment handled by Watchtower (polls Docker Hub every 5 min)
   # Watchtower monitors: resume-backend, resume-frontend, resume-nginx
