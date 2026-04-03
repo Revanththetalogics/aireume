@@ -23,8 +23,6 @@ services:
       - ENVIRONMENT=production
     volumes:
       - sqlite_data:/data
-    ports:
-      - "8001:8000"
     depends_on:
       - ollama
     restart: unless-stopped
@@ -38,11 +36,25 @@ services:
   frontend:
     image: revanth2245/resume-frontend:latest
     container_name: resume-screener-frontend
-    ports:
-      - "8080:80"
     depends_on:
       - backend
     restart: unless-stopped
+
+  nginx:
+    image: revanth2245/resume-nginx:latest   # Custom image — config baked in, built by CI/CD
+    container_name: resume-screener-nginx
+    ports:
+      - "8080:80"                            # System nginx on VPS proxies here
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   certbot:
     image: certbot/certbot

@@ -80,5 +80,14 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-  # Note: Deployment is handled by Watchtower on the VPS
-  # Watchtower automatically pulls new images every 5 minutes
+    - name: Build and push nginx
+      uses: docker/build-push-action@v5
+      with:
+        context: ./nginx
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-nginx:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Deployment handled by Watchtower (polls Docker Hub every 5 min)
+  # Watchtower monitors: resume-backend, resume-frontend, resume-nginx
