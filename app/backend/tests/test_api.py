@@ -46,10 +46,14 @@ BS Computer Science
             "final_recommendation": "Consider"
         }
 
-        with patch('app.backend.routes.analyze.analyze_resume', new_callable=AsyncMock) as mock_analyze:
-            mock_analyze.return_value = {
+        with patch('app.backend.routes.analyze.run_agent_pipeline', new_callable=AsyncMock) as mock_pipeline:
+            mock_pipeline.return_value = {
                 **mock_llm_response,
-                "employment_gaps": []
+                "employment_gaps": [],
+                "score_breakdown": {"skill_match": 80, "experience_match": 70, "stability": 100, "education": 70},
+                "matched_skills": ["python"],
+                "missing_skills": [],
+                "risk_level": "Low",
             }
 
             response = client.post(
@@ -58,7 +62,6 @@ BS Computer Science
                 files={"resume": ("resume.txt", io.BytesIO(file_content), "text/plain")}
             )
 
-            # May get 422 if file type is rejected, that's ok
             if response.status_code == 200:
                 data = response.json()
                 assert "fit_score" in data
@@ -81,7 +84,8 @@ BS Computer Science
             files={"resume": ("resume.txt", io.BytesIO(file_content), "text/plain")}
         )
 
-        assert response.status_code == 422
+        # Route returns 400 (our explicit validation) when JD is missing
+        assert response.status_code == 400
 
     @pytest.mark.skip(reason="Database table creation issue in tests - works in production")
     def test_history_endpoint(self, client):
