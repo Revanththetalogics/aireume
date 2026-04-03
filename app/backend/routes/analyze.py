@@ -7,7 +7,7 @@ from app.backend.models.db_models import ScreeningResult
 from app.backend.models.schemas import AnalysisResponse
 from app.backend.services.parser_service import parse_resume
 from app.backend.services.gap_detector import analyze_gaps
-from app.backend.services.analysis_service import analyze_resume
+from app.backend.services.agent_pipeline import run_agent_pipeline
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
@@ -57,24 +57,27 @@ async def analyze_endpoint(
     work_exp = parsed_data.get("work_experience", [])
     gap_analysis = analyze_gaps(work_exp)
 
-    # Step 3: Full analysis (calls LLM once)
+    # Step 3: Agent pipeline - structured profile extraction + deterministic scoring + focused LLM
     try:
-        analysis_result = await analyze_resume(
+        analysis_result = await run_agent_pipeline(
             resume_text=parsed_data["raw_text"],
             job_description=job_description,
             parsed_data=parsed_data,
             gap_analysis=gap_analysis
         )
     except Exception as e:
-        # Return fallback response if LLM fails completely
         analysis_result = {
             "fit_score": 50,
             "strengths": ["Analysis service temporarily unavailable"],
             "weaknesses": ["Unable to complete full analysis"],
             "employment_gaps": gap_analysis.get("employment_gaps", []),
             "education_analysis": "Analysis unavailable at this time.",
-            "risk_signals": [{"type": "llm_error", "description": str(e)}],
-            "final_recommendation": "Consider"
+            "risk_signals": [{"type": "pipeline_error", "description": str(e)}],
+            "final_recommendation": "Consider",
+            "score_breakdown": {},
+            "matched_skills": [],
+            "missing_skills": [],
+            "risk_level": "Unknown"
         }
 
     # Step 4: Save to database
