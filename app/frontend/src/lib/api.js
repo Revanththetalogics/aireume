@@ -18,7 +18,7 @@ export async function analyzeResume(file, jobDescription) {
     headers: {
       'Content-Type': 'multipart/form-data'
     },
-    timeout: 120000 // 2 minutes for LLM processing
+    timeout: 300000 // 5 minutes for LLM processing (first call may take longer)
   })
 
   return response.data
