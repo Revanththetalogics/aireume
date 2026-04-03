@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional
 class LLMService:
     def __init__(self):
         self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = "llama3"
+        self.model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")  # Faster 3B model
         self.max_retries = 1
 
     async def analyze_resume(
@@ -50,7 +50,7 @@ class LLMService:
             "format": "json"
         }
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:  # 1 minute timeout
             response = await client.post(url, json=payload)
             response.raise_for_status()
             data = response.json()
@@ -65,36 +65,21 @@ class LLMService:
         gaps: list,
         risks: list
     ) -> str:
-        return f"""You are an expert recruiter AI.
+        # Truncate text for faster processing
+        jd_summary = job_description[:500] if len(job_description) > 500 else job_description
+        resume_summary = resume_text[:1000] if len(resume_text) > 1000 else resume_text
+        
+        return f"""Analyze this candidate for the job. Be concise.
 
-Analyze the candidate strictly based on provided data.
-DO NOT hallucinate.
-DO NOT add assumptions.
-ONLY use given data.
+JOB: {jd_summary}
 
-=== JOB DESCRIPTION ===
-{job_description}
+RESUME: {resume_summary}
 
-=== RESUME TEXT ===
-{resume_text[:3000]}
+METRICS: Match {skill_match_percent:.0f}%, Exp {total_years:.1f}y, Gaps {len(gaps)}, Risks {len(risks)}
 
-=== COMPUTED METRICS ===
-- Skill Match: {skill_match_percent:.1f}%
-- Total Experience: {total_years:.1f} years
-- Employment Gaps Detected: {len(gaps)}
-- Risk Signals: {[r.get('type') for r in risks]}
+Return JSON: {{"fit_score": 0-100, "strengths": ["3-5 items"], "weaknesses": ["3-5 items"], "education_analysis": "brief", "risk_signals": ["list"], "final_recommendation": "Shortlist|Consider|Reject"}}
 
-Return STRICT JSON ONLY with this exact schema:
-{{
-    "fit_score": <number 0-100>,
-    "strengths": ["max 5 bullet points"],
-    "weaknesses": ["max 5 bullet points"],
-    "education_analysis": "brief assessment of education fit",
-    "risk_signals": ["identified risks"],
-    "final_recommendation": "Shortlist" | "Consider" | "Reject"
-}}
-
-JSON response:"""
+JSON:"""
 
     def _parse_json_response(self, response: str) -> Optional[Dict[str, Any]]:
         # Try to find JSON in the response
