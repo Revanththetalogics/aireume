@@ -5,31 +5,40 @@ import os
 
 from app.backend.db.database import engine, Base
 from app.backend.routes import analyze
+from app.backend.routes import auth
+from app.backend.routes import compare
+from app.backend.routes import export
+from app.backend.routes import templates
+from app.backend.routes import candidates
+from app.backend.routes import email_gen
+from app.backend.routes import jd_url
+from app.backend.routes import team
+from app.backend.routes import training
+from app.backend.routes import video
+from app.backend.routes import transcript
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on startup
     Base.metadata.create_all(bind=engine)
     yield
-    # Cleanup on shutdown (if needed)
 
 
 app = FastAPI(
-    title="AI Resume Screener by ThetaLogics",
-    description="Local-first AI resume screening using Ollama",
-    version="1.0.0",
+    title="ARIA — AI Resume Intelligence by ThetaLogics",
+    description="Multi-tenant AI resume screening platform with 4-agent pipeline",
+    version="2.0.0",
     lifespan=lifespan
 )
 
-# CORS configuration
+# ─── CORS ─────────────────────────────────────────────────────────────────────
+
 origins = [
     "http://localhost:5173",
     "http://localhost:3000",
-    "https://airesume-staging.thetalogics.com"
+    "https://airesume-staging.thetalogics.com",
 ]
 
-# Allow all in dev mode
 if os.getenv("ENVIRONMENT", "development") == "development":
     origins = ["*"]
 
@@ -41,19 +50,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(analyze.router)
+# ─── Routers ──────────────────────────────────────────────────────────────────
 
+app.include_router(auth.router)
+app.include_router(analyze.router)
+app.include_router(compare.router)
+app.include_router(export.router)
+app.include_router(templates.router)
+app.include_router(candidates.router)
+app.include_router(email_gen.router)
+app.include_router(jd_url.router)
+app.include_router(team.router)
+app.include_router(training.router)
+app.include_router(video.router)
+app.include_router(transcript.router)
+
+
+# ─── Root endpoints ───────────────────────────────────────────────────────────
 
 @app.get("/")
 def root():
     return {
-        "message": "AI Resume Screener API",
-        "docs": "/docs",
-        "endpoints": {
-            "analyze": "POST /api/analyze",
-            "history": "GET /api/history"
-        }
+        "message": "ARIA API — AI Resume Intelligence",
+        "version": "2.0.0",
+        "docs":    "/docs",
     }
 
 

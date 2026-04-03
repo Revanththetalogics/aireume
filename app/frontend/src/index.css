@@ -28,3 +28,31 @@ body {
   width: 100%;
   min-height: 100vh;
 }
+
+/* ─── Print / PDF styles ───────────────────────────────────────────────── */
+@media print {
+  .print\:hidden { display: none !important; }
+
+  body {
+    background: white !important;
+    font-size: 12pt;
+    color: #1e293b;
+  }
+
+  main {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .rounded-xl, .rounded-lg { border-radius: 4px !important; }
+  .shadow-sm { box-shadow: none !important; }
+
+  /* Page breaks */
+  .print\:break-before-page { break-before: page; }
+
+  /* Ensure colors print */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+  /* Hide sticky bars */
+  header, .sticky { position: static !important; }
+}

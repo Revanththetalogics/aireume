@@ -1,92 +1,115 @@
-# Local Pre-Push Test Script
-# Run this before pushing to catch CI/CD errors early
+# ============================================================
+#  Local Pre-Push Test Script
+#  Run before pushing to catch CI/CD errors early.
+#  Usage:  .\test-locally.ps1
+# ============================================================
 
-$ErrorActionPreference = "Stop"
+# Always use absolute paths so directory changes can never drift
+$ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
+$FRONTEND = Join-Path $ROOT "app\frontend"
 
-Write-Host "========================================"
-Write-Host "  Local Pre-Push Test Suite"
-Write-Host "========================================"
+$passed  = 0
+$failed  = 0
+$results = @()
 
-$success = $true
-
-# Test 1: Check Python imports work
-Write-Host ""
-Write-Host "[1/5] Checking Python imports..." -ForegroundColor Yellow
-try {
-    $env:PYTHONPATH = "."
-    $output = python -c "from app.backend.main import app; print('Backend imports OK')" 2>&1
-    Write-Host $output -ForegroundColor Green
-} catch {
-    Write-Host "Backend imports failed: $_" -ForegroundColor Red
-    $success = $false
+function Step-Header($n, $label) {
+    Write-Host ""
+    Write-Host "[$n/5] $label" -ForegroundColor Yellow
 }
 
-# Test 2: Run backend tests
-Write-Host ""
-Write-Host "[2/5] Running backend tests..." -ForegroundColor Yellow
-try {
-    $env:PYTHONPATH = "."
-    pytest app/backend/tests/ -v 2>&1 | ForEach-Object { Write-Host $_ }
-    if ($LASTEXITCODE -ne 0) {
-        throw "Backend tests failed with exit code $LASTEXITCODE"
-    }
-} catch {
-    Write-Host "Backend tests failed: $_" -ForegroundColor Red
-    $success = $false
+function Step-Pass($msg) {
+    Write-Host "  PASS  $msg" -ForegroundColor Green
+    $script:passed++
+    $script:results += @{ ok = $true; msg = $msg }
 }
 
-# Test 3: Check frontend dependencies install
-Write-Host ""
-Write-Host "[3/5] Checking frontend dependencies..." -ForegroundColor Yellow
-try {
-    Set-Location app/frontend
-    npm ci --silent 2>&1 | ForEach-Object { Write-Host $_ }
-    Set-Location ../..
-    Write-Host "Frontend dependencies OK" -ForegroundColor Green
-} catch {
-    Write-Host "Frontend dependencies failed: $_" -ForegroundColor Red
-    $success = $false
+function Step-Fail($msg) {
+    Write-Host "  FAIL  $msg" -ForegroundColor Red
+    $script:failed++
+    $script:results += @{ ok = $false; msg = $msg }
 }
 
-# Test 4: Run frontend tests
-Write-Host ""
-Write-Host "[4/5] Running frontend tests..." -ForegroundColor Yellow
-try {
-    Set-Location app/frontend
-    npm test -- --run 2>&1 | ForEach-Object { Write-Host $_ }
-    Set-Location ../..
-    if ($LASTEXITCODE -ne 0) {
-        throw "Frontend tests failed"
-    }
-} catch {
-    Write-Host "Frontend tests failed: $_" -ForegroundColor Red
-    $success = $false
+Write-Host "======================================================="
+Write-Host "  ARIA - Local Pre-Push Test Suite"
+Write-Host "======================================================="
+
+# ─── Step 1: Python imports ───────────────────────────────────
+Step-Header 1 "Checking Python imports..."
+Set-Location $ROOT
+$env:PYTHONPATH = $ROOT
+
+$importOut = python -c "from app.backend.main import app; print('OK')" 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Step-Pass "Backend imports OK"
+} else {
+    Step-Fail "Backend import error: $importOut"
 }
 
-# Test 5: Build frontend
-Write-Host ""
-Write-Host "[5/5] Building frontend..." -ForegroundColor Yellow
-try {
-    Set-Location app/frontend
-    npm run build 2>&1 | ForEach-Object { Write-Host $_ }
-    Set-Location ../..
-    Write-Host "Frontend build OK" -ForegroundColor Green
-} catch {
-    Write-Host "Frontend build failed: $_" -ForegroundColor Red
-    $success = $false
+# ─── Step 2: Backend tests ────────────────────────────────────
+Step-Header 2 "Running backend pytest suite..."
+Set-Location $ROOT
+$env:PYTHONPATH = $ROOT
+
+# Run pytest; suppress warnings to avoid false stderr exits
+python -m pytest app/backend/tests/ -v --tb=short -q --no-header 2>&1 | ForEach-Object { Write-Host "  $_" }
+if ($LASTEXITCODE -eq 0) {
+    Step-Pass "All backend tests passed"
+} else {
+    Step-Fail "Backend tests failed (exit $LASTEXITCODE)"
 }
 
-# Summary
+# ─── Step 3: Frontend dependencies ───────────────────────────
+Step-Header 3 "Checking frontend dependencies (npm ci)..."
+Set-Location $FRONTEND
+
+npm ci --silent 2>&1 | ForEach-Object { Write-Host "  $_" }
+if ($LASTEXITCODE -eq 0) {
+    Step-Pass "Frontend dependencies OK"
+} else {
+    Step-Fail "npm ci failed (exit $LASTEXITCODE)"
+}
+
+# ─── Step 4: Frontend tests ───────────────────────────────────
+Step-Header 4 "Running frontend vitest suite..."
+Set-Location $FRONTEND
+
+# --run exits after one pass (no watch mode)
+npm test -- --run 2>&1 | ForEach-Object { Write-Host "  $_" }
+if ($LASTEXITCODE -eq 0) {
+    Step-Pass "All frontend tests passed"
+} else {
+    Step-Fail "Frontend tests failed (exit $LASTEXITCODE)"
+}
+
+# ─── Step 5: Frontend build ───────────────────────────────────
+Step-Header 5 "Building frontend (vite build)..."
+Set-Location $FRONTEND
+
+npm run build 2>&1 | ForEach-Object { Write-Host "  $_" }
+if ($LASTEXITCODE -eq 0) {
+    Step-Pass "Frontend build succeeded"
+} else {
+    Step-Fail "Frontend build failed (exit $LASTEXITCODE)"
+}
+
+# ─── Summary ──────────────────────────────────────────────────
+Set-Location $ROOT
 Write-Host ""
-Write-Host "========================================"
-if ($success) {
-    Write-Host "  ALL TESTS PASSED!" -ForegroundColor Green
-    Write-Host "  Safe to push to GitHub" -ForegroundColor Green
-    Write-Host "========================================"
+Write-Host "======================================================="
+Write-Host "  Results: $passed passed, $failed failed"
+Write-Host "======================================================="
+
+foreach ($r in $results) {
+    $icon  = if ($r.ok) { "OK " } else { "XX " }
+    $color = if ($r.ok) { "Green" } else { "Red" }
+    Write-Host "  $icon  $($r.msg)" -ForegroundColor $color
+}
+
+Write-Host "======================================================="
+if ($failed -eq 0) {
+    Write-Host "  ALL CHECKS PASSED - Safe to push!" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "  SOME TESTS FAILED" -ForegroundColor Red
-    Write-Host "  Fix errors before pushing" -ForegroundColor Red
-    Write-Host "========================================"
+    Write-Host "  $failed CHECKS FAILED - Fix before pushing." -ForegroundColor Red
     exit 1
 }

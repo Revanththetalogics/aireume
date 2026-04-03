@@ -8,6 +8,24 @@ httpx==0.28.1
 pydantic==2.10.6
 python-dateutil==2.9.0
 
+# Auth & multi-tenancy
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+alembic==1.13.3
+psycopg2-binary==2.9.10
+
+# Export
+pandas==2.2.3
+openpyxl==3.1.5
+
+# JD URL scraping
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# Video analysis
+faster-whisper==1.1.0
+yt-dlp==2025.3.31
+
 # Testing
 pytest==8.3.4
 pytest-asyncio==0.25.3

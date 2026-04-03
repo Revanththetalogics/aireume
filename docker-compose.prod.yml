@@ -1,6 +1,23 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: resume-screener-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aria}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aria_secret_prod}
+      POSTGRES_DB: ${POSTGRES_DB:-aria_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aria} -d ${POSTGRES_DB:-aria_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   ollama:
     image: ollama/ollama:latest
     container_name: resume-screener-ollama
@@ -19,12 +36,14 @@ services:
     container_name: resume-screener-backend
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
-      - DATABASE_URL=/data/resume_screener.db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD:-aria_secret_prod}@postgres:5432/${POSTGRES_DB:-aria_db}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - ENVIRONMENT=production
-    volumes:
-      - sqlite_data:/data
     depends_on:
-      - ollama
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -41,10 +60,10 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: revanth2245/resume-nginx:latest   # Custom image — config baked in, built by CI/CD
+    image: revanth2245/resume-nginx:latest
     container_name: resume-screener-nginx
     ports:
-      - "8080:80"                            # System nginx on VPS proxies here
+      - "8080:80"
     depends_on:
       - frontend
       - backend
@@ -67,6 +86,6 @@ services:
 
 volumes:
   ollama_data:
-  sqlite_data:
+  postgres_data:
   certbot_certs:
   certbot_www:

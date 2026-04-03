@@ -1,6 +1,24 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: resume-screener-postgres
+    environment:
+      POSTGRES_USER: aria
+      POSTGRES_PASSWORD: aria_secret
+      POSTGRES_DB: aria_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aria -d aria_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   ollama:
     image: ollama/ollama:latest
     container_name: resume-screener-ollama
@@ -12,17 +30,22 @@ services:
     # On first run, exec into container and run: ollama pull llama3
 
   backend:
-    build: ./app/backend
+    build:
+      context: .
+      dockerfile: app/backend/Dockerfile
     container_name: resume-screener-backend
     ports:
       - "8000:8000"
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
-      - DATABASE_URL=/data/resume_screener.db
-    volumes:
-      - sqlite_data:/data
+      - DATABASE_URL=postgresql://aria:aria_secret@postgres:5432/aria_db
+      - JWT_SECRET_KEY=change-this-in-production-use-a-long-random-string
+      - ENVIRONMENT=development
     depends_on:
-      - ollama
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
 
   frontend:
@@ -39,7 +62,6 @@ services:
     container_name: resume-screener-nginx
     ports:
       - "80:80"
-      - "8000:8000"
     volumes:
       - ./app/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -49,4 +71,4 @@ services:
 
 volumes:
   ollama_data:
-  sqlite_data:
+  postgres_data:
