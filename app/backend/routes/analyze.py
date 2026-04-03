@@ -13,7 +13,8 @@ from app.backend.services.agent_pipeline import run_agent_pipeline
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
-ALLOWED_EXTENSIONS = ('.pdf', '.docx', '.doc')
+ALLOWED_EXTENSIONS     = ('.pdf', '.docx', '.doc')
+ALLOWED_JD_EXTENSIONS  = ('.docx',)
 
 
 def _get_or_create_candidate(db: Session, parsed_data: dict, tenant_id: int) -> int | None:
@@ -103,6 +104,8 @@ async def analyze_endpoint(
         raise HTTPException(status_code=400, detail="Resume file too large (max 10MB)")
 
     if job_file and job_file.filename:
+        if not job_file.filename.lower().endswith(ALLOWED_JD_EXTENSIONS):
+            raise HTTPException(status_code=400, detail="Job description file must be a .docx file")
         try:
             jd_content = await job_file.read()
             if len(jd_content) > 5 * 1024 * 1024:
@@ -165,6 +168,8 @@ async def batch_analyze_endpoint(
         raise HTTPException(status_code=400, detail="Job description (text or file) is required")
 
     if job_file and job_file.filename:
+        if not job_file.filename.lower().endswith(ALLOWED_JD_EXTENSIONS):
+            raise HTTPException(status_code=400, detail="Job description file must be a .docx file")
         try:
             jd_content = await job_file.read()
             jd_parsed  = parse_resume(jd_content, job_file.filename)

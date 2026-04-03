@@ -117,10 +117,7 @@ export default function UploadForm({
   const { getRootProps: getJdRootProps, getInputProps: getJdInputProps, isDragActive: isJdDragActive } = useDropzone({
     onDrop: onJdDrop,
     accept: {
-      'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'application/msword': ['.doc'],
-      'text/plain': ['.txt']
     },
     maxFiles: 1,
     maxSize: 5 * 1024 * 1024
@@ -239,7 +236,7 @@ export default function UploadForm({
               ) : (
                 <>
                   <FileUp className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-slate-600 text-sm">{isJdDragActive ? 'Drop JD file here...' : 'Upload JD (PDF, DOCX, TXT)'}</p>
+                  <p className="text-slate-600 text-sm">{isJdDragActive ? 'Drop DOCX file here...' : 'Upload JD (DOCX only)'}</p>
                 </>
               )}
             </div>
