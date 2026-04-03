@@ -6,7 +6,6 @@ services:
     container_name: resume-screener-ollama
     volumes:
       - ollama_data:/root/.ollama
-    # Ollama port not exposed publicly - only accessible via backend
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ollama", "list"]
@@ -24,6 +23,8 @@ services:
       - ENVIRONMENT=production
     volumes:
       - sqlite_data:/data
+    ports:
+      - "8001:8000"   # Exposed on 8001 so system nginx can reach it without conflicting with ai-factory-backend on 8000
     depends_on:
       - ollama
     restart: unless-stopped
@@ -31,32 +32,26 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 40s   # Give uvicorn time to boot before first check
 
   frontend:
     image: revanth2245/resume-frontend:latest
     container_name: resume-screener-frontend
-    ports:
-      - "8080:80"
     depends_on:
       - backend
     restart: unless-stopped
+    # No host port — nginx below handles all external traffic
 
   nginx:
     image: nginx:alpine
     container_name: resume-screener-nginx
     ports:
-      - "8080:80"
-      - "8443:443"
-    volumes:
-      - nginx_conf:/etc/nginx/conf.d:ro
-      - certbot_certs:/etc/letsencrypt:ro
-      - certbot_www:/var/www/certbot:ro
+      - "8080:80"   # System nginx proxies airesume-staging.thetalogics.com → localhost:8080
     depends_on:
       - frontend
       - backend
     restart: unless-stopped
-    # Simple nginx config inline
     command: |
       sh -c 'echo "events { worker_connections 1024; }
       http {
@@ -64,13 +59,23 @@ services:
         server {
           listen 80;
           server_name airesume-staging.thetalogics.com;
-          location / { proxy_pass http://frontend:80; }
-          location /api/ { proxy_pass http://backend:8000/api/; proxy_read_timeout 120s; }
-          location /health { proxy_pass http://backend:8000/health; }
+          location /api/ {
+            proxy_pass http://backend:8000/api/;
+            proxy_read_timeout 120s;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+          }
+          location /health {
+            proxy_pass http://backend:8000/health;
+          }
+          location / {
+            proxy_pass http://frontend:80;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+          }
         }
       }" > /etc/nginx/nginx.conf && nginx -g "daemon off;"'
 
-  # Certbot for SSL certificate renewal
   certbot:
     image: certbot/certbot
     container_name: resume-screener-certbot
@@ -85,4 +90,3 @@ volumes:
   sqlite_data:
   certbot_certs:
   certbot_www:
-  nginx_conf:
