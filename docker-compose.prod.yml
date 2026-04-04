@@ -10,7 +10,7 @@ services:
     container_name: resume-screener-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aria}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aria_secret_prod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-Itslogical1.}
       POSTGRES_DB: ${POSTGRES_DB:-aria_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -40,7 +40,7 @@ services:
     container_name: resume-screener-backend
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD:-aria_secret_prod}@postgres:5432/${POSTGRES_DB:-aria_db}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD:-Itslogical1.}@postgres:5432/${POSTGRES_DB:-aria_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - ENVIRONMENT=production
     depends_on:
