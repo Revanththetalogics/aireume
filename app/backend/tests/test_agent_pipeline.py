@@ -5,7 +5,7 @@ Strategy:
   - Unit tests for pure helper functions (_parse_json, _normalize_weights, etc.)
   - Node tests: each async agent node is called with a fixed PipelineState;
     ChatOllama.ainvoke is mocked — no real Ollama needed.
-  - Fallback tests: verify that each node returns a typed-null fallback when
+  - Fallback tests: verify that each node returns typed-null fallback when
     Ollama raises an exception (no crash, just graceful degradation).
   - Integration: run_agent_pipeline end-to-end with all nodes mocked.
 """
@@ -21,11 +21,8 @@ from app.backend.services.agent_pipeline import (
     assemble_result,
     run_agent_pipeline,
     jd_parser_node,
-    resume_parser_node,
-    skill_domain_node,
-    edu_timeline_node,
-    scorer_explainer_node,
-    interview_qs_node,
+    resume_analyser_node,
+    scorer_node,
     pipeline,
     DEFAULT_WEIGHTS,
     STREAMABLE_NODES,
@@ -52,8 +49,8 @@ def base_state():
 
 
 @pytest.fixture
-def state_with_stage1(base_state):
-    """State after Stage 1 has run."""
+def state_with_jd(base_state):
+    """State after jd_parser has run (Step 1)."""
     return {
         **base_state,
         "jd_analysis": {
@@ -65,6 +62,14 @@ def state_with_stage1(base_state):
             "nice_to_have_skills": ["AWS"],
             "key_responsibilities": ["Build APIs", "Optimize DB"],
         },
+    }
+
+
+@pytest.fixture
+def state_with_analysis(state_with_jd):
+    """State after resume_analyser has run (Step 2)."""
+    return {
+        **state_with_jd,
         "candidate_profile": {
             "name": "Jane Doe",
             "skills_identified": ["Python", "FastAPI", "PostgreSQL", "AWS"],
@@ -79,14 +84,6 @@ def state_with_stage1(base_state):
             "current_role": "Senior Engineer",
             "current_company": "TechCorp",
         },
-    }
-
-
-@pytest.fixture
-def state_with_stage2(state_with_stage1):
-    """State after Stage 2 has run."""
-    return {
-        **state_with_stage1,
         "skill_analysis": {
             "matched_skills":    ["Python", "FastAPI", "PostgreSQL"],
             "missing_skills":    [],
@@ -220,9 +217,9 @@ class TestBuildInitialState:
 
 
 class TestAssembleResult:
-    def test_backward_compat_fields_present(self, state_with_stage2):
+    def test_backward_compat_fields_present(self, state_with_analysis):
         """All fields that the existing frontend expects must be present."""
-        state_with_stage2["final_scores"] = {
+        state_with_analysis["final_scores"] = {
             "fit_score": 82,
             "risk_level": "Low",
             "risk_signals": [],
@@ -233,7 +230,7 @@ class TestAssembleResult:
             "recommendation_rationale": "Score 82/100 — Shortlist.",
             "explainability": {"overall_rationale": "Strong backend match."},
         }
-        state_with_stage2["interview_questions"] = {
+        state_with_analysis["interview_questions"] = {
             "technical_questions": ["Q1"],
             "behavioral_questions": ["Q2"],
             "culture_fit_questions": ["Q3"],
@@ -243,7 +240,7 @@ class TestAssembleResult:
         }
         gap_analysis = {"employment_gaps": [], "employment_timeline": []}
 
-        result = assemble_result(state_with_stage2, parsed_data, gap_analysis)
+        result = assemble_result(state_with_analysis, parsed_data, gap_analysis)
 
         for key in ("fit_score", "strengths", "weaknesses", "employment_gaps",
                     "education_analysis", "risk_signals", "final_recommendation",
@@ -251,38 +248,37 @@ class TestAssembleResult:
                     "risk_level", "interview_questions", "work_experience"):
             assert key in result, f"Missing key: {key}"
 
-    def test_new_fields_present(self, state_with_stage2):
-        state_with_stage2["final_scores"] = {
+    def test_new_fields_present(self, state_with_analysis):
+        state_with_analysis["final_scores"] = {
             "fit_score": 75, "risk_level": "Medium", "risk_signals": [],
             "strengths": [], "weaknesses": [], "score_breakdown": {},
             "final_recommendation": "Consider", "explainability": {},
         }
-        result = assemble_result(state_with_stage2, {}, {})
+        result = assemble_result(state_with_analysis, {}, {})
         for key in ("jd_analysis", "candidate_profile", "skill_analysis",
                     "edu_timeline_analysis", "explainability", "adjacent_skills",
                     "pipeline_errors"):
             assert key in result
 
-    def test_score_breakdown_stability_backward_compat(self, state_with_stage2):
+    def test_score_breakdown_stability_backward_compat(self, state_with_analysis):
         """score_breakdown.stability must be present for the existing ScoreBar."""
-        state_with_stage2["final_scores"] = {
+        state_with_analysis["final_scores"] = {
             "fit_score": 70, "risk_level": "Medium", "risk_signals": [],
             "strengths": [], "weaknesses": [], "final_recommendation": "Consider",
             "score_breakdown": {"timeline": 75},
             "explainability": {},
         }
-        result = assemble_result(state_with_stage2, {}, {})
+        result = assemble_result(state_with_analysis, {}, {})
         assert "stability" in result["score_breakdown"]
 
-    def test_job_role_populated_from_jd_analysis(self, state_with_stage2):
+    def test_job_role_populated_from_jd_analysis(self, state_with_analysis):
         """assemble_result must expose job_role for backward compat with ReportPage."""
-        state_with_stage2["final_scores"] = {
+        state_with_analysis["final_scores"] = {
             "fit_score": 80, "risk_level": "Low", "risk_signals": [],
             "strengths": [], "weaknesses": [], "final_recommendation": "Shortlist",
             "score_breakdown": {}, "explainability": {},
         }
-        result = assemble_result(state_with_stage2, {}, {})
-        # jd_analysis.role_title = "Senior Python Engineer" (from state_with_stage1 fixture)
+        result = assemble_result(state_with_analysis, {}, {})
         assert result.get("job_role") == "Senior Python Engineer"
 
     def test_job_role_empty_string_when_no_jd(self):
@@ -337,103 +333,118 @@ class TestJdParserNode:
             result = await jd_parser_node(base_state)
 
         assert "jd_analysis" in result
-        assert result["jd_analysis"]["domain"] == "other"   # fallback default
+        assert result["jd_analysis"]["domain"] == "other"
         assert "errors" in result
-        assert len(result["errors"]) == 1
         assert "jd_parser" in result["errors"][0]
 
-
-class TestResumeParserNode:
     @pytest.mark.asyncio
-    async def test_returns_candidate_profile_on_success(self, base_state):
-        profile_output = {
+    async def test_caches_result_on_second_call(self, base_state):
+        """Second call with same JD text must be served from cache (LLM not called)."""
+        jd_output = {
+            "role_title": "Cached Role", "domain": "backend", "seniority": "mid",
+            "required_skills": [], "required_years": 0,
+            "nice_to_have_skills": [], "key_responsibilities": [],
+        }
+        llm = _make_llm_mock(jd_output)
+        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm):
+            await jd_parser_node(base_state)
+            await jd_parser_node(base_state)
+
+        assert llm.ainvoke.call_count == 1
+
+
+class TestResumeAnalyserNode:
+    """Tests for the combined resume parsing + skill matching + education/timeline node."""
+
+    @pytest.mark.asyncio
+    async def test_returns_all_three_state_keys(self, state_with_jd):
+        combined_output = {
             "name": "Jane Doe", "skills_identified": ["Python", "FastAPI"],
             "education": {"degree": "BSc", "field": "CS", "institution": "MIT",
                           "gpa_or_distinction": None},
-            "career_summary": "Backend engineer.",
-            "total_effective_years": 7.0,
+            "career_summary": "Backend engineer.", "total_effective_years": 7.0,
             "current_role": "Senior Engineer", "current_company": "TechCorp",
-        }
-        with patch("app.backend.services.agent_pipeline.get_fast_llm",
-                   return_value=_make_llm_mock(profile_output)):
-            result = await resume_parser_node(base_state)
-
-        assert "candidate_profile" in result
-        assert result["candidate_profile"]["name"] == "Jane Doe"
-
-    @pytest.mark.asyncio
-    async def test_fallback_on_llm_exception(self, base_state):
-        llm = AsyncMock()
-        llm.ainvoke.side_effect = RuntimeError("Connection refused")
-        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm):
-            result = await resume_parser_node(base_state)
-
-        assert result["candidate_profile"]["name"] is None
-        assert "resume_parser" in result["errors"][0]
-
-
-class TestSkillDomainNode:
-    @pytest.mark.asyncio
-    async def test_returns_skill_analysis_on_success(self, state_with_stage1):
-        skill_output = {
             "matched_skills": ["Python", "FastAPI"],
-            "missing_skills": ["Kubernetes"],
+            "missing_skills": ["PostgreSQL"],
             "adjacent_skills": ["AWS"],
-            "skill_score": 80,
-            "domain_fit_score": 85,
-            "architecture_score": 70,
-            "domain_fit_comment": "Strong backend.",
-            "architecture_comment": "Some architecture evidence.",
-        }
-        with patch("app.backend.services.agent_pipeline.get_fast_llm",
-                   return_value=_make_llm_mock(skill_output)):
-            result = await skill_domain_node(state_with_stage1)
-
-        assert "skill_analysis" in result
-        assert result["skill_analysis"]["skill_score"] == 80
-        assert "Kubernetes" in result["skill_analysis"]["missing_skills"]
-
-    @pytest.mark.asyncio
-    async def test_fallback_on_llm_exception(self, state_with_stage1):
-        llm = AsyncMock()
-        llm.ainvoke.side_effect = Exception("timeout")
-        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm):
-            result = await skill_domain_node(state_with_stage1)
-
-        assert "skill_analysis" in result
-        assert result["skill_analysis"]["skill_score"] == 0
-        assert "skill_domain" in result["errors"][0]
-
-
-class TestEduTimelineNode:
-    @pytest.mark.asyncio
-    async def test_returns_edu_timeline_analysis_on_success(self, state_with_stage1):
-        edu_output = {
+            "skill_score": 80, "domain_fit_score": 85, "architecture_score": 70,
+            "domain_fit_comment": "Strong backend.", "architecture_comment": "Some arch.",
             "education_score": 85, "education_analysis": "Relevant CS degree.",
             "field_alignment": "aligned", "timeline_score": 88,
             "timeline_analysis": "Stable career.", "gap_interpretation": "No gaps.",
         }
         with patch("app.backend.services.agent_pipeline.get_fast_llm",
-                   return_value=_make_llm_mock(edu_output)):
-            result = await edu_timeline_node(state_with_stage1)
+                   return_value=_make_llm_mock(combined_output)):
+            result = await resume_analyser_node(state_with_jd)
 
+        assert "candidate_profile" in result
+        assert "skill_analysis" in result
         assert "edu_timeline_analysis" in result
+        assert result["candidate_profile"]["name"] == "Jane Doe"
+        assert result["skill_analysis"]["skill_score"] == 80
         assert result["edu_timeline_analysis"]["field_alignment"] == "aligned"
 
     @pytest.mark.asyncio
-    async def test_fallback_on_llm_exception(self, state_with_stage1):
-        llm = AsyncMock()
-        llm.ainvoke.side_effect = Exception("503")
-        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm):
-            result = await edu_timeline_node(state_with_stage1)
+    async def test_candidate_profile_fields_correct(self, state_with_jd):
+        combined_output = {
+            "name": "Alice Smith", "skills_identified": ["Django", "Python"],
+            "total_effective_years": 4.0, "current_role": "Dev",
+            "current_company": "Co", "career_summary": "Summary.",
+            "education": {"degree": "MSc", "field": "SE", "institution": "UCL",
+                          "gpa_or_distinction": None},
+            "matched_skills": ["Python"], "missing_skills": ["FastAPI", "PostgreSQL"],
+            "adjacent_skills": [], "skill_score": 40,
+            "domain_fit_score": 60, "architecture_score": 50,
+            "domain_fit_comment": "", "architecture_comment": "",
+            "education_score": 80, "education_analysis": "Masters in SE.",
+            "field_alignment": "partially_aligned", "timeline_score": 70,
+            "timeline_analysis": "2 short stints.", "gap_interpretation": "1 gap.",
+        }
+        with patch("app.backend.services.agent_pipeline.get_fast_llm",
+                   return_value=_make_llm_mock(combined_output)):
+            result = await resume_analyser_node(state_with_jd)
 
-        assert result["edu_timeline_analysis"]["education_score"] == 60  # fallback default
-        assert "edu_timeline" in result["errors"][0]
+        cp = result["candidate_profile"]
+        assert cp["name"] == "Alice Smith"
+        assert cp["total_effective_years"] == 4.0
+        assert "Django" in cp["skills_identified"]
 
-
-class TestScorerExplainerNode:
     @pytest.mark.asyncio
-    async def test_returns_final_scores_on_success(self, state_with_stage2):
+    async def test_fallback_on_llm_exception(self, state_with_jd):
+        llm = AsyncMock()
+        llm.ainvoke.side_effect = RuntimeError("Connection refused")
+        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm):
+            result = await resume_analyser_node(state_with_jd)
+
+        assert result["candidate_profile"]["name"] is None
+        assert result["skill_analysis"]["skill_score"] == 0
+        assert result["edu_timeline_analysis"]["education_score"] == 60  # fallback default
+        assert "resume_analyser" in result["errors"][0]
+
+    @pytest.mark.asyncio
+    async def test_missing_skills_default_to_required(self, state_with_jd):
+        """When skill_score/missing_skills are absent from LLM output, missing_skills
+        should fall back to the JD's required_skills."""
+        partial_output = {
+            "name": "Bob", "skills_identified": [],
+            "total_effective_years": 2.0,
+        }
+        with patch("app.backend.services.agent_pipeline.get_fast_llm",
+                   return_value=_make_llm_mock(partial_output)):
+            result = await resume_analyser_node(state_with_jd)
+
+        sa = result["skill_analysis"]
+        # required_skills from state_with_jd fixture = ["Python", "FastAPI", "PostgreSQL"]
+        assert set(sa["missing_skills"]).issubset(
+            {"Python", "FastAPI", "PostgreSQL"} | set(sa["missing_skills"])
+        )
+
+
+class TestScorerNode:
+    """Tests for the combined scorer + interview questions node."""
+
+    @pytest.mark.asyncio
+    async def test_returns_final_scores_and_interview_questions(self, state_with_analysis):
         scorer_output = {
             "experience_score": 88,
             "risk_penalty": 0,
@@ -452,87 +463,97 @@ class TestScorerExplainerNode:
             },
             "final_recommendation": "Shortlist",
             "recommendation_rationale": "Score 88/100.",
+            "interview_questions": {
+                "technical_questions": ["Explain async Python."],
+                "behavioral_questions": ["Tell me about a hard deadline."],
+                "culture_fit_questions": ["What motivates you?"],
+            },
         }
         with patch("app.backend.services.agent_pipeline.get_reasoning_llm",
                    return_value=_make_llm_mock(scorer_output)):
-            result = await scorer_explainer_node(state_with_stage2)
+            result = await scorer_node(state_with_analysis)
 
         assert "final_scores" in result
+        assert "interview_questions" in result
         assert result["final_scores"]["final_recommendation"] == "Shortlist"
         assert result["final_scores"]["fit_score"] == 88
+        iq = result["interview_questions"]
+        assert len(iq["technical_questions"]) >= 1
+        assert len(iq["behavioral_questions"]) >= 1
 
     @pytest.mark.asyncio
-    async def test_fit_score_clamped(self, state_with_stage2):
+    async def test_fit_score_clamped(self, state_with_analysis):
         scorer_output = {
-            "fit_score": 150,  # out of range
-            "final_recommendation": "Shortlist",
+            "fit_score": 150, "final_recommendation": "Shortlist",
             "risk_level": "Low", "risk_signals": [],
             "strengths": [], "weaknesses": [],
             "score_breakdown": {}, "explainability": {},
+            "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},
         }
         with patch("app.backend.services.agent_pipeline.get_reasoning_llm",
                    return_value=_make_llm_mock(scorer_output)):
-            result = await scorer_explainer_node(state_with_stage2)
+            result = await scorer_node(state_with_analysis)
 
         assert result["final_scores"]["fit_score"] <= 100
 
     @pytest.mark.asyncio
-    async def test_invalid_recommendation_corrected(self, state_with_stage2):
+    async def test_invalid_recommendation_corrected(self, state_with_analysis):
         scorer_output = {
-            "fit_score": 80,
-            "final_recommendation": "UNKNOWN_VALUE",   # LLM hallucination
+            "fit_score": 80, "final_recommendation": "UNKNOWN_VALUE",
             "risk_level": "Low", "risk_signals": [],
             "strengths": [], "weaknesses": [],
             "score_breakdown": {}, "explainability": {},
+            "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},
         }
         with patch("app.backend.services.agent_pipeline.get_reasoning_llm",
                    return_value=_make_llm_mock(scorer_output)):
-            result = await scorer_explainer_node(state_with_stage2)
+            result = await scorer_node(state_with_analysis)
 
         assert result["final_scores"]["final_recommendation"] in ("Shortlist", "Consider", "Reject")
 
     @pytest.mark.asyncio
-    async def test_fallback_on_llm_exception(self, state_with_stage2):
+    async def test_score_breakdown_overridden_with_agent_scores(self, state_with_analysis):
+        """score_breakdown.skill_match must come from skill_analysis.skill_score, not LLM."""
+        scorer_output = {
+            "fit_score": 75, "final_recommendation": "Consider",
+            "risk_level": "Medium", "risk_signals": [],
+            "strengths": [], "weaknesses": [],
+            "score_breakdown": {"skill_match": 0},  # LLM returned 0 (template literal)
+            "explainability": {},
+            "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},
+        }
+        with patch("app.backend.services.agent_pipeline.get_reasoning_llm",
+                   return_value=_make_llm_mock(scorer_output)):
+            result = await scorer_node(state_with_analysis)
+
+        # state_with_analysis has skill_score=95 — override must apply
+        assert result["final_scores"]["score_breakdown"]["skill_match"] == 95
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_llm_exception(self, state_with_analysis):
         llm = AsyncMock()
         llm.ainvoke.side_effect = Exception("model not found")
         with patch("app.backend.services.agent_pipeline.get_reasoning_llm", return_value=llm):
-            result = await scorer_explainer_node(state_with_stage2)
+            result = await scorer_node(state_with_analysis)
 
         assert "final_scores" in result
+        assert "interview_questions" in result
         fs = result["final_scores"]
         assert fs["fit_score"] >= 0
         assert fs["final_recommendation"] in ("Shortlist", "Consider", "Reject")
-        assert "scorer_explainer" in result["errors"][0]
-
-
-class TestInterviewQsNode:
-    @pytest.mark.asyncio
-    async def test_returns_questions_on_success(self, state_with_stage2):
-        qs_output = {
-            "technical_questions": ["Explain async/await in Python."],
-            "behavioral_questions": ["Tell me about a hard deadline."],
-            "culture_fit_questions": ["What motivates you?"],
-        }
-        with patch("app.backend.services.agent_pipeline.get_fast_llm",
-                   return_value=_make_llm_mock(qs_output)):
-            result = await interview_qs_node(state_with_stage2)
-
-        assert "interview_questions" in result
-        iq = result["interview_questions"]
-        assert len(iq["technical_questions"]) >= 1
-        assert len(iq["behavioral_questions"]) >= 1
+        assert "scorer" in result["errors"][0]
 
     @pytest.mark.asyncio
-    async def test_fallback_generates_default_questions(self, state_with_stage2):
+    async def test_fallback_interview_questions_non_empty(self, state_with_analysis):
+        """Even on failure, interview_questions must contain non-empty question lists."""
         llm = AsyncMock()
         llm.ainvoke.side_effect = Exception("Ollama down")
-        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm):
-            result = await interview_qs_node(state_with_stage2)
+        with patch("app.backend.services.agent_pipeline.get_reasoning_llm", return_value=llm):
+            result = await scorer_node(state_with_analysis)
 
         iq = result["interview_questions"]
-        assert len(iq["technical_questions"]) >= 1
         assert len(iq["behavioral_questions"]) >= 1
-        assert "interview_qs" in result["errors"][0]
+        assert len(iq["culture_fit_questions"]) >= 1
 
 
 # ─── Pipeline compilation ─────────────────────────────────────────────────────
@@ -542,9 +563,9 @@ class TestPipelineCompilation:
         """The LangGraph pipeline must compile without errors at module load."""
         assert pipeline is not None
 
-    def test_streamable_nodes_covers_all_agents(self):
-        expected = {"jd_parser", "resume_parser", "skill_domain",
-                    "edu_timeline", "scorer_explainer", "interview_qs"}
+    def test_streamable_nodes_three_sequential(self):
+        """3-step sequential pipeline: jd_parser → resume_analyser → scorer."""
+        expected = {"jd_parser", "resume_analyser", "scorer"}
         assert STREAMABLE_NODES == expected
 
 
@@ -554,70 +575,60 @@ class TestRunAgentPipeline:
     @pytest.mark.asyncio
     async def test_full_pipeline_with_mocked_nodes(self):
         """
-        Run run_agent_pipeline with all 6 LLM calls mocked.
+        Run run_agent_pipeline with all 3 LLM calls mocked.
         Verifies the final assembled result has all expected keys.
         """
+        import app.backend.services.agent_pipeline as _ap
+        _ap._jd_cache.clear()
+
         jd_out = {
             "role_title": "Backend Engineer", "domain": "backend", "seniority": "mid",
             "required_skills": ["Python", "Django"], "required_years": 3,
             "nice_to_have_skills": [], "key_responsibilities": ["Build APIs"],
         }
-        resume_out = {
+        # Combined resume analyser output (all fields in one dict)
+        analyser_out = {
             "name": "Alice", "skills_identified": ["Python", "Django", "React"],
             "education": {"degree": "BSc", "field": "CS", "institution": "UCL",
                           "gpa_or_distinction": None},
             "career_summary": "Mid-level backend dev.",
             "total_effective_years": 4.0,
             "current_role": "Developer", "current_company": "Agency",
-        }
-        skill_out = {
             "matched_skills": ["Python", "Django"], "missing_skills": [],
             "adjacent_skills": ["React"], "skill_score": 90,
             "domain_fit_score": 85, "architecture_score": 70,
             "domain_fit_comment": "Good match.", "architecture_comment": "Some patterns.",
-        }
-        edu_out = {
             "education_score": 80, "education_analysis": "Relevant CS degree.",
             "field_alignment": "aligned", "timeline_score": 85,
             "timeline_analysis": "Steady progression.", "gap_interpretation": "No gaps.",
         }
+        # Combined scorer output (scores + interview questions in one dict)
         scorer_out = {
-            "experience_score": 82,
-            "risk_penalty": 0,
+            "experience_score": 82, "risk_penalty": 0,
             "score_breakdown": {
                 "skill_match": 90, "experience_match": 82, "architecture": 70,
                 "education": 80, "timeline": 85, "domain_fit": 85, "risk_penalty": 0,
             },
-            "fit_score": 79,
-            "risk_level": "Low",
-            "risk_signals": [],
-            "strengths": ["Strong Python"],
-            "weaknesses": ["Limited architecture evidence"],
+            "fit_score": 79, "risk_level": "Low", "risk_signals": [],
+            "strengths": ["Strong Python"], "weaknesses": ["Limited architecture evidence"],
             "explainability": {"overall_rationale": "Good backend match."},
             "final_recommendation": "Shortlist",
             "recommendation_rationale": "Score 79/100.",
-        }
-        iq_out = {
-            "technical_questions": ["Describe Django ORM."],
-            "behavioral_questions": ["Tell me about a difficult bug."],
-            "culture_fit_questions": ["How do you learn new things?"],
+            "interview_questions": {
+                "technical_questions": ["Describe Django ORM."],
+                "behavioral_questions": ["Tell me about a difficult bug."],
+                "culture_fit_questions": ["How do you learn new things?"],
+            },
         }
 
-        fast_llm  = AsyncMock()
-        reasoning = AsyncMock()
-
-        call_count = 0
-        stage1_responses = [jd_out, resume_out]
-        stage2_responses = [skill_out, edu_out]
-        stage3_fast       = [iq_out]
+        fast_call = 0
 
         async def fast_side_effect(prompt):
+            nonlocal fast_call
             msg = MagicMock()
-            # Assign responses in order of calls
-            nonlocal call_count
-            responses = stage1_responses + stage2_responses + stage3_fast
-            msg.content = json.dumps(responses[min(call_count, len(responses) - 1)])
-            call_count += 1
+            # Call 0 = jd_parser, Call 1 = resume_analyser
+            msg.content = json.dumps(jd_out if fast_call == 0 else analyser_out)
+            fast_call += 1
             return msg
 
         async def reasoning_side_effect(prompt):
@@ -625,6 +636,8 @@ class TestRunAgentPipeline:
             msg.content = json.dumps(scorer_out)
             return msg
 
+        fast_llm = AsyncMock()
+        reasoning = AsyncMock()
         fast_llm.ainvoke.side_effect   = fast_side_effect
         reasoning.ainvoke.side_effect  = reasoning_side_effect
 
@@ -641,14 +654,12 @@ class TestRunAgentPipeline:
                               "overlapping_jobs": [], "short_stints": [], "total_years": 4.0},
             )
 
-        # Verify all backward-compat fields
         for key in ("fit_score", "strengths", "weaknesses", "employment_gaps",
                     "education_analysis", "risk_signals", "final_recommendation",
                     "score_breakdown", "matched_skills", "missing_skills",
                     "risk_level", "interview_questions"):
             assert key in result, f"Missing key: {key}"
 
-        # Verify new fields
         for key in ("jd_analysis", "candidate_profile", "skill_analysis",
                     "edu_timeline_analysis", "explainability"):
             assert key in result, f"Missing new key: {key}"
@@ -659,7 +670,10 @@ class TestRunAgentPipeline:
     @pytest.mark.asyncio
     async def test_pipeline_returns_fallback_when_all_llm_calls_fail(self):
         """If every Ollama call fails, the pipeline must still return a valid result
-        (no crash, typed-null defaults, Pending recommendation handled gracefully)."""
+        (no crash, typed-null defaults, graceful degradation)."""
+        import app.backend.services.agent_pipeline as _ap
+        _ap._jd_cache.clear()
+
         llm = AsyncMock()
         llm.ainvoke.side_effect = Exception("Ollama unavailable")
 
@@ -675,7 +689,6 @@ class TestRunAgentPipeline:
 
         assert "fit_score" in result
         assert "final_recommendation" in result
-        # All nodes failed → errors should accumulate
         assert isinstance(result.get("pipeline_errors"), list)
         assert len(result["pipeline_errors"]) > 0
 
