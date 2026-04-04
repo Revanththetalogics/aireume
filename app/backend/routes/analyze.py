@@ -169,7 +169,12 @@ async def analyze_endpoint(
 
     result["result_id"]      = db_result.id
     result["candidate_id"]   = candidate_id
-    result["candidate_name"] = parsed_data.get("contact_info", {}).get("name")
+    # Prefer regex-parsed name; fall back to LLM-extracted name from candidate_profile
+    result["candidate_name"] = (
+        parsed_data.get("contact_info", {}).get("name")
+        or result.get("candidate_profile", {}).get("name")
+        or None
+    )
     return result
 
 
@@ -269,7 +274,12 @@ async def analyze_stream_endpoint(
 
             result["result_id"]      = db_result.id
             result["candidate_id"]   = candidate_id
-            result["candidate_name"] = parsed_data.get("contact_info", {}).get("name")
+            # Prefer regex-parsed name; fall back to LLM-extracted name from candidate_profile
+            result["candidate_name"] = (
+                parsed_data.get("contact_info", {}).get("name")
+                or result.get("candidate_profile", {}).get("name")
+                or None
+            )
         except Exception as db_exc:
             result["pipeline_errors"] = result.get("pipeline_errors", []) + [
                 f"DB save error: {str(db_exc)}"

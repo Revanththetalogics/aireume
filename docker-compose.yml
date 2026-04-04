@@ -25,11 +25,14 @@ services:
     image: ollama/ollama:latest
     container_name: resume-screener-ollama
     environment:
-      # Allow 2 concurrent LLM requests so Stage 1 agents run in true parallel.
-      # Requires ~2x VRAM for the window when both fire simultaneously.
-      - OLLAMA_NUM_PARALLEL=2
-      # Keep both models loaded in VRAM between requests to avoid reload latency.
+      # 3 parallel slots: Stage 1 (2 nodes) + one Stage 2 node fires before the other finishes.
+      - OLLAMA_NUM_PARALLEL=3
+      # Keep both models (llama3 + llama3.2:3b) loaded simultaneously — eliminates cold-load latency.
       - OLLAMA_MAX_LOADED_MODELS=2
+      # Flash Attention: fused O(n) attention kernel — 20-40% faster on long contexts.
+      - OLLAMA_FLASH_ATTENTION=1
+      # Quantise the KV cache to int8 — halves VRAM usage, allows higher OLLAMA_NUM_PARALLEL.
+      - OLLAMA_KV_CACHE_TYPE=q8_0
     volumes:
       - ollama_data:/root/.ollama
     ports:

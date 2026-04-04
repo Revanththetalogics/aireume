@@ -98,7 +98,7 @@ export default function ReportPage() {
 
   if (!result) return null
 
-  const role      = result.job_role || ''
+  const role      = (result.job_role && result.job_role !== 'Not specified') ? result.job_role : ''
   const timestamp = result.analyzed_at
     ? new Date(result.analyzed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
     : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })

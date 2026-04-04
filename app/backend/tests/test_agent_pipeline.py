@@ -306,6 +306,14 @@ class TestAssembleResult:
 # ─── Pipeline node tests ──────────────────────────────────────────────────────
 
 class TestJdParserNode:
+    @pytest.fixture(autouse=True)
+    def clear_jd_cache(self):
+        """Reset the module-level JD cache before every test so cache hits don't mask fallbacks."""
+        import app.backend.services.agent_pipeline as _ap
+        _ap._jd_cache.clear()
+        yield
+        _ap._jd_cache.clear()
+
     @pytest.mark.asyncio
     async def test_returns_jd_analysis_on_success(self, base_state):
         jd_output = {
