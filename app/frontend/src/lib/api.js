@@ -57,9 +57,93 @@ export async function analyzeResume(file, jobDescription, jobFile = null, scorin
   }
   const response = await api.post('/analyze', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 90000,
+    timeout: 120000,
   })
   return response.data
+}
+
+/**
+ * Streaming version of analyzeResume — uses /api/analyze/stream (SSE).
+ *
+ * @param {File} file  - Resume file
+ * @param {string} jobDescription  - JD text (or empty if jobFile provided)
+ * @param {File|null} jobFile  - JD file upload
+ * @param {object|null} scoringWeights  - Custom weight map
+ * @param {function} onStageComplete  - Called with ({stage, result}) after each node
+ * @returns {Promise<object>}  - Resolves with the complete assembled result
+ */
+export async function analyzeResumeStream(
+  file,
+  jobDescription,
+  jobFile = null,
+  scoringWeights = null,
+  onStageComplete = null,
+) {
+  const formData = new FormData()
+  formData.append('resume', file)
+  if (jobFile) {
+    formData.append('job_file', jobFile)
+  } else {
+    formData.append('job_description', jobDescription)
+  }
+  if (scoringWeights) {
+    formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  }
+
+  const token = localStorage.getItem('access_token')
+  const baseURL = import.meta.env.VITE_API_URL || '/api'
+
+  const response = await fetch(`${baseURL}/analyze/stream`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  })
+
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`
+    try {
+      const err = await response.json()
+      detail = err.detail || detail
+    } catch { /* ignore */ }
+    throw new Error(detail)
+  }
+
+  const reader  = response.body.getReader()
+  const decoder = new TextDecoder()
+  let   buffer  = ''
+  let   finalResult = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    // SSE lines are separated by \n\n
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() ?? ''   // last fragment (possibly incomplete)
+
+    for (const part of parts) {
+      const line = part.trim()
+      if (!line.startsWith('data: ')) continue
+      const raw = line.slice(6).trim()
+      if (raw === '[DONE]') break
+
+      try {
+        const event = JSON.parse(raw)
+        if (event.stage === 'complete') {
+          finalResult = event.result
+        } else if (onStageComplete) {
+          onStageComplete(event)
+        }
+      } catch { /* malformed event — skip */ }
+    }
+  }
+
+  if (!finalResult) {
+    throw new Error('Stream ended without a complete result.')
+  }
+  return finalResult
 }
 
 export async function analyzeBatch(files, jobDescription, jobFile = null, scoringWeights = null) {

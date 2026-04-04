@@ -24,12 +24,20 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: resume-screener-ollama
+    environment:
+      # Allow 2 concurrent LLM requests so Stage 1 agents run in true parallel.
+      # Requires ~2x VRAM for the window when both fire simultaneously.
+      - OLLAMA_NUM_PARALLEL=2
+      # Keep both models loaded in VRAM between requests to avoid reload latency.
+      - OLLAMA_MAX_LOADED_MODELS=2
     volumes:
       - ollama_data:/root/.ollama
     ports:
       - "11434:11434"
     restart: unless-stopped
-    # On first run, exec into container and run: ollama pull llama3
+    # On first run, exec into container and pull both models:
+    #   ollama pull llama3
+    #   ollama pull llama3.2:3b
 
   backend:
     build:

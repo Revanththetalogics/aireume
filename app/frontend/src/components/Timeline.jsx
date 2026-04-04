@@ -68,9 +68,18 @@ export default function Timeline({ workExperience, gaps }) {
                   {index < gaps?.length && gaps[index] && (
                     <div className="mt-3 flex items-center gap-2">
                       <div className="flex-1 h-px bg-amber-200" />
-                      <span className="text-xs text-amber-700 bg-amber-50 ring-1 ring-amber-200 px-2.5 py-1 rounded-lg font-medium">
-                        Gap: {gaps[index].duration_months} months
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-amber-700 bg-amber-50 ring-1 ring-amber-200 px-2.5 py-1 rounded-lg font-medium">
+                          Gap: {gaps[index].duration_months ?? gaps[index].gap_after_months ?? 0} months
+                        </span>
+                        {gaps[index].severity && gaps[index].severity !== 'negligible' && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-bold ring-1 ${
+                            gaps[index].severity === 'critical' ? 'bg-red-100 text-red-700 ring-red-200' :
+                            gaps[index].severity === 'moderate' ? 'bg-amber-100 text-amber-700 ring-amber-200' :
+                                                                  'bg-yellow-100 text-yellow-700 ring-yellow-200'
+                          }`}>{gaps[index].severity}</span>
+                        )}
+                      </div>
                       <div className="flex-1 h-px bg-amber-200" />
                     </div>
                   )}

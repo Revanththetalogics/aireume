@@ -5,8 +5,10 @@ import { Upload, FileText, X, Loader2, Trophy, AlertTriangle, Download } from 'l
 import { analyzeBatch, exportCsv, exportExcel } from '../lib/api'
 
 function FitBadge({ score }) {
+  if (score == null)
+    return <span className="px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 bg-slate-50 text-slate-500 ring-slate-200">—</span>
   let color = 'bg-red-50 text-red-700 ring-red-200'
-  if (score >= 70) color = 'bg-green-50 text-green-700 ring-green-200'
+  if (score >= 72) color = 'bg-green-50 text-green-700 ring-green-200'
   else if (score >= 45) color = 'bg-amber-50 text-amber-700 ring-amber-200'
   return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${color}`}>{score}</span>
 }
@@ -16,8 +18,9 @@ function RecommendBadge({ rec }) {
     Shortlist: 'bg-green-50 text-green-700 ring-green-200',
     Consider:  'bg-amber-50 text-amber-700 ring-amber-200',
     Reject:    'bg-red-50 text-red-700 ring-red-200',
+    Pending:   'bg-slate-50 text-slate-600 ring-slate-200',
   }
-  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${styles[rec] || 'bg-slate-50 text-slate-600 ring-slate-200'}`}>{rec}</span>
+  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${styles[rec] || 'bg-slate-50 text-slate-600 ring-slate-200'}`}>{rec || '—'}</span>
 }
 
 export default function BatchPage() {
@@ -59,7 +62,12 @@ export default function BatchPage() {
       setResults(data)
       setSelected([])
     } catch (err) {
-      setError(err.response?.data?.detail || 'Batch analysis failed')
+      const detail = err.response?.data?.detail
+      setError(
+        (Array.isArray(detail) ? 'Validation error — check file types or JD format.' : detail) ||
+        err.message ||
+        'Batch analysis failed'
+      )
     } finally {
       setIsLoading(false)
     }
@@ -222,9 +230,10 @@ export default function BatchPage() {
                         <td className="px-4 py-3.5"><RecommendBadge rec={r.final_recommendation} /></td>
                         <td className="px-4 py-3.5">
                           <span className={`text-xs font-bold ${
-                            r.risk_level === 'Low' ? 'text-green-700' :
-                            r.risk_level === 'High' ? 'text-red-700' : 'text-amber-700'
-                          }`}>{r.risk_level}</span>
+                            !r.risk_level       ? 'text-slate-400' :
+                            r.risk_level === 'Low'  ? 'text-green-700' :
+                            r.risk_level === 'High' ? 'text-red-700'   : 'text-amber-700'
+                          }`}>{r.risk_level || '—'}</span>
                         </td>
                         <td className="px-4 py-3.5">
                           <button

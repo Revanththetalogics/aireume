@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -9,52 +9,93 @@ class EmploymentGap(BaseModel):
     start_date: str
     end_date: str
     duration_months: int
+    severity: Optional[str] = None   # negligible | minor | moderate | critical
 
 
 class RiskSignal(BaseModel):
     type: str
     description: str
+    severity: Optional[str] = None   # low | medium | high
 
 
 class ScoreBreakdown(BaseModel):
-    skill_match: Optional[int] = 0
+    # Backward-compat fields (always populated)
+    skill_match:      Optional[int] = 0
     experience_match: Optional[int] = 0
-    stability: Optional[int] = 0
-    education: Optional[int] = 0
+    stability:        Optional[int] = 0   # mapped from timeline score
+    education:        Optional[int] = 0
+    # New LangGraph dimensions
+    architecture:     Optional[int] = None
+    domain_fit:       Optional[int] = None
+    timeline:         Optional[int] = None
+    risk_penalty:     Optional[int] = None
 
 
 class InterviewQuestions(BaseModel):
-    technical_questions: List[str] = []
-    behavioral_questions: List[str] = []
+    technical_questions:   List[str] = []
+    behavioral_questions:  List[str] = []
     culture_fit_questions: List[str] = []
+
+    @field_validator('technical_questions', 'behavioral_questions', 'culture_fit_questions', mode='before')
+    @classmethod
+    def coerce_to_str_list(cls, v):
+        """Coerce LLM output that may return objects/non-strings into a clean list[str]."""
+        if not isinstance(v, list):
+            return []
+        return [item if isinstance(item, str) else str(item) for item in v]
 
 
 class ScoringWeights(BaseModel):
-    skills: float = 0.40
-    experience: float = 0.35
-    stability: float = 0.15
-    education: float = 0.10
+    # Updated defaults to match the new 7-dimension formula
+    skills:       float = 0.30
+    experience:   float = 0.20
+    architecture: float = 0.15
+    education:    float = 0.10
+    timeline:     float = 0.10
+    domain:       float = 0.10
+    risk:         float = 0.15
+
+
+class ExplainabilityDetail(BaseModel):
+    skill_rationale:      Optional[str] = None
+    experience_rationale: Optional[str] = None
+    education_rationale:  Optional[str] = None
+    timeline_rationale:   Optional[str] = None
+    overall_rationale:    Optional[str] = None
 
 
 class AnalysisResponse(BaseModel):
-    fit_score: int
-    strengths: List[str]
-    weaknesses: List[str]
-    employment_gaps: List[EmploymentGap]
-    education_analysis: str
-    risk_signals: List[Any]
-    final_recommendation: str
-    score_breakdown: Optional[ScoreBreakdown] = None
-    matched_skills: Optional[List[str]] = []
-    missing_skills: Optional[List[str]] = []
-    risk_level: Optional[str] = "Low"
-    interview_questions: Optional[InterviewQuestions] = None
+    model_config = {"extra": "ignore"}   # silently drop any LLM-produced extra keys
+
+    # ── Core backward-compat fields ──
+    fit_score:            Optional[int] = None  # null = "Pending" state
+    job_role:             Optional[str] = None
+    strengths:            List[str] = []
+    weaknesses:           List[str] = []
+    employment_gaps:      List[Any] = []
+    education_analysis:   Optional[str] = None
+    risk_signals:         List[Any] = []
+    final_recommendation: str = "Pending"       # Shortlist | Consider | Reject | Pending
+    score_breakdown:      Optional[ScoreBreakdown] = None
+    matched_skills:       Optional[List[str]] = []
+    missing_skills:       Optional[List[str]] = []
+    risk_level:           Optional[str] = "Low"
+    interview_questions:  Optional[InterviewQuestions] = None
     required_skills_count: Optional[int] = 0
-    result_id: Optional[int] = None
-    candidate_id: Optional[int] = None
-    candidate_name: Optional[str] = None
-    work_experience: Optional[List[Any]] = []
-    contact_info: Optional[Dict[str, Any]] = None
+    result_id:            Optional[int] = None
+    candidate_id:         Optional[int] = None
+    candidate_name:       Optional[str] = None
+    work_experience:      Optional[List[Any]] = []
+    contact_info:         Optional[Dict[str, Any]] = None
+    # ── New LangGraph pipeline fields ──
+    jd_analysis:              Optional[Dict[str, Any]] = None
+    candidate_profile:        Optional[Dict[str, Any]] = None
+    skill_analysis:           Optional[Dict[str, Any]] = None
+    edu_timeline_analysis:    Optional[Dict[str, Any]] = None
+    explainability:           Optional[ExplainabilityDetail] = None
+    recommendation_rationale: Optional[str] = None
+    adjacent_skills:          Optional[List[str]] = []
+    pipeline_errors:          Optional[List[str]] = []
 
 
 class BatchAnalysisResult(BaseModel):

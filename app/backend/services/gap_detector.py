@@ -1,132 +1,194 @@
+"""
+Gap Detector — mechanical date math only.
+
+All intelligence (what gaps mean contextually, narrative interpretation, penalties)
+lives in the LLM agents. This module is responsible ONLY for:
+  - Date parsing and YYYY-MM normalization
+  - Overlap-aware total experience (interval merging, fixes double-count bug)
+  - Objective gap severity labels (threshold-based, no penalty values)
+  - Structured employment timeline output for the LLM pipeline
+"""
+
+import re
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 from dateutil import parser as date_parser
 from dateutil.relativedelta import relativedelta
-import re
 
+
+# ─── Date utilities ────────────────────────────────────────────────────────────
+
+def _to_ym(date_str: Optional[str]) -> Optional[str]:
+    """Normalize any date string to YYYY-MM format. Returns None if unparseable."""
+    if not date_str:
+        return None
+    s = str(date_str).strip()
+    if s.lower() in ("present", "current", "now"):
+        return datetime.now().strftime("%Y-%m")
+    # Bare 4-digit year — default to January to avoid dateutil assuming current month
+    if re.match(r"^(?:19|20)\d{2}$", s):
+        return f"{s}-01"
+    try:
+        dt = date_parser.parse(s, fuzzy=True)
+        return dt.strftime("%Y-%m")
+    except Exception:
+        m = re.search(r"\b((?:19|20)\d{2})\b", s)
+        if m:
+            return f"{m.group(0)}-01"
+        return None
+
+
+def _ym_to_dt(ym: str) -> datetime:
+    """Convert YYYY-MM string to datetime (first of month)."""
+    try:
+        return datetime.strptime(ym, "%Y-%m")
+    except Exception:
+        return datetime.now()
+
+
+def _months_between(start_ym: str, end_ym: str) -> int:
+    """Calculate whole months between two YYYY-MM strings. Always >= 0."""
+    start = _ym_to_dt(start_ym)
+    end   = _ym_to_dt(end_ym)
+    rd    = relativedelta(end, start)
+    return max(0, rd.years * 12 + rd.months)
+
+
+def _classify_gap(months: int) -> str:
+    """Classify gap severity by objective threshold — no judgment on meaning."""
+    if months < 3:
+        return "negligible"
+    if months < 6:
+        return "minor"
+    if months < 12:
+        return "moderate"
+    return "critical"
+
+
+# ─── Interval merging (fixes double-count in overlapping jobs) ─────────────────
+
+def _merge_intervals(intervals: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    """
+    Merge overlapping or adjacent YYYY-MM date intervals.
+    Prevents double-counting of total experience when jobs overlap.
+    """
+    if not intervals:
+        return []
+    sorted_iv = sorted(intervals, key=lambda x: x[0])
+    merged = [list(sorted_iv[0])]
+    for start, end in sorted_iv[1:]:
+        prev = merged[-1]
+        if start <= prev[1]:
+            prev[1] = max(prev[1], end)
+        else:
+            merged.append([start, end])
+    return [tuple(iv) for iv in merged]
+
+
+# ─── Main detector ─────────────────────────────────────────────────────────────
 
 class GapDetector:
-    def __init__(self):
-        self.GAP_THRESHOLD_MONTHS = 6
-        self.SHORT_STINT_THRESHOLD_MONTHS = 6
-
-    def detect_gaps(self, work_experience: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def analyze(self, work_experience: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not work_experience:
-            return []
+            return {
+                "employment_timeline": [],
+                "employment_gaps":     [],
+                "overlapping_jobs":    [],
+                "short_stints":        [],
+                "total_years":         0.0,
+            }
 
-        gaps = []
-        sorted_jobs = self._sort_jobs_by_date(work_experience)
+        now_ym = datetime.now().strftime("%Y-%m")
 
-        for i in range(len(sorted_jobs) - 1):
-            current_job = sorted_jobs[i]
-            next_job = sorted_jobs[i + 1]
+        # Normalize all jobs to YYYY-MM dates
+        jobs: List[Dict[str, Any]] = []
+        for job in work_experience:
+            start_ym = _to_ym(job.get("start_date"))
+            end_ym   = _to_ym(job.get("end_date", "present")) or now_ym
+            if not start_ym:
+                continue
+            jobs.append({
+                "role":             job.get("title", ""),
+                "company":          job.get("company", ""),
+                "start_ym":         start_ym,
+                "end_ym":           end_ym,
+                "duration_months":  _months_between(start_ym, end_ym),
+            })
 
-            current_end = self._parse_date(current_job.get('end_date', 'present'))
-            next_start = self._parse_date(next_job.get('start_date'))
+        jobs.sort(key=lambda j: j["start_ym"])
 
-            if current_end and next_start:
-                gap_months = self._calculate_months_between(current_end, next_start)
+        # Build structured employment timeline with gap metadata
+        timeline: List[Dict[str, Any]] = []
+        for i, job in enumerate(jobs):
+            entry: Dict[str, Any] = {
+                "role":              job["role"],
+                "company":           job["company"],
+                "from":              job["start_ym"],
+                "to":                job["end_ym"],
+                "duration_months":   job["duration_months"],
+                "gap_after_months":  0,
+                "gap_severity":      None,
+            }
+            if i < len(jobs) - 1:
+                next_job  = jobs[i + 1]
+                gap_months = _months_between(job["end_ym"], next_job["start_ym"])
+                if gap_months > 0:
+                    entry["gap_after_months"] = gap_months
+                    entry["gap_severity"]     = _classify_gap(gap_months)
+            timeline.append(entry)
 
-                if gap_months > self.GAP_THRESHOLD_MONTHS:
-                    gaps.append({
-                        "start_date": current_job.get('end_date', ''),
-                        "end_date": next_job.get('start_date', ''),
-                        "duration_months": gap_months,
-                        "type": "employment_gap"
-                    })
+        # employment_gaps list — only gaps >= 3 months (negligible ones excluded)
+        employment_gaps: List[Dict[str, Any]] = []
+        for i, entry in enumerate(timeline):
+            if entry["gap_after_months"] >= 3:
+                next_start = jobs[i + 1]["start_ym"] if i + 1 < len(jobs) else ""
+                employment_gaps.append({
+                    "start_date":      entry["to"],
+                    "end_date":        next_start,
+                    "duration_months": entry["gap_after_months"],
+                    "severity":        entry["gap_severity"],
+                })
 
-        return gaps
-
-    def detect_overlaps(self, work_experience: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        overlaps = []
-        sorted_jobs = self._sort_jobs_by_date(work_experience)
-
-        for i in range(len(sorted_jobs)):
-            for j in range(i + 1, len(sorted_jobs)):
-                job1 = sorted_jobs[i]
-                job2 = sorted_jobs[j]
-
-                start1 = self._parse_date(job1.get('start_date'))
-                end1 = self._parse_date(job1.get('end_date', 'present'))
-                start2 = self._parse_date(job2.get('start_date'))
-                end2 = self._parse_date(job2.get('end_date', 'present'))
-
-                if start1 and end1 and start2 and end2:
-                    if start1 <= end2 and start2 <= end1:
-                        overlaps.append({
-                            "job1": f"{job1.get('title', '')} at {job1.get('company', '')}",
-                            "job2": f"{job2.get('title', '')} at {job2.get('company', '')}",
-                            "type": "overlapping_job"
+        # overlapping_jobs — any pair with meaningful overlap (>1 month)
+        overlapping_jobs: List[Dict[str, Any]] = []
+        for i in range(len(jobs)):
+            for j in range(i + 1, len(jobs)):
+                a, b = jobs[i], jobs[j]
+                if a["start_ym"] <= b["end_ym"] and b["start_ym"] <= a["end_ym"]:
+                    overlap = _months_between(b["start_ym"], min(a["end_ym"], b["end_ym"]))
+                    if overlap > 1:
+                        overlapping_jobs.append({
+                            "job1": f"{a['role']} at {a['company']}",
+                            "job2": f"{b['role']} at {b['company']}",
+                            "type": "overlapping_job",
                         })
 
-        return overlaps
+        # short_stints — roles lasting < 6 months
+        short_stints: List[Dict[str, Any]] = [
+            {
+                "company":          job["company"],
+                "title":            job["role"],
+                "duration_months":  job["duration_months"],
+                "type":             "short_stint",
+            }
+            for job in jobs
+            if 0 < job["duration_months"] < 6
+        ]
 
-    def detect_short_stints(self, work_experience: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        short_stints = []
+        # Overlap-aware total experience — merge overlapping intervals, then sum
+        intervals = [(job["start_ym"], job["end_ym"]) for job in jobs]
+        merged    = _merge_intervals(intervals)
+        total_months = sum(_months_between(s, e) for s, e in merged)
+        total_years  = round(total_months / 12, 1)
 
-        for job in work_experience:
-            start = self._parse_date(job.get('start_date'))
-            end = self._parse_date(job.get('end_date', 'present'))
-
-            if start and end:
-                duration_months = self._calculate_months_between(start, end)
-
-                if duration_months < self.SHORT_STINT_THRESHOLD_MONTHS:
-                    short_stints.append({
-                        "company": job.get('company', ''),
-                        "title": job.get('title', ''),
-                        "duration_months": duration_months,
-                        "type": "short_stint"
-                    })
-
-        return short_stints
-
-    def analyze(self, work_experience: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {
-            "employment_gaps": self.detect_gaps(work_experience),
-            "overlapping_jobs": self.detect_overlaps(work_experience),
-            "short_stints": self.detect_short_stints(work_experience),
-            "total_years": self._calculate_total_experience(work_experience)
+            "employment_timeline": timeline,
+            "employment_gaps":     employment_gaps,
+            "overlapping_jobs":    overlapping_jobs,
+            "short_stints":        short_stints,
+            "total_years":         total_years,
         }
-
-    def _sort_jobs_by_date(self, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        def get_start_date(job):
-            date = self._parse_date(job.get('start_date'))
-            return date if date else datetime.min
-
-        return sorted(jobs, key=get_start_date, reverse=False)
-
-    def _parse_date(self, date_str: str) -> datetime:
-        if not date_str or date_str.lower() in ['present', 'current', 'now']:
-            return datetime.now()
-
-        try:
-            return date_parser.parse(date_str, fuzzy=True)
-        except:
-            year_match = re.search(r'\b(19|20)\d{2}\b', str(date_str))
-            if year_match:
-                return datetime(int(year_match.group(0)), 1, 1)
-            return None
-
-    def _calculate_months_between(self, start: datetime, end: datetime) -> int:
-        rd = relativedelta(end, start)
-        return rd.years * 12 + rd.months
-
-    def _calculate_total_experience(self, work_experience: List[Dict[str, Any]]) -> float:
-        if not work_experience:
-            return 0.0
-
-        total_months = 0
-        for job in work_experience:
-            start = self._parse_date(job.get('start_date'))
-            end = self._parse_date(job.get('end_date', 'present'))
-
-            if start and end:
-                total_months += self._calculate_months_between(start, end)
-
-        return round(total_months / 12, 1)
 
 
 def analyze_gaps(work_experience: List[Dict[str, Any]]) -> Dict[str, Any]:
-    detector = GapDetector()
-    return detector.analyze(work_experience)
+    return GapDetector().analyze(work_experience)

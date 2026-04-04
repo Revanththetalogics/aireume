@@ -108,10 +108,16 @@ export default function ComparePage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ring-1 ${
-                        r.fit_score >= 70 ? 'bg-green-50 text-green-700 ring-green-200' :
-                        r.fit_score >= 45 ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-red-50 text-red-700 ring-red-200'
-                      }`}>{r.fit_score}</span>
-                      <span className="text-xs text-slate-500 font-medium">{r.final_recommendation}</span>
+                        r.fit_score == null  ? 'bg-slate-50 text-slate-500 ring-slate-200' :
+                        r.fit_score >= 72    ? 'bg-green-50 text-green-700 ring-green-200' :
+                        r.fit_score >= 45    ? 'bg-amber-50 text-amber-700 ring-amber-200' :
+                                               'bg-red-50 text-red-700 ring-red-200'
+                      }`}>{r.fit_score ?? '—'}</span>
+                      <span className={`text-xs font-medium ${
+                        r.final_recommendation === 'Shortlist' ? 'text-green-700' :
+                        r.final_recommendation === 'Reject'    ? 'text-red-700'   :
+                        r.final_recommendation === 'Pending'   ? 'text-slate-400' : 'text-amber-700'
+                      }`}>{r.final_recommendation}</span>
                     </div>
                   </div>
                 ))}
@@ -180,11 +186,19 @@ export default function ComparePage() {
                             {row.isScore ? (
                               <ScoreCell value={val ?? 0} isWinner={isWinner} color="brand" />
                             ) : row.key === 'fit_score' ? (
-                              <span className={`font-extrabold text-xl ${isWinner ? 'text-amber-600' : 'text-brand-900'}`}>{val}</span>
+                              <span className={`font-extrabold text-xl ${isWinner ? 'text-amber-600' : 'text-brand-900'}`}>{val ?? '—'}</span>
                             ) : row.key === 'risk_level' ? (
-                              <span className={`text-xs font-bold ${val === 'Low' ? 'text-green-700' : val === 'High' ? 'text-red-700' : 'text-amber-700'}`}>{val}</span>
+                              <span className={`text-xs font-bold ${
+                                !val          ? 'text-slate-400' :
+                                val === 'Low' ? 'text-green-700' :
+                                val === 'High'? 'text-red-700'   : 'text-amber-700'
+                              }`}>{val || '—'}</span>
                             ) : (
-                              <span className={`text-xs font-bold ${val === 'Shortlist' ? 'text-green-700' : val === 'Reject' ? 'text-red-700' : 'text-amber-700'}`}>{val}</span>
+                              <span className={`text-xs font-bold ${
+                                val === 'Shortlist' ? 'text-green-700' :
+                                val === 'Reject'    ? 'text-red-700'   :
+                                val === 'Pending'   ? 'text-slate-400' : 'text-amber-700'
+                              }`}>{val || '—'}</span>
                             )}
                           </td>
                         )

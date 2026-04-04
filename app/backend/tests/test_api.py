@@ -92,3 +92,56 @@ BS Computer Science
         response = auth_client.get("/api/history")
         assert response.status_code == 200
         assert isinstance(response.json(), list)
+
+    def test_batch_analyze_returns_ranked_results(self, auth_client, mock_agent_pipeline):
+        """Batch endpoint must return ranked results; null fit_score is allowed."""
+        import io
+        resume_bytes = b"John Doe\nPython Developer\njohn@email.com\n5 years Python"
+
+        # Override pipeline to return null fit_score (Pending / fallback state)
+        mock_agent_pipeline.return_value = {
+            **mock_agent_pipeline.return_value,
+            "fit_score": None,
+            "final_recommendation": "Pending",
+            "job_role": "Backend Engineer",
+        }
+
+        response = auth_client.post(
+            "/api/analyze/batch",
+            data={"job_description": "Senior Python developer needed"},
+            files=[
+                ("resumes", ("resume1.pdf", io.BytesIO(resume_bytes), "application/pdf")),
+                ("resumes", ("resume2.pdf", io.BytesIO(resume_bytes), "application/pdf")),
+            ],
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "results" in data
+        assert "total" in data
+        # Results must be a ranked list; null fit_score must not crash serialization
+        for row in data["results"]:
+            assert "rank" in row
+            assert "filename" in row
+            assert "result" in row
+            # fit_score is allowed to be null
+            assert "fit_score" in row["result"]
+
+    def test_batch_analyze_rejects_no_valid_files(self, auth_client):
+        """Batch endpoint with only unsupported file types returns 400."""
+        import io
+        response = auth_client.post(
+            "/api/analyze/batch",
+            data={"job_description": "Some job"},
+            files=[("resumes", ("resume.exe", io.BytesIO(b"data"), "application/octet-stream"))],
+        )
+        assert response.status_code == 400
+
+    def test_batch_analyze_requires_job_description(self, auth_client):
+        """Batch endpoint without a JD returns 400."""
+        import io
+        response = auth_client.post(
+            "/api/analyze/batch",
+            data={},
+            files=[("resumes", ("resume.pdf", io.BytesIO(b"resume"), "application/pdf"))],
+        )
+        assert response.status_code == 400

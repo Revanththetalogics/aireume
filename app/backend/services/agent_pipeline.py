@@ -1,564 +1,682 @@
 """
-Enterprise Agent Pipeline for Resume Analysis.
+LangGraph Multi-Agent Pipeline for Resume Analysis.
 
-Architecture:
-- Agent 1 (instant): Extract structured profile from parsed resume data
-- Agent 2 (instant): Deterministic scoring engine (skill/exp/stability/education)
-                     Supports custom scoring weights per request.
-- Agent 3 (smart):   ARIA custom recruiter model — baked-in persona means ultra-short prompts.
-                     Falls back to plain llama3 if ARIA isn't built yet.
-- Agent 4 (smart):   Interview Questions Generator — targeted questions from gaps & weaknesses.
+Architecture — 3 dependency stages, parallel within each stage:
+  Stage 1 (parallel): jd_parser + resume_parser
+      No dependencies — fire immediately from START.
+  Stage 2 (parallel): skill_domain + edu_timeline
+      Both wait for Stage 1 (both jd_parser AND resume_parser) to complete.
+  Stage 3 (parallel): scorer_explainer + interview_qs
+      Both wait for Stage 2 (both skill_domain AND edu_timeline) to complete.
+
+Models:
+  get_fast_llm()      → llama3.2:3b  (extraction / matching / education / interview)
+  get_reasoning_llm() → llama3       (scoring / explainability — needs deeper reasoning)
+
+Design principles:
+  - The LLM determines ALL intelligence: skill extraction, semantic matching,
+    education relevance, domain fit, scoring, explainability, recommendation.
+  - The backend only pre-computes objective gap math (months between dates)
+    and passes it as structured data so the LLM doesn't parse raw date strings.
+  - temperature=0.0 + format="json" for deterministic, schema-bound output.
+  - Fallback per node: if any Ollama call fails, the pipeline returns safe
+    typed-null defaults rather than crashing.
 """
 
 import json
-import re
-import asyncio
-import httpx
 import os
-from typing import Dict, Any, List, Optional
+import re
+from typing import TypedDict, Annotated, Any, Dict, List, Optional
+import operator
+
+from langgraph.graph import StateGraph, START, END
+from langchain_ollama import ChatOllama
 
 
-DEFAULT_WEIGHTS = {
-    "skills":     0.40,
-    "experience": 0.35,
-    "stability":  0.15,
-    "education":  0.10,
+# ─── Configuration ─────────────────────────────────────────────────────────────
+
+OLLAMA_BASE_URL       = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_FAST_MODEL     = os.getenv("OLLAMA_FAST_MODEL", "llama3.2:3b")
+OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+
+DEFAULT_WEIGHTS: Dict[str, float] = {
+    "skills":       0.30,
+    "experience":   0.20,
+    "architecture": 0.15,
+    "education":    0.10,
+    "timeline":     0.10,
+    "domain":       0.10,
+    "risk":         0.15,
+}
+
+# Nodes that emit SSE events when complete
+STREAMABLE_NODES = {
+    "jd_parser", "resume_parser",
+    "skill_domain", "edu_timeline",
+    "scorer_explainer", "interview_qs",
 }
 
 
-class ResumeAnalysisAgent:
-    """
-    Agent 1: Extract structured recruiter-relevant intelligence from parsed data.
-    Pure deterministic — zero LLM calls — runs instantly.
-    """
+# ─── LLM factories ─────────────────────────────────────────────────────────────
 
-    def extract_candidate_profile(
-        self,
-        parsed_data: Dict[str, Any],
-        job_description: str,
-        gap_analysis: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        skills    = parsed_data.get("skills", [])
-        work_exp  = parsed_data.get("work_experience", [])
-        education = parsed_data.get("education", [])
-        raw_text  = parsed_data.get("raw_text", "")
-
-        # Fallback: if section-based parsing returned no skills, scan raw text
-        if not skills and raw_text:
-            skills = self._extract_skills_from_raw(raw_text)
-
-        jd_required_skills = self._extract_jd_skills(job_description)
-        jd_years_required  = self._extract_required_years(job_description)
-        jd_role            = self._extract_role_title(job_description)
-
-        # Years actual — use gap_analysis first, then raw-text fallback
-        years_actual = gap_analysis.get("total_years", 0)
-        if years_actual == 0 and raw_text:
-            years_actual = self._extract_years_from_raw(raw_text)
-
-        matched_skills = [s for s in skills if any(
-            s.lower() in req.lower() or req.lower() in s.lower()
-            for req in jd_required_skills
-        )]
-        missing_skills = [r for r in jd_required_skills if not any(
-            r.lower() in s.lower() or s.lower() in r.lower()
-            for s in skills
-        )]
-
-        return {
-            "role_applied":          jd_role,
-            "years_required":        jd_years_required,
-            "years_actual":          years_actual,
-            "matched_skills":        matched_skills[:10],
-            "missing_skills":        missing_skills[:8],
-            "all_skills":            skills[:15],
-            "required_skills_count": len(jd_required_skills),
-            "job_count":             len(work_exp),
-            "education_level":       self._get_highest_education(education),
-            "employment_gaps":       gap_analysis.get("employment_gaps", []),
-            "short_stints":          gap_analysis.get("short_stints", []),
-            "overlapping_jobs":      gap_analysis.get("overlapping_jobs", []),
-            "latest_role":           work_exp[0].get("title", "Unknown") if work_exp else "N/A",
-            "latest_company":        work_exp[0].get("company", "Unknown") if work_exp else "N/A",
-        }
-
-    # Shared broad skill vocabulary — used both for JD parsing and resume fallback
-    BROAD_SKILLS = [
-        # Languages
-        "python", "java", "javascript", "typescript", "c++", "c#", "c", "golang",
-        "rust", "scala", "kotlin", "swift", "ruby", "php", "r", "matlab", "ada",
-        "assembly", "bash", "powershell", "perl",
-        # Web / frameworks
-        "react", "vue", "angular", "node", "django", "flask", "fastapi", "spring",
-        ".net", "qt", "boost", "opencv", "grpc", "express",
-        # Databases
-        "sql", "postgresql", "mysql", "mongodb", "redis", "oracle", "sqlite",
-        "elasticsearch", "cassandra", "dynamodb",
-        # Cloud / DevOps
-        "aws", "azure", "gcp", "docker", "kubernetes", "terraform", "ansible",
-        "jenkins", "git", "linux", "unix", "nginx", "ci/cd", "devops",
-        # Architecture / design
-        "uml", "ooad", "design patterns", "microservices", "soa", "rest",
-        "system design", "software architecture", "requirement engineering",
-        # Embedded / systems
-        "embedded", "rtos", "real-time", "qnx", "vxworks", "freertos",
-        "embedded linux", "microcontroller", "microprocessor", "fpga", "arm",
-        "stm32", "can bus", "modbus", "uart", "spi", "i2c", "usb", "ethernet",
-        "tcp/ip", "ipc", "multithreading", "firmware", "bsp", "device driver",
-        "bootloader", "hw/sw integration", "bare metal",
-        # Safety & standards
-        "sil", "sil4", "do-178", "iec 61508", "iso 26262", "aspice", "misra",
-        "functional safety", "safety-critical", "cenelec",
-        # Data / AI
-        "machine learning", "deep learning", "ai", "nlp", "data analysis",
-        "spark", "hadoop", "kafka", "tableau", "power bi", "excel",
-        # Project / leadership
-        "agile", "scrum", "kanban", "jira", "project management",
-        "leadership", "mentoring", "management", "communication", "teamwork",
-        "requirement allocation", "technical documentation", "onsite",
-        # Testing / quality
-        "unit testing", "tdd", "bdd", "cmake", "code review",
-        "static analysis", "coverage", "integration testing",
-        # Other
-        "cybersecurity", "networking", "iot", "blockchain", "oauth",
-    ]
-
-    def _extract_jd_skills(self, jd: str) -> List[str]:
-        jd_lower = jd.lower()
-        return [s for s in self.BROAD_SKILLS if s in jd_lower]
-
-    def _extract_skills_from_raw(self, text: str) -> List[str]:
-        """Fallback: scan entire resume text for known technical keywords."""
-        text_lower = text.lower()
-        return [s for s in self.BROAD_SKILLS if s in text_lower]
-
-    def _extract_years_from_raw(self, text: str) -> float:
-        """
-        Fallback experience extraction when work-experience date parsing fails.
-        Tries explicit duration phrases first, then infers from year span.
-        """
-        patterns = [
-            r'(\d+)\+?\s*years?\s+of\s+(?:overall\s+|total\s+|professional\s+)?experience',
-            r'(\d+)\+?\s*years?\s+(?:of\s+)?(?:total\s+|overall\s+)?(?:professional\s+)?(?:work\s+)?experience',
-            r'total\s+(?:work\s+)?experience\s*:?\s*(\d+)\+?\s*years?',
-            r'over\s+(\d+)\+?\s*years?\s+(?:of\s+)?experience',
-            r'experience\s+of\s+(\d+)\+?\s*years?',
-            r'(\d+)\+?\s*years?\s+(?:in\s+)?(?:software|it|engineering|development)',
-        ]
-        for p in patterns:
-            m = re.search(p, text, re.IGNORECASE)
-            if m:
-                return float(m.group(1))
-        # Last resort: infer from earliest–latest year mentioned in the document
-        years_found = [int(y) for y in re.findall(r'\b((?:19|20)\d{2})\b', text)]
-        if len(years_found) >= 2:
-            span = max(years_found) - min(years_found)
-            if 1 < span < 50:
-                return float(span)
-        return 0.0
-
-    def _extract_required_years(self, jd: str) -> float:
-        for pattern in [
-            r'(\d+)\+?\s*years?\s+of\s+experience',
-            r'(\d+)\+?\s*years?\s+experience',
-            r'minimum\s+(\d+)\s*years?',
-            r'at\s+least\s+(\d+)\s*years?',
-        ]:
-            m = re.search(pattern, jd, re.IGNORECASE)
-            if m:
-                return float(m.group(1))
-        return 0.0
-
-    def _extract_role_title(self, jd: str) -> str:
-        for line in jd.strip().split('\n')[:5]:
-            line = line.strip()
-            if 5 < len(line) < 80 and not line.startswith(('•', '-', '*')):
-                return line
-        return "the role"
-
-    def _get_highest_education(self, education: List[Dict]) -> str:
-        if not education:
-            return "Not specified"
-        rank_map = {
-            "phd": 5, "doctorate": 5,
-            "master": 4, "mba": 4, "m.s": 4, "m.a": 4, "mtech": 4,
-            "bachelor": 3, "b.s": 3, "b.a": 3, "btech": 3, "be": 3,
-        }
-        highest, highest_rank = "degree", 0
-        for edu in education:
-            degree = edu.get("degree", "").lower()
-            for key, rank in rank_map.items():
-                if key in degree and rank > highest_rank:
-                    highest_rank = rank
-                    highest = edu.get("degree", degree)
-        return highest
-
-
-class ScoringAgent:
-    """
-    Agent 2: Deterministic scoring engine.
-    Supports custom scoring weights via the `weights` parameter.
-    """
-
-    def compute_scores(
-        self,
-        profile: Dict[str, Any],
-        gap_analysis: Dict[str, Any],
-        weights: Optional[Dict[str, float]] = None
-    ) -> Dict[str, Any]:
-        w = {**DEFAULT_WEIGHTS, **(weights or {})}
-        # Normalize weights to sum to 1.0
-        total = sum(w.values())
-        if total > 0:
-            w = {k: v / total for k, v in w.items()}
-
-        scores = {}
-
-        # Skill match (0-100)
-        matched  = len(profile.get("matched_skills", []))
-        jd_total = matched + len(profile.get("missing_skills", []))
-        scores["skill_match"] = round((matched / max(jd_total, 1)) * 100)
-
-        # Experience match (0-100)
-        actual   = profile.get("years_actual", 0)
-        required = profile.get("years_required", 0)
-        if required == 0:
-            scores["experience_match"] = min(100, int(actual * 10))
-        elif actual >= required:
-            scores["experience_match"] = min(100, 70 + int((actual - required) * 5))
-        else:
-            scores["experience_match"] = int((actual / required) * 70)
-
-        # Stability (0-100)
-        stability  = 100
-        stability -= len(gap_analysis.get("employment_gaps", [])) * 15
-        stability -= len(gap_analysis.get("short_stints", [])) * 10
-        stability -= len(gap_analysis.get("overlapping_jobs", [])) * 20
-        scores["stability"] = max(0, stability)
-
-        # Education (0-100)
-        edu = profile.get("education_level", "").lower()
-        edu_map = {
-            "phd": 100, "doctorate": 100,
-            "master": 85, "mba": 85, "mtech": 85,
-            "bachelor": 70, "b.s": 70, "btech": 70, "be": 70,
-        }
-        scores["education"] = 60
-        for key, val in edu_map.items():
-            if key in edu:
-                scores["education"] = val
-                break
-
-        # Composite fit score with custom weights
-        scores["fit_score"] = int(
-            scores["skill_match"]      * w["skills"] +
-            scores["experience_match"] * w["experience"] +
-            scores["stability"]        * w["stability"] +
-            scores["education"]        * w["education"]
-        )
-
-        # Risk level
-        risk_count = (
-            len(gap_analysis.get("employment_gaps", [])) +
-            len(gap_analysis.get("short_stints", [])) +
-            len(gap_analysis.get("overlapping_jobs", []))
-        )
-        scores["risk_level"] = "Low" if risk_count == 0 else "Medium" if risk_count <= 2 else "High"
-
-        if scores["fit_score"] >= 72:
-            scores["preliminary_recommendation"] = "Shortlist"
-        elif scores["fit_score"] >= 45:
-            scores["preliminary_recommendation"] = "Consider"
-        else:
-            scores["preliminary_recommendation"] = "Reject"
-
-        return scores
-
-
-class LLMInsightAgent:
-    """
-    Agent 3: ARIA — custom recruiter model with baked-in persona.
-    Falls back to llama3 if ARIA model isn't available.
-    """
-
-    PRIMARY_MODEL  = "aria-recruiter"
-    FALLBACK_MODEL = "llama3"
-
-    def __init__(self):
-        self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model    = os.getenv("OLLAMA_MODEL", self.PRIMARY_MODEL)
-
-    def _build_aria_prompt(self, profile: Dict[str, Any], scores: Dict[str, Any]) -> str:
-        matched  = ", ".join(profile.get("matched_skills", [])[:6]) or "none listed"
-        missing  = ", ".join(profile.get("missing_skills", [])[:4]) or "none"
-        gaps     = len(profile.get("employment_gaps", []))
-        stints   = len(profile.get("short_stints", []))
-        overlaps = len(profile.get("overlapping_jobs", []))
-
-        stability_parts = []
-        if gaps:     stability_parts.append(f"{gaps} gap(s)")
-        if stints:   stability_parts.append(f"{stints} short-stint(s)")
-        if overlaps: stability_parts.append(f"{overlaps} overlapping job(s)")
-        stability = ", ".join(stability_parts) if stability_parts else "clean record"
-
-        return (
-            f"Role: {profile.get('role_applied', 'Not specified')} | "
-            f"Exp: {profile.get('years_actual', 0):.1f}y actual vs "
-            f"{profile.get('years_required', 0):.1f}y required | "
-            f"Matched: {matched} | Missing: {missing} | "
-            f"Latest: {profile.get('latest_role', 'N/A')} at {profile.get('latest_company', 'N/A')} | "
-            f"Education: {profile.get('education_level', 'Not specified')} | "
-            f"Stability: {stability} | Fit score: {scores.get('fit_score', 50)}"
-        )
-
-    def _build_fallback_prompt(self, profile: Dict[str, Any], scores: Dict[str, Any]) -> str:
-        matched = ", ".join(profile.get("matched_skills", [])[:5]) or "none"
-        missing = ", ".join(profile.get("missing_skills", [])[:3]) or "none"
-        rec     = scores.get("preliminary_recommendation", "Consider")
-        return (
-            f"You are a senior recruiter. Analyze and return JSON only.\n\n"
-            f"Role: {profile.get('role_applied', 'N/A')} | "
-            f"Exp: {profile.get('years_actual', 0):.1f}y vs {profile.get('years_required', 0):.1f}y required | "
-            f"Matched skills: {matched} | Missing: {missing} | "
-            f"Latest: {profile.get('latest_role')} at {profile.get('latest_company')} | "
-            f"Education: {profile.get('education_level')} | Fit score: {scores.get('fit_score')}/100\n\n"
-            f'JSON: {{"strengths":["3 specific strengths"],"weaknesses":["3 specific gaps"],'
-            f'"education_analysis":"1 sentence","risk_signals":[],"final_recommendation":"{rec}"}}'
-        )
-
-    async def _is_model_available(self, model_name: str) -> bool:
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.get(f"{self.base_url}/api/tags")
-                r.raise_for_status()
-                available = [m.get("name", "") for m in r.json().get("models", [])]
-                return any(model_name in name for name in available)
-        except Exception:
-            return False
-
-    async def get_insights(self, profile: Dict, scores: Dict) -> Dict[str, Any]:
-        use_aria = (self.model == self.PRIMARY_MODEL) and await self._is_model_available(self.PRIMARY_MODEL)
-
-        if use_aria:
-            model   = self.PRIMARY_MODEL
-            prompt  = self._build_aria_prompt(profile, scores)
-            options = {"num_predict": 400, "num_ctx": 512}
-        else:
-            model   = self.FALLBACK_MODEL
-            prompt  = self._build_fallback_prompt(profile, scores)
-            options = {"temperature": 0.1, "top_p": 0.9, "num_predict": 350, "num_ctx": 768}
-
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/generate",
-                    json={
-                        "model": model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "format": "json",
-                        "options": options,
-                    }
-                )
-                response.raise_for_status()
-                raw = response.json().get("response", "{}")
-                return self._parse_and_validate(raw, scores)
-        except Exception as e:
-            return self._fallback_insights(scores, str(e))
-
-    def _parse_and_validate(self, raw: str, scores: Dict) -> Dict[str, Any]:
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r'\{.*\}', raw, re.DOTALL)
-            if m:
-                try:
-                    parsed = json.loads(m.group(0))
-                except Exception:
-                    return self._fallback_insights(scores, "JSON parse failed")
-            else:
-                return self._fallback_insights(scores, "No JSON in LLM response")
-
-        valid_recs = {"Shortlist", "Consider", "Reject"}
-        rec = parsed.get("final_recommendation", "")
-        if rec not in valid_recs:
-            rec = scores.get("preliminary_recommendation", "Consider")
-
-        return {
-            "strengths":            parsed.get("strengths", [])[:5],
-            "weaknesses":           parsed.get("weaknesses", [])[:5],
-            "education_analysis":   parsed.get("education_analysis", ""),
-            "risk_signals":         parsed.get("risk_signals", []),
-            "final_recommendation": rec,
-        }
-
-    def _fallback_insights(self, scores: Dict, reason: str = "") -> Dict[str, Any]:
-        # Deterministic education summary — never show a generic placeholder
-        edu_score = scores.get("education", 60)
-        if edu_score >= 100:
-            edu_analysis = "Holds a doctoral degree (PhD/Doctorate), exceeding typical academic requirements."
-        elif edu_score >= 85:
-            edu_analysis = "Holds a postgraduate degree (Master's/MBA/MTech), meeting advanced academic requirements."
-        elif edu_score >= 70:
-            edu_analysis = "Holds a Bachelor's/BE/BTech degree, satisfying standard academic qualifications."
-        else:
-            edu_analysis = "Academic credentials present; exact degree level could not be fully determined from the document."
-
-        fit = scores.get("fit_score", 50)
-        skill_match = scores.get("skill_match", 0)
-        exp_match   = scores.get("experience_match", 0)
-
-        strengths = []
-        weaknesses = []
-
-        if exp_match >= 70:
-            strengths.append(f"Experience level meets or exceeds the role requirement (score: {exp_match}/100)")
-        if skill_match >= 50:
-            strengths.append(f"Reasonable technical skill alignment with the JD (score: {skill_match}/100)")
-        if scores.get("stability", 100) >= 80:
-            strengths.append("Strong employment stability with no significant gaps")
-        if not strengths:
-            strengths.append("Profile available for further evaluation — detailed LLM analysis pending")
-
-        if skill_match < 50:
-            weaknesses.append(f"Skill coverage gap — only {skill_match}% of JD-required skills matched")
-        if exp_match < 60:
-            weaknesses.append(f"Experience level may fall short of role requirements (score: {exp_match}/100)")
-        if scores.get("stability", 100) < 70:
-            weaknesses.append("Employment stability concerns detected — verify gaps or short tenures")
-        if not weaknesses:
-            weaknesses.append("No major weaknesses identified — detailed LLM review recommended for nuanced gaps")
-
-        return {
-            "strengths":            strengths[:5],
-            "weaknesses":           weaknesses[:5],
-            "education_analysis":   edu_analysis,
-            "risk_signals":         [{"type": "analysis", "description": f"LLM unavailable: {reason}"}] if reason else [],
-            "final_recommendation": scores.get("preliminary_recommendation", "Consider"),
-        }
-
-
-class InterviewQuestionsAgent:
-    """
-    Agent 4: Generates targeted interview questions from the candidate's skill gaps and weaknesses.
-    """
-
-    FALLBACK_MODEL = "llama3"
-
-    def __init__(self):
-        self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-
-    def _build_prompt(self, profile: Dict, insights: Dict) -> str:
-        missing  = ", ".join(profile.get("missing_skills", [])[:6]) or "general technical skills"
-        weaknesses = "; ".join(insights.get("weaknesses", [])[:3]) or "gaps noted in profile"
-        role     = profile.get("role_applied", "the role")
-        return (
-            f"You are an expert interviewer. Generate targeted interview questions as JSON only.\n"
-            f"Role: {role}\n"
-            f"Skill gaps: {missing}\n"
-            f"Candidate weaknesses: {weaknesses}\n\n"
-            f'Return JSON: {{"technical_questions":["5 specific technical questions targeting gaps"],'
-            f'"behavioral_questions":["3 behavioral/STAR questions for risk signals"],'
-            f'"culture_fit_questions":["2 culture/motivation questions"]}}'
-        )
-
-    async def generate_questions(self, profile: Dict, insights: Dict) -> Dict[str, Any]:
-        prompt = self._build_prompt(profile, insights)
-        try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/generate",
-                    json={
-                        "model": self.FALLBACK_MODEL,
-                        "prompt": prompt,
-                        "stream": False,
-                        "format": "json",
-                        "options": {"temperature": 0.3, "num_predict": 400, "num_ctx": 768},
-                    }
-                )
-                response.raise_for_status()
-                raw = response.json().get("response", "{}")
-                return self._parse(raw)
-        except Exception:
-            return self._fallback_questions(profile)
-
-    def _parse(self, raw: str) -> Dict[str, Any]:
-        try:
-            parsed = json.loads(raw)
-            return {
-                "technical_questions":   parsed.get("technical_questions", [])[:5],
-                "behavioral_questions":  parsed.get("behavioral_questions", [])[:3],
-                "culture_fit_questions": parsed.get("culture_fit_questions", [])[:2],
-            }
-        except Exception:
-            return self._fallback_questions({})
-
-    def _fallback_questions(self, profile: Dict) -> Dict[str, Any]:
-        missing = profile.get("missing_skills", [])
-        return {
-            "technical_questions": [
-                f"Can you walk us through your experience with {skill}?" for skill in missing[:3]
-            ] or ["Describe a challenging technical problem you solved recently."],
-            "behavioral_questions": [
-                "Tell me about a time you had to quickly learn a new technology.",
-                "Describe a situation where you handled a difficult stakeholder.",
-            ],
-            "culture_fit_questions": [
-                "What motivates you in your work?",
-                "How do you prefer to receive feedback?",
-            ],
-        }
-
-
-# ─── Pipeline orchestrator ────────────────────────────────────────────────────
-
-async def run_agent_pipeline(
-    resume_text: str,
-    job_description: str,
-    parsed_data: Dict[str, Any],
-    gap_analysis: Dict[str, Any],
-    scoring_weights: Optional[Dict[str, float]] = None,
-) -> Dict[str, Any]:
-    """
-    Runs the full 4-agent pipeline and returns a complete analysis result dict.
-    """
-    # Agent 1 — profile extraction (instant)
-    profile_agent = ResumeAnalysisAgent()
-    profile = profile_agent.extract_candidate_profile(parsed_data, job_description, gap_analysis)
-
-    # Agent 2 — deterministic scoring (instant, optional custom weights)
-    scoring_agent = ScoringAgent()
-    scores = scoring_agent.compute_scores(profile, gap_analysis, weights=scoring_weights)
-
-    # Agent 3 + 4 — run in parallel to save time
-    llm_agent       = LLMInsightAgent()
-    interview_agent = InterviewQuestionsAgent()
-
-    insights, questions = await asyncio.gather(
-        llm_agent.get_insights(profile, scores),
-        interview_agent.generate_questions(profile, {}),
+def get_fast_llm() -> ChatOllama:
+    """Fast 3b model for extraction, matching, education, interview agents."""
+    return ChatOllama(
+        model=OLLAMA_FAST_MODEL,
+        base_url=OLLAMA_BASE_URL,
+        temperature=0.0,
+        format="json",
     )
 
+
+def get_reasoning_llm() -> ChatOllama:
+    """Full model for scorer_explainer — needs multi-step reasoning depth."""
+    return ChatOllama(
+        model=OLLAMA_REASONING_MODEL,
+        base_url=OLLAMA_BASE_URL,
+        temperature=0.0,
+        format="json",
+    )
+
+
+# ─── Pipeline state ─────────────────────────────────────────────────────────────
+
+class PipelineState(TypedDict):
+    # ── Inputs (set before graph runs) ──
+    raw_jd_text:         str
+    raw_resume_text:     str
+    employment_timeline: list   # pre-computed by GapDetector (objective date math)
+    scoring_weights:     dict
+
+    # ── Stage 1 outputs ──
+    jd_analysis:         dict   # from jd_parser
+    candidate_profile:   dict   # from resume_parser
+
+    # ── Stage 2 outputs ──
+    skill_analysis:      dict   # from skill_domain
+    edu_timeline_analysis: dict # from edu_timeline
+
+    # ── Stage 3 outputs ──
+    final_scores:        dict   # from scorer_explainer
+    interview_questions: dict   # from interview_qs
+
+    # ── Accumulates errors from all nodes ──
+    errors: Annotated[list, operator.add]
+
+
+# ─── JSON parsing helper ────────────────────────────────────────────────────────
+
+def _parse_json(content: str, fallback: dict) -> dict:
+    """Parse LLM JSON response; extract first JSON object on failure."""
+    if not content:
+        return fallback
+    try:
+        return json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        m = re.search(r"\{.*\}", str(content), re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except Exception:
+                pass
+    return fallback
+
+
+# ─── Stage 1: JD Parser ────────────────────────────────────────────────────────
+
+_JD_PARSER_PROMPT = """\
+You are a job description analyst. Extract structured requirements from the job description below.
+Output ONLY valid JSON matching the exact schema. No markdown, no commentary.
+
+JOB DESCRIPTION:
+{jd_text}
+
+OUTPUT SCHEMA:
+{{
+  "role_title": "extracted job title",
+  "domain": "backend|frontend|fullstack|data_science|ml_ai|devops|embedded|mobile|design|management|other",
+  "seniority": "junior|mid|senior|lead|principal",
+  "required_skills": ["skill1", "skill2"],
+  "required_years": 0,
+  "nice_to_have_skills": ["skill1"],
+  "key_responsibilities": ["responsibility1"]
+}}"""
+
+
+async def jd_parser_node(state: PipelineState) -> dict:
+    fallback = {
+        "role_title": "Not specified", "domain": "other", "seniority": "mid",
+        "required_skills": [], "required_years": 0,
+        "nice_to_have_skills": [], "key_responsibilities": [],
+    }
+    try:
+        llm    = get_fast_llm()
+        prompt = _JD_PARSER_PROMPT.format(jd_text=state["raw_jd_text"][:3000])
+        resp   = await llm.ainvoke(prompt)
+        return {"jd_analysis": _parse_json(resp.content, fallback)}
+    except Exception as exc:
+        return {"jd_analysis": fallback, "errors": [f"jd_parser: {exc}"]}
+
+
+# ─── Stage 1: Resume Parser ────────────────────────────────────────────────────
+
+_RESUME_PARSER_PROMPT = """\
+You are a resume analyst. Extract structured candidate information from the resume below.
+Use semantic understanding — recognize skill aliases and implied technologies (e.g. "ML" → "Machine Learning").
+Output ONLY valid JSON matching the exact schema. No markdown, no commentary.
+
+RESUME:
+{resume_text}
+
+OUTPUT SCHEMA:
+{{
+  "name": "candidate name or null",
+  "skills_identified": ["all skills found — canonical names, e.g. Machine Learning not ML"],
+  "education": {{
+    "degree": "highest degree or null",
+    "field": "field of study or null",
+    "institution": "university or college name or null",
+    "gpa_or_distinction": "GPA value or distinction mention or null"
+  }},
+  "career_summary": "2-sentence summary of career trajectory",
+  "total_effective_years": 0.0,
+  "current_role": "most recent job title or null",
+  "current_company": "most recent company or null"
+}}"""
+
+
+async def resume_parser_node(state: PipelineState) -> dict:
+    fallback = {
+        "name": None, "skills_identified": [],
+        "education": {"degree": None, "field": None, "institution": None, "gpa_or_distinction": None},
+        "career_summary": "Unable to parse resume.",
+        "total_effective_years": 0.0, "current_role": None, "current_company": None,
+    }
+    try:
+        llm    = get_fast_llm()
+        prompt = _RESUME_PARSER_PROMPT.format(resume_text=state["raw_resume_text"][:4000])
+        resp   = await llm.ainvoke(prompt)
+        return {"candidate_profile": _parse_json(resp.content, fallback)}
+    except Exception as exc:
+        return {"candidate_profile": fallback, "errors": [f"resume_parser: {exc}"]}
+
+
+# ─── Stage 2: Skill & Domain Analyzer ─────────────────────────────────────────
+
+_SKILL_DOMAIN_PROMPT = """\
+You are a technical skill evaluator. Compare the candidate's skills against the job requirements.
+Use semantic matching — recognize aliases, synonyms, and adjacent technologies.
+Output ONLY valid JSON matching the exact schema. No markdown.
+
+REQUIRED SKILLS (from JD): {required_skills}
+CANDIDATE SKILLS (from resume): {candidate_skills}
+JD DOMAIN: {domain}
+SENIORITY LEVEL: {seniority}
+
+OUTPUT SCHEMA (all scores are integers 0–100):
+{{
+  "matched_skills": ["skills found in both JD and resume — semantic match allowed"],
+  "missing_skills": ["JD-required skills absent from candidate"],
+  "adjacent_skills": ["candidate skills not required but relevant to the role"],
+  "skill_score": 0,
+  "domain_fit_score": 0,
+  "architecture_score": 0,
+  "domain_fit_comment": "1 sentence on domain alignment",
+  "architecture_comment": "1 sentence on evidence of system design or senior patterns"
+}}
+
+SCORING RULES:
+- skill_score: percentage of required skills that candidate has (0–100)
+- domain_fit_score: how closely candidate's domain aligns with role domain (0–100)
+- architecture_score: evidence of system design, distributed systems, architecture decisions (0–100)"""
+
+
+async def skill_domain_node(state: PipelineState) -> dict:
+    jd = state.get("jd_analysis", {})
+    cp = state.get("candidate_profile", {})
+    fallback = {
+        "matched_skills": [], "missing_skills": jd.get("required_skills", [])[:8],
+        "adjacent_skills": [], "skill_score": 0,
+        "domain_fit_score": 50, "architecture_score": 50,
+        "domain_fit_comment": "Domain fit could not be assessed.",
+        "architecture_comment": "Architecture skills could not be assessed.",
+    }
+    try:
+        llm    = get_fast_llm()
+        prompt = _SKILL_DOMAIN_PROMPT.format(
+            required_skills=json.dumps(jd.get("required_skills", [])[:20]),
+            candidate_skills=json.dumps(cp.get("skills_identified", [])[:30]),
+            domain=jd.get("domain", "other"),
+            seniority=jd.get("seniority", "mid"),
+        )
+        resp = await llm.ainvoke(prompt)
+        return {"skill_analysis": _parse_json(resp.content, fallback)}
+    except Exception as exc:
+        return {"skill_analysis": fallback, "errors": [f"skill_domain: {exc}"]}
+
+
+# ─── Stage 2: Education & Timeline Analyzer ────────────────────────────────────
+
+_EDU_TIMELINE_PROMPT = """\
+You are an education and career continuity analyst.
+Output ONLY valid JSON matching the exact schema. No markdown.
+
+ROLE DOMAIN: {domain}
+SENIORITY LEVEL: {seniority}
+CANDIDATE EDUCATION: {education}
+EMPLOYMENT TIMELINE: {timeline}
+
+OUTPUT SCHEMA (scores are integers 0–100):
+{{
+  "education_score": 0,
+  "education_analysis": "1 sentence on degree relevance to this specific role and domain",
+  "field_alignment": "aligned|partially_aligned|unrelated",
+  "timeline_score": 0,
+  "timeline_analysis": "1 sentence on career continuity and progression pattern",
+  "gap_interpretation": "1 sentence interpreting any gaps in the context of career narrative"
+}}
+
+SCORING RULES:
+- education_score: based on degree LEVEL (PhD > Masters > Bachelor > other)
+  AND field relevance to {domain}. A PhD in an unrelated field scores lower than a
+  relevant Bachelor's. Score 0–100.
+- timeline_score: based on career stability, progression, gap severity context,
+  and tenure patterns. Longer tenures and upward progression score higher. Score 0–100."""
+
+
+async def edu_timeline_node(state: PipelineState) -> dict:
+    jd       = state.get("jd_analysis", {})
+    cp       = state.get("candidate_profile", {})
+    timeline = state.get("employment_timeline", [])
+    fallback = {
+        "education_score": 60,
+        "education_analysis": "Education details could not be fully assessed.",
+        "field_alignment": "partially_aligned",
+        "timeline_score": 70,
+        "timeline_analysis": "Employment timeline could not be fully assessed.",
+        "gap_interpretation": "No significant gap pattern detected.",
+    }
+    try:
+        llm    = get_fast_llm()
+        prompt = _EDU_TIMELINE_PROMPT.format(
+            domain=jd.get("domain", "other"),
+            seniority=jd.get("seniority", "mid"),
+            education=json.dumps(cp.get("education", {})),
+            timeline=json.dumps(timeline[:10]),
+        )
+        resp = await llm.ainvoke(prompt)
+        return {"edu_timeline_analysis": _parse_json(resp.content, fallback)}
+    except Exception as exc:
+        return {"edu_timeline_analysis": fallback, "errors": [f"edu_timeline: {exc}"]}
+
+
+# ─── Stage 3: Scorer & Explainer ──────────────────────────────────────────────
+
+_SCORER_EXPLAINER_PROMPT = """\
+You are a senior hiring decision engine. Using the scoring inputs below, compute the final
+candidate fit score and generate explainability rationale.
+Output ONLY valid JSON matching the exact schema. No markdown.
+
+SCORING INPUTS:
+  Skill Score:        {skill_score}/100
+  Domain Fit Score:   {domain_fit_score}/100
+  Architecture Score: {architecture_score}/100
+  Education Score:    {education_score}/100
+  Timeline Score:     {timeline_score}/100
+  Experience:         {years_actual}y actual vs {years_required}y required
+  Matched Skills:     {matched_skills}
+  Missing Skills:     {missing_skills}
+  Domain Fit Comment: {domain_fit_comment}
+  Education Analysis: {education_analysis}
+  Timeline Analysis:  {timeline_analysis}
+  Gap Interpretation: {gap_interpretation}
+
+SCORING WEIGHTS (must be applied exactly as given):
+  skills={w_skills}, experience={w_experience}, architecture={w_architecture},
+  education={w_education}, timeline={w_timeline}, domain_fit={w_domain},
+  risk_penalty={w_risk}
+
+OUTPUT SCHEMA (all component scores are integers 0–100):
+{{
+  "experience_score": 0,
+  "risk_penalty": 0,
+  "score_breakdown": {{
+    "skill_match": 0,
+    "experience_match": 0,
+    "architecture": 0,
+    "education": 0,
+    "timeline": 0,
+    "domain_fit": 0,
+    "risk_penalty": 0
+  }},
+  "fit_score": 0,
+  "risk_level": "Low|Medium|High",
+  "risk_signals": [
+    {{
+      "type": "gap|skill_gap|domain_mismatch|stability|education|overqualified",
+      "severity": "low|medium|high",
+      "description": "specific fact-based description"
+    }}
+  ],
+  "strengths": ["strength 1", "strength 2", "strength 3"],
+  "weaknesses": ["gap 1", "gap 2", "gap 3"],
+  "explainability": {{
+    "skill_rationale": "why skill score is X/100",
+    "experience_rationale": "why experience score is X/100",
+    "education_rationale": "why education score is X/100",
+    "timeline_rationale": "why timeline score is X/100",
+    "overall_rationale": "1–2 sentence holistic hiring summary"
+  }},
+  "final_recommendation": "Shortlist|Consider|Reject",
+  "recommendation_rationale": "1 sentence explaining the recommendation"
+}}
+
+CALCULATION RULES:
+- experience_score: if required=0 → min(100, actual*10); if actual>=required → min(100, 70+(actual-required)*5); else → (actual/required)*70
+- risk_penalty: 0–100 based on severity of missing critical skills, large gaps, domain mismatch
+- score_breakdown uses the INPUT scores (do NOT recalculate skill/domain/edu/timeline from scratch)
+- fit_score = round(skill_match*{w_skills} + experience_match*{w_experience} + architecture*{w_architecture} + education*{w_education} + timeline*{w_timeline} + domain_fit*{w_domain} - risk_penalty*{w_risk}), then clamp to 0–100
+- risk_level: Low if fit_score>=72, Medium if >=45, else High
+- Shortlist if fit_score>=72, Consider if fit_score>=45, else Reject"""
+
+
+async def scorer_explainer_node(state: PipelineState) -> dict:
+    sa  = state.get("skill_analysis", {})
+    eta = state.get("edu_timeline_analysis", {})
+    cp  = state.get("candidate_profile", {})
+    jd  = state.get("jd_analysis", {})
+    w   = _normalize_weights({**DEFAULT_WEIGHTS, **(state.get("scoring_weights") or {})})
+
+    fallback = _compute_fallback_scores(sa, eta, cp, jd, w)
+    try:
+        llm    = get_reasoning_llm()
+        prompt = _SCORER_EXPLAINER_PROMPT.format(
+            skill_score=sa.get("skill_score", 0),
+            domain_fit_score=sa.get("domain_fit_score", 50),
+            architecture_score=sa.get("architecture_score", 50),
+            education_score=eta.get("education_score", 60),
+            timeline_score=eta.get("timeline_score", 70),
+            years_actual=cp.get("total_effective_years", 0),
+            years_required=jd.get("required_years", 0),
+            matched_skills=json.dumps(sa.get("matched_skills", [])[:8]),
+            missing_skills=json.dumps(sa.get("missing_skills", [])[:8]),
+            domain_fit_comment=sa.get("domain_fit_comment", ""),
+            education_analysis=eta.get("education_analysis", ""),
+            timeline_analysis=eta.get("timeline_analysis", ""),
+            gap_interpretation=eta.get("gap_interpretation", ""),
+            w_skills=w["skills"], w_experience=w["experience"],
+            w_architecture=w["architecture"], w_education=w["education"],
+            w_timeline=w["timeline"], w_domain=w["domain"], w_risk=w["risk"],
+        )
+        resp   = await llm.ainvoke(prompt)
+        result = _parse_json(resp.content, fallback)
+
+        # Sanitise fit_score and recommendation
+        result["fit_score"] = max(0, min(100, int(result.get("fit_score", 50))))
+        if result.get("final_recommendation") not in ("Shortlist", "Consider", "Reject"):
+            fit = result["fit_score"]
+            result["final_recommendation"] = (
+                "Shortlist" if fit >= 72 else "Consider" if fit >= 45 else "Reject"
+            )
+        return {"final_scores": result}
+    except Exception as exc:
+        return {"final_scores": fallback, "errors": [f"scorer_explainer: {exc}"]}
+
+
+# ─── Stage 3: Interview Questions ─────────────────────────────────────────────
+
+_INTERVIEW_QS_PROMPT = """\
+You are an expert technical interviewer. Generate targeted interview questions for a candidate evaluation.
+Output ONLY valid JSON matching the exact schema. No markdown.
+
+ROLE: {role_title}
+DOMAIN: {domain}
+MISSING SKILLS (to probe): {missing_skills}
+CAREER GAPS / CONTEXT: {gap_interpretation}
+
+OUTPUT SCHEMA:
+{{
+  "technical_questions": [
+    "5 specific technical questions targeting the missing skills and domain requirements"
+  ],
+  "behavioral_questions": [
+    "3 behavioral STAR-format questions addressing career gaps or stability signals"
+  ],
+  "culture_fit_questions": [
+    "2 culture and motivation questions relevant to the role and seniority"
+  ]
+}}"""
+
+
+async def interview_qs_node(state: PipelineState) -> dict:
+    sa  = state.get("skill_analysis", {})
+    eta = state.get("edu_timeline_analysis", {})
+    jd  = state.get("jd_analysis", {})
+    missing = sa.get("missing_skills", [])
+    fallback = {
+        "technical_questions": (
+            [f"Walk us through your experience with {s}?" for s in missing[:3]]
+            or ["Describe a challenging technical problem you solved recently."]
+        ),
+        "behavioral_questions": [
+            "Tell me about a time you had to quickly learn a new technology.",
+            "Describe handling a difficult stakeholder or team conflict.",
+            "Walk me through a project where timelines slipped — how did you respond?",
+        ],
+        "culture_fit_questions": [
+            "What motivates you most in your day-to-day work?",
+            "How do you prefer to receive and act on feedback?",
+        ],
+    }
+    try:
+        llm    = get_fast_llm()
+        prompt = _INTERVIEW_QS_PROMPT.format(
+            role_title=jd.get("role_title", "the role"),
+            domain=jd.get("domain", "other"),
+            missing_skills=json.dumps(missing[:6]),
+            gap_interpretation=eta.get("gap_interpretation", "No significant gaps."),
+        )
+        resp   = await llm.ainvoke(prompt)
+        result = _parse_json(resp.content, fallback)
+        return {"interview_questions": result}
+    except Exception as exc:
+        return {"interview_questions": fallback, "errors": [f"interview_qs: {exc}"]}
+
+
+# ─── Weight utilities ──────────────────────────────────────────────────────────
+
+def _normalize_weights(w: Dict[str, float]) -> Dict[str, float]:
+    """Normalize weights to sum to 1.0, keeping all keys from DEFAULT_WEIGHTS."""
+    for key in DEFAULT_WEIGHTS:
+        w.setdefault(key, DEFAULT_WEIGHTS[key])
+    total = sum(w.values())
+    if total > 0:
+        return {k: round(v / total, 4) for k, v in w.items()}
+    return dict(DEFAULT_WEIGHTS)
+
+
+def _compute_fallback_scores(
+    sa: dict, eta: dict, cp: dict, jd: dict, w: dict
+) -> dict:
+    """Pure-math fallback when scorer_explainer LLM call fails."""
+    skill_score    = int(sa.get("skill_score", 0))
+    domain_score   = int(sa.get("domain_fit_score", 50))
+    arch_score     = int(sa.get("architecture_score", 50))
+    edu_score      = int(eta.get("education_score", 60))
+    timeline_score = int(eta.get("timeline_score", 70))
+
+    actual   = float(cp.get("total_effective_years", 0))
+    required = float(jd.get("required_years", 0))
+    if required == 0:
+        exp_score = min(100, int(actual * 10))
+    elif actual >= required:
+        exp_score = min(100, 70 + int((actual - required) * 5))
+    else:
+        exp_score = int((actual / required) * 70)
+
+    risk_penalty = max(0, (100 - skill_score) // 3)
+    fit = round(
+        skill_score    * w.get("skills",       0.30) +
+        exp_score      * w.get("experience",    0.20) +
+        arch_score     * w.get("architecture",  0.15) +
+        edu_score      * w.get("education",     0.10) +
+        timeline_score * w.get("timeline",      0.10) +
+        domain_score   * w.get("domain",        0.10) -
+        risk_penalty   * w.get("risk",          0.15)
+    )
+    fit = max(0, min(100, int(fit)))
+    rec = "Shortlist" if fit >= 72 else "Consider" if fit >= 45 else "Reject"
+
     return {
-        "fit_score":            scores["fit_score"],
-        "strengths":            insights["strengths"],
-        "weaknesses":           insights["weaknesses"],
-        "employment_gaps":      gap_analysis.get("employment_gaps", []),
-        "education_analysis":   insights["education_analysis"],
-        "risk_signals":         insights["risk_signals"],
-        "final_recommendation": insights["final_recommendation"],
+        "experience_score": exp_score,
+        "risk_penalty":     risk_penalty,
         "score_breakdown": {
-            "skill_match":      scores["skill_match"],
-            "experience_match": scores["experience_match"],
-            "stability":        scores["stability"],
-            "education":        scores["education"],
+            "skill_match":       skill_score,
+            "experience_match":  exp_score,
+            "architecture":      arch_score,
+            "education":         edu_score,
+            "timeline":          timeline_score,
+            "domain_fit":        domain_score,
+            "risk_penalty":      risk_penalty,
         },
-        "matched_skills":        profile["matched_skills"],
-        "missing_skills":        profile["missing_skills"],
-        "risk_level":            scores["risk_level"],
-        "required_skills_count": profile.get("required_skills_count", 0),
-        "interview_questions":   questions,
-        # Parsed data passed through so the frontend can render timeline & contact
+        "fit_score":    fit,
+        "risk_level":   "Low" if fit >= 72 else "Medium" if fit >= 45 else "High",
+        "risk_signals": [],
+        "strengths":    [],
+        "weaknesses":   [],
+        "explainability": {
+            "overall_rationale": "Automated scoring unavailable — LLM analysis pending."
+        },
+        "final_recommendation":    rec,
+        "recommendation_rationale": f"Computed score {fit}/100 — {rec}.",
+    }
+
+
+# ─── Graph construction (compiled once at module load) ─────────────────────────
+
+def _build_pipeline():
+    graph = StateGraph(PipelineState)
+
+    graph.add_node("jd_parser",        jd_parser_node)
+    graph.add_node("resume_parser",    resume_parser_node)
+    graph.add_node("skill_domain",     skill_domain_node)
+    graph.add_node("edu_timeline",     edu_timeline_node)
+    graph.add_node("scorer_explainer", scorer_explainer_node)
+    graph.add_node("interview_qs",     interview_qs_node)
+
+    # Stage 1: parallel fan-out from START
+    graph.add_edge(START, "jd_parser")
+    graph.add_edge(START, "resume_parser")
+
+    # Stage 2: fires only when BOTH Stage 1 nodes complete (LangGraph join)
+    graph.add_edge("jd_parser",     "skill_domain")
+    graph.add_edge("jd_parser",     "edu_timeline")
+    graph.add_edge("resume_parser", "skill_domain")
+    graph.add_edge("resume_parser", "edu_timeline")
+
+    # Stage 3: fires only when BOTH Stage 2 nodes complete (LangGraph join)
+    graph.add_edge("skill_domain",  "scorer_explainer")
+    graph.add_edge("skill_domain",  "interview_qs")
+    graph.add_edge("edu_timeline",  "scorer_explainer")
+    graph.add_edge("edu_timeline",  "interview_qs")
+
+    graph.add_edge("scorer_explainer", END)
+    graph.add_edge("interview_qs",     END)
+
+    return graph.compile()
+
+
+pipeline = _build_pipeline()
+
+
+# ─── State builder & result assembler ─────────────────────────────────────────
+
+def build_initial_state(
+    resume_text:    str,
+    job_description: str,
+    gap_analysis:   dict,
+    scoring_weights: Optional[Dict[str, float]] = None,
+) -> dict:
+    return {
+        "raw_jd_text":          job_description,
+        "raw_resume_text":      resume_text,
+        "employment_timeline":  gap_analysis.get("employment_timeline", []),
+        "scoring_weights":      scoring_weights or DEFAULT_WEIGHTS,
+        "jd_analysis":          {},
+        "candidate_profile":    {},
+        "skill_analysis":       {},
+        "edu_timeline_analysis": {},
+        "final_scores":         {},
+        "interview_questions":  {},
+        "errors":               [],
+    }
+
+
+def assemble_result(
+    state:       dict,
+    parsed_data: dict,
+    gap_analysis: dict,
+) -> dict:
+    """
+    Assemble the final result dict from completed pipeline state.
+    Maintains full backward compatibility with existing AnalysisResponse schema
+    while adding all new LangGraph-produced fields.
+    """
+    fs  = state.get("final_scores", {})
+    sa  = state.get("skill_analysis", {})
+    eta = state.get("edu_timeline_analysis", {})
+    iq  = state.get("interview_questions", {})
+    cp  = state.get("candidate_profile", {})
+    jd  = state.get("jd_analysis", {})
+
+    score_bd = fs.get("score_breakdown", {})
+    # Map timeline → stability for backward compat (frontend still renders "Stability" bar)
+    score_bd_compat = dict(score_bd)
+    score_bd_compat.setdefault("stability", score_bd.get("timeline", 0))
+    score_bd_compat.setdefault("skill_match", score_bd.get("skill_match", 0))
+    score_bd_compat.setdefault("experience_match", score_bd.get("experience_match", 0))
+    score_bd_compat.setdefault("education", score_bd.get("education", 0))
+
+    return {
+        # ── Backward-compatible core fields ──
+        "fit_score":             fs.get("fit_score", 0),
+        "job_role":              jd.get("role_title", ""),  # for ReportPage role display
+        "strengths":             fs.get("strengths", []),
+        "weaknesses":            fs.get("weaknesses", []),
+        "employment_gaps":       gap_analysis.get("employment_gaps", []),
+        "education_analysis":    eta.get("education_analysis", ""),
+        "risk_signals":          fs.get("risk_signals", []),
+        "final_recommendation":  fs.get("final_recommendation", "Consider"),
+        "score_breakdown":       score_bd_compat,
+        "matched_skills":        sa.get("matched_skills", []),
+        "missing_skills":        sa.get("missing_skills", []),
+        "risk_level":            fs.get("risk_level", "Medium"),
+        "interview_questions":   iq,
+        "required_skills_count": len(jd.get("required_skills", [])),
         "work_experience":       parsed_data.get("work_experience", []),
         "contact_info":          parsed_data.get("contact_info", {}),
+        # ── New fields from LangGraph pipeline ──
+        "jd_analysis":           jd,
+        "candidate_profile":     cp,
+        "skill_analysis":        sa,
+        "edu_timeline_analysis": eta,
+        "explainability":        fs.get("explainability", {}),
+        "recommendation_rationale": fs.get("recommendation_rationale", ""),
+        "adjacent_skills":       sa.get("adjacent_skills", []),
+        "pipeline_errors":       state.get("errors", []),
     }
+
+
+# ─── Public API (non-streaming, for batch + backward compat) ──────────────────
+
+async def run_agent_pipeline(
+    resume_text:     str,
+    job_description: str,
+    parsed_data:     dict,
+    gap_analysis:    dict,
+    scoring_weights: Optional[Dict[str, float]] = None,
+) -> dict:
+    """Run the full pipeline and return the assembled result dict (non-streaming)."""
+    state       = build_initial_state(resume_text, job_description, gap_analysis, scoring_weights)
+    final_state = await pipeline.ainvoke(state)
+    return assemble_result(final_state, parsed_data, gap_analysis)

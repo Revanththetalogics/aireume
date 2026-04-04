@@ -28,6 +28,11 @@ lxml==5.3.0
 faster-whisper==1.1.0
 yt-dlp==2025.3.31
 
+# LangGraph multi-agent pipeline
+langgraph>=0.2.0
+langchain-community>=0.3.0
+langchain-ollama>=0.2.0
+
 # Testing
 pytest==8.3.4
 pytest-asyncio==0.25.3

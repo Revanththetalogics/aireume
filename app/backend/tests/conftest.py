@@ -202,18 +202,21 @@ def mock_whisper():
 def mock_agent_pipeline():
     """Mock the full agent pipeline to avoid Ollama calls in analyze tests."""
     pipeline_result = {
+        # Backward-compat core fields
         "fit_score": 75,
         "strengths": ["Strong Python skills", "Good communication"],
         "weaknesses": ["Limited cloud experience"],
-        "education_analysis": "Solid CS background",
+        "education_analysis": "Solid CS background — relevant degree.",
         "risk_signals": [],
         "final_recommendation": "Consider",
         "employment_gaps": [],
         "score_breakdown": {
-            "skill_match": 80, "experience_match": 70, "stability": 90, "education": 70
+            "skill_match": 80, "experience_match": 70,
+            "stability": 90, "education": 70,
+            "architecture": 65, "domain_fit": 78, "timeline": 90, "risk_penalty": 5,
         },
-        "matched_skills": ["python", "react"],
-        "missing_skills": ["kubernetes"],
+        "matched_skills": ["Python", "React"],
+        "missing_skills": ["Kubernetes"],
         "risk_level": "Low",
         "interview_questions": {
             "technical_questions": ["Explain FastAPI dependency injection."],
@@ -221,7 +224,39 @@ def mock_agent_pipeline():
             "culture_fit_questions": ["How do you handle tight deadlines?"],
         },
         "required_skills_count": 5,
-        "result_id": 1,
+        # New LangGraph fields
+        "jd_analysis": {
+            "role_title": "Senior Python Engineer", "domain": "backend",
+            "seniority": "senior", "required_skills": ["Python", "Kubernetes"],
+            "required_years": 5, "nice_to_have_skills": [], "key_responsibilities": [],
+        },
+        "candidate_profile": {
+            "name": "John Doe", "skills_identified": ["Python", "React"],
+            "education": {"degree": "BSc", "field": "CS",
+                          "institution": "University", "gpa_or_distinction": None},
+            "career_summary": "Experienced Python developer.",
+            "total_effective_years": 6.0,
+            "current_role": "Senior Dev", "current_company": "TechCorp",
+        },
+        "skill_analysis": {
+            "matched_skills": ["Python", "React"], "missing_skills": ["Kubernetes"],
+            "adjacent_skills": ["Docker"], "skill_score": 80,
+            "domain_fit_score": 78, "architecture_score": 65,
+            "domain_fit_comment": "Good backend alignment.",
+            "architecture_comment": "Some distributed systems experience.",
+        },
+        "edu_timeline_analysis": {
+            "education_score": 70, "education_analysis": "Solid CS background.",
+            "field_alignment": "aligned", "timeline_score": 90,
+            "timeline_analysis": "Stable career.", "gap_interpretation": "No gaps.",
+        },
+        "explainability": {
+            "skill_rationale": "2 of 3 required skills matched.",
+            "overall_rationale": "Solid candidate with a minor skills gap.",
+        },
+        "recommendation_rationale": "Score 75/100 — Consider.",
+        "adjacent_skills": ["Docker"],
+        "pipeline_errors": [],
     }
     with patch("app.backend.routes.analyze.run_agent_pipeline", new_callable=AsyncMock) as mock:
         mock.return_value = pipeline_result
