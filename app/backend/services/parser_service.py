@@ -4,6 +4,18 @@ from typing import List, Dict, Any
 import pdfplumber
 from docx import Document
 
+try:
+    import fitz as pymupdf   # PyMuPDF
+    _HAS_PYMUPDF = True
+except ImportError:
+    _HAS_PYMUPDF = False
+
+try:
+    from unidecode import unidecode as _unidecode
+    _HAS_UNIDECODE = True
+except ImportError:
+    _HAS_UNIDECODE = False
+
 
 # ─── JD text extractor (multi-format, lenient) ───────────────────────────────
 
@@ -134,10 +146,40 @@ class ResumeParser:
             raise ValueError(f"Unsupported file format: {filename}")
 
     def _extract_pdf(self, file_bytes: bytes) -> str:
+        """PyMuPDF primary (handles multi-column, correct reading order); pdfplumber fallback."""
         text = ""
-        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            for page in pdf.pages:
-                text += page.extract_text() or ""
+
+        if _HAS_PYMUPDF:
+            try:
+                doc = pymupdf.open(stream=file_bytes, filetype="pdf")
+                pages_text = []
+                for page in doc:
+                    pages_text.append(page.get_text("text"))
+                doc.close()
+                text = "\n".join(pages_text)
+            except Exception:
+                text = ""
+
+        # pdfplumber fallback if PyMuPDF unavailable or returned empty
+        if not text.strip():
+            try:
+                with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                    text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+            except Exception:
+                text = ""
+
+        # Scanned-PDF guard — raise early with actionable message
+        if len(text.strip()) < 100:
+            raise ValueError(
+                "This PDF appears to be a scanned image and cannot be read automatically. "
+                "Please upload a text-based PDF (exported from Word/Google Docs) rather than "
+                "a scanned or photographed document."
+            )
+
+        # Normalise Unicode characters (e.g. résumé → resume, accented skill names)
+        if _HAS_UNIDECODE:
+            text = _unidecode(text)
+
         return text
 
     def _extract_docx(self, file_bytes: bytes) -> str:
@@ -259,7 +301,7 @@ class ResumeParser:
     def _extract_skills(self, text: str) -> List[str]:
         skills = []
 
-        # Expanded section headers — covers all common resume formats
+        # ── Step 1: skills section extraction ──────────────────────────────────
         skill_headers = [
             r'SKILLS?\s*:?\s*\n',
             r'TECHNICAL\s+SKILLS?\s*:?\s*\n',
@@ -277,8 +319,6 @@ class ResumeParser:
             r'AREAS?\s+OF\s+EXPERTISE\s*:?\s*\n',
             r'TECHNICAL\s+PROFICIENCY\s*:?\s*\n',
         ]
-
-        # Find skills section
         skills_section = ""
         for header in skill_headers:
             match = re.search(
@@ -293,12 +333,24 @@ class ResumeParser:
             raw_skills = re.split(r'[,;|•\-\n]', skills_section)
             skills = [s.strip() for s in raw_skills if 1 < len(s.strip()) < 60]
 
-        # Fallback: scan entire resume for known technical keywords
-        if not skills:
-            text_lower = text.lower()
-            skills = [s for s in self.KNOWN_SKILLS_BROAD if s in text_lower]
+        # ── Step 2: full-text scan with flashtext (MASTER_SKILLS) ────────────
+        try:
+            from app.backend.services.hybrid_pipeline import skills_registry
+            processor = skills_registry.get_processor()
+            if processor:
+                scanned = processor.extract_keywords(text)
+                # Merge — prefer section-extracted, then add scanned extras
+                existing = {s.lower() for s in skills}
+                skills.extend(s for s in scanned if s.lower() not in existing)
+            else:
+                raise ImportError
+        except Exception:
+            # Final fallback: original KNOWN_SKILLS_BROAD list
+            if not skills:
+                text_lower = text.lower()
+                skills.extend(s for s in self.KNOWN_SKILLS_BROAD if s in text_lower)
 
-        return skills
+        return list(dict.fromkeys(skills))  # deduplicate, preserve order
 
     def _extract_education(self, text: str) -> List[Dict[str, str]]:
         education = []

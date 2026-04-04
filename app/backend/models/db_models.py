@@ -63,6 +63,19 @@ class Candidate(Base):
     phone      = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # ── Enriched profile (stored once, re-used for every JD re-analysis) ──────
+    resume_file_hash   = Column(String(64),  nullable=True, index=True)  # MD5(file bytes)
+    raw_resume_text    = Column(Text,        nullable=True)
+    parsed_skills      = Column(Text,        nullable=True)   # JSON array
+    parsed_education   = Column(Text,        nullable=True)   # JSON array
+    parsed_work_exp    = Column(Text,        nullable=True)   # JSON array
+    gap_analysis_json  = Column(Text,        nullable=True)   # JSON object
+    current_role       = Column(String(255), nullable=True)
+    current_company    = Column(String(255), nullable=True)
+    total_years_exp    = Column(Float,       nullable=True)
+    profile_quality    = Column(String(20),  nullable=True)   # high | medium | low
+    profile_updated_at = Column(DateTime(timezone=True), nullable=True)
+
     tenant               = relationship("Tenant", back_populates="candidates")
     results              = relationship("ScreeningResult", back_populates="candidate")
     transcript_analyses  = relationship("TranscriptAnalysis", back_populates="candidate")
@@ -165,3 +178,28 @@ class TrainingExample(Base):
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
 
     result = relationship("ScreeningResult", back_populates="training_examples")
+
+
+# ─── Hybrid pipeline caches & skills registry ─────────────────────────────────
+
+class JdCache(Base):
+    """Shared JD parse cache across all workers. Keyed by MD5 of first 2000 chars."""
+    __tablename__ = "jd_cache"
+
+    hash        = Column(String(64), primary_key=True)
+    result_json = Column(Text,       nullable=False)
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Skill(Base):
+    """Dynamic skills registry — seed from hardcoded list, grow via discovery."""
+    __tablename__ = "skills"
+
+    id         = Column(Integer,     primary_key=True, index=True)
+    name       = Column(String(200), unique=True, nullable=False)
+    aliases    = Column(Text,        nullable=True)   # comma-separated alias list
+    domain     = Column(String(50),  nullable=True)   # backend|frontend|data_science|...
+    status     = Column(String(20),  nullable=False, default="active")  # active|pending|rejected
+    source     = Column(String(20),  nullable=False, default="seed")    # seed|discovered|manual
+    frequency  = Column(Integer,     nullable=False, default=0)         # times seen in JDs/resumes
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

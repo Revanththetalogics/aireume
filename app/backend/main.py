@@ -2,8 +2,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
+import logging
 
-from app.backend.db.database import engine, Base
+from app.backend.db.database import engine, Base, SessionLocal
 from app.backend.routes import analyze
 from app.backend.routes import auth
 from app.backend.routes import compare
@@ -17,10 +18,26 @@ from app.backend.routes import training
 from app.backend.routes import video
 from app.backend.routes import transcript
 
+log = logging.getLogger("aria.startup")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Create all tables (idempotent — no-op if they already exist)
     Base.metadata.create_all(bind=engine)
+
+    # Seed skills registry from DB (or hardcoded list if DB is empty)
+    try:
+        from app.backend.services.hybrid_pipeline import skills_registry
+        db = SessionLocal()
+        try:
+            skills_registry.seed_if_empty(db)
+            skills_registry.load(db)
+        finally:
+            db.close()
+    except Exception as e:
+        log.warning("Skills registry startup failed (non-fatal): %s", e)
+
     yield
 
 
@@ -78,5 +95,37 @@ def root():
 
 
 @app.get("/health")
-def health_check():
-    return {"status": "ok"}
+async def health_check():
+    """
+    Active health check — verifies DB connectivity and Ollama reachability.
+    Returns "degraded" (not "error") so upstream load balancers keep routing
+    but operators are alerted via monitoring dashboards.
+    """
+    import httpx
+    from sqlalchemy import text
+
+    checks: dict = {"status": "ok", "db": "ok", "ollama": "ok"}
+
+    # DB check
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+    except Exception as e:
+        checks["db"] = f"error: {str(e)[:80]}"
+        checks["status"] = "degraded"
+
+    # Ollama check
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{ollama_url}/api/tags")
+            if resp.status_code != 200:
+                raise RuntimeError(f"HTTP {resp.status_code}")
+    except Exception as e:
+        checks["ollama"] = f"error: {str(e)[:80]}"
+        checks["status"] = "degraded"
+
+    return checks

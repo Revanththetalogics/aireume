@@ -123,7 +123,7 @@ class TestCandidates:
 # ─── Batch analyze ────────────────────────────────────────────────────────────
 
 class TestBatchAnalyze:
-    def test_batch_analyze_returns_ranked_results(self, auth_client, mock_agent_pipeline):
+    def test_batch_analyze_returns_ranked_results(self, auth_client, mock_hybrid_pipeline):
         files = [
             ("resumes", make_resume_file("r1.txt")),
             ("resumes", make_resume_file("r2.txt")),

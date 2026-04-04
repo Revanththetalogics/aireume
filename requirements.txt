@@ -8,6 +8,13 @@ httpx==0.28.1
 pydantic==2.10.6
 python-dateutil==2.9.0
 
+# Hybrid parsing — fast, deterministic, no large model downloads
+rapidfuzz>=3.6
+flashtext>=2.7
+PyMuPDF>=1.24
+dateparser>=1.2
+unidecode>=1.3
+
 # Auth & multi-tenancy
 # bcrypt 4.x removed __about__ which passlib 1.7.4 requires; pin to last compatible version
 bcrypt==3.2.2

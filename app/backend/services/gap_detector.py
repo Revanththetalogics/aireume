@@ -12,8 +12,14 @@ lives in the LLM agents. This module is responsible ONLY for:
 import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
-from dateutil import parser as date_parser
 from dateutil.relativedelta import relativedelta
+
+try:
+    import dateparser as _dateparser
+    _HAS_DATEPARSER = True
+except ImportError:
+    from dateutil import parser as _dateutil_parser  # type: ignore
+    _HAS_DATEPARSER = False
 
 
 # ─── Date utilities ────────────────────────────────────────────────────────────
@@ -25,17 +31,24 @@ def _to_ym(date_str: Optional[str]) -> Optional[str]:
     s = str(date_str).strip()
     if s.lower() in ("present", "current", "now"):
         return datetime.now().strftime("%Y-%m")
-    # Bare 4-digit year — default to January to avoid dateutil assuming current month
+    # Bare 4-digit year — default to January
     if re.match(r"^(?:19|20)\d{2}$", s):
         return f"{s}-01"
     try:
-        dt = date_parser.parse(s, fuzzy=True)
-        return dt.strftime("%Y-%m")
+        if _HAS_DATEPARSER:
+            # dateparser handles "Q1 2020", "early 2020", "Jan–Mar 2019", international formats
+            settings = {"PREFER_DAY_OF_MONTH": "first", "RETURN_AS_TIMEZONE_AWARE": False}
+            dt = _dateparser.parse(s, settings=settings)
+        else:
+            dt = _dateutil_parser.parse(s, fuzzy=True)
+        if dt:
+            return dt.strftime("%Y-%m")
     except Exception:
-        m = re.search(r"\b((?:19|20)\d{2})\b", s)
-        if m:
-            return f"{m.group(0)}-01"
-        return None
+        pass
+    m = re.search(r"\b((?:19|20)\d{2})\b", s)
+    if m:
+        return f"{m.group(0)}-01"
+    return None
 
 
 def _ym_to_dt(ym: str) -> datetime:

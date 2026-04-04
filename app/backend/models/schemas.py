@@ -3,6 +3,28 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
+# ─── Candidate deduplication & re-analysis ────────────────────────────────────
+
+class DuplicateCandidateInfo(BaseModel):
+    """Returned when an uploaded resume matches an existing candidate in the DB."""
+    id:              int
+    name:            Optional[str]  = None
+    email:           Optional[str]  = None
+    current_role:    Optional[str]  = None
+    current_company: Optional[str]  = None
+    total_years_exp: Optional[float] = None
+    skills_snapshot: List[str]      = []
+    result_count:    int            = 0
+    last_analyzed:   Optional[datetime] = None
+    profile_quality: Optional[str]  = None
+
+
+class AnalyzeJdRequest(BaseModel):
+    """Body for POST /api/candidates/{id}/analyze-jd (no file upload needed)."""
+    job_description: str
+    scoring_weights: Optional[Dict[str, float]] = None
+
+
 # ─── Core analysis ────────────────────────────────────────────────────────────
 
 class EmploymentGap(BaseModel):
@@ -87,7 +109,7 @@ class AnalysisResponse(BaseModel):
     candidate_name:       Optional[str] = None
     work_experience:      Optional[List[Any]] = []
     contact_info:         Optional[Dict[str, Any]] = None
-    # ── New LangGraph pipeline fields ──
+    # ── New hybrid pipeline fields ──
     jd_analysis:              Optional[Dict[str, Any]] = None
     candidate_profile:        Optional[Dict[str, Any]] = None
     skill_analysis:           Optional[Dict[str, Any]] = None
@@ -96,6 +118,10 @@ class AnalysisResponse(BaseModel):
     recommendation_rationale: Optional[str] = None
     adjacent_skills:          Optional[List[str]] = []
     pipeline_errors:          Optional[List[str]] = []
+    # ── Production hardening fields ──
+    analysis_quality:   Optional[str] = None   # high | medium | low
+    narrative_pending:  Optional[bool] = False  # True if LLM timed out, Python scores still valid
+    duplicate_candidate: Optional[DuplicateCandidateInfo] = None
 
 
 class BatchAnalysisResult(BaseModel):

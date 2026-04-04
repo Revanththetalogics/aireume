@@ -199,11 +199,11 @@ def mock_whisper():
 
 
 @pytest.fixture
-def mock_agent_pipeline():
-    """Mock the full agent pipeline to avoid Ollama calls in analyze tests."""
+def mock_hybrid_pipeline():
+    """Mock the hybrid pipeline to avoid Ollama calls in analyze route tests."""
     pipeline_result = {
-        # Backward-compat core fields
         "fit_score": 75,
+        "job_role": "Senior Python Engineer",
         "strengths": ["Strong Python skills", "Good communication"],
         "weaknesses": ["Limited cloud experience"],
         "education_analysis": "Solid CS background — relevant degree.",
@@ -215,50 +215,76 @@ def mock_agent_pipeline():
             "stability": 90, "education": 70,
             "architecture": 65, "domain_fit": 78, "timeline": 90, "risk_penalty": 5,
         },
-        "matched_skills": ["Python", "React"],
-        "missing_skills": ["Kubernetes"],
+        "matched_skills": ["python", "react"],
+        "missing_skills": ["kubernetes"],
+        "adjacent_skills": ["docker"],
         "risk_level": "Low",
         "interview_questions": {
             "technical_questions": ["Explain FastAPI dependency injection."],
             "behavioral_questions": ["Tell me about a challenging project."],
             "culture_fit_questions": ["How do you handle tight deadlines?"],
         },
-        "required_skills_count": 5,
-        # New LangGraph fields
+        "required_skills_count": 3,
         "jd_analysis": {
             "role_title": "Senior Python Engineer", "domain": "backend",
-            "seniority": "senior", "required_skills": ["Python", "Kubernetes"],
-            "required_years": 5, "nice_to_have_skills": [], "key_responsibilities": [],
+            "seniority": "senior", "required_skills": ["python", "kubernetes"],
+            "required_years": 5, "nice_to_have_skills": ["docker"], "key_responsibilities": [],
         },
         "candidate_profile": {
-            "name": "John Doe", "skills_identified": ["Python", "React"],
-            "education": {"degree": "BSc", "field": "CS",
-                          "institution": "University", "gpa_or_distinction": None},
-            "career_summary": "Experienced Python developer.",
+            "name": "John Doe", "skills_identified": ["python", "react"],
+            "career_summary": "Senior Dev at TechCorp — 6 years total experience",
             "total_effective_years": 6.0,
             "current_role": "Senior Dev", "current_company": "TechCorp",
+            "education": [{"degree": "BSc Computer Science", "field": "computer science"}],
         },
         "skill_analysis": {
-            "matched_skills": ["Python", "React"], "missing_skills": ["Kubernetes"],
-            "adjacent_skills": ["Docker"], "skill_score": 80,
-            "domain_fit_score": 78, "architecture_score": 65,
-            "domain_fit_comment": "Good backend alignment.",
-            "architecture_comment": "Some distributed systems experience.",
+            "matched_skills": ["python", "react"], "missing_skills": ["kubernetes"],
+            "adjacent_skills": ["docker"], "skill_score": 80, "required_count": 3,
         },
         "edu_timeline_analysis": {
-            "education_score": 70, "education_analysis": "Solid CS background.",
-            "field_alignment": "aligned", "timeline_score": 90,
-            "timeline_analysis": "Stable career.", "gap_interpretation": "No gaps.",
+            "education_score": 70, "timeline_text": "Continuous employment — no significant gaps.",
+            "employment_gaps": [], "overlapping_jobs": [], "short_stints": [],
         },
         "explainability": {
             "skill_rationale": "2 of 3 required skills matched.",
+            "experience_rationale": "6 years vs 5 required.",
             "overall_rationale": "Solid candidate with a minor skills gap.",
         },
         "recommendation_rationale": "Score 75/100 — Consider.",
-        "adjacent_skills": ["Docker"],
+        "work_experience": [
+            {"title": "Senior Dev", "company": "TechCorp",
+             "start_date": "Jan 2020", "end_date": "present"},
+        ],
+        "contact_info": {"name": "John Doe", "email": "john@example.com"},
+        "analysis_quality": "high",
+        "narrative_pending": False,
         "pipeline_errors": [],
     }
-    with patch("app.backend.routes.analyze.run_agent_pipeline", new_callable=AsyncMock) as mock:
+    with patch("app.backend.routes.analyze.run_hybrid_pipeline", new_callable=AsyncMock) as mock:
+        mock.return_value = pipeline_result
+        yield mock
+
+
+@pytest.fixture
+def mock_agent_pipeline():
+    """Legacy fixture — now wraps mock_hybrid_pipeline for backward compatibility."""
+    pipeline_result = {
+        "fit_score": 75,
+        "job_role": "Senior Python Engineer",
+        "strengths": ["Strong Python skills"], "weaknesses": ["Limited cloud experience"],
+        "education_analysis": "Solid CS background.", "risk_signals": [],
+        "final_recommendation": "Consider", "employment_gaps": [],
+        "score_breakdown": {"skill_match": 80, "experience_match": 70, "stability": 90, "education": 70},
+        "matched_skills": ["python"], "missing_skills": ["kubernetes"],
+        "adjacent_skills": [], "risk_level": "Low",
+        "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},
+        "required_skills_count": 3,
+        "jd_analysis": {}, "candidate_profile": {}, "skill_analysis": {},
+        "edu_timeline_analysis": {}, "explainability": {}, "recommendation_rationale": "",
+        "work_experience": [], "contact_info": {},
+        "analysis_quality": "high", "narrative_pending": False, "pipeline_errors": [],
+    }
+    with patch("app.backend.routes.analyze.run_hybrid_pipeline", new_callable=AsyncMock) as mock:
         mock.return_value = pipeline_result
         yield mock
 
