@@ -190,6 +190,8 @@ async def llm_status():
         return result
 
     # Build human-readable diagnosis
+    narrative_hot = any(target_model in m for m in result["running_models"])
+
     if not result["narrative_model_ready"] and not result["fast_model_ready"]:
         result["diagnosis"] = (
             f"Neither '{target_model}' nor '{fast_model}' is pulled. "
@@ -200,13 +202,13 @@ async def llm_status():
             f"Narrative model '{target_model}' not pulled — LLM narrative will fall back. "
             f"Run: docker exec resume-screener-ollama ollama pull {target_model}"
         )
-    elif result["narrative_model_ready"] and not result["running_models"]:
+    elif not narrative_hot:
         result["diagnosis"] = (
-            f"'{target_model}' is pulled but not yet loaded into RAM. "
-            "First request will have a cold-start delay (2–5 min on CPU). "
-            "Subsequent requests will be fast."
+            f"'{target_model}' is pulled but NOT loaded in RAM (cold). "
+            "First analysis will trigger a model load (2–5 min on CPU). "
+            f"Pre-warm now: docker exec resume-screener-ollama ollama run {target_model} 'Hi'"
         )
     else:
-        result["diagnosis"] = f"'{target_model}' is pulled and loaded. LLM narrative should be active."
+        result["diagnosis"] = f"'{target_model}' is pulled and HOT in RAM. LLM narrative is active."
 
     return result
