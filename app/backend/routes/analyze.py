@@ -230,25 +230,49 @@ async def analyze_stream_endpoint(
     tenant_id = current_user.tenant_id
 
     async def event_stream():
-        accumulated: dict = {}   # accumulate node outputs to reconstruct final state
+        accumulated: dict = {}
+        # Queue bridges the background pipeline task and the SSE generator.
+        # Sentinel None signals pipeline completion.
+        queue: asyncio.Queue = asyncio.Queue()
 
+        async def _run_pipeline():
+            try:
+                async for event in pipeline.astream_events(initial_state, version="v2"):
+                    event_type = event.get("event", "")
+                    node_name  = (
+                        event.get("metadata", {}).get("langgraph_node")
+                        or event.get("name", "")
+                    )
+                    if event_type == "on_chain_end" and node_name in STREAMABLE_NODES:
+                        node_output = event.get("data", {}).get("output", {})
+                        accumulated.update(node_output)
+                        await queue.put({"stage": node_name, "result": node_output})
+            except Exception as exc:
+                await queue.put({"stage": "error", "result": {"message": str(exc)}})
+            finally:
+                await queue.put(None)   # sentinel
+
+        task = asyncio.create_task(_run_pipeline())
+
+        # Drain the queue; send a heartbeat comment every 5 s of silence so
+        # Cloudflare / nginx never issues a 524 / 502 gateway timeout.
         try:
-            async for event in pipeline.astream_events(initial_state, version="v2"):
-                event_type = event.get("event", "")
-                node_name  = (
-                    event.get("metadata", {}).get("langgraph_node")
-                    or event.get("name", "")
-                )
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"   # SSE comment — keeps connection alive
+                    continue
 
-                if event_type == "on_chain_end" and node_name in STREAMABLE_NODES:
-                    node_output = event.get("data", {}).get("output", {})
-                    accumulated.update(node_output)
-                    payload = {"stage": node_name, "result": node_output}
-                    yield f"data: {json.dumps(payload)}\n\n"
-
-        except Exception as exc:
-            error_payload = {"stage": "error", "result": {"message": str(exc)}}
-            yield f"data: {json.dumps(error_payload)}\n\n"
+                if item is None:         # pipeline finished
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+        finally:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
 
         # Assemble final result from accumulated state
         final_state = {**initial_state, **accumulated}
