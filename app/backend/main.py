@@ -117,7 +117,7 @@ async def health_check():
         checks["db"] = f"error: {str(e)[:80]}"
         checks["status"] = "degraded"
 
-    # Ollama check
+    # Ollama reachability check
     ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -129,3 +129,84 @@ async def health_check():
         checks["status"] = "degraded"
 
     return checks
+
+
+@app.get("/api/llm-status")
+async def llm_status():
+    """
+    Diagnostic endpoint — shows which Ollama models are pulled, which model
+    ARIA uses for narrative, and whether it is available.
+
+    Call this from the VPS to diagnose why analysis falls back to Python:
+      curl http://localhost:8000/api/llm-status
+    """
+    import httpx
+
+    ollama_url  = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    target_model = os.getenv("OLLAMA_MODEL", "gemma4:26b")
+    fast_model   = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b")
+
+    result: dict = {
+        "ollama_url":      ollama_url,
+        "narrative_model": target_model,
+        "fast_model":      fast_model,
+        "ollama_reachable": False,
+        "pulled_models":   [],
+        "narrative_model_ready": False,
+        "fast_model_ready":      False,
+        "running_models":  [],
+        "diagnosis":       "",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # List pulled models
+            tags_resp = await client.get(f"{ollama_url}/api/tags")
+            tags_resp.raise_for_status()
+            result["ollama_reachable"] = True
+            models_data = tags_resp.json().get("models", [])
+            result["pulled_models"] = [m["name"] for m in models_data]
+
+            # Check if required models are pulled
+            result["narrative_model_ready"] = any(
+                target_model in m for m in result["pulled_models"]
+            )
+            result["fast_model_ready"] = any(
+                fast_model in m for m in result["pulled_models"]
+            )
+
+            # List currently loaded (hot) models
+            try:
+                ps_resp = await client.get(f"{ollama_url}/api/ps")
+                if ps_resp.status_code == 200:
+                    result["running_models"] = [
+                        m["name"] for m in ps_resp.json().get("models", [])
+                    ]
+            except Exception:
+                pass
+
+    except Exception as e:
+        result["diagnosis"] = f"Ollama unreachable: {str(e)[:120]}"
+        return result
+
+    # Build human-readable diagnosis
+    if not result["narrative_model_ready"] and not result["fast_model_ready"]:
+        result["diagnosis"] = (
+            f"Neither '{target_model}' nor '{fast_model}' is pulled. "
+            f"Run: docker exec resume-screener-ollama ollama pull {target_model}"
+        )
+    elif not result["narrative_model_ready"]:
+        result["diagnosis"] = (
+            f"Narrative model '{target_model}' not pulled — LLM narrative will fall back. "
+            f"Run: docker exec resume-screener-ollama ollama pull {target_model}"
+        )
+    elif result["narrative_model_ready"] and not result["running_models"]:
+        result["diagnosis"] = (
+            f"'{target_model}' is pulled but not yet loaded into RAM. "
+            "First request will have a cold-start delay (2–5 min on CPU). "
+            "Subsequent requests will be fast."
+        )
+    else:
+        result["diagnosis"] = f"'{target_model}' is pulled and loaded. LLM narrative should be active."
+
+    return result

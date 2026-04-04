@@ -777,6 +777,14 @@ def score_experience_rules(
     actual_years   = candidate_profile.get("total_effective_years", 0.0)
     required_years = jd_analysis.get("required_years", 0)
 
+    # ── Fallback: if dates couldn't be parsed but work entries exist, estimate ─
+    # Avoids showing 0% experience when the resume has jobs but ambiguous dates.
+    if actual_years == 0.0:
+        work_exp = candidate_profile.get("work_experience", [])
+        if work_exp:
+            # Conservative: 1.5 years per listed job role, capped at 15 years
+            actual_years = float(min(15, len(work_exp) * 1.5))
+
     # ── Experience score ──────────────────────────────────────────────────────
     if required_years == 0:
         exp_score = min(100, int(actual_years * 10))
@@ -1240,11 +1248,27 @@ async def run_hybrid_pipeline(
         },
     }
 
+    # Timeout: 150s to survive gemma4:26b cold-start on CPU (first load ~2 min).
+    # Subsequent requests are served from the hot model and typically finish in 30-60s.
+    _LLM_TIMEOUT = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+
     try:
         async with _get_semaphore():
-            llm_result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=85.0)
-    except (asyncio.TimeoutError, Exception) as e:
-        log.warning("LLM explain failed (%s) — using fallback narrative", type(e).__name__)
+            llm_result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_LLM_TIMEOUT)
+        log.info("LLM narrative succeeded for fit_score=%s", python_result.get("fit_score"))
+    except asyncio.TimeoutError:
+        log.warning(
+            "LLM explain timed out after %.0fs — using fallback narrative. "
+            "Model may still be loading. Consider increasing LLM_NARRATIVE_TIMEOUT env var.",
+            _LLM_TIMEOUT,
+        )
+        llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
+        python_result["narrative_pending"] = True
+    except Exception as e:
+        log.warning(
+            "LLM explain failed (%s: %s) — using fallback narrative",
+            type(e).__name__, str(e)[:200],
+        )
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
         python_result["narrative_pending"] = True
 
@@ -1290,13 +1314,28 @@ async def astream_hybrid_pipeline(
     # Phase 2 — LLM with heartbeat pings to keep Cloudflare/Nginx alive
     llm_queue: asyncio.Queue = asyncio.Queue()
 
+    _LLM_TIMEOUT_STREAM = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+
     async def _llm_task():
         try:
             async with _get_semaphore():
-                result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=85.0)
+                result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_LLM_TIMEOUT_STREAM)
+            log.info("LLM stream narrative succeeded")
             await llm_queue.put(("ok", result))
-        except (asyncio.TimeoutError, Exception) as e:
-            log.warning("LLM timed out or failed in stream (%s) — using fallback", type(e).__name__)
+        except asyncio.TimeoutError:
+            log.warning(
+                "LLM stream timed out after %.0fs — using fallback. "
+                "Increase LLM_NARRATIVE_TIMEOUT if model is still loading.",
+                _LLM_TIMEOUT_STREAM,
+            )
+            fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])
+            python_result["narrative_pending"] = True
+            await llm_queue.put(("fallback", fallback))
+        except Exception as e:
+            log.warning(
+                "LLM stream failed (%s: %s) — using fallback",
+                type(e).__name__, str(e)[:200],
+            )
             fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])
             python_result["narrative_pending"] = True
             await llm_queue.put(("fallback", fallback))

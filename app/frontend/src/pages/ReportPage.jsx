@@ -11,7 +11,7 @@ import { labelTrainingExample, updateResultStatus, updateCandidateName } from '.
 
 function InlineNameEditor({ initialName, candidateId, onSaved }) {
   const [editing, setEditing]   = useState(false)
-  const [value, setValue]       = useState(initialName || 'Candidate')
+  const [value, setValue]       = useState(initialName || '')
   const [saving, setSaving]     = useState(false)
   const inputRef = useRef(null)
 
@@ -51,16 +51,30 @@ function InlineNameEditor({ initialName, candidateId, onSaved }) {
     )
   }
 
+  const hasName = value && value.trim()
+
   return (
     <div className="flex items-center gap-2 group">
-      <h1 className="text-xl font-extrabold text-brand-900 tracking-tight">{value}</h1>
-      <button
-        onClick={() => setEditing(true)}
-        className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-all"
-        title="Edit candidate name"
-      >
-        <Pencil className="w-3.5 h-3.5" />
-      </button>
+      {hasName ? (
+        <h1 className="text-xl font-extrabold text-brand-900 tracking-tight">{value}</h1>
+      ) : (
+        <button
+          onClick={() => setEditing(true)}
+          className="text-xl font-extrabold text-brand-300 tracking-tight hover:text-brand-500 transition-colors italic"
+          title="Click to add candidate name"
+        >
+          Add name…
+        </button>
+      )}
+      {hasName && (
+        <button
+          onClick={() => setEditing(true)}
+          className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-all"
+          title="Edit candidate name"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   )
 }
@@ -75,9 +89,16 @@ export default function ReportPage() {
   const [labelLoading, setLabelLoading] = useState(false)
   const [labelDone, setLabelDone]       = useState(false)
 
+  /** Resolve name from all possible result paths — returns null if unknown */
+  const resolveName = (r) =>
+    (r?.candidate_name || '').trim() ||
+    (r?.contact_info?.name || '').trim() ||
+    (r?.candidate_profile?.name || '').trim() ||
+    null
+
   useEffect(() => {
     if (result) {
-      setCandidateName(result.candidate_name || result.contact_info?.name || 'Candidate')
+      setCandidateName(resolveName(result))
       return
     }
     const params = new URLSearchParams(location.search)
@@ -88,7 +109,7 @@ export default function ReportPage() {
         if (stored) {
           const parsed = JSON.parse(stored)
           setResult(parsed)
-          setCandidateName(parsed.candidate_name || parsed.contact_info?.name || 'Candidate')
+          setCandidateName(resolveName(parsed))
           return
         }
       } catch { /* ignore */ }
@@ -161,6 +182,19 @@ export default function ReportPage() {
             <p className="text-xs text-slate-400 mt-0.5">Powered by ARIA · ThetaLogics</p>
           </div>
         </div>
+
+        {/* LLM vs fallback indicator in sidebar */}
+        {result.narrative_pending ? (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 ring-1 ring-amber-200 text-xs font-semibold text-amber-700">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            Python scores · LLM offline
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 ring-1 ring-green-200 text-xs font-semibold text-green-700">
+            <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+            AI narrative · LLM active
+          </div>
+        )}
 
         {/* Score gauge */}
         <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4 flex flex-col items-center">
@@ -244,7 +278,7 @@ export default function ReportPage() {
           {/* Print-only header */}
           <div className="hidden print:block mb-4">
             <span className="text-xs font-bold text-brand-600 uppercase tracking-widest">Screening Report</span>
-            <h1 className="text-2xl font-extrabold text-brand-900">{candidateName}</h1>
+            <h1 className="text-2xl font-extrabold text-brand-900">{candidateName || 'Unknown Candidate'}</h1>
             {role && <p className="text-slate-500">{role}</p>}
             <p className="text-sm text-slate-400">Analyzed on {timestamp} · Powered by ARIA · ThetaLogics</p>
           </div>

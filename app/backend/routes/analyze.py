@@ -423,9 +423,13 @@ async def analyze_endpoint(
 
     result["result_id"]    = db_result.id
     result["candidate_id"] = candidate_id
+
+    # Resolve name: try multiple sources, skip empty strings
+    _cand_row = db.get(Candidate, candidate_id)
     result["candidate_name"] = (
-        parsed_data.get("contact_info", {}).get("name")
-        or result.get("candidate_profile", {}).get("name")
+        (parsed_data.get("contact_info", {}).get("name") or "").strip()
+        or (result.get("candidate_profile", {}).get("name") or "").strip()
+        or (_cand_row.name if _cand_row and _cand_row.name else None)
         or None
     )
 
@@ -555,9 +559,11 @@ async def analyze_stream_endpoint(
 
             final_result["result_id"]    = db_result.id
             final_result["candidate_id"] = candidate_id
+            _cand_row_s = db.get(Candidate, candidate_id)
             final_result["candidate_name"] = (
-                parsed_data.get("contact_info", {}).get("name")
-                or final_result.get("candidate_profile", {}).get("name")
+                (parsed_data.get("contact_info", {}).get("name") or "").strip()
+                or (final_result.get("candidate_profile", {}).get("name") or "").strip()
+                or (_cand_row_s.name if _cand_row_s and _cand_row_s.name else None)
                 or None
             )
             if is_dup and action not in ("update_profile", "create_new"):

@@ -86,6 +86,9 @@ services:
       # Combined RAM: ~27.6 GB — comfortably within the 34 GB Ollama container limit.
       - OLLAMA_FAST_MODEL=gemma4:e4b
       - OLLAMA_MODEL=gemma4:26b
+      # LLM timeout: 150s survives gemma4:26b cold-start on CPU.
+      # Increase to 300 if the model is still not responding on first load.
+      - LLM_NARRATIVE_TIMEOUT=150
     depends_on:
       postgres:
         condition: service_healthy
