@@ -79,11 +79,13 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD:-Itslogical1.}@postgres:5432/${POSTGRES_DB:-aria_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - ENVIRONMENT=production
-      # gemma4:4b — fast agents (JD parser, resume parser, skill matcher, edu/timeline, interview Qs)
-      # gemma4:12b — reasoning agent (scorer/explainer): better rationale & JSON compliance than llama3:8b
-      # Both fit in 34 GB Ollama budget (~11 GB total); no model eviction under normal load.
-      - OLLAMA_FAST_MODEL=gemma4:4b
-      - OLLAMA_MODEL=gemma4:12b
+      # gemma4:e4b  — edge 4B fast model (9.6 GB): JD parser, resume parser, skill matcher,
+      #               edu/timeline analyser, interview questions. 128K context, multimodal.
+      # gemma4:26b  — MoE 26B reasoning model (18 GB, only 4B active params per token):
+      #               scorer/explainer. MoE gives high-quality reasoning at ~4B inference speed.
+      # Combined RAM: ~27.6 GB — comfortably within the 34 GB Ollama container limit.
+      - OLLAMA_FAST_MODEL=gemma4:e4b
+      - OLLAMA_MODEL=gemma4:26b
     depends_on:
       postgres:
         condition: service_healthy
