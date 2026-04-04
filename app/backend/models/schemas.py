@@ -51,6 +51,8 @@ class AnalysisResponse(BaseModel):
     interview_questions: Optional[InterviewQuestions] = None
     required_skills_count: Optional[int] = 0
     result_id: Optional[int] = None
+    candidate_id: Optional[int] = None
+    candidate_name: Optional[str] = None
 
 
 class BatchAnalysisResult(BaseModel):
@@ -117,6 +119,10 @@ class StatusUpdate(BaseModel):
 
 
 # ─── Candidates ───────────────────────────────────────────────────────────────
+
+class CandidateNameUpdate(BaseModel):
+    name: str
+
 
 class CandidateOut(BaseModel):
     id: int

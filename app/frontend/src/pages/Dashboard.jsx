@@ -2,32 +2,25 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Sparkles, CheckCircle, Loader2, Zap, Shield, Brain } from 'lucide-react'
 import UploadForm from '../components/UploadForm'
-import NavBar from '../components/NavBar'
 import { analyzeResume } from '../lib/api'
 
 const AGENT_STEPS = [
-  { id: 'parse', label: 'Agent 1 — Parsing resume & extracting profile',  duration: 3000  },
-  { id: 'score', label: 'Agent 2 — Running deterministic scoring engine', duration: 2000  },
+  { id: 'parse', label: 'Agent 1 — Parsing resume & extracting profile',   duration: 3000  },
+  { id: 'score', label: 'Agent 2 — Running deterministic scoring engine',  duration: 2000  },
   { id: 'llm',   label: 'Agent 3 — Generating qualitative insights (LLM)', duration: 45000 },
   { id: 'done',  label: 'Pipeline complete — Rendering results',           duration: 500   },
 ]
 
-const FEATURE_PILLS = [
-  { icon: Zap,    label: '3-Agent Pipeline' },
-  { icon: Brain,  label: 'LLM Insights' },
-  { icon: Shield, label: 'On-prem · Zero Data Leak' },
-]
-
-function AgentProgressIndicator({ activeStep }) {
+function AgentProgressPanel({ activeStep }) {
   return (
-    <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-lg p-6 card-animate">
+    <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-lg p-6 card-animate h-full flex flex-col">
       <div className="flex items-center gap-2.5 mb-5">
         <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center">
           <Sparkles className="w-4 h-4 text-brand-600 animate-pulse" />
         </div>
         <h3 className="font-semibold text-brand-900">Agent Pipeline Running</h3>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-3 flex-1">
         {AGENT_STEPS.slice(0, 3).map((step, idx) => {
           const stepIdx = AGENT_STEPS.findIndex(s => s.id === activeStep)
           const isDone   = idx < stepIdx
@@ -60,6 +53,51 @@ function AgentProgressIndicator({ activeStep }) {
       <p className="text-xs text-slate-400 mt-4 text-center">
         Agent 3 (LLM) typically takes 20–40 s — report opens when complete
       </p>
+    </div>
+  )
+}
+
+function IdlePanel() {
+  const features = [
+    { icon: Zap,    title: '3-Agent Pipeline',       desc: 'Parse → Score → LLM insights in one shot' },
+    { icon: Brain,  title: 'On-prem LLM',            desc: 'llama3 runs locally — no data leaves your VPS' },
+    { icon: Shield, title: 'Zero Data Leak',         desc: 'Resumes & JDs never touch external APIs' },
+  ]
+  return (
+    <div className="flex flex-col gap-4 h-full">
+      <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 card-animate">
+        <div className="inline-flex items-center gap-2 px-3 py-1 bg-brand-50 text-brand-700 text-xs font-semibold rounded-full ring-1 ring-brand-200 mb-3">
+          <Sparkles className="w-3.5 h-3.5" />
+          AI-Powered Resume Screening
+        </div>
+        <h2 className="text-xl font-extrabold tracking-tight mb-1">
+          <span className="text-gradient">Screen a Candidate</span>
+        </h2>
+        <p className="text-slate-500 text-sm leading-relaxed">
+          Upload a resume and job description. ARIA's 3-agent pipeline will analyse fit, score, and generate a full report.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3 flex-1">
+        {features.map(({ icon: Icon, title, desc }) => (
+          <div key={title} className="bg-white/70 backdrop-blur-sm rounded-2xl ring-1 ring-brand-100 p-4 flex items-start gap-3 card-animate">
+            <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+              <Icon className="w-4 h-4 text-brand-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-brand-900">{title}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="text-center py-2">
+        <div className="inline-flex items-center gap-2 text-xs text-slate-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+          Enterprise Agent Pipeline · llama3 on-prem · No data leaves your VPS
+        </div>
+      </div>
     </div>
   )
 }
@@ -124,62 +162,40 @@ export default function Dashboard() {
   useEffect(() => () => clearStepTimer(), [])
 
   return (
-    <div className="min-h-screen bg-surface">
-      <NavBar />
-
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {/* Hero text */}
-        <div className="text-center mb-10 card-animate">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-brand-50 text-brand-700 text-xs font-semibold rounded-full ring-1 ring-brand-200 mb-5">
-            <Sparkles className="w-3.5 h-3.5" />
-            AI-Powered Resume Screening
-          </div>
-          <h2 className="text-4xl font-extrabold tracking-tight mb-3">
-            <span className="text-gradient">Screen a Candidate</span>
-          </h2>
-          <p className="text-slate-500 text-lg leading-relaxed max-w-xl mx-auto">
-            Upload a resume and job description. ARIA's 3-agent pipeline will analyze fit, score, and generate a full report.
-          </p>
-
-          {/* Feature pills */}
-          <div className="flex flex-wrap items-center justify-center gap-2 mt-5">
-            {FEATURE_PILLS.map(({ icon: Icon, label }) => (
-              <span key={label} className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 bg-white ring-1 ring-slate-200 rounded-full px-3 py-1">
-                <Icon className="w-3.5 h-3.5 text-brand-500" />
-                {label}
-              </span>
-            ))}
-          </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 h-full">
+      <div className="flex gap-8 h-full items-start">
+        {/* Left: Upload form (wider) */}
+        <div className="flex-1 min-w-0">
+          <UploadForm
+            onFileSelect={setSelectedFile}
+            jobDescription={jobDescription}
+            onJobDescriptionChange={setJobDescription}
+            onJobFileSelect={setSelectedJobFile}
+            onSubmit={handleSubmit}
+            isLoading={isLoading}
+            selectedFile={selectedFile}
+            selectedJobFile={selectedJobFile}
+            error={error}
+            scoringWeights={scoringWeights}
+            onScoringWeightsChange={setScoringWeights}
+          />
         </div>
 
-        <UploadForm
-          onFileSelect={setSelectedFile}
-          jobDescription={jobDescription}
-          onJobDescriptionChange={setJobDescription}
-          onJobFileSelect={setSelectedJobFile}
-          onSubmit={handleSubmit}
-          isLoading={isLoading}
-          selectedFile={selectedFile}
-          selectedJobFile={selectedJobFile}
-          error={error}
-          scoringWeights={scoringWeights}
-          onScoringWeightsChange={setScoringWeights}
-        />
-
-        {/* Agent progress */}
-        {isLoading && activeStep && activeStep !== 'done' && (
-          <div className="mt-6">
-            <AgentProgressIndicator activeStep={activeStep} />
-          </div>
-        )}
-      </main>
-
-      <footer className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
-        <div className="inline-flex items-center gap-2 text-xs text-slate-400">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-          Enterprise Agent Pipeline · 3-Agent Architecture · Powered by llama3 on-prem · No data leaves your VPS
+        {/* Right: Info panel / agent progress */}
+        <div className="w-80 shrink-0 hidden lg:block" style={{ minHeight: '100%' }}>
+          {isLoading && activeStep && activeStep !== 'done'
+            ? <AgentProgressPanel activeStep={activeStep} />
+            : <IdlePanel />
+          }
         </div>
-      </footer>
+      </div>
+
+      {/* Mobile agent progress (below form) */}
+      {isLoading && activeStep && activeStep !== 'done' && (
+        <div className="mt-6 lg:hidden">
+          <AgentProgressPanel activeStep={activeStep} />
+        </div>
+      )}
     </div>
   )
 }

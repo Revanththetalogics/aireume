@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useState, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X } from 'lucide-react'
-import { extractJdFromUrl } from '../lib/api'
+import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X, BookOpen, BookmarkPlus, Check } from 'lucide-react'
+import { extractJdFromUrl, getTemplates, createTemplate } from '../lib/api'
 
 const WEIGHT_PRESETS = {
   Balanced:        { skills: 0.40, experience: 0.35, stability: 0.15, education: 0.10 },
@@ -93,6 +93,46 @@ export default function UploadForm({
   const [urlError, setUrlError]           = useState('')
   const [showWeights, setShowWeights]     = useState(false)
   const localWeights = scoringWeights || { skills: 0.40, experience: 0.35, stability: 0.15, education: 0.10 }
+
+  // Saved JD library
+  const [savedJds, setSavedJds]           = useState([])
+  const [showJdPicker, setShowJdPicker]   = useState(false)
+  const [saveLoading, setSaveLoading]     = useState(false)
+  const [savedNotice, setSavedNotice]     = useState(false)
+  const pickerRef = useRef(null)
+
+  useEffect(() => {
+    getTemplates().then(setSavedJds).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowJdPicker(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const handleSaveJd = async () => {
+    if (!jobDescription.trim()) return
+    const name = window.prompt('Save JD as (enter a name):', `JD ${new Date().toLocaleDateString()}`)
+    if (!name) return
+    setSaveLoading(true)
+    try {
+      const saved = await createTemplate({ name: name.trim(), jd_text: jobDescription })
+      setSavedJds((prev) => [saved, ...prev])
+      setSavedNotice(true)
+      setTimeout(() => setSavedNotice(false), 2000)
+    } catch { /* ignore */ } finally {
+      setSaveLoading(false)
+    }
+  }
+
+  const handleLoadJd = (template) => {
+    onJobDescriptionChange(template.jd_text)
+    setJdMode('text')
+    setShowJdPicker(false)
+  }
 
   const onDrop = useCallback((acceptedFiles) => {
     if (acceptedFiles.length > 0) onFileSelect(acceptedFiles[0])
@@ -205,13 +245,61 @@ export default function UploadForm({
         {/* Job Description */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
-            <label className="block text-sm font-semibold text-slate-700">Job Description</label>
+            <div className="flex items-center gap-2">
+              <label className="block text-sm font-semibold text-slate-700">Job Description</label>
+
+              {/* Save JD button */}
+              <button
+                type="button"
+                onClick={handleSaveJd}
+                disabled={saveLoading || !jobDescription.trim()}
+                title="Save this JD"
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-brand-700 hover:bg-brand-50 disabled:opacity-40 transition-colors"
+              >
+                {savedNotice
+                  ? <><Check className="w-3.5 h-3.5 text-green-600" /> <span className="text-green-600">Saved!</span></>
+                  : saveLoading
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <><BookmarkPlus className="w-3.5 h-3.5" /> Save</>
+                }
+              </button>
+
+              {/* Load from saved JDs */}
+              <div className="relative" ref={pickerRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowJdPicker((v) => !v)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-brand-700 hover:bg-brand-50 transition-colors"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  Saved JDs {savedJds.length > 0 && <span className="ml-0.5 bg-brand-100 text-brand-700 rounded-full px-1.5">{savedJds.length}</span>}
+                </button>
+                {showJdPicker && (
+                  <div className="absolute left-0 top-full mt-1 w-64 bg-white border border-brand-100 rounded-2xl shadow-brand-lg z-30 max-h-56 overflow-y-auto py-1">
+                    {savedJds.length === 0 ? (
+                      <p className="text-xs text-slate-400 px-4 py-3">No saved JDs yet. Paste a JD and click Save.</p>
+                    ) : savedJds.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => handleLoadJd(t)}
+                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-brand-50 transition-colors"
+                      >
+                        <p className="font-medium text-slate-800 truncate">{t.name}</p>
+                        <p className="text-xs text-slate-400 truncate mt-0.5">{t.jd_text.slice(0, 60)}…</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Pill tab switcher */}
             <div className="flex bg-brand-50 ring-1 ring-brand-100 rounded-xl p-1">
               {[
-                { mode: 'text', Icon: Type,     label: 'Text' },
-                { mode: 'file', Icon: FileUp,   label: 'File' },
-                { mode: 'url',  Icon: Link2,    label: 'URL'  },
+                { mode: 'text', Icon: Type,   label: 'Text' },
+                { mode: 'file', Icon: FileUp, label: 'File' },
+                { mode: 'url',  Icon: Link2,  label: 'URL'  },
               ].map(({ mode, Icon, label }) => (
                 <button
                   key={mode}

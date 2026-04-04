@@ -152,6 +152,11 @@ export async function getCandidate(id) {
   return res.data
 }
 
+export async function updateCandidateName(candidateId, name) {
+  const res = await api.patch(`/candidates/${candidateId}`, { name })
+  return res.data
+}
+
 // ─── Email Generation ─────────────────────────────────────────────────────────
 
 export async function generateEmail(candidateId, type) {

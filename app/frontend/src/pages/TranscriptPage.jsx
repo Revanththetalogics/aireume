@@ -5,7 +5,6 @@ import {
   XCircle, MinusCircle, ChevronRight, ChevronLeft, User, Briefcase,
   Video, MessageSquareText, BarChart2, ShieldCheck, History,
 } from 'lucide-react'
-import NavBar from '../components/NavBar'
 import {
   getCandidates, getTemplates, analyzeTranscript, getTranscriptAnalyses,
 } from '../lib/api'
@@ -183,8 +182,7 @@ export default function TranscriptPage() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-surface">
-      <NavBar />
+    <div>
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
         {/* Header */}

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LayoutTemplate, Plus, Trash2, Edit2, X, Save, Sparkles } from 'lucide-react'
-import NavBar from '../components/NavBar'
 import { getTemplates, createTemplate, updateTemplate, deleteTemplate } from '../lib/api'
 
 function TemplateModal({ template, onSave, onClose }) {
@@ -108,8 +107,7 @@ export default function TemplatesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
-      <NavBar />
+    <div>
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="flex items-center justify-between card-animate">
           <div>

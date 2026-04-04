@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Users, ChevronRight, X } from 'lucide-react'
-import NavBar from '../components/NavBar'
 import { getCandidates, getCandidate } from '../lib/api'
 
 function ScoreBadge({ score }) {
@@ -105,8 +104,7 @@ export default function CandidatesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
-      <NavBar />
+    <div>
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3 card-animate">
           <div>

@@ -8,7 +8,6 @@ import {
   Clock, ThumbsUp, HelpCircle, Eye, EyeOff,
   Users, BookOpen, Brain, TrendingDown
 } from 'lucide-react'
-import NavBar from '../components/NavBar'
 import { getCandidates, analyzeVideoFromUrl } from '../lib/api'
 
 const ALLOWED = ['.mp4', '.webm', '.avi', '.mov', '.mkv']
@@ -613,8 +612,7 @@ export default function VideoPage() {
   const activeSteps = inputMode === 'upload' ? STEPS_UPLOAD : STEPS_URL
 
   return (
-    <div className="min-h-screen bg-surface">
-      <NavBar />
+    <div>
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
         {/* Page header */}

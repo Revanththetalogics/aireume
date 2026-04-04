@@ -142,6 +142,8 @@ async def analyze_endpoint(
     db.refresh(db_result)
 
     result["result_id"] = db_result.id
+    result["candidate_id"] = candidate_id
+    result["candidate_name"] = parsed_data.get("contact_info", {}).get("name")
     return result
 
 

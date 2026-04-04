@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { GitCompare, Trophy, Check, Download } from 'lucide-react'
-import NavBar from '../components/NavBar'
 import { getHistory, compareResults, exportCsv } from '../lib/api'
 
 function ScoreCell({ value, isWinner, color = 'brand' }) {
@@ -55,8 +54,7 @@ export default function ComparePage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
-      <NavBar />
+    <div>
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="card-animate">
           <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Candidate Comparison</h2>

@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import AppShell from './components/AppShell'
 
 const Dashboard    = lazy(() => import('./pages/Dashboard'))
 const ReportPage   = lazy(() => import('./pages/ReportPage'))
@@ -17,9 +18,17 @@ const VideoPage    = lazy(() => import('./pages/VideoPage'))
 
 function PageLoader() {
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+    <div className="h-screen bg-surface flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
     </div>
+  )
+}
+
+function Shell({ children }) {
+  return (
+    <ProtectedRoute>
+      <AppShell>{children}</AppShell>
+    </ProtectedRoute>
   )
 }
 
@@ -28,18 +37,18 @@ function App() {
     <AuthProvider>
       <Suspense fallback={<PageLoader />}>
         <Routes>
-          <Route path="/login"    element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/"         element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/report"   element={<ProtectedRoute><ReportPage /></ProtectedRoute>} />
-          <Route path="/batch"    element={<ProtectedRoute><BatchPage /></ProtectedRoute>} />
-          <Route path="/candidates" element={<ProtectedRoute><CandidatesPage /></ProtectedRoute>} />
-          <Route path="/compare"  element={<ProtectedRoute><ComparePage /></ProtectedRoute>} />
-          <Route path="/templates" element={<ProtectedRoute><TemplatesPage /></ProtectedRoute>} />
-          <Route path="/team"       element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
-          <Route path="/transcript" element={<ProtectedRoute><TranscriptPage /></ProtectedRoute>} />
-          <Route path="/video"    element={<ProtectedRoute><VideoPage /></ProtectedRoute>} />
-          <Route path="*"         element={<Navigate to="/" replace />} />
+          <Route path="/login"      element={<LoginPage />} />
+          <Route path="/register"   element={<RegisterPage />} />
+          <Route path="/"           element={<Shell><Dashboard /></Shell>} />
+          <Route path="/report"     element={<Shell><ReportPage /></Shell>} />
+          <Route path="/batch"      element={<Shell><BatchPage /></Shell>} />
+          <Route path="/candidates" element={<Shell><CandidatesPage /></Shell>} />
+          <Route path="/compare"    element={<Shell><ComparePage /></Shell>} />
+          <Route path="/templates"  element={<Shell><TemplatesPage /></Shell>} />
+          <Route path="/team"       element={<Shell><TeamPage /></Shell>} />
+          <Route path="/transcript" element={<Shell><TranscriptPage /></Shell>} />
+          <Route path="/video"      element={<Shell><VideoPage /></Shell>} />
+          <Route path="*"           element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
     </AuthProvider>

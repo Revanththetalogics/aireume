@@ -2,7 +2,6 @@ import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, X, Loader2, Trophy, AlertTriangle, Download } from 'lucide-react'
-import NavBar from '../components/NavBar'
 import { analyzeBatch, exportCsv, exportExcel } from '../lib/api'
 
 function FitBadge({ score }) {
@@ -73,8 +72,7 @@ export default function BatchPage() {
   const allIds = results?.results?.map(r => r.result?.result_id).filter(Boolean) || []
 
   return (
-    <div className="min-h-screen bg-surface">
-      <NavBar />
+    <div>
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="card-animate">
           <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Batch Resume Screening</h2>

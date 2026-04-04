@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Users2, UserPlus, Shield, AlertCircle, Check, Copy, X } from 'lucide-react'
-import NavBar from '../components/NavBar'
 import { getTeamMembers, inviteTeamMember, startTraining, getTrainingStatus } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -187,8 +186,7 @@ export default function TeamPage() {
   const isAdmin = user?.role === 'admin'
 
   return (
-    <div className="min-h-screen bg-surface">
-      <NavBar />
+    <div>
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="flex items-center justify-between card-animate">
           <div>

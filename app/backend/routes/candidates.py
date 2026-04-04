@@ -9,6 +9,7 @@ from typing import Optional
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import Candidate, ScreeningResult, User
+from app.backend.models.schemas import CandidateNameUpdate
 
 router = APIRouter(prefix="/api/candidates", tags=["candidates"])
 
@@ -58,6 +59,25 @@ def list_candidates(
         })
 
     return {"candidates": result, "total": total, "page": page, "page_size": page_size}
+
+
+@router.patch("/{candidate_id}")
+def update_candidate(
+    candidate_id: int,
+    body: CandidateNameUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    candidate = db.query(Candidate).filter(
+        Candidate.id == candidate_id,
+        Candidate.tenant_id == current_user.tenant_id
+    ).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    candidate.name = body.name
+    db.commit()
+    db.refresh(candidate)
+    return {"id": candidate.id, "name": candidate.name}
 
 
 @router.get("/{candidate_id}")
