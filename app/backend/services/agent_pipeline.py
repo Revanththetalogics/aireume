@@ -41,10 +41,20 @@ class ResumeAnalysisAgent:
         skills    = parsed_data.get("skills", [])
         work_exp  = parsed_data.get("work_experience", [])
         education = parsed_data.get("education", [])
+        raw_text  = parsed_data.get("raw_text", "")
+
+        # Fallback: if section-based parsing returned no skills, scan raw text
+        if not skills and raw_text:
+            skills = self._extract_skills_from_raw(raw_text)
 
         jd_required_skills = self._extract_jd_skills(job_description)
         jd_years_required  = self._extract_required_years(job_description)
         jd_role            = self._extract_role_title(job_description)
+
+        # Years actual — use gap_analysis first, then raw-text fallback
+        years_actual = gap_analysis.get("total_years", 0)
+        if years_actual == 0 and raw_text:
+            years_actual = self._extract_years_from_raw(raw_text)
 
         matched_skills = [s for s in skills if any(
             s.lower() in req.lower() or req.lower() in s.lower()
@@ -58,7 +68,7 @@ class ResumeAnalysisAgent:
         return {
             "role_applied":          jd_role,
             "years_required":        jd_years_required,
-            "years_actual":          gap_analysis.get("total_years", 0),
+            "years_actual":          years_actual,
             "matched_skills":        matched_skills[:10],
             "missing_skills":        missing_skills[:8],
             "all_skills":            skills[:15],
@@ -72,18 +82,80 @@ class ResumeAnalysisAgent:
             "latest_company":        work_exp[0].get("company", "Unknown") if work_exp else "N/A",
         }
 
+    # Shared broad skill vocabulary — used both for JD parsing and resume fallback
+    BROAD_SKILLS = [
+        # Languages
+        "python", "java", "javascript", "typescript", "c++", "c#", "c", "golang",
+        "rust", "scala", "kotlin", "swift", "ruby", "php", "r", "matlab", "ada",
+        "assembly", "bash", "powershell", "perl",
+        # Web / frameworks
+        "react", "vue", "angular", "node", "django", "flask", "fastapi", "spring",
+        ".net", "qt", "boost", "opencv", "grpc", "express",
+        # Databases
+        "sql", "postgresql", "mysql", "mongodb", "redis", "oracle", "sqlite",
+        "elasticsearch", "cassandra", "dynamodb",
+        # Cloud / DevOps
+        "aws", "azure", "gcp", "docker", "kubernetes", "terraform", "ansible",
+        "jenkins", "git", "linux", "unix", "nginx", "ci/cd", "devops",
+        # Architecture / design
+        "uml", "ooad", "design patterns", "microservices", "soa", "rest",
+        "system design", "software architecture", "requirement engineering",
+        # Embedded / systems
+        "embedded", "rtos", "real-time", "qnx", "vxworks", "freertos",
+        "embedded linux", "microcontroller", "microprocessor", "fpga", "arm",
+        "stm32", "can bus", "modbus", "uart", "spi", "i2c", "usb", "ethernet",
+        "tcp/ip", "ipc", "multithreading", "firmware", "bsp", "device driver",
+        "bootloader", "hw/sw integration", "bare metal",
+        # Safety & standards
+        "sil", "sil4", "do-178", "iec 61508", "iso 26262", "aspice", "misra",
+        "functional safety", "safety-critical", "cenelec",
+        # Data / AI
+        "machine learning", "deep learning", "ai", "nlp", "data analysis",
+        "spark", "hadoop", "kafka", "tableau", "power bi", "excel",
+        # Project / leadership
+        "agile", "scrum", "kanban", "jira", "project management",
+        "leadership", "mentoring", "management", "communication", "teamwork",
+        "requirement allocation", "technical documentation", "onsite",
+        # Testing / quality
+        "unit testing", "tdd", "bdd", "cmake", "code review",
+        "static analysis", "coverage", "integration testing",
+        # Other
+        "cybersecurity", "networking", "iot", "blockchain", "oauth",
+    ]
+
     def _extract_jd_skills(self, jd: str) -> List[str]:
-        common_skills = [
-            "python", "java", "javascript", "typescript", "react", "vue", "angular",
-            "node", "django", "flask", "fastapi", "spring", "sql", "postgresql",
-            "mysql", "mongodb", "redis", "aws", "azure", "gcp", "docker", "kubernetes",
-            "ci/cd", "git", "linux", "agile", "scrum", "machine learning", "ai",
-            "data analysis", "excel", "tableau", "power bi", "management", "leadership",
-            "communication", "c++", "c#", ".net", "golang", "rust", "scala",
-            "spark", "hadoop", "kafka", "elasticsearch", "terraform", "ansible",
-        ]
         jd_lower = jd.lower()
-        return [s for s in common_skills if s in jd_lower]
+        return [s for s in self.BROAD_SKILLS if s in jd_lower]
+
+    def _extract_skills_from_raw(self, text: str) -> List[str]:
+        """Fallback: scan entire resume text for known technical keywords."""
+        text_lower = text.lower()
+        return [s for s in self.BROAD_SKILLS if s in text_lower]
+
+    def _extract_years_from_raw(self, text: str) -> float:
+        """
+        Fallback experience extraction when work-experience date parsing fails.
+        Tries explicit duration phrases first, then infers from year span.
+        """
+        patterns = [
+            r'(\d+)\+?\s*years?\s+of\s+(?:overall\s+|total\s+|professional\s+)?experience',
+            r'(\d+)\+?\s*years?\s+(?:of\s+)?(?:total\s+|overall\s+)?(?:professional\s+)?(?:work\s+)?experience',
+            r'total\s+(?:work\s+)?experience\s*:?\s*(\d+)\+?\s*years?',
+            r'over\s+(\d+)\+?\s*years?\s+(?:of\s+)?experience',
+            r'experience\s+of\s+(\d+)\+?\s*years?',
+            r'(\d+)\+?\s*years?\s+(?:in\s+)?(?:software|it|engineering|development)',
+        ]
+        for p in patterns:
+            m = re.search(p, text, re.IGNORECASE)
+            if m:
+                return float(m.group(1))
+        # Last resort: infer from earliest–latest year mentioned in the document
+        years_found = [int(y) for y in re.findall(r'\b((?:19|20)\d{2})\b', text)]
+        if len(years_found) >= 2:
+            span = max(years_found) - min(years_found)
+            if 1 < span < 50:
+                return float(span)
+        return 0.0
 
     def _extract_required_years(self, jd: str) -> float:
         for pattern in [
@@ -320,12 +392,48 @@ class LLMInsightAgent:
             "final_recommendation": rec,
         }
 
-    def _fallback_insights(self, scores: Dict, reason: str) -> Dict[str, Any]:
+    def _fallback_insights(self, scores: Dict, reason: str = "") -> Dict[str, Any]:
+        # Deterministic education summary — never show a generic placeholder
+        edu_score = scores.get("education", 60)
+        if edu_score >= 100:
+            edu_analysis = "Holds a doctoral degree (PhD/Doctorate), exceeding typical academic requirements."
+        elif edu_score >= 85:
+            edu_analysis = "Holds a postgraduate degree (Master's/MBA/MTech), meeting advanced academic requirements."
+        elif edu_score >= 70:
+            edu_analysis = "Holds a Bachelor's/BE/BTech degree, satisfying standard academic qualifications."
+        else:
+            edu_analysis = "Academic credentials present; exact degree level could not be fully determined from the document."
+
+        fit = scores.get("fit_score", 50)
+        skill_match = scores.get("skill_match", 0)
+        exp_match   = scores.get("experience_match", 0)
+
+        strengths = []
+        weaknesses = []
+
+        if exp_match >= 70:
+            strengths.append(f"Experience level meets or exceeds the role requirement (score: {exp_match}/100)")
+        if skill_match >= 50:
+            strengths.append(f"Reasonable technical skill alignment with the JD (score: {skill_match}/100)")
+        if scores.get("stability", 100) >= 80:
+            strengths.append("Strong employment stability with no significant gaps")
+        if not strengths:
+            strengths.append("Profile available for further evaluation — detailed LLM analysis pending")
+
+        if skill_match < 50:
+            weaknesses.append(f"Skill coverage gap — only {skill_match}% of JD-required skills matched")
+        if exp_match < 60:
+            weaknesses.append(f"Experience level may fall short of role requirements (score: {exp_match}/100)")
+        if scores.get("stability", 100) < 70:
+            weaknesses.append("Employment stability concerns detected — verify gaps or short tenures")
+        if not weaknesses:
+            weaknesses.append("No major weaknesses identified — detailed LLM review recommended for nuanced gaps")
+
         return {
-            "strengths":            ["Profile meets baseline requirements — manual review recommended"],
-            "weaknesses":           ["AI insight generation incomplete — review raw profile"],
-            "education_analysis":   "Education assessment requires manual review.",
-            "risk_signals":         [f"Partial analysis: {reason}"] if reason else [],
+            "strengths":            strengths[:5],
+            "weaknesses":           weaknesses[:5],
+            "education_analysis":   edu_analysis,
+            "risk_signals":         [{"type": "analysis", "description": f"LLM unavailable: {reason}"}] if reason else [],
             "final_recommendation": scores.get("preliminary_recommendation", "Consider"),
         }
 
@@ -450,4 +558,7 @@ async def run_agent_pipeline(
         "risk_level":            scores["risk_level"],
         "required_skills_count": profile.get("required_skills_count", 0),
         "interview_questions":   questions,
+        # Parsed data passed through so the frontend can render timeline & contact
+        "work_experience":       parsed_data.get("work_experience", []),
+        "contact_info":          parsed_data.get("contact_info", {}),
     }

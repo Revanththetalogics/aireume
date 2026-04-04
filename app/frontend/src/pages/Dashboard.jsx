@@ -92,12 +92,6 @@ function IdlePanel() {
         ))}
       </div>
 
-      <div className="text-center py-2">
-        <div className="inline-flex items-center gap-2 text-xs text-slate-400">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-          Enterprise Agent Pipeline · llama3 on-prem · No data leaves your VPS
-        </div>
-      </div>
     </div>
   )
 }

@@ -53,6 +53,8 @@ class AnalysisResponse(BaseModel):
     result_id: Optional[int] = None
     candidate_id: Optional[int] = None
     candidate_name: Optional[str] = None
+    work_experience: Optional[List[Any]] = []
+    contact_info: Optional[Dict[str, Any]] = None
 
 
 class BatchAnalysisResult(BaseModel):

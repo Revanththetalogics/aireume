@@ -221,30 +221,82 @@ class ResumeParser:
 
         return jobs
 
+    # Broad list used for full-text fallback when no skills section is found
+    KNOWN_SKILLS_BROAD = [
+        # Languages
+        "python", "java", "javascript", "typescript", "c++", "c#", "c", "golang",
+        "rust", "scala", "kotlin", "swift", "ruby", "php", "r", "matlab", "ada",
+        "assembly", "bash", "powershell", "perl",
+        # Web / frameworks
+        "react", "vue", "angular", "node", "django", "flask", "fastapi", "spring",
+        ".net", "qt", "boost", "opencv", "grpc",
+        # Databases
+        "sql", "postgresql", "mysql", "mongodb", "redis", "oracle", "sqlite",
+        "elasticsearch", "cassandra", "dynamodb",
+        # Cloud / DevOps
+        "aws", "azure", "gcp", "docker", "kubernetes", "terraform", "ansible",
+        "jenkins", "git", "linux", "unix", "nginx", "ci/cd", "devops",
+        # Architecture / design
+        "uml", "ooad", "design patterns", "microservices", "soa", "rest",
+        "system design", "software architecture", "requirement engineering",
+        # Embedded / systems
+        "embedded", "rtos", "qnx", "vxworks", "freertos", "embedded linux",
+        "microcontroller", "fpga", "arm", "tcp/ip", "can bus", "modbus",
+        "uart", "spi", "i2c", "ipc", "multithreading", "firmware", "bsp",
+        "device driver", "bootloader", "real-time",
+        # Safety standards
+        "sil4", "do-178", "iso 26262", "misra", "functional safety",
+        # Data / AI
+        "machine learning", "deep learning", "ai", "nlp", "data analysis",
+        "spark", "hadoop", "kafka", "tableau", "power bi", "excel",
+        # Project / leadership
+        "agile", "scrum", "kanban", "jira", "project management",
+        "leadership", "mentoring", "management", "communication",
+        # Testing
+        "unit testing", "tdd", "cmake", "code review", "ci/cd",
+    ]
+
     def _extract_skills(self, text: str) -> List[str]:
         skills = []
 
-        # Common section headers for skills
+        # Expanded section headers — covers all common resume formats
         skill_headers = [
             r'SKILLS?\s*:?\s*\n',
             r'TECHNICAL\s+SKILLS?\s*:?\s*\n',
             r'KEY\s+SKILLS?\s*:?\s*\n',
+            r'CORE\s+(?:SKILLS?|COMPETENCIES?)\s*:?\s*\n',
             r'COMPETENCIES?\s*:?\s*\n',
-            r'EXPERTISE\s*:?\s*\n'
+            r'EXPERTISE\s*:?\s*\n',
+            r'TECHNICAL\s+EXPERTISE\s*:?\s*\n',
+            r'TECHNOLOGIES?\s*:?\s*\n',
+            r'TECH(?:NICAL)?\s+STACK\s*:?\s*\n',
+            r'PROGRAMMING\s+LANGUAGES?\s*:?\s*\n',
+            r'TOOLS\s+(?:AND|&)?\s*TECHNOLOGIES?\s*:?\s*\n',
+            r'PROFICIENCIES?\s*:?\s*\n',
+            r'CAPABILITIES?\s*:?\s*\n',
+            r'AREAS?\s+OF\s+EXPERTISE\s*:?\s*\n',
+            r'TECHNICAL\s+PROFICIENCY\s*:?\s*\n',
         ]
 
         # Find skills section
         skills_section = ""
         for header in skill_headers:
-            match = re.search(header + r'(.*?)(?:\n\n|\n[A-Z][A-Z\s]+\n|$)', text, re.DOTALL | re.IGNORECASE)
+            match = re.search(
+                header + r'(.*?)(?:\n\n|\n[A-Z][A-Z\s]+\n|$)',
+                text, re.DOTALL | re.IGNORECASE
+            )
             if match:
                 skills_section = match.group(1)
                 break
 
         if skills_section:
-            # Split by common delimiters
-            raw_skills = re.split(r'[,;|•\-]', skills_section)
-            skills = [s.strip() for s in raw_skills if len(s.strip()) > 1 and len(s.strip()) < 50]
+            raw_skills = re.split(r'[,;|•\-\n]', skills_section)
+            skills = [s.strip() for s in raw_skills if 1 < len(s.strip()) < 60]
+
+        # Fallback: scan entire resume for known technical keywords
+        if not skills:
+            text_lower = text.lower()
+            skills = [s for s in self.KNOWN_SKILLS_BROAD if s in text_lower]
 
         return skills
 
@@ -294,8 +346,44 @@ class ResumeParser:
 
         return education
 
+    def _extract_name(self, text: str) -> str:
+        """
+        Extract candidate name from the top of the resume.
+        Names are typically the first prominent line: 1-5 capitalised words,
+        no digits, no special chars, not a common section header.
+        """
+        SKIP_WORDS = {
+            'resume', 'curriculum', 'vitae', 'cv', 'profile', 'summary',
+            'objective', 'contact', 'address', 'details', 'information',
+            'page', 'updated', 'date',
+        }
+        lines = text.strip().split('\n')
+        for line in lines[:10]:
+            line = line.strip()
+            if not line or len(line) < 3:
+                continue
+            # Skip lines with contact-info markers or special chars
+            if re.search(r'[@|:/\\•*\d+\-\(\)]', line):
+                continue
+            words = line.split()
+            if not (1 <= len(words) <= 5):
+                continue
+            # Skip generic section headers
+            if any(w.lower() in SKIP_WORDS for w in words):
+                continue
+            # Most words should start with uppercase (proper name)
+            cap_count = sum(1 for w in words if w and w[0].isupper())
+            if cap_count >= max(1, len(words) - 1):
+                return line
+        return ''
+
     def _extract_contact_info(self, text: str) -> Dict[str, str]:
         info = {}
+
+        # Name — extracted first so we can use it in the result
+        name = self._extract_name(text)
+        if name:
+            info['name'] = name
 
         # Email
         email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
