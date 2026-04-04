@@ -1,4 +1,4 @@
-name: CD - Deploy to VPS
+name: CD - Build & Push Images
 
 on:
   push:
@@ -92,52 +92,5 @@ jobs:
         cache-to: type=gha,mode=max
         provenance: false
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Copy docker-compose.prod.yml to VPS
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USERNAME }}
-        key: ${{ secrets.VPS_SSH_KEY }}
-        source: "docker-compose.prod.yml"
-        target: "/opt/aria"
-
-    - name: Deploy all services on VPS
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USERNAME }}
-        key: ${{ secrets.VPS_SSH_KEY }}
-        script: |
-          set -e
-          mkdir -p /opt/aria
-          cd /opt/aria
-
-          # Write .env file from GitHub secrets
-          cat > .env <<'ENVEOF'
-          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-          JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
-          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-          ENVEOF
-
-          # All commands use -p aria so they ONLY affect the "aria" project.
-          # This prevents any interference with other stacks running on this VPS.
-          COMPOSE="docker compose -p aria -f /opt/aria/docker-compose.prod.yml"
-
-          # Pull latest images for the three app services
-          $COMPOSE pull backend frontend nginx
-
-          # Start ALL services (postgres, ollama, backend, frontend, nginx, certbot).
-          # --remove-orphans is scoped to the "aria" project only — safe on shared VPS.
-          $COMPOSE up -d --remove-orphans
-
-          # Show only aria project containers
-          $COMPOSE ps
+  # No deploy job needed — Watchtower on the VPS watches Docker Hub for new
+  # :latest images and automatically pulls + restarts containers.
