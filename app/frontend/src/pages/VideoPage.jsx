@@ -338,18 +338,18 @@ function VideoResults({ result, onReset }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-bold text-slate-900">Video Analysis Results</h3>
-          <p className="text-sm text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
-            <FileVideo className="w-4 h-4" />
-            <span className="font-medium">{result.source || result.filename || 'Recording'}</span>
-            {result.platform && <span className="px-2 py-0.5 bg-slate-100 rounded text-xs">{result.platform}</span>}
+          <h3 className="text-xl font-extrabold text-brand-900 tracking-tight">Video Analysis Results</h3>
+          <p className="text-sm text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap font-medium">
+            <FileVideo className="w-4 h-4 text-brand-400" />
+            <span>{result.source || result.filename || 'Recording'}</span>
+            {result.platform && <span className="px-2 py-0.5 bg-brand-50 ring-1 ring-brand-200 rounded-lg text-xs text-brand-700 font-semibold">{result.platform}</span>}
             {result.duration_s > 0 && <span>· {Math.floor(result.duration_s / 60)}m {Math.round(result.duration_s % 60)}s</span>}
             {result.language && <span>· {result.language.toUpperCase()}</span>}
           </p>
         </div>
         <button
           onClick={onReset}
-          className="flex items-center gap-2 px-3 py-2 border border-slate-300 text-sm text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
+          className="flex items-center gap-2 px-3 py-2 ring-1 ring-brand-200 text-sm font-semibold text-brand-700 rounded-xl hover:bg-brand-50 transition-colors"
         >
           <X className="w-4 h-4" /> New Video
         </button>
@@ -360,36 +360,36 @@ function VideoResults({ result, onReset }) {
 
       {/* 2. Communication scores */}
       <div>
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Communication Analysis</p>
+        <p className="text-xs font-bold text-brand-700 uppercase tracking-wide mb-3">Communication Analysis</p>
         <div className="grid sm:grid-cols-3 gap-4">
           {/* Communication score gauge */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col items-center">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Communication Score</p>
+          <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-5 flex flex-col items-center">
+            <p className="text-xs font-bold text-brand-700 uppercase tracking-wide mb-3">Communication Score</p>
             <CircularGauge score={result.communication_score} label={commLabel} />
           </div>
 
           {/* Score breakdown */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Breakdown</p>
+          <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-5 space-y-3">
+            <p className="text-xs font-bold text-brand-700 uppercase tracking-wide mb-3">Breakdown</p>
             <ScoreBar label="Clarity" value={result.clarity_score} color="blue" />
             {result.articulation_score != null && (
               <ScoreBar label="Articulation" value={result.articulation_score} color="purple" />
             )}
             <div className="flex items-center justify-between pt-1">
-              <span className="text-xs font-medium text-slate-600">Confidence</span>
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${confidenceColor[result.confidence_level] || confidenceColor.medium}`}>
+              <span className="text-xs font-semibold text-slate-600">Confidence</span>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold capitalize ${confidenceColor[result.confidence_level] || confidenceColor.medium}`}>
                 {result.confidence_level}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-600">Words/min</span>
-              <span className="text-xs font-bold text-slate-700">{result.words_per_minute}</span>
+              <span className="text-xs font-semibold text-slate-600">Words/min</span>
+              <span className="text-xs font-extrabold text-brand-900">{result.words_per_minute}</span>
             </div>
           </div>
 
           {/* AI Summary */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">AI Summary</p>
+          <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-5">
+            <p className="text-xs font-bold text-brand-700 uppercase tracking-wide mb-3">AI Summary</p>
             <p className="text-sm text-slate-700 leading-relaxed">{result.summary || 'No summary available.'}</p>
           </div>
         </div>
@@ -398,10 +398,10 @@ function VideoResults({ result, onReset }) {
       {/* Strengths + Key phrases + Red flags */}
       <div className="grid sm:grid-cols-2 gap-4">
         {result.strengths?.length > 0 && (
-          <div className="bg-green-50 rounded-xl border border-green-100 p-4">
+          <div className="bg-green-50 rounded-2xl ring-1 ring-green-100 p-4 border-l-4 border-green-500">
             <div className="flex items-center gap-2 mb-2">
               <ThumbsUp className="w-4 h-4 text-green-600" />
-              <h4 className="font-semibold text-green-800 text-sm">Communication Strengths</h4>
+              <h4 className="font-bold text-green-800 text-sm">Communication Strengths</h4>
             </div>
             <ul className="space-y-1">
               {result.strengths.map((s, i) => (
@@ -414,24 +414,24 @@ function VideoResults({ result, onReset }) {
         )}
 
         {result.key_phrases?.length > 0 && (
-          <div className="bg-blue-50 rounded-xl border border-blue-100 p-4">
+          <div className="bg-brand-50 rounded-2xl ring-1 ring-brand-100 p-4 border-l-4 border-brand-500">
             <div className="flex items-center gap-2 mb-2">
-              <Zap className="w-4 h-4 text-blue-600" />
-              <h4 className="font-semibold text-blue-800 text-sm">Notable Phrases</h4>
+              <Zap className="w-4 h-4 text-brand-600" />
+              <h4 className="font-bold text-brand-800 text-sm">Notable Phrases</h4>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {result.key_phrases.map((p, i) => (
-                <span key={i} className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full">"{p}"</span>
+                <span key={i} className="px-2 py-0.5 bg-brand-100 text-brand-800 text-xs rounded-lg font-semibold">"{p}"</span>
               ))}
             </div>
           </div>
         )}
 
         {result.red_flags?.length > 0 ? (
-          <div className="bg-red-50 rounded-xl border border-red-100 p-4">
+          <div className="bg-red-50 rounded-2xl ring-1 ring-red-100 p-4 border-l-4 border-red-400">
             <div className="flex items-center gap-2 mb-2">
               <AlertCircle className="w-4 h-4 text-red-600" />
-              <h4 className="font-semibold text-red-800 text-sm">Communication Red Flags</h4>
+              <h4 className="font-bold text-red-800 text-sm">Communication Red Flags</h4>
             </div>
             <ul className="space-y-1">
               {result.red_flags.map((f, i) => (
@@ -442,9 +442,9 @@ function VideoResults({ result, onReset }) {
             </ul>
           </div>
         ) : (
-          <div className="bg-green-50 rounded-xl border border-green-100 p-4 flex items-center gap-2">
+          <div className="bg-green-50 rounded-2xl ring-1 ring-green-100 p-4 flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
-            <p className="text-sm text-green-700 font-medium">No communication red flags.</p>
+            <p className="text-sm text-green-700 font-bold">No communication red flags.</p>
           </div>
         )}
       </div>
@@ -470,30 +470,30 @@ const STEPS_URL = [
 
 function ProcessingSteps({ steps, activeStep, uploadProgress }) {
   return (
-    <div className="space-y-2 p-4 bg-slate-50 rounded-lg border border-slate-200">
+    <div className="space-y-2 p-4 bg-brand-50/60 rounded-2xl ring-1 ring-brand-100">
       {steps.map((step) => {
         const idx     = steps.findIndex(s => s.id === step.id)
         const actIdx  = steps.findIndex(s => s.id === activeStep)
         const isDone  = idx < actIdx
         const isActive = step.id === activeStep
         return (
-          <div key={step.id} className={`flex items-center gap-3 p-2.5 rounded-lg transition-all ${
-            isActive ? 'bg-blue-50 border border-blue-200' :
-            isDone   ? 'bg-green-50 border border-green-100' :
-                       'bg-white border border-slate-100'
+          <div key={step.id} className={`flex items-center gap-3 p-2.5 rounded-xl transition-all ${
+            isActive ? 'bg-brand-50 ring-1 ring-brand-200' :
+            isDone   ? 'bg-green-50 ring-1 ring-green-100' :
+                       'bg-white ring-1 ring-slate-100'
           }`}>
             {isDone ? <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-              : isActive ? <Loader2 className="w-4 h-4 text-blue-500 shrink-0 animate-spin" />
-              : <div className="w-4 h-4 rounded-full border-2 border-slate-200 shrink-0" />}
-            <span className={`text-sm flex-1 ${isActive ? 'text-blue-700 font-medium' : isDone ? 'text-green-700' : 'text-slate-400'}`}>
+              : isActive ? <Loader2 className="w-4 h-4 text-brand-500 shrink-0 animate-spin" />
+              : <div className="w-4 h-4 rounded-full ring-2 ring-slate-200 shrink-0" />}
+            <span className={`text-sm flex-1 ${isActive ? 'text-brand-700 font-semibold' : isDone ? 'text-green-700' : 'text-slate-400'}`}>
               {step.label}
             </span>
             {step.id === 'upload' && isActive && uploadProgress > 0 && (
               <>
-                <div className="w-24 bg-blue-100 rounded-full h-1.5">
-                  <div className="h-1.5 bg-blue-500 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+                <div className="w-24 bg-brand-100 rounded-full h-1.5">
+                  <div className="h-1.5 bg-brand-500 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
                 </div>
-                <span className="text-xs text-blue-600 font-mono shrink-0">{uploadProgress}%</span>
+                <span className="text-xs text-brand-600 font-mono shrink-0">{uploadProgress}%</span>
               </>
             )}
           </div>
@@ -613,32 +613,32 @@ export default function VideoPage() {
   const activeSteps = inputMode === 'upload' ? STEPS_UPLOAD : STEPS_URL
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-surface">
       <NavBar />
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
         {/* Page header */}
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">Video Interview Analysis</h2>
-          <p className="text-slate-500 text-sm mt-1">
+        <div className="card-animate">
+          <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Video Interview Analysis</h2>
+          <p className="text-slate-500 text-sm mt-1 font-medium">
             Upload or paste a recording URL — ARIA transcribes speech, scores communication, and detects malpractice signals.
           </p>
         </div>
 
         {/* How it works */}
-        <div className="grid sm:grid-cols-4 gap-3">
+        <div className="grid sm:grid-cols-4 gap-3 card-animate">
           {[
-            { icon: Video,        title: 'Upload or URL',      desc: 'File upload or Zoom / Teams / Drive / Loom link' },
-            { icon: Mic,          title: 'Auto Transcription', desc: 'Whisper AI converts speech to text' },
-            { icon: MessageSquare,title: 'Communication Score',desc: 'LLM rates clarity, confidence & fluency' },
-            { icon: ShieldAlert,  title: 'Malpractice Check',  desc: 'Detects coaching, scripted answers & pauses' },
+            { icon: Video,         title: 'Upload or URL',       desc: 'File upload or Zoom / Teams / Drive / Loom link' },
+            { icon: Mic,           title: 'Auto Transcription',  desc: 'Whisper AI converts speech to text' },
+            { icon: MessageSquare, title: 'Communication Score', desc: 'LLM rates clarity, confidence & fluency' },
+            { icon: ShieldAlert,   title: 'Malpractice Check',   desc: 'Detects coaching, scripted answers & pauses' },
           ].map(({ icon: Icon, title, desc }) => (
-            <div key={title} className="bg-white rounded-xl border border-slate-200 p-4 flex gap-3">
-              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-                <Icon className="w-5 h-5 text-blue-600" />
+            <div key={title} className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4 flex gap-3">
+              <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+                <Icon className="w-5 h-5 text-brand-600" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-slate-800">{title}</p>
+                <p className="text-sm font-bold text-brand-900">{title}</p>
                 <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
               </div>
             </div>
@@ -647,10 +647,10 @@ export default function VideoPage() {
 
         {/* Upload + results */}
         {!result ? (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 space-y-5 card-animate">
 
             {/* Input mode toggle */}
-            <div className="flex gap-1 p-1 bg-slate-100 rounded-lg w-fit">
+            <div className="flex gap-1 p-1 bg-brand-50 ring-1 ring-brand-100 rounded-xl w-fit">
               {[
                 { id: 'upload', label: 'Upload File', icon: Upload },
                 { id: 'url',    label: 'From URL',    icon: Link2 },
@@ -658,8 +658,10 @@ export default function VideoPage() {
                 <button
                   key={id}
                   onClick={() => { setInputMode(id); setError('') }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    inputMode === id ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    inputMode === id
+                      ? 'bg-brand-600 text-white shadow-brand-sm'
+                      : 'text-slate-500 hover:text-brand-700'
                   }`}
                 >
                   <Icon className="w-4 h-4" />{label}
@@ -670,36 +672,36 @@ export default function VideoPage() {
             {/* File upload tab */}
             {inputMode === 'upload' && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Interview Recording</label>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Interview Recording</label>
                 <div
                   {...getRootProps()}
-                  className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
-                    isDragActive ? 'border-blue-500 bg-blue-50' :
+                  className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
+                    isDragActive ? 'border-brand-500 bg-brand-50' :
                     file ? 'border-green-300 bg-green-50' :
-                    'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
+                    'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
                   }`}
                 >
                   <input {...getInputProps()} />
                   {file ? (
                     <div className="flex flex-col items-center gap-3">
-                      <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
+                      <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center">
                         <FileVideo className="w-7 h-7 text-green-600" />
                       </div>
                       <div>
-                        <p className="font-semibold text-slate-800">{file.name}</p>
+                        <p className="font-bold text-brand-900">{file.name}</p>
                         <p className="text-sm text-slate-500 mt-0.5">{formatSize(file.size)}</p>
                       </div>
-                      <button type="button" onClick={e => { e.stopPropagation(); handleReset() }} className="text-xs text-red-500 hover:underline">
+                      <button type="button" onClick={e => { e.stopPropagation(); handleReset() }} className="text-xs text-red-500 hover:underline font-medium">
                         Remove
                       </button>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-3">
-                      <div className="w-14 h-14 bg-slate-100 rounded-xl flex items-center justify-center">
-                        <Upload className="w-7 h-7 text-slate-400" />
+                      <div className="w-14 h-14 bg-brand-50 ring-1 ring-brand-100 rounded-2xl flex items-center justify-center">
+                        <Upload className="w-7 h-7 text-brand-400" />
                       </div>
                       <div>
-                        <p className="text-slate-700 font-medium">
+                        <p className="text-slate-700 font-semibold">
                           {isDragActive ? 'Drop the video here...' : 'Drag & drop your interview recording'}
                         </p>
                         <p className="text-sm text-slate-400 mt-1">MP4, WebM, MOV, AVI, MKV · Up to 200 MB</p>
@@ -714,34 +716,34 @@ export default function VideoPage() {
             {inputMode === 'url' && (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Recording URL</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Recording URL</label>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
-                      <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-400" />
                       <input
                         type="url"
                         value={url}
                         onChange={e => setUrl(e.target.value)}
                         placeholder="https://zoom.us/rec/share/... or Teams / Drive / Loom link"
-                        className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 text-sm text-slate-700 placeholder-slate-400"
+                        className="w-full pl-9 pr-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm text-slate-700 placeholder-slate-400 bg-white"
                         onKeyDown={e => e.key === 'Enter' && !isLoading && url.trim() && handleUrlAnalyze()}
                       />
                     </div>
                     {platform && url.trim() && (
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold shrink-0 ${platform.color}`}>
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold shrink-0 ${platform.color}`}>
                         <span>{platform.icon}</span>{platform.name}
                       </span>
                     )}
                   </div>
                 </div>
-                <div className="bg-blue-50 rounded-lg border border-blue-100 p-3">
-                  <p className="text-xs font-semibold text-blue-700 mb-1.5">Supported platforms</p>
+                <div className="bg-brand-50 rounded-2xl ring-1 ring-brand-100 p-3">
+                  <p className="text-xs font-bold text-brand-700 mb-1.5">Supported platforms</p>
                   <div className="flex flex-wrap gap-1.5">
                     {['Zoom', 'Microsoft Teams', 'Google Drive', 'Loom', 'Dropbox', 'Direct MP4 URL'].map(p => (
-                      <span key={p} className="px-2 py-0.5 bg-white border border-blue-200 text-blue-700 text-xs rounded-full">{p}</span>
+                      <span key={p} className="px-2 py-0.5 bg-white ring-1 ring-brand-200 text-brand-700 text-xs rounded-full font-semibold">{p}</span>
                     ))}
                   </div>
-                  <p className="text-xs text-blue-600 mt-2">
+                  <p className="text-xs text-brand-600 mt-2">
                     Ensure the recording link is set to <strong>"Anyone with the link can view"</strong> (no login required).
                   </p>
                 </div>
@@ -751,13 +753,13 @@ export default function VideoPage() {
             {/* Link to candidate (optional) */}
             {candidates.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
+                <label className="block text-sm font-bold text-slate-700 mb-2">
                   Link to Candidate <span className="text-slate-400 font-normal">(optional)</span>
                 </label>
                 <select
                   value={candidateId}
                   onChange={e => setCandidateId(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 text-sm text-slate-700"
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm text-slate-700 bg-white"
                 >
                   <option value="">— Select a candidate —</option>
                   {candidates.map(c => (
@@ -769,7 +771,7 @@ export default function VideoPage() {
 
             {/* Error */}
             {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
+              <div className="p-3.5 bg-red-50 ring-1 ring-red-200 rounded-2xl text-sm text-red-700 flex items-start gap-2.5">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
@@ -788,7 +790,7 @@ export default function VideoPage() {
             <button
               onClick={inputMode === 'upload' ? handleUploadAnalyze : handleUrlAnalyze}
               disabled={isLoading || (inputMode === 'upload' ? !file : !url.trim())}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3.5 btn-brand text-white font-bold rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed shadow-brand flex items-center justify-center gap-2 text-sm"
             >
               {isLoading ? (
                 <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing Interview...</>
@@ -798,7 +800,7 @@ export default function VideoPage() {
             </button>
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 card-animate">
             <VideoResults result={result} onReset={handleReset} />
           </div>
         )}

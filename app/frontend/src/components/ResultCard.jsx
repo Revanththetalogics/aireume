@@ -10,20 +10,20 @@ import { generateEmail } from '../lib/api'
 function ScoreBar({ label, value, color }) {
   const barColor = {
     green:  'bg-green-500',
-    blue:   'bg-blue-500',
+    blue:   'bg-brand-500',
     amber:  'bg-amber-500',
-    purple: 'bg-purple-500'
-  }[color] || 'bg-slate-400'
+    purple: 'bg-brand-600',
+  }[color] || 'bg-brand-400'
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-1">
-        <span className="text-xs font-medium text-slate-600">{label}</span>
-        <span className="text-xs font-bold text-slate-700">{value}%</span>
+      <div className="flex justify-between items-center mb-1.5">
+        <span className="text-xs font-semibold text-slate-600">{label}</span>
+        <span className="text-xs font-bold text-brand-700">{value}%</span>
       </div>
-      <div className="w-full bg-slate-100 rounded-full h-2">
+      <div className="w-full bg-brand-100 rounded-full h-2">
         <div
-          className={`h-2 rounded-full transition-all duration-500 ${barColor}`}
+          className={`h-2 rounded-full transition-all duration-700 ${barColor}`}
           style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
         />
       </div>
@@ -33,12 +33,12 @@ function ScoreBar({ label, value, color }) {
 
 function RiskBadge({ level }) {
   const styles = {
-    Low:    'bg-green-100 text-green-700 border-green-200',
-    Medium: 'bg-amber-100 text-amber-700 border-amber-200',
-    High:   'bg-red-100 text-red-700 border-red-200'
+    Low:    'bg-green-100 text-green-700 ring-green-200',
+    Medium: 'bg-amber-100 text-amber-700 ring-amber-200',
+    High:   'bg-red-100 text-red-700 ring-red-200',
   }
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${styles[level] || styles.Medium}`}>
+    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${styles[level] || styles.Medium}`}>
       {level} Risk
     </span>
   )
@@ -54,7 +54,7 @@ function CopyButton({ text }) {
   return (
     <button
       onClick={handleCopy}
-      className="p-1 rounded hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-700"
+      className="p-1.5 rounded-lg hover:bg-brand-50 transition-colors text-slate-400 hover:text-brand-600"
       title="Copy"
     >
       {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
@@ -63,8 +63,8 @@ function CopyButton({ text }) {
 }
 
 function EmailModal({ candidateId, resultId, onClose }) {
-  const [type, setType]   = useState('shortlist')
-  const [draft, setDraft] = useState(null)
+  const [type, setType]       = useState('shortlist')
+  const [draft, setDraft]     = useState(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied]   = useState(false)
 
@@ -98,14 +98,16 @@ function EmailModal({ candidateId, resultId, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
-        <div className="flex items-center justify-between p-5 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Mail className="w-5 h-5 text-blue-600" />
-            <h3 className="font-semibold text-slate-800">Generate Email</h3>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-lg card-animate">
+        <div className="flex items-center justify-between p-5 border-b border-brand-50">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center">
+              <Mail className="w-4 h-4 text-brand-600" />
+            </div>
+            <h3 className="font-bold text-brand-900">Generate Email</h3>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded transition-colors">
+          <button onClick={onClose} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
             <X className="w-5 h-5 text-slate-500" />
           </button>
         </div>
@@ -115,8 +117,10 @@ function EmailModal({ candidateId, resultId, onClose }) {
               <button
                 key={t.value}
                 onClick={() => { setType(t.value); setDraft(null) }}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  type === t.value ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                className={`px-3 py-1.5 rounded-xl text-sm font-semibold transition-all ${
+                  type === t.value
+                    ? 'bg-brand-600 text-white shadow-brand-sm'
+                    : 'bg-brand-50 text-slate-600 hover:bg-brand-100 hover:text-brand-700'
                 }`}
               >
                 {t.label}
@@ -125,28 +129,28 @@ function EmailModal({ candidateId, resultId, onClose }) {
           </div>
 
           {draft && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div>
-                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Subject</label>
-                <p className="text-sm font-medium text-slate-800 mt-1">{draft.subject}</p>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Subject</label>
+                <p className="text-sm font-semibold text-brand-900 mt-1">{draft.subject}</p>
               </div>
               <div>
-                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Body</label>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Body</label>
                 <textarea
                   value={draft.body}
                   onChange={(e) => setDraft({ ...draft, body: e.target.value })}
                   rows={8}
-                  className="w-full mt-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full mt-1.5 px-3 py-2.5 text-sm ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 rounded-xl resize-none"
                 />
               </div>
             </div>
           )}
 
-          <div className="flex justify-between items-center pt-2">
+          <div className="flex justify-between items-center pt-1">
             <button
               onClick={handleGenerate}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 btn-brand text-white text-sm font-bold rounded-xl disabled:opacity-60 shadow-brand-sm"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
               {loading ? 'Generating...' : 'Generate'}
@@ -154,7 +158,7 @@ function EmailModal({ candidateId, resultId, onClose }) {
             {draft && (
               <button
                 onClick={handleCopy}
-                className="flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 ring-1 ring-brand-200 text-brand-700 text-sm font-semibold rounded-xl hover:bg-brand-50 transition-colors"
               >
                 {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
                 {copied ? 'Copied!' : 'Copy Email'}
@@ -168,10 +172,10 @@ function EmailModal({ candidateId, resultId, onClose }) {
 }
 
 export default function ResultCard({ result, defaultExpandEducation = false }) {
-  const [showEducation, setShowEducation]     = useState(defaultExpandEducation)
+  const [showEducation, setShowEducation]       = useState(defaultExpandEducation)
   const [showInterviewKit, setShowInterviewKit] = useState(false)
-  const [showEmailModal, setShowEmailModal]   = useState(false)
-  const [activeQTab, setActiveQTab]           = useState('technical')
+  const [showEmailModal, setShowEmailModal]     = useState(false)
+  const [activeQTab, setActiveQTab]             = useState('technical')
 
   const {
     fit_score, strengths, weaknesses, education_analysis,
@@ -180,37 +184,37 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     interview_questions, result_id, candidate_id
   } = result
 
-  let badgeColor = 'bg-yellow-100 text-yellow-800 border-yellow-200'
-  let BadgeIcon  = Target
+  let badgeColor  = 'bg-amber-100 text-amber-800 ring-amber-200'
+  let BadgeIcon   = Target
   if (final_recommendation === 'Shortlist') {
-    badgeColor = 'bg-green-100 text-green-800 border-green-200'
+    badgeColor = 'bg-green-100 text-green-800 ring-green-200'
     BadgeIcon  = CheckCircle
   } else if (final_recommendation === 'Reject') {
-    badgeColor = 'bg-red-100 text-red-800 border-red-200'
+    badgeColor = 'bg-red-100 text-red-800 ring-red-200'
     BadgeIcon  = XCircle
   }
 
   const QTABS = [
-    { key: 'technical',    label: 'Technical',    questions: interview_questions?.technical_questions || [] },
-    { key: 'behavioral',   label: 'Behavioral',   questions: interview_questions?.behavioral_questions || [] },
-    { key: 'culture_fit',  label: 'Culture Fit',  questions: interview_questions?.culture_fit_questions || [] },
+    { key: 'technical',   label: 'Technical',   questions: interview_questions?.technical_questions   || [] },
+    { key: 'behavioral',  label: 'Behavioral',  questions: interview_questions?.behavioral_questions  || [] },
+    { key: 'culture_fit', label: 'Culture Fit', questions: interview_questions?.culture_fit_questions || [] },
   ]
 
   return (
     <>
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8 space-y-6">
+      <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 md:p-8 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <h2 className="text-2xl font-semibold text-slate-800">Analysis Results</h2>
-          <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold text-brand-900 tracking-tight">Analysis Results</h2>
+          <div className="flex items-center gap-2 flex-wrap">
             {risk_level && <RiskBadge level={risk_level} />}
-            <span className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold border ${badgeColor}`}>
+            <span className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-bold ring-1 ${badgeColor}`}>
               <BadgeIcon className="w-4 h-4" />
               {final_recommendation}
             </span>
             <button
               onClick={() => setShowEmailModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl ring-1 ring-brand-200 text-sm text-brand-700 hover:bg-brand-50 transition-colors font-semibold"
               title="Generate email"
             >
               <Mail className="w-4 h-4" />
@@ -221,10 +225,10 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
 
         {/* Score Breakdown */}
         {score_breakdown && Object.keys(score_breakdown).length > 0 && (
-          <div className="bg-slate-50 rounded-lg p-5 border border-slate-200">
+          <div className="bg-brand-50/60 rounded-2xl p-5 ring-1 ring-brand-100">
             <div className="flex items-center gap-2 mb-4">
-              <TrendingUp className="w-4 h-4 text-slate-500" />
-              <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Score Breakdown</h3>
+              <TrendingUp className="w-4 h-4 text-brand-500" />
+              <h3 className="text-sm font-bold text-brand-800 uppercase tracking-wide">Score Breakdown</h3>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <ScoreBar label="Skill Match"  value={score_breakdown.skill_match || 0}      color="blue" />
@@ -239,27 +243,27 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         {((matched_skills?.length > 0) || (missing_skills?.length > 0)) && (
           <div className="grid grid-cols-2 gap-4">
             {matched_skills?.length > 0 && (
-              <div className="bg-green-50 rounded-lg p-4 border border-green-100">
-                <div className="flex items-center gap-1.5 mb-2">
+              <div className="bg-green-50 rounded-2xl p-4 ring-1 ring-green-100 border-l-4 border-green-500">
+                <div className="flex items-center gap-1.5 mb-2.5">
                   <CheckCircle className="w-4 h-4 text-green-600" />
-                  <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Matched Skills</span>
+                  <span className="text-xs font-bold text-green-700 uppercase tracking-wide">Matched</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {matched_skills.slice(0, 10).map((s, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full font-medium">{s}</span>
+                    <span key={i} className="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-lg font-semibold">{s}</span>
                   ))}
                 </div>
               </div>
             )}
             {missing_skills?.length > 0 && (
-              <div className="bg-red-50 rounded-lg p-4 border border-red-100">
-                <div className="flex items-center gap-1.5 mb-2">
+              <div className="bg-red-50 rounded-2xl p-4 ring-1 ring-red-100 border-l-4 border-red-400">
+                <div className="flex items-center gap-1.5 mb-2.5">
                   <XCircle className="w-4 h-4 text-red-600" />
-                  <span className="text-xs font-semibold text-red-700 uppercase tracking-wide">Missing Skills</span>
+                  <span className="text-xs font-bold text-red-700 uppercase tracking-wide">Missing</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {missing_skills.slice(0, 8).map((s, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-full font-medium">{s}</span>
+                    <span key={i} className="px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-lg font-semibold">{s}</span>
                   ))}
                 </div>
               </div>
@@ -272,44 +276,44 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
 
         {/* Strengths / Weaknesses / Risks */}
         <div className="grid md:grid-cols-3 gap-4">
-          <div className="bg-green-50 rounded-lg p-4 border-l-4 border-green-500">
+          <div className="bg-green-50 rounded-2xl p-4 ring-1 ring-green-100 border-l-4 border-green-500">
             <div className="flex items-center gap-2 mb-3">
-              <ThumbsUp className="w-5 h-5 text-green-600" />
-              <h3 className="font-semibold text-green-800">Strengths</h3>
+              <ThumbsUp className="w-4 h-4 text-green-600" />
+              <h3 className="font-bold text-green-800 text-sm">Strengths</h3>
             </div>
-            <ul className="space-y-2">
+            <ul className="space-y-1.5">
               {strengths?.length > 0 ? (
                 strengths.slice(0, 5).map((s, i) => (
                   <li key={i} className="text-sm text-green-700 flex items-start gap-2">
-                    <span className="text-green-500 mt-1">•</span>{s}
+                    <span className="text-green-500 mt-1 shrink-0">•</span>{s}
                   </li>
                 ))
               ) : <li className="text-sm text-green-600 italic">No specific strengths identified</li>}
             </ul>
           </div>
 
-          <div className="bg-red-50 rounded-lg p-4 border-l-4 border-red-500">
+          <div className="bg-red-50 rounded-2xl p-4 ring-1 ring-red-100 border-l-4 border-red-400">
             <div className="flex items-center gap-2 mb-3">
-              <ThumbsDown className="w-5 h-5 text-red-600" />
-              <h3 className="font-semibold text-red-800">Weaknesses</h3>
+              <ThumbsDown className="w-4 h-4 text-red-600" />
+              <h3 className="font-bold text-red-800 text-sm">Weaknesses</h3>
             </div>
-            <ul className="space-y-2">
+            <ul className="space-y-1.5">
               {weaknesses?.length > 0 ? (
                 weaknesses.slice(0, 5).map((w, i) => (
                   <li key={i} className="text-sm text-red-700 flex items-start gap-2">
-                    <span className="text-red-500 mt-1">•</span>{w}
+                    <span className="text-red-500 mt-1 shrink-0">•</span>{w}
                   </li>
                 ))
               ) : <li className="text-sm text-red-600 italic">No significant weaknesses</li>}
             </ul>
           </div>
 
-          <div className="bg-amber-50 rounded-lg p-4 border-l-4 border-amber-500">
+          <div className="bg-amber-50 rounded-2xl p-4 ring-1 ring-amber-100 border-l-4 border-amber-400">
             <div className="flex items-center gap-2 mb-3">
-              <Shield className="w-5 h-5 text-amber-600" />
-              <h3 className="font-semibold text-amber-800">Risk Signals</h3>
+              <Shield className="w-4 h-4 text-amber-600" />
+              <h3 className="font-bold text-amber-800 text-sm">Risk Signals</h3>
             </div>
-            <ul className="space-y-2">
+            <ul className="space-y-1.5">
               {risk_signals?.length > 0 ? (
                 risk_signals.map((risk, i) => (
                   <li key={i} className="text-sm text-amber-700 flex items-start gap-2">
@@ -323,17 +327,19 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         </div>
 
         {/* Education (collapsible) */}
-        <div className="border border-slate-200 rounded-lg">
+        <div className="ring-1 ring-brand-100 rounded-2xl overflow-hidden">
           <button
             onClick={() => setShowEducation(!showEducation)}
-            className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition-colors"
+            className="w-full flex items-center justify-between p-4 hover:bg-brand-50/60 transition-colors"
           >
-            <span className="font-semibold text-slate-700">Education Analysis</span>
-            {showEducation ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+            <span className="font-bold text-brand-900 text-sm">Education Analysis</span>
+            {showEducation
+              ? <ChevronUp className="w-4 h-4 text-brand-500" />
+              : <ChevronDown className="w-4 h-4 text-brand-500" />}
           </button>
           {showEducation && (
-            <div className="px-4 pb-4">
-              <p className="text-sm text-slate-600 leading-relaxed">
+            <div className="px-4 pb-4 border-t border-brand-50">
+              <p className="text-sm text-slate-600 leading-relaxed pt-3">
                 {education_analysis || 'No education analysis available.'}
               </p>
             </div>
@@ -342,45 +348,47 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
 
         {/* Interview Kit */}
         {interview_questions && (
-          <div className="border border-blue-100 rounded-lg bg-blue-50/40">
+          <div className="ring-1 ring-brand-200 rounded-2xl bg-brand-50/40 overflow-hidden">
             <button
               onClick={() => setShowInterviewKit(!showInterviewKit)}
-              className="w-full flex items-center justify-between p-4 hover:bg-blue-50 transition-colors rounded-lg"
+              className="w-full flex items-center justify-between p-4 hover:bg-brand-50 transition-colors"
             >
-              <div className="flex items-center gap-2">
-                <ClipboardList className="w-5 h-5 text-blue-600" />
-                <span className="font-semibold text-blue-800">Interview Kit</span>
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+              <div className="flex items-center gap-2.5">
+                <ClipboardList className="w-4 h-4 text-brand-600" />
+                <span className="font-bold text-brand-800 text-sm">Interview Kit</span>
+                <span className="text-xs bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-semibold">
                   {(interview_questions.technical_questions?.length || 0) +
                    (interview_questions.behavioral_questions?.length || 0) +
                    (interview_questions.culture_fit_questions?.length || 0)} questions
                 </span>
               </div>
-              {showInterviewKit ? <ChevronUp className="w-5 h-5 text-blue-600" /> : <ChevronDown className="w-5 h-5 text-blue-600" />}
+              {showInterviewKit
+                ? <ChevronUp className="w-4 h-4 text-brand-600" />
+                : <ChevronDown className="w-4 h-4 text-brand-600" />}
             </button>
 
             {showInterviewKit && (
-              <div className="px-4 pb-4">
-                {/* Tab bar */}
-                <div className="flex gap-1 mb-4">
+              <div className="px-4 pb-4 border-t border-brand-100">
+                <div className="flex gap-1.5 mb-4 mt-3">
                   {QTABS.filter(t => t.questions.length > 0).map(t => (
                     <button
                       key={t.key}
                       onClick={() => setActiveQTab(t.key)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                        activeQTab === t.key ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        activeQTab === t.key
+                          ? 'bg-brand-600 text-white shadow-brand-sm'
+                          : 'bg-white text-slate-600 ring-1 ring-brand-200 hover:bg-brand-50 hover:text-brand-700'
                       }`}
                     >
                       {t.label} ({t.questions.length})
                     </button>
                   ))}
                 </div>
-                {/* Questions list */}
                 {QTABS.filter(t => t.key === activeQTab).map(t => (
                   <ol key={t.key} className="space-y-2">
                     {t.questions.map((q, i) => (
-                      <li key={i} className="flex items-start gap-3 p-3 bg-white rounded-lg border border-slate-100">
-                        <span className="text-xs font-bold text-slate-400 mt-0.5 w-5 shrink-0">{i + 1}.</span>
+                      <li key={i} className="flex items-start gap-3 p-3 bg-white rounded-xl ring-1 ring-brand-100">
+                        <span className="text-xs font-bold text-brand-400 mt-0.5 w-5 shrink-0">{i + 1}.</span>
                         <p className="text-sm text-slate-700 flex-1">{q}</p>
                         <CopyButton text={q} />
                       </li>
@@ -393,7 +401,6 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         )}
       </div>
 
-      {/* Email modal */}
       {showEmailModal && (
         <EmailModal
           candidateId={candidate_id}

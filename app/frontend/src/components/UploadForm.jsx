@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
+import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X } from 'lucide-react'
 import { extractJdFromUrl } from '../lib/api'
 
 const WEIGHT_PRESETS = {
@@ -32,16 +32,18 @@ function WeightsPanel({ weights, onChange }) {
   }
 
   return (
-    <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Scoring Weights</p>
+    <div className="mt-4 p-4 bg-brand-50 border border-brand-100 rounded-2xl space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs font-semibold text-brand-800 uppercase tracking-wide">Scoring Weights</p>
         <div className="flex gap-1 flex-wrap">
           {Object.keys(WEIGHT_PRESETS).map(name => (
             <button
               key={name}
               onClick={() => applyPreset(name)}
-              className={`px-2 py-1 text-xs rounded-md font-medium transition-colors ${
-                preset === name ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-all ${
+                preset === name
+                  ? 'bg-brand-600 text-white shadow-brand-sm'
+                  : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-brand-200 hover:text-brand-700'
               }`}
             >
               {name}
@@ -49,12 +51,12 @@ function WeightsPanel({ weights, onChange }) {
           ))}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         {Object.entries(labels).map(([key, label]) => (
           <div key={key}>
-            <div className="flex justify-between text-xs text-slate-600 mb-1">
-              <span>{label}</span>
-              <span className="font-bold">{Math.round((weights[key] || 0) * 100)}%</span>
+            <div className="flex justify-between text-xs text-slate-600 mb-1.5">
+              <span className="font-medium">{label}</span>
+              <span className="font-bold text-brand-700">{Math.round((weights[key] || 0) * 100)}%</span>
             </div>
             <input
               type="range"
@@ -63,7 +65,7 @@ function WeightsPanel({ weights, onChange }) {
               step="5"
               value={Math.round((weights[key] || 0) * 100)}
               onChange={(e) => updateWeight(key, e.target.value)}
-              className="w-full accent-blue-600"
+              className="w-full"
             />
           </div>
         ))}
@@ -152,32 +154,48 @@ export default function UploadForm({
   )
 
   return (
-    <div className="w-full max-w-3xl mx-auto">
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8">
-        <h2 className="text-2xl font-semibold text-slate-800 mb-6">Upload Resume & Job Description</h2>
+    <div className="w-full max-w-3xl mx-auto card-animate">
+      <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8">
+        <h2 className="text-xl font-bold text-brand-900 mb-6 tracking-tight">Upload Resume & Job Description</h2>
 
         {/* Resume Upload */}
         <div className="mb-6">
-          <label className="block text-sm font-medium text-slate-700 mb-2">Resume (PDF or DOCX)</label>
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Resume (PDF or DOCX)</label>
           <div
             {...getRootProps()}
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors duration-200 ${
-              isDragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 hover:border-slate-400'
-            } ${selectedFile ? 'bg-slate-50' : ''}`}
+            className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 ${
+              isDragActive
+                ? 'border-brand-500 bg-brand-50 shadow-brand-sm'
+                : selectedFile
+                ? 'border-brand-200 bg-brand-50/40'
+                : 'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
+            }`}
           >
             <input {...getInputProps()} />
             {selectedFile ? (
               <div className="flex items-center justify-center gap-3">
-                <FileText className="w-8 h-8 text-blue-500" />
-                <div className="text-left">
-                  <p className="font-medium text-slate-800">{selectedFile.name}</p>
-                  <p className="text-sm text-slate-500">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-brand-600" />
                 </div>
+                <div className="text-left flex-1 min-w-0">
+                  <p className="font-semibold text-slate-800 truncate">{selectedFile.name}</p>
+                  <p className="text-sm text-slate-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onFileSelect(null) }}
+                  className="p-1.5 rounded-lg hover:bg-brand-100 text-slate-400 hover:text-brand-600 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             ) : (
               <>
-                <Upload className="w-10 h-10 text-slate-400 mx-auto mb-3" />
-                <p className="text-slate-600 mb-1">{isDragActive ? 'Drop the file here...' : 'Drag & drop your resume here'}</p>
+                <div className="w-12 h-12 rounded-2xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center mx-auto mb-3">
+                  <Upload className="w-6 h-6 text-brand-500" />
+                </div>
+                <p className="text-slate-600 font-medium mb-1">
+                  {isDragActive ? 'Drop the file here...' : 'Drag & drop your resume here'}
+                </p>
                 <p className="text-sm text-slate-400">or click to browse (PDF, DOCX up to 10MB)</p>
               </>
             )}
@@ -186,9 +204,10 @@ export default function UploadForm({
 
         {/* Job Description */}
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-slate-700">Job Description</label>
-            <div className="flex bg-slate-100 rounded-lg p-1">
+          <div className="flex items-center justify-between mb-3">
+            <label className="block text-sm font-semibold text-slate-700">Job Description</label>
+            {/* Pill tab switcher */}
+            <div className="flex bg-brand-50 ring-1 ring-brand-100 rounded-xl p-1">
               {[
                 { mode: 'text', Icon: Type,     label: 'Text' },
                 { mode: 'file', Icon: FileUp,   label: 'File' },
@@ -197,17 +216,16 @@ export default function UploadForm({
                 <button
                   key={mode}
                   onClick={() => {
-                    // Clear stale job file when leaving file-upload mode
-                    if (jdMode === 'file' && mode !== 'file') {
-                      onJobFileSelect(null)
-                    }
+                    if (jdMode === 'file' && mode !== 'file') onJobFileSelect(null)
                     setJdMode(mode)
                   }}
-                  className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm transition-all ${
-                    jdMode === mode ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600'
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    jdMode === mode
+                      ? 'bg-brand-600 text-white shadow-brand-sm'
+                      : 'text-slate-500 hover:text-brand-700'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className="w-3.5 h-3.5" />
                   {label}
                 </button>
               ))}
@@ -220,30 +238,40 @@ export default function UploadForm({
               onChange={(e) => onJobDescriptionChange(e.target.value)}
               placeholder="Paste the job description here..."
               rows={6}
-              className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none text-slate-700 placeholder-slate-400"
+              className="w-full px-4 py-3 rounded-2xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white resize-none text-slate-700 placeholder-slate-400 text-sm transition-shadow"
             />
           )}
 
           {jdMode === 'file' && (
             <div
               {...getJdRootProps()}
-              className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors duration-200 ${
-                isJdDragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 hover:border-slate-400'
-              } ${selectedJobFile ? 'bg-slate-50' : ''}`}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 ${
+                isJdDragActive
+                  ? 'border-brand-500 bg-brand-50'
+                  : selectedJobFile
+                  ? 'border-brand-200 bg-brand-50/40'
+                  : 'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
+              }`}
             >
               <input {...getJdInputProps()} />
               {selectedJobFile ? (
                 <div className="flex items-center justify-center gap-3">
-                  <FileText className="w-6 h-6 text-green-500" />
-                  <div className="text-left">
-                    <p className="font-medium text-slate-800">{selectedJobFile.name}</p>
-                    <p className="text-sm text-slate-500">{(selectedJobFile.size / 1024).toFixed(1)} KB</p>
+                  <div className="w-8 h-8 rounded-xl bg-brand-100 flex items-center justify-center">
+                    <FileText className="w-4 h-4 text-brand-600" />
+                  </div>
+                  <div className="text-left flex-1 min-w-0">
+                    <p className="font-semibold text-slate-800 truncate">{selectedJobFile.name}</p>
+                    <p className="text-sm text-slate-400">{(selectedJobFile.size / 1024).toFixed(1)} KB</p>
                   </div>
                 </div>
               ) : (
                 <>
-                  <FileUp className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-slate-600 text-sm">{isJdDragActive ? 'Drop JD file here...' : 'Upload JD — PDF, DOCX, DOC, TXT, RTF, HTML, ODT'}</p>
+                  <div className="w-10 h-10 rounded-2xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center mx-auto mb-2">
+                    <FileUp className="w-5 h-5 text-brand-500" />
+                  </div>
+                  <p className="text-slate-600 text-sm font-medium">
+                    {isJdDragActive ? 'Drop JD file here...' : 'Upload JD — PDF, DOCX, DOC, TXT, RTF, HTML, ODT'}
+                  </p>
                 </>
               )}
             </div>
@@ -257,20 +285,20 @@ export default function UploadForm({
                   value={urlInput}
                   onChange={(e) => setUrlInput(e.target.value)}
                   placeholder="https://linkedin.com/jobs/view/... or indeed.com/..."
-                  className="flex-1 px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="flex-1 px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
                 />
                 <button
                   onClick={handleExtractUrl}
                   disabled={urlLoading || !urlInput.trim()}
-                  className="px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2 transition-colors"
+                  className="px-4 py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-xl hover:bg-brand-700 disabled:opacity-60 flex items-center gap-2 transition-colors shadow-brand-sm"
                 >
                   {urlLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
                   Extract
                 </button>
               </div>
-              {urlError && <p className="text-xs text-red-600 mt-1">{urlError}</p>}
+              {urlError && <p className="text-xs text-red-600 mt-1.5">{urlError}</p>}
               {jobDescription && jdMode === 'url' && (
-                <p className="text-xs text-green-600 mt-1">JD extracted successfully — switched to Text mode for review.</p>
+                <p className="text-xs text-green-600 mt-1.5">JD extracted — switched to Text mode for review.</p>
               )}
             </div>
           )}
@@ -280,7 +308,7 @@ export default function UploadForm({
         <div className="mb-6">
           <button
             onClick={() => setShowWeights(!showWeights)}
-            className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+            className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-brand-700 transition-colors"
           >
             <SlidersHorizontal className="w-4 h-4" />
             Scoring Weights
@@ -296,7 +324,7 @@ export default function UploadForm({
 
         {/* Error */}
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+          <div className="mb-5 p-4 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
             <p className="text-sm text-red-700">{error}</p>
           </div>
@@ -306,8 +334,10 @@ export default function UploadForm({
         <button
           onClick={onSubmit}
           disabled={isSubmitDisabled}
-          className={`w-full py-3 px-6 rounded-lg font-semibold text-white transition-all duration-200 ${
-            isSubmitDisabled ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-[0.98]'
+          className={`w-full py-3.5 px-6 rounded-2xl font-bold text-white transition-all duration-200 text-sm tracking-wide ${
+            isSubmitDisabled
+              ? 'bg-slate-300 cursor-not-allowed text-slate-400'
+              : 'btn-brand shadow-brand'
           }`}
         >
           {isLoading ? (

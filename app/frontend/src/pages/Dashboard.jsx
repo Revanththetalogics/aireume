@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Sparkles, CheckCircle, Loader2 } from 'lucide-react'
+import { Sparkles, CheckCircle, Loader2, Zap, Shield, Brain } from 'lucide-react'
 import UploadForm from '../components/UploadForm'
 import NavBar from '../components/NavBar'
 import { analyzeResume } from '../lib/api'
@@ -12,12 +12,20 @@ const AGENT_STEPS = [
   { id: 'done',  label: 'Pipeline complete — Rendering results',           duration: 500   },
 ]
 
+const FEATURE_PILLS = [
+  { icon: Zap,    label: '3-Agent Pipeline' },
+  { icon: Brain,  label: 'LLM Insights' },
+  { icon: Shield, label: 'On-prem · Zero Data Leak' },
+]
+
 function AgentProgressIndicator({ activeStep }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-      <div className="flex items-center gap-2 mb-5">
-        <Sparkles className="w-5 h-5 text-blue-600 animate-pulse" />
-        <h3 className="font-semibold text-slate-800">Agent Pipeline Running</h3>
+    <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-lg p-6 card-animate">
+      <div className="flex items-center gap-2.5 mb-5">
+        <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center">
+          <Sparkles className="w-4 h-4 text-brand-600 animate-pulse" />
+        </div>
+        <h3 className="font-semibold text-brand-900">Agent Pipeline Running</h3>
       </div>
       <div className="space-y-3">
         {AGENT_STEPS.slice(0, 3).map((step, idx) => {
@@ -27,21 +35,21 @@ function AgentProgressIndicator({ activeStep }) {
           return (
             <div
               key={step.id}
-              className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
-                isActive ? 'bg-blue-50 border border-blue-200' :
-                isDone   ? 'bg-green-50 border border-green-100' :
-                           'bg-slate-50 border border-slate-100'
+              className={`flex items-center gap-3 p-3.5 rounded-2xl transition-all duration-300 ${
+                isActive ? 'bg-brand-50 ring-1 ring-brand-200' :
+                isDone   ? 'bg-green-50 ring-1 ring-green-100' :
+                           'bg-slate-50 ring-1 ring-slate-100'
               }`}
             >
               {isDone ? (
                 <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
               ) : isActive ? (
-                <Loader2 className="w-5 h-5 text-blue-500 shrink-0 animate-spin" />
+                <Loader2 className="w-5 h-5 text-brand-500 shrink-0 animate-spin" />
               ) : (
-                <div className="w-5 h-5 rounded-full border-2 border-slate-300 shrink-0" />
+                <div className="w-5 h-5 rounded-full ring-2 ring-slate-200 shrink-0" />
               )}
               <span className={`text-sm font-medium ${
-                isActive ? 'text-blue-700' : isDone ? 'text-green-700' : 'text-slate-400'
+                isActive ? 'text-brand-700' : isDone ? 'text-green-700' : 'text-slate-400'
               }`}>
                 {step.label}
               </span>
@@ -99,7 +107,6 @@ export default function Dashboard() {
       const data = await analyzeResume(selectedFile, jobDescription, selectedJobFile, scoringWeights)
       clearStepTimer()
       setActiveStep('done')
-      // Navigate to dedicated report page
       navigate('/report', { state: { result: data } })
     } catch (err) {
       clearStepTimer()
@@ -117,14 +124,32 @@ export default function Dashboard() {
   useEffect(() => () => clearStepTimer(), [])
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-surface">
       <NavBar />
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Hero text */}
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-slate-900 mb-2">Screen a Candidate</h2>
-          <p className="text-slate-500">Upload a resume and job description. ARIA's 3-agent pipeline will analyze fit, score, and generate a full report.</p>
+        <div className="text-center mb-10 card-animate">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-brand-50 text-brand-700 text-xs font-semibold rounded-full ring-1 ring-brand-200 mb-5">
+            <Sparkles className="w-3.5 h-3.5" />
+            AI-Powered Resume Screening
+          </div>
+          <h2 className="text-4xl font-extrabold tracking-tight mb-3">
+            <span className="text-gradient">Screen a Candidate</span>
+          </h2>
+          <p className="text-slate-500 text-lg leading-relaxed max-w-xl mx-auto">
+            Upload a resume and job description. ARIA's 3-agent pipeline will analyze fit, score, and generate a full report.
+          </p>
+
+          {/* Feature pills */}
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-5">
+            {FEATURE_PILLS.map(({ icon: Icon, label }) => (
+              <span key={label} className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 bg-white ring-1 ring-slate-200 rounded-full px-3 py-1">
+                <Icon className="w-3.5 h-3.5 text-brand-500" />
+                {label}
+              </span>
+            ))}
+          </div>
         </div>
 
         <UploadForm
@@ -143,14 +168,17 @@ export default function Dashboard() {
 
         {/* Agent progress */}
         {isLoading && activeStep && activeStep !== 'done' && (
-          <div className="mt-8">
+          <div className="mt-6">
             <AgentProgressIndicator activeStep={activeStep} />
           </div>
         )}
       </main>
 
-      <footer className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-center text-sm text-slate-500">
-        <p>Enterprise Agent Pipeline · 3-Agent Architecture · Powered by llama3 on-prem · No data leaves your VPS</p>
+      <footer className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
+        <div className="inline-flex items-center gap-2 text-xs text-slate-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+          Enterprise Agent Pipeline · 3-Agent Architecture · Powered by llama3 on-prem · No data leaves your VPS
+        </div>
       </footer>
     </div>
   )

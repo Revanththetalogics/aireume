@@ -16,7 +16,6 @@ function categorizeSkill(skill) {
 export default function SkillsRadar({ matchedSkills = [], missingSkills = [] }) {
   if (!matchedSkills.length && !missingSkills.length) return null
 
-  // Build category totals
   const categories = ['Programming', 'Frameworks', 'DevOps/Cloud', 'Data/DB', 'Soft Skills', 'Domain']
   const matched = {}
   const missing = {}
@@ -39,37 +38,37 @@ export default function SkillsRadar({ matchedSkills = [], missingSkills = [] }) 
   })).filter(d => d.Has > 0 || d.Needs > 0)
 
   return (
-    <div className="bg-slate-50 rounded-lg p-5 border border-slate-200">
-      <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-4">
+    <div className="bg-brand-50/60 rounded-2xl p-5 ring-1 ring-brand-100">
+      <h3 className="text-sm font-bold text-brand-900 uppercase tracking-wide mb-4">
         Skills Gap Visualization
       </h3>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Radar chart */}
         <div>
-          <p className="text-xs text-slate-500 mb-2 text-center">Skills Coverage Radar</p>
+          <p className="text-xs text-slate-500 mb-2 text-center font-medium">Skills Coverage Radar</p>
           <ResponsiveContainer width="100%" height={200}>
             <RadarChart data={radarData}>
-              <PolarGrid />
-              <PolarAngleAxis dataKey="category" tick={{ fontSize: 10 }} />
-              <Radar name="Has" dataKey="Has" stroke="#22c55e" fill="#22c55e" fillOpacity={0.4} />
-              <Radar name="Needs" dataKey="Needs" stroke="#ef4444" fill="#ef4444" fillOpacity={0.2} />
+              <PolarGrid stroke="#DDD6FE" />
+              <PolarAngleAxis dataKey="category" tick={{ fontSize: 10, fill: '#6B7280' }} />
+              <Radar name="Has"   dataKey="Has"   stroke="#7C3AED" fill="#7C3AED" fillOpacity={0.35} />
+              <Radar name="Needs" dataKey="Needs" stroke="#F43F5E" fill="#F43F5E" fillOpacity={0.2} />
             </RadarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Bar chart */}
         <div>
-          <p className="text-xs text-slate-500 mb-2 text-center">Has vs. Needs by Category</p>
+          <p className="text-xs text-slate-500 mb-2 text-center font-medium">Has vs. Needs by Category</p>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={barData} layout="vertical" margin={{ left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" tick={{ fontSize: 10 }} />
-              <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={70} />
-              <Tooltip />
+              <CartesianGrid strokeDasharray="3 3" stroke="#EDE9FE" />
+              <XAxis type="number" tick={{ fontSize: 10, fill: '#6B7280' }} />
+              <YAxis dataKey="name" type="category" tick={{ fontSize: 10, fill: '#6B7280' }} width={70} />
+              <Tooltip
+                contentStyle={{ borderRadius: '12px', border: '1px solid #EDE9FE', boxShadow: '0 4px 16px rgba(124,58,237,0.12)' }}
+              />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="Has" fill="#22c55e" radius={[0, 3, 3, 0]} />
-              <Bar dataKey="Needs" fill="#ef4444" radius={[0, 3, 3, 0]} />
+              <Bar dataKey="Has"   fill="#7C3AED" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="Needs" fill="#F43F5E" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

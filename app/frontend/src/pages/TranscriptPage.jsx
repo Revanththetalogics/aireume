@@ -19,7 +19,7 @@ function ScoreRing({ value, label, color }) {
   return (
     <div className="flex flex-col items-center gap-1">
       <svg width="72" height="72" className="-rotate-90">
-        <circle cx="36" cy="36" r={radius} strokeWidth="6" fill="none" className="stroke-slate-100" />
+        <circle cx="36" cy="36" r={radius} strokeWidth="6" fill="none" className="stroke-brand-100" />
         <circle
           cx="36" cy="36" r={radius} strokeWidth="6" fill="none"
           strokeDasharray={circ} strokeDashoffset={offset}
@@ -27,21 +27,21 @@ function ScoreRing({ value, label, color }) {
           className={`transition-all duration-700 ${color}`}
         />
       </svg>
-      <span className="text-xl font-bold text-slate-800 -mt-10">{value}</span>
-      <span className="text-[11px] text-slate-500 font-medium mt-6 text-center leading-tight">{label}</span>
+      <span className="text-xl font-extrabold text-brand-900 -mt-10">{value}</span>
+      <span className="text-[11px] text-slate-500 font-semibold mt-6 text-center leading-tight">{label}</span>
     </div>
   )
 }
 
 function RecommendBadge({ rec }) {
   const map = {
-    proceed: { icon: <CheckCircle2 className="w-4 h-4" />, cls: 'bg-green-100 text-green-700 border-green-200' },
-    hold:    { icon: <MinusCircle  className="w-4 h-4" />, cls: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-    reject:  { icon: <XCircle     className="w-4 h-4" />, cls: 'bg-red-100 text-red-700 border-red-200' },
+    proceed: { icon: <CheckCircle2 className="w-4 h-4" />, cls: 'bg-green-100 text-green-700 ring-1 ring-green-200' },
+    hold:    { icon: <MinusCircle  className="w-4 h-4" />, cls: 'bg-amber-100 text-amber-700 ring-1 ring-amber-200' },
+    reject:  { icon: <XCircle     className="w-4 h-4" />, cls: 'bg-red-100 text-red-700 ring-1 ring-red-200' },
   }
   const style = map[rec?.toLowerCase()] || map.hold
   return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-sm font-semibold ${style.cls}`}>
+    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold ${style.cls}`}>
       {style.icon}
       {rec ? rec.charAt(0).toUpperCase() + rec.slice(1) : 'Hold'}
     </span>
@@ -183,22 +183,22 @@ export default function TranscriptPage() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-surface">
       <NavBar />
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
         {/* Header */}
-        <div className="flex items-start justify-between flex-wrap gap-3">
+        <div className="flex items-start justify-between flex-wrap gap-3 card-animate">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Interview Transcript Analysis</h2>
-            <p className="text-slate-500 text-sm mt-1">
+            <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Interview Transcript Analysis</h2>
+            <p className="text-slate-500 text-sm mt-1 font-medium">
               Upload a Teams / Zoom transcript, select a candidate profile &amp; job description,
               and receive an unbiased AI evaluation.
             </p>
           </div>
           <button
             onClick={handleToggleHistory}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-300 text-sm text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 ring-1 ring-brand-200 text-sm font-semibold text-brand-700 rounded-xl hover:bg-brand-50 transition-colors"
           >
             <History className="w-4 h-4" />
             {showHistory ? 'Hide History' : 'Past Analyses'}
@@ -207,9 +207,9 @@ export default function TranscriptPage() {
 
         {/* ── History panel ── */}
         {showHistory && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100">
-              <h3 className="text-base font-semibold text-slate-800">Past Transcript Analyses</h3>
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden card-animate">
+            <div className="px-5 py-4 border-b border-brand-50">
+              <h3 className="text-base font-extrabold text-brand-900 tracking-tight">Past Transcript Analyses</h3>
             </div>
             {loadingHistory ? (
               <div className="flex items-center justify-center py-10 text-slate-400">
@@ -220,10 +220,10 @@ export default function TranscriptPage() {
             ) : (
               <div className="divide-y divide-slate-100">
                 {history.map((h) => (
-                  <button
+                    <button
                     key={h.id}
                     onClick={() => viewHistoryItem(h)}
-                    className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors text-left"
+                    className="w-full flex items-center justify-between px-5 py-3 hover:bg-brand-50/40 transition-colors text-left"
                   >
                     <div>
                       <p className="text-sm font-medium text-slate-800">
@@ -236,9 +236,9 @@ export default function TranscriptPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       {h.fit_score != null && (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                          h.fit_score >= 70 ? 'bg-green-100 text-green-700' :
-                          h.fit_score >= 45 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${
+                          h.fit_score >= 70 ? 'bg-green-50 text-green-700 ring-green-200' :
+                          h.fit_score >= 45 ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-red-50 text-red-700 ring-red-200'
                         }`}>{h.fit_score}</span>
                       )}
                       <RecommendBadge rec={h.recommendation} />
@@ -260,10 +260,10 @@ export default function TranscriptPage() {
               <div key={n} className="flex items-center gap-2">
                 <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                   step === n
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-brand-600 text-white'
                     : step > n
                     ? 'bg-green-100 text-green-700'
-                    : 'bg-slate-100 text-slate-400'
+                    : 'bg-brand-50 text-brand-300'
                 }`}>
                   <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold
                     border border-current">{n}</span>
@@ -279,12 +279,12 @@ export default function TranscriptPage() {
             STEP 1 — Select Context
         ════════════════════════════════════════════════════ */}
         {!showHistory && step === 1 && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 space-y-5 card-animate">
 
             {/* Candidate dropdown */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                <User className="w-4 h-4 text-blue-500" />
+              <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                <User className="w-4 h-4 text-brand-500" />
                 Candidate Profile
                 <span className="text-slate-400 font-normal">(optional)</span>
               </label>
@@ -294,8 +294,7 @@ export default function TranscriptPage() {
                 <select
                   value={candidateId}
                   onChange={(e) => setCandidateId(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 text-slate-700 text-sm
-                    focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-slate-700 text-sm bg-white"
                 >
                   <option value="">— No candidate selected —</option>
                   {candidates.map((c) => (
@@ -314,8 +313,8 @@ export default function TranscriptPage() {
 
             {/* Job Description dropdown */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                <Briefcase className="w-4 h-4 text-purple-500" />
+              <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                <Briefcase className="w-4 h-4 text-brand-500" />
                 Job Description
                 <span className="text-red-500 text-xs ml-1">*required</span>
               </label>
@@ -325,8 +324,7 @@ export default function TranscriptPage() {
                 <select
                   value={templateId}
                   onChange={(e) => setTemplateId(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 text-slate-700 text-sm
-                    focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-slate-700 text-sm bg-white"
                 >
                   <option value="">— Select a job description —</option>
                   {templates.map((t) => (
@@ -343,8 +341,8 @@ export default function TranscriptPage() {
 
             {/* Platform selector */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                <Video className="w-4 h-4 text-sky-500" />
+              <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                <Video className="w-4 h-4 text-brand-400" />
                 Interview Platform
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -354,8 +352,8 @@ export default function TranscriptPage() {
                     onClick={() => setPlatform(p.id)}
                     className={`px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
                       platform === p.id
-                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                        : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                        ? 'ring-2 ring-brand-500 bg-brand-50 text-brand-700'
+                        : 'ring-1 ring-slate-200 text-slate-600 hover:ring-brand-200 hover:bg-brand-50/40'
                     }`}
                   >
                     {p.label}
@@ -368,8 +366,7 @@ export default function TranscriptPage() {
               <button
                 onClick={() => setStep(2)}
                 disabled={!step1Valid}
-                className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white
-                  text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 px-6 py-2.5 btn-brand text-white text-sm font-bold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-brand-sm"
               >
                 Next: Upload Transcript <ChevronRight className="w-4 h-4" />
               </button>
@@ -384,10 +381,10 @@ export default function TranscriptPage() {
             STEP 2 — Upload / Paste Transcript
         ════════════════════════════════════════════════════ */}
         {!showHistory && step === 2 && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 space-y-5 card-animate">
 
             {/* Context summary */}
-            <div className="flex flex-wrap gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100 text-sm">
+            <div className="flex flex-wrap gap-3 p-3 bg-brand-50/60 rounded-2xl ring-1 ring-brand-100 text-sm">
               {candidateId && (
                 <span className="flex items-center gap-1 text-slate-600">
                   <User className="w-3.5 h-3.5 text-blue-500" />
@@ -415,8 +412,8 @@ export default function TranscriptPage() {
                   onClick={() => setInputMode(m.id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
                     inputMode === m.id
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      ? 'ring-2 ring-brand-500 bg-brand-50 text-brand-700'
+                      : 'ring-1 ring-slate-200 text-slate-600 hover:ring-brand-200 hover:bg-brand-50/40'
                   }`}
                 >
                   {m.icon} {m.label}
@@ -431,10 +428,10 @@ export default function TranscriptPage() {
                   {...getRootProps()}
                   className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
                     isDragActive
-                      ? 'border-blue-500 bg-blue-50'
+                      ? 'border-brand-500 bg-brand-50'
                       : transcriptFile
                       ? 'border-green-400 bg-green-50'
-                      : 'border-slate-300 hover:border-slate-400'
+                      : 'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
                   }`}
                 >
                   <input {...getInputProps()} />
@@ -473,8 +470,7 @@ export default function TranscriptPage() {
                   onChange={(e) => setPastedText(e.target.value)}
                   placeholder="Paste the interview transcript here…"
                   rows={12}
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500
-                    resize-none text-slate-700 placeholder-slate-400 text-sm font-mono"
+                  className="w-full px-4 py-3 rounded-2xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 resize-none text-slate-700 placeholder-slate-400 text-sm font-mono bg-white"
                 />
                 <p className="text-xs text-slate-400 mt-1">{pastedText.length} characters</p>
               </div>
@@ -489,16 +485,14 @@ export default function TranscriptPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => { setStep(1); setError('') }}
-                className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 text-slate-700 text-sm
-                  font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 ring-1 ring-brand-200 text-brand-700 text-sm font-semibold rounded-xl hover:bg-brand-50 transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" /> Back
               </button>
               <button
                 onClick={handleAnalyze}
                 disabled={isAnalyzing}
-                className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white
-                  text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 px-6 py-2.5 btn-brand text-white text-sm font-bold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-brand-sm"
               >
                 {isAnalyzing
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing…</>
@@ -527,7 +521,7 @@ function ResultsPanel({ result, onReset }) {
   return (
     <div className="space-y-5">
       {/* Header card */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+      <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-5 card-animate">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h3 className="text-lg font-bold text-slate-900">
@@ -548,17 +542,17 @@ function ResultsPanel({ result, onReset }) {
 
         {/* Score rings */}
         <div className="flex flex-wrap gap-8 mt-6 justify-center sm:justify-start">
-          <ScoreRing value={ar.fit_score ?? 0}              label="Overall Fit"     color="stroke-blue-500" />
-          <ScoreRing value={ar.technical_depth ?? 0}        label="Technical Depth" color="stroke-purple-500" />
-          <ScoreRing value={ar.communication_quality ?? 0}  label="Communication"   color="stroke-sky-500" />
+          <ScoreRing value={ar.fit_score ?? 0}              label="Overall Fit"     color="stroke-brand-600" />
+          <ScoreRing value={ar.technical_depth ?? 0}        label="Technical Depth" color="stroke-violet-500" />
+          <ScoreRing value={ar.communication_quality ?? 0}  label="Communication"   color="stroke-indigo-500" />
         </div>
       </div>
 
       {/* JD Alignment */}
       {ar.jd_alignment?.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-          <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-            <Briefcase className="w-4 h-4 text-purple-500" /> JD Requirements Alignment
+        <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-5">
+          <h4 className="text-sm font-bold text-brand-900 mb-3 flex items-center gap-2">
+            <Briefcase className="w-4 h-4 text-brand-500" /> JD Requirements Alignment
           </h4>
           <div className="space-y-2">
             {ar.jd_alignment.map((item, i) => (
@@ -582,8 +576,8 @@ function ResultsPanel({ result, onReset }) {
 
       {/* Strengths & Areas */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-          <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+        <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-5">
+          <h4 className="text-sm font-bold text-brand-900 mb-3 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-green-500" /> Strengths
           </h4>
           {ar.strengths?.length ? (
@@ -600,8 +594,8 @@ function ResultsPanel({ result, onReset }) {
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-          <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+        <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-5">
+          <h4 className="text-sm font-bold text-brand-900 mb-3 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-500" /> Areas for Improvement
           </h4>
           {ar.areas_for_improvement?.length ? (
@@ -621,8 +615,8 @@ function ResultsPanel({ result, onReset }) {
 
       {/* Bias note */}
       {ar.bias_note && (
-        <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-700">
-          <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5 text-blue-500" />
+        <div className="flex items-start gap-3 p-4 bg-brand-50 ring-1 ring-brand-200 rounded-2xl text-sm text-brand-700">
+          <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5 text-brand-500" />
           <span>{ar.bias_note}</span>
         </div>
       )}
@@ -630,8 +624,7 @@ function ResultsPanel({ result, onReset }) {
       {/* Actions */}
       <button
         onClick={onReset}
-        className="flex items-center gap-2 px-5 py-2.5 border border-slate-300 text-slate-700 text-sm
-          font-medium rounded-lg hover:bg-slate-50 transition-colors"
+        className="flex items-center gap-2 px-5 py-2.5 ring-1 ring-brand-200 text-brand-700 text-sm font-semibold rounded-xl hover:bg-brand-50 transition-colors"
       >
         <ChevronLeft className="w-4 h-4" /> New Analysis
       </button>
