@@ -513,7 +513,9 @@ class TestNormalizeSkill:
         assert _normalize_skill("C++") == "c++"
 
     def test_multiple_spaces_collapsed(self):
-        assert _normalize_skill("  react   native  ") == "react   native"
+        # _normalize_skill strips surrounding whitespace and collapses internal
+        # runs of spaces to a single space
+        assert _normalize_skill("  react   native  ") == "react native"
 
 
 class TestExpandSkill:
