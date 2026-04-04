@@ -39,8 +39,9 @@ services:
       - "11434:11434"
     restart: unless-stopped
     # On first run, exec into container and pull both models:
-    #   ollama pull llama3
-    #   ollama pull llama3.2:3b
+    #   ollama pull llama3.2:3b   (dev fast model)
+    #   ollama pull llama3        (dev reasoning model)
+    # Production uses gemma4:4b + gemma4:12b (set via OLLAMA_FAST_MODEL / OLLAMA_MODEL env vars).
 
   backend:
     build:

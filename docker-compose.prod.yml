@@ -8,12 +8,28 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: resume-screener-postgres
+    # Tuned for 6 GB RAM allocation on a 48 GB server.
+    command: >
+      postgres
+      -c shared_buffers=1536MB
+      -c effective_cache_size=4GB
+      -c work_mem=64MB
+      -c maintenance_work_mem=256MB
+      -c max_connections=200
+      -c wal_buffers=64MB
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aria}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-Itslogical1.}
       POSTGRES_DB: ${POSTGRES_DB:-aria_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 6G
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aria} -d ${POSTGRES_DB:-aria_db}"]
@@ -26,12 +42,24 @@ services:
     image: ollama/ollama:latest
     container_name: resume-screener-ollama
     environment:
-      - OLLAMA_NUM_PARALLEL=3
+      # CPU inference: use all 8 allocated cores for maximum token throughput.
+      - OLLAMA_NUM_THREAD=8
+      # Allow 4 concurrent LLM requests — 3-stage pipeline fires up to 2 nodes
+      # simultaneously; the extra slot handles SSE streaming overlap.
+      - OLLAMA_NUM_PARALLEL=4
+      # Keep both models hot in RAM — eliminates cold-load on every request.
       - OLLAMA_MAX_LOADED_MODELS=2
+      # Flash Attention: fused attention kernel, 20-40% faster on longer contexts.
       - OLLAMA_FLASH_ATTENTION=1
+      # Quantise KV cache to int8 — halves RAM per-slot, allows higher parallelism.
       - OLLAMA_KV_CACHE_TYPE=q8_0
     volumes:
       - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 34G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ollama", "list"]
@@ -43,16 +71,29 @@ services:
   backend:
     image: revanth2245/resume-backend:latest
     container_name: resume-screener-backend
+    # 4 workers: backend is I/O-bound (waits on Ollama/DB), so multiple workers
+    # serve concurrent users without starving Ollama of CPU cores.
+    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 4
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD:-Itslogical1.}@postgres:5432/${POSTGRES_DB:-aria_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - ENVIRONMENT=production
+      # gemma4:4b — fast agents (JD parser, resume parser, skill matcher, edu/timeline, interview Qs)
+      # gemma4:12b — reasoning agent (scorer/explainer): better rationale & JSON compliance than llama3:8b
+      # Both fit in 34 GB Ollama budget (~11 GB total); no model eviction under normal load.
+      - OLLAMA_FAST_MODEL=gemma4:4b
+      - OLLAMA_MODEL=gemma4:12b
     depends_on:
       postgres:
         condition: service_healthy
       ollama:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: '3'
+          memory: 4G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -66,6 +107,11 @@ services:
     container_name: resume-screener-frontend
     depends_on:
       - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
     restart: unless-stopped
 
   nginx:
@@ -76,6 +122,11 @@ services:
     depends_on:
       - frontend
       - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost/health"]
