@@ -36,6 +36,12 @@ def _get_semaphore() -> asyncio.Semaphore:
 _REASONING_LLM = None
 
 
+def reset_llm_singleton():
+    """Force the LLM singleton to reinitialise on next call (e.g. after env change)."""
+    global _REASONING_LLM
+    _REASONING_LLM = None
+
+
 def _get_llm():
     global _REASONING_LLM
     if _REASONING_LLM is None:
@@ -46,8 +52,14 @@ def _get_llm():
                 base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
                 temperature=0.1,
                 format="json",
-                num_predict=1500,
-                num_ctx=4096,
+                # num_predict: actual JSON output is ~400-450 tokens.
+                # Keeping this tight stops Ollama allocating a huge KV-cache
+                # slab and prevents runaway generation. 550 = 400 output + 25% headroom.
+                num_predict=550,
+                # num_ctx: prompt is ~350 tokens. 1536 = prompt + output + margin.
+                # Halving from 4096 saves ~900 MB KV-cache on CPU and speeds
+                # up every attention computation proportionally.
+                num_ctx=1536,
             )
         except Exception as e:
             log.warning("LLM init failed: %s", e)
@@ -1023,20 +1035,22 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     scores   = context.get("scores", {})
     skill_a  = context.get("skill_analysis", {})
 
-    prompt = f"""You are a recruitment analyst. Output ONLY valid JSON, no markdown, no explanation.
+    # Cap career_summary to 300 chars — it's already extracted by Python,
+    # we only need context, not the full text (saves ~100 input tokens).
+    career_snippet = (profile.get("career_summary") or "")[:300]
 
-ROLE: {jd.get("role_title")} | domain={jd.get("domain")} | seniority={jd.get("seniority")}
-CANDIDATE: {profile.get("name") or "Unknown"} | {profile.get("total_effective_years", 0)}y exp | current: {profile.get("current_role") or "N/A"} at {profile.get("current_company") or "N/A"}
-SCORES: skill={scores.get("skill_score",0)}/100 exp={scores.get("exp_score",0)}/100 edu={scores.get("edu_score",0)}/100 timeline={scores.get("timeline_score",0)}/100 fit={scores.get("fit_score",0)}/100
+    prompt = f"""You are a recruitment analyst. Output ONLY valid JSON, no markdown.
+
+ROLE: {jd.get("role_title")} | {jd.get("domain")} | {jd.get("seniority")}
+CANDIDATE: {profile.get("name") or "Unknown"} | {profile.get("total_effective_years", 0)}y | {profile.get("current_role") or "N/A"} at {profile.get("current_company") or "N/A"}
+SCORES: skill={scores.get("skill_score",0)} exp={scores.get("exp_score",0)} edu={scores.get("edu_score",0)} timeline={scores.get("timeline_score",0)} fit={scores.get("fit_score",0)} /100
 RECOMMENDATION: {scores.get("final_recommendation","Pending")}
-MATCHED SKILLS: {", ".join(skill_a.get("matched_skills", [])[:15])}
-MISSING SKILLS: {", ".join(skill_a.get("missing_skills", [])[:10])}
-CAREER SUMMARY: {profile.get("career_summary","")}
+MATCHED: {", ".join(skill_a.get("matched_skills", [])[:12])}
+MISSING: {", ".join(skill_a.get("missing_skills", [])[:8])}
+BIO: {career_snippet}
 
-OUTPUT JSON SCHEMA (return exactly this structure):
-{{"strengths":[],"weaknesses":[],"recommendation_rationale":"","explainability":{{"skill_rationale":"","experience_rationale":"","overall_rationale":""}},"interview_questions":{{"technical_questions":[],"behavioral_questions":[],"culture_fit_questions":[]}}}}
-
-Rules: 3-5 strengths (evidence-based), 2-4 constructive weaknesses, 2-sentence rationale, 5 technical questions targeting missing skills, 3 STAR behavioral questions, 2 culture/motivation questions."""
+Return exactly: {{"strengths":[],"weaknesses":[],"recommendation_rationale":"","explainability":{{"skill_rationale":"","experience_rationale":"","overall_rationale":""}},"interview_questions":{{"technical_questions":[],"behavioral_questions":[],"culture_fit_questions":[]}}}}
+Rules: 3 strengths, 2 weaknesses, 1-sentence rationale, 3 technical Qs on missing skills, 2 STAR behavioral Qs, 1 culture Q."""
 
     from langchain_core.messages import HumanMessage
     response = await llm.ainvoke([HumanMessage(content=prompt)])
