@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
+import httpx
 
 from app.backend.db.database import engine, Base, SessionLocal
 from app.backend.routes import analyze
@@ -20,13 +21,65 @@ from app.backend.routes import transcript
 
 log = logging.getLogger("aria.startup")
 
+VERSION = "2.0.0"
+W = 54  # banner width (inner)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Create all tables (idempotent — no-op if they already exist)
-    Base.metadata.create_all(bind=engine)
 
-    # Seed skills registry from DB (or hardcoded list if DB is empty)
+def _banner_line(text: str = "", fill: str = " ") -> str:
+    return f"║ {text:{fill}<{W}} ║"
+
+
+def _check(ok: bool) -> str:
+    return "OK  " if ok else "FAIL"
+
+
+def _print_startup_banner(checks: dict) -> None:
+    """Print a one-glance startup status table to stdout (captured by docker logs)."""
+    overall_ok = all(v["ok"] for v in checks.values())
+    status_label = "READY" if overall_ok else "DEGRADED — check items marked FAIL"
+
+    lines = [
+        f"╔{'═' * (W + 2)}╗",
+        _banner_line(f"  ARIA — Resume Intelligence v{VERSION}  ·  ThetaLogics"),
+        f"╠{'═' * (W + 2)}╣",
+    ]
+    for name, info in checks.items():
+        icon  = "✓" if info["ok"] else "✗"
+        label = info["label"]
+        note  = info.get("note", "")
+        row   = f"{icon}  {label:<22}{note}"
+        lines.append(_banner_line(row))
+
+    lines += [
+        f"╠{'═' * (W + 2)}╣",
+        _banner_line(f"  Status : {status_label}"),
+        f"╚{'═' * (W + 2)}╝",
+    ]
+    # Use print so it always appears in docker logs regardless of log level
+    print("\n" + "\n".join(lines) + "\n", flush=True)
+
+
+async def _startup_checks() -> dict:
+    """Run all dependency checks and return structured results."""
+    from sqlalchemy import text
+
+    results = {}
+
+    # ── 1. Database ───────────────────────────────────────────────────────────
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+            db_name = os.getenv("DATABASE_URL", "").split("/")[-1] or "connected"
+            results["database"] = {"ok": True, "label": "Database",
+                                   "note": f"connected  ({db_name})"}
+        finally:
+            db.close()
+    except Exception as e:
+        results["database"] = {"ok": False, "label": "Database",
+                               "note": str(e)[:30]}
+
+    # ── 2. Skills registry ────────────────────────────────────────────────────
     try:
         from app.backend.services.hybrid_pipeline import skills_registry
         db = SessionLocal()
@@ -35,17 +88,74 @@ async def lifespan(app: FastAPI):
             skills_registry.load(db)
         finally:
             db.close()
+        count = len(skills_registry._skills)
+        results["skills"] = {"ok": count > 0, "label": "Skills registry",
+                             "note": f"{count} skills loaded"}
     except Exception as e:
-        log.warning("Skills registry startup failed (non-fatal): %s", e)
+        results["skills"] = {"ok": False, "label": "Skills registry",
+                             "note": str(e)[:30]}
 
+    # ── 3. Ollama reachability ────────────────────────────────────────────────
+    ollama_url    = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    narrative_model = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
+    pulled_models = []
+    hot_models    = []
+    ollama_ok     = False
+
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            r = await client.get(f"{ollama_url}/api/tags")
+            r.raise_for_status()
+            ollama_ok = True
+            pulled_models = [m["name"] for m in r.json().get("models", [])]
+            try:
+                ps = await client.get(f"{ollama_url}/api/ps")
+                if ps.status_code == 200:
+                    hot_models = [m["name"] for m in ps.json().get("models", [])]
+            except Exception:
+                pass
+        results["ollama"] = {"ok": True, "label": "Ollama",
+                             "note": f"reachable  ({ollama_url})"}
+    except Exception as e:
+        results["ollama"] = {"ok": False, "label": "Ollama",
+                             "note": str(e)[:35]}
+
+    # ── 4. Narrative model pulled ─────────────────────────────────────────────
+    model_pulled = ollama_ok and any(narrative_model in m for m in pulled_models)
+    results["model_pulled"] = {
+        "ok":    model_pulled,
+        "label": "Model (pulled)",
+        "note":  f"{narrative_model}" if model_pulled else f"{narrative_model}  NOT FOUND",
+    }
+
+    # ── 5. Narrative model hot in RAM ─────────────────────────────────────────
+    model_hot = ollama_ok and any(narrative_model in m for m in hot_models)
+    results["model_hot"] = {
+        "ok":    model_hot,
+        "label": "Model (hot/RAM)",
+        "note":  "loaded" if model_hot else "cold — will load on first request",
+    }
+
+    # ── 6. Environment ────────────────────────────────────────────────────────
+    env = os.getenv("ENVIRONMENT", "development")
+    results["environment"] = {"ok": True, "label": "Environment", "note": env}
+
+    return results
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Run all checks, print banner, then hand off to the app
+    checks = await _startup_checks()
+    _print_startup_banner(checks)
     yield
 
 
 app = FastAPI(
     title="ARIA — AI Resume Intelligence by ThetaLogics",
-    description="Multi-tenant AI resume screening platform with 4-agent pipeline",
-    version="2.0.0",
-    lifespan=lifespan
+    description="Multi-tenant AI resume screening platform",
+    version=VERSION,
+    lifespan=lifespan,
 )
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
@@ -89,7 +199,7 @@ app.include_router(transcript.router)
 def root():
     return {
         "message": "ARIA API — AI Resume Intelligence",
-        "version": "2.0.0",
+        "version": VERSION,
         "docs":    "/docs",
     }
 
@@ -97,16 +207,14 @@ def root():
 @app.get("/health")
 async def health_check():
     """
-    Active health check — verifies DB connectivity and Ollama reachability.
-    Returns "degraded" (not "error") so upstream load balancers keep routing
-    but operators are alerted via monitoring dashboards.
+    Active health check — verifies DB and Ollama connectivity.
+    Returns 200 with status 'ok' or 'degraded' (never 5xx) so upstream
+    load balancers keep routing while operators are alerted.
     """
-    import httpx
     from sqlalchemy import text
 
     checks: dict = {"status": "ok", "db": "ok", "ollama": "ok"}
 
-    # DB check
     try:
         db = SessionLocal()
         try:
@@ -117,7 +225,6 @@ async def health_check():
         checks["db"] = f"error: {str(e)[:80]}"
         checks["status"] = "degraded"
 
-    # Ollama reachability check
     ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -134,81 +241,65 @@ async def health_check():
 @app.get("/api/llm-status")
 async def llm_status():
     """
-    Diagnostic endpoint — shows which Ollama models are pulled, which model
-    ARIA uses for narrative, and whether it is available.
+    Diagnostic endpoint — shows pulled models, hot models, and a plain-English
+    diagnosis of why the LLM narrative may be falling back to Python.
 
-    Call this from the VPS to diagnose why analysis falls back to Python:
-      curl http://localhost:8000/api/llm-status
+    Usage from the VPS:
+      curl http://localhost:8080/api/llm-status
     """
-    import httpx
-
-    ollama_url  = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    target_model = os.getenv("OLLAMA_MODEL", "gemma4:26b")
-    fast_model   = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b")
+    ollama_url     = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    target_model   = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
+    fast_model     = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b")
 
     result: dict = {
-        "ollama_url":      ollama_url,
-        "narrative_model": target_model,
-        "fast_model":      fast_model,
-        "ollama_reachable": False,
-        "pulled_models":   [],
+        "ollama_url":            ollama_url,
+        "narrative_model":       target_model,
+        "fast_model":            fast_model,
+        "ollama_reachable":      False,
+        "pulled_models":         [],
         "narrative_model_ready": False,
         "fast_model_ready":      False,
-        "running_models":  [],
-        "diagnosis":       "",
+        "running_models":        [],
+        "diagnosis":             "",
     }
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            # List pulled models
             tags_resp = await client.get(f"{ollama_url}/api/tags")
             tags_resp.raise_for_status()
             result["ollama_reachable"] = True
-            models_data = tags_resp.json().get("models", [])
-            result["pulled_models"] = [m["name"] for m in models_data]
-
-            # Check if required models are pulled
+            result["pulled_models"] = [m["name"] for m in tags_resp.json().get("models", [])]
             result["narrative_model_ready"] = any(
                 target_model in m for m in result["pulled_models"]
             )
             result["fast_model_ready"] = any(
                 fast_model in m for m in result["pulled_models"]
             )
-
-            # List currently loaded (hot) models
             try:
-                ps_resp = await client.get(f"{ollama_url}/api/ps")
-                if ps_resp.status_code == 200:
+                ps = await client.get(f"{ollama_url}/api/ps")
+                if ps.status_code == 200:
                     result["running_models"] = [
-                        m["name"] for m in ps_resp.json().get("models", [])
+                        m["name"] for m in ps.json().get("models", [])
                     ]
             except Exception:
                 pass
-
     except Exception as e:
         result["diagnosis"] = f"Ollama unreachable: {str(e)[:120]}"
         return result
 
-    # Build human-readable diagnosis
     narrative_hot = any(target_model in m for m in result["running_models"])
 
-    if not result["narrative_model_ready"] and not result["fast_model_ready"]:
+    if not result["narrative_model_ready"]:
         result["diagnosis"] = (
-            f"Neither '{target_model}' nor '{fast_model}' is pulled. "
-            f"Run: docker exec resume-screener-ollama ollama pull {target_model}"
-        )
-    elif not result["narrative_model_ready"]:
-        result["diagnosis"] = (
-            f"Narrative model '{target_model}' not pulled — LLM narrative will fall back. "
+            f"'{target_model}' not pulled. "
             f"Run: docker exec resume-screener-ollama ollama pull {target_model}"
         )
     elif not narrative_hot:
         result["diagnosis"] = (
-            f"'{target_model}' is pulled but NOT loaded in RAM (cold). "
-            "First analysis will trigger a model load (2–5 min on CPU). "
-            f"Pre-warm now: docker exec resume-screener-ollama ollama run {target_model} 'Hi'"
+            f"'{target_model}' pulled but NOT in RAM (cold). "
+            f"Pre-warm: docker exec resume-screener-ollama ollama run {target_model} 'Hi'"
         )
     else:
-        result["diagnosis"] = f"'{target_model}' is pulled and HOT in RAM. LLM narrative is active."
+        result["diagnosis"] = f"'{target_model}' is HOT in RAM — LLM narrative is active."
 
     return result

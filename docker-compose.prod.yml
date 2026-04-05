@@ -152,9 +152,23 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-        echo '[warmup] Loading gemma4:e4b into RAM...';
+        echo '============================================';
+        echo '  ARIA — Ollama Model Warmup';
+        echo '============================================';
+        echo '';
+        echo '  Checking Ollama is ready...';
+        until ollama list > /dev/null 2>&1; do
+          echo '  Waiting for Ollama...';
+          sleep 3;
+        done;
+        echo '  ✓  Ollama is up';
+        echo '';
+        echo '  Loading gemma4:e4b into RAM...';
         ollama run gemma4:e4b 'warmup' --nowordwrap;
-        echo '[warmup] gemma4:e4b hot. Done.';
+        echo '';
+        echo '  ✓  gemma4:e4b is HOT in RAM';
+        echo '  ✓  Warmup complete — LLM narrative is active';
+        echo '============================================';
       "
     environment:
       - OLLAMA_HOST=http://ollama:11434
