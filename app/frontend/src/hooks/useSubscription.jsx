@@ -26,7 +26,7 @@ export function SubscriptionProvider({ children }) {
       return data
     } catch (err) {
       setError(err.message || 'Failed to fetch subscription')
-      throw err
+      setSubscription(null)
     } finally {
       setLoading(false)
     }
@@ -169,7 +169,7 @@ export function useUsageCheck() {
       return {
         allowed: false,
         message: `You only have ${remaining} analyses remaining this month. Please upgrade your plan.`,
-        remaining,
+        remaining: remaining - fileCount, // Return deficit (negative number)
       }
     }
 
