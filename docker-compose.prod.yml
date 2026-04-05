@@ -140,6 +140,33 @@ services:
       retries: 3
       start_period: 10s
 
+  # Runs once after Ollama is healthy, loads both models into RAM so the
+  # first real analysis request is never blocked by a cold-start.
+  # restart: on-failure means it re-tries if Ollama wasn't ready yet,
+  # but won't keep restarting once the warm-up succeeds (exit 0).
+  ollama-warmup:
+    image: ollama/ollama:latest
+    container_name: resume-screener-ollama-warmup
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        echo '[warmup] Loading gemma4:e4b into RAM...';
+        ollama run gemma4:e4b 'warmup' --nowordwrap;
+        echo '[warmup] Loading gemma4:26b into RAM...';
+        ollama run gemma4:26b 'warmup' --nowordwrap;
+        echo '[warmup] Both models hot. Done.';
+      "
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+    restart: on-failure
+
   certbot:
     image: certbot/certbot
     container_name: resume-screener-certbot
