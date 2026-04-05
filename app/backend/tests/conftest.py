@@ -497,7 +497,7 @@ def seed_subscription_plans(db):
 @pytest.fixture
 def auth_client_with_free_plan(client, db, seed_subscription_plans):
     """Create an authenticated client with a tenant on the Free plan."""
-    from app.backend.models.db_models import Tenant
+    from app.backend.models.db_models import Tenant, SubscriptionPlan
     
     register_payload = {
         "company_name": "FreeCorp",
@@ -509,7 +509,8 @@ def auth_client_with_free_plan(client, db, seed_subscription_plans):
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
     
     # Get the tenant and set it to free plan
-    free_plan_id = db.query(db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").subquery()).first().id
+    free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+    free_plan_id = free_plan.id
     tenant = db.query(Tenant).filter(Tenant.slug == "freecorp").first()
     tenant.plan_id = free_plan_id
     db.commit()
@@ -526,7 +527,7 @@ def auth_client_with_free_plan(client, db, seed_subscription_plans):
 @pytest.fixture
 def auth_client_with_pro_plan(client, db, seed_subscription_plans):
     """Create an authenticated client with a tenant on the Pro plan."""
-    from app.backend.models.db_models import Tenant
+    from app.backend.models.db_models import Tenant, SubscriptionPlan
     
     register_payload = {
         "company_name": "ProCorp",
@@ -538,7 +539,8 @@ def auth_client_with_pro_plan(client, db, seed_subscription_plans):
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
     
     # Get the tenant and set it to pro plan
-    pro_plan_id = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first().id
+    pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
+    pro_plan_id = pro_plan.id
     tenant = db.query(Tenant).filter(Tenant.slug == "procorp").first()
     tenant.plan_id = pro_plan_id
     tenant.subscription_status = "active"
@@ -557,7 +559,7 @@ def auth_client_with_pro_plan(client, db, seed_subscription_plans):
 @pytest.fixture
 def auth_client_at_usage_limit(client, db, seed_subscription_plans):
     """Create an authenticated client at their usage limit (Free plan = 5 analyses)."""
-    from app.backend.models.db_models import Tenant
+    from app.backend.models.db_models import Tenant, SubscriptionPlan
     
     register_payload = {
         "company_name": "LimitedCorp",
@@ -569,7 +571,8 @@ def auth_client_at_usage_limit(client, db, seed_subscription_plans):
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
     
     # Get the tenant and set it to free plan at limit
-    free_plan_id = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first().id
+    free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+    free_plan_id = free_plan.id
     tenant = db.query(Tenant).filter(Tenant.slug == "limitedcorp").first()
     tenant.plan_id = free_plan_id
     tenant.analyses_count_this_month = 5  # At limit
