@@ -508,14 +508,3 @@ describe('useUsageCheck', () => {
     expect(checkResult.allowed).toBe(true)
   })
 })
-
-
-// Helper for renderHook with provider
-import React from 'react'
-const SubscriptionProvider = ({ children }) => {
-  return (
-    <SubscriptionProvider>
-      {children}
-    </SubscriptionProvider>
-  )
-}
