@@ -15,6 +15,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app/ ./app/
 
+# Alembic (migrations run in entrypoint for PostgreSQL)
+COPY alembic.ini .
+COPY alembic ./alembic
+
 COPY app/backend/scripts/wait_for_ollama.py /app/wait_for_ollama.py
 COPY app/backend/scripts/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
