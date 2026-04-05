@@ -229,7 +229,7 @@ def get_my_subscription(
     
     usage = UsageResponse(
         analyses_used=tenant.analyses_count_this_month,
-        analyses_limit=analyses_limit if analyses_limit > 0 else float('inf'),
+        analyses_limit=analyses_limit if analyses_limit > 0 else -1,  # -1 represents unlimited
         storage_used_mb=tenant.storage_used_bytes / (1024 * 1024),
         storage_limit_gb=storage_limit,
         team_members_count=team_count,
