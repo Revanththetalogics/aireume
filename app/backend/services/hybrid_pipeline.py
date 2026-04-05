@@ -48,7 +48,7 @@ def _get_llm():
         try:
             from langchain_ollama import ChatOllama
             _REASONING_LLM = ChatOllama(
-                model=os.getenv("OLLAMA_MODEL", "gemma4:26b"),
+                model=os.getenv("OLLAMA_MODEL") or "gemma4:e4b",
                 base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
                 temperature=0.1,
                 format="json",
@@ -559,6 +559,33 @@ def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
     }
 
 
+def _infer_total_years_from_resume_text(text: str) -> float:
+    """
+    When structured work_experience is empty or dates failed, recover years from prose
+    (e.g. '8+ years of experience', 'over 5 years in embedded systems').
+    """
+    if not text:
+        return 0.0
+    snippet = text[:25000]
+    best = 0.0
+    patterns = [
+        r"(?:over|more\s+than|at\s+least|>\s*|approximately|approx\.?)\s*(\d{1,2})\+?\s*(?:years?|yrs?\.?)",
+        r"(\d{1,2})\+?\s*(?:years?|yrs?\.?)\s+(?:of\s+)?(?:professional\s+)?(?:relevant\s+)?(?:experience|exp\.?)\b",
+        r"(?:experience|exp\.?)\s*[:\-–—]?\s*(?:of\s+)?(?:about|approx\.?)?\s*(\d{1,2})\+?\s*(?:years?|yrs?\.?)",
+        r"\b(\d{1,2})\s*\+\s*years?\b",
+        r"\b(\d{1,2})\s*-\s*years?\s+(?:of\s+)?experience\b",
+    ]
+    for pat in patterns:
+        for m in re.finditer(pat, snippet, re.IGNORECASE):
+            try:
+                v = float(m.group(1))
+                if 0.5 <= v <= 45:
+                    best = max(best, v)
+            except (ValueError, IndexError):
+                pass
+    return min(45.0, best)
+
+
 def _extract_skills_from_text(text: str) -> List[str]:
     """Extract skills from text using flashtext processor or regex fallback."""
     processor = skills_registry.get_processor()
@@ -576,7 +603,7 @@ def _extract_skills_from_text(text: str) -> List[str]:
 
 def parse_resume_rules(parsed_data: Dict[str, Any], gap_analysis: Dict[str, Any]) -> Dict[str, Any]:
     """Build a structured candidate profile from parser output and gap analysis."""
-    contact      = parsed_data.get("contact_info", {})
+    contact      = parsed_data.get("contact_info", {}) or {}
     work_exp     = parsed_data.get("work_experience", [])
     raw_text     = parsed_data.get("raw_text", "")
 
@@ -586,7 +613,11 @@ def parse_resume_rules(parsed_data: Dict[str, Any], gap_analysis: Dict[str, Any]
     # Merge deduplicating by normalized name
     all_skills = list(dict.fromkeys(parser_skills + scanned_skills))
 
-    total_years = gap_analysis.get("total_years", 0.0)
+    total_years = float(gap_analysis.get("total_years", 0.0) or 0.0)
+    if total_years <= 0 and raw_text:
+        inferred_y = _infer_total_years_from_resume_text(raw_text)
+        if inferred_y > 0:
+            total_years = inferred_y
     current_role    = work_exp[0].get("title", "")    if work_exp else ""
     current_company = work_exp[0].get("company", "")  if work_exp else ""
 
@@ -1364,8 +1395,11 @@ async def run_hybrid_pipeline(
         python_result["narrative_pending"] = True
     except Exception as e:
         log.warning(
-            "LLM explain failed (%s: %s) — using fallback narrative",
-            type(e).__name__, str(e)[:200],
+            "LLM explain failed (%s: %s) — using fallback narrative (OLLAMA_BASE_URL=%s OLLAMA_MODEL=%s)",
+            type(e).__name__,
+            str(e)[:200],
+            os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            os.getenv("OLLAMA_MODEL") or "gemma4:e4b",
         )
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
         python_result["narrative_pending"] = True
@@ -1431,8 +1465,11 @@ async def astream_hybrid_pipeline(
             await llm_queue.put(("fallback", fallback))
         except Exception as e:
             log.warning(
-                "LLM stream failed (%s: %s) — using fallback",
-                type(e).__name__, str(e)[:200],
+                "LLM stream failed (%s: %s) — using fallback (OLLAMA_BASE_URL=%s OLLAMA_MODEL=%s)",
+                type(e).__name__,
+                str(e)[:200],
+                os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                os.getenv("OLLAMA_MODEL") or "gemma4:e4b",
             )
             fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])
             python_result["narrative_pending"] = True

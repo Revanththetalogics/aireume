@@ -89,8 +89,8 @@ services:
       # and fits entirely within the reduced 14 GB Ollama memory limit.
       - OLLAMA_FAST_MODEL=gemma4:e4b
       - OLLAMA_MODEL=gemma4:e4b
-      # 60s is ample for gemma4:e4b on CPU with num_predict=550.
-      - LLM_NARRATIVE_TIMEOUT=60
+      # Cold load / CPU contention can exceed 60s; 150s matches app default and reduces false "LLM offline".
+      - LLM_NARRATIVE_TIMEOUT=150
       # Backend entrypoint waits for Ollama + pulls model into RAM before uvicorn.
       - OLLAMA_STARTUP_REQUIRED=1
     depends_on:

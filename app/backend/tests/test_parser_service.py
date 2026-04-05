@@ -1,5 +1,5 @@
 import pytest
-from app.backend.services.parser_service import ResumeParser, parse_resume
+from app.backend.services.parser_service import ResumeParser, parse_resume, enrich_parsed_resume
 
 
 class TestResumeParser:
@@ -121,3 +121,14 @@ Shipped firmware.
 
         assert isinstance(result, dict)
         assert "raw_text" in result
+
+    def test_enrich_name_from_email_when_header_missing(self):
+        data = {
+            "raw_text": "SKILLS\nPython, C++\n",
+            "contact_info": {"email": "jane.smith@corp.io"},
+            "work_experience": [],
+            "skills": [],
+            "education": [],
+        }
+        enrich_parsed_resume(data)
+        assert data["contact_info"]["name"] == "Jane Smith"

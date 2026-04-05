@@ -128,6 +128,17 @@ class GapDetector:
                 "duration_months":  _months_between(start_ym, end_ym),
             })
 
+        # Roles listed but start_date never parsed — avoid 0y timeline & 0% experience.
+        if not jobs:
+            estimated = round(min(15.0, max(0.0, len(work_experience) * 1.5)), 1)
+            return {
+                "employment_timeline": [],
+                "employment_gaps":     [],
+                "overlapping_jobs":    [],
+                "short_stints":        [],
+                "total_years":         estimated,
+            }
+
         jobs.sort(key=lambda j: j["start_ym"])
 
         # Build structured employment timeline with gap metadata

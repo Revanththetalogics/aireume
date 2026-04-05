@@ -490,6 +490,62 @@ class ResumeParser:
         return info
 
 
+def _name_from_email(email: str) -> str:
+    """john.doe@x.com → 'John Doe' when local part has two+ alpha tokens."""
+    if not email or "@" not in email:
+        return ""
+    local = email.split("@", 1)[0].strip().lower()
+    if not local:
+        return ""
+    tokens = [t for t in re.split(r"[._+\-]+", local) if t.isalpha() and len(t) >= 2]
+    if len(tokens) < 2:
+        return ""
+    return " ".join(t.capitalize() for t in tokens[:4])
+
+
+def _extract_name_relaxed(text: str) -> str:
+    """
+    Fallback when strict header heuristics miss (e.g. title line before name, odd layout).
+    """
+    skip = {
+        "resume", "curriculum", "vitae", "cv", "profile", "summary",
+        "objective", "contact", "address", "details", "information",
+        "page", "updated", "date", "experience", "education", "skills",
+        "employment", "work", "projects", "references",
+    }
+    title_case_name = re.compile(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*$")
+    for line in text.strip().split("\n")[:35]:
+        line = line.strip()
+        if len(line) < 4 or len(line) > 80:
+            continue
+        if "@" in line or re.search(r"linkedin\.com/", line, re.IGNORECASE):
+            continue
+        if re.search(r"\+?\d[\d\s().\-]{8,}\d", line):
+            continue
+        if title_case_name.match(line):
+            words = line.split()
+            if any(w.lower() in skip for w in words):
+                continue
+            return line
+    return ""
+
+
+def enrich_parsed_resume(data: Dict[str, Any]) -> None:
+    """Fill gaps in parser output in-place (name from email / relaxed header scan)."""
+    contact = data.setdefault("contact_info", {})
+    raw = (data.get("raw_text") or "").strip()
+    if (contact.get("name") or "").strip():
+        return
+    email = (contact.get("email") or "").strip()
+    guess = _name_from_email(email)
+    if not guess and raw:
+        guess = _extract_name_relaxed(raw)
+    if guess:
+        contact["name"] = guess
+
+
 def parse_resume(file_bytes: bytes, filename: str) -> Dict[str, Any]:
     parser = ResumeParser()
-    return parser.parse_resume(file_bytes, filename)
+    out = parser.parse_resume(file_bytes, filename)
+    enrich_parsed_resume(out)
+    return out

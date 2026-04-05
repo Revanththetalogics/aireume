@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.backend.services.hybrid_pipeline import (
     parse_jd_rules,
     parse_resume_rules,
+    _infer_total_years_from_resume_text,
     match_skills_rules,
     score_education_rules,
     score_experience_rules,
@@ -28,6 +29,29 @@ from app.backend.services.hybrid_pipeline import (
 # ═══════════════════════════════════════════════════════════════════════════════
 # Component 1: parse_jd_rules
 # ═══════════════════════════════════════════════════════════════════════════════
+
+class TestInferResumeMetadata:
+    def test_infer_years_from_prose(self):
+        t = "Embedded engineer with 7+ years of experience in automotive systems."
+        assert _infer_total_years_from_resume_text(t) == 7.0
+
+    def test_parse_resume_rules_uses_inferred_years_when_gap_zero(self):
+        gap = {
+            "total_years": 0.0,
+            "employment_gaps": [],
+            "overlapping_jobs": [],
+            "short_stints": [],
+        }
+        parsed = {
+            "contact_info": {},
+            "work_experience": [],
+            "raw_text": "I bring over 6 years of professional software development experience.",
+            "skills": ["python"],
+            "education": [],
+        }
+        prof = parse_resume_rules(parsed, gap)
+        assert prof["total_effective_years"] == 6.0
+
 
 class TestParseJdRules:
 
