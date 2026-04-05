@@ -1043,6 +1043,73 @@ def _assess_quality(candidate_profile: Dict[str, Any]) -> str:
 # COMPONENT 8: LLM NARRATIVE (single call)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+def _extract_first_balanced_json_object(text: str) -> str | None:
+    """
+    Return the substring of the first top-level `{ ... }` with balanced braces,
+    respecting double-quoted strings (so `}` inside strings does not end the object).
+
+    LLMs often emit broken JSON after the first object (extra `}`, truncated keys).
+    Taking `find('{')`..`rfind('}')` includes that garbage and breaks `json.loads`.
+    Stopping at the first balanced `}` yields a *partial* but usually valid object;
+    missing keys are filled with defaults below.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            continue
+        if c == '"':
+            in_string = True
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def _parse_llm_json_response(raw: str) -> dict | None:
+    """Parse JSON from LLM output; tolerate thinking tags, fences, and malformed tails."""
+    clean = re.sub(r"<redacted_thinking>.*?</redacted_thinking>", "", raw, flags=re.DOTALL).strip()
+    clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\s*```$", "", clean)
+    clean = clean.strip()
+
+    for candidate in (clean,):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    blob = _extract_first_balanced_json_object(clean)
+    if blob:
+        try:
+            return json.loads(blob)
+        except json.JSONDecodeError:
+            # Trailing commas are a common LLM mistake
+            try:
+                fixed = re.sub(r",\s*}", "}", blob)
+                fixed = re.sub(r",\s*]", "]", fixed)
+                return json.loads(fixed)
+            except json.JSONDecodeError:
+                pass
+    return None
+
+
 async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     """Single LLM call to generate narrative. Raises on failure for caller to handle."""
     llm = _get_llm()
@@ -1071,37 +1138,14 @@ BIO: {career_snippet}
 Return exactly: {{"strengths":[],"weaknesses":[],"recommendation_rationale":"","explainability":{{"skill_rationale":"","experience_rationale":"","overall_rationale":""}},"interview_questions":{{"technical_questions":[],"behavioral_questions":[],"culture_fit_questions":[]}}}}
 Rules: 3 strengths, 2 weaknesses, 1-sentence rationale, 3 technical Qs on missing skills, 2 STAR behavioral Qs, 1 culture Q."""
 
+
     from langchain_core.messages import HumanMessage
     response = await llm.ainvoke([HumanMessage(content=prompt)])
     raw = response.content if hasattr(response, "content") else str(response)
 
     log.debug("LLM raw response (first 300 chars): %s", raw[:300])
 
-    # Gemma4 models emit <think>...</think> blocks before the JSON answer.
-    # Strip them before attempting to parse so the regex below finds the
-    # real JSON object and not a stray { inside the thinking text.
-    clean = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
-
-    # Also strip markdown code fences (```json ... ```) that some models add.
-    clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.IGNORECASE)
-    clean = re.sub(r"\s*```$", "", clean)
-    clean = clean.strip()
-
-    # Parse JSON — try direct parse first, then find outermost { ... } block.
-    data = None
-    try:
-        data = json.loads(clean)
-    except json.JSONDecodeError:
-        # Find the LAST top-level JSON object (outermost braces).
-        # Using rfind to start from the end avoids picking up { inside thinking text.
-        start = clean.find("{")
-        end   = clean.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                data = json.loads(clean[start:end + 1])
-            except json.JSONDecodeError:
-                pass
-
+    data = _parse_llm_json_response(raw)
     if data is None:
         log.warning("LLM JSON extraction failed. Raw (500 chars): %s", raw[:500])
         raise ValueError("LLM returned non-JSON response")
