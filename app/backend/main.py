@@ -35,6 +35,10 @@ def _check(ok: bool) -> str:
 
 def _print_startup_banner(checks: dict) -> None:
     """Print a one-glance startup status table to stdout (captured by docker logs)."""
+    if not checks:
+        print("\n[ARIA startup] No dependency checks ran.\n", flush=True)
+        return
+
     overall_ok = all(v["ok"] for v in checks.values())
     status_label = "READY" if overall_ok else "DEGRADED — check items marked FAIL"
 
@@ -46,8 +50,9 @@ def _print_startup_banner(checks: dict) -> None:
     for name, info in checks.items():
         icon  = "✓" if info["ok"] else "✗"
         label = info["label"]
-        note  = info.get("note", "")
-        row   = f"{icon}  {label:<22}{note}"
+        # Keep row within W so box-drawing does not overflow terminals
+        note  = (info.get("note", "") or "")[:28]
+        row   = f"{icon}  {label:<18} {note}"
         lines.append(_banner_line(row))
 
     lines += [
@@ -145,9 +150,23 @@ async def _startup_checks() -> dict:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Run all checks, print banner, then hand off to the app
-    checks = await _startup_checks()
-    _print_startup_banner(checks)
+    """Create tables, run dependency checks, print banner.
+
+    Never raises: if startup checks crash, we still bind the server so nginx
+    does not return 502 Bad Gateway (upstream connection refused).
+    """
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        log.exception("create_all failed: %s", e)
+
+    try:
+        checks = await _startup_checks()
+        _print_startup_banner(checks)
+    except Exception as e:
+        log.exception("Startup checks failed — API will still start: %s", e)
+        print(f"\n[ARIA startup ERROR] {type(e).__name__}: {e}\n", flush=True)
+
     yield
 
 
