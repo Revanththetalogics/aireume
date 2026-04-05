@@ -337,3 +337,42 @@ class TranscriptAnalysisListItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ─── Subscription ───────────────────────────────────────────────────────────────
+
+class PlanInfo(BaseModel):
+    """Subscription plan information."""
+    id: int
+    name: str
+    display_name: str
+    description: str
+    price_monthly: int
+    price_yearly: int
+    currency: str
+    features: List[str]
+    limits: Dict[str, Any]
+
+
+class UsageStats(BaseModel):
+    """Current usage statistics for a tenant."""
+    analyses_used: int
+    analyses_limit: int
+    storage_used_mb: float
+    storage_limit_gb: int
+    team_members_count: int
+    team_members_limit: int
+    percent_used: float
+
+
+class SubscriptionResponse(BaseModel):
+    """Full subscription response for current tenant."""
+    current_plan: PlanInfo
+    status: str  # active, trialing, cancelled, past_due
+    billing_cycle: str  # monthly, yearly
+    current_period_start: Optional[datetime] = None
+    current_period_end: Optional[datetime] = None
+    price: int
+    usage: UsageStats
+    available_plans: List[PlanInfo]
+    days_until_reset: int

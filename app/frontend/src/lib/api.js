@@ -357,4 +357,38 @@ export async function checkHealth() {
   return response.data
 }
 
+// ─── Subscription ───────────────────────────────────────────────────────────
+
+export async function getSubscription() {
+  const response = await api.get('/subscription')
+  return response.data
+}
+
+export async function getAvailablePlans() {
+  const response = await api.get('/subscription/plans')
+  return response.data
+}
+
+export async function checkUsage(action, quantity = 1) {
+  const response = await api.get(`/subscription/check/${action}?quantity=${quantity}`)
+  return response.data
+}
+
+export async function getUsageHistory(limit = 100) {
+  const response = await api.get(`/subscription/usage-history?limit=${limit}`)
+  return response.data
+}
+
+// ─── Admin (for testing/plan management) ──────────────────────────────────────
+
+export async function adminResetUsage() {
+  const response = await api.post('/subscription/admin/reset-usage')
+  return response.data
+}
+
+export async function adminChangePlan(planId) {
+  const response = await api.post(`/subscription/admin/change-plan/${planId}`)
+  return response.data
+}
+
 export default api

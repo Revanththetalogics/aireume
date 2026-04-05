@@ -18,6 +18,7 @@ from app.backend.routes import team
 from app.backend.routes import training
 from app.backend.routes import video
 from app.backend.routes import transcript
+from app.backend.routes import subscription
 
 log = logging.getLogger("aria.startup")
 
@@ -210,6 +211,7 @@ app.include_router(team.router)
 app.include_router(training.router)
 app.include_router(video.router)
 app.include_router(transcript.router)
+app.include_router(subscription.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

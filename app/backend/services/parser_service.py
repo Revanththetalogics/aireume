@@ -1,6 +1,6 @@
 import re
 import io
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import pdfplumber
 from docx import Document
 
@@ -129,7 +129,11 @@ def extract_jd_text(file_bytes: bytes, filename: str) -> str:
 
 class ResumeParser:
     def __init__(self):
+        # Order: more specific / common CV formats first (year-to-present is very common).
         self.date_patterns = [
+            r'(\d{4})\s*[-–—]\s*(present|current|now)',
+            r'(\d{1,2}/\d{4})\s*[-–—]\s*(present|current|now)',
+            r'(\w+\s+\d{4})\s*[-–—]\s*(present|current|now)',
             r'(\w+\s+\d{4})\s*[-–—]\s*(\w+\s+\d{4}|present|current|now)',
             r'(\d{1,2}/\d{4})\s*[-–—]\s*(\d{1,2}/\d{4}|present|current|now)',
             r'(\d{4})\s*[-–—]\s*(\d{4}|present|current|now)',
@@ -202,6 +206,12 @@ class ResumeParser:
 
         lines = text.split('\n')
         current_job = None
+        # When dates sit on their own line ("2018 – Present"), company/title are often on the line above.
+        last_role_line: Optional[str] = None
+        _section_hdr = re.compile(
+            r'^(WORK|EXPERIENCE|EMPLOYMENT|PROFESSIONAL\s+EXPERIENCE|CAREER|HISTORY|EDUCATION|SKILLS|PROJECTS)\b',
+            re.IGNORECASE,
+        )
 
         for line in lines:
             line = line.strip()
@@ -229,6 +239,10 @@ class ResumeParser:
 
                 # Try to extract company and title from the same line or previous lines
                 parts = line[:date_match.start()].strip()
+                if not parts and last_role_line:
+                    parts = last_role_line
+                last_role_line = None
+
                 if '|' in parts:
                     split_parts = parts.split('|', 1)
                     company = split_parts[0].strip()
@@ -256,6 +270,10 @@ class ResumeParser:
                 # Accumulate job description
                 if len(line) > 20:  # Likely a description line
                     current_job['description'] += line + ' '
+            else:
+                # Between jobs: remember short lines as possible role/company headers
+                if len(line) < 120 and not _section_hdr.match(line) and not line.startswith(('-', '•', '*', '·', '▸')):
+                    last_role_line = line
 
         # Don't forget the last job
         if current_job and (current_job.get('company') or current_job.get('title')):
@@ -402,7 +420,11 @@ class ResumeParser:
         """
         Extract candidate name from the top of the resume.
         Names are typically the first prominent line: 1-5 capitalised words,
-        no digits, no special chars, not a common section header.
+        not a common section header.
+
+        Note: older logic rejected any line containing a hyphen in a character class,
+        which incorrectly skipped hyphenated names (e.g. Mary-Jane Smith). We now
+        split on | / • and treat phone/email segments separately.
         """
         SKIP_WORDS = {
             'resume', 'curriculum', 'vitae', 'cv', 'profile', 'summary',
@@ -410,23 +432,36 @@ class ResumeParser:
             'page', 'updated', 'date',
         }
         lines = text.strip().split('\n')
-        for line in lines[:10]:
+        for line in lines[:15]:
             line = line.strip()
             if not line or len(line) < 3:
                 continue
-            # Skip lines with contact-info markers or special chars
-            if re.search(r'[@|:/\\•*\d+\-\(\)]', line):
+            name = self._name_from_header_line(line, SKIP_WORDS)
+            if name:
+                return name
+        return ''
+
+    def _name_from_header_line(self, line: str, skip_words: set) -> str:
+        """Try to read a person name from one header line (possibly 'Name | phone | city')."""
+        segments = re.split(r'\s*[|•]\s*', line)
+        for seg in segments:
+            seg = seg.strip()
+            if not seg or len(seg) < 2:
                 continue
-            words = line.split()
+            if '@' in seg or re.search(r'linkedin\.com/', seg, re.IGNORECASE):
+                continue
+            if sum(1 for c in seg if c.isdigit()) > 2:
+                continue
+            if re.search(r'\+?\d[\d\s().\-]{8,}\d', seg):
+                continue
+            words = seg.split()
             if not (1 <= len(words) <= 5):
                 continue
-            # Skip generic section headers
-            if any(w.lower() in SKIP_WORDS for w in words):
+            if any(w.lower() in skip_words for w in words):
                 continue
-            # Most words should start with uppercase (proper name)
             cap_count = sum(1 for w in words if w and w[0].isupper())
             if cap_count >= max(1, len(words) - 1):
-                return line
+                return seg
         return ''
 
     def _extract_contact_info(self, text: str) -> Dict[str, str]:

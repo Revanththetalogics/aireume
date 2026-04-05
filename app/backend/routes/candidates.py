@@ -147,11 +147,34 @@ def get_candidate(
         except Exception:
             pass
 
+    contact_info: dict = {}
+    if getattr(candidate, "parser_snapshot_json", None):
+        try:
+            snap = json.loads(candidate.parser_snapshot_json)
+            contact_info = dict(snap.get("contact_info") or {})
+        except Exception:
+            contact_info = {}
+    if not contact_info:
+        contact_info = {
+            "name": candidate.name,
+            "email": candidate.email,
+            "phone": candidate.phone,
+        }
+    else:
+        # Recruiter-edited columns win over stale snapshot
+        if candidate.name:
+            contact_info["name"] = candidate.name
+        if candidate.email is not None:
+            contact_info["email"] = candidate.email
+        if candidate.phone is not None:
+            contact_info["phone"] = candidate.phone
+
     return {
         "id":                candidate.id,
         "name":              candidate.name,
         "email":             candidate.email,
         "phone":             candidate.phone,
+        "contact_info":      contact_info,
         "created_at":        candidate.created_at,
         "profile_updated_at": candidate.profile_updated_at,
         # Enriched profile
@@ -161,6 +184,7 @@ def get_candidate(
         "profile_quality":   candidate.profile_quality,
         "skills_snapshot":   skills_snapshot,
         "has_stored_profile": bool(candidate.raw_resume_text),
+        "has_full_parser_snapshot": bool(getattr(candidate, "parser_snapshot_json", None)),
         "history":           history,
     }
 
@@ -201,18 +225,45 @@ async def analyze_existing_candidate(
             detail="Job description is too brief (under 80 words). Please provide more detail.",
         )
 
-    # Reconstruct parsed_data from stored profile
-    parsed_data = {
-        "raw_text":       candidate.raw_resume_text,
-        "skills":         json.loads(candidate.parsed_skills   or "[]"),
-        "education":      json.loads(candidate.parsed_education or "[]"),
-        "work_experience": json.loads(candidate.parsed_work_exp or "[]"),
-        "contact_info":   {
-            "name":  candidate.name,
-            "email": candidate.email,
-            "phone": candidate.phone,
-        },
-    }
+    # Prefer full parser snapshot (all fields); else reconstruct from denormalized columns
+    if getattr(candidate, "parser_snapshot_json", None):
+        try:
+            parsed_data = json.loads(candidate.parser_snapshot_json)
+            if not isinstance(parsed_data, dict):
+                raise ValueError("snapshot not an object")
+            ci = parsed_data.setdefault("contact_info", {})
+            if candidate.name:
+                ci["name"] = candidate.name
+            if candidate.email is not None:
+                ci["email"] = candidate.email
+            if candidate.phone is not None:
+                ci["phone"] = candidate.phone
+            if not parsed_data.get("raw_text") and candidate.raw_resume_text:
+                parsed_data["raw_text"] = candidate.raw_resume_text
+        except Exception:
+            parsed_data = {
+                "raw_text":       candidate.raw_resume_text,
+                "skills":         json.loads(candidate.parsed_skills   or "[]"),
+                "education":      json.loads(candidate.parsed_education or "[]"),
+                "work_experience": json.loads(candidate.parsed_work_exp or "[]"),
+                "contact_info":   {
+                    "name":  candidate.name,
+                    "email": candidate.email,
+                    "phone": candidate.phone,
+                },
+            }
+    else:
+        parsed_data = {
+            "raw_text":       candidate.raw_resume_text,
+            "skills":         json.loads(candidate.parsed_skills   or "[]"),
+            "education":      json.loads(candidate.parsed_education or "[]"),
+            "work_experience": json.loads(candidate.parsed_work_exp or "[]"),
+            "contact_info":   {
+                "name":  candidate.name,
+                "email": candidate.email,
+                "phone": candidate.phone,
+            },
+        }
     gap_analysis = json.loads(candidate.gap_analysis_json or "{}")
 
     # Use DB JD cache

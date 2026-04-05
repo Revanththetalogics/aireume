@@ -70,6 +70,8 @@ services:
       retries: 3
       start_period: 60s
 
+  # Rebuild/push the backend image from app/backend/Dockerfile so ENTRYPOINT includes
+  # wait_for_ollama.py (Ollama healthy + model warm before uvicorn).
   backend:
     image: revanth2245/resume-backend:latest
     container_name: resume-screener-backend
@@ -89,11 +91,13 @@ services:
       - OLLAMA_MODEL=gemma4:e4b
       # 60s is ample for gemma4:e4b on CPU with num_predict=550.
       - LLM_NARRATIVE_TIMEOUT=60
+      # Backend entrypoint waits for Ollama + pulls model into RAM before uvicorn.
+      - OLLAMA_STARTUP_REQUIRED=1
     depends_on:
       postgres:
         condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
     deploy:
       resources:
         limits:

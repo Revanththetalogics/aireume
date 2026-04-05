@@ -285,6 +285,9 @@ class TestCandidateProfileStorage:
         assert cand.resume_file_hash == file_hash
         assert cand.raw_resume_text is not None
         assert cand.parsed_skills is not None
+        assert cand.parser_snapshot_json is not None
+        snap = json.loads(cand.parser_snapshot_json)
+        assert snap.get("contact_info", {}).get("email") == "john@test.com"
         skills = json.loads(cand.parsed_skills)
         assert isinstance(skills, list)
         assert "python" in skills

@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, DateTime, Text, Boolean,
-    ForeignKey, Float, func
+    ForeignKey, Float, func, BigInteger
 )
 from sqlalchemy.orm import relationship
 from app.backend.db.database import Base
@@ -11,9 +11,19 @@ from app.backend.db.database import Base
 class SubscriptionPlan(Base):
     __tablename__ = "subscription_plans"
 
-    id      = Column(Integer, primary_key=True, index=True)
-    name    = Column(String(50), unique=True, nullable=False)   # free / pro / enterprise
-    limits  = Column(Text, nullable=False, default="{}")        # JSON: analyses_per_month, batch_size, etc.
+    id           = Column(Integer, primary_key=True, index=True)
+    name         = Column(String(50), unique=True, nullable=False)   # free / pro / enterprise
+    display_name = Column(String(100), nullable=True)                # Human-readable name
+    description  = Column(Text, nullable=True)                        # Plan description
+    limits       = Column(Text, nullable=False, default="{}")      # JSON: analyses_per_month, batch_size, etc.
+    price_monthly = Column(Integer, nullable=False, default=0)       # Monthly price in cents
+    price_yearly = Column(Integer, nullable=False, default=0)        # Yearly price in cents
+    currency     = Column(String(3), nullable=False, default="USD")  # ISO currency code
+    features     = Column(Text, nullable=False, default="[]")      # JSON array of feature strings
+    is_active    = Column(Boolean, nullable=False, default=True)     # Whether plan is available
+    sort_order   = Column(Integer, nullable=False, default=0)        # Display order
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at   = Column(DateTime(timezone=True), onupdate=func.now())
 
     tenants = relationship("Tenant", back_populates="plan")
 
@@ -27,12 +37,26 @@ class Tenant(Base):
     plan_id    = Column(Integer, ForeignKey("subscription_plans.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # ── Subscription & Usage Tracking ─────────────────────────────────────────
+    subscription_status     = Column(String(20), nullable=False, default="active")  # active/trialing/cancelled/past_due
+    current_period_start    = Column(DateTime(timezone=True), nullable=True)
+    current_period_end      = Column(DateTime(timezone=True), nullable=True)
+    analyses_count_this_month = Column(Integer, nullable=False, default=0)
+    storage_used_bytes      = Column(BigInteger, nullable=False, default=0)
+    usage_reset_at          = Column(DateTime(timezone=True), nullable=True)  # Last monthly reset
+
+    # Stripe integration (for future payment integration)
+    stripe_customer_id      = Column(String(255), nullable=True)
+    stripe_subscription_id  = Column(String(255), nullable=True)
+    subscription_updated_at = Column(DateTime(timezone=True), nullable=True)
+
     plan         = relationship("SubscriptionPlan", back_populates="tenants")
     users        = relationship("User", back_populates="tenant")
     candidates   = relationship("Candidate", back_populates="tenant")
     templates    = relationship("RoleTemplate", back_populates="tenant")
     results      = relationship("ScreeningResult", back_populates="tenant")
     team_members = relationship("TeamMember", back_populates="tenant")
+    usage_logs   = relationship("UsageLog", back_populates="tenant")
 
 
 class User(Base):
@@ -49,6 +73,23 @@ class User(Base):
     tenant       = relationship("Tenant", back_populates="users")
     team_member  = relationship("TeamMember", back_populates="user", uselist=False)
     comments     = relationship("Comment", back_populates="author")
+    usage_logs   = relationship("UsageLog", back_populates="user")
+
+
+class UsageLog(Base):
+    """Detailed usage tracking for subscription billing and analytics."""
+    __tablename__ = "usage_logs"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    tenant_id  = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action     = Column(String(50), nullable=False)  # resume_analysis, batch_analysis, etc.
+    quantity   = Column(Integer, nullable=False, default=1)
+    details    = Column(Text, nullable=True)  # JSON with context
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    tenant = relationship("Tenant", back_populates="usage_logs")
+    user   = relationship("User", back_populates="usage_logs")
 
 
 # ─── Candidate & results ──────────────────────────────────────────────────────
@@ -75,6 +116,9 @@ class Candidate(Base):
     total_years_exp    = Column(Float,       nullable=True)
     profile_quality    = Column(String(20),  nullable=True)   # high | medium | low
     profile_updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Full parse_resume() output as JSON (contact_info, raw_text, skills, …) — audit / re-analyze
+    parser_snapshot_json = Column(Text, nullable=True)
 
     tenant               = relationship("Tenant", back_populates="candidates")
     results              = relationship("ScreeningResult", back_populates="candidate")

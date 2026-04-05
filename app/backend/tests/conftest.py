@@ -438,3 +438,148 @@ def mock_ollama_email():
         mock_client.post = AsyncMock(return_value=mock_resp)
         mock_client_cls.return_value = mock_client
         yield mock_client
+
+
+# ─── Subscription Fixtures ───────────────────────────────────────────────────────
+
+@pytest.fixture
+def seed_subscription_plans(db):
+    """Seed subscription plans for testing."""
+    from app.backend.models.db_models import SubscriptionPlan
+    
+    plans = [
+        {
+            "name": "free",
+            "display_name": "Free",
+            "description": "Free tier",
+            "limits": json.dumps({"analyses_per_month": 5, "batch_size": 3, "team_members": 1, "storage_gb": 1, "api_access": False, "custom_weights": False}),
+            "price_monthly": 0,
+            "price_yearly": 0,
+            "currency": "USD",
+            "features": json.dumps(["5 analyses", "1 team member"]),
+            "is_active": True,
+            "sort_order": 1,
+        },
+        {
+            "name": "pro",
+            "display_name": "Pro",
+            "description": "Pro tier",
+            "limits": json.dumps({"analyses_per_month": 100, "batch_size": 20, "team_members": 5, "storage_gb": 10, "api_access": True, "custom_weights": True}),
+            "price_monthly": 4900,  # $49
+            "price_yearly": 47000,  # $470
+            "currency": "USD",
+            "features": json.dumps(["100 analyses", "5 team members", "API access"]),
+            "is_active": True,
+            "sort_order": 2,
+        },
+        {
+            "name": "enterprise",
+            "display_name": "Enterprise",
+            "description": "Enterprise tier",
+            "limits": json.dumps({"analyses_per_month": -1, "batch_size": 100, "team_members": 25, "storage_gb": 100, "api_access": True, "custom_weights": True, "dedicated_support": True}),
+            "price_monthly": 19900,  # $199
+            "price_yearly": 191000,  # $1910
+            "currency": "USD",
+            "features": json.dumps(["Unlimited analyses", "25 team members", "Dedicated support"]),
+            "is_active": True,
+            "sort_order": 3,
+        },
+    ]
+    
+    for plan_data in plans:
+        plan = SubscriptionPlan(**plan_data)
+        db.add(plan)
+    db.commit()
+    
+    return plans
+
+
+@pytest.fixture
+def auth_client_with_free_plan(client, db, seed_subscription_plans):
+    """Create an authenticated client with a tenant on the Free plan."""
+    from app.backend.models.db_models import Tenant
+    
+    register_payload = {
+        "company_name": "FreeCorp",
+        "email": "free@freecorp.com",
+        "password": "TestPass123!",
+        "full_name": "Free User",
+    }
+    reg_resp = client.post("/api/auth/register", json=register_payload)
+    assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+    
+    # Get the tenant and set it to free plan
+    free_plan_id = db.query(db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").subquery()).first().id
+    tenant = db.query(Tenant).filter(Tenant.slug == "freecorp").first()
+    tenant.plan_id = free_plan_id
+    db.commit()
+    
+    login_resp = client.post("/api/auth/login", json={
+        "email": "free@freecorp.com",
+        "password": "TestPass123!",
+    })
+    token = login_resp.json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
+
+
+@pytest.fixture
+def auth_client_with_pro_plan(client, db, seed_subscription_plans):
+    """Create an authenticated client with a tenant on the Pro plan."""
+    from app.backend.models.db_models import Tenant
+    
+    register_payload = {
+        "company_name": "ProCorp",
+        "email": "pro@procorp.com",
+        "password": "TestPass123!",
+        "full_name": "Pro User",
+    }
+    reg_resp = client.post("/api/auth/register", json=register_payload)
+    assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+    
+    # Get the tenant and set it to pro plan
+    pro_plan_id = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first().id
+    tenant = db.query(Tenant).filter(Tenant.slug == "procorp").first()
+    tenant.plan_id = pro_plan_id
+    tenant.subscription_status = "active"
+    tenant.analyses_count_this_month = 0
+    db.commit()
+    
+    login_resp = client.post("/api/auth/login", json={
+        "email": "pro@procorp.com",
+        "password": "TestPass123!",
+    })
+    token = login_resp.json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
+
+
+@pytest.fixture
+def auth_client_at_usage_limit(client, db, seed_subscription_plans):
+    """Create an authenticated client at their usage limit (Free plan = 5 analyses)."""
+    from app.backend.models.db_models import Tenant
+    
+    register_payload = {
+        "company_name": "LimitedCorp",
+        "email": "limited@limitedcorp.com",
+        "password": "TestPass123!",
+        "full_name": "Limited User",
+    }
+    reg_resp = client.post("/api/auth/register", json=register_payload)
+    assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+    
+    # Get the tenant and set it to free plan at limit
+    free_plan_id = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first().id
+    tenant = db.query(Tenant).filter(Tenant.slug == "limitedcorp").first()
+    tenant.plan_id = free_plan_id
+    tenant.analyses_count_this_month = 5  # At limit
+    tenant.subscription_status = "active"
+    db.commit()
+    
+    login_resp = client.post("/api/auth/login", json={
+        "email": "limited@limitedcorp.com",
+        "password": "TestPass123!",
+    })
+    token = login_resp.json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client

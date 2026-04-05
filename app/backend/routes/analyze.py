@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache
+from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan
 from app.backend.models.schemas import (
     AnalysisResponse, BatchAnalysisResponse, BatchAnalysisResult,
     DuplicateCandidateInfo,
@@ -36,6 +36,7 @@ from app.backend.services.hybrid_pipeline import (
     astream_hybrid_pipeline,
     parse_jd_rules,
 )
+from app.backend.routes.subscription import _ensure_monthly_reset, _get_plan_limits, record_usage
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 log    = logging.getLogger("aria.analysis")
@@ -102,6 +103,18 @@ def _build_duplicate_info(db: Session, candidate: Candidate) -> DuplicateCandida
     )
 
 
+_SNAPSHOT_JSON_MAX = 500_000  # bytes of UTF-8 JSON; keeps row size bounded
+
+
+def _parser_snapshot_json(parsed_data: dict) -> str | None:
+    """Serialize full parser output so DB retains every field (not only pattern-derived columns)."""
+    try:
+        s = json.dumps(parsed_data, ensure_ascii=False)
+        return s[:_SNAPSHOT_JSON_MAX]
+    except (TypeError, ValueError):
+        return None
+
+
 def _store_candidate_profile(
     candidate: Candidate,
     parsed_data: dict,
@@ -113,6 +126,7 @@ def _store_candidate_profile(
     work_exp = parsed_data.get("work_experience", [])
     candidate.resume_file_hash   = file_hash
     candidate.raw_resume_text    = parsed_data.get("raw_text", "")[:100000]  # cap at 100k chars
+    candidate.parser_snapshot_json = _parser_snapshot_json(parsed_data)
     candidate.parsed_skills      = json.dumps(parsed_data.get("skills", []))
     candidate.parsed_education   = json.dumps(parsed_data.get("education", []))
     candidate.parsed_work_exp    = json.dumps(work_exp)
@@ -306,6 +320,37 @@ async def _process_single_resume(
 
 # ─── Single resume analysis (non-streaming, JSON response) ────────────────────
 
+def _check_and_increment_usage(db: Session, tenant_id: int, user_id: int, quantity: int = 1) -> tuple[bool, str]:
+    """Check usage limits and increment counter. Returns (allowed, message)."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        return False, "Tenant not found"
+    
+    # Ensure monthly reset
+    _ensure_monthly_reset(tenant)
+    
+    # Get plan limits
+    plan = tenant.plan
+    if not plan:
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+    
+    if plan:
+        limits = _get_plan_limits(plan)
+        analyses_limit = limits.get("analyses_per_month", 20)
+        
+        if analyses_limit >= 0:  # Not unlimited
+            if tenant.analyses_count_this_month + quantity > analyses_limit:
+                remaining = analyses_limit - tenant.analyses_count_this_month
+                return False, f"Monthly analysis limit exceeded. Remaining: {remaining}, Requested: {quantity}. Please upgrade your plan."
+    
+    # Increment and log
+    success = record_usage(db, tenant_id, user_id, "resume_analysis", quantity)
+    if not success:
+        return False, "Failed to record usage"
+    
+    return True, ""
+
+
 @router.post("/analyze", response_model=AnalysisResponse)
 async def analyze_endpoint(
     resume: UploadFile = File(...),
@@ -316,6 +361,11 @@ async def analyze_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Check usage limits before processing
+    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, 1)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=message)
+    
     if not resume.filename.lower().endswith(ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=400, detail=f"Only {ALLOWED_EXTENSIONS} files are allowed")
 
@@ -609,8 +659,31 @@ async def batch_analyze_endpoint(
 ):
     if not resumes:
         raise HTTPException(status_code=400, detail="At least one resume required")
-    if len(resumes) > 50:
-        raise HTTPException(status_code=400, detail="Maximum 50 resumes per batch")
+    
+    # Filter valid resumes first to get accurate count
+    valid_count = sum(
+        1 for f in resumes 
+        if f.filename.lower().endswith(ALLOWED_EXTENSIONS)
+    )
+    
+    # Get tenant's plan for batch size limit
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    max_batch_size = 50  # default
+    if tenant and tenant.plan:
+        limits = _get_plan_limits(tenant.plan)
+        plan_batch_limit = limits.get("batch_size", 50)
+        max_batch_size = min(max_batch_size, plan_batch_limit)
+    
+    if valid_count > max_batch_size:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Your plan allows maximum {max_batch_size} resumes per batch. Please upgrade to process more."
+        )
+    
+    # Check usage limits for batch
+    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=message)
 
     jd_bytes = jd_name = None
     if job_file and job_file.filename:

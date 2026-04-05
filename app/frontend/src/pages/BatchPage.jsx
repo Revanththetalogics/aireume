@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, X, Loader2, Trophy, AlertTriangle, Download } from 'lucide-react'
-import { analyzeBatch, exportCsv, exportExcel } from '../lib/api'
+import { Upload, FileText, X, Loader2, Trophy, AlertTriangle, Download, BookOpen, LayoutTemplate, BookmarkPlus, Check, Sparkles } from 'lucide-react'
+import { analyzeBatch, exportCsv, exportExcel, getTemplates, createTemplate } from '../lib/api'
+import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
 
 function FitBadge({ score }) {
   if (score == null)
@@ -32,9 +33,45 @@ export default function BatchPage() {
   const [error, setError]         = useState('')
   const [selected, setSelected]   = useState([])
 
+  // Saved JD / Templates
+  const [savedJds, setSavedJds]   = useState([])
+  const [showJdPicker, setShowJdPicker] = useState(false)
+  const [saveLoading, setSaveLoading]   = useState(false)
+  const [savedNotice, setSavedNotice]   = useState(false)
+  const pickerRef = useRef(null)
+
+  // Subscription & Usage
+  const { checkBeforeAnalysis, getRemainingAnalyses } = useUsageCheck()
+  const { subscription, isFeatureAvailable, refreshAfterAnalysis } = useSubscription()
+  const [usageCheck, setUsageCheck] = useState(null)
+
+  useEffect(() => {
+    getTemplates().then(setSavedJds).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowJdPicker(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  // Check usage when files change
+  useEffect(() => {
+    if (files.length > 0) {
+      checkBeforeAnalysis(files.length).then(setUsageCheck)
+    } else {
+      setUsageCheck(null)
+    }
+  }, [files.length, checkBeforeAnalysis])
+
   const onDrop = useCallback((accepted) => {
     setFiles(prev => [...prev, ...accepted].slice(0, 50))
   }, [])
+
+  // Get batch limit from subscription
+  const maxBatchSize = subscription?.current_plan?.plan?.limits?.batch_size || 50
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -43,7 +80,7 @@ export default function BatchPage() {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/msword': ['.doc'],
     },
-    maxFiles: 50,
+    maxFiles: maxBatchSize,
     maxSize: 10 * 1024 * 1024,
   })
 
@@ -54,6 +91,14 @@ export default function BatchPage() {
       setError('Add at least one resume and a job description')
       return
     }
+
+    // Check usage before analyzing
+    const check = await checkBeforeAnalysis(files.length)
+    if (!check.allowed) {
+      setError(check.message || 'Usage limit exceeded. Please upgrade your plan.')
+      return
+    }
+
     setError('')
     setIsLoading(true)
     setResults(null)
@@ -61,6 +106,8 @@ export default function BatchPage() {
       const data = await analyzeBatch(files, jdText)
       setResults(data)
       setSelected([])
+      // Refresh subscription to show updated usage
+      await refreshAfterAnalysis(files.length)
     } catch (err) {
       const detail = err.response?.data?.detail
       setError(
@@ -77,21 +124,46 @@ export default function BatchPage() {
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
+  const handleLoadJd = (template) => {
+    setJdText(template.jd_text)
+    setShowJdPicker(false)
+  }
+
+  const handleSaveJd = async () => {
+    if (!jdText.trim()) return
+    const name = window.prompt('Save JD as (enter a name):', `JD ${new Date().toLocaleDateString()}`)
+    if (!name) return
+    setSaveLoading(true)
+    try {
+      const saved = await createTemplate({ name: name.trim(), jd_text: jdText })
+      setSavedJds((prev) => [saved, ...prev])
+      setSavedNotice(true)
+      setTimeout(() => setSavedNotice(false), 2000)
+    } catch { /* ignore */ } finally {
+      setSaveLoading(false)
+    }
+  }
+
   const allIds = results?.results?.map(r => r.result?.result_id).filter(Boolean) || []
 
   return (
     <div>
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <div className="card-animate">
+          <div className="card-animate">
           <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Batch Resume Screening</h2>
-          <p className="text-slate-500 text-sm mt-1 font-medium">Upload up to 50 resumes against one JD — get a ranked shortlist instantly.</p>
+          <p className="text-slate-500 text-sm mt-1 font-medium">
+            Upload up to {maxBatchSize} resumes against one JD — get a ranked shortlist instantly.
+            {usageCheck?.remaining !== undefined && usageCheck.remaining !== Infinity && (
+              <span className="ml-2 text-brand-600 font-semibold">({usageCheck.remaining} analyses remaining)</span>
+            )}
+          </p>
         </div>
 
         {!results && (
           <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 space-y-5 card-animate">
             {/* Multi-file dropzone */}
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Resumes (up to 50)</label>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Resumes (up to {maxBatchSize})</label>
               <div
                 {...getRootProps()}
                 className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
@@ -105,7 +177,7 @@ export default function BatchPage() {
                   <Upload className="w-6 h-6 text-brand-500" />
                 </div>
                 <p className="text-slate-600 font-medium">{isDragActive ? 'Drop resumes here...' : 'Drag & drop multiple resumes'}</p>
-                <p className="text-sm text-slate-400 mt-1">PDF, DOCX — up to 50 files</p>
+                <p className="text-sm text-slate-400 mt-1">PDF, DOCX — up to {maxBatchSize} files</p>
               </div>
               {files.length > 0 && (
                 <div className="mt-3 space-y-1.5 max-h-40 overflow-y-auto">
@@ -125,9 +197,59 @@ export default function BatchPage() {
               )}
             </div>
 
-            {/* JD */}
+            {/* JD with Saved JD selector */}
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Job Description</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-bold text-slate-700">Job Description</label>
+
+                {/* Saved JD Dropdown */}
+                <div className="relative" ref={pickerRef}>
+                  <button
+                    type="button"
+                    onClick={() => setShowJdPicker((v) => !v)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 transition-colors"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    Saved JDs
+                    {savedJds.length > 0 && (
+                      <span className="ml-0.5 bg-brand-200 text-brand-800 rounded-full px-1.5 py-0.5 text-[10px] font-bold">
+                        {savedJds.length}
+                      </span>
+                    )}
+                  </button>
+                  {showJdPicker && (
+                    <div className="absolute right-0 top-full mt-1.5 w-72 bg-white border border-brand-100 rounded-2xl shadow-brand-lg z-30 max-h-64 overflow-y-auto py-1">
+                      {savedJds.length === 0 ? (
+                        <p className="text-xs text-slate-400 px-4 py-3">No saved JDs yet. Paste a JD and click Save below.</p>
+                      ) : (
+                        <>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold px-3 py-1.5 sticky top-0 bg-white/95 border-b border-brand-50">
+                            Select a Job Description
+                          </p>
+                          {savedJds.map((t) => (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => handleLoadJd(t)}
+                              className="w-full text-left px-4 py-3 hover:bg-brand-50 transition-colors border-b border-brand-50 last:border-b-0"
+                            >
+                              <p className="font-semibold text-slate-800 text-sm truncate">{t.name}</p>
+                              <p className="text-xs text-slate-400 truncate mt-0.5">{t.jd_text.slice(0, 80)}…</p>
+                            </button>
+                          ))}
+                          <div className="px-3 py-2 bg-brand-50/50 border-t border-brand-100">
+                            <Link to="/templates" className="text-xs text-brand-700 font-medium hover:text-brand-800 flex items-center gap-1">
+                              <LayoutTemplate className="w-3 h-3" />
+                              Manage all templates →
+                            </Link>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <textarea
                 value={jdText}
                 onChange={(e) => setJdText(e.target.value)}
@@ -135,6 +257,25 @@ export default function BatchPage() {
                 rows={6}
                 className="w-full px-4 py-3 rounded-2xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 resize-none text-slate-700 placeholder-slate-400 text-sm bg-white"
               />
+
+              {/* Save JD button - below textarea */}
+              <div className="flex justify-end mt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveJd}
+                  disabled={saveLoading || !jdText.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40
+                    text-slate-500 hover:text-brand-700 hover:bg-brand-50"
+                >
+                  {savedNotice ? (
+                    <><Check className="w-3.5 h-3.5 text-green-600" /> <span className="text-green-600">Saved!</span></>
+                  ) : saveLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <><BookmarkPlus className="w-3.5 h-3.5" /> Save this JD</>
+                  )}
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -143,9 +284,41 @@ export default function BatchPage() {
               </div>
             )}
 
+            {/* Usage Status Banner */}
+            {usageCheck && !error && (
+              <div className={`p-3.5 rounded-2xl flex items-center justify-between text-sm ${
+                usageCheck.allowed
+                  ? files.length > (usageCheck.remaining || 0) && usageCheck.remaining !== Infinity
+                    ? 'bg-amber-50 ring-1 ring-amber-200 text-amber-700'
+                    : 'bg-green-50 ring-1 ring-green-200 text-green-700'
+                  : 'bg-red-50 ring-1 ring-red-200 text-red-700'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  {usageCheck.allowed ? (
+                    files.length > (usageCheck.remaining || 0) && usageCheck.remaining !== Infinity ? (
+                      <span>Only {usageCheck.remaining} analyses remaining — you added {files.length} files</span>
+                    ) : (
+                      <span>{usageCheck.remaining === Infinity ? 'Unlimited' : usageCheck.remaining} analyses remaining this month</span>
+                    )
+                  ) : (
+                    <span>{usageCheck.message}</span>
+                  )}
+                </div>
+                {(!usageCheck.allowed || (files.length > (usageCheck.remaining || 0) && usageCheck.remaining !== Infinity)) && (
+                  <Link
+                    to="/settings"
+                    className="text-xs font-semibold underline hover:no-underline"
+                  >
+                    Upgrade →
+                  </Link>
+                )}
+              </div>
+            )}
+
             <button
               onClick={handleAnalyze}
-              disabled={isLoading || !files.length || !jdText.trim()}
+              disabled={isLoading || !files.length || !jdText.trim() || (usageCheck && !usageCheck.allowed)}
               className="w-full py-3.5 btn-brand text-white font-bold rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed shadow-brand flex items-center justify-center gap-2 text-sm"
             >
               {isLoading

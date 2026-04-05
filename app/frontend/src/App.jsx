@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { SubscriptionProvider } from './hooks/useSubscription'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppShell from './components/AppShell'
 
@@ -15,6 +16,7 @@ const BatchPage    = lazy(() => import('./pages/BatchPage'))
 const TeamPage       = lazy(() => import('./pages/TeamPage'))
 const TranscriptPage = lazy(() => import('./pages/TranscriptPage'))
 const VideoPage    = lazy(() => import('./pages/VideoPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 
 function PageLoader() {
   return (
@@ -27,7 +29,9 @@ function PageLoader() {
 function Shell({ children }) {
   return (
     <ProtectedRoute>
-      <AppShell>{children}</AppShell>
+      <SubscriptionProvider>
+        <AppShell>{children}</AppShell>
+      </SubscriptionProvider>
     </ProtectedRoute>
   )
 }
@@ -48,6 +52,7 @@ function App() {
           <Route path="/team"       element={<Shell><TeamPage /></Shell>} />
           <Route path="/transcript" element={<Shell><TranscriptPage /></Shell>} />
           <Route path="/video"      element={<Shell><VideoPage /></Shell>} />
+          <Route path="/settings"   element={<Shell><SettingsPage /></Shell>} />
           <Route path="*"           element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

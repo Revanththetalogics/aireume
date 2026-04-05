@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Sparkles, CheckCircle, Loader2, Zap, Shield, Brain } from 'lucide-react'
+import { Sparkles, CheckCircle, Loader2, Zap, Shield, Brain, BarChart3 } from 'lucide-react'
 import UploadForm from '../components/UploadForm'
 import { analyzeResumeStream } from '../lib/api'
+import { useSubscription } from '../hooks/useSubscription'
 
 // ─── Pipeline stage definitions ───────────────────────────────────────────────
 
@@ -159,9 +160,51 @@ function IdlePanel() {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
+function UsageWidget() {
+  const { subscription, getUsageStats, loading } = useSubscription()
+  const usage = getUsageStats()
+
+  if (loading || !usage) return null
+
+  const percent = usage.percentUsed
+  const colorClass = percent > 90 ? 'bg-red-500' : percent > 70 ? 'bg-amber-500' : 'bg-brand-500'
+  const isUnlimited = usage.analysesLimit < 0
+
+  return (
+    <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4 mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-brand-600" />
+          <span className="text-sm font-semibold text-slate-700">Usage This Month</span>
+        </div>
+        <span className={`text-xs font-medium ${percent > 90 ? 'text-red-600' : 'text-slate-500'}`}>
+          {isUnlimited ? '∞' : `${usage.analysesUsed} / ${usage.analysesLimit}`} analyses
+        </span>
+      </div>
+      {!isUnlimited && (
+        <div className="w-full bg-slate-100 rounded-full h-2">
+          <div
+            className={`h-2 rounded-full transition-all ${colorClass}`}
+            style={{ width: `${Math.min(percent, 100)}%` }}
+          />
+        </div>
+      )}
+      {isUnlimited && (
+        <div className="flex items-center gap-1 text-xs text-green-600 font-medium">
+          <Sparkles className="w-3 h-3" />
+          Unlimited analyses
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
 export default function Dashboard() {
   const navigate  = useNavigate()
   const location  = useLocation()
+  const { refreshAfterAnalysis } = useSubscription()
 
   const [selectedFile, setSelectedFile]       = useState(null)
   const [jobDescription, setJobDescription]   = useState(location.state?.jdText || '')
@@ -218,6 +261,8 @@ export default function Dashboard() {
       )
 
       setCompletedStages(new Set(PIPELINE_STAGES.map(s => s.id)))
+      // Refresh usage stats after successful analysis
+      await refreshAfterAnalysis()
       navigate('/report', { state: { result: data } })
     } catch (err) {
       setError(
@@ -240,7 +285,9 @@ export default function Dashboard() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 h-full">
       <div className="flex gap-8 h-full items-start">
         {/* Left: Upload form */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 space-y-4">
+          {/* Usage banner */}
+          <UsageWidget />
           <UploadForm
             onFileSelect={setSelectedFile}
             jobDescription={jobDescription}

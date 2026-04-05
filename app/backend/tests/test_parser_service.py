@@ -86,6 +86,35 @@ linkedin.com/in/johndoe
         assert "email" in contact
         assert "john.doe@email.com" in contact["email"]
 
+    def test_extract_name_hyphenated(self):
+        parser = ResumeParser()
+        text = """
+Mary-Jane Smith
+Software Engineer
+mary@example.com
+"""
+        assert parser._extract_name(text) == "Mary-Jane Smith"
+
+    def test_extract_name_pipe_before_phone(self):
+        parser = ResumeParser()
+        text = """
+Revanth Kumar | +91 98765 43210 | revanth@company.com
+Embedded Systems Engineer
+"""
+        assert parser._extract_name(text).startswith("Revanth")
+
+    def test_extract_work_year_to_present(self):
+        parser = ResumeParser()
+        text = """
+WORK
+Acme Corp — Senior Engineer
+2018 – Present
+Shipped firmware.
+"""
+        jobs = parser._extract_work_experience(text)
+        assert len(jobs) >= 1
+        assert jobs[0].get("end_date") == "present"
+
     def test_parse_resume_function(self):
         sample_text = "Simple resume text with Python and JavaScript skills"
         result = parse_resume(sample_text.encode(), "resume.txt")

@@ -15,6 +15,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app/ ./app/
 
+COPY app/backend/scripts/wait_for_ollama.py /app/wait_for_ollama.py
+COPY app/backend/scripts/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Create data directory for SQLite
 RUN mkdir -p /data
 
@@ -25,5 +29,6 @@ ENV OLLAMA_BASE_URL=http://ollama:11434
 
 EXPOSE 8000
 
+ENTRYPOINT ["/docker-entrypoint.sh"]
 # Single worker default; docker-compose.prod.yml overrides to --workers 4 for the VPS.
 CMD ["uvicorn", "app.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

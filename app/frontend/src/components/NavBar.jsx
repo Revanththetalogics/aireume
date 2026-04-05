@@ -1,5 +1,5 @@
-import { Link, useLocation } from 'react-router-dom'
-import { Sparkles, Users, LayoutTemplate, UserCircle, LogOut, ChevronDown, Upload, GitCompare, Users2, Video, MessageSquareText } from 'lucide-react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Sparkles, Users, LayoutTemplate, UserCircle, LogOut, ChevronDown, Upload, GitCompare, Users2, Video, MessageSquareText, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -17,6 +17,7 @@ const NAV_LINKS = [
 export default function NavBar() {
   const { user, tenant, logout } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
   const initials = user?.email ? user.email[0].toUpperCase() : '?'
@@ -75,7 +76,7 @@ export default function NavBar() {
           </button>
 
           {userMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-52 bg-white/95 backdrop-blur-xl border border-brand-100 rounded-2xl shadow-brand-lg py-1.5 z-40">
+            <div className="absolute right-0 top-full mt-2 w-56 bg-white/95 backdrop-blur-xl border border-brand-100 rounded-2xl shadow-brand-lg py-1.5 z-40">
               <div className="px-4 py-3 border-b border-brand-50">
                 <div className="flex items-center gap-2.5 mb-1">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-600 to-brand-400 flex items-center justify-center text-white text-xs font-bold">
@@ -87,6 +88,18 @@ export default function NavBar() {
                   </div>
                 </div>
               </div>
+
+              {/* Settings Link */}
+              <button
+                onClick={() => { setUserMenuOpen(false); navigate('/settings') }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand-50 transition-colors"
+              >
+                <Settings className="w-4 h-4 text-slate-500" />
+                Settings & Subscription
+              </button>
+
+              <div className="px-3 my-1.5 border-t border-brand-50" />
+
               <button
                 onClick={() => { setUserMenuOpen(false); logout() }}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors rounded-b-2xl"

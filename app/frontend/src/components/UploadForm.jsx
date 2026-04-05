@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X, BookOpen, BookmarkPlus, Check } from 'lucide-react'
+import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X, BookOpen, BookmarkPlus, Check, LayoutTemplate } from 'lucide-react'
 import { extractJdFromUrl, getTemplates, createTemplate } from '../lib/api'
 
 const WEIGHT_PRESETS = {
@@ -248,47 +248,52 @@ export default function UploadForm({
             <div className="flex items-center gap-2">
               <label className="block text-sm font-semibold text-slate-700">Job Description</label>
 
-              {/* Save JD button */}
-              <button
-                type="button"
-                onClick={handleSaveJd}
-                disabled={saveLoading || !jobDescription.trim()}
-                title="Save this JD"
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-brand-700 hover:bg-brand-50 disabled:opacity-40 transition-colors"
-              >
-                {savedNotice
-                  ? <><Check className="w-3.5 h-3.5 text-green-600" /> <span className="text-green-600">Saved!</span></>
-                  : saveLoading
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <><BookmarkPlus className="w-3.5 h-3.5" /> Save</>
-                }
-              </button>
-
-              {/* Load from saved JDs */}
+              {/* Load from saved JDs - now more prominent */}
               <div className="relative" ref={pickerRef}>
                 <button
                   type="button"
                   onClick={() => setShowJdPicker((v) => !v)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-brand-700 hover:bg-brand-50 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 transition-colors border border-brand-200"
                 >
                   <BookOpen className="w-3.5 h-3.5" />
-                  Saved JDs {savedJds.length > 0 && <span className="ml-0.5 bg-brand-100 text-brand-700 rounded-full px-1.5">{savedJds.length}</span>}
+                  Saved JDs
+                  {savedJds.length > 0 && (
+                    <span className="ml-0.5 bg-brand-200 text-brand-800 rounded-full px-1.5 py-0.5 text-[10px] font-bold">
+                      {savedJds.length}
+                    </span>
+                  )}
                 </button>
                 {showJdPicker && (
-                  <div className="absolute left-0 top-full mt-1 w-64 bg-white border border-brand-100 rounded-2xl shadow-brand-lg z-30 max-h-56 overflow-y-auto py-1">
+                  <div className="absolute left-0 top-full mt-1.5 w-72 bg-white border border-brand-100 rounded-2xl shadow-brand-lg z-30 max-h-64 overflow-y-auto py-1">
                     {savedJds.length === 0 ? (
-                      <p className="text-xs text-slate-400 px-4 py-3">No saved JDs yet. Paste a JD and click Save.</p>
-                    ) : savedJds.map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => handleLoadJd(t)}
-                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-brand-50 transition-colors"
-                      >
-                        <p className="font-medium text-slate-800 truncate">{t.name}</p>
-                        <p className="text-xs text-slate-400 truncate mt-0.5">{t.jd_text.slice(0, 60)}…</p>
-                      </button>
-                    ))}
+                      <div className="px-4 py-3">
+                        <p className="text-xs text-slate-400">No saved JDs yet.</p>
+                        <p className="text-[10px] text-slate-400 mt-1">Paste a JD and click "Save to Library" below.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold px-3 py-1.5 sticky top-0 bg-white/95 border-b border-brand-50">
+                          Select a Template
+                        </p>
+                        {savedJds.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => handleLoadJd(t)}
+                            className="w-full text-left px-4 py-3 hover:bg-brand-50 transition-colors border-b border-brand-50 last:border-b-0"
+                          >
+                            <p className="font-semibold text-slate-800 text-sm truncate">{t.name}</p>
+                            <p className="text-xs text-slate-400 truncate mt-0.5">{t.jd_text.slice(0, 80)}…</p>
+                          </button>
+                        ))}
+                        <div className="px-3 py-2 bg-brand-50/50 border-t border-brand-100">
+                          <a href="/templates" className="text-xs text-brand-700 font-medium hover:text-brand-800 flex items-center gap-1">
+                            <LayoutTemplate className="w-3 h-3" />
+                            Manage all templates →
+                          </a>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -321,13 +326,45 @@ export default function UploadForm({
           </div>
 
           {jdMode === 'text' && (
-            <textarea
-              value={jobDescription}
-              onChange={(e) => onJobDescriptionChange(e.target.value)}
-              placeholder="Paste the job description here..."
-              rows={6}
-              className="w-full px-4 py-3 rounded-2xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white resize-none text-slate-700 placeholder-slate-400 text-sm transition-shadow"
-            />
+            <div className="relative">
+              <textarea
+                value={jobDescription}
+                onChange={(e) => onJobDescriptionChange(e.target.value)}
+                placeholder="Paste the job description here..."
+                rows={6}
+                className="w-full px-4 py-3 rounded-2xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white resize-none text-slate-700 placeholder-slate-400 text-sm transition-shadow"
+              />
+              {/* Save JD button - prominently placed below textarea */}
+              <div className="flex justify-between items-center mt-2">
+                <span className="text-xs text-slate-400">
+                  {jobDescription.length > 0 && `${jobDescription.length.toLocaleString()} characters`}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveJd}
+                  disabled={saveLoading || !jobDescription.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-40
+                    bg-white border border-brand-200 text-brand-700 hover:bg-brand-50 hover:border-brand-300"
+                >
+                  {savedNotice ? (
+                    <>
+                      <Check className="w-4 h-4 text-green-600" />
+                      <span className="text-green-600">Saved to Library!</span>
+                    </>
+                  ) : saveLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <BookmarkPlus className="w-4 h-4" />
+                      Save to Library
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           )}
 
           {jdMode === 'file' && (
