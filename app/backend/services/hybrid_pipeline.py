@@ -348,29 +348,48 @@ class SkillsRegistry:
             self._skills = skills
 
     def seed_if_empty(self, db) -> None:
-        """Seed the skills table from MASTER_SKILLS if it is empty. Call at startup."""
+        """Upsert MASTER_SKILLS into the skills table — safe to call on every startup.
+
+        Uses INSERT … ON CONFLICT (name) DO NOTHING so re-deploys never crash
+        on duplicate keys, and new skills added to MASTER_SKILLS are picked up
+        automatically without manual DB intervention.
+        """
         try:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
             from app.backend.models.db_models import Skill
-            count = db.query(Skill).count()
-            if count == 0:
-                _domain_map = _build_domain_skill_map()
-                bulk = []
-                for skill in MASTER_SKILLS:
-                    aliases = ",".join(SKILL_ALIASES.get(skill, []))
-                    domain = _domain_map.get(skill, "general")
-                    bulk.append(Skill(name=skill, aliases=aliases, domain=domain,
-                                      status="active", source="seed"))
-                db.bulk_save_objects(bulk)
-                db.commit()
-                log.info("Skills registry seeded with %d skills", len(bulk))
+
+            _domain_map = _build_domain_skill_map()
+            rows = [
+                {
+                    "name":    skill,
+                    "aliases": ",".join(SKILL_ALIASES.get(skill, [])),
+                    "domain":  _domain_map.get(skill, "general"),
+                    "status":  "active",
+                    "source":  "seed",
+                    "frequency": 0,
+                }
+                for skill in MASTER_SKILLS
+            ]
+            stmt = pg_insert(Skill).values(rows).on_conflict_do_nothing(index_elements=["name"])
+            db.execute(stmt)
+            db.commit()
+            log.info("Skills upsert complete (%d definitions)", len(rows))
         except Exception as e:
+            db.rollback()
             log.warning("Skills seed failed (non-fatal): %s", e)
 
     def load(self, db=None) -> None:
-        """Load active skills from DB into the in-memory processor."""
+        """Load active skills from DB into the in-memory processor.
+
+        Always uses a fresh query — never reuses a session that may have been
+        poisoned by a previous exception.
+        """
         skills = []
         if db is not None:
             try:
+                # Explicitly begin a clean transaction in case the caller's
+                # session was rolled back by seed_if_empty above.
+                db.rollback()
                 from app.backend.models.db_models import Skill
                 rows = db.query(Skill).filter(Skill.status == "active").all()
                 if rows:
