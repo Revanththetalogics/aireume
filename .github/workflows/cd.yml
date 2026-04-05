@@ -92,5 +92,27 @@ jobs:
         cache-to: type=gha,mode=max
         provenance: false
 
-  # No deploy job needed — Watchtower on the VPS watches Docker Hub for new
-  # :latest images and automatically pulls + restarts containers.
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy to VPS via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host:     ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        key:      ${{ secrets.VPS_SSH_KEY }}
+        script: |
+          set -e
+          echo "=== Pulling latest images ==="
+          docker compose -f ~/docker-compose.prod.yml pull backend frontend nginx
+
+          echo "=== Restarting updated containers ==="
+          docker compose -f ~/docker-compose.prod.yml up -d --no-deps backend frontend nginx
+
+          echo "=== Startup banner (first worker) ==="
+          sleep 8
+          docker logs resume-screener-backend --tail=30
+
+          echo "=== Deploy complete ===" 

@@ -179,6 +179,33 @@ services:
           memory: 256M
     restart: on-failure
 
+  # Watchtower: polls Docker Hub every 60s and auto-restarts any container
+  # whose image has been updated. This is the deployment mechanism — every
+  # git push that passes CI/CD builds a new :latest image, and Watchtower
+  # picks it up within a minute without any manual SSH intervention.
+  # Monitors only ARIA containers (label filter) so it doesn't touch other
+  # stacks running on the same VPS.
+  watchtower:
+    image: containrrr/watchtower
+    container_name: resume-screener-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      --interval 60
+      --cleanup
+      resume-screener-backend
+      resume-screener-frontend
+      resume-screener-nginx
+    environment:
+      - WATCHTOWER_INCLUDE_STOPPED=false
+      - WATCHTOWER_NO_PULL=false
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+    restart: unless-stopped
+
   certbot:
     image: certbot/certbot
     container_name: resume-screener-certbot

@@ -1075,15 +1075,36 @@ Rules: 3 strengths, 2 weaknesses, 1-sentence rationale, 3 technical Qs on missin
     response = await llm.ainvoke([HumanMessage(content=prompt)])
     raw = response.content if hasattr(response, "content") else str(response)
 
-    # Parse JSON
+    log.debug("LLM raw response (first 300 chars): %s", raw[:300])
+
+    # Gemma4 models emit <think>...</think> blocks before the JSON answer.
+    # Strip them before attempting to parse so the regex below finds the
+    # real JSON object and not a stray { inside the thinking text.
+    clean = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+
+    # Also strip markdown code fences (```json ... ```) that some models add.
+    clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\s*```$", "", clean)
+    clean = clean.strip()
+
+    # Parse JSON — try direct parse first, then find outermost { ... } block.
+    data = None
     try:
-        data = json.loads(raw)
+        data = json.loads(clean)
     except json.JSONDecodeError:
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
-        if m:
-            data = json.loads(m.group(0))
-        else:
-            raise ValueError("LLM returned non-JSON response")
+        # Find the LAST top-level JSON object (outermost braces).
+        # Using rfind to start from the end avoids picking up { inside thinking text.
+        start = clean.find("{")
+        end   = clean.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                data = json.loads(clean[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+
+    if data is None:
+        log.warning("LLM JSON extraction failed. Raw (500 chars): %s", raw[:500])
+        raise ValueError("LLM returned non-JSON response")
 
     return {
         "strengths":              _ensure_str_list(data.get("strengths", [])),
