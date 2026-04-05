@@ -59,14 +59,17 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # ─── Step 3: Frontend dependencies ───────────────────────────
-Step-Header 3 "Checking frontend dependencies (npm ci)..."
+# Use npm install instead of npm ci to avoid EPERM errors on Windows
+# when binary executables (esbuild.exe, rollup.node) are locked by
+# a running dev server process.
+Step-Header 3 "Checking frontend dependencies (npm install)..."
 Set-Location $FRONTEND
 
-npm ci --silent 2>&1 | ForEach-Object { Write-Host "  $_" }
+npm install --prefer-offline --silent 2>&1 | ForEach-Object { Write-Host "  $_" }
 if ($LASTEXITCODE -eq 0) {
     Step-Pass "Frontend dependencies OK"
 } else {
-    Step-Fail "npm ci failed (exit $LASTEXITCODE)"
+    Step-Fail "npm install failed (exit $LASTEXITCODE)"
 }
 
 # ─── Step 4: Frontend tests ───────────────────────────────────

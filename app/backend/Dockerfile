@@ -25,4 +25,5 @@ ENV OLLAMA_BASE_URL=http://ollama:11434
 
 EXPOSE 8000
 
+# Single worker default; docker-compose.prod.yml overrides to --workers 4 for the VPS.
 CMD ["uvicorn", "app.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
