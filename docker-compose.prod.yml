@@ -47,8 +47,8 @@ services:
       # Allow 4 concurrent LLM requests — 3-stage pipeline fires up to 2 nodes
       # simultaneously; the extra slot handles SSE streaming overlap.
       - OLLAMA_NUM_PARALLEL=4
-      # Keep both models hot in RAM — eliminates cold-load on every request.
-      - OLLAMA_MAX_LOADED_MODELS=2
+      # Only one model now — no need to keep multiple slots hot.
+      - OLLAMA_MAX_LOADED_MODELS=1
       # Flash Attention: fused attention kernel, 20-40% faster on longer contexts.
       - OLLAMA_FLASH_ATTENTION=1
       # Quantise KV cache to int8 — halves RAM per-slot, allows higher parallelism.
@@ -59,7 +59,9 @@ services:
       resources:
         limits:
           cpus: '8'
-          memory: 34G
+          # gemma4:e4b weights: 9.6 GB + 1.8 GB KV-cache + 0.5 GB overhead = ~12 GB.
+          # 14 GB gives comfortable headroom for concurrent requests.
+          memory: 14G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ollama", "list"]
@@ -79,16 +81,14 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD:-Itslogical1.}@postgres:5432/${POSTGRES_DB:-aria_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - ENVIRONMENT=production
-      # gemma4:e4b  — edge 4B fast model (9.6 GB): JD parser, resume parser, skill matcher,
-      #               edu/timeline analyser, interview questions. 128K context, multimodal.
-      # gemma4:26b  — MoE 26B reasoning model (18 GB, only 4B active params per token):
-      #               scorer/explainer. MoE gives high-quality reasoning at ~4B inference speed.
-      # Combined RAM: ~27.6 GB — comfortably within the 34 GB Ollama container limit.
+      # gemma4:e4b — 4B edge model (9.6 GB), 128K context, multimodal.
+      # Used for both parsing helpers and the narrative LLM call.
+      # Generates the narrative JSON in ~10-20s on CPU vs ~60s for 26b,
+      # and fits entirely within the reduced 14 GB Ollama memory limit.
       - OLLAMA_FAST_MODEL=gemma4:e4b
-      - OLLAMA_MODEL=gemma4:26b
-      # LLM timeout: 150s survives gemma4:26b cold-start on CPU.
-      # Increase to 300 if the model is still not responding on first load.
-      - LLM_NARRATIVE_TIMEOUT=150
+      - OLLAMA_MODEL=gemma4:e4b
+      # 60s is ample for gemma4:e4b on CPU with num_predict=550.
+      - LLM_NARRATIVE_TIMEOUT=60
     depends_on:
       postgres:
         condition: service_healthy
@@ -154,9 +154,7 @@ services:
       /bin/sh -c "
         echo '[warmup] Loading gemma4:e4b into RAM...';
         ollama run gemma4:e4b 'warmup' --nowordwrap;
-        echo '[warmup] Loading gemma4:26b into RAM...';
-        ollama run gemma4:26b 'warmup' --nowordwrap;
-        echo '[warmup] Both models hot. Done.';
+        echo '[warmup] gemma4:e4b hot. Done.';
       "
     environment:
       - OLLAMA_HOST=http://ollama:11434
