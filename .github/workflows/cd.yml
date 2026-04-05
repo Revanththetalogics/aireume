@@ -3,6 +3,8 @@ name: CD - Build & Push Images
 on:
   push:
     branches: [ main ]
+  # Re-run build & push from GitHub → Actions → "CD - Build & Push Images" → Run workflow
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
