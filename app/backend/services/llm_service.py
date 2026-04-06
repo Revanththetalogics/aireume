@@ -50,7 +50,8 @@ class LLMService:
             "format": "json"
         }
 
-        async with httpx.AsyncClient(timeout=60.0) as client:  # 1 minute timeout
+        _timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150")) + 30
+        async with httpx.AsyncClient(timeout=_timeout) as client:  # respects LLM_NARRATIVE_TIMEOUT env var
             response = await client.post(url, json=payload)
             response.raise_for_status()
             data = response.json()

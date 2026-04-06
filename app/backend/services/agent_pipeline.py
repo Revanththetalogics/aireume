@@ -78,6 +78,9 @@ _reasoning_llm: Optional[ChatOllama] = None
 _jd_cache: Dict[str, dict] = {}
 
 
+_llm_request_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150")) + 30
+
+
 def get_fast_llm() -> ChatOllama:
     """Fast model for jd_parser + resume_analyser. Singleton — never re-initialised."""
     global _fast_llm
@@ -90,6 +93,7 @@ def get_fast_llm() -> ChatOllama:
             num_predict=600,   # resume_analyser output is larger (combined schema)
             num_ctx=3072,      # resume text + timeline + JD fits in 3k context
             keep_alive=-1,     # keep model hot between requests
+            request_timeout=_llm_request_timeout,
         )
     return _fast_llm
 
@@ -106,6 +110,7 @@ def get_reasoning_llm() -> ChatOllama:
             num_predict=800,   # scorer + interview_questions combined output
             num_ctx=2048,      # scorer input is compact (~500 tokens)
             keep_alive=-1,
+            request_timeout=_llm_request_timeout,
         )
     return _reasoning_llm
 

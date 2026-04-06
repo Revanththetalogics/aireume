@@ -84,6 +84,7 @@ def _get_llm():
     if _REASONING_LLM is None:
         try:
             from langchain_ollama import ChatOllama
+            _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
             _REASONING_LLM = ChatOllama(
                 model=os.getenv("OLLAMA_MODEL") or "gemma4:e4b",
                 base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
@@ -99,6 +100,9 @@ def _get_llm():
                 num_ctx=1536,
                 # Keep model always hot in RAM (-1 = never unload)
                 keep_alive=-1,
+                # HTTP timeout must exceed LLM_NARRATIVE_TIMEOUT to let the
+                # outer asyncio.wait_for control cancellation, not httpx.
+                request_timeout=_llm_timeout + 30,
             )
         except Exception as e:
             log.warning("LLM init failed: %s", e)
