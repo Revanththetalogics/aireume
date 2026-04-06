@@ -16,7 +16,8 @@ import json
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -44,6 +45,17 @@ log    = logging.getLogger("aria.analysis")
 ALLOWED_EXTENSIONS = ('.pdf', '.docx', '.doc')
 
 
+# ─── JSON serialization helper ────────────────────────────────────────────────
+
+def _json_default(obj):
+    """Handle non-serializable types for json.dumps (datetime, date, Decimal)."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 # ─── JD cache helpers ─────────────────────────────────────────────────────────
 
 def _get_or_cache_jd(db: Session, job_description: str) -> dict:
@@ -57,7 +69,7 @@ def _get_or_cache_jd(db: Session, job_description: str) -> dict:
             pass
     jd_analysis = parse_jd_rules(job_description)
     try:
-        db.merge(JdCache(hash=jd_hash, result_json=json.dumps(jd_analysis)))
+        db.merge(JdCache(hash=jd_hash, result_json=json.dumps(jd_analysis, default=_json_default)))
         db.commit()
     except Exception:
         try:
@@ -98,7 +110,7 @@ def _build_duplicate_info(db: Session, candidate: Candidate) -> DuplicateCandida
         total_years_exp=candidate.total_years_exp,
         skills_snapshot=skills_snapshot,
         result_count=result_count,
-        last_analyzed=last_result.timestamp if last_result else None,
+        last_analyzed=last_result.timestamp.isoformat() if last_result and last_result.timestamp else None,
         profile_quality=candidate.profile_quality,
     )
 
@@ -109,7 +121,7 @@ _SNAPSHOT_JSON_MAX = 500_000  # bytes of UTF-8 JSON; keeps row size bounded
 def _parser_snapshot_json(parsed_data: dict) -> str | None:
     """Serialize full parser output so DB retains every field (not only pattern-derived columns)."""
     try:
-        s = json.dumps(parsed_data, ensure_ascii=False)
+        s = json.dumps(parsed_data, ensure_ascii=False, default=_json_default)
         return s[:_SNAPSHOT_JSON_MAX]
     except (TypeError, ValueError):
         return None
@@ -127,10 +139,10 @@ def _store_candidate_profile(
     candidate.resume_file_hash   = file_hash
     candidate.raw_resume_text    = parsed_data.get("raw_text", "")[:100000]  # cap at 100k chars
     candidate.parser_snapshot_json = _parser_snapshot_json(parsed_data)
-    candidate.parsed_skills      = json.dumps(parsed_data.get("skills", []))
-    candidate.parsed_education   = json.dumps(parsed_data.get("education", []))
-    candidate.parsed_work_exp    = json.dumps(work_exp)
-    candidate.gap_analysis_json  = json.dumps(gap_analysis)
+    candidate.parsed_skills      = json.dumps(parsed_data.get("skills", []), default=_json_default)
+    candidate.parsed_education   = json.dumps(parsed_data.get("education", []), default=_json_default)
+    candidate.parsed_work_exp    = json.dumps(work_exp, default=_json_default)
+    candidate.gap_analysis_json  = json.dumps(gap_analysis, default=_json_default)
     candidate.current_role       = work_exp[0].get("title", "")    if work_exp else None
     candidate.current_company    = work_exp[0].get("company", "")  if work_exp else None
     candidate.total_years_exp    = gap_analysis.get("total_years", 0)
@@ -435,8 +447,8 @@ async def analyze_endpoint(
                 candidate_id=existing.id,
                 resume_text=existing.raw_resume_text,
                 jd_text=job_description,
-                parsed_data=json.dumps(parsed_data),
-                analysis_result=json.dumps(result),
+                parsed_data=json.dumps(parsed_data, default=_json_default),
+                analysis_result=json.dumps(result, default=_json_default),
             )
             db.add(db_result)
             db.commit()
@@ -464,8 +476,8 @@ async def analyze_endpoint(
         candidate_id=candidate_id,
         resume_text=parsed_data.get("raw_text", ""),
         jd_text=job_description,
-        parsed_data=json.dumps(parsed_data),
-        analysis_result=json.dumps(result),
+        parsed_data=json.dumps(parsed_data, default=_json_default),
+        analysis_result=json.dumps(result, default=_json_default),
     )
     db.add(db_result)
     db.commit()
@@ -497,7 +509,7 @@ async def analyze_endpoint(
         "llm_used":    not result.get("narrative_pending", False),
         "quality":     result.get("analysis_quality"),
         "total_ms":    int((time.time() - t_start) * 1000),
-    }))
+    }, default=_json_default))
     return result
 
 
@@ -554,7 +566,7 @@ async def analyze_stream_endpoint(
     except Exception as e:
         async def _error_stream():
             error = {"stage": "error", "result": {"message": str(e)}}
-            yield f"data: {json.dumps(error)}\n\n"
+            yield f"data: {json.dumps(error, default=_json_default)}\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(_error_stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -578,12 +590,12 @@ async def analyze_stream_endpoint(
                     # SSE heartbeat ping from the generator
                     yield event
                     continue
-                yield f"data: {json.dumps(event)}\n\n"
+                yield f"data: {json.dumps(event, default=_json_default)}\n\n"
                 if event.get("stage") == "complete":
                     final_result = event.get("result", {})
         except Exception as exc:
             error_event = {"stage": "error", "result": {"message": str(exc)}}
-            yield f"data: {json.dumps(error_event)}\n\n"
+            yield f"data: {json.dumps(error_event, default=_json_default)}\n\n"
             final_result = _fallback_result(gap_analysis)
 
         # Persist to DB
@@ -600,8 +612,8 @@ async def analyze_stream_endpoint(
                 candidate_id=candidate_id,
                 resume_text=parsed_data.get("raw_text", ""),
                 jd_text=job_description,
-                parsed_data=json.dumps(parsed_data),
-                analysis_result=json.dumps(final_result),
+                parsed_data=json.dumps(parsed_data, default=_json_default),
+                analysis_result=json.dumps(final_result, default=_json_default),
             )
             db.add(db_result)
             db.commit()
@@ -619,7 +631,7 @@ async def analyze_stream_endpoint(
             if is_dup and action not in ("update_profile", "create_new"):
                 existing = db.get(Candidate, candidate_id)
                 if existing:
-                    final_result["duplicate_candidate"] = _build_duplicate_info(db, existing).model_dump()
+                    final_result["duplicate_candidate"] = _build_duplicate_info(db, existing).model_dump(mode='json')
         except Exception as db_exc:
             final_result["pipeline_errors"] = final_result.get("pipeline_errors", []) + [
                 f"DB save error: {str(db_exc)}"
@@ -633,10 +645,10 @@ async def analyze_stream_endpoint(
             "llm_used":    not final_result.get("narrative_pending", False),
             "quality":     final_result.get("analysis_quality"),
             "total_ms":    int((time.time() - t_start) * 1000),
-        }))
+        }, default=_json_default))
 
         complete_payload = {"stage": "complete", "result": final_result}
-        yield f"data: {json.dumps(complete_payload)}\n\n"
+        yield f"data: {json.dumps(complete_payload, default=_json_default)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

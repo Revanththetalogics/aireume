@@ -10,7 +10,8 @@ Enriched responses:
   GET  "/{id}"           — now returns full profile fields + skills_snapshot
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -21,6 +22,15 @@ from app.backend.models.db_models import Candidate, ScreeningResult, User
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest
 
 router = APIRouter(prefix="/api/candidates", tags=["candidates"])
+
+
+def _json_default(obj):
+    """Handle non-serializable types for json.dumps (datetime, date, Decimal)."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 @router.get("")
@@ -289,8 +299,8 @@ async def analyze_existing_candidate(
         candidate_id=candidate_id,
         resume_text=candidate.raw_resume_text,
         jd_text=body.job_description,
-        parsed_data=json.dumps(parsed_data),
-        analysis_result=json.dumps(result),
+        parsed_data=json.dumps(parsed_data, default=_json_default),
+        analysis_result=json.dumps(result, default=_json_default),
     )
     db.add(db_result)
     db.commit()

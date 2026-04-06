@@ -2,6 +2,8 @@
 Role Templates — CRUD for saved JD templates scoped per tenant.
 """
 import json
+from datetime import datetime, date
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -11,6 +13,15 @@ from app.backend.models.db_models import RoleTemplate, User
 from app.backend.models.schemas import TemplateCreate, TemplateOut
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
+
+
+def _json_default(obj):
+    """Handle non-serializable types for json.dumps (datetime, date, Decimal)."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 @router.get("", response_model=list[TemplateOut])
@@ -36,7 +47,7 @@ def create_template(
         tenant_id=current_user.tenant_id,
         name=body.name,
         jd_text=body.jd_text,
-        scoring_weights=json.dumps(body.scoring_weights) if body.scoring_weights else None,
+        scoring_weights=json.dumps(body.scoring_weights, default=_json_default) if body.scoring_weights else None,
         tags=body.tags,
     )
     db.add(template)

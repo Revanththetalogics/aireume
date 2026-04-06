@@ -27,11 +27,22 @@ import hashlib
 import json
 import os
 import re
+from datetime import datetime, date
+from decimal import Decimal
 from typing import TypedDict, Annotated, Any, Dict, List, Optional
 import operator
 
 from langgraph.graph import StateGraph, START, END
 from langchain_ollama import ChatOllama
+
+
+def _json_default(obj):
+    """Handle non-serializable types for json.dumps (datetime, date, Decimal)."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
@@ -305,9 +316,9 @@ async def resume_analyser_node(state: PipelineState) -> dict:
             role_title=jd.get("role_title", ""),
             domain=jd.get("domain", "other"),
             seniority=jd.get("seniority", "mid"),
-            required_skills=json.dumps(required_skills[:20]),
+            required_skills=json.dumps(required_skills[:20], default=_json_default),
             resume_text=state["raw_resume_text"][:3000],
-            timeline=json.dumps(state.get("employment_timeline", [])[:10]),
+            timeline=json.dumps(state.get("employment_timeline", [])[:10], default=_json_default),
         )
         resp = await llm.ainvoke(prompt)
         data = _parse_json(resp.content, {**_cp_fb, **_sa_fb, **_eta_fb})
@@ -401,8 +412,8 @@ async def scorer_node(state: PipelineState) -> dict:
             timeline_score=eta.get("timeline_score", 70),
             years_actual=cp.get("total_effective_years", 0),
             years_required=jd.get("required_years", 0),
-            matched_skills=json.dumps(sa.get("matched_skills", [])[:8]),
-            missing_skills=json.dumps(missing_skills[:8]),
+            matched_skills=json.dumps(sa.get("matched_skills", [])[:8], default=_json_default),
+            missing_skills=json.dumps(missing_skills[:8], default=_json_default),
             domain_fit_comment=sa.get("domain_fit_comment", ""),
             education_analysis=eta.get("education_analysis", ""),
             timeline_analysis=eta.get("timeline_analysis", ""),

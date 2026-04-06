@@ -8,6 +8,8 @@ GET  /api/transcript/analyses  — list all transcript analyses for the tenant.
 GET  /api/transcript/analyses/{id} — retrieve a single analysis.
 """
 import json
+from datetime import datetime, date
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -23,6 +25,15 @@ router = APIRouter(prefix="/api/transcript", tags=["transcript"])
 
 ALLOWED_TRANSCRIPT_EXTENSIONS = ('.txt', '.vtt', '.srt')
 MAX_TRANSCRIPT_SIZE = 5 * 1024 * 1024  # 5 MB
+
+
+def _json_default(obj):
+    """Handle non-serializable types for json.dumps (datetime, date, Decimal)."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 @router.post("/analyze")
@@ -100,7 +111,7 @@ async def analyze_transcript_endpoint(
         role_template_id = role_template_id,
         transcript_text  = clean_text,
         source_platform  = source_platform or "manual",
-        analysis_result  = json.dumps(result),
+        analysis_result  = json.dumps(result, default=_json_default),
     )
     db.add(record)
     db.commit()

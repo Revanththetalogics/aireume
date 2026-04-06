@@ -2,7 +2,8 @@
 Subscription routes: current plan, usage tracking, available plans, subscription management.
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +19,15 @@ from app.backend.models.db_models import (
 from app.backend.models.schemas import SubscriptionResponse, PlanInfo, UsageStats
 
 router = APIRouter(prefix="/api/subscription", tags=["subscription"])
+
+
+def _json_default(obj):
+    """Handle non-serializable types for json.dumps (datetime, date, Decimal)."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 # ─── Pydantic Models ────────────────────────────────────────────────────────────
@@ -464,7 +474,7 @@ def record_usage(
             user_id=user_id,
             action=action,
             quantity=quantity,
-            details=json.dumps(details) if details else None,
+            details=json.dumps(details, default=_json_default) if details else None,
         )
         db.add(usage_log)
         

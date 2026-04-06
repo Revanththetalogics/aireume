@@ -15,7 +15,7 @@ class DuplicateCandidateInfo(BaseModel):
     total_years_exp: Optional[float] = None
     skills_snapshot: List[str]      = []
     result_count:    int            = 0
-    last_analyzed:   Optional[datetime] = None
+    last_analyzed:   Optional[str]  = None  # ISO format datetime string
     profile_quality: Optional[str]  = None
 
 
