@@ -21,7 +21,7 @@ services:
       -c random_page_cost=1.1
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aria}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-Itslogical1.}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: ${POSTGRES_DB:-aria_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -53,6 +53,8 @@ services:
       - OLLAMA_FLASH_ATTENTION=1
       # Quantise KV cache to int8 — halves RAM per-slot, allows higher parallelism.
       - OLLAMA_KV_CACHE_TYPE=q8_0
+      # Keep model always hot in RAM (-1 = never unload)
+      - OLLAMA_KEEP_ALIVE=-1
     volumes:
       - ollama_data:/root/.ollama
     deploy:
@@ -80,7 +82,7 @@ services:
     command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 4
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD:-Itslogical1.}@postgres:5432/${POSTGRES_DB:-aria_db}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aria_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - ENVIRONMENT=production
       # gemma4:e4b — 4B edge model (9.6 GB), 128K context, multimodal.
@@ -146,8 +148,7 @@ services:
 
   # Runs once after Ollama is healthy, loads both models into RAM so the
   # first real analysis request is never blocked by a cold-start.
-  # restart: on-failure means it re-tries if Ollama wasn't ready yet,
-  # but won't keep restarting once the warm-up succeeds (exit 0).
+  # Then enters a keep-alive loop to ensure the model stays loaded.
   ollama-warmup:
     image: ollama/ollama:latest
     container_name: resume-screener-ollama-warmup
@@ -157,10 +158,10 @@ services:
     entrypoint: >
       /bin/sh -c "
         echo '============================================';
-        echo '  ARIA — Ollama Model Warmup';
+        echo '  ARIA — Ollama Model Warmup & Keep-Alive';
         echo '============================================';
         echo '';
-        echo '  Checking Ollama is ready...';
+        echo '  Waiting for Ollama...';
         until ollama list > /dev/null 2>&1; do
           echo '  Waiting for Ollama...';
           sleep 3;
@@ -169,10 +170,13 @@ services:
         echo '';
         echo '  Loading gemma4:e4b into RAM...';
         ollama run gemma4:e4b 'warmup' --nowordwrap;
-        echo '';
         echo '  ✓  gemma4:e4b is HOT in RAM';
-        echo '  ✓  Warmup complete — LLM narrative is active';
+        echo '  ✓  Warmup complete — entering keep-alive loop';
         echo '============================================';
+        while true; do
+          sleep 240;
+          ollama run gemma4:e4b 'ping' --nowordwrap > /dev/null 2>&1 || echo '[keepalive] ping failed, will retry';
+        done
       "
     environment:
       - OLLAMA_HOST=http://ollama:11434
@@ -181,7 +185,7 @@ services:
         limits:
           cpus: '1'
           memory: 256M
-    restart: on-failure
+    restart: unless-stopped
 
   # Watchtower: polls Docker Hub every 60s and auto-restarts any container
   # whose image has been updated. This is the deployment mechanism — every

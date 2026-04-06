@@ -8,19 +8,17 @@ export function AuthProvider({ children }) {
   const [tenant, setTenant] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  // Check auth status on app load by calling /auth/me
+  // Browser automatically sends httpOnly cookies with the request
   const loadUser = useCallback(async () => {
-    const token = localStorage.getItem('access_token')
-    if (!token) {
-      setLoading(false)
-      return
-    }
     try {
       const res = await api.get('/auth/me')
       setUser(res.data.user)
       setTenant(res.data.tenant)
     } catch {
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
+      // Cookie is invalid or expired - user is not authenticated
+      setUser(null)
+      setTenant(null)
     } finally {
       setLoading(false)
     }
@@ -32,8 +30,8 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const res = await api.post('/auth/login', { email, password })
-    localStorage.setItem('access_token', res.data.access_token)
-    localStorage.setItem('refresh_token', res.data.refresh_token)
+    // Tokens are set as httpOnly cookies by the server
+    // We still receive tokens in response body for API clients
     setUser(res.data.user)
     setTenant(res.data.tenant)
     return res.data
@@ -41,16 +39,19 @@ export function AuthProvider({ children }) {
 
   const register = async (companyName, email, password) => {
     const res = await api.post('/auth/register', { company_name: companyName, email, password })
-    localStorage.setItem('access_token', res.data.access_token)
-    localStorage.setItem('refresh_token', res.data.refresh_token)
+    // Tokens are set as httpOnly cookies by the server
     setUser(res.data.user)
     setTenant(res.data.tenant)
     return res.data
   }
 
-  const logout = () => {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
+  const logout = async () => {
+    try {
+      // Call logout endpoint to clear httpOnly cookies
+      await api.post('/auth/logout')
+    } catch {
+      // Ignore errors - proceed to clear local state
+    }
     setUser(null)
     setTenant(null)
   }

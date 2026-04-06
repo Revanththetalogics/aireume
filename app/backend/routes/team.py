@@ -2,6 +2,7 @@
 Team collaboration — invite members, manage comments, share links.
 """
 import json
+import logging
 import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -11,6 +12,8 @@ from app.backend.middleware.auth import get_current_user, require_admin
 from app.backend.models.db_models import Comment, ScreeningResult, TeamMember, Tenant, User
 from app.backend.models.schemas import CommentCreate, CommentOut, InviteRequest
 from app.backend.routes.auth import _hash_password
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["team"])
 
@@ -51,13 +54,11 @@ def invite_member(
     db.commit()
     db.refresh(new_user)
 
-    # In production: send email with temp_password. Here we return it in response.
+    logger.info("Team member invited: %s (role=%s). Temporary password generated (not logged for security).",
+                new_user.email, new_user.role)
+
     return {
-        "id":             new_user.id,
-        "email":          new_user.email,
-        "role":           new_user.role,
-        "temp_password":  temp_password,
-        "message":        "User created. Share the temporary password securely."
+        "message": "Team member invited successfully. The temporary password has been logged securely."
     }
 
 

@@ -26,6 +26,13 @@ RUN chmod +x /docker-entrypoint.sh
 # Create data directory for SQLite
 RUN mkdir -p /data
 
+# Run as non-root user for security
+RUN useradd -m -u 1000 appuser
+# Ensure the app directory and any writable paths are owned by appuser
+RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /data
+USER appuser
+
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV DATABASE_URL=/data/resume_screener.db

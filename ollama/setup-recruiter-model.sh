@@ -23,9 +23,9 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
 fi
 
 echo ""
-echo "[1/4] Ensuring llama3 base model is available..."
-docker exec "$CONTAINER" ollama pull llama3
-echo "      llama3 base model ready."
+echo "[1/4] Ensuring gemma4:e4b base model is available..."
+docker exec "$CONTAINER" ollama pull gemma4:e4b
+echo "      gemma4:e4b base model ready."
 
 echo ""
 echo "[2/4] Copying Modelfile into container..."

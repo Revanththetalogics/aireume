@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional
 
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
 
 
 # ─── Transcript parsers ───────────────────────────────────────────────────────

@@ -147,7 +147,7 @@ async def analyze_communication(transcript: str, duration_s: float) -> dict:
             resp = await client.post(
                 f"{OLLAMA_BASE_URL}/api/generate",
                 json={
-                    "model":   "llama3",
+                    "model":   os.getenv("OLLAMA_MODEL", "gemma4:e4b"),
                     "prompt":  prompt,
                     "stream":  False,
                     "format":  "json",
@@ -253,7 +253,7 @@ Return JSON only:
             resp = await client.post(
                 f"{OLLAMA_BASE_URL}/api/generate",
                 json={
-                    "model":   "llama3",
+                    "model":   os.getenv("OLLAMA_MODEL", "gemma4:e4b"),
                     "prompt":  prompt,
                     "stream":  False,
                     "format":  "json",

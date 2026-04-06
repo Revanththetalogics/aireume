@@ -114,12 +114,12 @@ def setup_candidate_and_template(auth_client, db):
 
 class TestTranscriptAuthGuard:
 
-    def test_analyze_unauthenticated_returns_401(self, client):
+    def test_analyze_unauthenticated_returns_403(self, client):
         resp = client.post(
             "/api/transcript/analyze",
             data={"transcript_text": SAMPLE_PLAIN_TRANSCRIPT, "role_template_id": 1},
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 403  # CSRF middleware blocks before auth check
 
     def test_list_analyses_unauthenticated_returns_401(self, client):
         assert client.get("/api/transcript/analyses").status_code == 401

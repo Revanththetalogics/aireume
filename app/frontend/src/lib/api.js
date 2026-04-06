@@ -4,37 +4,45 @@ const API_URL = import.meta.env.VITE_API_URL || '/api'
 
 const api = axios.create({
   baseURL: API_URL,
+  withCredentials: true,  // Send httpOnly cookies with every request
 })
 
-// Attach JWT token to every request
+// Attach JWT token to every request (for backward compatibility with API clients)
+// Browser clients will use httpOnly cookies automatically
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  // Token storage is now handled via httpOnly cookies only
+  // No localStorage token handling for security
+  return config
+})
+
+// Add CSRF token to all non-GET requests for browser clients
+api.interceptors.request.use((config) => {
+  if (config.method !== 'get') {
+    // Read CSRF token from cookie
+    const csrfToken = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('csrf_token='))
+      ?.split('=')[1]
+    if (csrfToken) {
+      config.headers['X-CSRF-Token'] = csrfToken
+    }
   }
   return config
 })
 
-// Auto-refresh on 401
+// Auto-refresh on 401 - uses httpOnly cookies only
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true
-      const refreshToken = localStorage.getItem('refresh_token')
-      if (refreshToken) {
-        try {
-          const res = await axios.post(`${API_URL}/auth/refresh`, { refresh_token: refreshToken })
-          localStorage.setItem('access_token', res.data.access_token)
-          original.headers.Authorization = `Bearer ${res.data.access_token}`
-          return api(original)
-        } catch {
-          localStorage.removeItem('access_token')
-          localStorage.removeItem('refresh_token')
-          window.location.href = '/login'
-        }
-      } else {
+      try {
+        // Refresh endpoint reads from cookie - browser sends cookie automatically
+        await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+        // Retry the original request - cookies are sent automatically
+        return api(original)
+      } catch {
         window.location.href = '/login'
       }
     }
@@ -90,13 +98,24 @@ export async function analyzeResumeStream(
     formData.append('scoring_weights', JSON.stringify(scoringWeights))
   }
 
-  const token = localStorage.getItem('access_token')
   const baseURL = import.meta.env.VITE_API_URL || '/api'
+
+  // Get CSRF token from cookie for the fetch call
+  const csrfToken = document.cookie
+    .split('; ')
+    .find(row => row.startsWith('csrf_token='))
+    ?.split('=')[1]
+
+  const headers = {}
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken
+  }
 
   const response = await fetch(`${baseURL}/analyze/stream`, {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers,
     body: formData,
+    credentials: 'include',  // Send httpOnly cookies
   })
 
   if (!response.ok) {

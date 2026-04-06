@@ -37,7 +37,7 @@ def main() -> int:
         return 0
 
     base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-    want = (os.getenv("OLLAMA_MODEL") or os.getenv("OLLAMA_FAST_MODEL") or "llama3").strip()
+    want = (os.getenv("OLLAMA_MODEL") or os.getenv("OLLAMA_FAST_MODEL") or "gemma4:e4b").strip()
     poll_sec = float(os.getenv("OLLAMA_POLL_INTERVAL_SEC", "2"))
     deadline = time.monotonic() + float(os.getenv("OLLAMA_WAIT_TIMEOUT_SEC", "120"))
     warm_timeout = float(os.getenv("OLLAMA_WARMUP_TIMEOUT_SEC", "300"))

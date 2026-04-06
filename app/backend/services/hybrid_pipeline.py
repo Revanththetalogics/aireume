@@ -21,6 +21,43 @@ from typing import AsyncGenerator, Dict, Any, List, Optional
 
 log = logging.getLogger("aria.hybrid")
 
+# --- Prompt injection sanitization ---
+_INJECTION_PATTERNS = [
+    re.compile(r"ignore\s+(all\s+)?previous\s+instructions", re.IGNORECASE),
+    re.compile(r"ignore\s+(all\s+)?above\s+instructions", re.IGNORECASE),
+    re.compile(r"disregard\s+(all\s+)?previous", re.IGNORECASE),
+    re.compile(r"you\s+are\s+now\s+a", re.IGNORECASE),
+    re.compile(r"new\s+instructions?\s*:", re.IGNORECASE),
+    re.compile(r"system\s*:", re.IGNORECASE),
+    re.compile(r"assistant\s*:", re.IGNORECASE),
+    re.compile(r"<\s*system\s*>", re.IGNORECASE),
+    re.compile(r"\[INST\]", re.IGNORECASE),
+    re.compile(r"\[/INST\]", re.IGNORECASE),
+]
+
+_MAX_RESUME_LENGTH = 50_000   # ~50KB
+_MAX_JD_LENGTH = 20_000       # ~20KB
+
+
+def _sanitize_input(text: str, max_length: int, label: str = "content") -> str:
+    """Sanitize user-provided text to prevent prompt injection."""
+    if not text:
+        return text
+    # Truncate excessively long inputs
+    if len(text) > max_length:
+        text = text[:max_length]
+    # Strip known injection patterns
+    for pattern in _INJECTION_PATTERNS:
+        text = pattern.sub("[FILTERED]", text)
+    return text
+
+
+def _wrap_user_content(resume_text: str, jd_text: str) -> tuple[str, str]:
+    """Sanitize and wrap user content with clear delimiters."""
+    resume_text = _sanitize_input(resume_text, _MAX_RESUME_LENGTH, "resume")
+    jd_text = _sanitize_input(jd_text, _MAX_JD_LENGTH, "job_description")
+    return resume_text, jd_text
+
 # ─── Semaphore — 2 concurrent LLM calls per worker ───────────────────────────
 _LLM_SEMAPHORE: Optional[asyncio.Semaphore] = None
 
@@ -60,6 +97,8 @@ def _get_llm():
                 # Halving from 4096 saves ~900 MB KV-cache on CPU and speeds
                 # up every attention computation proportionally.
                 num_ctx=1536,
+                # Keep model always hot in RAM (-1 = never unload)
+                keep_alive=-1,
             )
         except Exception as e:
             log.warning("LLM init failed: %s", e)
@@ -1156,10 +1195,17 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     # we only need context, not the full text (saves ~100 input tokens).
     career_snippet = (profile.get("career_summary") or "")[:300]
 
+    # Sanitize text fields that go into the LLM prompt
+    role_title = _sanitize_input(jd.get("role_title") or "", 200, "role_title")
+    candidate_name = _sanitize_input(profile.get("name") or "Unknown", 100, "name")
+    current_role = _sanitize_input(profile.get("current_role") or "N/A", 100, "current_role")
+    current_company = _sanitize_input(profile.get("current_company") or "N/A", 100, "current_company")
+    career_snippet = _sanitize_input(career_snippet, 400, "career_snippet")
+
     prompt = f"""You are a recruitment analyst. Output ONLY valid JSON, no markdown.
 
-ROLE: {jd.get("role_title")} | {jd.get("domain")} | {jd.get("seniority")}
-CANDIDATE: {profile.get("name") or "Unknown"} | {profile.get("total_effective_years", 0)}y | {profile.get("current_role") or "N/A"} at {profile.get("current_company") or "N/A"}
+ROLE: {role_title} | {jd.get("domain")} | {jd.get("seniority")}
+CANDIDATE: {candidate_name} | {profile.get("total_effective_years", 0)}y | {current_role} at {current_company}
 SCORES: skill={scores.get("skill_score",0)} exp={scores.get("exp_score",0)} edu={scores.get("edu_score",0)} timeline={scores.get("timeline_score",0)} fit={scores.get("fit_score",0)} /100
 RECOMMENDATION: {scores.get("final_recommendation","Pending")}
 MATCHED: {", ".join(skill_a.get("matched_skills", [])[:12])}
@@ -1268,6 +1314,9 @@ def _run_python_phase(
     jd_analysis: Optional[Dict],
 ) -> Dict[str, Any]:
     """Execute all deterministic Python components. Returns a rich result dict."""
+    # Sanitize user-provided text to prevent prompt injection
+    resume_text, job_description = _wrap_user_content(resume_text, job_description)
+
     jd       = jd_analysis or parse_jd_rules(job_description)
     profile  = parse_resume_rules(parsed_data, gap_analysis)
     skill_a  = match_skills_rules(profile, jd, resume_text)
@@ -1377,7 +1426,7 @@ async def run_hybrid_pipeline(
         },
     }
 
-    # Timeout: 150s to survive gemma4:26b cold-start on CPU (first load ~2 min).
+    # Timeout: 150s to survive gemma4:e4b cold-start on CPU (first load ~2 min).
     # Subsequent requests are served from the hot model and typically finish in 30-60s.
     _LLM_TIMEOUT = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
 

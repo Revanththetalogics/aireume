@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Users2, UserPlus, Shield, AlertCircle, Check, Copy, X } from 'lucide-react'
+import { Users2, UserPlus, Shield, AlertCircle, Check, X } from 'lucide-react'
 import { getTeamMembers, inviteTeamMember, startTraining, getTrainingStatus } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -11,7 +11,6 @@ function InviteModal({ onSave, onClose }) {
   const [result, setResult]   = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
-  const [copied, setCopied]   = useState(false)
 
   const handleInvite = async () => {
     if (!email.trim()) return
@@ -26,12 +25,6 @@ function InviteModal({ onSave, onClose }) {
     } finally {
       setLoading(false)
     }
-  }
-
-  const copyPassword = () => {
-    navigator.clipboard.writeText(result.temp_password)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
   }
 
   return (
@@ -91,13 +84,7 @@ function InviteModal({ onSave, onClose }) {
             <div className="p-3.5 bg-green-50 ring-1 ring-green-200 rounded-2xl">
               <p className="text-sm text-green-700 font-bold">Account created successfully!</p>
             </div>
-            <p className="text-sm text-slate-600">Share this temporary password securely with {result.email}:</p>
-            <div className="flex items-center gap-2 px-3 py-2.5 bg-brand-50 rounded-xl ring-1 ring-brand-200">
-              <code className="flex-1 text-sm font-mono text-brand-800 font-semibold">{result.temp_password}</code>
-              <button onClick={copyPassword} className="text-slate-400 hover:text-brand-700 transition-colors p-1">
-                {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
-              </button>
-            </div>
+            <p className="text-sm text-slate-600">{result.message || "Team member invited. Check server logs for the temporary password."}</p>
             <button
               onClick={onClose}
               className="w-full py-2.5 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"

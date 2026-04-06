@@ -2,7 +2,7 @@
 JWT authentication dependency for FastAPI routes.
 """
 import os
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -10,24 +10,40 @@ from sqlalchemy.orm import Session
 from app.backend.db.database import get_db
 from app.backend.models.db_models import User
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-change-in-production")
-ALGORITHM  = "HS256"
+_env = os.getenv("ENVIRONMENT", "development")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    if _env == "production":
+        raise RuntimeError("JWT_SECRET_KEY environment variable must be set in production")
+    SECRET_KEY = "dev-secret-DO-NOT-USE-IN-PRODUCTION"
+    import logging
+    logging.getLogger(__name__).warning("Using default JWT secret — NOT safe for production")
+ALGORITHM = "HS256"
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db)
 ) -> User:
-    if credentials is None:
+    # Try Authorization header first (for API clients)
+    token = None
+    if credentials is not None:
+        token = credentials.credentials
+    else:
+        # Fall back to httpOnly cookie (for browser clients)
+        token = request.cookies.get("access_token")
+    
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: int = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")

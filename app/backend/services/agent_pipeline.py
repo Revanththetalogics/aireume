@@ -10,8 +10,8 @@ Architecture — 3 dependency stages, parallel within each stage:
       Both wait for Stage 2 (both skill_domain AND edu_timeline) to complete.
 
 Models:
-  get_fast_llm()      → llama3.2:3b  (extraction / matching / education / interview)
-  get_reasoning_llm() → llama3       (scoring / explainability — needs deeper reasoning)
+  get_fast_llm()      → gemma4:e4b  (extraction / matching / education / interview)
+  get_reasoning_llm() → gemma4:e4b  (scoring / explainability — needs deeper reasoning)
 
 Design principles:
   - The LLM determines ALL intelligence: skill extraction, semantic matching,
@@ -37,8 +37,8 @@ from langchain_ollama import ChatOllama
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
 OLLAMA_BASE_URL       = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_FAST_MODEL     = os.getenv("OLLAMA_FAST_MODEL", "llama3.2:3b")
-OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_FAST_MODEL     = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b")
+OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
 
 DEFAULT_WEIGHTS: Dict[str, float] = {
     "skills":       0.30,

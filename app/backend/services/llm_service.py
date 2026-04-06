@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional
 class LLMService:
     def __init__(self):
         self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")  # Faster 3B model
+        self.model = os.getenv("OLLAMA_MODEL", "gemma4:e4b")  # Faster 3B model
         self.max_retries = 1
 
     async def analyze_resume(

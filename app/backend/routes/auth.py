@@ -1,11 +1,13 @@
 """
-Authentication routes: register, login, refresh, me.
+Authentication routes: register, login, refresh, me, logout.
 """
 import os
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import JSONResponse
 from jose import jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -52,9 +54,58 @@ def _user_dict(user: User) -> dict:
     return {"id": user.id, "email": user.email, "role": user.role, "tenant_id": user.tenant_id}
 
 
+def _create_auth_response(user: User, tenant: Tenant, access_token: str, refresh_token: str) -> JSONResponse:
+    """Create JSON response with tokens in body and httpOnly cookies."""
+    is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    
+    # Generate CSRF token for non-httpOnly cookie
+    csrf_token = secrets.token_hex(32)
+    
+    response = JSONResponse(content={
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": _user_dict(user),
+        "tenant": _tenant_dict(tenant) if tenant else None,
+    })
+    
+    # Set httpOnly cookies for browser clients
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=is_production,
+        samesite="lax",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/"
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=is_production,
+        samesite="lax",
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        path="/api/auth"
+    )
+    
+    # Set CSRF token cookie (NOT httpOnly - JS needs to read it)
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=is_production,
+        samesite="lax",
+        max_age=3600,  # 1 hour
+        path="/"
+    )
+    
+    return response
+
+
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
-@router.post("/register", response_model=TokenResponse)
+@router.post("/register")
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -88,15 +139,10 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     access_token  = _create_token({"sub": str(user.id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     refresh_token = _create_token({"sub": str(user.id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user=_user_dict(user),
-        tenant=_tenant_dict(tenant),
-    )
+    return _create_auth_response(user, tenant, access_token, refresh_token)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 def login(body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email, User.is_active == True).first()
     if not user or not _verify_password(body.password, user.hashed_password):
@@ -107,19 +153,25 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     access_token  = _create_token({"sub": str(user.id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     refresh_token = _create_token({"sub": str(user.id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user=_user_dict(user),
-        tenant=_tenant_dict(tenant),
-    )
+    return _create_auth_response(user, tenant, access_token, refresh_token)
 
 
-@router.post("/refresh", response_model=TokenResponse)
-def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
+@router.post("/refresh")
+def refresh_token(request: Request, body: RefreshRequest = None, db: Session = Depends(get_db)):
     from jose import JWTError
+    
+    # Try to get refresh token from body first (for API clients), then from cookie
+    refresh_token_value = None
+    if body and body.refresh_token:
+        refresh_token_value = body.refresh_token
+    else:
+        refresh_token_value = request.cookies.get("refresh_token")
+    
+    if not refresh_token_value:
+        raise HTTPException(status_code=401, detail="Refresh token required")
+    
     try:
-        payload = jwt.decode(body.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(refresh_token_value, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid refresh token")
         user_id = int(payload.get("sub"))
@@ -134,12 +186,7 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
     access_token  = _create_token({"sub": str(user.id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     new_refresh   = _create_token({"sub": str(user.id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=new_refresh,
-        user=_user_dict(user),
-        tenant=_tenant_dict(tenant),
-    )
+    return _create_auth_response(user, tenant, access_token, new_refresh)
 
 
 @router.get("/me")
@@ -149,3 +196,13 @@ def get_me(current_user: User = Depends(get_current_user), db: Session = Depends
         "user": _user_dict(current_user),
         "tenant": _tenant_dict(tenant) if tenant else None,
     }
+
+
+@router.post("/logout")
+async def logout():
+    """Clear httpOnly auth cookies and CSRF token."""
+    response = JSONResponse(content={"message": "Logged out successfully"})
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/api/auth")
+    response.delete_cookie("csrf_token", path="/")
+    return response

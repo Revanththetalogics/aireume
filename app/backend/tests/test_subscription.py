@@ -242,9 +242,9 @@ class TestAdminResetUsage:
     """Tests for POST /api/subscription/admin/reset-usage endpoint."""
     
     def test_reset_usage_requires_auth(self, client):
-        """Should return 401 without authentication."""
+        """Should return 403 without authentication (CSRF blocks before auth)."""
         response = client.post("/api/subscription/admin/reset-usage")
-        assert response.status_code == 401
+        assert response.status_code == 403  # CSRF middleware blocks before auth check
     
     def test_reset_usage_works(self, auth_client_at_usage_limit, db):
         """Should reset usage counters to zero."""
@@ -274,10 +274,10 @@ class TestAdminChangePlan:
     """Tests for POST /api/subscription/admin/change-plan/{plan_id} endpoint."""
     
     def test_change_plan_requires_auth(self, client, seed_subscription_plans):
-        """Should return 401 without authentication."""
+        """Should return 403 without authentication (CSRF blocks before auth)."""
         pro_plan = 2  # Pro plan ID
         response = client.post(f"/api/subscription/admin/change-plan/{pro_plan}")
-        assert response.status_code == 401
+        assert response.status_code == 403  # CSRF middleware blocks before auth check
     
     def test_change_plan_success(self, auth_client_with_free_plan, db, seed_subscription_plans):
         """Should successfully change subscription plan."""

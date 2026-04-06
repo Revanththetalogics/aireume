@@ -6,6 +6,7 @@ import logging
 import httpx
 
 from app.backend.db.database import engine, Base, SessionLocal
+from app.backend.middleware.csrf import CSRFMiddleware
 from app.backend.routes import analyze
 from app.backend.routes import auth
 from app.backend.routes import compare
@@ -180,14 +181,13 @@ app = FastAPI(
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
 
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://airesume-staging.thetalogics.com",
-]
-
-if os.getenv("ENVIRONMENT", "development") == "development":
-    origins = ["*"]
+# Load CORS origins from environment variable (comma-separated)
+# Default includes common dev ports and production domain
+cors_origins_str = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:3000,https://airesume-staging.thetalogics.com"
+)
+origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
@@ -196,6 +196,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── CSRF Protection ─────────────────────────────────────────────────────────
+
+app.add_middleware(CSRFMiddleware)
 
 # ─── Routers ──────────────────────────────────────────────────────────────────
 
