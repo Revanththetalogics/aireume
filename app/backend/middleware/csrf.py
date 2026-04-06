@@ -25,6 +25,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/api/auth/login",
         "/api/auth/register",
         "/api/auth/refresh",
+        "/api/auth/logout",
         "/health",
         "/api/health",
         "/api/llm-status",

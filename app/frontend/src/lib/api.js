@@ -31,11 +31,17 @@ api.interceptors.request.use((config) => {
 })
 
 // Auto-refresh on 401 - uses httpOnly cookies only
+// Skip refresh logic for auth endpoints to prevent login loops
+const AUTH_PATHS = ['/auth/me', '/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
+
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config
-    if (error.response?.status === 401 && !original._retry) {
+    const reqPath = original?.url || ''
+    const isAuthEndpoint = AUTH_PATHS.some(p => reqPath.includes(p))
+
+    if (error.response?.status === 401 && !original._retry && !isAuthEndpoint) {
       original._retry = true
       try {
         // Refresh endpoint reads from cookie - browser sends cookie automatically
