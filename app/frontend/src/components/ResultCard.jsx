@@ -2,7 +2,7 @@ import {
   ThumbsUp, ThumbsDown, AlertTriangle, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Target, TrendingUp, Shield, ClipboardList,
   Copy, Check, Mail, X, Loader2, Lightbulb, BookOpen, Compass, Cpu,
-  Sparkles, Bot, RefreshCw,
+  Sparkles, Bot, RefreshCw, Info, UserCheck,
 } from 'lucide-react'
 import { useState } from 'react'
 import SkillsRadar from './SkillsRadar'
@@ -276,7 +276,11 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     skill_analysis, edu_timeline_analysis, jd_analysis,
     recommendation_rationale,
     narrative_pending, analysis_quality,
+    fit_summary, concerns, score_rationales, risk_summary, skill_depth,
   } = result
+
+  // Backward compatibility: use concerns if available, otherwise fall back to weaknesses
+  const concernsList = concerns || weaknesses || []
 
   const isPending = final_recommendation === 'Pending' || fit_score === null || fit_score === undefined
 
@@ -334,6 +338,21 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         {/* Pending banner */}
         {isPending && <PendingBanner />}
 
+        {/* Fit Summary Banner */}
+        {fit_summary && fit_summary.trim() && (
+          <div className="bg-gradient-to-r from-indigo-500 to-blue-600 rounded-2xl p-5 text-white shadow-lg">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                <UserCheck className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-wide text-indigo-100 mb-1">Executive Summary</h3>
+                <p className="text-sm leading-relaxed text-white/95">{fit_summary}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Score Breakdown */}
         {score_breakdown && Object.keys(score_breakdown).length > 0 && !isPending && (
           <div className="bg-brand-50/60 rounded-2xl p-5 ring-1 ring-brand-100">
@@ -356,6 +375,13 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
             {recommendation_rationale && (
               <p className="text-xs text-slate-500 mt-3 italic">{recommendation_rationale}</p>
             )}
+            {risk_summary?.seniority_alignment && (
+              <div className="mt-3 pt-3 border-t border-brand-100 flex items-center gap-2">
+                <Info className="w-3.5 h-3.5 text-brand-500" />
+                <span className="text-xs font-semibold text-brand-700">Seniority Alignment:</span>
+                <span className="text-xs text-slate-600">{risk_summary.seniority_alignment}</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -370,7 +396,12 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {matched_skills.slice(0, 12).map((s, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-lg font-semibold">{s}</span>
+                    <span key={i} className="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-lg font-semibold inline-flex items-center gap-1">
+                      {s}
+                      {skill_depth && skill_depth[s] && (
+                        <span className="text-[10px] text-green-600 font-medium">({skill_depth[s]}x)</span>
+                      )}
+                    </span>
                   ))}
                 </div>
               </div>
@@ -409,7 +440,39 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         {/* Skills Gap Visualization */}
         <SkillsRadar matchedSkills={matched_skills || []} missingSkills={missing_skills || []} />
 
-        {/* Strengths / Weaknesses / Risks */}
+        {/* Risk Flags Section */}
+        {risk_summary?.risk_flags && risk_summary.risk_flags.length > 0 && (
+          <div className="bg-slate-50 rounded-2xl p-5 ring-1 ring-slate-200">
+            <div className="flex items-center gap-2 mb-4">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide">Risk Flags</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {risk_summary.risk_flags.map((flag, i) => {
+                const severityColors = {
+                  high: 'bg-red-100 text-red-800 ring-red-200',
+                  medium: 'bg-orange-100 text-orange-800 ring-orange-200',
+                  low: 'bg-yellow-100 text-yellow-800 ring-yellow-200',
+                }
+                const colorClass = severityColors[flag.severity] || severityColors.low
+                return (
+                  <div
+                    key={i}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold ring-1 ${colorClass} cursor-help`}
+                    title={flag.detail || ''}
+                  >
+                    {flag.flag}
+                    {flag.severity && (
+                      <span className="ml-1.5 text-[10px] uppercase opacity-75">({flag.severity})</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Strengths / Concerns / Risks */}
         <div className="grid md:grid-cols-3 gap-4">
           <div className="bg-green-50 rounded-2xl p-4 ring-1 ring-green-100 border-l-4 border-green-500">
             <div className="flex items-center gap-2 mb-3">
@@ -430,16 +493,16 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
           <div className="bg-red-50 rounded-2xl p-4 ring-1 ring-red-100 border-l-4 border-red-400">
             <div className="flex items-center gap-2 mb-3">
               <ThumbsDown className="w-4 h-4 text-red-600" />
-              <h3 className="font-bold text-red-800 text-sm">Weaknesses</h3>
+              <h3 className="font-bold text-red-800 text-sm">Concerns</h3>
             </div>
             <ul className="space-y-1.5">
-              {weaknesses?.length > 0 ? (
-                weaknesses.slice(0, 5).map((w, i) => (
+              {concernsList.length > 0 ? (
+                concernsList.slice(0, 5).map((w, i) => (
                   <li key={i} className="text-sm text-red-700 flex items-start gap-2">
                     <span className="text-red-500 mt-1 shrink-0">•</span>{w}
                   </li>
                 ))
-              ) : <li className="text-sm text-red-600 italic">No significant weaknesses</li>}
+              ) : <li className="text-sm text-red-600 italic">No significant concerns</li>}
             </ul>
           </div>
 
@@ -461,37 +524,52 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
           </div>
         </div>
 
-        {/* Explainability */}
-        {explainability && Object.keys(explainability).length > 0 && (
-          <CollapsibleSection
-            title="Explainability — Why this score?"
-            icon={Lightbulb}
-            iconColor="text-yellow-600"
-            bgColor="bg-yellow-50"
-          >
-            <div className="space-y-3">
-              {explainability.overall_rationale && (
-                <div className="p-3 bg-brand-50 rounded-xl ring-1 ring-brand-100">
-                  <p className="text-sm font-semibold text-brand-800 mb-1">Overall</p>
-                  <p className="text-sm text-slate-600 leading-relaxed">{explainability.overall_rationale}</p>
-                </div>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {[
-                  { key: 'skill_rationale',       label: 'Skills' },
-                  { key: 'experience_rationale',   label: 'Experience' },
-                  { key: 'education_rationale',    label: 'Education' },
-                  { key: 'timeline_rationale',     label: 'Timeline' },
-                ].filter(f => explainability[f.key]).map(f => (
-                  <div key={f.key} className="p-3 bg-slate-50 rounded-xl ring-1 ring-slate-100">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">{f.label}</p>
-                    <p className="text-xs text-slate-600 leading-relaxed">{explainability[f.key]}</p>
+        {/* Explainability - uses score_rationales as fallback when explainability is missing */}
+        {(() => {
+          // Determine which data source to use: prefer explainability, fall back to score_rationales
+          const hasExplainability = explainability && Object.keys(explainability).length > 0
+          const hasScoreRationales = score_rationales && Object.keys(score_rationales).length > 0
+          
+          if (!hasExplainability && !hasScoreRationales) return null
+          
+          // Use explainability if it has meaningful content, otherwise use score_rationales
+          const source = hasExplainability ? explainability : score_rationales
+          const isFallback = !hasExplainability && hasScoreRationales
+          
+          return (
+            <CollapsibleSection
+              title={isFallback ? "Score Rationales — Why this score?" : "Explainability — Why this score?"}
+              icon={Lightbulb}
+              iconColor="text-yellow-600"
+              bgColor="bg-yellow-50"
+            >
+              <div className="space-y-3">
+                {(source.overall_rationale || source.domain_rationale) && (
+                  <div className="p-3 bg-brand-50 rounded-xl ring-1 ring-brand-100">
+                    <p className="text-sm font-semibold text-brand-800 mb-1">Overall</p>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      {source.overall_rationale || source.domain_rationale}
+                    </p>
                   </div>
-                ))}
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    { key: 'skill_rationale',       label: 'Skills' },
+                    { key: 'experience_rationale',   label: 'Experience' },
+                    { key: 'education_rationale',    label: 'Education' },
+                    { key: 'timeline_rationale',     label: 'Timeline' },
+                    { key: 'domain_rationale',       label: 'Domain Fit' },
+                  ].filter(f => source[f.key]).map(f => (
+                    <div key={f.key} className="p-3 bg-slate-50 rounded-xl ring-1 ring-slate-100">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">{f.label}</p>
+                      <p className="text-xs text-slate-600 leading-relaxed">{source[f.key]}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          </CollapsibleSection>
-        )}
+            </CollapsibleSection>
+          )
+        })()}
 
         {/* Education Analysis */}
         <CollapsibleSection

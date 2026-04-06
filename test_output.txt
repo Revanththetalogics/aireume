@@ -1,0 +1,63 @@
+﻿python : C:\Users\DELL\AppData\Local\Programs\Python\Python313\Lib\site-package
+s\pytest_asyncio\plugin.py:207: PytestDeprecationWarning: The configuration 
+option "asyncio_default_fixture_loop_scope" is unset.
+At line:1 char:55
++ ...  by ThetaLogics"; python -m pytest app/backend/tests/ -x 2>&1 | Out-F ...
++                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\DELL\A...cope" is unset. 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+The event loop scope for asynchronous fixtures will default to the fixture 
+caching scope. Future versions of pytest-asyncio will default the loop scope 
+for asynchronous fixtures to function scope. Set the default fixture loop 
+scope explicitly in order to avoid unexpected behavior in the future. Valid 
+fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts =============================
+platform win32 -- Python 3.13.9, pytest-8.3.4, pluggy-1.6.0
+rootdir: C:\Users\DELL\Projects\Resume AI by ThetaLogics
+plugins: anyio-4.12.0, langsmith-0.7.17, asyncio-0.25.3, cov-6.0.0, respx-0.22.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collected 483 items
+
+app\backend\tests\test_agent_pipeline.py ............................... [  6%]
+..................                                                       [ 10%]
+app\backend\tests\test_analysis_service.py ....                          [ 10%]
+app\backend\tests\test_api.py ..........                                 [ 13%]
+app\backend\tests\test_auth.py .............                             [ 15%]
+app\backend\tests\test_candidate_dedup.py .............................. [ 21%]
+.......                                                                  [ 23%]
+app\backend\tests\test_gap_detector.py ................................. [ 30%]
+...............                                                          [ 33%]
+app\backend\tests\test_hybrid_pipeline.py .............................. [ 39%]
+..............................................                           [ 49%]
+app\backend\tests\test_llm_json_parse.py ..                              [ 49%]
+app\backend\tests\test_parser_service.py ..........                      [ 51%]
+app\backend\tests\test_routes_phase1.py .........................        [ 56%]
+app\backend\tests\test_routes_phase2.py .........................        [ 61%]
+app\backend\tests\test_subscription.py ........................          [ 66%]
+app\backend\tests\test_transcript_api.py ............................... [ 73%]
+.                                                                        [ 73%]
+app\backend\tests\test_transcript_service.py ........................... [ 79%]
+......                                                                   [ 80%]
+app\backend\tests\test_usage_enforcement.py .....................        [ 84%]
+app\backend\tests\test_video_downloader.py ............................. [ 90%]
+..                                                                       [ 91%]
+app\backend\tests\test_video_routes.py ...............                   [ 94%]
+app\backend\tests\test_video_service.py ............................     [100%]
+
+============================== warnings summary ===============================
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+  C:\Users\DELL\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.10/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 483 passed, 7 warnings in 976.69s (0:16:16) =================

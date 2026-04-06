@@ -33,7 +33,7 @@ services:
     environment:
       # 3 parallel slots: Stage 1 (2 nodes) + one Stage 2 node fires before the other finishes.
       - OLLAMA_NUM_PARALLEL=3
-      # Keep gemma4:e4b loaded — eliminates cold-load latency.
+      # Keep qwen3.5:4b loaded — eliminates cold-load latency.
       - OLLAMA_MAX_LOADED_MODELS=1
       # Flash Attention: fused O(n) attention kernel — 20-40% faster on long contexts.
       - OLLAMA_FLASH_ATTENTION=1
@@ -47,8 +47,8 @@ services:
       - "11434:11434"
     restart: unless-stopped
     # On first run, exec into container and pull the model:
-    #   ollama pull gemma4:e4b
-    # Production also uses gemma4:e4b (set via OLLAMA_MODEL env var).
+    #   ollama pull qwen3.5:4b
+    # Production also uses qwen3.5:4b (set via OLLAMA_MODEL env var).
 
   backend:
     build:
@@ -60,9 +60,9 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       # Must match a pulled image inside the ollama container (see comments on ollama service).
-      - OLLAMA_MODEL=gemma4:e4b
-      - OLLAMA_FAST_MODEL=gemma4:e4b
-      - LLM_NARRATIVE_TIMEOUT=120
+      - OLLAMA_MODEL=qwen3.5:4b
+      - OLLAMA_FAST_MODEL=qwen3.5:4b
+      - LLM_NARRATIVE_TIMEOUT=60
       - DATABASE_URL=postgresql://aria:aria_secret@postgres:5432/aria_db
       - JWT_SECRET_KEY=change-this-in-production-use-a-long-random-string
       - ENVIRONMENT=development

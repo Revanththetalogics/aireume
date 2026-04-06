@@ -61,9 +61,9 @@ services:
       resources:
         limits:
           cpus: '8'
-          # gemma4:e4b weights: 9.6 GB + 1.8 GB KV-cache + 0.5 GB overhead = ~12 GB.
-          # 14 GB gives comfortable headroom for concurrent requests.
-          memory: 14G
+          # qwen3.5:4b weights: ~2.6 GiB + KV-cache + overhead = ~4 GiB
+          # 6 GB gives comfortable headroom for concurrent requests.
+          memory: 6G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ollama", "list"]
@@ -85,14 +85,14 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aria_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
       - ENVIRONMENT=production
-      # gemma4:e4b — 4B edge model (9.6 GB), 128K context, multimodal.
+      # qwen3.5:4b — 4B model (~2.6 GiB), fast structured JSON output on CPU
       # Used for both parsing helpers and the narrative LLM call.
-      # Generates the narrative JSON in ~10-20s on CPU vs ~60s for 26b,
-      # and fits entirely within the reduced 14 GB Ollama memory limit.
-      - OLLAMA_FAST_MODEL=gemma4:e4b
-      - OLLAMA_MODEL=gemma4:e4b
-      # Cold load / CPU contention can exceed 60s; 150s matches app default and reduces false "LLM offline".
-      - LLM_NARRATIVE_TIMEOUT=150
+      # Generates the narrative JSON in ~15-30s on CPU, and fits entirely
+      # within the reduced 6 GB Ollama memory limit.
+      - OLLAMA_FAST_MODEL=qwen3.5:4b
+      - OLLAMA_MODEL=qwen3.5:4b
+      # qwen3.5:4b generates narrative in ~15-30s on CPU; 60s gives comfortable headroom
+      - LLM_NARRATIVE_TIMEOUT=60
       # Backend entrypoint waits for Ollama + pulls model into RAM before uvicorn.
       - OLLAMA_STARTUP_REQUIRED=1
     depends_on:
@@ -168,14 +168,14 @@ services:
         done;
         echo '  ✓  Ollama is up';
         echo '';
-        echo '  Loading gemma4:e4b into RAM...';
-        ollama run gemma4:e4b 'warmup' --nowordwrap;
-        echo '  ✓  gemma4:e4b is HOT in RAM';
+        echo '  Loading qwen3.5:4b into RAM...';
+        ollama run qwen3.5:4b 'warmup' --nowordwrap;
+        echo '  ✓  qwen3.5:4b is HOT in RAM';
         echo '  ✓  Warmup complete — entering keep-alive loop';
         echo '============================================';
         while true; do
           sleep 240;
-          ollama run gemma4:e4b 'ping' --nowordwrap > /dev/null 2>&1 || echo '[keepalive] ping failed, will retry';
+          ollama run qwen3.5:4b 'ping' --nowordwrap > /dev/null 2>&1 || echo '[keepalive] ping failed, will retry';
         done
       "
     environment:

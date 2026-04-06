@@ -104,7 +104,7 @@ async def _startup_checks() -> dict:
 
     # ── 3. Ollama reachability ────────────────────────────────────────────────
     ollama_url    = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    narrative_model = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
+    narrative_model = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
     pulled_models = []
     hot_models    = []
     ollama_ok     = False
@@ -273,8 +273,8 @@ async def llm_status():
       curl http://localhost:8080/api/llm-status
     """
     ollama_url     = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    target_model   = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
-    fast_model     = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b")
+    target_model   = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+    fast_model     = os.getenv("OLLAMA_FAST_MODEL", "qwen3.5:4b")
 
     result: dict = {
         "ollama_url":            ollama_url,

@@ -79,7 +79,7 @@ async def generate_email(
             resp = await client.post(
                 f"{OLLAMA_BASE_URL}/api/generate",
                 json={
-                    "model": os.getenv("OLLAMA_MODEL", "gemma4:e4b"),
+                    "model": os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
                     "prompt": prompt,
                     "stream": False,
                     "format": "json",

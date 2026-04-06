@@ -86,18 +86,16 @@ def _get_llm():
             from langchain_ollama import ChatOllama
             _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
             _REASONING_LLM = ChatOllama(
-                model=os.getenv("OLLAMA_MODEL") or "gemma4:e4b",
+                model=os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
                 base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
                 temperature=0.1,
                 format="json",
-                # num_predict: actual JSON output is ~400-450 tokens.
-                # Keeping this tight stops Ollama allocating a huge KV-cache
-                # slab and prevents runaway generation. 550 = 400 output + 25% headroom.
-                num_predict=550,
-                # num_ctx: prompt is ~350 tokens. 1536 = prompt + output + margin.
-                # Halving from 4096 saves ~900 MB KV-cache on CPU and speeds
-                # up every attention computation proportionally.
-                num_ctx=1536,
+                # num_predict: actual JSON output needs ~600-900 tokens for full narrative + interview questions.
+                # 1024 gives comfortable headroom.
+                num_predict=1024,
+                # num_ctx: prompt is ~350 tokens. 2048 = prompt + output + margin.
+                # Still saves ~800 MB KV-cache vs default 4096.
+                num_ctx=2048,
                 # Keep model always hot in RAM (-1 = never unload)
                 keep_alive=-1,
                 # HTTP timeout must exceed LLM_NARRATIVE_TIMEOUT to let the
@@ -1194,31 +1192,98 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     profile  = context.get("candidate_profile", {})
     scores   = context.get("scores", {})
     skill_a  = context.get("skill_analysis", {})
+    score_rationales = context.get("score_rationales", {})
+    risk_summary     = context.get("risk_summary", {})
 
     # Cap career_summary to 300 chars — it's already extracted by Python,
     # we only need context, not the full text (saves ~100 input tokens).
     career_snippet = (profile.get("career_summary") or "")[:300]
 
     # Sanitize text fields that go into the LLM prompt
-    role_title = _sanitize_input(jd.get("role_title") or "", 200, "role_title")
+    role_title = _sanitize_input(jd.get("role_title") or jd.get("title", "Unknown Role"), 200, "role_title")
     candidate_name = _sanitize_input(profile.get("name") or "Unknown", 100, "name")
     current_role = _sanitize_input(profile.get("current_role") or "N/A", 100, "current_role")
     current_company = _sanitize_input(profile.get("current_company") or "N/A", 100, "current_company")
     career_snippet = _sanitize_input(career_snippet, 400, "career_snippet")
 
-    prompt = f"""You are a recruitment analyst. Output ONLY valid JSON, no markdown.
+    # Extract domain and seniority
+    domain = jd.get("domain", "General")
+    seniority = jd.get("seniority", "Not specified")
 
-ROLE: {role_title} | {jd.get("domain")} | {jd.get("seniority")}
-CANDIDATE: {candidate_name} | {profile.get("total_effective_years", 0)}y | {current_role} at {current_company}
-SCORES: skill={scores.get("skill_score",0)} exp={scores.get("exp_score",0)} edu={scores.get("edu_score",0)} timeline={scores.get("timeline_score",0)} fit={scores.get("fit_score",0)} /100
-RECOMMENDATION: {scores.get("final_recommendation","Pending")}
-MATCHED: {", ".join(skill_a.get("matched_skills", [])[:12])}
-MISSING: {", ".join(skill_a.get("missing_skills", [])[:8])}
-BIO: {career_snippet}
+    # Extract experience years
+    years = profile.get("total_effective_years", 0)
 
-Return exactly: {{"strengths":[],"weaknesses":[],"recommendation_rationale":"","explainability":{{"skill_rationale":"","experience_rationale":"","overall_rationale":""}},"interview_questions":{{"technical_questions":[],"behavioral_questions":[],"culture_fit_questions":[]}}}}
-Rules: 3 strengths, 2 weaknesses, 1-sentence rationale, 3 technical Qs on missing skills, 2 STAR behavioral Qs, 1 culture Q."""
+    # Extract scores
+    skill_score = scores.get("skill_score", 0)
+    exp_score = scores.get("exp_score", 0)
+    edu_score = scores.get("edu_score", 0)
+    timeline_score = scores.get("timeline_score", 0)
+    fit_score = scores.get("fit_score", 0)
+    recommendation = scores.get("final_recommendation", "Pending")
 
+    # Extract matched and missing skills
+    matched = skill_a.get("matched_skills", [])
+    missing = skill_a.get("missing_skills", [])
+
+    # Extract seniority alignment from risk_summary
+    seniority_alignment = risk_summary.get("seniority_alignment", "Not assessed")
+
+    # Format risk flags
+    risk_flags_list = risk_summary.get("risk_flags", [])
+    if risk_flags_list:
+        risk_flags = "; ".join(
+            f"{rf.get('flag', 'Unknown')}: {rf.get('detail', '')} ({rf.get('severity', 'low')})"
+            for rf in risk_flags_list
+        )
+    else:
+        risk_flags = "None identified"
+
+    # Format score rationales into compact string
+    if score_rationales:
+        rationales_parts = []
+        for key in ["skill_rationale", "experience_rationale", "education_rationale", "timeline_rationale"]:
+            val = score_rationales.get(key, "")
+            if val:
+                # Truncate each rationale to ~100 chars to keep prompt compact
+                rationales_parts.append(f"{key.split('_')[0]}: {val[:100]}")
+        score_rationales_summary = " | ".join(rationales_parts) if rationales_parts else "Not available"
+    else:
+        score_rationales_summary = "Not available"
+
+    # Build the recruiter-focused prompt
+    prompt = f"""You are ARIA, an AI recruitment analyst. Produce a JSON assessment explaining
+WHY this candidate is/isn't suited for this role. Be specific — reference
+actual skills, scores, and gaps. Write as if advising a hiring manager.
+
+ROLE: {role_title} | {domain} | {seniority}
+CANDIDATE: {candidate_name} | {years}y experience | {current_role}
+SCORES: skill={skill_score} exp={exp_score} edu={edu_score} timeline={timeline_score} fit={fit_score} /100
+RECOMMENDATION: {recommendation}
+MATCHED SKILLS: {', '.join(matched[:12]) if matched else 'None'}
+MISSING SKILLS: {', '.join(missing[:8]) if missing else 'None'}
+SENIORITY FIT: {seniority_alignment}
+RISK FLAGS: {risk_flags}
+SCORE RATIONALES: {score_rationales_summary}
+CAREER: {career_snippet}
+
+Return ONLY valid JSON:
+{{
+  "fit_summary": "2-3 sentence executive summary for the hiring manager explaining the overall assessment",
+  "strengths": ["specific strength tied to role requirements - reference actual skills and scores"],
+  "concerns": ["specific concern tied to role gaps - reference actual missing skills or risk flags"],
+  "recommendation_rationale": "WHY this recommendation, referencing scores and alignment data",
+  "explainability": {{
+    "skill_rationale": "detailed explanation of skill match quality",
+    "experience_rationale": "detailed explanation of experience alignment",
+    "overall_rationale": "synthesis of all factors into final assessment"
+  }},
+  "interview_questions": {{
+    "technical_questions": ["3 questions probing missing or weak skills"],
+    "behavioral_questions": ["2 STAR-format questions for role challenges"],
+    "culture_fit_questions": ["1 motivation/values question"]
+  }}
+}}
+Rules: 3-4 strengths, 2-3 concerns, reference actual skill names and scores. No markdown, no code fences."""
 
     from langchain_core.messages import HumanMessage
     response = await llm.ainvoke([HumanMessage(content=prompt)])
@@ -1231,9 +1296,15 @@ Rules: 3 strengths, 2 weaknesses, 1-sentence rationale, 3 technical Qs on missin
         log.warning("LLM JSON extraction failed. Raw (500 chars): %s", raw[:500])
         raise ValueError("LLM returned non-JSON response")
 
+    # Handle both 'concerns' (new format) and 'weaknesses' (legacy format)
+    concerns = _ensure_str_list(data.get("concernes", data.get("concerns", data.get("weaknesses", []))))
+    weaknesses = _ensure_str_list(data.get("weaknesses", concerns))
+
     return {
+        "fit_summary":            str(data.get("fit_summary", "")),
         "strengths":              _ensure_str_list(data.get("strengths", [])),
-        "weaknesses":             _ensure_str_list(data.get("weaknesses", [])),
+        "concerns":               concerns,
+        "weaknesses":             weaknesses,
         "recommendation_rationale": str(data.get("recommendation_rationale", "")),
         "explainability":         data.get("explainability", {}),
         "interview_questions": {
@@ -1258,6 +1329,8 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
     req      = skill_analysis.get("required_count", 0)
     actual_y = python_result.get("score_breakdown", {}).get("experience_match", 0)
     req_y    = python_result.get("_required_years", 0)
+    recommendation = python_result.get("final_recommendation", "Pending")
+    score_rationales = python_result.get("score_rationales", {})
 
     strengths = []
     if matched:
@@ -1267,11 +1340,38 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
     if not strengths:
         strengths.append("Profile submitted for review")
 
-    weaknesses = []
+    concerns = []
     if missing:
-        weaknesses.append(f"Missing key skills: {', '.join(missing[:4])}")
-    if not weaknesses:
-        weaknesses.append("Manual review recommended for full assessment")
+        concerns.append(f"Missing key skills: {', '.join(missing[:4])}")
+    if not concerns:
+        concerns.append("Manual review recommended for full assessment")
+
+    # Generate deterministic fit_summary based on scores and recommendation
+    if score >= 80:
+        fit_summary = f"Strong candidate with {score}/100 fit score. {len(matched)}/{req} skills matched. Recommended for {recommendation}."
+    elif score >= 60:
+        fit_summary = f"Viable candidate with {score}/100 fit score. {len(matched)}/{req} skills matched. Consider for interview."
+    elif score >= 40:
+        fit_summary = f"Mixed fit at {score}/100. Skills matched: {len(matched)}/{req}. Manual review recommended."
+    else:
+        fit_summary = f"Low fit score of {score}/100. Only {len(matched)}/{req} skills matched. Not recommended without significant training."
+
+    # Use score_rationales for explainability if available, otherwise use defaults
+    if score_rationales:
+        explainability = {
+            "skill_rationale":      score_rationales.get("skill_rationale", f"Matched {len(matched)} of {req} required skills."),
+            "experience_rationale": score_rationales.get("experience_rationale", "Based on parsed employment timeline."),
+            "education_rationale":  score_rationales.get("education_rationale", ""),
+            "timeline_rationale":   score_rationales.get("timeline_rationale", ""),
+            "domain_rationale":     score_rationales.get("domain_rationale", ""),
+            "overall_rationale":    score_rationales.get("overall_rationale", f"Overall fit score: {score}/100."),
+        }
+    else:
+        explainability = {
+            "skill_rationale":      f"Matched {len(matched)} of {req} required skills.",
+            "experience_rationale": "Based on parsed employment timeline.",
+            "overall_rationale":    f"Overall fit score: {score}/100.",
+        }
 
     tech_q = [f"Can you describe your experience with {s}?" for s in missing[:5]] or \
              ["Describe a complex technical challenge you solved."]
@@ -1285,24 +1385,238 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
         "How do you keep up with new developments in your field?",
     ]
 
+    # Return with both 'concerns' (new) and 'weaknesses' (backward compat)
     return {
-        "strengths":  strengths,
-        "weaknesses": weaknesses,
+        "fit_summary": fit_summary,
+        "strengths":   strengths,
+        "concerns":    concerns,
+        "weaknesses":  concerns,  # Backward compatibility alias
         "recommendation_rationale": (
             f"Candidate scored {score}/100. {len(matched)}/{req} required skills matched. "
             f"Automated narrative unavailable — manual review recommended."
         ),
-        "explainability": {
-            "skill_rationale":      f"Matched {len(matched)} of {req} required skills.",
-            "experience_rationale": "Based on parsed employment timeline.",
-            "overall_rationale":    f"Overall fit score: {score}/100.",
-        },
+        "explainability": explainability,
         "interview_questions": {
             "technical_questions":   tech_q,
             "behavioral_questions":  behavioral_q,
             "culture_fit_questions": culture_q,
         },
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCORE RATIONALES & METADATA BUILDERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _build_score_rationales(
+    all_scores: Dict[str, Any],
+    profile: Dict[str, Any],
+    jd: Dict[str, Any],
+    skill_a: Dict[str, Any],
+    exp_r: Dict[str, Any],
+    edu_s: int,
+    dom_r: Dict[str, Any],
+    gap_analysis: Dict[str, Any],
+) -> Dict[str, str]:
+    """Build human-readable rationale for each score dimension."""
+    matched = skill_a.get("matched_skills", [])
+    missing = skill_a.get("missing_skills", [])
+    req_count = skill_a.get("required_count", 0)
+    skill_score = skill_a.get("skill_score", 0)
+
+    # Skill rationale
+    if matched and missing:
+        skill_rat = (f"Matched {len(matched)}/{req_count} required skills "
+                     f"({', '.join(matched[:5])}). "
+                     f"Missing: {', '.join(missing[:5])}. Score: {skill_score}/100.")
+    elif matched:
+        skill_rat = (f"All {len(matched)}/{req_count} required skills matched "
+                     f"({', '.join(matched[:5])}). Score: {skill_score}/100.")
+    elif missing:
+        skill_rat = (f"None of {req_count} required skills matched. "
+                     f"Missing: {', '.join(missing[:5])}. Score: {skill_score}/100.")
+    else:
+        skill_rat = f"No required skills specified in job description. Score: {skill_score}/100."
+
+    # Experience rationale
+    actual_y = exp_r.get("actual_years", 0)
+    req_y = exp_r.get("required_years", 0)
+    exp_score = exp_r.get("exp_score", 0)
+    seniority = jd.get("seniority", "unknown")
+    if req_y > 0 and actual_y < req_y * 0.6:
+        exp_qualifier = "Significantly underqualified"
+    elif req_y > 0 and actual_y < req_y:
+        exp_qualifier = "Slightly below requirement"
+    elif req_y > 0 and actual_y > req_y * 2:
+        exp_qualifier = "Overqualified"
+    elif req_y > 0:
+        exp_qualifier = "Meets requirement"
+    else:
+        exp_qualifier = "Experience level noted"
+    exp_rat = (f"{actual_y:.1f}y experience vs {req_y}y+ expected for {seniority} role. "
+               f"{exp_qualifier}. Score: {exp_score}/100.")
+
+    # Education rationale
+    education = profile.get("education", [])
+    if education:
+        best_edu = education[0]  # first is typically highest
+        degree = best_edu.get("degree", "Unknown degree")
+        field = best_edu.get("field", "")
+        domain = jd.get("domain", "general")
+        edu_rat = (f"{degree}{(' in ' + field) if field else ''} — "
+                   f"{'relevant' if edu_s >= 65 else 'partially relevant' if edu_s >= 45 else 'limited relevance'} "
+                   f"for {domain} domain. Score: {edu_s}/100.")
+    else:
+        edu_rat = f"No education data found in resume. Default score: {edu_s}/100."
+
+    # Timeline rationale
+    timeline_score = exp_r.get("timeline_score", 85)
+    gaps = gap_analysis.get("employment_gaps", [])
+    stints = gap_analysis.get("short_stints", [])
+    critical_gaps = [g for g in gaps if g.get("severity") == "critical"]
+    parts = []
+    if critical_gaps:
+        parts.append(f"{len(critical_gaps)} critical gap(s) (12+ months)")
+    elif gaps:
+        parts.append(f"{len(gaps)} employment gap(s)")
+    else:
+        parts.append("No employment gaps")
+    if stints:
+        parts.append(f"{len(stints)} short stint(s) (<6 months)")
+    timeline_rat = f"{'. '.join(parts)}. Score: {timeline_score}/100."
+
+    # Domain rationale
+    domain_score = dom_r.get("domain_score", 50)
+    arch_score = dom_r.get("arch_score", 50)
+    domain = jd.get("domain", "general")
+    current_role = profile.get("current_role", "Unknown")
+    domain_rat = (f"Domain fit for {domain}: {domain_score}/100. "
+                  f"Architecture alignment: {arch_score}/100. "
+                  f"Current role: {current_role}.")
+
+    # Overall rationale
+    fit_score = all_scores.get("fit_score", 0)
+    recommendation = all_scores.get("final_recommendation", "Pending")
+    # Build a concise overall explanation
+    top_strength = "strong skill match" if skill_score >= 70 else "adequate skills" if skill_score >= 40 else "weak skill match"
+    top_concern = ""
+    if exp_score < 40:
+        top_concern = "insufficient experience for seniority level"
+    elif len(missing) > len(matched):
+        top_concern = "more required skills missing than matched"
+    elif critical_gaps:
+        top_concern = "critical employment gap(s)"
+    elif domain_score < 40:
+        top_concern = "domain mismatch"
+
+    overall_rat = f"Fit score: {fit_score}/100 — {recommendation}. "
+    if top_concern:
+        overall_rat += f"Key strength: {top_strength}. Key concern: {top_concern}."
+    else:
+        overall_rat += f"Key strength: {top_strength}. No critical concerns identified."
+
+    return {
+        "skill_rationale": skill_rat,
+        "experience_rationale": exp_rat,
+        "education_rationale": edu_rat,
+        "timeline_rationale": timeline_rat,
+        "domain_rationale": domain_rat,
+        "overall_rationale": overall_rat,
+    }
+
+
+def _build_risk_summary(
+    risk_signals: List[Dict[str, Any]],
+    gap_analysis: Dict[str, Any],
+    exp_r: Dict[str, Any],
+    profile: Dict[str, Any],
+    jd: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build structured risk and alignment summary."""
+    # Risk flags — convert existing risk_signals to user-friendly format
+    risk_flags = []
+    for rs in risk_signals:
+        risk_flags.append({
+            "flag": rs.get("type", "unknown").replace("_", " ").title(),
+            "detail": rs.get("description", ""),
+            "severity": rs.get("severity", "low"),
+        })
+
+    # Seniority alignment
+    actual_y = exp_r.get("actual_years", 0)
+    seniority = jd.get("seniority", "unknown")
+    seniority_ranges = {
+        "intern": (0, 1), "junior": (0, 2), "mid": (2, 5),
+        "senior": (5, 10), "lead": (7, 15), "principal": (10, 25),
+        "staff": (8, 20), "architect": (10, 25), "director": (12, 30),
+    }
+    lo, hi = seniority_ranges.get(seniority.lower(), (0, 100))
+    if actual_y < lo:
+        seniority_alignment = f"Underqualified — {actual_y:.1f}y experience, {seniority} typically requires {lo}-{hi}y"
+    elif actual_y > hi:
+        seniority_alignment = f"Overqualified — {actual_y:.1f}y experience, {seniority} typically requires {lo}-{hi}y"
+    else:
+        seniority_alignment = f"Aligned — {actual_y:.1f}y experience fits {seniority} range ({lo}-{hi}y)"
+
+    # Career trajectory — look at work experience progression
+    work_exp = profile.get("work_experience", [])
+    if len(work_exp) >= 2:
+        # Simple heuristic: compare first and last role titles for progression keywords
+        first_title = str(work_exp[-1].get("title", "")).lower() if work_exp else ""
+        last_title = str(work_exp[0].get("title", "")).lower() if work_exp else ""
+        senior_keywords = {"senior", "lead", "principal", "staff", "head", "director", "manager", "architect", "vp", "chief"}
+        junior_keywords = {"intern", "trainee", "junior", "associate", "entry"}
+        last_is_senior = any(k in last_title for k in senior_keywords)
+        first_is_junior = any(k in first_title for k in junior_keywords)
+        if last_is_senior and first_is_junior:
+            trajectory = f"Strong upward — progressed from '{work_exp[-1].get('title', 'N/A')}' to '{work_exp[0].get('title', 'N/A')}'"
+        elif last_is_senior or (len(work_exp) >= 3):
+            trajectory = f"Upward — current role: '{work_exp[0].get('title', 'N/A')}' across {len(work_exp)} positions"
+        else:
+            trajectory = f"Early career — {len(work_exp)} position(s), current: '{work_exp[0].get('title', 'N/A')}'"
+    elif len(work_exp) == 1:
+        trajectory = f"Single role — '{work_exp[0].get('title', 'N/A')}'"
+    else:
+        trajectory = "No work experience data available"
+
+    # Stability assessment
+    gaps = gap_analysis.get("employment_gaps", [])
+    stints = gap_analysis.get("short_stints", [])
+    critical_gaps = sum(1 for g in gaps if g.get("severity") == "critical")
+    if critical_gaps:
+        stability = f"Unstable — {critical_gaps} critical gap(s) (12+ months)"
+    elif len(stints) >= 3:
+        stability = f"Concerning — {len(stints)} short stints (<6 months), potential job-hopping pattern"
+    elif len(stints) >= 1 or len(gaps) >= 1:
+        stability = f"Moderate — {len(gaps)} gap(s), {len(stints)} short stint(s)"
+    else:
+        stability = "Stable — no gaps or short stints detected"
+
+    return {
+        "risk_flags": risk_flags,
+        "seniority_alignment": seniority_alignment,
+        "career_trajectory": trajectory,
+        "stability_assessment": stability,
+    }
+
+
+def _compute_skill_depth(
+    raw_text: str,
+    matched_skills: List[str],
+    missing_skills: List[str],
+) -> Dict[str, int]:
+    """Count how many times each skill appears in the resume text."""
+    text_lower = raw_text.lower()
+    depth = {}
+    for skill in matched_skills:
+        # Count occurrences (case-insensitive)
+        count = text_lower.count(skill.lower())
+        if count > 0:
+            depth[skill] = count
+    # Also note missing skills with 0
+    for skill in missing_skills:
+        depth[skill] = 0
+    return depth
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1349,6 +1663,10 @@ def _run_python_phase(
     all_scores["fit_score"] = fit_r["fit_score"]
     all_scores["final_recommendation"] = fit_r["final_recommendation"]
 
+    rationales = _build_score_rationales(all_scores, profile, jd, skill_a, exp_r, edu_s, dom_r, gap_analysis)
+    risk_summary = _build_risk_summary(fit_r["risk_signals"], gap_analysis, exp_r, profile, jd)
+    skill_depth = _compute_skill_depth(resume_text, skill_a["matched_skills"], skill_a["missing_skills"])
+
     quality = _assess_quality(profile)
 
     return {
@@ -1380,6 +1698,9 @@ def _run_python_phase(
         "analysis_quality":     quality,
         "narrative_pending":    False,
         "pipeline_errors":      [],
+        "score_rationales":     rationales,
+        "risk_summary":         risk_summary,
+        "skill_depth":          skill_depth,
         # Internal — used by fallback
         "_required_years":      exp_r["required_years"],
         "_scores":              all_scores,
@@ -1389,9 +1710,36 @@ def _run_python_phase(
 def _merge_llm_into_result(python_result: Dict[str, Any], llm_result: Dict[str, Any]) -> Dict[str, Any]:
     """Merge LLM narrative into the Python result dict."""
     merged = dict(python_result)
+
+    # Handle concerns/weaknesses for backward compatibility
+    # If LLM returns concerns (new format), use it for both fields
+    # If LLM returns weaknesses (old format), use it for both fields
+    concerns = llm_result.get("concerns", [])
+    weaknesses = llm_result.get("weaknesses", [])
+
+    # Normalize: ensure both fields exist and are consistent
+    if concerns and not weaknesses:
+        # New format: concerns provided, weaknesses not
+        final_concerns = concerns
+        final_weaknesses = concerns
+    elif weaknesses and not concerns:
+        # Old format: weaknesses provided, concerns not
+        final_concerns = weaknesses
+        final_weaknesses = weaknesses
+    elif concerns:
+        # Both provided - prefer concerns for concerns, but ensure consistency
+        final_concerns = concerns
+        final_weaknesses = weaknesses if weaknesses else concerns
+    else:
+        # Neither provided - use empty lists
+        final_concerns = []
+        final_weaknesses = []
+
     merged.update({
+        "fit_summary":            llm_result.get("fit_summary", ""),
         "strengths":              llm_result.get("strengths", []),
-        "weaknesses":             llm_result.get("weaknesses", []),
+        "concerns":               final_concerns,
+        "weaknesses":             final_weaknesses,
         "recommendation_rationale": llm_result.get("recommendation_rationale", ""),
         "explainability":         llm_result.get("explainability", {}),
         "interview_questions":    llm_result.get("interview_questions"),
@@ -1428,9 +1776,13 @@ async def run_hybrid_pipeline(
             "fit_score":            python_result["fit_score"],
             "final_recommendation": python_result["final_recommendation"],
         },
+        # Enriched Python data from Task 17
+        "score_rationales":  python_result.get("score_rationales", {}),
+        "risk_summary":      python_result.get("risk_summary", {}),
+        "skill_depth":       python_result.get("skill_depth", {}),
     }
 
-    # Timeout: 150s to survive gemma4:e4b cold-start on CPU (first load ~2 min).
+    # Timeout: 150s to survive qwen3.5:4b cold-start on CPU (first load ~2 min).
     # Subsequent requests are served from the hot model and typically finish in 30-60s.
     _LLM_TIMEOUT = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
 
@@ -1452,7 +1804,7 @@ async def run_hybrid_pipeline(
             type(e).__name__,
             str(e)[:200],
             os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            os.getenv("OLLAMA_MODEL") or "gemma4:e4b",
+            os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
         )
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
         python_result["narrative_pending"] = True
@@ -1494,6 +1846,10 @@ async def astream_hybrid_pipeline(
             "fit_score":            python_result["fit_score"],
             "final_recommendation": python_result["final_recommendation"],
         },
+        # Enriched Python data from Task 17
+        "score_rationales":  python_result.get("score_rationales", {}),
+        "risk_summary":      python_result.get("risk_summary", {}),
+        "skill_depth":       python_result.get("skill_depth", {}),
     }
 
     # Phase 2 — LLM with heartbeat pings to keep Cloudflare/Nginx alive
@@ -1522,7 +1878,7 @@ async def astream_hybrid_pipeline(
                 type(e).__name__,
                 str(e)[:200],
                 os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-                os.getenv("OLLAMA_MODEL") or "gemma4:e4b",
+                os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
             )
             fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])
             python_result["narrative_pending"] = True

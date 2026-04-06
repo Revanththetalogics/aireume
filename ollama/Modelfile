@@ -1,4 +1,4 @@
-FROM gemma4:e4b
+FROM qwen3.5:4b
 
 # Calibrated for fast, consistent, deterministic recruiter decisions
 PARAMETER temperature 0.05
