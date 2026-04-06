@@ -83,7 +83,7 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aria_db}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
       - ENVIRONMENT=production
       # gemma4:e4b — 4B edge model (9.6 GB), 128K context, multimodal.
       # Used for both parsing helpers and the narrative LLM call.
