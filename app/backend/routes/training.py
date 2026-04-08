@@ -2,6 +2,7 @@
 Custom AI training — label outcomes, trigger fine-tuning via Ollama Modelfile.
 """
 import json
+import logging
 import os
 import asyncio
 import httpx
@@ -14,6 +15,8 @@ from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_admin
 from app.backend.models.db_models import ScreeningResult, TrainingExample, User
 from app.backend.models.schemas import LabelRequest, TrainingStatusResponse
+
+logger = logging.getLogger(__name__)
 
 router  = APIRouter(prefix="/api/training", tags=["training"])
 _status: dict = {}  # tenant_id → {trained, last_trained, model_name}
@@ -127,6 +130,7 @@ async def _train_model(tenant_id: int, model_name: str, training_data: list):
             "last_trained": datetime.now(timezone.utc),
         }
     except Exception as e:
+        logger.exception("Model training failed for tenant %s: %s", tenant_id, e)
         _status[tenant_id] = {
             "trained": False,
             "model_name": model_name,

@@ -4,7 +4,7 @@ Role Templates — CRUD for saved JD templates scoped per tenant.
 import json
 from datetime import datetime, date
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
@@ -24,17 +24,28 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-@router.get("", response_model=list[TemplateOut])
+@router.get("")
 def list_templates(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
-    return (
+    query = (
         db.query(RoleTemplate)
         .filter(RoleTemplate.tenant_id == current_user.tenant_id)
         .order_by(RoleTemplate.created_at.desc())
-        .all()
     )
+
+    total = query.count()
+    templates = query.offset(offset).limit(limit).all()
+
+    return {
+        "templates": templates,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("", response_model=TemplateOut)

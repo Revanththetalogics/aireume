@@ -10,16 +10,19 @@ Enriched responses:
   GET  "/{id}"           — now returns full profile fields + skills_snapshot
 """
 import json
+import logging
 from datetime import datetime, date, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import Candidate, ScreeningResult, User
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/candidates", tags=["candidates"])
 
@@ -56,21 +59,32 @@ def list_candidates(
         .all()
     )
 
+    # Fetch all screening results for these candidates in a single query
+    candidate_ids = [c.id for c in candidates]
+    results_map = {}
+    if candidate_ids:
+        all_results = (
+            db.query(ScreeningResult)
+            .filter(ScreeningResult.candidate_id.in_(candidate_ids))
+            .order_by(ScreeningResult.timestamp.desc())
+            .all()
+        )
+        for r in all_results:
+            if r.candidate_id not in results_map:
+                results_map[r.candidate_id] = []
+            results_map[r.candidate_id].append(r)
+
     result = []
     for c in candidates:
-        result_count = db.query(ScreeningResult).filter(ScreeningResult.candidate_id == c.id).count()
-        best = (
-            db.query(ScreeningResult)
-            .filter(ScreeningResult.candidate_id == c.id)
-            .order_by(ScreeningResult.timestamp.desc())
-            .first()
-        )
+        candidate_results = results_map.get(c.id, [])
+        result_count = len(candidate_results)
+        best = candidate_results[0] if candidate_results else None
         best_score = None
         if best:
             try:
                 best_score = json.loads(best.analysis_result).get("fit_score")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Non-critical: Failed to parse best analysis result: %s", e)
 
         result.append({
             "id":              c.id,
@@ -133,7 +147,8 @@ def get_candidate(
     for r in results:
         try:
             analysis = json.loads(r.analysis_result)
-        except Exception:
+        except Exception as e:
+            logger.warning("Non-critical: Failed to parse analysis result for result %s: %s", r.id, e)
             analysis = {}
         history.append({
             "id":                   r.id,
@@ -154,15 +169,16 @@ def get_candidate(
     if candidate.parsed_skills:
         try:
             skills_snapshot = json.loads(candidate.parsed_skills)[:15]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Non-critical: Failed to parse parsed_skills: %s", e)
 
     contact_info: dict = {}
     if getattr(candidate, "parser_snapshot_json", None):
         try:
             snap = json.loads(candidate.parser_snapshot_json)
             contact_info = dict(snap.get("contact_info") or {})
-        except Exception:
+        except Exception as e:
+            logger.warning("Non-critical: Failed to parse parser_snapshot_json: %s", e)
             contact_info = {}
     if not contact_info:
         contact_info = {
@@ -250,7 +266,8 @@ async def analyze_existing_candidate(
                 ci["phone"] = candidate.phone
             if not parsed_data.get("raw_text") and candidate.raw_resume_text:
                 parsed_data["raw_text"] = candidate.raw_resume_text
-        except Exception:
+        except Exception as e:
+            logger.warning("Non-critical: Failed to parse parser_snapshot_json for candidate %s: %s", candidate.id, e)
             parsed_data = {
                 "raw_text":       candidate.raw_resume_text,
                 "skills":         json.loads(candidate.parsed_skills   or "[]"),

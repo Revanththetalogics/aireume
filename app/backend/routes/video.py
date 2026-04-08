@@ -3,12 +3,15 @@ Video interview analysis endpoints.
   POST /api/analyze/video       — file upload
   POST /api/analyze/video-url   — public recording URL (Zoom, Teams, Drive, Loom…)
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, HttpUrl
 
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import User
 from app.backend.services.video_service import analyze_video_file, analyze_video_from_url
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/analyze", tags=["video"])
 
@@ -37,6 +40,7 @@ async def analyze_video(
     try:
         result = await analyze_video_file(content, video.filename)
     except Exception as e:
+        logger.warning("Video analysis failed for %s: %s", video.filename, e)
         raise HTTPException(status_code=422, detail=f"Video analysis failed: {str(e)}")
 
     return {"candidate_id": candidate_id, "filename": video.filename, **result}
@@ -62,6 +66,7 @@ async def analyze_video_url(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
+        logger.warning("Video URL analysis failed for %s: %s", body.url, e)
         raise HTTPException(status_code=422, detail=f"Video analysis failed: {str(e)}")
 
     return {"candidate_id": body.candidate_id, **result}

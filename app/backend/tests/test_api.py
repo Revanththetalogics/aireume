@@ -13,12 +13,90 @@ class TestAPIEndpoints:
         assert any(kw in data["message"] for kw in ("AI Resume Screener", "ARIA", "Resume", "API"))
 
     def test_health_check(self, client):
-        # In CI / local tests Ollama is not running, so the enriched health
-        # endpoint may return "degraded". Both "ok" and "degraded" are valid
-        # HTTP-200 responses — the important thing is the endpoint is reachable.
+        """Shallow health check returns 200 with status 'ok'."""
         response = client.get("/health")
         assert response.status_code == 200
-        assert response.json()["status"] in ("ok", "degraded")
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "timestamp" in data
+
+    def test_deep_health_check_returns_structured_response(self, client):
+        """Deep health check returns structured response with all checks."""
+        response = client.get("/api/health/deep")
+        assert response.status_code == 200
+        data = response.json()
+        # Verify top-level structure
+        assert data["status"] in ("healthy", "degraded", "unhealthy")
+        assert "timestamp" in data
+        assert "response_time_ms" in data
+        assert "checks" in data
+        # Verify checks structure
+        checks = data["checks"]
+        assert "database" in checks
+        assert "status" in checks["database"]
+        assert "latency_ms" in checks["database"]
+        assert "ollama" in checks
+        assert "status" in checks["ollama"]
+        assert "disk" in checks
+        assert "status" in checks["disk"]
+        assert "free_gb" in checks["disk"]
+
+    def test_deep_health_check_reports_degraded_when_ollama_not_hot(self, client):
+        """Deep health check reports 'degraded' when Ollama sentinel is not HOT."""
+        from app.backend.services import llm_service
+        from unittest.mock import MagicMock
+
+        # Mock the sentinel to be in WARMING state (not HOT)
+        mock_sentinel = MagicMock()
+        mock_sentinel.get_status.return_value = {
+            "state": "warming",
+            "model": "qwen3.5:4b",
+            "last_probe_time": 1234567890.0,
+            "last_latency_ms": 150.5,
+            "healthy": False,  # Not healthy because not HOT
+        }
+        original_sentinel = llm_service._sentinel
+        try:
+            llm_service._sentinel = mock_sentinel
+            response = client.get("/api/health/deep")
+            assert response.status_code == 200
+            data = response.json()
+            # Status should be degraded because Ollama is not HOT
+            assert data["status"] == "degraded"
+            assert data["checks"]["ollama"]["status"] == "warming"
+        finally:
+            llm_service._sentinel = original_sentinel
+
+    def test_deep_health_check_unhealthy_when_db_fails(self, client):
+        """Deep health check reports 'unhealthy' when database fails."""
+        from unittest.mock import patch
+        from sqlalchemy.exc import OperationalError
+
+        with patch("app.backend.main.SessionLocal") as mock_session_local:
+            # Simulate DB failure
+            mock_session_local.side_effect = OperationalError("DB connection failed", {}, None)
+            response = client.get("/api/health/deep")
+            assert response.status_code == 200
+            data = response.json()
+            # Status should be unhealthy because DB failed
+            assert data["status"] == "unhealthy"
+            assert "error" in data["checks"]["database"]["status"]
+
+    def test_deep_health_check_no_sentinel(self, client):
+        """Deep health check reports 'degraded' when sentinel not initialized."""
+        from app.backend.services import llm_service
+
+        original_sentinel = llm_service._sentinel
+        try:
+            llm_service._sentinel = None
+            response = client.get("/api/health/deep")
+            assert response.status_code == 200
+            data = response.json()
+            # Status should be degraded because sentinel is not initialized
+            assert data["status"] == "degraded"
+            assert data["checks"]["ollama"]["status"] == "unknown"
+        finally:
+            llm_service._sentinel = original_sentinel
 
     def test_analyze_endpoint_success(self, auth_client):
         file_content = (
@@ -150,3 +228,279 @@ class TestAPIEndpoints:
             files=[("resumes", ("resume.pdf", io.BytesIO(b"resume"), "application/pdf"))],
         )
         assert response.status_code == 400
+
+    def test_llm_status_endpoint_returns_sentinel_status(self, client):
+        """Test /api/llm-status returns sentinel status when initialized."""
+        from app.backend.services import llm_service
+        from unittest.mock import MagicMock
+
+        # Mock the sentinel
+        mock_sentinel = MagicMock()
+        mock_sentinel.get_status.return_value = {
+            "state": "hot",
+            "model": "qwen3.5:4b",
+            "last_probe_time": 1234567890.0,
+            "last_latency_ms": 150.5,
+            "healthy": True,
+        }
+        original_sentinel = llm_service._sentinel
+        try:
+            llm_service._sentinel = mock_sentinel
+            response = client.get("/api/llm-status")
+            assert response.status_code == 200
+            data = response.json()
+            assert "sentinel" in data
+            assert data["sentinel"]["state"] == "hot"
+            assert data["sentinel"]["healthy"] is True
+            assert data["sentinel"]["model"] == "qwen3.5:4b"
+        finally:
+            llm_service._sentinel = original_sentinel
+
+    def test_llm_status_endpoint_no_sentinel(self, client):
+        """Test /api/llm-status returns unknown when sentinel not initialized."""
+        from app.backend.services import llm_service
+
+        original_sentinel = llm_service._sentinel
+        try:
+            llm_service._sentinel = None
+            response = client.get("/api/llm-status")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["state"] == "unknown"
+            assert data["healthy"] is False
+            assert "message" in data
+        finally:
+            llm_service._sentinel = original_sentinel
+
+
+class TestNarrativePollingEndpoint:
+    """Tests for GET /api/analysis/{id}/narrative endpoint."""
+
+    def test_narrative_pending_state(self, auth_client, db):
+        """Returns pending when narrative_json is NULL."""
+        from app.backend.models.db_models import ScreeningResult, Tenant, User
+        
+        # Get the tenant from auth_client's user
+        tenant = db.query(Tenant).first()
+        user = db.query(User).filter(User.tenant_id == tenant.id).first()
+        
+        # Create a screening result without narrative
+        result = ScreeningResult(
+            tenant_id=tenant.id,
+            candidate_id=None,
+            resume_text="test resume",
+            jd_text="test jd",
+            parsed_data="{}",
+            analysis_result="{}",
+            narrative_json=None,  # No narrative yet
+        )
+        db.add(result)
+        db.commit()
+        db.refresh(result)
+        
+        response = auth_client.get(f"/api/analysis/{result.id}/narrative")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "pending"
+
+    def test_narrative_ready_state(self, auth_client, db):
+        """Returns ready with narrative when narrative_json is populated."""
+        from app.backend.models.db_models import ScreeningResult, Tenant
+        import json
+        
+        tenant = db.query(Tenant).first()
+        
+        # Create a screening result WITH narrative
+        narrative = {
+            "fit_summary": "Strong candidate",
+            "strengths": ["Python expert"],
+            "weaknesses": ["Limited Docker"],
+        }
+        result = ScreeningResult(
+            tenant_id=tenant.id,
+            candidate_id=None,
+            resume_text="test resume",
+            jd_text="test jd",
+            parsed_data="{}",
+            analysis_result="{}",
+            narrative_json=json.dumps(narrative),
+        )
+        db.add(result)
+        db.commit()
+        db.refresh(result)
+        
+        response = auth_client.get(f"/api/analysis/{result.id}/narrative")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ready"
+        assert data["narrative"]["fit_summary"] == "Strong candidate"
+        assert "Python expert" in data["narrative"]["strengths"]
+
+    def test_narrative_not_found(self, auth_client):
+        """Returns 404 for non-existent analysis ID."""
+        response = auth_client.get("/api/analysis/99999/narrative")
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_narrative_tenant_isolation(self, auth_client, db):
+        """Returns 404 when trying to access another tenant's analysis."""
+        from app.backend.models.db_models import ScreeningResult, Tenant, User
+        
+        # Create a different tenant
+        other_tenant = Tenant(name="Other Corp", slug="other-corp")
+        db.add(other_tenant)
+        db.commit()
+        db.refresh(other_tenant)
+        
+        # Create a screening result for the OTHER tenant
+        result = ScreeningResult(
+            tenant_id=other_tenant.id,  # Different tenant!
+            candidate_id=None,
+            resume_text="test resume",
+            jd_text="test jd",
+            parsed_data="{}",
+            analysis_result="{}",
+            narrative_json='{"fit_summary": "test"}',
+        )
+        db.add(result)
+        db.commit()
+        db.refresh(result)
+        
+        # auth_client belongs to the FIRST tenant, should get 404
+        response = auth_client.get(f"/api/analysis/{result.id}/narrative")
+        assert response.status_code == 404
+
+    def test_narrative_unauthenticated_returns_401(self, client):
+        """Unauthenticated requests return 401."""
+        # Just need to verify that a 401 is returned without auth
+        # The specific ID doesn't matter since unauthenticated requests are rejected first
+        response = client.get("/api/analysis/1/narrative")
+        assert response.status_code == 401
+
+
+class TestBackgroundNarrativeTask:
+    """Tests for background LLM narrative generation."""
+
+    @pytest.mark.asyncio
+    async def test_background_task_writes_narrative_to_db(self, db):
+        """Background task should write narrative to DB when complete."""
+        from app.backend.services.hybrid_pipeline import _background_llm_narrative
+        from app.backend.models.db_models import ScreeningResult, Tenant
+        from unittest.mock import AsyncMock, patch, MagicMock
+        import json
+        
+        # Create tenant and screening result
+        tenant = Tenant(name="Test", slug="test")
+        db.add(tenant)
+        db.commit()
+        db.refresh(tenant)
+        
+        result = ScreeningResult(
+            tenant_id=tenant.id,
+            candidate_id=None,
+            resume_text="test resume",
+            jd_text="test jd",
+            parsed_data="{}",
+            analysis_result="{}",
+            narrative_json=None,
+        )
+        db.add(result)
+        db.commit()
+        db.refresh(result)
+        result_id = result.id
+        tenant_id = tenant.id
+        
+        # Mock the LLM call
+        mock_narrative = {
+            "fit_summary": "Excellent match",
+            "strengths": ["Strong Python"],
+            "weaknesses": [],
+            "recommendation_rationale": "Good fit",
+            "explainability": {},
+            "interview_questions": {
+                "technical_questions": ["Q1"],
+                "behavioral_questions": ["Q2"],
+                "culture_fit_questions": ["Q3"],
+            },
+        }
+        
+        # Mock the DB session to use the test session
+        def mock_session_local():
+            return db
+        
+        with patch("app.backend.db.database.SessionLocal", mock_session_local), \
+             patch("app.backend.services.hybrid_pipeline.explain_with_llm",
+                   new_callable=AsyncMock, return_value=mock_narrative):
+            await _background_llm_narrative(
+                screening_result_id=result_id,
+                tenant_id=tenant_id,
+                llm_context={},
+                python_result={"skill_analysis": {"matched_skills": [], "missing_skills": []}},
+            )
+        
+        # Query fresh from DB to check the narrative was written
+        result = db.query(ScreeningResult).filter(ScreeningResult.id == result_id).first()
+        assert result.narrative_json is not None
+        narrative = json.loads(result.narrative_json)
+        assert narrative["fit_summary"] == "Excellent match"
+
+    @pytest.mark.asyncio
+    async def test_background_task_handles_llm_failure(self, db):
+        """Background task should write fallback on LLM failure."""
+        from app.backend.services.hybrid_pipeline import _background_llm_narrative
+        from app.backend.models.db_models import ScreeningResult, Tenant
+        from unittest.mock import patch, AsyncMock
+        import json
+        
+        tenant = Tenant(name="Test2", slug="test2")
+        db.add(tenant)
+        db.commit()
+        db.refresh(tenant)
+        
+        result = ScreeningResult(
+            tenant_id=tenant.id,
+            candidate_id=None,
+            resume_text="test",
+            jd_text="test",
+            parsed_data="{}",
+            analysis_result="{}",
+            narrative_json=None,
+        )
+        db.add(result)
+        db.commit()
+        db.refresh(result)
+        result_id = result.id
+        tenant_id = tenant.id
+        
+        # Mock the DB session to use the test session
+        def mock_session_local():
+            return db
+        
+        with patch("app.backend.db.database.SessionLocal", mock_session_local), \
+             patch("app.backend.services.hybrid_pipeline.explain_with_llm",
+                   new_callable=AsyncMock, side_effect=RuntimeError("LLM failed")):
+            await _background_llm_narrative(
+                screening_result_id=result_id,
+                tenant_id=tenant_id,
+                llm_context={},
+                python_result={
+                    "fit_score": 50,
+                    "skill_analysis": {
+                        "matched_skills": ["python"],
+                        "missing_skills": [],
+                        "required_count": 1,
+                    },
+                    "score_breakdown": {},
+                    "_required_years": 3,
+                    "final_recommendation": "Consider",
+                    "score_rationales": {},
+                },
+            )
+        
+        # Query fresh from DB to check the narrative was written
+        result = db.query(ScreeningResult).filter(ScreeningResult.id == result_id).first()
+        assert result.narrative_json is not None
+        narrative = json.loads(result.narrative_json)
+        # Fallback narrative should have deterministic content
+        assert "fit_summary" in narrative
+        assert "strengths" in narrative

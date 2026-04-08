@@ -1,8 +1,14 @@
 import re
 import io
+import logging
+import time
 from typing import List, Dict, Any, Optional
 import pdfplumber
 from docx import Document
+
+from app.backend.services.metrics import RESUME_PARSE_DURATION
+
+logger = logging.getLogger(__name__)
 
 try:
     import fitz as pymupdf   # PyMuPDF
@@ -15,6 +21,46 @@ try:
     _HAS_UNIDECODE = True
 except ImportError:
     _HAS_UNIDECODE = False
+
+
+# ─── spaCy NER singleton for name extraction (Tier 0) ────────────────────────
+
+_spacy_nlp = None
+
+def _get_spacy_model():
+    """Lazy-load spaCy model once; return None if unavailable."""
+    global _spacy_nlp
+    if _spacy_nlp is None:
+        try:
+            import spacy
+            _spacy_nlp = spacy.load("en_core_web_sm")
+        except (ImportError, OSError):
+            _spacy_nlp = False  # Mark as unavailable to avoid repeated attempts
+    return _spacy_nlp if _spacy_nlp is not False else None
+
+
+def _extract_name_ner(raw_text: str) -> str | None:
+    """Tier 0: Extract candidate name using spaCy NER on first 50 lines."""
+    nlp = _get_spacy_model()
+    if nlp is None:
+        return None
+    
+    # Only process first 50 lines (header area of resume)
+    lines = raw_text.strip().split('\n')[:50]
+    header_text = '\n'.join(lines)
+    
+    doc = nlp(header_text)
+    
+    # Find first PERSON entity
+    for ent in doc.ents:
+        if ent.label_ == "PERSON":
+            name = ent.text.strip()
+            # Basic validation: 1-5 words, no digits, reasonable length
+            words = name.split()
+            if 1 <= len(words) <= 5 and not any(c.isdigit() for c in name) and len(name) <= 60:
+                return name
+    
+    return None
 
 
 # ─── JD text extractor (multi-format, lenient) ───────────────────────────────
@@ -38,9 +84,9 @@ def extract_jd_text(file_bytes: bytes, filename: str) -> str:
                 text = "\n".join(page.extract_text() or "" for page in pdf.pages)
             if text.strip():
                 return text
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.warning("Non-critical: PDF extraction failed for %s, falling back to plain text: %s", filename, e)
+    
     # ── DOCX (modern Word .docx / Office Open XML) ───────────────────────────
     if ext == "docx":
         try:
@@ -55,9 +101,9 @@ def extract_jd_text(file_bytes: bytes, filename: str) -> str:
             text = "\n".join(paragraphs)
             if text.strip():
                 return text
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.warning("Non-critical: DOCX extraction failed for %s, falling back to plain text: %s", filename, e)
+    
     # ── DOC (legacy binary Word) — best-effort ASCII extraction ──────────────
     if ext == "doc":
         try:
@@ -70,23 +116,23 @@ def extract_jd_text(file_bytes: bytes, filename: str) -> str:
             text = "\n".join(lines)
             if text.strip():
                 return text
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.warning("Non-critical: DOC extraction failed for %s, falling back to plain text: %s", filename, e)
+    
     # ── RTF ───────────────────────────────────────────────────────────────────
     if ext == "rtf":
         try:
             raw = file_bytes.decode("latin-1", errors="ignore")
             # Strip RTF control words, groups, and backslash escapes
-            text = re.sub(r"\\[a-z]+\-?\d*\s?", " ", raw)
+            text = re.sub(r"\\[a-z]+\-\d*\s?", " ", raw)
             text = re.sub(r"\{[^{}]*\}", " ", text)
             text = re.sub(r"[{}\\]", " ", text)
             text = re.sub(r"\s+", " ", text)
             if text.strip():
                 return text.strip()
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.warning("Non-critical: RTF extraction failed for %s, falling back to plain text: %s", filename, e)
+    
     # ── HTML / HTM ────────────────────────────────────────────────────────────
     if ext in ("html", "htm"):
         try:
@@ -95,9 +141,9 @@ def extract_jd_text(file_bytes: bytes, filename: str) -> str:
             text = re.sub(r"\s+", " ", text)
             if text.strip():
                 return text.strip()
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.warning("Non-critical: HTML extraction failed for %s, falling back to plain text: %s", filename, e)
+    
     # ── ODT (Open Document Text) — it's a ZIP; extract content.xml ───────────
     if ext == "odt":
         try:
@@ -109,8 +155,8 @@ def extract_jd_text(file_bytes: bytes, filename: str) -> str:
             text = re.sub(r"\s+", " ", text)
             if text.strip():
                 return text.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Non-critical: ODT extraction failed for %s, falling back to plain text: %s", filename, e)
 
     # ── Plain text fallback (TXT, MD, CSV, unknown, or any failed attempt) ───
     for encoding in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
@@ -161,15 +207,18 @@ class ResumeParser:
                     pages_text.append(page.get_text("text"))
                 doc.close()
                 text = "\n".join(pages_text)
-            except Exception:
+            except Exception as e:
+                logger.warning("PyMuPDF extraction failed, falling back to pdfplumber: %s", e)
                 text = ""
 
         # pdfplumber fallback if PyMuPDF unavailable or returned empty
         if not text.strip():
+            logger.info("Using pdfplumber fallback for PDF extraction (PyMuPDF unavailable or empty result)")
             try:
                 with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
                     text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-            except Exception:
+            except Exception as e:
+                logger.warning("pdfplumber fallback also failed: %s", e)
                 text = ""
 
         # Scanned-PDF guard — raise early with actionable message
@@ -362,8 +411,9 @@ class ResumeParser:
                 skills.extend(s for s in scanned if s.lower() not in existing)
             else:
                 raise ImportError
-        except Exception:
+        except Exception as e:
             # Final fallback: original KNOWN_SKILLS_BROAD list
+            logger.warning("Skills registry unavailable, using fallback KNOWN_SKILLS_BROAD list: %s", e)
             if not skills:
                 text_lower = text.lower()
                 skills.extend(s for s in self.KNOWN_SKILLS_BROAD if s in text_lower)
@@ -531,21 +581,34 @@ def _extract_name_relaxed(text: str) -> str:
 
 
 def enrich_parsed_resume(data: Dict[str, Any]) -> None:
-    """Fill gaps in parser output in-place (name from email / relaxed header scan)."""
+    """Fill gaps in parser output in-place (name from NER / email / relaxed header scan)."""
     contact = data.setdefault("contact_info", {})
     raw = (data.get("raw_text") or "").strip()
     if (contact.get("name") or "").strip():
         return
-    email = (contact.get("email") or "").strip()
-    guess = _name_from_email(email)
+    
+    # Tier 0: Try spaCy NER first (most accurate for diverse formats)
+    guess = None
+    if raw:
+        guess = _extract_name_ner(raw)
+    
+    # Tier 1: Fallback to email-based extraction
+    if not guess:
+        email = (contact.get("email") or "").strip()
+        guess = _name_from_email(email)
+    
+    # Tier 2: Final fallback to relaxed header scan
     if not guess and raw:
         guess = _extract_name_relaxed(raw)
+    
     if guess:
         contact["name"] = guess
 
 
 def parse_resume(file_bytes: bytes, filename: str) -> Dict[str, Any]:
+    start = time.monotonic()
     parser = ResumeParser()
     out = parser.parse_resume(file_bytes, filename)
     enrich_parsed_resume(out)
+    RESUME_PARSE_DURATION.observe(time.monotonic() - start)
     return out

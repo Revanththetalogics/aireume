@@ -395,6 +395,161 @@ class TestUsageCheckEndpoint:
         assert response.json()["allowed"] is False
 
 
+class TestBatchConcurrencyLimiter:
+    """Tests for batch processing concurrency limiter and per-file failure tracking."""
+    
+    def test_batch_exceeds_max_size_rejected(
+        self, auth_client_with_pro_plan, db, seed_subscription_plans
+    ):
+        """Batch with more than MAX_BATCH_SIZE (50) files should be rejected."""
+        # Create 51 file upload requests (more than MAX_BATCH_SIZE = 50)
+        files = [
+            ("resumes", (f"resume{i}.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+            for i in range(51)
+        ]
+        data = {
+            "job_description": LONG_JOB_DESCRIPTION,
+        }
+
+        response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
+
+        # Should be rejected with 400
+        assert response.status_code == 400
+        resp_data = response.json()
+        assert "maximum batch size" in resp_data.get("detail", "").lower() or "50" in resp_data.get("detail", "")
+    
+    def test_batch_at_max_size_accepted(
+        self, auth_client_with_pro_plan, db, mock_hybrid_pipeline, seed_subscription_plans
+    ):
+        """Batch with exactly MAX_BATCH_SIZE files should be accepted (subject to plan limits)."""
+        from app.backend.models.db_models import Tenant
+        
+        # Set enterprise plan for unlimited batch size
+        from app.backend.models.db_models import SubscriptionPlan
+        enterprise_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "enterprise").first()
+        tenant = db.query(Tenant).filter(Tenant.slug == "procorp").first()
+        tenant.plan_id = enterprise_plan.id
+        tenant.analyses_count_this_month = 0
+        db.commit()
+        
+        # Re-login to get updated token
+        login_resp = auth_client_with_pro_plan.post("/api/auth/login", json={
+            "email": "pro@procorp.com",
+            "password": "TestPass123!",
+        })
+        token = login_resp.json()["access_token"]
+        auth_client_with_pro_plan.headers.update({"Authorization": f"Bearer {token}"})
+        
+        # Create exactly MAX_BATCH_SIZE (50) files
+        files = [
+            ("resumes", (f"resume{i}.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+            for i in range(50)
+        ]
+        data = {
+            "job_description": LONG_JOB_DESCRIPTION,
+        }
+
+        response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
+
+        # Should be accepted
+        assert response.status_code == 200
+    
+    def test_batch_per_file_failure_tracking(
+        self, auth_client_with_pro_plan, db, mock_hybrid_pipeline, seed_subscription_plans
+    ):
+        """Batch should track per-file failures and report them separately."""
+        from unittest.mock import patch, AsyncMock
+        
+        # Mock to succeed for first file, fail for second
+        call_count = [0]
+        
+        async def mock_process(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First file succeeds
+                return {
+                    "fit_score": 75,
+                    "job_role": "Engineer",
+                    "strengths": [],
+                    "weaknesses": [],
+                    "employment_gaps": [],
+                    "risk_signals": [],
+                    "final_recommendation": "Consider",
+                    "score_breakdown": {},
+                    "matched_skills": [],
+                    "missing_skills": [],
+                    "risk_level": "Low",
+                    "required_skills_count": 0,
+                    "work_experience": [],
+                    "contact_info": {},
+                    "_parsed_data": {"raw_text": "test", "work_experience": [], "skills": [], "education": []},
+                    "_gap_analysis": {},
+                    "analysis_quality": "high",
+                    "narrative_pending": False,
+                    "pipeline_errors": [],
+                }
+            else:
+                # Second file fails
+                raise ValueError("Corrupt PDF file")
+        
+        
+        with patch("app.backend.routes.analyze._process_single_resume", side_effect=mock_process):
+            files = [
+                ("resumes", ("good.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
+                ("resumes", ("bad.pdf", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
+            ]
+            data = {
+                "job_description": LONG_JOB_DESCRIPTION,
+            }
+
+            response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
+
+            assert response.status_code == 200
+            resp_data = response.json()
+            
+            # Check response structure
+            assert "results" in resp_data
+            assert "failed" in resp_data
+            assert "total" in resp_data
+            assert "successful" in resp_data
+            assert "failed_count" in resp_data
+            
+            # Verify counts
+            assert resp_data["total"] == 2
+            assert resp_data["successful"] == 1
+            assert resp_data["failed_count"] == 1
+            
+            # Verify failed item structure
+            assert len(resp_data["failed"]) == 1
+            failed_item = resp_data["failed"][0]
+            assert "filename" in failed_item
+            assert "error" in failed_item
+            assert failed_item["filename"] == "bad.pdf"
+            assert "Corrupt PDF" in failed_item["error"]
+    
+    def test_batch_all_succeed_no_failures(
+        self, auth_client_with_pro_plan, db, mock_hybrid_pipeline, seed_subscription_plans
+    ):
+        """Batch with all successful files should have empty failed list."""
+        files = [
+            ("resumes", (f"resume{i}.docx", BytesIO(DOCX_HEADER + RESUME_CONTENT), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+            for i in range(3)
+        ]
+        data = {
+            "job_description": LONG_JOB_DESCRIPTION,
+        }
+
+        response = auth_client_with_pro_plan.post("/api/analyze/batch", files=files, data=data)
+
+        assert response.status_code == 200
+        resp_data = response.json()
+        
+        assert resp_data["successful"] == 3
+        assert resp_data["failed_count"] == 0
+        assert resp_data["failed"] == []
+        assert resp_data["total"] == 3
+
+
 class TestUsageDashboardIntegration:
     """Tests for subscription dashboard data accuracy."""
     

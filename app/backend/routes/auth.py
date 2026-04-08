@@ -4,6 +4,7 @@ Authentication routes: register, login, refresh, me, logout.
 import os
 import re
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, SECRET_KEY, ALGORITHM
-from app.backend.models.db_models import Tenant, User
+from app.backend.models.db_models import Tenant, User, RevokedToken
 from app.backend.models.schemas import (
     RegisterRequest, LoginRequest, TokenResponse, RefreshRequest
 )
@@ -37,8 +38,10 @@ def _verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def _create_token(data: dict, expires_delta: timedelta) -> str:
+def _create_token(data: dict, expires_delta: timedelta, include_jti: bool = True) -> str:
     payload = {**data, "exp": datetime.now(timezone.utc) + expires_delta}
+    if include_jti and "jti" not in payload:
+        payload["jti"] = str(uuid.uuid4())
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -136,8 +139,8 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    access_token  = _create_token({"sub": str(user.id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    refresh_token = _create_token({"sub": str(user.id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    refresh_token = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
     return _create_auth_response(user, tenant, access_token, refresh_token)
 
@@ -150,8 +153,8 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 
-    access_token  = _create_token({"sub": str(user.id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    refresh_token = _create_token({"sub": str(user.id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    refresh_token = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
     return _create_auth_response(user, tenant, access_token, refresh_token)
 
@@ -175,16 +178,23 @@ def refresh_token(request: Request, body: RefreshRequest = None, db: Session = D
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid refresh token")
         user_id = int(payload.get("sub"))
+        jti = payload.get("jti")
     except (JWTError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    # Check if refresh token's JTI is revoked
+    if jti:
+        revoked = db.query(RevokedToken).filter(RevokedToken.jti == jti).first()
+        if revoked:
+            raise HTTPException(status_code=401, detail="Token has been revoked")
 
     user   = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user else None
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    access_token  = _create_token({"sub": str(user.id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    new_refresh   = _create_token({"sub": str(user.id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    new_refresh   = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
     return _create_auth_response(user, tenant, access_token, new_refresh)
 
@@ -199,8 +209,44 @@ def get_me(current_user: User = Depends(get_current_user), db: Session = Depends
 
 
 @router.post("/logout")
-async def logout():
-    """Clear httpOnly auth cookies and CSRF token."""
+async def logout(request: Request, db: Session = Depends(get_db)):
+    """Revoke refresh token and clear httpOnly auth cookies."""
+    from jose import JWTError
+    
+    # Try to get refresh token from cookie or body to revoke it
+    refresh_token_value = request.cookies.get("refresh_token")
+    
+    if not refresh_token_value:
+        # Try to get from body for API clients
+        try:
+            body = await request.json()
+            refresh_token_value = body.get("refresh_token")
+        except Exception:
+            pass
+    
+    # If we have a refresh token, decode it and store JTI in revoked_tokens
+    if refresh_token_value:
+        try:
+            payload = jwt.decode(refresh_token_value, SECRET_KEY, algorithms=[ALGORITHM])
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            
+            if jti:
+                # Check if already revoked
+                existing = db.query(RevokedToken).filter(RevokedToken.jti == jti).first()
+                if not existing:
+                    # Store the revoked token with its expiration time
+                    expires_at = datetime.fromtimestamp(exp, tz=timezone.utc) if exp else datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+                    revoked_token = RevokedToken(
+                        jti=jti,
+                        expires_at=expires_at
+                    )
+                    db.add(revoked_token)
+                    db.commit()
+        except (JWTError, ValueError, Exception):
+            # If token is invalid, just proceed with logout
+            pass
+    
     response = JSONResponse(content={"message": "Logged out successfully"})
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/api/auth")

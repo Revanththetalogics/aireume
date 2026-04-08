@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext'
 import { SubscriptionProvider } from './hooks/useSubscription'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppShell from './components/AppShell'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const Dashboard    = lazy(() => import('./pages/Dashboard'))
 const ReportPage   = lazy(() => import('./pages/ReportPage'))
@@ -39,8 +40,9 @@ function Shell({ children }) {
 function App() {
   return (
     <AuthProvider>
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
+      <ErrorBoundary>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
           <Route path="/login"      element={<LoginPage />} />
           <Route path="/register"   element={<RegisterPage />} />
           <Route path="/"           element={<Shell><Dashboard /></Shell>} />
@@ -54,8 +56,9 @@ function App() {
           <Route path="/video"      element={<Shell><VideoPage /></Shell>} />
           <Route path="/settings"   element={<Shell><SettingsPage /></Shell>} />
           <Route path="*"           element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     </AuthProvider>
   )
 }

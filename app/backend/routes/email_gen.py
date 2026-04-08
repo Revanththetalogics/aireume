@@ -3,6 +3,7 @@ Email template generation using Ollama — draft shortlist/rejection/screening-c
 """
 import json
 import httpx
+import logging
 import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -11,6 +12,8 @@ from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import Candidate, ScreeningResult, User
 from app.backend.models.schemas import EmailGenRequest, EmailGenResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/email", tags=["email"])
 
@@ -93,8 +96,9 @@ async def generate_email(
                 subject=parsed.get("subject", f"Regarding your application for {role_line}"),
                 body=parsed.get("body", "Thank you for applying. We will be in touch shortly."),
             )
-    except Exception:
+    except Exception as e:
         # Fallback templates
+        logger.warning("Ollama email generation failed, using fallback template: %s", e)
         templates = {
             "shortlist":      (f"Your application for {role_line}", f"Dear {candidate.name or 'Candidate'},\n\nCongratulations! We were impressed by your profile and would like to move forward.\n\nBest regards"),
             "rejection":      (f"Your application for {role_line}", f"Dear {candidate.name or 'Candidate'},\n\nThank you for your interest. After careful consideration, we will not be moving forward at this time.\n\nWe appreciate your time and wish you the best."),

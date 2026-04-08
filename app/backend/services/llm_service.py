@@ -1,7 +1,117 @@
 import json
 import os
 import httpx
+import enum
+import asyncio
+import time
+import logging
 from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class OllamaState(str, enum.Enum):
+    COLD = "cold"        # Model not loaded in RAM
+    WARMING = "warming"  # Warmup in progress
+    HOT = "hot"          # Model loaded and responsive
+    ERROR = "error"      # Ollama unreachable or failing
+
+
+class OllamaHealthSentinel:
+    def __init__(self, ollama_base_url: str = None, model_name: str = "qwen3.5:4b", probe_interval: int = 60):
+        self.base_url = ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+        self.model_name = model_name
+        self.probe_interval = probe_interval
+        self.state = OllamaState.COLD
+        self.last_probe_time: float = 0
+        self.last_latency_ms: float = 0
+        self._task: asyncio.Task | None = None
+        self._running = False
+
+    async def start(self):
+        """Start the sentinel background loop."""
+        self._running = True
+        self._task = asyncio.create_task(self._probe_loop())
+        logger.info("Ollama health sentinel started (interval=%ds)", self.probe_interval)
+
+    async def stop(self):
+        """Stop the sentinel gracefully."""
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+        logger.info("Ollama health sentinel stopped")
+
+    async def _probe_loop(self):
+        """Main probe loop — runs every probe_interval seconds."""
+        while self._running:
+            await self._probe_once()
+            await asyncio.sleep(self.probe_interval)
+
+    async def _probe_once(self):
+        """Single health probe: lightweight generate with num_predict=1."""
+        start = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Check if model is loaded via /api/ps
+                resp = await client.get(f"{self.base_url}/api/ps")
+                if resp.status_code == 200:
+                    models = resp.json().get("models", [])
+                    model_hot = any(self.model_name in m.get("name", "") for m in models)
+                else:
+                    model_hot = False
+
+                if not model_hot:
+                    # Model not in RAM — trigger warmup
+                    self.state = OllamaState.WARMING
+                    logger.info("Ollama model %s not hot, triggering warmup", self.model_name)
+                    await client.post(
+                        f"{self.base_url}/api/generate",
+                        json={"model": self.model_name, "prompt": "warmup", "stream": False, "options": {"num_predict": 1}},
+                        timeout=120.0
+                    )
+                    self.state = OllamaState.HOT
+                else:
+                    # Model is hot — quick probe to verify responsiveness
+                    probe_resp = await client.post(
+                        f"{self.base_url}/api/generate",
+                        json={"model": self.model_name, "prompt": "hi", "stream": False, "options": {"num_predict": 1}},
+                        timeout=30.0
+                    )
+                    if probe_resp.status_code == 200:
+                        self.state = OllamaState.HOT
+                    else:
+                        self.state = OllamaState.ERROR
+
+                self.last_latency_ms = (time.monotonic() - start) * 1000
+                self.last_probe_time = time.time()
+
+        except Exception as e:
+            self.state = OllamaState.ERROR
+            self.last_latency_ms = (time.monotonic() - start) * 1000
+            self.last_probe_time = time.time()
+            logger.warning("Ollama health probe failed: %s", e)
+
+    def get_status(self) -> dict:
+        return {
+            "state": self.state.value,
+            "model": self.model_name,
+            "last_probe_time": self.last_probe_time,
+            "last_latency_ms": round(self.last_latency_ms, 1),
+            "healthy": self.state == OllamaState.HOT,
+        }
+
+
+# Module-level singleton
+_sentinel: OllamaHealthSentinel | None = None
+
+
+def get_sentinel() -> OllamaHealthSentinel | None:
+    return _sentinel
 
 
 class LLMService:

@@ -8,6 +8,11 @@ Architecture:
                             rationale, interview questions)
   Fallback:                 if LLM times out, _build_fallback_narrative returns
                             deterministic text — result is ALWAYS returned.
+
+Background Processing:
+  The LLM narrative is generated as a background task and written to DB when complete.
+  The immediate response includes Python scores with narrative_pending=True.
+  Frontend polls GET /api/analysis/{id}/narrative to fetch the LLM narrative later.
 """
 
 from __future__ import annotations
@@ -17,9 +22,29 @@ import json
 import logging
 import os
 import re
-from typing import AsyncGenerator, Dict, Any, List, Optional
+import time
+from typing import AsyncGenerator, Dict, Any, List, Optional, Callable
+
+from app.backend.services.metrics import LLM_CALL_DURATION, LLM_FALLBACK_TOTAL
 
 log = logging.getLogger("aria.hybrid")
+
+# Track background tasks for graceful shutdown
+_background_tasks: set = set()
+
+
+def register_background_task(task: asyncio.Task) -> None:
+    """Register a background task for tracking."""
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+async def shutdown_background_tasks(timeout: float = 5.0) -> None:
+    """Cancel and await all background tasks. Call during app shutdown."""
+    for task in list(_background_tasks):
+        task.cancel()
+    if _background_tasks:
+        await asyncio.gather(*list(_background_tasks), return_exceptions=True)
 
 # --- Prompt injection sanitization ---
 _INJECTION_PATTERNS = [
@@ -1751,6 +1776,90 @@ def _merge_llm_into_result(python_result: Dict[str, Any], llm_result: Dict[str, 
     return merged
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# BACKGROUND LLM NARRATIVE TASK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _background_llm_narrative(
+    screening_result_id: int,
+    tenant_id: int,
+    llm_context: Dict[str, Any],
+    python_result: Dict[str, Any],
+) -> None:
+    """
+    Background task that generates LLM narrative and writes to DB.
+    
+    This runs independently after the Python results are returned.
+    Creates its own DB session to avoid sharing with request.
+    """
+    try:
+        # Import here to avoid circular imports
+        from app.backend.db.database import SessionLocal
+        from app.backend.models.db_models import ScreeningResult
+        
+        async with _get_semaphore():
+            start = time.monotonic()
+            llm_result = await explain_with_llm(llm_context)
+            LLM_CALL_DURATION.observe(time.monotonic() - start)
+        
+        log.info(
+            "Background LLM narrative succeeded for screening_result_id=%s",
+            screening_result_id,
+        )
+    except asyncio.CancelledError:
+        log.info("Background LLM task cancelled for screening_result_id=%s", screening_result_id)
+        return
+    except asyncio.TimeoutError:
+        log.warning(
+            "Background LLM narrative timed out for screening_result_id=%s",
+            screening_result_id,
+        )
+        LLM_FALLBACK_TOTAL.inc()
+        llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
+    except Exception as e:
+        log.warning(
+            "Background LLM narrative failed for screening_result_id=%s: %s: %s",
+            screening_result_id,
+            type(e).__name__,
+            str(e)[:200],
+        )
+        LLM_FALLBACK_TOTAL.inc()
+        llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
+    
+    # Write to DB in a separate session
+    try:
+        from app.backend.db.database import SessionLocal
+        from app.backend.models.db_models import ScreeningResult
+        
+        db = SessionLocal()
+        try:
+            result = db.query(ScreeningResult).filter(
+                ScreeningResult.id == screening_result_id,
+                ScreeningResult.tenant_id == tenant_id,
+            ).first()
+            if result:
+                result.narrative_json = json.dumps(llm_result, default=str)
+                db.commit()
+                log.info(
+                    "Wrote narrative_json to screening_result_id=%s",
+                    screening_result_id,
+                )
+            else:
+                log.warning(
+                    "screening_result_id=%s not found for narrative write (tenant_id=%s)",
+                    screening_result_id,
+                    tenant_id,
+                )
+        finally:
+            db.close()
+    except Exception as db_err:
+        log.error(
+            "Failed to write narrative to DB for screening_result_id=%s: %s",
+            screening_result_id,
+            str(db_err)[:200],
+        )
+
+
 async def run_hybrid_pipeline(
     resume_text: str,
     job_description: str,
@@ -1758,10 +1867,18 @@ async def run_hybrid_pipeline(
     gap_analysis: Dict[str, Any],
     scoring_weights: Optional[Dict] = None,
     jd_analysis: Optional[Dict] = None,
+    screening_result_id: Optional[int] = None,
+    tenant_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Non-streaming version. Returns full result dict.
-    Always returns — LLM timeout produces fallback narrative, never an exception.
+    Non-streaming version. Returns Python scoring results immediately.
+    
+    If screening_result_id and tenant_id are provided, spawns a background
+    task to generate LLM narrative and write to DB. The immediate result
+    includes narrative_pending=True and a fallback narrative.
+    
+    If screening_result_id is None, falls back to synchronous LLM call
+    (for backward compatibility with batch and existing tests).
     """
     python_result = _run_python_phase(
         resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis
@@ -1782,13 +1899,32 @@ async def run_hybrid_pipeline(
         "skill_depth":       python_result.get("skill_depth", {}),
     }
 
-    # Timeout: 150s to survive qwen3.5:4b cold-start on CPU (first load ~2 min).
-    # Subsequent requests are served from the hot model and typically finish in 30-60s.
+    # If screening_result_id provided, spawn background task and return immediately
+    if screening_result_id is not None and tenant_id is not None:
+        fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])
+        python_result["narrative_pending"] = True
+        
+        # Spawn background LLM task
+        task = asyncio.create_task(
+            _background_llm_narrative(
+                screening_result_id=screening_result_id,
+                tenant_id=tenant_id,
+                llm_context=llm_context,
+                python_result=python_result,
+            )
+        )
+        register_background_task(task)
+        
+        return _merge_llm_into_result(python_result, fallback)
+
+    # Legacy synchronous mode (for batch processing and tests without DB persistence)
     _LLM_TIMEOUT = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
 
     try:
         async with _get_semaphore():
+            start = time.monotonic()
             llm_result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_LLM_TIMEOUT)
+            LLM_CALL_DURATION.observe(time.monotonic() - start)
         log.info("LLM narrative succeeded for fit_score=%s", python_result.get("fit_score"))
     except asyncio.TimeoutError:
         log.warning(
@@ -1796,6 +1932,7 @@ async def run_hybrid_pipeline(
             "Model may still be loading. Consider increasing LLM_NARRATIVE_TIMEOUT env var.",
             _LLM_TIMEOUT,
         )
+        LLM_FALLBACK_TOTAL.inc()
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
         python_result["narrative_pending"] = True
     except Exception as e:
@@ -1806,6 +1943,7 @@ async def run_hybrid_pipeline(
             os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
         )
+        LLM_FALLBACK_TOTAL.inc()
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
         python_result["narrative_pending"] = True
 
@@ -1819,23 +1957,27 @@ async def astream_hybrid_pipeline(
     gap_analysis: Dict[str, Any],
     scoring_weights: Optional[Dict] = None,
     jd_analysis: Optional[Dict] = None,
+    screening_result_id: Optional[int] = None,
+    tenant_id: Optional[int] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     SSE streaming version.
 
-    Yields:
-      {"stage": "parsing",  "result": {all Python scores}}  — within 2s
-      {"stage": "scoring",  "result": {LLM narrative}}       — after ~40s
-      {"stage": "complete", "result": {full merged result}}
+    If screening_result_id and tenant_id are provided:
+      - Yields Python results immediately with narrative_pending=True
+      - Spawns background LLM task that writes to DB
+      - Frontend polls GET /api/analysis/{id}/narrative for the LLM narrative
+    
+    If screening_result_id is None (legacy mode):
+      - Yields:
+        {"stage": "parsing",  "result": {all Python scores}}  — within 2s
+        {"stage": "scoring",  "result": {LLM narrative}}       — after ~40s
+        {"stage": "complete", "result": {full merged result}}
     """
     # Phase 1 — Python (instant)
     python_result = _run_python_phase(
         resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis
     )
-    # Strip internal keys for the SSE payload
-    parsing_payload = {k: v for k, v in python_result.items()
-                       if not k.startswith("_")}
-    yield {"stage": "parsing", "result": parsing_payload}
 
     llm_context = {
         "jd_analysis":       python_result["jd_analysis"],
@@ -1852,6 +1994,41 @@ async def astream_hybrid_pipeline(
         "skill_depth":       python_result.get("skill_depth", {}),
     }
 
+    # If screening_result_id provided, spawn background task and return immediately
+    if screening_result_id is not None and tenant_id is not None:
+        fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])
+        python_result["narrative_pending"] = True
+        final = _merge_llm_into_result(python_result, fallback)
+        
+        # Strip internal keys for the SSE payload
+        parsing_payload = {k: v for k, v in python_result.items()
+                           if not k.startswith("_")}
+        
+        # Yield parsing stage with Python results
+        yield {"stage": "parsing", "result": parsing_payload}
+        
+        # Spawn background LLM task
+        task = asyncio.create_task(
+            _background_llm_narrative(
+                screening_result_id=screening_result_id,
+                tenant_id=tenant_id,
+                llm_context=llm_context,
+                python_result=python_result,
+            )
+        )
+        register_background_task(task)
+        
+        # Yield complete with fallback narrative and analysis_id for polling
+        final["analysis_id"] = screening_result_id
+        yield {"stage": "complete", "result": final}
+        return
+
+    # Legacy synchronous streaming mode (for backward compatibility)
+    # Strip internal keys for the SSE payload
+    parsing_payload = {k: v for k, v in python_result.items()
+                       if not k.startswith("_")}
+    yield {"stage": "parsing", "result": parsing_payload}
+
     # Phase 2 — LLM with heartbeat pings to keep Cloudflare/Nginx alive
     llm_queue: asyncio.Queue = asyncio.Queue()
 
@@ -1860,7 +2037,9 @@ async def astream_hybrid_pipeline(
     async def _llm_task():
         try:
             async with _get_semaphore():
+                start = time.monotonic()
                 result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_LLM_TIMEOUT_STREAM)
+                LLM_CALL_DURATION.observe(time.monotonic() - start)
             log.info("LLM stream narrative succeeded")
             await llm_queue.put(("ok", result))
         except asyncio.TimeoutError:
@@ -1869,6 +2048,7 @@ async def astream_hybrid_pipeline(
                 "Increase LLM_NARRATIVE_TIMEOUT if model is still loading.",
                 _LLM_TIMEOUT_STREAM,
             )
+            LLM_FALLBACK_TOTAL.inc()
             fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])
             python_result["narrative_pending"] = True
             await llm_queue.put(("fallback", fallback))
@@ -1880,6 +2060,7 @@ async def astream_hybrid_pipeline(
                 os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
                 os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
             )
+            LLM_FALLBACK_TOTAL.inc()
             fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])
             python_result["narrative_pending"] = True
             await llm_queue.put(("fallback", fallback))

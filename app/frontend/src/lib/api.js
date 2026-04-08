@@ -56,6 +56,39 @@ api.interceptors.response.use(
   }
 )
 
+// Retry configuration for transient errors
+const MAX_RETRIES = 3
+const RETRY_DELAYS = [1000, 2000, 4000] // Exponential backoff
+
+// Add retry interceptor (must be after 401 refresh interceptor)
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config
+
+    // Only retry on 5xx errors and network errors (not 4xx)
+    const isRetryable = !error.response || (error.response.status >= 500)
+
+    // Don't retry POST requests that might not be idempotent (except specific ones)
+    const isIdempotent = config.method === 'get' || config._isRetryable
+
+    if (!isRetryable || !isIdempotent) {
+      return Promise.reject(error)
+    }
+
+    config._retryCount = config._retryCount || 0
+    if (config._retryCount >= MAX_RETRIES) {
+      return Promise.reject(error)
+    }
+
+    config._retryCount++
+    const delay = RETRY_DELAYS[config._retryCount - 1] || 4000
+
+    await new Promise(resolve => setTimeout(resolve, delay))
+    return api(config)
+  }
+)
+
 // ─── Resume Analysis ──────────────────────────────────────────────────────────
 
 export async function analyzeResume(file, jobDescription, jobFile = null, scoringWeights = null) {
@@ -375,6 +408,13 @@ export async function getTranscriptAnalysis(id) {
   return res.data
 }
 
+// ─── Narrative Polling ────────────────────────────────────────────────────────
+
+export async function getNarrative(analysisId) {
+  const response = await api.get(`/analysis/${analysisId}/narrative`)
+  return response.data
+}
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth() {
@@ -414,6 +454,32 @@ export async function adminResetUsage() {
 export async function adminChangePlan(planId) {
   const response = await api.post(`/subscription/admin/change-plan/${planId}`)
   return response.data
+}
+
+// ─── User-friendly Error Messages ─────────────────────────────────────────────
+
+export function getUserFriendlyError(error) {
+  if (!error.response) {
+    return "Network error. Please check your connection and try again."
+  }
+  const status = error.response.status
+  const detail = error.response.data?.detail
+
+  const errorMap = {
+    400: detail || "Invalid request. Please check your input.",
+    401: "Session expired. Please log in again.",
+    403: detail === "CSRF token missing or invalid"
+      ? "Session expired, please refresh the page."
+      : "You don't have permission for this action.",
+    404: "The requested resource was not found.",
+    413: "File is too large. Please upload a smaller file.",
+    429: detail || "Too many requests. Please wait a moment.",
+    500: "Server error. Our team has been notified.",
+    502: "Service temporarily unavailable. Please try again.",
+    503: "Service is under maintenance. Please try again later.",
+  }
+
+  return errorMap[status] || detail || "An unexpected error occurred."
 }
 
 export default api

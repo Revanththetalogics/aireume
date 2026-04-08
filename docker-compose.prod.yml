@@ -79,7 +79,9 @@ services:
     container_name: resume-screener-backend
     # 4 workers: backend is I/O-bound (waits on Ollama/DB), so multiple workers
     # serve concurrent users without starving Ollama of CPU cores.
-    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 4
+    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-graceful-shutdown 30
+    # Give the backend time to finish background tasks (sentinel) on shutdown
+    stop_grace_period: 60s
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aria_db}
@@ -110,8 +112,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 40s
+      retries: 3
+      start_period: 30s
 
   frontend:
     image: revanth2245/resume-frontend:latest
@@ -133,6 +135,8 @@ services:
     depends_on:
       - frontend
       - backend
+    # Graceful shutdown for zero-downtime deployment
+    stop_grace_period: 30s
     deploy:
       resources:
         limits:
@@ -199,6 +203,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: >
+      --rolling-restart
       --interval 60
       --cleanup
       resume-screener-backend

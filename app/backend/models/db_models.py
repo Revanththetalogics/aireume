@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column, Integer, String, DateTime, Text, Boolean,
     ForeignKey, Float, func, BigInteger
 )
+from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
 from app.backend.db.database import Base
 
@@ -130,14 +131,15 @@ class ScreeningResult(Base):
 
     id                 = Column(Integer, primary_key=True, index=True)
     tenant_id          = Column(Integer, ForeignKey("tenants.id"), nullable=True)
-    candidate_id       = Column(Integer, ForeignKey("candidates.id"), nullable=True)
+    candidate_id       = Column(Integer, ForeignKey("candidates.id"), nullable=True, index=True)
     role_template_id   = Column(Integer, ForeignKey("role_templates.id"), nullable=True)
     resume_text        = Column(Text, nullable=False)
     jd_text            = Column(Text, nullable=False)
     parsed_data        = Column(Text, nullable=False)   # JSON string
     analysis_result    = Column(Text, nullable=False)   # JSON string
+    narrative_json     = Column(Text, nullable=True)    # LLM narrative (generated asynchronously)
     status             = Column(String(50), default="pending")  # pending/shortlisted/rejected/in-review/hired
-    timestamp          = Column(DateTime(timezone=True), server_default=func.now())
+    timestamp          = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     tenant        = relationship("Tenant", back_populates="results")
     candidate     = relationship("Candidate", back_populates="results")
@@ -247,3 +249,15 @@ class Skill(Base):
     source     = Column(String(20),  nullable=False, default="seed")    # seed|discovered|manual
     frequency  = Column(Integer,     nullable=False, default=0)         # times seen in JDs/resumes
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─── Token revocation ─────────────────────────────────────────────────────────
+
+class RevokedToken(Base):
+    """Tracks revoked JWT tokens to prevent reuse after logout."""
+    __tablename__ = "revoked_tokens"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    jti         = Column(String(64), unique=True, index=True, nullable=False)  # JWT ID (UUID)
+    revoked_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_at  = Column(DateTime(timezone=True), nullable=False)  # When token would have expired

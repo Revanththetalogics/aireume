@@ -3,7 +3,56 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
+import json
 import httpx
+import uuid
+import contextvars
+import time
+import shutil
+import asyncio
+from datetime import datetime, timezone, timedelta
+from starlette.middleware.base import BaseHTTPMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
+
+# Configure structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] [%(funcName)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("aria")
+
+# Production JSON logging
+if os.getenv("ENVIRONMENT") == "production":
+    class JsonFormatter(logging.Formatter):
+        def format(self, record):
+            log_obj = {
+                "timestamp": self.formatTime(record),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+                "function": record.funcName,
+            }
+            if record.exc_info:
+                log_obj["exception"] = self.formatException(record.exc_info)
+            return json.dumps(log_obj)
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(JsonFormatter())
+    logging.root.handlers = [handler]
+
+# Request correlation ID context variable
+request_id_var = contextvars.ContextVar('request_id', default='-')
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Middleware that generates/propagates a correlation ID per request."""
+    async def dispatch(self, request, call_next):
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
+        request_id_var.set(request_id)
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
 
 from app.backend.db.database import engine, Base, SessionLocal
 from app.backend.middleware.csrf import CSRFMiddleware
@@ -20,6 +69,7 @@ from app.backend.routes import training
 from app.backend.routes import video
 from app.backend.routes import transcript
 from app.backend.routes import subscription
+from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
 
@@ -150,9 +200,44 @@ async def _startup_checks() -> dict:
     return results
 
 
+async def _cleanup_revoked_tokens():
+    """Background task to delete expired revoked tokens every 24 hours."""
+    while True:
+        await asyncio.sleep(86400)  # 24 hours
+        try:
+            db = SessionLocal()
+            from app.backend.models.db_models import RevokedToken
+            deleted = db.query(RevokedToken).filter(
+                RevokedToken.expires_at < datetime.now(timezone.utc)
+            ).delete()
+            db.commit()
+            db.close()
+            if deleted > 0:
+                log.info("Cleaned up %d expired revoked tokens", deleted)
+        except Exception as e:
+            log.exception("Failed to clean up revoked tokens: %s", e)
+
+
+async def _cleanup_jd_cache():
+    """Delete JdCache entries older than 30 days."""
+    while True:
+        await asyncio.sleep(86400)  # 24 hours
+        try:
+            db = SessionLocal()
+            from app.backend.models.db_models import JdCache
+            cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+            deleted = db.query(JdCache).filter(JdCache.created_at < cutoff).delete()
+            db.commit()
+            db.close()
+            if deleted > 0:
+                log.info("Cleaned up %d expired JD cache entries", deleted)
+        except Exception as e:
+            log.exception("Failed to clean up JD cache: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create tables, run dependency checks, print banner.
+    """Create tables, run dependency checks, print banner, start sentinel.
 
     Never raises: if startup checks crash, we still bind the server so nginx
     does not return 502 Bad Gateway (upstream connection refused).
@@ -169,7 +254,31 @@ async def lifespan(app: FastAPI):
         log.exception("Startup checks failed — API will still start: %s", e)
         print(f"\n[ARIA startup ERROR] {type(e).__name__}: {e}\n", flush=True)
 
+    # Start Ollama health sentinel after startup checks
+    try:
+        llm_service._sentinel = llm_service.OllamaHealthSentinel()
+        await llm_service._sentinel.start()
+    except Exception as e:
+        log.exception("Failed to start Ollama health sentinel: %s", e)
+
+    # Start revoked tokens cleanup task
+    cleanup_task = asyncio.create_task(_cleanup_revoked_tokens())
+
+    # Start JD cache cleanup task
+    jd_cache_cleanup_task = asyncio.create_task(_cleanup_jd_cache())
+
     yield
+
+    # Shutdown: stop the sentinel gracefully
+    try:
+        if llm_service._sentinel:
+            await llm_service._sentinel.stop()
+    except Exception as e:
+        log.exception("Error stopping Ollama health sentinel: %s", e)
+
+    # Cancel the cleanup tasks
+    cleanup_task.cancel()
+    jd_cache_cleanup_task.cancel()
 
 
 app = FastAPI(
@@ -178,6 +287,15 @@ app = FastAPI(
     version=VERSION,
     lifespan=lifespan,
 )
+
+# ─── Prometheus Metrics ───────────────────────────────────────────────────────
+
+instrumentator = Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=True,
+    excluded_handlers=["/health", "/metrics"],
+)
+instrumentator.instrument(app).expose(app, endpoint="/metrics")
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -196,6 +314,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── Request Correlation ID ───────────────────────────────────────────────────
+
+app.add_middleware(RequestIdMiddleware)
 
 # ─── CSRF Protection ─────────────────────────────────────────────────────────
 
@@ -232,46 +354,127 @@ def root():
 @app.get("/health")
 async def health_check():
     """
-    Active health check — verifies DB and Ollama connectivity.
-    Returns 200 with status 'ok' or 'degraded' (never 5xx) so upstream
-    load balancers keep routing while operators are alerted.
+    Shallow health check — FAST (<10ms), just confirms the process is alive.
+    Used by Docker/nginx for container health checks. No DB queries or external calls.
+    """
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/health/deep")
+async def deep_health_check():
+    """
+    Deep health check — comprehensive check of all dependencies.
+    Checks DB connectivity, Ollama sentinel state, and disk space.
+    Returns 'healthy', 'degraded', or 'unhealthy' status.
     """
     from sqlalchemy import text
+    from app.backend.services.llm_service import get_sentinel
 
-    checks: dict = {"status": "ok", "db": "ok", "ollama": "ok"}
+    start_time = time.monotonic()
+    checks = {}
+    overall_status = "healthy"
 
+    # ── 1. Database check ─────────────────────────────────────────────────────
+    db_start = time.monotonic()
     try:
         db = SessionLocal()
         try:
             db.execute(text("SELECT 1"))
+            checks["database"] = {
+                "status": "ok",
+                "latency_ms": round((time.monotonic() - db_start) * 1000, 1),
+            }
         finally:
             db.close()
     except Exception as e:
-        checks["db"] = f"error: {str(e)[:80]}"
-        checks["status"] = "degraded"
+        checks["database"] = {
+            "status": f"error: {str(e)[:50]}",
+            "latency_ms": round((time.monotonic() - db_start) * 1000, 1),
+        }
+        overall_status = "unhealthy"  # DB failure = unhealthy
 
-    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    # ── 2. Ollama check via sentinel ────────────────────────────────────────────
+    ollama_start = time.monotonic()
+    sentinel = get_sentinel()
+    model_name = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+
+    if sentinel is None:
+        checks["ollama"] = {
+            "status": "unknown",
+            "latency_ms": round((time.monotonic() - ollama_start) * 1000, 1),
+            "model": model_name,
+            "message": "Sentinel not initialized",
+        }
+        overall_status = "degraded"
+    else:
+        sentinel_status = sentinel.get_status()
+        ollama_state = sentinel_status.get("state", "unknown")
+        is_healthy = sentinel_status.get("healthy", False)
+
+        checks["ollama"] = {
+            "status": ollama_state,
+            "latency_ms": round((time.monotonic() - ollama_start) * 1000, 1),
+            "model": sentinel_status.get("model", model_name),
+            "last_probe_latency_ms": sentinel_status.get("last_latency_ms"),
+        }
+
+        if not is_healthy:
+            # If Ollama is not HOT, mark as degraded
+            if overall_status == "healthy":
+                overall_status = "degraded"
+
+    # ── 3. Disk space check (optional) ─────────────────────────────────────────
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{ollama_url}/api/tags")
-            if resp.status_code != 200:
-                raise RuntimeError(f"HTTP {resp.status_code}")
-    except Exception as e:
-        checks["ollama"] = f"error: {str(e)[:80]}"
-        checks["status"] = "degraded"
+        disk_usage = shutil.disk_usage("/")
+        free_gb = round(disk_usage.free / (1024 ** 3), 1)
+        total_gb = round(disk_usage.total / (1024 ** 3), 1)
+        used_percent = round((disk_usage.used / disk_usage.total) * 100, 1)
 
-    return checks
+        disk_status = "ok"
+        if used_percent > 90:
+            disk_status = "warning"
+            if overall_status == "healthy":
+                overall_status = "degraded"
+
+        checks["disk"] = {
+            "status": disk_status,
+            "free_gb": free_gb,
+            "total_gb": total_gb,
+            "used_percent": used_percent,
+        }
+    except Exception as e:
+        checks["disk"] = {
+            "status": f"error: {str(e)[:30]}",
+        }
+
+    response_time_ms = round((time.monotonic() - start_time) * 1000, 1)
+
+    return {
+        "status": overall_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "response_time_ms": response_time_ms,
+        "checks": checks,
+    }
 
 
 @app.get("/api/llm-status")
 async def llm_status():
     """
-    Diagnostic endpoint — shows pulled models, hot models, and a plain-English
-    diagnosis of why the LLM narrative may be falling back to Python.
+    Diagnostic endpoint — shows sentinel state, pulled models, hot models, 
+    and a plain-English diagnosis of why the LLM narrative may be falling back to Python.
 
     Usage from the VPS:
       curl http://localhost:8080/api/llm-status
     """
+    from app.backend.services.llm_service import get_sentinel
+
+    sentinel = get_sentinel()
+    if sentinel is None:
+        return {"state": "unknown", "healthy": False, "message": "Sentinel not initialized"}
+
     ollama_url     = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     target_model   = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
     fast_model     = os.getenv("OLLAMA_FAST_MODEL", "qwen3.5:4b")
@@ -287,6 +490,10 @@ async def llm_status():
         "running_models":        [],
         "diagnosis":             "",
     }
+
+    # Add sentinel status
+    sentinel_status = sentinel.get_status()
+    result["sentinel"] = sentinel_status
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:

@@ -1,0 +1,361 @@
+"""Tests for llm_service.py including OllamaHealthSentinel."""
+
+import pytest
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime
+
+from app.backend.services.llm_service import (
+    OllamaHealthSentinel,
+    OllamaState,
+    get_sentinel,
+    LLMService,
+    analyze_with_llm,
+)
+
+
+class TestOllamaHealthSentinel:
+    """Tests for OllamaHealthSentinel class."""
+
+    def test_init_default_values(self):
+        """Test sentinel initializes with correct default values."""
+        sentinel = OllamaHealthSentinel()
+        assert sentinel.base_url == "http://ollama:11434"
+        assert sentinel.model_name == "qwen3.5:4b"
+        assert sentinel.probe_interval == 60
+        assert sentinel.state == OllamaState.COLD
+        assert sentinel.last_probe_time == 0
+        assert sentinel.last_latency_ms == 0
+        assert sentinel._task is None
+        assert sentinel._running is False
+
+    def test_init_custom_values(self):
+        """Test sentinel initializes with custom values."""
+        sentinel = OllamaHealthSentinel(
+            ollama_base_url="http://custom:11434",
+            model_name="llama2:7b",
+            probe_interval=30
+        )
+        assert sentinel.base_url == "http://custom:11434"
+        assert sentinel.model_name == "llama2:7b"
+        assert sentinel.probe_interval == 30
+
+    @pytest.mark.asyncio
+    async def test_start_creates_task(self):
+        """Test start() creates and runs the probe loop task."""
+        sentinel = OllamaHealthSentinel()
+        
+        with patch.object(sentinel, '_probe_loop', new_callable=AsyncMock) as mock_loop:
+            await sentinel.start()
+            assert sentinel._running is True
+            assert sentinel._task is not None
+            # Cancel the task to clean up
+            sentinel._task.cancel()
+            try:
+                await sentinel._task
+            except asyncio.CancelledError:
+                pass
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_task(self):
+        """Test stop() cancels the probe loop task gracefully."""
+        sentinel = OllamaHealthSentinel()
+        sentinel._running = True
+        sentinel._task = asyncio.create_task(asyncio.sleep(10))
+        
+        await sentinel.stop()
+        
+        assert sentinel._running is False
+        assert sentinel._task is None
+
+    @pytest.mark.asyncio
+    async def test_probe_once_model_not_hot_triggers_warmup(self):
+        """Test _probe_once triggers warmup when model is not in RAM."""
+        sentinel = OllamaHealthSentinel()
+        
+        mock_response_ps = MagicMock()
+        mock_response_ps.status_code = 200
+        mock_response_ps.json.return_value = {"models": []}  # No models loaded
+        
+        mock_response_generate = MagicMock()
+        mock_response_generate.status_code = 200
+        
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.get.return_value = mock_response_ps
+            mock_client.post.return_value = mock_response_generate
+            
+            await sentinel._probe_once()
+            
+            assert sentinel.state == OllamaState.HOT
+            assert sentinel.last_probe_time > 0
+            assert sentinel.last_latency_ms >= 0
+            mock_client.post.assert_called_once()
+            call_args = mock_client.post.call_args
+            assert call_args[0][0] == "http://ollama:11434/api/generate"
+            assert call_args[1]["json"]["model"] == "qwen3.5:4b"
+            assert call_args[1]["json"]["prompt"] == "warmup"
+
+    @pytest.mark.asyncio
+    async def test_probe_once_model_hot_quick_probe(self):
+        """Test _probe_once does quick probe when model is already hot."""
+        sentinel = OllamaHealthSentinel()
+        
+        mock_response_ps = MagicMock()
+        mock_response_ps.status_code = 200
+        mock_response_ps.json.return_value = {"models": [{"name": "qwen3.5:4b"}]}
+        
+        mock_response_generate = MagicMock()
+        mock_response_generate.status_code = 200
+        
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.get.return_value = mock_response_ps
+            mock_client.post.return_value = mock_response_generate
+            
+            await sentinel._probe_once()
+            
+            assert sentinel.state == OllamaState.HOT
+            mock_client.post.assert_called_once()
+            call_args = mock_client.post.call_args
+            assert call_args[1]["json"]["prompt"] == "hi"  # Quick probe, not warmup
+
+    @pytest.mark.asyncio
+    async def test_probe_once_error_state_on_exception(self):
+        """Test _probe_once sets ERROR state when Ollama is unreachable."""
+        sentinel = OllamaHealthSentinel()
+        
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.get.side_effect = Exception("Connection refused")
+            
+            await sentinel._probe_once()
+            
+            assert sentinel.state == OllamaState.ERROR
+            assert sentinel.last_probe_time > 0
+
+    @pytest.mark.asyncio
+    async def test_probe_once_error_state_on_non_200(self):
+        """Test _probe_once sets ERROR state when probe returns non-200."""
+        sentinel = OllamaHealthSentinel()
+        
+        mock_response_ps = MagicMock()
+        mock_response_ps.status_code = 200
+        mock_response_ps.json.return_value = {"models": [{"name": "qwen3.5:4b"}]}
+        
+        mock_response_generate = MagicMock()
+        mock_response_generate.status_code = 500  # Server error
+        
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.get.return_value = mock_response_ps
+            mock_client.post.return_value = mock_response_generate
+            
+            await sentinel._probe_once()
+            
+            assert sentinel.state == OllamaState.ERROR
+
+    def test_get_status_returns_correct_dict(self):
+        """Test get_status() returns correctly structured dict."""
+        sentinel = OllamaHealthSentinel()
+        sentinel.state = OllamaState.HOT
+        sentinel.last_probe_time = 1234567890.0
+        sentinel.last_latency_ms = 150.5
+        
+        status = sentinel.get_status()
+        
+        assert status["state"] == "hot"
+        assert status["model"] == "qwen3.5:4b"
+        assert status["last_probe_time"] == 1234567890.0
+        assert status["last_latency_ms"] == 150.5
+        assert status["healthy"] is True
+
+    def test_get_status_healthy_only_when_hot(self):
+        """Test healthy is only True when state is HOT."""
+        sentinel = OllamaHealthSentinel()
+        
+        for state, expected_healthy in [
+            (OllamaState.COLD, False),
+            (OllamaState.WARMING, False),
+            (OllamaState.HOT, True),
+            (OllamaState.ERROR, False),
+        ]:
+            sentinel.state = state
+            status = sentinel.get_status()
+            assert status["healthy"] == expected_healthy, f"Failed for state {state.value}"
+
+    @pytest.mark.asyncio
+    async def test_probe_loop_runs_periodically(self):
+        """Test _probe_loop calls _probe_once at intervals."""
+        sentinel = OllamaHealthSentinel(probe_interval=0.1)
+        sentinel._running = True
+        
+        with patch.object(sentinel, '_probe_once', new_callable=AsyncMock) as mock_probe:
+            # Run for a short time then cancel
+            task = asyncio.create_task(sentinel._probe_loop())
+            await asyncio.sleep(0.25)  # Allow 2 probe cycles
+            sentinel._running = False
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            
+            assert mock_probe.call_count >= 2
+
+
+class TestGetSentinel:
+    """Tests for get_sentinel() function."""
+
+    def test_get_sentinel_returns_none_by_default(self):
+        """Test get_sentinel() returns None when no sentinel initialized."""
+        # Note: This test assumes _sentinel is None at module level
+        # We need to patch it to ensure clean state
+        from app.backend.services import llm_service
+        original_sentinel = llm_service._sentinel
+        try:
+            llm_service._sentinel = None
+            assert get_sentinel() is None
+        finally:
+            llm_service._sentinel = original_sentinel
+
+    def test_get_sentinel_returns_sentinel_when_set(self):
+        """Test get_sentinel() returns the sentinel when initialized."""
+        from app.backend.services import llm_service
+        original_sentinel = llm_service._sentinel
+        try:
+            mock_sentinel = MagicMock()
+            llm_service._sentinel = mock_sentinel
+            assert get_sentinel() is mock_sentinel
+        finally:
+            llm_service._sentinel = original_sentinel
+
+
+class TestLLMService:
+    """Tests for LLMService class."""
+
+    def test_init_default_values(self):
+        """Test LLMService initializes with correct default values."""
+        service = LLMService()
+        assert service.base_url == "http://localhost:11434"
+        assert service.model == "qwen3.5:4b"
+        assert service.max_retries == 1
+
+    @pytest.mark.asyncio
+    async def test_call_ollama_success(self):
+        """Test _call_ollama returns response on success."""
+        service = LLMService()
+        
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"response": '{"fit_score": 85}'}
+        mock_response.raise_for_status = MagicMock()
+        
+        with patch('httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.post.return_value = mock_response
+            
+            result = await service._call_ollama("test prompt")
+            
+            assert result == '{"fit_score": 85}'
+
+    def test_parse_json_response_plain_json(self):
+        """Test _parse_json_response handles plain JSON."""
+        service = LLMService()
+        result = service._parse_json_response('{"fit_score": 85}')
+        assert result == {"fit_score": 85}
+
+    def test_parse_json_response_markdown_code_block(self):
+        """Test _parse_json_response extracts JSON from markdown code block."""
+        service = LLMService()
+        response = '```json\n{"fit_score": 85}\n```'
+        result = service._parse_json_response(response)
+        assert result == {"fit_score": 85}
+
+    def test_parse_json_response_invalid_json(self):
+        """Test _parse_json_response returns None for invalid JSON."""
+        service = LLMService()
+        result = service._parse_json_response('not valid json')
+        assert result is None
+
+    def test_validate_and_normalize_clamps_fit_score(self):
+        """Test _validate_and_normalize clamps fit_score to 0-100 range."""
+        service = LLMService()
+        
+        # Test upper bound
+        result = service._validate_and_normalize({"fit_score": 150})
+        assert result["fit_score"] == 100
+        
+        # Test lower bound
+        result = service._validate_and_normalize({"fit_score": -10})
+        assert result["fit_score"] == 0
+        
+        # Test within range
+        result = service._validate_and_normalize({"fit_score": 75})
+        assert result["fit_score"] == 75
+
+    def test_validate_and_normalize_limits_array_lengths(self):
+        """Test _validate_and_normalize limits arrays to max 5 items."""
+        service = LLMService()
+        data = {
+            "fit_score": 50,
+            "strengths": ["a", "b", "c", "d", "e", "f", "g"],
+            "weaknesses": ["x", "y", "z"],
+        }
+        result = service._validate_and_normalize(data)
+        assert len(result["strengths"]) == 5
+        assert len(result["weaknesses"]) == 3
+
+    def test_validate_and_normalize_default_recommendation(self):
+        """Test _validate_and_normalize defaults invalid recommendation to 'Consider'."""
+        service = LLMService()
+        
+        # Invalid recommendation
+        result = service._validate_and_normalize({
+            "fit_score": 50,
+            "final_recommendation": "Invalid"
+        })
+        assert result["final_recommendation"] == "Consider"
+        
+        # Valid recommendations
+        for rec in ["Shortlist", "Consider", "Reject"]:
+            result = service._validate_and_normalize({
+                "fit_score": 50,
+                "final_recommendation": rec
+            })
+            assert result["final_recommendation"] == rec
+
+    def test_fallback_response_structure(self):
+        """Test _fallback_response returns expected structure."""
+        service = LLMService()
+        result = service._fallback_response("test error")
+        
+        assert result["fit_score"] == 50
+        assert "Analysis temporarily unavailable" in result["strengths"]
+        assert result["final_recommendation"] == "Consider"
+        assert any("test error" in str(r) for r in result["risk_signals"])
+
+
+class TestAnalyzeWithLLM:
+    """Tests for analyze_with_llm function."""
+
+    @pytest.mark.asyncio
+    async def test_analyze_with_llm_returns_result(self):
+        """Test analyze_with_llm returns analysis result."""
+        with patch.object(LLMService, 'analyze_resume', new_callable=AsyncMock) as mock_analyze:
+            mock_analyze.return_value = {"fit_score": 85}
+            
+            result = await analyze_with_llm(
+                resume_text="test resume",
+                job_description="test job",
+                skill_match_percent=80.0,
+                total_years=5.0,
+                gaps=[],
+                risks=[]
+            )
+            
+            assert result["fit_score"] == 85

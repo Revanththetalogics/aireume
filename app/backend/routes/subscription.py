@@ -2,6 +2,7 @@
 Subscription routes: current plan, usage tracking, available plans, subscription management.
 """
 import json
+import logging
 from datetime import datetime, date, timezone
 from decimal import Decimal
 from typing import Optional
@@ -17,6 +18,8 @@ from app.backend.models.db_models import (
     Tenant, User, SubscriptionPlan, UsageLog, Candidate
 )
 from app.backend.models.schemas import SubscriptionResponse, PlanInfo, UsageStats
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/subscription", tags=["subscription"])
 
@@ -481,6 +484,7 @@ def record_usage(
         db.commit()
         return True
     
-    except Exception:
+    except Exception as e:
+        logger.exception("Failed to record usage: %s", e)
         db.rollback()
         return False

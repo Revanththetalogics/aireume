@@ -8,6 +8,7 @@ GET  /api/transcript/analyses  — list all transcript analyses for the tenant.
 GET  /api/transcript/analyses/{id} — retrieve a single analysis.
 """
 import json
+import logging
 from datetime import datetime, date
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -20,6 +21,8 @@ from app.backend.models.db_models import (
     Candidate, RoleTemplate, TranscriptAnalysis, User
 )
 from app.backend.services.transcript_service import parse_transcript, analyze_transcript
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/transcript", tags=["transcript"])
 
@@ -146,8 +149,8 @@ def list_transcript_analyses(
         result = {}
         try:
             result = json.loads(a.analysis_result)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Non-critical: Failed to parse analysis_result for analysis %s: %s", a.id, e)
 
         candidate_name = None
         if a.candidate_id:
@@ -191,8 +194,8 @@ def get_transcript_analysis(
     result = {}
     try:
         result = json.loads(a.analysis_result)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Non-critical: Failed to parse analysis_result for analysis %s: %s", a.id, e)
 
     candidate_name = None
     if a.candidate_id:

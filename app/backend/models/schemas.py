@@ -130,9 +130,18 @@ class BatchAnalysisResult(BaseModel):
     result: AnalysisResponse
 
 
+class BatchFailedItem(BaseModel):
+    """Represents a failed file in batch processing."""
+    filename: str
+    error: str
+
+
 class BatchAnalysisResponse(BaseModel):
     results: List[BatchAnalysisResult]
+    failed: List[BatchFailedItem] = []
     total: int
+    successful: int = 0
+    failed_count: int = 0
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
