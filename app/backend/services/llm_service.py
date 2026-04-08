@@ -75,17 +75,10 @@ class OllamaHealthSentinel:
                         timeout=120.0
                     )
                     self.state = OllamaState.HOT
+                    logger.info("Ollama model %s warmed up successfully", self.model_name)
                 else:
-                    # Model is hot — quick probe to verify responsiveness
-                    probe_resp = await client.post(
-                        f"{self.base_url}/api/generate",
-                        json={"model": self.model_name, "prompt": "hi", "stream": False, "options": {"num_predict": 1}},
-                        timeout=30.0
-                    )
-                    if probe_resp.status_code == 200:
-                        self.state = OllamaState.HOT
-                    else:
-                        self.state = OllamaState.ERROR
+                    # Model is hot — /api/ps confirmed it's loaded, no need for generate probe
+                    self.state = OllamaState.HOT
 
                 self.last_latency_ms = (time.monotonic() - start) * 1000
                 self.last_probe_time = time.time()
@@ -94,7 +87,7 @@ class OllamaHealthSentinel:
             self.state = OllamaState.ERROR
             self.last_latency_ms = (time.monotonic() - start) * 1000
             self.last_probe_time = time.time()
-            logger.warning("Ollama health probe failed: %s", e)
+            logger.warning("Ollama health probe failed: %s: %s", type(e).__name__, e)
 
     def get_status(self) -> dict:
         return {

@@ -98,29 +98,24 @@ class TestOllamaHealthSentinel:
             assert call_args[1]["json"]["prompt"] == "warmup"
 
     @pytest.mark.asyncio
-    async def test_probe_once_model_hot_quick_probe(self):
-        """Test _probe_once does quick probe when model is already hot."""
+    async def test_probe_once_model_hot_no_generate_probe(self):
+        """Test _probe_once skips generate probe when model is already hot."""
         sentinel = OllamaHealthSentinel()
         
         mock_response_ps = MagicMock()
         mock_response_ps.status_code = 200
         mock_response_ps.json.return_value = {"models": [{"name": "qwen3.5:4b"}]}
         
-        mock_response_generate = MagicMock()
-        mock_response_generate.status_code = 200
-        
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value.__aenter__.return_value = mock_client
             mock_client.get.return_value = mock_response_ps
-            mock_client.post.return_value = mock_response_generate
             
             await sentinel._probe_once()
             
             assert sentinel.state == OllamaState.HOT
-            mock_client.post.assert_called_once()
-            call_args = mock_client.post.call_args
-            assert call_args[1]["json"]["prompt"] == "hi"  # Quick probe, not warmup
+            # No POST should be made when model is hot - /api/ps already confirmed it's loaded
+            mock_client.post.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_probe_once_error_state_on_exception(self):
@@ -138,22 +133,19 @@ class TestOllamaHealthSentinel:
             assert sentinel.last_probe_time > 0
 
     @pytest.mark.asyncio
-    async def test_probe_once_error_state_on_non_200(self):
-        """Test _probe_once sets ERROR state when probe returns non-200."""
+    async def test_probe_once_error_state_on_warmup_failure(self):
+        """Test _probe_once sets ERROR state when warmup POST fails."""
         sentinel = OllamaHealthSentinel()
         
         mock_response_ps = MagicMock()
         mock_response_ps.status_code = 200
-        mock_response_ps.json.return_value = {"models": [{"name": "qwen3.5:4b"}]}
-        
-        mock_response_generate = MagicMock()
-        mock_response_generate.status_code = 500  # Server error
+        mock_response_ps.json.return_value = {"models": []}  # Model not loaded
         
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value.__aenter__.return_value = mock_client
             mock_client.get.return_value = mock_response_ps
-            mock_client.post.return_value = mock_response_generate
+            mock_client.post.side_effect = Exception("Connection refused")
             
             await sentinel._probe_once()
             
