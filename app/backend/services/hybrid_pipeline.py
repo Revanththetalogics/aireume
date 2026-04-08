@@ -1314,11 +1314,16 @@ Rules: 3-4 strengths, 2-3 concerns, reference actual skill names and scores. No 
     response = await llm.ainvoke([HumanMessage(content=prompt)])
     raw = response.content if hasattr(response, "content") else str(response)
 
-    log.debug("LLM raw response (first 300 chars): %s", raw[:300])
+    log.debug("LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
+
+    # Handle empty or whitespace-only response
+    if not raw or not str(raw).strip():
+        log.warning("LLM returned empty response")
+        raise ValueError("LLM returned empty response")
 
     data = _parse_llm_json_response(raw)
     if data is None:
-        log.warning("LLM JSON extraction failed. Raw (500 chars): %s", raw[:500])
+        log.warning("LLM JSON extraction failed. Raw (500 chars): %s", raw[:500] if raw else "<empty>")
         raise ValueError("LLM returned non-JSON response")
 
     # Handle both 'concerns' (new format) and 'weaknesses' (legacy format)
@@ -1797,9 +1802,10 @@ async def _background_llm_narrative(
         from app.backend.db.database import SessionLocal
         from app.backend.models.db_models import ScreeningResult
         
+        _bg_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
         async with _get_semaphore():
             start = time.monotonic()
-            llm_result = await explain_with_llm(llm_context)
+            llm_result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_bg_timeout)
             LLM_CALL_DURATION.observe(time.monotonic() - start)
         
         log.info(

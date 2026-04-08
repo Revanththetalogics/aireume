@@ -305,8 +305,9 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
           // Still pending, increment attempts
           setPollAttempts(prev => {
             const next = prev + 1
-            // Stop polling after 30 attempts (5 minutes at 10s intervals)
-            if (next >= 30) {
+            // Stop polling after 60 attempts (10 minutes at 10s intervals)
+            // Extended for CPU-based LLMs (qwen3.5:4b can take 8+ minutes)
+            if (next >= 60) {
               setIsPolling(false)
               if (pollingIntervalRef.current) {
                 clearInterval(pollingIntervalRef.current)
