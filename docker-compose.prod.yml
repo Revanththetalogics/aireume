@@ -93,8 +93,8 @@ services:
       # within the reduced 6 GB Ollama memory limit.
       - OLLAMA_FAST_MODEL=qwen3.5:4b
       - OLLAMA_MODEL=qwen3.5:4b
-      # qwen3.5:4b takes ~60s on this 8-core CPU; 120s gives safe headroom
-      - LLM_NARRATIVE_TIMEOUT=120
+      # qwen3.5:4b takes ~60s on this 8-core CPU; 180s for safety during contention
+      - LLM_NARRATIVE_TIMEOUT=180
       # Backend entrypoint waits for Ollama + pulls model into RAM before uvicorn.
       - OLLAMA_STARTUP_REQUIRED=1
     depends_on:
@@ -150,9 +150,9 @@ services:
       retries: 3
       start_period: 10s
 
-  # Runs once after Ollama is healthy, loads both models into RAM so the
+  # Runs once after Ollama is healthy, loads model into RAM so the
   # first real analysis request is never blocked by a cold-start.
-  # Then enters a keep-alive loop to ensure the model stays loaded.
+  # Exits after warmup — OLLAMA_KEEP_ALIVE=-1 on ollama container keeps model loaded.
   ollama-warmup:
     image: ollama/ollama:latest
     container_name: resume-screener-ollama-warmup
@@ -162,7 +162,7 @@ services:
     entrypoint: >
       /bin/sh -c "
         echo '============================================';
-        echo '  ARIA — Ollama Model Warmup & Keep-Alive';
+        echo '  ARIA — Ollama Model Warmup';
         echo '============================================';
         echo '';
         echo '  Waiting for Ollama...';
@@ -175,12 +175,8 @@ services:
         echo '  Loading qwen3.5:4b into RAM...';
         ollama run qwen3.5:4b 'warmup' --nowordwrap;
         echo '  ✓  qwen3.5:4b is HOT in RAM';
-        echo '  ✓  Warmup complete — entering keep-alive loop';
+        echo '  ✓  Warmup complete — exiting (KEEP_ALIVE=-1 keeps model loaded)';
         echo '============================================';
-        while true; do
-          sleep 240;
-          ollama run qwen3.5:4b 'ping' --nowordwrap > /dev/null 2>&1 || echo '[keepalive] ping failed, will retry';
-        done
       "
     environment:
       - OLLAMA_HOST=http://ollama:11434
@@ -189,7 +185,7 @@ services:
         limits:
           cpus: '1'
           memory: 256M
-    restart: unless-stopped
+    restart: "no"
 
   # Watchtower: polls Docker Hub every 60s and auto-restarts any container
   # whose image has been updated. This is the deployment mechanism — every
