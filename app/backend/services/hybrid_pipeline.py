@@ -1264,8 +1264,10 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     else:
         score_rationales_summary = "Not available"
 
-    # Build the recruiter-focused prompt
-    prompt = f"""You are ARIA, an AI recruitment analyst. Produce a JSON assessment explaining
+    # Build the recruiter-focused prompt with explicit JSON instruction
+    prompt = f"""IMPORTANT: You must respond with ONLY a valid JSON object. No explanation, no markdown, no code blocks. Start with {{ and end with }}.
+
+You are ARIA, an AI recruitment analyst. Produce a JSON assessment explaining
 WHY this candidate is/isn't suited for this role. Be specific — reference
 actual skills, scores, and gaps. Write as if advising a hiring manager.
 
@@ -1300,14 +1302,45 @@ Return ONLY valid JSON:
 No markdown, no code fences."""
 
     from langchain_core.messages import HumanMessage
-    response = await llm.ainvoke([HumanMessage(content=prompt)])
+    messages = [HumanMessage(content=prompt)]
+    response = await llm.ainvoke(messages)
     raw = response.content if hasattr(response, "content") else str(response)
+    raw = raw.strip() if raw else ""
 
     log.debug("LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
 
-    # Handle empty or whitespace-only response
+    # Extract JSON from response (handles markdown code blocks and extra text)
+    json_match = re.search(r'\{[\s\S]*\}', raw)
+    if json_match:
+        raw = json_match.group(0)
+
+    # Handle empty or whitespace-only response - retry without format="json"
     if not raw or not str(raw).strip():
-        log.warning("LLM returned empty response")
+        log.warning("LLM returned empty response, retrying without JSON format constraint...")
+        from langchain_ollama import ChatOllama
+        _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+        retry_llm = ChatOllama(
+            model=os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            temperature=0.3,
+            # NO format="json" — let model output freely
+            num_predict=512,
+            num_ctx=2048,
+            keep_alive=-1,
+            request_timeout=_llm_timeout + 30,
+        )
+        retry_resp = await retry_llm.ainvoke(messages)
+        raw = retry_resp.content.strip() if retry_resp and retry_resp.content else ""
+        log.debug("Retry LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
+
+        # Extract JSON from retry response
+        if raw:
+            json_match = re.search(r'\{[\s\S]*\}', raw)
+            if json_match:
+                raw = json_match.group(0)
+
+    if not raw or not str(raw).strip():
+        log.warning("LLM returned empty response after retry")
         raise ValueError("LLM returned empty response")
 
     data = _parse_llm_json_response(raw)

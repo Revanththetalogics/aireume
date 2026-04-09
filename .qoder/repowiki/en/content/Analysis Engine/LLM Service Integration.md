@@ -15,15 +15,16 @@
 - [requirements.txt](file://requirements.txt)
 - [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
 - [test_llm_service.py](file://app/backend/tests/test_llm_service.py)
+- [transcript_service.py](file://app/backend/services/transcript_service.py)
+- [video_service.py](file://app/backend/services/video_service.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- **Enhanced Timeout Management**: LLM_NARRATIVE_TIMEOUT increased from 60s to 180s in production configuration for improved reliability during model contention and cold-start scenarios.
-- **Optimized Model Warmup Process**: Implemented OLLAMA_KEEP_ALIVE=-1 for persistent model loading, eliminating cold-start latency and reducing API call overhead.
-- **Advanced Health Monitoring**: Enhanced `_probe_once` method now uses `/api/ps` endpoint to detect model state before warmup, eliminating redundant generate probes when models are already hot.
-- **Improved Error Logging**: Enhanced error logging with exception type information (`type(e).__name__`) for better diagnostics and troubleshooting.
-- **Comprehensive Test Coverage**: Added tests verifying optimized model state detection and performance improvements.
+- **Enhanced Concurrency Control**: Implemented shared semaphore system to prevent CPU timeouts and resource contention across resume narrative, video analysis, and transcript analysis services.
+- **Lazy Initialization**: Added lazy initialization for the shared semaphore with proper logging for debugging resource contention scenarios.
+- **Controlled Concurrency**: All LLM service calls now wrap HTTP requests with shared semaphore for controlled concurrency management.
+- **Resource Contention Prevention**: The semaphore ensures Ollama with qwen3.5:4b (Parallel:1) operates with serialized requests to prevent CPU timeouts.
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -38,13 +39,13 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the LLM service integration with Ollama for AI-powered analysis and reasoning in the Resume Screening platform. It covers the ChatOllama integration, model configuration parameters, inference optimization techniques, singleton pattern implementation, semaphore-based concurrency control, memory management strategies, model selection criteria, performance tuning parameters, fallback mechanisms, prompt engineering patterns, response parsing, error handling for timeouts, security considerations, rate limiting, and monitoring approaches for LLM usage.
+This document explains the LLM service integration with Ollama for AI-powered analysis and reasoning in the Resume Screening platform. It covers the ChatOllama integration, model configuration parameters, inference optimization techniques, singleton pattern implementation, **enhanced semaphore-based concurrency control**, memory management strategies, model selection criteria, performance tuning parameters, fallback mechanisms, prompt engineering patterns, response parsing, error handling for timeouts, security considerations, rate limiting, and monitoring approaches for LLM usage.
 
-**Updated** Enhanced with optimized health monitoring system that eliminates redundant API calls, improved error diagnostics with exception type information, and comprehensive test coverage for model state detection. The system now features advanced timeout management with LLM_NARRATIVE_TIMEOUT=180s and persistent model loading via OLLAMA_KEEP_ALIVE=-1.
+**Updated** Enhanced with shared semaphore system that prevents CPU timeouts and resource contention across all LLM services. The system now features lazy initialization with proper logging for debugging resource contention scenarios, ensuring controlled concurrency for Ollama requests.
 
 ## Project Structure
-The LLM integration spans several modules with enhanced monitoring capabilities:
-- Services: LLM service for direct Ollama calls, hybrid pipeline with ChatOllama, analysis orchestration, and Ollama health sentinel monitoring.
+The LLM integration spans several modules with enhanced concurrency control:
+- Services: LLM service for direct Ollama calls, hybrid pipeline with ChatOllama, analysis orchestration, Ollama health sentinel monitoring, **transcript analysis**, and **video analysis** with shared semaphore control.
 - Routes: API endpoints that trigger analysis, enforce usage limits, and provide narrative polling support.
 - Infrastructure: Ollama container configuration with persistent model loading, model setup script, and Nginx rate limiting.
 - Startup: Health checks, warm-up script, and sentinel-based monitoring to ensure Ollama readiness.
@@ -60,25 +61,30 @@ E["Main (main.py)"]
 F["Agent Pipeline (agent_pipeline.py)"]
 G["Health Sentinel (llm_service.py)"]
 H["Test Suite (test_llm_service.py)"]
+I["Transcript Service (transcript_service.py)"]
+J["Video Service (video_service.py)"]
 end
 subgraph "Infrastructure"
-I["Ollama Container (docker-compose.prod.yml)"]
-J["Nginx Rate Limits (nginx.prod.conf)"]
-K["Wait Script (wait_for_ollama.py)"]
-L["Model Setup (setup-recruiter-model.sh)"]
+K["Ollama Container (docker-compose.prod.yml)"]
+L["Nginx Rate Limits (nginx.prod.conf)"]
+M["Wait Script (wait_for_ollama.py)"]
+N["Model Setup (setup-recruiter-model.sh)"]
 end
 A --> B
 B --> C
 B --> D
-E --> I
+E --> K
 E --> G
-I --> G
-J --> A
+K --> G
+L --> A
 F --> D
-K --> I
-L --> I
+M --> K
+N --> K
 H --> G
-H --> C
+I --> C
+I --> G
+J --> C
+J --> G
 ```
 
 **Diagram sources**
@@ -93,6 +99,8 @@ H --> C
 - [wait_for_ollama.py](file://app/backend/scripts/wait_for_ollama.py)
 - [setup-recruiter-model.sh](file://ollama/setup-recruiter-model.sh)
 - [test_llm_service.py](file://app/backend/tests/test_llm_service.py)
+- [transcript_service.py](file://app/backend/services/transcript_service.py)
+- [video_service.py](file://app/backend/services/video_service.py)
 
 **Section sources**
 - [docker-compose.prod.yml:41-110](file://docker-compose.prod.yml#L41-L110)
@@ -100,14 +108,16 @@ H --> C
 - [main.py:104-149](file://app/backend/main.py#L104-L149)
 
 ## Core Components
-- LLM Service: Encapsulates Ollama HTTP calls, prompt building, JSON parsing, normalization, and fallback responses with configurable timeout handling.
-- Hybrid Pipeline: Provides a ChatOllama singleton, semaphore-controlled concurrency, and performance-tuned model parameters with enhanced timeout management and persistent model loading.
+- LLM Service: Encapsulates Ollama HTTP calls, prompt building, JSON parsing, normalization, and fallback responses with configurable timeout handling. **Now includes shared semaphore for controlled concurrency**.
+- Hybrid Pipeline: Provides a ChatOllama singleton, **semaphore-controlled concurrency** for LLM requests, and performance-tuned model parameters with enhanced timeout management and persistent model loading.
 - Agent Pipeline: Manages fast and reasoning LLM instances with unified timeout configuration for different model types.
 - Analysis Service: Orchestrates skill matching, gap analysis, and LLM narrative generation.
 - Routes: Enforce usage limits, stream results, persist outcomes, and support narrative polling architecture.
 - Startup and Monitoring: Health checks, warm-up script, diagnostic endpoints, and Ollama health sentinel monitoring with optimized model state detection.
+- **Transcript Service**: **New** service for analyzing interview transcripts with shared semaphore control.
+- **Video Service**: **New** service for analyzing video interviews with shared semaphore control.
 
-**Updated** All LLM components now utilize the enhanced LLM_NARRATIVE_TIMEOUT environment variable (180s in production) for consistent timeout management across the system, with enhanced monitoring through the optimized health sentinel pattern that eliminates redundant API calls and persistent model loading via OLLAMA_KEEP_ALIVE=-1.
+**Updated** All LLM components now utilize the enhanced shared semaphore system for controlled concurrency, preventing CPU timeouts and resource contention. The system includes lazy initialization with proper logging for debugging resource contention scenarios.
 
 **Section sources**
 - [llm_service.py:7-157](file://app/backend/services/llm_service.py#L7-L157)
@@ -116,12 +126,15 @@ H --> C
 - [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
 - [main.py:262-326](file://app/backend/main.py#L262-L326)
 - [agent_pipeline.py:80-115](file://app/backend/services/agent_pipeline.py#L80-L115)
+- [transcript_service.py:191-230](file://app/backend/services/transcript_service.py#L191-L230)
+- [video_service.py:145-181](file://app/backend/services/video_service.py#L145-L181)
 
 ## Architecture Overview
 The system uses a hybrid approach with enhanced timeout management and comprehensive monitoring:
 - Python-first scoring and gap detection for speed.
 - Single LLM call via ChatOllama for narrative and qualitative insights.
 - Configurable timeout handling with LLM_NARRATIVE_TIMEOUT=180s in production for improved reliability.
+- **Enhanced Concurrency Control**: Shared semaphore system prevents CPU timeouts and resource contention across all LLM services.
 - Concurrency control via a semaphore to prevent resource exhaustion.
 - Startup and runtime checks to ensure model availability and readiness.
 - **Optimized Health Sentinel Pattern**: Continuous monitoring with automatic warmup and model state tracking that eliminates redundant API calls when models are already hot.
@@ -137,6 +150,7 @@ participant Gap as "Gap Detector"
 participant Hybrid as "Hybrid Pipeline"
 participant Sentinel as "Ollama Health Sentinel"
 participant Llama as "ChatOllama (singleton)"
+participant Semaphore as "Shared Semaphore"
 participant Ollama as "Ollama Server"
 Client->>Route : POST /api/analyze
 Route->>Parser : parse_resume()
@@ -149,9 +163,13 @@ Sentinel->>Ollama : GET /api/ps (optimized check)
 Ollama-->>Sentinel : running models list
 alt Model HOT (already loaded)
 Sentinel-->>Hybrid : model_state = HOT (no POST needed)
+Hybrid->>Semaphore : acquire()
+Semaphore-->>Hybrid : slot available
 Hybrid->>Llama : generate(JSON prompt)
 Llama->>Ollama : HTTP /api/generate (timeout : LLM_NARRATIVE_TIMEOUT + 30s)
 Ollama-->>Llama : JSON response
+Llama-->>Hybrid : result
+Hybrid->>Semaphore : release()
 else Model COLD/WARMING/ERROR
 Sentinel-->>Hybrid : model_state (WARMING/ERROR)
 Hybrid-->>Route : fallback to Python-only analysis
@@ -168,14 +186,48 @@ Route-->>Client : analysis result
 
 ## Detailed Component Analysis
 
+### Enhanced Semaphore-Based Concurrency Control
+- **Shared Semaphore System**: Prevents LLM contention across resume narrative, video analysis, and transcript analysis services.
+- **Lazy Initialization**: Semaphore is lazily created and initialized with max_concurrent=1 for Ollama with qwen3.5:4b (Parallel:1).
+- **Resource Contention Prevention**: All LLM service calls wrap HTTP requests with shared semaphore for controlled concurrency.
+- **Logging and Debugging**: Proper logging for debugging resource contention scenarios, including waiting for Ollama slot messages.
+- **Consistent Behavior**: Applied across hybrid pipeline, transcript service, and video service for uniform resource management.
+
+**Updated** Enhanced with shared semaphore system that prevents CPU timeouts and resource contention across all LLM services with lazy initialization and proper logging.
+
+```mermaid
+flowchart TD
+Start(["Shared Semaphore System"]) --> LazyInit["Lazy Initialization"]
+LazyInit --> CheckLock{"Semaphore Locked?"}
+CheckLock --> |Yes| LogWait["Log: Waiting for Ollama slot..."]
+LogWait --> Acquire["Acquire Semaphore"]
+CheckLock --> |No| Acquire
+Acquire --> Execute["Execute LLM Request"]
+Execute --> Release["Release Semaphore"]
+Release --> Complete["Request Complete"]
+```
+
+**Diagram sources**
+- [llm_service.py:12-23](file://app/backend/services/llm_service.py#L12-L23)
+- [hybrid_pipeline.py:1797-1801](file://app/backend/services/hybrid_pipeline.py#L1797-L1801)
+- [transcript_service.py:205-209](file://app/backend/services/transcript_service.py#L205-L209)
+- [video_service.py:150-154](file://app/backend/services/video_service.py#L150-L154)
+
+**Section sources**
+- [llm_service.py:12-23](file://app/backend/services/llm_service.py#L12-L23)
+- [hybrid_pipeline.py:1797-1801](file://app/backend/services/hybrid_pipeline.py#L1797-L1801)
+- [transcript_service.py:205-209](file://app/backend/services/transcript_service.py#L205-L209)
+- [video_service.py:150-154](file://app/backend/services/video_service.py#L150-L154)
+
 ### Enhanced Timeout Management
 - **Production Configuration**: LLM_NARRATIVE_TIMEOUT increased to 180 seconds in production (docker-compose.prod.yml:97) to accommodate model contention and cold-start scenarios.
 - **Development Configuration**: Default 60 seconds in development (docker-compose.yml:65) for faster iteration cycles.
 - **HTTP Client Timeout**: Automatically calculated as LLM_NARRATIVE_TIMEOUT + 30 seconds to ensure proper cancellation handling.
 - **Streaming Timeout**: Uses pure LLM_NARRATIVE_TIMEOUT value for asyncio.wait_for control.
 - **Request Timeout**: ChatOllama singleton also set to LLM_NARRATIVE_TIMEOUT + 30 seconds for consistency across components.
+- **Semaphore Integration**: Timeout handling works in conjunction with shared semaphore for comprehensive resource management.
 
-**Updated** Enhanced timeout management with LLM_NARRATIVE_TIMEOUT=180s in production for improved reliability during model contention and cold-start scenarios.
+**Updated** Enhanced timeout management with LLM_NARRATIVE_TIMEOUT=180s in production for improved reliability during model contention and cold-start scenarios, integrated with semaphore-based concurrency control.
 
 ```mermaid
 flowchart TD
@@ -188,6 +240,8 @@ HTTPTimeout --> StreamTimeout["Streaming Timeout: 180s"]
 HTTPTimeout2 --> StreamTimeout2["Streaming Timeout: 60s"]
 StreamTimeout --> RequestTimeout["Request Timeout: 210s"]
 StreamTimeout2 --> RequestTimeout2["Request Timeout: 90s"]
+StreamTimeout --> SemaphoreTimeout["Semaphore Timeout: 180s"]
+StreamTimeout2 --> SemaphoreTimeout2["Semaphore Timeout: 60s"]
 ```
 
 **Diagram sources**
@@ -254,8 +308,9 @@ Sleep --> ProbeLoop
 - **Exception Type Information**: Error logging now includes `type(e).__name__` for better identification of error categories.
 - **Improved Debugging**: Enhanced error messages help distinguish between connection failures, timeout errors, and other exception types.
 - **Comprehensive Error Handling**: Robust exception handling with proper state transitions to ERROR state for failed probes.
+- **Semaphore Debugging**: Added logging for semaphore contention scenarios to aid in debugging resource management issues.
 
-**New Section** Enhanced error logging provides better diagnostics with exception type information for improved troubleshooting.
+**New Section** Enhanced error logging provides better diagnostics with exception type information for improved troubleshooting, including semaphore contention debugging.
 
 **Section sources**
 - [llm_service.py:86-90](file://app/backend/services/llm_service.py#L86-L90)
@@ -300,28 +355,33 @@ API-->>Client : comprehensive_status_report
   - Normalization to bounded ranges and acceptable values.
   - Retry loop with a single retry attempt and fallback response on failure.
   - Configurable HTTP client timeout using LLM_NARRATIVE_TIMEOUT environment variable with +30 second buffer.
+  - **Enhanced Concurrency**: Now includes shared semaphore integration for controlled request execution.
 
-**Updated** HTTP client now uses configurable timeout (180s in production) instead of hardcoded 60 seconds, with automatic +30 second buffer calculation for improved reliability.
+**Updated** HTTP client now uses configurable timeout (180s in production) instead of hardcoded 60 seconds, with automatic +30 second buffer calculation for improved reliability. Integrated with shared semaphore system for controlled concurrency.
 
 ```mermaid
 flowchart TD
 Start(["analyze_resume"]) --> Build["Build Prompt"]
-Build --> RetryLoop{"Attempt < max_retries + 1?"}
+Start --> Semaphore["Acquire Semaphore"]
+Semaphore --> RetryLoop{"Attempt < max_retries + 1?"}
 RetryLoop --> |Yes| GetTimeout["Calculate timeout: LLM_NARRATIVE_TIMEOUT + 30s"]
 GetTimeout --> Call["Call Ollama /api/generate with configurable timeout"]
 Call --> Parse["Parse JSON (strict + markdown + loose)"]
 Parse --> Valid{"Parsed?"}
 Valid --> |Yes| Normalize["Normalize & Validate"]
-Normalize --> Return["Return Result"]
+Normalize --> Release["Release Semaphore"]
+Release --> Return["Return Result"]
 Valid --> |No| NextAttempt["Next Attempt"]
-RetryLoop --> |No| Fallback["Fallback Response"]
 NextAttempt --> RetryLoop
-Fallback --> Return
+RetryLoop --> |No| Fallback["Fallback Response"]
+Fallback --> Release2["Release Semaphore"]
+Release2 --> Return
 ```
 
 **Diagram sources**
 - [llm_service.py:13-41](file://app/backend/services/llm_service.py#L13-L41)
 - [llm_service.py:84-126](file://app/backend/services/llm_service.py#L84-L126)
+- [llm_service.py:159-175](file://app/backend/services/llm_service.py#L159-L175)
 
 **Section sources**
 - [llm_service.py:13-58](file://app/backend/services/llm_service.py#L13-L58)
@@ -329,7 +389,7 @@ Fallback --> Return
 
 ### ChatOllama Integration and Hybrid Pipeline
 - Singleton pattern: ChatOllama instance is created once and reused globally.
-- Semaphore-based concurrency: Limits concurrent LLM calls to two per worker.
+- **Enhanced Concurrency**: Semaphore-based concurrency control limits concurrent LLM calls to one per worker for Ollama qwen3.5:4b (Parallel:1).
 - Performance tuning:
   - num_predict tuned to the expected JSON output size to avoid oversized KV allocations.
   - num_ctx reduced from defaults to minimize memory footprint and improve attention speed.
@@ -337,8 +397,9 @@ Fallback --> Return
 - Enhanced timeout management: HTTP timeout set to LLM_NARRATIVE_TIMEOUT + 30 seconds to ensure proper cancellation handling.
 - **Health Integration**: Hybrid pipeline now integrates with health sentinel to check model state before making LLM calls.
 - **Persistent Model Loading**: keep_alive=-1 ensures models remain loaded in RAM for optimal performance.
+- **Semaphore Integration**: All LLM calls in hybrid pipeline now use shared semaphore for controlled execution.
 
-**Updated** HTTP timeout now exceeds LLM_NARRATIVE_TIMEOUT by 30 seconds to allow asyncio.wait_for control cancellation rather than httpx timeout termination. Persistent model loading via keep_alive=-1 eliminates cold-start latency.
+**Updated** HTTP timeout now exceeds LLM_NARRATIVE_TIMEOUT by 30 seconds to allow asyncio.wait_for control cancellation rather than httpx timeout termination. Persistent model loading via keep_alive=-1 eliminates cold-start latency. Enhanced with shared semaphore system for controlled concurrency.
 
 ```mermaid
 classDiagram
@@ -363,13 +424,20 @@ class OllamaHealthSentinel {
 +start() : void
 +stop() : void
 }
+class SharedSemaphore {
++max_concurrent : int
++acquire() : void
++release() : void
+}
 HybridPipeline --> ChatOllama : "singleton with configurable timeout"
 HybridPipeline --> OllamaHealthSentinel : "health monitoring"
+HybridPipeline --> SharedSemaphore : "concurrency control"
 ```
 
 **Diagram sources**
 - [hybrid_pipeline.py:24-66](file://app/backend/services/hybrid_pipeline.py#L24-L66)
 - [llm_service.py:20-106](file://app/backend/services/llm_service.py#L20-L106)
+- [llm_service.py:12-23](file://app/backend/services/llm_service.py#L12-L23)
 
 **Section sources**
 - [hybrid_pipeline.py:24-66](file://app/backend/services/hybrid_pipeline.py#L24-L66)
@@ -384,6 +452,73 @@ HybridPipeline --> OllamaHealthSentinel : "health monitoring"
 
 **Section sources**
 - [agent_pipeline.py:80-115](file://app/backend/services/agent_pipeline.py#L80-L115)
+
+### Transcript Analysis Service with Semaphore Control
+- **New Service**: Dedicated service for analyzing interview transcripts using LLM.
+- **Semaphore Integration**: Uses shared semaphore to prevent resource contention with other LLM services.
+- **Prompt Engineering**: Builds structured prompts for transcript analysis with job description context.
+- **JSON Parsing**: Extracts structured analysis results with strengths, areas for improvement, and recommendations.
+- **Fallback Mechanisms**: Provides default analysis results when LLM calls fail.
+- **Logging**: Includes semaphore waiting logs and detailed error logging.
+
+**New Section** Transcript analysis service with integrated semaphore control for consistent resource management across all LLM services.
+
+```mermaid
+flowchart TD
+Start(["analyze_transcript"]) --> BuildPrompt["Build Transcript Prompt"]
+BuildPrompt --> AcquireSem["Acquire Shared Semaphore"]
+AcquireSem --> CheckLength{"Transcript > 30 chars?"}
+CheckLength --> |No| Fallback["Return Fallback Result"]
+CheckLength --> |Yes| CallLLM["Call Ollama /api/generate"]
+CallLLM --> ParseJSON["Parse JSON Response"]
+ParseJSON --> Valid{"Valid JSON?"}
+Valid --> |Yes| Normalize["Normalize Results"]
+Normalize --> ReleaseSem["Release Semaphore"]
+ReleaseSem --> Return["Return Analysis"]
+Valid --> |No| Fallback2["Return Fallback Result"]
+Fallback2 --> ReleaseSem2["Release Semaphore"]
+```
+
+**Diagram sources**
+- [transcript_service.py:191-230](file://app/backend/services/transcript_service.py#L191-L230)
+
+**Section sources**
+- [transcript_service.py:191-230](file://app/backend/services/transcript_service.py#L191-L230)
+
+### Video Analysis Service with Semaphore Control
+- **New Service**: Comprehensive video interview analysis combining transcription, communication assessment, and malpractice detection.
+- **Semaphore Integration**: Uses shared semaphore to coordinate with other LLM services and prevent resource contention.
+- **Multi-Modal Analysis**: Processes audio/video data to extract meaningful insights about candidate performance.
+- **Communication Analysis**: Evaluates speaking rate, clarity, articulation, and communication effectiveness.
+- **Malpractice Detection**: Identifies potential interview malpractice signals using LLM analysis.
+- **Parallel Processing**: Combines multiple analysis tasks efficiently using asyncio.gather.
+
+**New Section** Video analysis service with integrated semaphore control for coordinated resource management across all LLM services.
+
+```mermaid
+flowchart TD
+Start(["analyze_video_file"]) --> Transcribe["Transcribe Video"]
+Transcribe --> ExtractSignals["Extract Pause Signals"]
+ExtractSignals --> ParallelExec["Parallel: Communication + Malpractice Analysis"]
+ParallelExec --> AcquireSem1["Acquire Semaphore (Communication)"]
+AcquireSem1 --> CallComm["Call Ollama for Communication Analysis"]
+CallComm --> ReleaseSem1["Release Semaphore"]
+AcquireSem2["Acquire Semaphore (Malpractice)"] --> CallMal["Call Ollama for Malpractice Analysis"]
+CallMal --> ReleaseSem2["Release Semaphore"]
+ReleaseSem1 --> MergeResults["Merge Results"]
+ReleaseSem2 --> MergeResults
+MergeResults --> Return["Return Analysis"]
+```
+
+**Diagram sources**
+- [video_service.py:357-370](file://app/backend/services/video_service.py#L357-L370)
+- [video_service.py:150-154](file://app/backend/services/video_service.py#L150-L154)
+- [video_service.py:261-264](file://app/backend/services/video_service.py#L261-L264)
+
+**Section sources**
+- [video_service.py:357-370](file://app/backend/services/video_service.py#L357-L370)
+- [video_service.py:150-154](file://app/backend/services/video_service.py#L150-L154)
+- [video_service.py:261-264](file://app/backend/services/video_service.py#L261-L264)
 
 ### Analysis Service Orchestration
 - Computes skill match percentage and risk signals from gap analysis.
@@ -491,6 +626,8 @@ Diagnose --> Ready
 - Nginx applies rate limiting and disables buffering for SSE streaming to avoid 524 errors.
 - **Health Sentinel Dependencies**: New dependencies on httpx for health probing and asyncio for background monitoring.
 - **Persistent Model Loading**: OLLAMA_KEEP_ALIVE=-1 environment variable ensures models remain loaded in RAM.
+- **Semaphore Dependencies**: New shared semaphore system with lazy initialization and logging capabilities.
+- **Transcript and Video Services**: Depend on shared semaphore for coordinated resource management.
 
 ```mermaid
 graph LR
@@ -503,6 +640,9 @@ I["agent_pipeline.py"] --> B
 J["main.py"] --> K["Ollama Health Sentinel"]
 L["llm_status()"] --> K
 M["test_llm_service.py"] --> K
+N["transcript_service.py"] --> O["Shared Semaphore"]
+P["video_service.py"] --> O
+O --> D
 ```
 
 **Diagram sources**
@@ -514,6 +654,8 @@ M["test_llm_service.py"] --> K
 - [agent_pipeline.py:84-97](file://app/backend/services/agent_pipeline.py#L84-L97)
 - [main.py:257-262](file://app/backend/main.py#L257-L262)
 - [test_llm_service.py:100-118](file://app/backend/tests/test_llm_service.py#L100-L118)
+- [transcript_service.py:14](file://app/backend/services/transcript_service.py#L14)
+- [video_service.py:15](file://app/backend/services/video_service.py#L15)
 
 **Section sources**
 - [requirements.txt:41-41](file://requirements.txt#L41-L41)
@@ -523,15 +665,16 @@ M["test_llm_service.py"] --> K
 ## Performance Considerations
 - num_predict tuning: Set to approximately the expected output token count plus headroom to prevent oversized KV allocations.
 - num_ctx reduction: Lower context window reduces memory usage and accelerates attention computations.
-- Semaphore control: Limits concurrent LLM calls to two per worker to balance throughput and resource usage.
+- **Enhanced Concurrency Control**: Shared semaphore limits concurrent LLM calls to one per worker to prevent CPU timeouts and resource contention.
 - Warm-up strategy: Preloading models into RAM via OLLAMA_KEEP_ALIVE=-1 avoids cold-start latency.
 - Streaming and buffering: Nginx disables buffering for SSE to ensure timely delivery of events.
 - **Enhanced timeout management**: Configurable LLM_NARRATIVE_TIMEOUT environment variable (180s in production) with +30 second buffer for improved reliability and proper cancellation handling.
 - **Optimized Health Sentinel**: Background monitoring with configurable probe intervals minimizes overhead while providing continuous model state awareness. The new model state detection eliminates redundant API calls when models are already hot, significantly reducing network overhead.
 - **Narrative Polling Architecture**: Asynchronous LLM processing allows immediate response while background tasks handle time-consuming analysis.
 - **Persistent Model Loading**: OLLAMA_KEEP_ALIVE=-1 ensures models remain loaded in RAM, eliminating cold-start delays and improving response times.
+- **Resource Contention Prevention**: Shared semaphore system prevents CPU timeouts by serializing LLM requests for Ollama qwen3.5:4b (Parallel:1).
 
-**Updated** Added comprehensive timeout management considerations with LLM_NARRATIVE_TIMEOUT=180s in production, optimized health sentinel with model state detection, and persistent model loading via OLLAMA_KEEP_ALIVE=-1 for enhanced system performance and reliability.
+**Updated** Added comprehensive timeout management considerations with LLM_NARRATIVE_TIMEOUT=180s in production, optimized health sentinel with model state detection, persistent model loading via OLLAMA_KEEP_ALIVE=-1, and enhanced semaphore-based concurrency control for optimal system performance and resource management.
 
 **Section sources**
 - [hybrid_pipeline.py:55-62](file://app/backend/services/hybrid_pipeline.py#L55-L62)
@@ -549,6 +692,7 @@ M["test_llm_service.py"] --> K
   - Hybrid pipeline's ChatOllama singleton and semaphore help manage concurrency under load.
   - **Enhanced timeout handling**: Configure LLM_NARRATIVE_TIMEOUT environment variable to adjust timeout behavior based on model loading times and system capacity.
   - **Improved error handling**: Timeout errors now include specific guidance to increase LLM_NARRATIVE_TIMEOUT if model is still loading.
+  - **Semaphore Contention**: Check logs for "Waiting for Ollama slot" messages to identify resource contention issues.
 - Rate limiting:
   - Nginx zones limit API requests; adjust burst and nodelay as needed.
   - Frontend checks remaining analyses before initiating operations.
@@ -558,8 +702,12 @@ M["test_llm_service.py"] --> K
   - **Manual Warmup**: Use docker exec commands to manually warm up the model if automatic warmup fails.
   - **Optimized Detection**: If models appear cold but are already hot, check that `/api/ps` endpoint is accessible and that the model name matches exactly.
   - **Persistent Model Issues**: Verify OLLAMA_KEEP_ALIVE=-1 is set in environment variables if models are not staying loaded.
+- **Semaphore Issues**:
+  - **Resource Contention**: Monitor logs for semaphore waiting messages to identify bottlenecks.
+  - **Deadlock Prevention**: Ensure all semaphore acquisitions are properly released in error handling paths.
+  - **Timeout Configuration**: Adjust LLM_NARRATIVE_TIMEOUT if semaphore waits are too frequent.
 
-**Updated** Enhanced troubleshooting with health sentinel monitoring, model state tracking, optimized detection capabilities, and persistent model loading verification.
+**Updated** Enhanced troubleshooting with health sentinel monitoring, model state tracking, optimized detection capabilities, persistent model loading verification, and comprehensive semaphore-based resource contention debugging.
 
 **Section sources**
 - [main.py:262-326](file://app/backend/main.py#L262-L326)
@@ -568,9 +716,9 @@ M["test_llm_service.py"] --> K
 - [nginx.prod.conf:50-75](file://app/nginx/nginx.prod.conf#L50-L75)
 
 ## Conclusion
-The LLM integration combines robust prompt engineering, ChatOllama singleton and semaphore controls, and strict performance tuning to deliver reliable, low-latency analysis. Enhanced timeout management with the LLM_NARRATIVE_TIMEOUT environment variable (180s in production) provides configurable timeout handling across all LLM components. Startup diagnostics and warm-up procedures ensure model availability, while usage enforcement and rate limiting protect system stability. The hybrid approach balances deterministic Python scoring with targeted LLM narrative generation for optimal accuracy and throughput. **New health sentinel pattern provides continuous monitoring, automatic warmup, and comprehensive model state tracking for improved reliability and observability. The optimized model state detection eliminates redundant API calls when models are already hot, significantly improving system performance while maintaining robust error handling and comprehensive diagnostics. Persistent model loading via OLLAMA_KEEP_ALIVE=-1 ensures models remain hot in RAM, eliminating cold-start latency and improving response times.**
+The LLM integration combines robust prompt engineering, ChatOllama singleton and semaphore controls, and strict performance tuning to deliver reliable, low-latency analysis. Enhanced timeout management with the LLM_NARRATIVE_TIMEOUT environment variable (180s in production) provides configurable timeout handling across all LLM components. Startup diagnostics and warm-up procedures ensure model availability, while usage enforcement and rate limiting protect system stability. The hybrid approach balances deterministic Python scoring with targeted LLM narrative generation for optimal accuracy and throughput. **New health sentinel pattern provides continuous monitoring, automatic warmup, and comprehensive model state tracking for improved reliability and observability. The optimized model state detection eliminates redundant API calls when models are already hot, significantly improving system performance while maintaining robust error handling and comprehensive diagnostics. Persistent model loading via OLLAMA_KEEP_ALIVE=-1 ensures models remain hot in RAM, eliminating cold-start latency and improving response times.** **Enhanced semaphore-based concurrency control prevents CPU timeouts and resource contention across all LLM services, ensuring stable operation under load while maintaining optimal resource utilization.**
 
-**Updated** Improved timeout handling with LLM_NARRATIVE_TIMEOUT=180s, enhanced health monitoring with optimized model state detection, persistent model loading via OLLAMA_KEEP_ALIVE=-1, and optimized performance through intelligent model state detection enhance system reliability and operational flexibility.
+**Updated** Improved timeout handling with LLM_NARRATIVE_TIMEOUT=180s, enhanced health monitoring with optimized model state detection, persistent model loading via OLLAMA_KEEP_ALIVE=-1, optimized performance through intelligent model state detection, and comprehensive semaphore-based concurrency control enhance system reliability, operational flexibility, and resource management across all LLM services.
 
 ## Appendices
 
@@ -594,6 +742,7 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - CORS policy is controlled by environment; restrict origins in production.
 - Rate limiting at the edge (Nginx) protects backend resources.
 - **Health Endpoint Security**: /api/llm-status provides diagnostic information; consider restricting access in production environments.
+- **Semaphore Security**: Shared semaphore prevents resource exhaustion attacks and ensures fair resource allocation.
 
 **Section sources**
 - [main.py:182-198](file://app/backend/main.py#L182-L198)
@@ -608,8 +757,9 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Narrative Polling Monitoring**: Background task tracking and polling endpoint status reporting.
 - **Optimized Performance Monitoring**: Monitor reduced API call overhead through model state detection metrics.
 - **Persistent Model Monitoring**: Verify OLLAMA_KEEP_ALIVE=-1 is functioning to maintain model hot state.
+- **Semaphore Monitoring**: Track semaphore usage patterns and resource contention scenarios for system optimization.
 
-**Updated** Added comprehensive monitoring capabilities for health sentinel, model state tracking, narrative polling architecture, optimized performance metrics, and persistent model loading verification.
+**Updated** Added comprehensive monitoring capabilities for health sentinel, model state tracking, narrative polling architecture, optimized performance metrics, persistent model loading verification, and semaphore-based resource management monitoring.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -622,12 +772,13 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **ChatOllama Request Timeout**: Also set to LLM_NARRATIVE_TIMEOUT + 30 seconds for consistency across components.
 - **Streaming Timeout**: Uses pure LLM_NARRATIVE_TIMEOUT value for asyncio.wait_for control.
 - **Health Sentinel Probe Interval**: Configurable interval (default: 60 seconds) for background monitoring.
+- **Semaphore Timeout**: Inherits LLM_NARRATIVE_TIMEOUT for coordinated resource management.
 - **Configuration Examples**:
   - Fast model: `LLM_NARRATIVE_TIMEOUT=60` → HTTP timeout: 90 seconds
   - Reasoning model: `LLM_NARRATIVE_TIMEOUT=180` → HTTP timeout: 210 seconds
   - Large models: `LLM_NARRATIVE_TIMEOUT=240` → HTTP timeout: 270 seconds
 
-**New Section** Comprehensive timeout configuration guide for optimal system performance tuning with enhanced production settings.
+**New Section** Comprehensive timeout configuration guide for optimal system performance tuning with enhanced production settings and semaphore integration.
 
 **Section sources**
 - [docker-compose.prod.yml:96-97](file://docker-compose.prod.yml#L96-L97)
@@ -685,10 +836,26 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Error Handling Tests**: Tests validate proper error state transitions and exception type logging.
 - **Integration Tests**: Tests cover the interaction between health sentinel and hybrid pipeline components.
 - **Persistent Model Loading Tests**: Tests verify OLLAMA_KEEP_ALIVE=-1 functionality and model state persistence.
+- **Semaphore Integration Tests**: Tests validate shared semaphore functionality across multiple LLM services.
 
-**New Section** Comprehensive test coverage for optimized health monitoring system, performance improvements, and persistent model loading.
+**New Section** Comprehensive test coverage for optimized health monitoring system, performance improvements, persistent model loading, and semaphore-based concurrency control.
 
 **Section sources**
 - [test_llm_service.py:100-118](file://app/backend/tests/test_llm_service.py#L100-L118)
 - [test_llm_service.py:121-152](file://app/backend/tests/test_llm_service.py#L121-L152)
 - [test_llm_service.py:183-200](file://app/backend/tests/test_llm_service.py#L183-L200)
+
+### Semaphore Implementation Details
+- **Lazy Initialization**: Semaphore is created only when first accessed, reducing startup overhead.
+- **Thread Safety**: asyncio.Semaphore provides thread-safe concurrent access control.
+- **Logging Integration**: Comprehensive logging for semaphore acquisition and release events.
+- **Timeout Handling**: Semaphore operations respect LLM_NARRATIVE_TIMEOUT for coordinated resource management.
+- **Resource Contention Prevention**: Ensures Ollama qwen3.5:4b (Parallel:1) operates with serialized requests.
+
+**New Section** Detailed implementation of shared semaphore system for resource management across all LLM services.
+
+**Section sources**
+- [llm_service.py:12-23](file://app/backend/services/llm_service.py#L12-L23)
+- [hybrid_pipeline.py:1797-1801](file://app/backend/services/hybrid_pipeline.py#L1797-L1801)
+- [transcript_service.py:205-209](file://app/backend/services/transcript_service.py#L205-L209)
+- [video_service.py:150-154](file://app/backend/services/video_service.py#L150-L154)
