@@ -51,10 +51,17 @@ def compare_candidates(
             "matched_skills":       analysis.get("matched_skills", []),
             "missing_skills":       analysis.get("missing_skills", []),
             "score_breakdown":      analysis.get("score_breakdown", {}),
-            "strengths":            analysis.get("strengths", []),
-            "weaknesses":           analysis.get("weaknesses", []),
+            "strengths":            analysis.get("strengths", [])[:3],  # top 3 strengths
+            "weaknesses":           analysis.get("weaknesses", [])[:3],  # top 3 weaknesses
             "education_analysis":   analysis.get("education_analysis", ""),
             "candidate_name":       parsed.get("contact_info", {}).get("name", f"Candidate {r.id}"),
+            # Enhanced comparison fields
+            "employment_gaps":      len(analysis.get("employment_gaps", [])),  # gap count
+            "interview_questions_preview": (
+                analysis.get("interview_questions", {}).get("technical", [])[:2]
+            ),  # first 2 technical questions
+            "analysis_quality":     analysis.get("analysis_quality", "medium"),
+            "adjacent_skills":      analysis.get("adjacent_skills", [])[:5],  # top 5
         })
 
     # Determine category winners

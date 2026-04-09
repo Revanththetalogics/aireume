@@ -184,14 +184,22 @@ export default function ReportPage() {
         </div>
 
         {/* AI Enhancement status indicator in sidebar */}
-        {result.narrative_pending && result.analysis_id && (
+        {result.narrative_pending && result.analysis_id && !result.ai_enhanced && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-brand-50 ring-1 ring-brand-200 text-xs font-semibold text-brand-700">
             <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse shrink-0" />
             AI analysis in progress
             <span className="animate-pulse">…</span>
           </div>
         )}
-        {!result.narrative_pending && (result.strengths?.length > 0 || result.concerns?.length > 0) && (
+        {/* Fallback narrative (not AI-enhanced) - show "Analysis complete" */}
+        {!result.narrative_pending && result.ai_enhanced === false && (result.strengths?.length > 0 || result.concerns?.length > 0) && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-xs font-semibold text-slate-700">
+            <span className="w-2 h-2 rounded-full bg-slate-500 shrink-0" />
+            Analysis complete
+          </div>
+        )}
+        {/* Real AI-enhanced narrative - show "AI Enhanced Report" */}
+        {!result.narrative_pending && result.ai_enhanced === true && (result.strengths?.length > 0 || result.concerns?.length > 0) && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 ring-1 ring-green-200 text-xs font-semibold text-green-700">
             <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
             AI Enhanced Report

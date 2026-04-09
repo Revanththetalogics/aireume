@@ -9,6 +9,19 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# ─── Shared Ollama Semaphore ─────────────────────────────────────────────────
+# Prevents LLM contention across resume narrative, video analysis, and transcript analysis.
+# Ollama with qwen3.5:4b only supports Parallel:1, so we serialize all LLM requests.
+_ollama_semaphore: asyncio.Semaphore | None = None
+
+
+def get_ollama_semaphore(max_concurrent: int = 1) -> asyncio.Semaphore:
+    """Get the shared Ollama semaphore. Lazily creates it if needed."""
+    global _ollama_semaphore
+    if _ollama_semaphore is None:
+        _ollama_semaphore = asyncio.Semaphore(max_concurrent)
+    return _ollama_semaphore
+
 
 class OllamaState(str, enum.Enum):
     COLD = "cold"        # Model not loaded in RAM

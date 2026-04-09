@@ -26,6 +26,7 @@ import time
 from typing import AsyncGenerator, Dict, Any, List, Optional, Callable
 
 from app.backend.services.metrics import LLM_CALL_DURATION, LLM_FALLBACK_TOTAL
+from app.backend.services.llm_service import get_ollama_semaphore
 
 log = logging.getLogger("aria.hybrid")
 
@@ -83,17 +84,6 @@ def _wrap_user_content(resume_text: str, jd_text: str) -> tuple[str, str]:
     jd_text = _sanitize_input(jd_text, _MAX_JD_LENGTH, "job_description")
     return resume_text, jd_text
 
-# ─── Semaphore — 2 concurrent LLM calls per worker ───────────────────────────
-_LLM_SEMAPHORE: Optional[asyncio.Semaphore] = None
-
-
-def _get_semaphore() -> asyncio.Semaphore:
-    global _LLM_SEMAPHORE
-    if _LLM_SEMAPHORE is None:
-        _LLM_SEMAPHORE = asyncio.Semaphore(2)
-    return _LLM_SEMAPHORE
-
-
 # ─── LLM singleton ───────────────────────────────────────────────────────────
 _REASONING_LLM = None
 
@@ -115,9 +105,8 @@ def _get_llm():
                 base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
                 temperature=0.1,
                 format="json",
-                # num_predict: actual JSON output needs ~600-900 tokens for full narrative + interview questions.
-                # 1024 gives comfortable headroom.
-                num_predict=1024,
+                # num_predict: 512 tokens sufficient for narrative JSON (fit_summary + strengths + concerns + rationale + 4 questions ≈ 350-450 tokens).
+                num_predict=512,
                 # num_ctx: prompt is ~350 tokens. 2048 = prompt + output + margin.
                 # Still saves ~800 MB KV-cache vs default 4096.
                 num_ctx=2048,
@@ -1269,8 +1258,8 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
         for key in ["skill_rationale", "experience_rationale", "education_rationale", "timeline_rationale"]:
             val = score_rationales.get(key, "")
             if val:
-                # Truncate each rationale to ~100 chars to keep prompt compact
-                rationales_parts.append(f"{key.split('_')[0]}: {val[:100]}")
+                # Truncate each rationale to ~60 chars to keep prompt compact
+                rationales_parts.append(f"{key.split('_')[0]}: {val[:60]}")
         score_rationales_summary = " | ".join(rationales_parts) if rationales_parts else "Not available"
     else:
         score_rationales_summary = "Not available"
@@ -1293,22 +1282,22 @@ CAREER: {career_snippet}
 
 Return ONLY valid JSON:
 {{
-  "fit_summary": "2-3 sentence executive summary for the hiring manager explaining the overall assessment",
-  "strengths": ["specific strength tied to role requirements - reference actual skills and scores"],
-  "concerns": ["specific concern tied to role gaps - reference actual missing skills or risk flags"],
-  "recommendation_rationale": "WHY this recommendation, referencing scores and alignment data",
+  "fit_summary": "2-3 sentence executive summary for hiring manager",
+  "strengths": ["specific strength tied to role requirements"],
+  "concerns": ["specific concern tied to role gaps"],
+  "recommendation_rationale": "why this recommendation, referencing scores",
   "explainability": {{
-    "skill_rationale": "detailed explanation of skill match quality",
-    "experience_rationale": "detailed explanation of experience alignment",
-    "overall_rationale": "synthesis of all factors into final assessment"
+    "skill_rationale": "skill match quality explanation",
+    "experience_rationale": "experience alignment explanation",
+    "overall_rationale": "synthesis of all factors"
   }},
   "interview_questions": {{
-    "technical_questions": ["3 questions probing missing or weak skills"],
-    "behavioral_questions": ["2 STAR-format questions for role challenges"],
+    "technical_questions": ["2 questions probing missing/weak skills"],
+    "behavioral_questions": ["1 STAR-format question for role challenges"],
     "culture_fit_questions": ["1 motivation/values question"]
   }}
 }}
-Rules: 3-4 strengths, 2-3 concerns, reference actual skill names and scores. No markdown, no code fences."""
+No markdown, no code fences."""
 
     from langchain_core.messages import HumanMessage
     response = await llm.ainvoke([HumanMessage(content=prompt)])
@@ -1331,6 +1320,7 @@ Rules: 3-4 strengths, 2-3 concerns, reference actual skill names and scores. No 
     weaknesses = _ensure_str_list(data.get("weaknesses", concerns))
 
     return {
+        "ai_enhanced": True,  # Marks this as a real LLM-generated narrative
         "fit_summary":            str(data.get("fit_summary", "")),
         "strengths":              _ensure_str_list(data.get("strengths", [])),
         "concerns":               concerns,
@@ -1417,6 +1407,7 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
 
     # Return with both 'concerns' (new) and 'weaknesses' (backward compat)
     return {
+        "ai_enhanced": False,  # Marks this as a fallback narrative, not LLM-generated
         "fit_summary": fit_summary,
         "strengths":   strengths,
         "concerns":    concerns,
@@ -1766,6 +1757,7 @@ def _merge_llm_into_result(python_result: Dict[str, Any], llm_result: Dict[str, 
         final_weaknesses = []
 
     merged.update({
+        "ai_enhanced":            llm_result.get("ai_enhanced", False),  # True for LLM, False for fallback
         "fit_summary":            llm_result.get("fit_summary", ""),
         "strengths":              llm_result.get("strengths", []),
         "concerns":               final_concerns,
@@ -1803,7 +1795,10 @@ async def _background_llm_narrative(
         from app.backend.models.db_models import ScreeningResult
         
         _bg_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
-        async with _get_semaphore():
+        sem = get_ollama_semaphore()
+        if sem.locked():
+            log.info("Waiting for Ollama slot (another request in progress)...")
+        async with sem:
             start = time.monotonic()
             llm_result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_bg_timeout)
             LLM_CALL_DURATION.observe(time.monotonic() - start)
@@ -1927,7 +1922,10 @@ async def run_hybrid_pipeline(
     _LLM_TIMEOUT = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
 
     try:
-        async with _get_semaphore():
+        sem = get_ollama_semaphore()
+        if sem.locked():
+            log.info("Waiting for Ollama slot (another request in progress)...")
+        async with sem:
             start = time.monotonic()
             llm_result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_LLM_TIMEOUT)
             LLM_CALL_DURATION.observe(time.monotonic() - start)
@@ -2042,7 +2040,10 @@ async def astream_hybrid_pipeline(
 
     async def _llm_task():
         try:
-            async with _get_semaphore():
+            sem = get_ollama_semaphore()
+            if sem.locked():
+                log.info("Waiting for Ollama slot (another request in progress)...")
+            async with sem:
                 start = time.monotonic()
                 result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_LLM_TIMEOUT_STREAM)
                 LLM_CALL_DURATION.observe(time.monotonic() - start)

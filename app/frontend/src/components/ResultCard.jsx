@@ -195,7 +195,7 @@ function EmailModal({ candidateId, resultId, onClose }) {
 
 // ─── Analysis source badge ────────────────────────────────────────────────────
 
-function AnalysisSourceBadge({ narrativeReady, isPolling, analysisQuality }) {
+function AnalysisSourceBadge({ narrativeReady, isPolling, analysisQuality, aiEnhanced }) {
   if (isPolling) {
     return (
       <div className="flex items-center gap-3 p-3 bg-brand-50 ring-1 ring-brand-200 rounded-2xl">
@@ -207,7 +207,8 @@ function AnalysisSourceBadge({ narrativeReady, isPolling, analysisQuality }) {
     )
   }
 
-  if (narrativeReady) {
+  // Only show "AI Enhanced Report" badge for REAL LLM narratives (ai_enhanced === true)
+  if (narrativeReady && aiEnhanced === true) {
     return (
       <div className="flex items-center gap-3 p-3 bg-green-50 ring-1 ring-green-200 rounded-2xl">
         <Sparkles className="w-4 h-4 text-green-600 shrink-0" />
@@ -223,6 +224,18 @@ function AnalysisSourceBadge({ narrativeReady, isPolling, analysisQuality }) {
             {analysisQuality} quality
           </span>
         )}
+      </div>
+    )
+  }
+
+  // Show "Analysis complete" for fallback narratives (ai_enhanced === false or missing)
+  if (narrativeReady && aiEnhanced === false) {
+    return (
+      <div className="flex items-center gap-3 p-3 bg-slate-50 ring-1 ring-slate-200 rounded-2xl">
+        <CheckCircle className="w-4 h-4 text-slate-600 shrink-0" />
+        <p className="text-xs font-semibold text-slate-700 flex-1">
+          Analysis complete
+        </p>
       </div>
     )
   }
@@ -280,6 +293,10 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
   
   // Determine if narrative is ready (either from polling or already in result)
   const narrativeReady = narrativeData !== null || (narrative_pending === false && (strengths?.length > 0 || concerns?.length > 0))
+  
+  // Check if narrative is AI-enhanced (real LLM response vs fallback)
+  // narrativeData comes from polling, result.narrative_json would be from initial result
+  const aiEnhanced = narrativeData?.ai_enhanced ?? result?.ai_enhanced ?? null
 
   // Narrative polling effect
   useEffect(() => {
@@ -389,6 +406,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
             narrativeReady={narrativeReady}
             isPolling={isPolling}
             analysisQuality={analysis_quality}
+            aiEnhanced={aiEnhanced}
           />
         )}
 
@@ -536,7 +554,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               <ThumbsUp className="w-4 h-4 text-green-600" />
               <h3 className="font-bold text-green-800 text-sm">
                 Strengths
-                {narrativeData?.strengths && (
+                {narrativeData?.strengths && aiEnhanced === true && (
                   <span className="ml-2 text-[10px] font-semibold text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full">AI Enhanced</span>
                 )}
               </h3>
@@ -557,7 +575,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               <ThumbsDown className="w-4 h-4 text-red-600" />
               <h3 className="font-bold text-red-800 text-sm">
                 Concerns
-                {(narrativeData?.concerns || narrativeData?.weaknesses) && (
+                {(narrativeData?.concerns || narrativeData?.weaknesses) && aiEnhanced === true && (
                   <span className="ml-2 text-[10px] font-semibold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">AI Enhanced</span>
                 )}
               </h3>

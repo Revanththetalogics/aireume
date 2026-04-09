@@ -18,14 +18,17 @@
 - [README.md](file://README.md)
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 - [.github/workflows/cd.yml](file://.github/workflows/cd.yml)
+- [ollama/setup-recruiter-model.sh](file://ollama/setup-recruiter-model.sh)
+- [app/backend/services/hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [app/backend/services/llm_service.py](file://app/backend/services/llm_service.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated JWT_SECRET_KEY environment variable requirement documentation
-- Updated nginx port configuration documentation reflecting development and production differences
-- Enhanced security considerations for JWT authentication
-- Updated environment variable handling and secrets management
+- Updated LLM_NARRATIVE_TIMEOUT environment variable documentation to reflect the increase from 60 to 120 seconds in production
+- Enhanced timeout configuration explanation showing how backend services use LLM_NARRATIVE_TIMEOUT with additional 30-second buffer
+- Updated troubleshooting guide to include timeout-related issues and solutions
+- Added performance considerations section explaining timeout impact on Qwen 3.5 4B model processing
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -47,6 +50,8 @@ This document explains the Docker configuration for Resume AI by ThetaLogics, co
 - Dockerfile configurations for backend and frontend, including build optimization and runtime behavior
 - Environment variable handling, secrets management, and configuration inheritance
 - Troubleshooting, health checks, and performance optimization
+- Enhanced Ollama memory allocation settings for optimal LLM performance
+- **Updated** LLM timeout configuration for improved system reliability with Qwen 3.5 4B model processing
 
 ## Project Structure
 The repository organizes Docker assets around three primary services:
@@ -109,7 +114,7 @@ Certbot --> ProdNginx
   - Production: reverse proxy with health checks, streaming support, CORS handling, and dynamic DNS resolution for container IPs.
 - Database and LLM
   - Postgres with persistent volumes and health checks.
-  - Ollama with environment tuning for parallelism, caching, and model loading; production includes a dedicated warmup job.
+  - Ollama with enhanced memory allocation settings for parallelism, caching, and model loading; production includes a dedicated warmup job with optimized resource limits.
 - Optional production services
   - Watchtower for automated updates of tagged images.
   - Certbot for Let's Encrypt certificate lifecycle management.
@@ -254,12 +259,13 @@ NG-->>C : "Final response"
 - Postgres
   - Persistent volume for data, health checks, and tuned parameters in production.
 - Ollama
-  - Tuned environment variables for parallelism, caching, and model loading.
-  - Production includes a dedicated warmup job to preload models into RAM.
+  - Enhanced memory allocation settings for parallelism, caching, and model loading.
+  - Production includes a dedicated warmup job to preload models into RAM with optimized resource limits.
+  - **Updated** Memory allocation optimized with 8GB RAM limit for Ollama service to accommodate qwen3.5:4b model (3.6 GiB weights + 1.3 GiB KV-cache + 394 MiB compute = 5.3 GiB) plus headroom for OS overhead and concurrent requests.
 
 ```mermaid
 flowchart TD
-OllamaSvc["Ollama service"] --> WarmupJob["Ollama warmup job"]
+OllamaSvc["Ollama service<br/>8GB RAM limit"] --> WarmupJob["Ollama warmup job<br/>256MB RAM limit"]
 WarmupJob --> Ready["Models loaded in RAM"]
 Ready --> Backend["Backend requests"]
 ```
@@ -333,8 +339,10 @@ CI --> NginxImg
 ## Performance Considerations
 - Resource limits
   - Production sets explicit CPU and memory limits per service to prevent resource contention.
+  - **Updated** Ollama service now allocated 8GB RAM to accommodate qwen3.5:4b model with sufficient headroom for concurrent requests and OS overhead.
 - Parallelism and caching
   - Ollama environment variables tune concurrency, model loading, and cache quantization for throughput and memory efficiency.
+  - **Enhanced** KV cache quantization set to q8_0 type, halving RAM usage per slot and enabling higher parallelism.
 - Worker scaling
   - Backend uses multiple Uvicorn workers to handle I/O-bound tasks without starving the LLM.
 - Network resilience
@@ -342,11 +350,29 @@ CI --> NginxImg
 - Build optimization
   - Frontend multi-stage build minimizes runtime image size and improves cold start times.
   - Backend copies requirements first to leverage Docker layer caching.
+- **Updated** Timeout configuration
+  - **Production**: LLM_NARRATIVE_TIMEOUT=120 seconds provides 60 additional seconds of headroom for Qwen 3.5 4B model processing
+  - **Development**: LLM_NARRATIVE_TIMEOUT=60 seconds for faster local iteration
+  - **Backend services**: Add 30-second buffer to HTTP timeouts (e.g., 120 + 30 = 150s for production)
+  - **Impact**: Reduces timeout-related failures during model loading and improves system reliability
+
+### Memory Allocation Optimizations for Ollama
+The production environment includes several memory-efficient configurations:
+
+- **KV Cache Quantization**: OLLAMA_KV_CACHE_TYPE=q8_0 reduces memory usage by half compared to default quantization
+- **Model Loading Strategy**: OLLAMA_KEEP_ALIVE=-1 keeps models permanently loaded in RAM for instant response
+- **Resource Limits**: 8GB RAM limit provides headroom for OS overhead and concurrent requests beyond the model's 5.3GB footprint
+- **Parallel Processing**: OLLAMA_NUM_PARALLEL=4 enables concurrent LLM requests while maintaining stability
+
+**Section sources**
+- [docker-compose.prod.yml:60-73](file://docker-compose.prod.yml#L60-L73)
+- [docker-compose.prod.yml:44-57](file://docker-compose.prod.yml#L44-L57)
 
 ## Troubleshooting Guide
 Common issues and resolutions:
 - Ollama not responding
   - Inspect container logs and ensure the model is pulled.
+  - **Updated** Check Ollama memory allocation - ensure 8GB RAM limit is available for the service.
 - Database locked errors
   - SQLite does not support concurrent writes; restart the backend container if encountering "database is locked."
 - SSL certificate issues
@@ -355,6 +381,17 @@ Common issues and resolutions:
   - Verify Docker Hub credentials, SSH keys, and firewall configuration.
 - JWT authentication failures
   - Ensure JWT_SECRET_KEY is set in production environments.
+- **New** Memory-related Ollama issues
+  - **Symptom**: Ollama returns 500 errors or timeouts
+  - **Cause**: Insufficient memory allocation for model loading
+  - **Solution**: Increase Ollama memory limit from 6GB to 8GB in docker-compose.prod.yml
+  - **Verification**: Monitor container memory usage during model warmup
+- **Updated** Timeout-related issues
+  - **Symptom**: LLM requests timing out during narrative generation
+  - **Cause**: Insufficient LLM_NARRATIVE_TIMEOUT for Qwen 3.5 4B model processing
+  - **Solution**: Increase LLM_NARRATIVE_TIMEOUT from 60 to 120 seconds in production environment
+  - **Backend behavior**: Services automatically add 30-second buffer to HTTP timeouts (120 + 30 = 150s)
+  - **Verification**: Monitor LLM request duration and adjust timeout based on model loading patterns
 
 Health checks:
 - Postgres: health check queries the database using pg_isready.
@@ -395,7 +432,7 @@ NG-->>HC : "OK"
 - [docker-compose.prod.yml:140-144](file://docker-compose.prod.yml#L140-L144)
 
 ## Conclusion
-The Docker configuration provides a robust development and production environment for Resume AI. It emphasizes predictable service orchestration, optimized LLM performance, secure reverse proxying, and automated deployments. Following the documented setup ensures reliable local development and scalable production deployments.
+The Docker configuration provides a robust development and production environment for Resume AI. It emphasizes predictable service orchestration, optimized LLM performance through enhanced memory allocation settings, secure reverse proxying, and automated deployments. The recent improvements to Ollama memory allocation (increased from 6GB to 8GB) and LLM timeout configuration (increased from 60 to 120 seconds) ensure stable operation of the qwen3.5:4b model with sufficient headroom for concurrent requests and system overhead. Following the documented setup ensures reliable local development and scalable production deployments.
 
 ## Appendices
 
@@ -404,10 +441,13 @@ The Docker configuration provides a robust development and production environmen
   - Backend environment variables include Ollama base URL, model names, database URL, JWT secret, and environment mode.
   - JWT_SECRET_KEY is set to a development value but should be changed for production.
   - Ollama environment variables configure parallelism, caching, and attention kernels.
+  - **Updated** LLM_NARRATIVE_TIMEOUT=60 seconds for development environment.
 - Production compose
   - Uses environment variables for database credentials, JWT secret, and model selection.
   - JWT_SECRET_KEY is required and validated at startup.
   - Secrets are injected via environment variables and Docker secrets in CI/CD pipelines.
+  - **Enhanced** Ollama memory allocation with 8GB RAM limit and optimized KV cache quantization.
+  - **Updated** LLM_NARRATIVE_TIMEOUT=120 seconds for production environment to improve system reliability.
 - Configuration inheritance
   - Production Dockerfiles bake in production Nginx configuration; development compose mounts local configs.
 
@@ -449,3 +489,41 @@ The Docker configuration provides a robust development and production environmen
 - [app/frontend/default.conf:2](file://app/frontend/default.conf#L2)
 - [app/nginx/nginx.conf:11](file://app/nginx/nginx.conf#L11)
 - [app/nginx/nginx.conf:26](file://app/nginx/nginx.conf#L26)
+
+### Ollama Model Setup and Customization
+The system supports both standard and custom model configurations:
+
+- **Standard Model**: qwen3.5:4b (pre-configured in production)
+- **Custom Model**: ARIA recruiter model built from Modelfile
+- **Setup Script**: Automated model building process for custom AI models
+
+**Section sources**
+- [ollama/setup-recruiter-model.sh:1-54](file://ollama/setup-recruiter-model.sh#L1-L54)
+- [docker-compose.prod.yml:92-95](file://docker-compose.prod.yml#L92-L95)
+- [docker-compose.yml:63-64](file://docker-compose.yml#L63-L64)
+
+### Timeout Configuration Details
+**Updated** The system now uses configurable timeout values for LLM operations:
+
+- **Production Environment**:
+  - LLM_NARRATIVE_TIMEOUT=120 seconds
+  - Backend HTTP timeout = 120 + 30 = 150 seconds
+  - Purpose: Accommodate Qwen 3.5 4B model processing with sufficient headroom
+- **Development Environment**:
+  - LLM_NARRATIVE_TIMEOUT=60 seconds
+  - Backend HTTP timeout = 60 + 30 = 90 seconds
+  - Purpose: Faster local iteration and debugging
+- **Backend Implementation**:
+  - Hybrid pipeline: Uses LLM_NARRATIVE_TIMEOUT for streaming narrative generation
+  - LLM service: Adds 30-second buffer to HTTPX client timeouts
+  - Agent pipeline: Applies same timeout logic for reasoning tasks
+- **Impact**:
+  - Reduces timeout-related failures during model loading
+  - Improves system reliability for complex LLM operations
+  - Balances performance with stability requirements
+
+**Section sources**
+- [docker-compose.prod.yml:94-95](file://docker-compose.prod.yml#L94-L95)
+- [docker-compose.yml:64-65](file://docker-compose.yml#L64-L65)
+- [app/backend/services/hybrid_pipeline.py:86-103](file://app/backend/services/hybrid_pipeline.py#L86-L103)
+- [app/backend/services/llm_service.py:52-55](file://app/backend/services/llm_service.py#L52-L55)

@@ -102,7 +102,12 @@ export default function UploadForm({
   const pickerRef = useRef(null)
 
   useEffect(() => {
-    getTemplates().then(setSavedJds).catch(() => {})
+    getTemplates()
+      .then((res) => {
+        const arr = Array.isArray(res) ? res : res?.templates || []
+        setSavedJds(arr)
+      })
+      .catch(() => setSavedJds([]))
   }, [])
 
   useEffect(() => {

@@ -10,7 +10,12 @@ import json
 import asyncio
 import tempfile
 import httpx
+import logging
 from pathlib import Path
+
+from app.backend.services.llm_service import get_ollama_semaphore
+
+logger = logging.getLogger(__name__)
 
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -143,30 +148,34 @@ async def analyze_communication(transcript: str, duration_s: float) -> dict:
     )
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={
-                    "model":   os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
-                    "prompt":  prompt,
-                    "stream":  False,
-                    "format":  "json",
-                    "options": {"num_predict": 350, "temperature": 0.2},
-                },
-            )
-            resp.raise_for_status()
-            parsed = json.loads(resp.json().get("response", "{}"))
-            return {
-                "communication_score":  int(parsed.get("communication_score", 50)),
-                "confidence_level":     parsed.get("confidence_level", "medium"),
-                "clarity_score":        int(parsed.get("clarity_score", 50)),
-                "articulation_score":   int(parsed.get("articulation_score", 50)),
-                "key_phrases":          parsed.get("key_phrases", []),
-                "strengths":            parsed.get("strengths", []),
-                "red_flags":            parsed.get("red_flags", []),
-                "summary":              parsed.get("summary", ""),
-                "words_per_minute":     wpm,
-            }
+        sem = get_ollama_semaphore()
+        if sem.locked():
+            logger.info("Waiting for Ollama slot (another request in progress)...")
+        async with sem:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model":   os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
+                        "prompt":  prompt,
+                        "stream":  False,
+                        "format":  "json",
+                        "options": {"num_predict": 350, "temperature": 0.2},
+                    },
+                )
+                resp.raise_for_status()
+                parsed = json.loads(resp.json().get("response", "{}"))
+                return {
+                    "communication_score":  int(parsed.get("communication_score", 50)),
+                    "confidence_level":     parsed.get("confidence_level", "medium"),
+                    "clarity_score":        int(parsed.get("clarity_score", 50)),
+                    "articulation_score":   int(parsed.get("articulation_score", 50)),
+                    "key_phrases":          parsed.get("key_phrases", []),
+                    "strengths":            parsed.get("strengths", []),
+                    "red_flags":            parsed.get("red_flags", []),
+                    "summary":              parsed.get("summary", ""),
+                    "words_per_minute":     wpm,
+                }
     except Exception:
         return _default_communication(wpm)
 
@@ -249,50 +258,54 @@ Return JSON only:
 }}"""
 
     try:
-        async with httpx.AsyncClient(timeout=75.0) as client:
-            resp = await client.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={
-                    "model":   os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
-                    "prompt":  prompt,
-                    "stream":  False,
-                    "format":  "json",
-                    "options": {"num_predict": 600, "temperature": 0.1},
-                },
-            )
-            resp.raise_for_status()
-            parsed = json.loads(resp.json().get("response", "{}"))
+        sem = get_ollama_semaphore()
+        if sem.locked():
+            logger.info("Waiting for Ollama slot (another request in progress)...")
+        async with sem:
+            async with httpx.AsyncClient(timeout=75.0) as client:
+                resp = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model":   os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
+                        "prompt":  prompt,
+                        "stream":  False,
+                        "format":  "json",
+                        "options": {"num_predict": 600, "temperature": 0.1},
+                    },
+                )
+                resp.raise_for_status()
+                parsed = json.loads(resp.json().get("response", "{}"))
 
-            # Merge pause signals into flags
-            flags = parsed.get("flags", [])
-            for p in pauses:
-                flags.append({
-                    "type":           "suspicious_pause",
-                    "severity":       p["severity"],
-                    "evidence":       f"{p['duration_s']}s pause at {p['formatted_at']} — after \"{p['before_text'][:60]}\"",
-                    "recommendation": "Ask the candidate directly what happened during this pause in the next interview.",
-                })
+                # Merge pause signals into flags
+                flags = parsed.get("flags", [])
+                for p in pauses:
+                    flags.append({
+                        "type":           "suspicious_pause",
+                        "severity":       p["severity"],
+                        "evidence":       f"{p['duration_s']}s pause at {p['formatted_at']} — after \"{p['before_text'][:60]}\"",
+                        "recommendation": "Ask the candidate directly what happened during this pause in the next interview.",
+                    })
 
-            score = int(parsed.get("malpractice_score", 0))
-            risk  = parsed.get("malpractice_risk", "low")
+                score = int(parsed.get("malpractice_score", 0))
+                risk  = parsed.get("malpractice_risk", "low")
 
-            # Clamp risk to match score if LLM is inconsistent
-            if score >= 65 and risk == "low":
-                risk = "medium"
-            if score >= 80:
-                risk = "high"
+                # Clamp risk to match score if LLM is inconsistent
+                if score >= 65 and risk == "low":
+                    risk = "medium"
+                if score >= 80:
+                    risk = "high"
 
-            return {
-                "malpractice_score":    score,
-                "malpractice_risk":     risk,
-                "reliability_rating":   parsed.get("reliability_rating", "trustworthy"),
-                "flags":                flags,
-                "positive_signals":     parsed.get("positive_signals", []),
-                "overall_assessment":   parsed.get("overall_assessment", ""),
-                "follow_up_questions":  parsed.get("follow_up_questions", []),
-                "pause_count":          len(pauses),
-                "pauses":               pauses,
-            }
+                return {
+                    "malpractice_score":    score,
+                    "malpractice_risk":     risk,
+                    "reliability_rating":   parsed.get("reliability_rating", "trustworthy"),
+                    "flags":                flags,
+                    "positive_signals":     parsed.get("positive_signals", []),
+                    "overall_assessment":   parsed.get("overall_assessment", ""),
+                    "follow_up_questions":  parsed.get("follow_up_questions", []),
+                    "pause_count":          len(pauses),
+                    "pauses":               pauses,
+                }
     except Exception:
         return _default_malpractice(pauses)
 

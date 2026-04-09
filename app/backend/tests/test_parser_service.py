@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from app.backend.services.parser_service import (
     ResumeParser, parse_resume, enrich_parsed_resume,
-    _extract_name_ner, _get_spacy_model
+    _extract_name_ner, _get_spacy_model, _name_from_filename
 )
 
 
@@ -252,3 +252,77 @@ Building web applications
         if result["contact_info"]["name"]:
             # Should have found a name
             assert len(result["contact_info"]["name"]) > 0
+
+
+class TestFilenameNameExtraction:
+    """Tests for _name_from_filename function."""
+
+    def test_simple_name_extraction(self):
+        """Should extract name from simple filename."""
+        assert _name_from_filename("Suhas Mullangi.pdf") == "Suhas Mullangi"
+
+    def test_underscore_separated_name(self):
+        """Should extract name from underscore-separated filename."""
+        assert _name_from_filename("john_doe_resume_2024.pdf") == "John Doe"
+
+    def test_resume_prefix_removed(self):
+        """Should remove 'resume' prefix and extract name."""
+        assert _name_from_filename("resume_jane_smith.docx") == "Jane Smith"
+
+    def test_cv_prefix_removed(self):
+        """Should remove 'cv' prefix and extract name."""
+        assert _name_from_filename("cv_john_smith.pdf") == "John Smith"
+
+    def test_date_removed(self):
+        """Should remove year dates from filename."""
+        assert _name_from_filename("alice_wonderland_2023.pdf") == "Alice Wonderland"
+
+    def test_hyphen_separated_name(self):
+        """Should handle hyphen-separated names."""
+        assert _name_from_filename("jane-smith-resume.pdf") == "Jane Smith"
+
+    def test_rejects_single_word(self):
+        """Should reject filenames with only one word."""
+        assert _name_from_filename("resume.pdf") == ""
+
+    def test_rejects_too_many_words(self):
+        """Should reject filenames with more than 5 words."""
+        assert _name_from_filename("john_james_william_robert_michael_smith.pdf") == ""
+
+    def test_rejects_digits_in_name(self):
+        """Should reject filenames with digits in the name portion."""
+        assert _name_from_filename("user123_test.pdf") == ""
+
+    def test_handles_no_extension(self):
+        """Should handle filenames without extension."""
+        assert _name_from_filename("John Doe Resume") == "John Doe"
+
+    def test_empty_filename(self):
+        """Should return empty string for empty filename."""
+        assert _name_from_filename("") == ""
+
+    def test_enrich_uses_filename_when_other_tiers_fail(self):
+        """enrich_parsed_resume should use filename when other tiers fail."""
+        data = {
+            "raw_text": "SKILLS\nPython\n",
+            "contact_info": {},  # No email, no name
+            "work_experience": [],
+            "skills": [],
+            "education": [],
+        }
+        with patch('app.backend.services.parser_service._extract_name_ner', return_value=None):
+            enrich_parsed_resume(data, filename="Suhas Mullangi.pdf")
+            assert data["contact_info"]["name"] == "Suhas Mullangi"
+
+    def test_enrich_prefers_ner_over_filename(self):
+        """enrich_parsed_resume should prefer NER result over filename."""
+        data = {
+            "raw_text": "Alice Johnson\nSoftware Engineer\n",
+            "contact_info": {},
+            "work_experience": [],
+            "skills": [],
+            "education": [],
+        }
+        with patch('app.backend.services.parser_service._extract_name_ner', return_value="Alice Johnson"):
+            enrich_parsed_resume(data, filename="Wrong Name.pdf")
+            assert data["contact_info"]["name"] == "Alice Johnson"

@@ -16,10 +16,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced JSON serialization capabilities section documenting comprehensive datetime, date, and Decimal handling
-- Updated route orchestration section to reflect improved JSON serialization patterns
-- Added new subsection covering JSON serialization utilities and fallback mechanisms
-- Updated troubleshooting guide to address JSON serialization-related production issues
+- Enhanced AI pipeline capabilities with sophisticated score rationales and risk analysis
+- Added structured risk summary including seniority alignment, career trajectory analysis, and stability assessments
+- Updated model configuration and performance characteristics with qwen3.5:4b model specifications
+- Expanded explainability features with detailed score dimension rationales
+- Improved risk assessment criteria with comprehensive flagging system
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -27,17 +28,20 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Enhanced JSON Serialization Capabilities](#enhanced-json-serialization-capabilities)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
-11. [Appendices](#appendices)
+6. [Enhanced AI Pipeline Capabilities](#enhanced-ai-pipeline-capabilities)
+7. [Structured Risk Analysis](#structured-risk-analysis)
+8. [Model Configuration and Performance](#model-configuration-and-performance)
+9. [Enhanced JSON Serialization Capabilities](#enhanced-json-serialization-capabilities)
+10. [Dependency Analysis](#dependency-analysis)
+11. [Performance Considerations](#performance-considerations)
+12. [Troubleshooting Guide](#troubleshooting-guide)
+13. [Conclusion](#conclusion)
+14. [Appendices](#appendices)
 
 ## Introduction
 This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis, the resume parsing service supporting PDF and DOCX formats, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
 
-**Updated** Enhanced JSON serialization capabilities now provide comprehensive support for datetime objects, dates, and Decimal values across the entire analysis engine, improving stability and preventing production crashes when serializing complex analysis results.
+**Updated** The analysis engine now features enhanced AI pipeline capabilities with sophisticated score rationales and comprehensive risk analysis. The system generates detailed explanations for each score dimension and provides structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. Model configuration has been updated to use qwen3.5:4b for optimal performance characteristics.
 
 ## Project Structure
 The backend is organized around FastAPI routes, SQLAlchemy models, and modular services. The analysis engine spans:
@@ -94,7 +98,7 @@ I --> A
 - LLM Integration: Ollama-backed ChatOllama clients with singletons, timeouts, and JSON parsing utilities.
 - Scoring and Risk: Weighted fit score computation, risk signals, and recommendation logic.
 - Persistence: SQLAlchemy models for candidates, screening results, role templates, usage logs, and caches.
-- **Enhanced JSON Serialization**: Comprehensive support for datetime, date, and Decimal types across all components.
+- **Enhanced AI Pipeline**: Sophisticated score rationales and structured risk analysis with detailed explanations.
 
 **Section sources**
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
@@ -105,7 +109,7 @@ I --> A
 
 ## Architecture Overview
 The system uses a hybrid approach:
-- Phase 1 (Python, ~1–2s): parse_jd_rules → parse_resume_rules → match_skills_rules → score_education/experience/domain → compute_fit_score
+- Phase 1 (Python, ~1–2s): parse_jd_rules → parse_resume_rules → match_skills_rules → score_education/experience/domain → compute_fit_score → generate score rationales and risk summary
 - Phase 2 (LLM, ~40s): explain_with_llm (generates strengths, weaknesses, rationale, interview questions)
 - Fallback: deterministic narrative when LLM is unavailable or times out
 
@@ -124,6 +128,8 @@ Route->>Gap : analyze_gaps(work_experience)
 Gap-->>Route : gap_analysis
 Route->>Hybrid : run_hybrid_pipeline(...)
 Hybrid->>Hybrid : _run_python_phase(...)
+Hybrid->>Hybrid : _build_score_rationales()
+Hybrid->>Hybrid : _build_risk_summary()
 Hybrid->>LLM : explain_with_llm(context)
 LLM-->>Hybrid : narrative JSON
 Hybrid-->>Route : merged result
@@ -149,6 +155,7 @@ The hybrid pipeline executes deterministic Python logic first, then a single LLM
 - Domain and architecture scoring based on keyword hits
 - Fit score computation with configurable weights and risk penalties
 - LLM narrative generation with robust JSON parsing and fallback
+- **Enhanced**: Score rationales for each dimension and structured risk summary
 
 ```mermaid
 flowchart TD
@@ -159,7 +166,9 @@ MatchSkills --> EduScore["score_education_rules(profile, jd_domain)"]
 EduScore --> ExpTimeline["score_experience_rules(profile, jd, gap_analysis)"]
 ExpTimeline --> DomainArch["domain_architecture_rules(raw_text, jd_domain, current_role)"]
 DomainArch --> ComputeFit["compute_fit_score(scores, weights)"]
-ComputeFit --> LLMCall{"LLM available?"}
+ComputeFit --> Rationales["_build_score_rationales()"]
+Rationales --> RiskSummary["_build_risk_summary()"]
+RiskSummary --> LLMCall{"LLM available?"}
 LLMCall --> |Yes| LLMNarrative["explain_with_llm(context)"]
 LLMCall --> |No| Fallback["fallback_narrative()"]
 LLMNarrative --> Merge["merge_llm_into_result()"]
@@ -395,6 +404,153 @@ Route-->>Client : AnalysisResponse
 **Section sources**
 - [analyze.py:1-813](file://app/backend/routes/analyze.py#L1-L813)
 
+## Enhanced AI Pipeline Capabilities
+
+**Updated** The analysis engine now features sophisticated score rationales and comprehensive risk analysis capabilities that provide detailed explanations for each score dimension and structured risk summaries.
+
+### Score Rationale Generation
+
+The system generates detailed explanations for each score dimension:
+
+- **Skill Rationale**: Explains the strength of skill matches, missing critical skills, and adjacent skills
+- **Experience Rationale**: Details experience calculation methodology and required vs actual years
+- **Education Rationale**: Describes degree relevance and field alignment scoring
+- **Timeline Rationale**: Provides employment gap analysis and timeline interpretation
+- **Domain Rationale**: Explains domain fit and architecture alignment assessment
+- **Overall Rationale**: Synthesizes all factors into a comprehensive recommendation explanation
+
+```mermaid
+flowchart TD
+Scores["_build_score_rationales()"] --> Skill["Skill Rationale"]
+Scores --> Experience["Experience Rationale"]
+Scores --> Education["Education Rationale"]
+Scores --> Timeline["Timeline Rationale"]
+Scores --> Domain["Domain Rationale"]
+Skill --> Overall["Overall Rationale"]
+Experience --> Overall
+Education --> Overall
+Timeline --> Overall
+Domain --> Overall
+Overall --> Output["score_rationales"]
+```
+
+**Diagram sources**
+- [hybrid_pipeline.py:1480-1525](file://app/backend/services/hybrid_pipeline.py#L1480-L1525)
+
+### Structured Risk Summary
+
+The risk summary provides comprehensive risk assessment:
+
+- **Seniority Alignment**: Compares actual experience against required seniority level with specific ranges
+- **Career Trajectory**: Analyzes upward progression, early career patterns, and single-role candidates
+- **Stability Assessment**: Evaluates employment stability based on gaps, short stints, and job-hopping patterns
+- **Risk Flags**: Converts risk signals into user-friendly format with severity levels
+
+```mermaid
+flowchart TD
+RiskSignals["Risk Signals"] --> Flags["Risk Flags"]
+RiskSignals --> Seniority["Seniority Alignment"]
+RiskSignals --> Trajectory["Career Trajectory"]
+RiskSignals --> Stability["Stability Assessment"]
+Flags --> Summary["risk_summary"]
+Seniority --> Summary
+Trajectory --> Summary
+Stability --> Summary
+Summary --> Output["risk_summary"]
+```
+
+**Diagram sources**
+- [hybrid_pipeline.py:1528-1600](file://app/backend/services/hybrid_pipeline.py#L1528-L1600)
+
+**Section sources**
+- [hybrid_pipeline.py:1480-1600](file://app/backend/services/hybrid_pipeline.py#L1480-L1600)
+
+## Structured Risk Analysis
+
+**Updated** The enhanced risk analysis system provides comprehensive risk assessment with structured summaries and detailed explanations.
+
+### Risk Flag System
+
+Risk flags are systematically generated from risk signals:
+
+- **Type Normalization**: Converts internal risk types to user-friendly formats
+- **Severity Classification**: Categorizes risks as low, medium, or high severity
+- **Detail Description**: Provides specific explanations for each flagged risk
+- **Comprehensive Coverage**: Includes gaps, skill mismatches, domain alignment, and stability issues
+
+### Seniority Alignment Assessment
+
+The system evaluates seniority fit using predefined experience ranges:
+
+- **Intern**: 0-1 years
+- **Junior**: 0-2 years  
+- **Mid**: 2-5 years
+- **Senior**: 5-10 years
+- **Lead**: 7-15 years
+- **Principal**: 10-25 years
+- **Staff**: 8-20 years
+- **Architect**: 10-25 years
+- **Director**: 12-30 years
+
+### Career Trajectory Analysis
+
+Career progression is assessed through role title analysis:
+
+- **Strong Upward**: Progression from junior to senior roles
+- **Upward**: Current senior role or multiple positions
+- **Early Career**: Single role or limited positions
+- **Data-Driven**: Heuristic analysis of title keywords
+
+### Stability Assessment
+
+Employment stability is evaluated based on:
+
+- **Critical Gaps**: 12+ month gaps indicating instability
+- **Job-Hopping**: 3+ short stints (<6 months) suggesting instability
+- **Moderate Concerns**: Single gaps or short stints
+- **Stable**: No significant gaps or short stints detected
+
+**Section sources**
+- [hybrid_pipeline.py:1528-1600](file://app/backend/services/hybrid_pipeline.py#L1528-L1600)
+
+## Model Configuration and Performance
+
+**Updated** The analysis engine uses optimized model configurations for enhanced performance and reliability.
+
+### Model Specifications
+
+The system utilizes qwen3.5:4b model with optimized settings:
+
+- **Model**: qwen3.5:4b (4 billion parameters)
+- **Temperature**: 0.1 for deterministic responses
+- **Format**: JSON for structured output
+- **num_predict**: 1024 tokens for comprehensive narrative generation
+- **num_ctx**: 2048 context window for balanced prompt + output
+- **keep_alive**: -1 for model persistence in RAM
+- **Request Timeout**: 180 seconds (150s + 30s buffer)
+
+### Performance Characteristics
+
+- **Cold Start**: ~2 minutes for first load on CPU
+- **Subsequent Requests**: 30-60 seconds typical
+- **Concurrent Limit**: 2 LLM calls per worker
+- **Memory Management**: Keep-alive sessions reduce cold-start latency
+- **Prompt Optimization**: Constrained context sizes minimize KV cache allocation
+
+### Environment Configuration
+
+Key environment variables:
+
+- **OLLAMA_BASE_URL**: Default localhost:11434
+- **OLLAMA_MODEL**: qwen3.5:4b (narrative model)
+- **OLLAMA_FAST_MODEL**: qwen3.5:4b (fast model)
+- **LLM_NARRATIVE_TIMEOUT**: 150 seconds default
+- **OLLAMA_HOST**: docker host for containerized deployments
+
+**Section sources**
+- [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
+- [main.py:266-331](file://app/backend/main.py#L266-L331)
+
 ## Enhanced JSON Serialization Capabilities
 
 **Updated** The analysis engine now features comprehensive JSON serialization capabilities designed to handle datetime objects, dates, and Decimal values consistently across all components. This enhancement significantly improves system stability and prevents production crashes when serializing complex analysis results.
@@ -503,7 +659,8 @@ Main --> Ollama
 - Streaming: SSE heartbeat pings prevent timeouts for long-running LLM calls
 - Caching: JD cache shared across workers; skills registry hot-reloadable
 - Memory management: JSON parsing utilities and bounded snapshot sizes
-- **Enhanced JSON serialization**: Optimized serialization performance with minimal overhead
+- **Enhanced AI Pipeline**: Optimized score rationale generation with minimal overhead
+- **Model Optimization**: qwen3.5:4b model selected for balanced performance and cost
 
 [No sources needed since this section provides general guidance]
 
@@ -516,6 +673,8 @@ Common issues and resolutions:
 - Deploy failures: verify Docker Hub credentials, SSH keys, and VPS firewall
 - **JSON serialization errors**: Enhanced error handling now provides detailed type information for debugging serialization failures
 - **Datetime conversion issues**: Unified `_json_default` function ensures consistent datetime serialization across all components
+- **Model loading issues**: Use `/api/llm-status` endpoint to diagnose model readiness and hot status
+- **Performance degradation**: Monitor LLM timeouts and consider increasing LLM_NARRATIVE_TIMEOUT environment variable
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -526,7 +685,7 @@ Common issues and resolutions:
 ## Conclusion
 The analysis engine blends efficient Python-first processing with a single, well-configured LLM call to deliver fast, deterministic scoring and rich narrative insights. The LangGraph agent pipeline enables scalable, multi-step workflows with structured nodes and robust fallbacks. The resume parsing service and gap detection provide reliable inputs, while the skills registry and scoring logic offer extensible, configurable evaluation criteria suitable for customization and growth.
 
-**Updated** The enhanced JSON serialization capabilities provide comprehensive support for datetime, date, and Decimal types across the entire system, significantly improving stability and preventing production crashes when handling complex analysis results. This enhancement ensures reliable operation in production environments while maintaining backward compatibility and performance standards.
+**Updated** The enhanced AI pipeline capabilities now provide sophisticated score rationales and comprehensive risk analysis, generating detailed explanations for each score dimension and structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The system maintains backward compatibility while delivering significantly improved explainability and risk assessment capabilities.
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -538,7 +697,8 @@ The analysis engine blends efficient Python-first processing with a single, well
 - Extend skills registry: add canonical skills and aliases; hot-reload via rebuild
 - Customize LLM prompts: adjust explain_with_llm and agent pipeline prompts
 - Add new resume sections: extend parser_service extraction logic
-- **Enhanced JSON serialization**: Leverage unified serialization utilities for storing complex evaluation results
+- **Enhanced AI Pipeline**: Leverage score rationales and risk summary structures for new evaluation criteria
+- **Model Configuration**: Adjust qwen3.5:4b parameters for specialized use cases
 
 **Section sources**
 - [hybrid_pipeline.py:953-1058](file://app/backend/services/hybrid_pipeline.py#L953-L1058)
@@ -555,8 +715,23 @@ The analysis engine blends efficient Python-first processing with a single, well
 3. **Test Edge Cases**: Verify serialization works correctly for boundary conditions and unusual data combinations
 4. **Maintain Backward Compatibility**: Ensure new serialization logic doesn't break existing stored data formats
 5. **Monitor Performance**: Track serialization overhead for large datasets and optimize where necessary
+6. **Risk Assessment Integration**: When adding new risk signals, follow the structured risk summary format for consistency
 
 **Section sources**
 - [analyze.py:48-56](file://app/backend/routes/analyze.py#L48-L56)
 - [agent_pipeline.py:39-45](file://app/backend/services/agent_pipeline.py#L39-L45)
 - [hybrid_pipeline.py:16](file://app/backend/services/hybrid_pipeline.py#L16)
+
+### Model Configuration Guidelines
+
+**Updated** For optimal performance with the enhanced AI pipeline:
+
+1. **Model Selection**: qwen3.5:4b provides balanced performance for both fast and reasoning tasks
+2. **Resource Allocation**: Ensure sufficient RAM for model hot-loading and concurrent processing
+3. **Timeout Configuration**: Adjust LLM_NARRATIVE_TIMEOUT based on deployment environment and model size
+4. **Concurrency Control**: Monitor semaphore limits to prevent resource exhaustion
+5. **Monitoring**: Use `/api/llm-status` endpoint for continuous model health monitoring
+
+**Section sources**
+- [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
+- [main.py:266-331](file://app/backend/main.py#L266-L331)

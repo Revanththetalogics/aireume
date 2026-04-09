@@ -18,14 +18,17 @@
 - [ci.yml](file://.github/workflows/ci.yml)
 - [cd.yml](file://.github/workflows/cd.yml)
 - [requirements.txt](file://requirements.txt)
+- [llm_service.py](file://app/backend/services/llm_service.py)
+- [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated JWT_SECRET_KEY requirement enforcement section with critical security implications
-- Modified frontend proxy configuration to reflect port 8080 adjustment
-- Updated environment variable management section to highlight mandatory JWT_SECRET_KEY
-- Revised security hardening section with enhanced authentication requirements
+- Enhanced Ollama model warmup mechanism with dedicated warmup container using single-run approach
+- Implemented persistent model loading with OLLAMA_KEEP_ALIVE=-1 for continuous availability
+- Increased LLM_NARRATIVE_TIMEOUT from 120s to 180s for better concurrent request handling
+- Removed continuous keep-alive loop from warmup container in favor of persistent model approach
+- Improved model warmup reliability with dedicated warmup service
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -43,10 +46,11 @@
 This document provides comprehensive production deployment guidance for Resume AI by ThetaLogics. It covers server preparation, container orchestration with Docker Compose, Nginx reverse proxy configuration, environment variable management, secrets handling, database migrations and backups, monitoring and alerting, scaling and auto-scaling, performance tuning, deployment checklists, rollback procedures, and security hardening.
 
 ## Project Structure
-The repository organizes the stack into three primary services:
+The repository organizes the stack into four primary services:
 - Backend: FastAPI application with Uvicorn, Alembic migrations, and Ollama integration
 - Frontend: Static React SPA served by Nginx on port 8080
 - Nginx: Reverse proxy and static asset server with production configuration baked into the image
+- **Updated**: Ollama-warmup: Dedicated service for model warmup with persistent loading
 
 ```mermaid
 graph TB
@@ -56,16 +60,19 @@ FRONT["React Frontend (static on port 8080)"]
 BACK["FastAPI Backend"]
 DB["PostgreSQL"]
 OLL["Ollama (LLM)"]
+WARM["Ollama-Warmup (single-run)"]
 end
 CLIENT["Browser"] --> NGINX
 NGINX --> FRONT
 NGINX --> BACK
 BACK --> DB
 BACK --> OLL
+OLL --> WARM
 ```
 
 **Diagram sources**
 - [docker-compose.prod.yml:126-145](file://docker-compose.prod.yml#L126-L145)
+- [docker-compose.prod.yml:156-188](file://docker-compose.prod.yml#L156-L188)
 - [nginx.prod.conf:19-87](file://nginx/nginx.prod.conf#L19-L87)
 - [Dockerfile (backend):1-39](file://app/backend/Dockerfile#L1-L39)
 - [Dockerfile (frontend):1-26](file://app/frontend/Dockerfile#L1-L26)
@@ -89,9 +96,13 @@ BACK --> OLL
 - Nginx service
   - Production configuration with reverse proxy, streaming, and SPA fallback
   - Health check endpoint proxied to backend
+- **Updated**: Ollama-warmup service
+  - Dedicated single-run container that loads the model into RAM
+  - Uses OLLAMA_KEEP_ALIVE=-1 to persist model in memory
+  - Exits after successful warmup, leaving the model loaded in Ollama
 - Supporting services
   - PostgreSQL for persistence
-  - Ollama for local LLM inference
+  - Ollama for local LLM inference with increased memory allocation (8GB)
   - Watchtower for automated image updates
   - Certbot for Let's Encrypt certificate renewal
 
@@ -99,14 +110,17 @@ Key production configuration highlights:
 - Resource limits and health checks for resilience
 - Dynamic DNS resolution for Docker embedded DNS to avoid stale IPs
 - Streaming and CORS handling for SSE and cross-origin requests
-- Warm-up job to preload models into Ollama RAM
+- **Enhanced**: Dedicated warmup job with persistent model loading using OLLAMA_KEEP_ALIVE=-1
+- **Updated**: Increased LLM_NARRATIVE_TIMEOUT from 120s to 180s for better concurrent request handling
 - **Enhanced**: Mandatory JWT_SECRET_KEY environment variable for production security
+- **Updated**: Ollama memory allocation increased from 6GB to 8GB for improved stability
 
 **Section sources**
 - [docker-compose.prod.yml:75-112](file://docker-compose.prod.yml#L75-L112)
 - [docker-compose.prod.yml:126-145](file://docker-compose.prod.yml#L126-L145)
 - [docker-compose.prod.yml:41-71](file://docker-compose.prod.yml#L41-L71)
 - [docker-compose.prod.yml:22-39](file://docker-compose.prod.yml#L22-L39)
+- [docker-compose.prod.yml:156-188](file://docker-compose.prod.yml#L156-L188)
 - [docker-compose.prod.yml:192-211](file://docker-compose.prod.yml#L192-L211)
 - [docker-compose.prod.yml:213-221](file://docker-compose.prod.yml#L213-L221)
 - [nginx.prod.conf:19-87](file://nginx/nginx.prod.conf#L19-L87)
@@ -116,7 +130,7 @@ Key production configuration highlights:
 - [auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
 
 ## Architecture Overview
-The production architecture uses Docker Compose to orchestrate services behind Nginx. Nginx terminates HTTP/HTTPS traffic, proxies API and streaming endpoints to the backend, and serves the frontend SPA on port 8080. The backend connects to PostgreSQL and interacts with Ollama for AI analysis.
+The production architecture uses Docker Compose to orchestrate services behind Nginx. Nginx terminates HTTP/HTTPS traffic, proxies API and streaming endpoints to the backend, and serves the frontend SPA on port 8080. The backend connects to PostgreSQL and interacts with Ollama for AI analysis. A dedicated warmup service ensures the model is loaded into RAM before serving requests.
 
 ```mermaid
 graph TB
@@ -135,18 +149,21 @@ BE["Backend (FastAPI/Uvicorn)"]
 end
 subgraph "Data Layer"
 PG["PostgreSQL"]
-OL["Ollama"]
+OL["Ollama (8GB RAM)"]
+WU["Ollama-Warmup (single-run)"]
 end
 U --> NX
 NX --> FE
 NX --> BE
 BE --> PG
 BE --> OL
+OL --> WU
 ```
 
 **Diagram sources**
 - [nginx.prod.conf:19-87](file://nginx/nginx.prod.conf#L19-L87)
 - [docker-compose.prod.yml:126-145](file://docker-compose.prod.yml#L126-L145)
+- [docker-compose.prod.yml:156-188](file://docker-compose.prod.yml#L156-L188)
 - [Dockerfile (backend):36-38](file://app/backend/Dockerfile#L36-L38)
 - [Dockerfile (frontend):15-25](file://app/frontend/Dockerfile#L15-L25)
 
@@ -249,16 +266,23 @@ SkipMigrations --> Ready
 - [env.py:14-20](file://alembic/env.py#L14-L20)
 - [alembic.ini:84-87](file://alembic.ini#L84-L87)
 
-### Ollama and Model Warm-Up
-- Ollama configured with thread and parallelism settings for throughput
-- Dedicated warm-up job ensures the model is loaded into RAM before serving requests
+### Enhanced Ollama and Model Warm-Up
+- **Updated**: Ollama configured with thread and parallelism settings for throughput
+- **Enhanced**: Dedicated warmup service with single-run approach using OLLAMA_KEEP_ALIVE=-1
+- **Updated**: Increased memory allocation from 6GB to 8GB for improved stability under load
+- **Enhanced**: Persistent model loading eliminates need for continuous keep-alive loops
+- **Updated**: LLM_NARRATIVE_TIMEOUT increased from 120s to 180s for better concurrent request handling
 - Backend startup can gate on Ollama readiness and warm model presence
+- Memory calculation: qwen3.5:4b actual: 3.6 GiB weights + 1.3 GiB KV-cache + 394 MiB compute = 5.3 GiB with 8GB headroom for OS overhead and concurrent requests
 
 **Section sources**
 - [docker-compose.prod.yml:41-71](file://docker-compose.prod.yml#L41-L71)
-- [docker-compose.prod.yml:147-184](file://docker-compose.prod.yml#L147-L184)
+- [docker-compose.prod.yml:156-188](file://docker-compose.prod.yml#L156-L188)
+- [docker-compose.prod.yml:96-97](file://docker-compose.prod.yml#L96-L97)
 - [wait_for_ollama.py:34-91](file://app/backend/scripts/wait_for_ollama.py#L34-L91)
 - [main.py:262-326](file://app/backend/main.py#L262-L326)
+- [llm_service.py:138-175](file://app/backend/services/llm_service.py#L138-L175)
+- [hybrid_pipeline.py:107-130](file://app/backend/services/hybrid_pipeline.py#L107-L130)
 
 ### Watchtower and Certbot
 - Watchtower monitors ARIA containers and auto-restarts when images change
@@ -272,14 +296,16 @@ SkipMigrations --> Ready
 Inter-service dependencies and health checks:
 - Backend depends on PostgreSQL and Ollama being healthy
 - **Updated**: Nginx depends on frontend (on port 8080) and backend
-- Warm-up job depends on Ollama health
+- **Enhanced**: Warmup service depends on Ollama health and exits after completion
+- **Updated**: Ollama service maintains persistent model loading with OLLAMA_KEEP_ALIVE=-1
 
 ```mermaid
 graph LR
 PG["PostgreSQL"] -- "healthy" --> BE["Backend"]
-OL["Ollama"] -- "healthy" --> BE
+OL["Ollama (8GB RAM, KEEP_ALIVE=-1)"] -- "persistent" --> BE
 FE["Frontend (port 8080)"] -- "available" --> NX["Nginx"]
 BE -- "available" --> NX
+WU["Ollama-Warmup (single-run)"] -- "completes" --> OL
 NX -- "healthy" --> CL["Client"]
 ```
 
@@ -287,19 +313,24 @@ NX -- "healthy" --> CL["Client"]
 - [docker-compose.prod.yml:96-100](file://docker-compose.prod.yml#L96-L100)
 - [docker-compose.prod.yml:131-133](file://docker-compose.prod.yml#L131-L133)
 - [docker-compose.prod.yml:140-144](file://docker-compose.prod.yml#L140-L144)
+- [docker-compose.prod.yml:156-188](file://docker-compose.prod.yml#L156-L188)
 
 **Section sources**
 - [docker-compose.prod.yml:96-100](file://docker-compose.prod.yml#L96-L100)
 - [docker-compose.prod.yml:131-133](file://docker-compose.prod.yml#L131-L133)
 - [docker-compose.prod.yml:140-144](file://docker-compose.prod.yml#L140-L144)
+- [docker-compose.prod.yml:156-188](file://docker-compose.prod.yml#L156-L188)
 
 ## Performance Considerations
 - Backend workers: configured for I/O-bound concurrency; adjust based on CPU and memory headroom
 - PostgreSQL tuning: shared_buffers, work_mem, and max_connections optimized for 6 GB RAM allocation
-- Ollama settings: thread count, parallel requests, and KV cache quantization to maximize throughput and reduce memory pressure
+- **Updated**: Ollama settings: thread count, parallel requests, and KV cache quantization to maximize throughput and reduce memory pressure with increased 8GB allocation
+- **Enhanced**: Persistent model loading eliminates warmup overhead for subsequent requests
+- **Updated**: LLM_NARRATIVE_TIMEOUT increased to 180s provides better handling of concurrent requests and model loading
 - Nginx: keepalive, gzip, and streaming timeouts tuned for SSE and SPA behavior
 - **Updated**: Frontend proxy port optimization for better separation of concerns
 - Volume placement: persistent volumes for PostgreSQL and Ollama data for durability and performance
+- **Memory headroom**: 8GB Ollama allocation provides sufficient headroom for OS overhead and concurrent requests beyond the 5.3GB model footprint
 
 ## Troubleshooting Guide
 Common operational issues and remedies:
@@ -307,6 +338,14 @@ Common operational issues and remedies:
   - Error: "JWT_SECRET_KEY environment variable must be set in production"
   - Solution: Set JWT_SECRET_KEY environment variable with a strong random value
   - Check: `docker-compose.prod.yml` line 86 requires JWT_SECRET_KEY
+- **Ollama memory overflow under load**
+  - **Updated**: Error: Ollama running out of memory during concurrent requests
+  - Solution: Verify Ollama memory allocation is set to 8GB in `docker-compose.prod.yml` line 66
+  - Check: Monitor Ollama container memory usage and consider adjusting OLLAMA_NUM_PARALLEL setting
+- **Model not warming up properly**
+  - **Updated**: Verify Ollama-warmup service completes successfully
+  - Check: OLLAMA_KEEP_ALIVE=-1 persists model in memory
+  - Verify: LLM_NARRATIVE_TIMEOUT=180 allows sufficient time for concurrent requests
 - Ollama not responding
   - Inspect container logs and ensure the model is pulled and warmed
 - Database locked errors
@@ -321,10 +360,12 @@ Common operational issues and remedies:
 - [README.md:339-355](file://README.md#L339-L355)
 - [auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
 - [docker-compose.prod.yml:86](file://docker-compose.prod.yml#L86)
+- [docker-compose.prod.yml:66](file://docker-compose.prod.yml#L66)
 - [docker-compose.prod.yml:132](file://docker-compose.prod.yml#L132)
+- [docker-compose.prod.yml:96-97](file://docker-compose.prod.yml#L96-L97)
 
 ## Conclusion
-This production deployment leverages Docker Compose to orchestrate a resilient stack with Nginx as the reverse proxy, Alembic-managed PostgreSQL migrations, and Ollama for AI inference. The configuration emphasizes health checks, dynamic DNS resolution, streaming support, and automated image updates via Watchtower. **Critical security enhancements** include mandatory JWT_SECRET_KEY enforcement in production environments. For production hardening, integrate external load balancing, SSL termination, and centralized monitoring/alerting.
+This production deployment leverages Docker Compose to orchestrate a resilient stack with Nginx as the reverse proxy, Alembic-managed PostgreSQL migrations, and Ollama for AI inference. The configuration emphasizes health checks, dynamic DNS resolution, streaming support, and automated image updates via Watchtower. **Critical security enhancements** include mandatory JWT_SECRET_KEY enforcement in production environments. **Enhanced**: The Ollama model warmup mechanism now uses a dedicated single-run container with persistent loading via OLLAMA_KEEP_ALIVE=-1, eliminating continuous keep-alive loops. **Updated**: LLM_NARRATIVE_TIMEOUT has been increased to 180s to better handle concurrent requests and improve system stability under load conditions. For production hardening, integrate external load balancing, SSL termination, and centralized monitoring/alerting.
 
 ## Appendices
 
@@ -342,6 +383,8 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - Docker Hub credentials for image pulls
   - VPS host, username, and SSH key for automated deployment
   - **Critical**: JWT_SECRET_KEY must be set in production environment
+  - **Updated**: Ollama memory allocation set to 8GB for production stability
+  - **Enhanced**: LLM_NARRATIVE_TIMEOUT=180 for improved concurrent request handling
 - Runtime environment variables
   - JWT secret key (required), database URL, Ollama base URL, model names, and timeouts
 - Storage
@@ -368,7 +411,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - Nginx health endpoint proxies to backend
 - Recommendations
   - Integrate Prometheus and Grafana for metrics collection
-  - Configure alerts for backend health, database connectivity, Ollama status, and JWT_SECRET_KEY validation
+  - Configure alerts for backend health, database connectivity, Ollama status, JWT_SECRET_KEY validation, Ollama memory usage, and model warmup completion
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -383,6 +426,8 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - Scale backend pods based on CPU utilization and response latency
   - Ensure stateless backend and shared PostgreSQL/Ollama configuration
   - **Consider**: JWT_SECRET_KEY must be synchronized across scaled instances
+  - **Updated**: Consider Ollama memory constraints when scaling multiple instances
+  - **Enhanced**: Persistent model loading reduces scaling complexity as models remain loaded
 
 **Section sources**
 - [docker-compose.prod.yml:101-112](file://docker-compose.prod.yml#L101-L112)
@@ -407,6 +452,8 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
 - Recovery
   - Restore volumes to a new stack and redeploy; verify health endpoints and model warm-up
   - **Include**: Verify JWT_SECRET_KEY consistency during recovery
+  - **Updated**: Ensure Ollama memory allocation is properly restored during recovery
+  - **Enhanced**: Verify persistent model loading continues to work after recovery
 
 **Section sources**
 - [docker-compose.prod.yml:26-27](file://docker-compose.prod.yml#L26-L27)
@@ -434,12 +481,16 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - Verify environment variables and secrets including JWT_SECRET_KEY
   - Confirm model is pulled and warmed
   - **Verify**: JWT_SECRET_KEY is set in production environment
+  - **Verify**: Ollama memory allocation is set to 8GB
+  - **Verify**: LLM_NARRATIVE_TIMEOUT=180 for concurrent request handling
 - Deploy
   - Pull latest images and restart services
 - Post-deploy
   - Validate health endpoints and streaming
   - Monitor logs and metrics
   - **Test**: Authentication endpoints with JWT_SECRET_KEY
+  - **Monitor**: Ollama memory usage under load conditions
+  - **Verify**: Ollama-warmup service completes successfully and model remains loaded
 
 **Section sources**
 - [cd.yml:97-101](file://.github/workflows/cd.yml#L97-L101)
@@ -453,6 +504,8 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
 - Database rollback
   - Use Alembic downgrade to the prior migration if reversible
 - **Include**: JWT_SECRET_KEY rollback considerations for authentication continuity
+- **Updated**: Consider reverting Ollama memory allocation if stability issues arise
+- **Enhanced**: If persistent model loading fails, revert to continuous warmup approach
 
 **Section sources**
 - [docker-compose.prod.yml:192-211](file://docker-compose.prod.yml#L192-L211)
@@ -462,11 +515,15 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
 - Weekly
   - Renew certificates
   - Review logs and metrics
+  - **Monitor**: Ollama memory usage patterns
+  - **Verify**: Persistent model loading continues to work correctly
 - Monthly
   - Rotate JWT_SECRET_KEY and update repository secrets
   - Validate database and Ollama volume snapshots
 - **Quarterly**
   - **Review**: JWT_SECRET_KEY security audit and rotation policy compliance
+  - **Review**: Ollama memory allocation effectiveness under production load
+  - **Review**: LLM_NARRATIVE_TIMEOUT effectiveness for concurrent request handling
 
 **Section sources**
 - [docker-compose.prod.yml:213-221](file://docker-compose.prod.yml#L213-L221)

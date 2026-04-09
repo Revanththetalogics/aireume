@@ -18,6 +18,7 @@ from app.backend.services.hybrid_pipeline import (
     domain_architecture_rules,
     compute_fit_score,
     _build_fallback_narrative,
+    _merge_llm_into_result,
     _run_python_phase,
     run_hybrid_pipeline,
     _normalize_skill,
@@ -513,6 +514,44 @@ class TestBuildFallbackNarrative:
         skill_analysis = {"matched_skills": ["python"], "missing_skills": [], "required_count": 1}
         result = _build_fallback_narrative(python_result, skill_analysis)
         assert "72" in result["recommendation_rationale"]
+
+    def test_fallback_has_ai_enhanced_false(self):
+        """Fallback narrative should have ai_enhanced=False to distinguish from LLM."""
+        python_result = {"fit_score": 65, "score_breakdown": {}, "_required_years": 5}
+        skill_analysis = {"matched_skills": ["python"], "missing_skills": [], "required_count": 1}
+        result = _build_fallback_narrative(python_result, skill_analysis)
+        assert result.get("ai_enhanced") is False
+
+
+class TestMergeLlmIntoResult:
+    """Tests for _merge_llm_into_result function."""
+
+    def test_merge_includes_ai_enhanced_from_llm_result(self):
+        """Merged result should include ai_enhanced field from LLM result."""
+        python_result = {"fit_score": 75, "score_breakdown": {}, "skill_analysis": {}}
+        llm_result = {
+            "ai_enhanced": True,
+            "fit_summary": "Great candidate",
+            "strengths": ["Strong skills"],
+            "concerns": [],
+            "weaknesses": [],
+        }
+        merged = _merge_llm_into_result(python_result, llm_result)
+        assert merged.get("ai_enhanced") is True
+
+    def test_merge_includes_ai_enhanced_false_for_fallback(self):
+        """Merged result should include ai_enhanced=False for fallback."""
+        python_result = {"fit_score": 75, "score_breakdown": {}, "skill_analysis": {}}
+        fallback_result = {
+            "ai_enhanced": False,
+            "fit_summary": "Fallback summary",
+            "strengths": ["Some strengths"],
+            "concerns": ["Some concerns"],
+            "weaknesses": ["Some concerns"],
+        }
+        merged = _merge_llm_into_result(python_result, fallback_result)
+        assert merged.get("ai_enhanced") is False
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

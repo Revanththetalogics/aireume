@@ -8,14 +8,18 @@
 - [auth.py](file://app/backend/middleware/auth.py)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [test_routes_phase1.py](file://app/backend/tests/test_routes_phase1.py)
+- [db_models.py](file://app/backend/models/db_models.py)
+- [005_revoked_tokens.py](file://alembic/versions/005_revoked_tokens.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
+- Enhanced CSRF token rotation system with automatic rotation after successful state-changing operations
+- Improved session fixation protection through comprehensive token lifecycle management
+- Added revoked_tokens system for comprehensive logout token invalidation
 - Updated exemption rules section to reflect the addition of `/api/auth/logout` endpoint
 - Enhanced troubleshooting guide with logout-specific guidance
-- Updated architecture diagrams to show logout flow
-- Added comprehensive logout functionality documentation
+- Updated architecture diagrams to show logout flow and token rotation mechanisms
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -35,7 +39,7 @@ The CSRF Protection Middleware is a critical security component designed to prev
 
 CSRF (Cross-Site Request Forgery) attacks occur when malicious websites trick authenticated users into performing unintended actions on a web application. The double-submit cookie pattern mitigates this risk by requiring clients to submit a CSRF token in both a cookie and a request header, making it extremely difficult for attackers to forge valid requests.
 
-**Updated** Enhanced with improved logout functionality through dedicated exemption for `/api/auth/logout` endpoint, ensuring seamless user session termination without CSRF validation conflicts.
+**Updated** Enhanced with automatic token rotation after successful state-changing operations, improved session fixation protection, and comprehensive logout token invalidation through the revoked_tokens system. These enhancements provide stronger security guarantees while maintaining seamless user experience.
 
 ## Architecture Overview
 
@@ -67,23 +71,28 @@ subgraph "CSRF Validation Flow"
 Cookie[CSRF Cookie]
 Header[X-CSRF-Token Header]
 Validation[Token Comparison]
+Rotation[Token Rotation]
 Logout[Logout Endpoint]
+Revoked[Revoked Tokens System]
 end
 Cookie --> Validation
 Header --> Validation
 Validation --> CSRF
-Logout --> CSRF
+Rotation --> CSRF
+Logout --> Revoked
+Revoked --> CSRF
 ```
 
 **Diagram sources**
-- [main.py:200-202](file://app/backend/main.py#L200-L202)
-- [csrf.py:13-57](file://app/backend/middleware/csrf.py#L13-L57)
+- [main.py:322-324](file://app/backend/main.py#L322-L324)
+- [csrf.py:15-82](file://app/backend/middleware/csrf.py#L15-L82)
+- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
 
 ## Core Components
 
 ### CSRFMiddleware Class
 
-The [`CSRFMiddleware`:13-57](file://app/backend/middleware/csrf.py#L13-L57) serves as the primary security enforcement component, implementing the double-submit cookie validation pattern.
+The [`CSRFMiddleware`:15-82](file://app/backend/middleware/csrf.py#L15-L82) serves as the primary security enforcement component, implementing the double-submit cookie validation pattern with enhanced token lifecycle management.
 
 ```mermaid
 classDiagram
@@ -94,6 +103,7 @@ class CSRFMiddleware {
 -validate_csrf_token(cookie_token, header_token) bool
 -is_exempt_path(path) bool
 -is_safe_method(method) bool
+-rotate_csrf_token(response) void
 }
 class Request {
 +method string
@@ -110,14 +120,14 @@ CSRFMiddleware --> JSONResponse : "returns"
 ```
 
 **Diagram sources**
-- [csrf.py:13-57](file://app/backend/middleware/csrf.py#L13-L57)
+- [csrf.py:15-82](file://app/backend/middleware/csrf.py#L15-L82)
 
 **Section sources**
-- [csrf.py:13-57](file://app/backend/middleware/csrf.py#L13-L57)
+- [csrf.py:15-82](file://app/backend/middleware/csrf.py#L15-L82)
 
 ### Authentication Integration
 
-The middleware seamlessly integrates with the existing authentication system, working alongside JWT-based authentication for API clients while protecting browser-based interactions.
+The middleware seamlessly integrates with the existing authentication system, working alongside JWT-based authentication for API clients while protecting browser-based interactions. The integration now includes comprehensive token rotation and session fixation protection.
 
 ```mermaid
 sequenceDiagram
@@ -133,12 +143,14 @@ CSRF->>CSRF : Extract CSRF Tokens
 CSRF->>CSRF : Validate Token Match
 CSRF->>Auth : Forward to Auth Middleware
 Auth->>Route : Forward to Route Handler
-Route->>Client : Response
-Note over CSRF : Returns 403 for invalid CSRF
+Route->>CSRF : Response
+CSRF->>CSRF : Rotate Token on Success
+CSRF->>Client : Response with New CSRF Token
+Note over CSRF : Automatic rotation after POST/PUT/DELETE
 ```
 
 **Diagram sources**
-- [csrf.py:33-57](file://app/backend/middleware/csrf.py#L33-L57)
+- [csrf.py:39-82](file://app/backend/middleware/csrf.py#L39-L82)
 - [auth.py:26-56](file://app/backend/middleware/auth.py#L26-L56)
 
 **Section sources**
@@ -152,6 +164,8 @@ The middleware implements the double-submit cookie pattern, requiring clients to
 
 1. **Cookie**: `csrf_token` - stored as a standard cookie
 2. **Header**: `X-CSRF-Token` - included in request headers
+
+**Updated** Enhanced with automatic token rotation after successful state-changing operations to prevent session fixation attacks.
 
 ```mermaid
 flowchart TD
@@ -168,23 +182,28 @@ HasAuth --> |No| ExtractTokens["Extract CSRF Tokens"]
 ExtractTokens --> ValidateTokens{"Tokens Match?"}
 ValidateTokens --> |No| Return403["Return 403 Forbidden"]
 ValidateTokens --> |Yes| CallNext["Call Next Middleware"]
-SkipCSRF --> CallNext
-CallNext --> End([Request Processed])
+CallNext --> CheckSuccess{"Request Success?"}
+CheckSuccess --> |No| ReturnResponse["Return Response"]
+CheckSuccess --> |Yes| CheckStateChange{"State Change?"}
+CheckStateChange --> |No| ReturnResponse
+CheckStateChange --> |Yes| RotateToken["Rotate CSRF Token"]
+RotateToken --> ReturnResponse
+ReturnResponse --> End([Request Processed])
 Return403 --> End
 ```
 
 **Diagram sources**
-- [csrf.py:33-57](file://app/backend/middleware/csrf.py#L33-L57)
+- [csrf.py:39-82](file://app/backend/middleware/csrf.py#L39-L82)
 
 **Section sources**
-- [csrf.py:23-57](file://app/backend/middleware/csrf.py#L23-L57)
+- [csrf.py:39-82](file://app/backend/middleware/csrf.py#L39-L82)
 
 ### Token Generation and Management
 
-The authentication system generates CSRF tokens during user login and registration, storing them in cookies for client access.
+The authentication system generates CSRF tokens during user login and registration, storing them in cookies for client access. **Updated** The system now includes automatic token rotation after successful state-changing operations.
 
 **Section sources**
-- [auth.py:57-103](file://app/backend/routes/auth.py#L57-L103)
+- [auth.py:60-106](file://app/backend/routes/auth.py#L60-L106)
 
 ### Exemption Rules
 
@@ -198,62 +217,94 @@ The authentication system generates CSRF tokens during user login and registrati
 The addition of `/api/auth/logout` to the exemption list ensures seamless user session termination without CSRF validation conflicts, allowing users to log out cleanly from browser-based applications.
 
 **Section sources**
-- [csrf.py:23-31](file://app/backend/middleware/csrf.py#L23-L31)
+- [csrf.py:26-37](file://app/backend/middleware/csrf.py#L26-L37)
+
+### Token Rotation Mechanism
+
+**New** The middleware now implements automatic token rotation after successful state-changing operations to prevent session fixation attacks:
+
+- **Trigger Conditions**: POST, PUT, DELETE, and PATCH requests with status codes < 400
+- **Rotation Logic**: Generates new 64-character hex token and updates cookie
+- **Security Benefits**: Prevents replay attacks and session hijacking
+- **Compatibility**: Only applies to cookie-based authentication, not Bearer tokens
+
+**Section sources**
+- [csrf.py:66-79](file://app/backend/middleware/csrf.py#L66-L79)
 
 ## Security Model
 
 ### Defense-in-Depth Approach
 
-The CSRF protection system employs a layered security approach:
+The CSRF protection system employs a layered security approach with enhanced token lifecycle management:
 
 ```mermaid
 graph LR
 subgraph "Layer 1: CSRF Protection"
 A[CSRF Middleware]
 B[Double-Submit Pattern]
+C[Token Rotation]
 end
 subgraph "Layer 2: Authentication"
-C[JWT Authentication]
-D[Cookie-Based Auth]
+D[JWT Authentication]
+E[Cookie-Based Auth]
+F[Revoked Tokens System]
 end
 subgraph "Layer 3: Authorization"
-E[Role-Based Access Control]
-F[Permission Validation]
+G[Role-Based Access Control]
+H[Permission Validation]
 end
 subgraph "Layer 4: Transport Security"
-G[HTTPS Only]
-H[SameSite Cookies]
+I[HTTPS Only]
+J[SameSite Cookies]
+K[Token Expiration]
 end
-A --> C
-C --> E
-E --> G
-B --> D
-D --> F
-F --> H
+A --> D
+D --> G
+G --> I
+B --> E
+E --> F
+F --> J
+C --> K
 ```
 
 **Diagram sources**
-- [csrf.py:13-57](file://app/backend/middleware/csrf.py#L13-L57)
-- [auth.py:57-103](file://app/backend/routes/auth.py#L57-L103)
+- [csrf.py:15-82](file://app/backend/middleware/csrf.py#L15-L82)
+- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
+- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
 
 ### Token Lifecycle Management
 
-The CSRF token lifecycle follows strict security protocols:
+**Updated** The CSRF token lifecycle follows strict security protocols with enhanced protection mechanisms:
 
 1. **Generation**: Random 64-character hex token generated during authentication
 2. **Storage**: Stored in non-httpOnly cookie for client accessibility
 3. **Validation**: Compared against X-CSRF-Token header on unsafe requests
 4. **Expiration**: 1-hour lifetime with automatic rotation
-5. **Cleanup**: Removed on logout or session termination
+5. **Rotation**: Automatic regeneration after successful state-changing operations
+6. **Cleanup**: Removed on logout or session termination
 
 **Section sources**
-- [auth.py:61-101](file://app/backend/routes/auth.py#L61-L101)
+- [auth.py:64-104](file://app/backend/routes/auth.py#L64-L104)
+
+### Revoked Tokens System
+
+**New** Comprehensive token invalidation system for logout operations:
+
+- **Database Schema**: `revoked_tokens` table with unique JTI indexing
+- **Background Cleanup**: Automated cleanup of expired revoked tokens every 24 hours
+- **Logout Integration**: Stores refresh token JTI in revoked_tokens during logout
+- **Validation**: Checks revoked tokens during refresh operations
+
+**Section sources**
+- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
+- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
+- [005_revoked_tokens.py:41-67](file://alembic/versions/005_revoked_tokens.py#L41-L67)
 
 ## Integration Patterns
 
 ### Frontend Integration
 
-The frontend client automatically handles CSRF token injection for browser-based requests:
+The frontend client automatically handles CSRF token injection for browser-based requests with enhanced token management:
 
 ```mermaid
 sequenceDiagram
@@ -267,32 +318,37 @@ Frontend->>Frontend : Extract CSRF Token from Cookie
 Frontend->>Backend : POST with X-CSRF-Token header
 Backend->>CSRF : Validate Token Match
 CSRF->>Backend : Process Request
+CSRF->>CSRF : Rotate Token on Success
+CSRF->>Backend : Return Response with New CSRF Token
 Frontend->>Backend : POST /api/auth/logout
 Backend->>CSRF : Skip CSRF Check (Exempt Path)
+Backend->>Backend : Store Refresh Token JTI in Revoked Tokens
 Backend->>Frontend : Clear All Cookies
 Note over Frontend : Automatic CSRF header injection
 Note over CSRF : Logout bypasses CSRF validation
+Note over CSRF : Token rotation after state changes
 ```
 
 **Diagram sources**
 - [api.js:18-31](file://app/frontend/src/lib/api.js#L18-L31)
-- [csrf.py:47-55](file://app/backend/middleware/csrf.py#L47-L55)
+- [csrf.py:66-79](file://app/backend/middleware/csrf.py#L66-L79)
+- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
 
 **Section sources**
 - [api.js:18-31](file://app/frontend/src/lib/api.js#L18-L31)
 
 ### API Client Integration
 
-API clients using Bearer tokens automatically bypass CSRF checks, maintaining compatibility with automated systems:
+API clients using Bearer tokens automatically bypass CSRF checks, maintaining compatibility with automated systems. **Updated** These clients also benefit from automatic token rotation for enhanced security.
 
 **Section sources**
-- [csrf.py:42-45](file://app/backend/middleware/csrf.py#L42-L45)
+- [csrf.py:48-51](file://app/backend/middleware/csrf.py#L48-L51)
 
 ## Testing Strategy
 
 ### Test Coverage
 
-The CSRF protection system includes comprehensive test coverage demonstrating its effectiveness:
+The CSRF protection system includes comprehensive test coverage demonstrating its effectiveness with enhanced token rotation testing:
 
 ```mermaid
 graph TB
@@ -301,6 +357,7 @@ A[Authentication Tests]
 B[CSRF Validation Tests]
 C[Integration Tests]
 D[Security Tests]
+E[Token Rotation Tests]
 end
 subgraph "Test Scenarios"
 A1[Login Success/Failure]
@@ -312,6 +369,9 @@ C1[Route Access Control]
 C2[Middleware Order]
 D1[Attack Vector Prevention]
 D2[Session Management]
+E1[Token Rotation After POST]
+E2[No Rotation on Failure]
+E3[Bearer Auth Bypass]
 end
 A --> A1
 A --> A2
@@ -322,17 +382,16 @@ C --> C1
 C --> C2
 D --> D1
 D --> D2
+E --> E1
+E --> E2
+E --> E3
 ```
 
 **Diagram sources**
-- [test_routes_phase1.py:149](file://app/backend/tests/test_routes_phase1.py#L149)
-- [test_routes_phase1.py:165](file://app/backend/tests/test_routes_phase1.py#L165)
-- [test_routes_phase1.py:210](file://app/backend/tests/test_routes_phase1.py#L210)
+- [test_routes_phase1.py:223-303](file://app/backend/tests/test_routes_phase1.py#L223-L303)
 
 **Section sources**
-- [test_routes_phase1.py:149](file://app/backend/tests/test_routes_phase1.py#L149)
-- [test_routes_phase1.py:165](file://app/backend/tests/test_routes_phase1.py#L165)
-- [test_routes_phase1.py:210](file://app/backend/tests/test_routes_phase1.py#L210)
+- [test_routes_phase1.py:223-303](file://app/backend/tests/test_routes_phase1.py#L223-L303)
 
 ### Test Evidence
 
@@ -341,37 +400,42 @@ The test suite demonstrates CSRF protection effectiveness through multiple scena
 - **Batch Analysis**: Requires CSRF token, returns 403 when missing
 - **Comparison Operations**: CSRF validation prevents unauthorized modifications  
 - **Status Updates**: Protects critical system operations from CSRF attacks
+- **Token Rotation**: **New** Tests verify automatic token rotation after successful state-changing operations
+- **Session Fixation**: **New** Tests ensure tokens are rotated to prevent session hijacking
 
 **Section sources**
 - [test_routes_phase1.py:149](file://app/backend/tests/test_routes_phase1.py#L149)
 - [test_routes_phase1.py:165](file://app/backend/tests/test_routes_phase1.py#L165)
 - [test_routes_phase1.py:210](file://app/backend/tests/test_routes_phase1.py#L210)
+- [test_routes_phase1.py:225-299](file://app/backend/tests/test_routes_phase1.py#L225-L299)
 
 ## Deployment Considerations
 
 ### Production Configuration
 
-The middleware includes production-ready security configurations:
+The middleware includes production-ready security configurations with enhanced token management:
 
 - **Secure Cookies**: CSRF tokens use HTTPS-only and SameSite protections
-- **Token Rotation**: Automatic token regeneration for enhanced security
+- **Token Rotation**: Automatic token regeneration for enhanced security after state changes
 - **Expiry Management**: 1-hour token lifetime with proper cleanup
 - **Environment Awareness**: Different behavior in development vs production
+- **Revoked Tokens**: Background cleanup task removes expired revoked tokens daily
 
 **Section sources**
-- [auth.py:92-101](file://app/backend/routes/auth.py#L92-L101)
+- [auth.py:95-104](file://app/backend/routes/auth.py#L95-L104)
+- [main.py:203-219](file://app/backend/main.py#L203-L219)
 
 ### Middleware Ordering
 
 The middleware stack order is critical for proper operation:
 
 1. **CORS Middleware**: Handles cross-origin requests
-2. **CSRF Middleware**: Validates security tokens
+2. **CSRF Middleware**: Validates security tokens and manages rotation
 3. **Auth Middleware**: Processes authentication
 4. **Route Handlers**: Executes business logic
 
 **Section sources**
-- [main.py:192-202](file://app/backend/main.py#L192-L202)
+- [main.py:322-324](file://app/backend/main.py#L322-L324)
 
 ## Troubleshooting Guide
 
@@ -429,11 +493,40 @@ The middleware stack order is critical for proper operation:
 - Browser clients automatically handle CSRF token extraction
 - API clients bypass CSRF validation entirely
 - Check that logout clears all cookies including `csrf_token`
+- **New** Verify that refresh token JTI is stored in revoked_tokens database
+
+#### Token Rotation Issues
+
+**New** **Symptoms**: Unexpected CSRF failures after successful operations
+**Causes**:
+- Token rotation not occurring after state changes
+- Client not using updated CSRF token
+- Mixed authentication methods
+
+**Solutions**:
+- Ensure state-changing operations return success status codes (< 400)
+- Verify client receives and uses new CSRF token from response
+- Check that cookie-based authentication is used for rotation
+- Confirm Bearer auth bypasses rotation as expected
+
+#### Session Fixation Concerns
+
+**New** **Symptoms**: Security vulnerabilities related to persistent sessions
+**Causes**:
+- CSRF tokens not rotating after successful operations
+- Long-lived session tokens
+- Inadequate token expiration handling
+
+**Solutions**:
+- Verify automatic token rotation after POST/PUT/DELETE operations
+- Check token expiration settings (1-hour lifetime)
+- Ensure logout clears all session cookies and tokens
+- Monitor revoked tokens database for cleanup
 
 **Section sources**
-- [csrf.py:51-55](file://app/backend/middleware/csrf.py#L51-L55)
+- [csrf.py:66-79](file://app/backend/middleware/csrf.py#L66-L79)
 - [api.js:18-31](file://app/frontend/src/lib/api.js#L18-L31)
-- [auth.py:201-208](file://app/backend/routes/auth.py#L201-L208)
+- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
 
 ## Conclusion
 
@@ -443,8 +536,10 @@ The CSRF Protection Middleware provides robust defense against Cross-Site Reques
 - **API Compatibility**: Seamless integration with Bearer token authentication
 - **Comprehensive Coverage**: Protection across all unsafe HTTP methods
 - **Production Ready**: Secure cookie handling and proper lifecycle management
+- **Enhanced Security**: Automatic token rotation after state-changing operations prevents session fixation attacks
+- **Improved Session Management**: Comprehensive logout token invalidation through revoked_tokens system
 - **Enhanced Logout Support**: Dedicated exemption for `/api/auth/logout` ensures seamless user session termination
 
-The implementation demonstrates best practices in web security while maintaining compatibility with modern authentication patterns. The comprehensive test coverage and clear error handling ensure reliable operation in production environments.
+**Updated** The recent enhancements significantly strengthen the security posture by implementing automatic token rotation after successful state-changing operations, improving session fixation protection, and adding comprehensive logout token invalidation through the revoked_tokens system. These improvements maintain compatibility with modern authentication patterns while providing stronger protection against sophisticated attack vectors.
 
-**Updated** The recent enhancement to include `/api/auth/logout` in the exemption list significantly improves user experience by eliminating CSRF validation conflicts during logout operations, while maintaining strong security posture for all other authenticated operations.
+The implementation demonstrates best practices in web security while maintaining compatibility with modern authentication patterns. The comprehensive test coverage and clear error handling ensure reliable operation in production environments, with enhanced testing specifically targeting the new token rotation and session fixation protection features.

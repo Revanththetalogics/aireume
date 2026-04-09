@@ -8,8 +8,13 @@ import json
 import re
 import os
 import httpx
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+
+from app.backend.services.llm_service import get_ollama_semaphore
+
+logger = logging.getLogger(__name__)
 
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -198,22 +203,26 @@ async def analyze_transcript(
     prompt = _build_transcript_prompt(transcript, jd_text, candidate_name)
 
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={
-                    "model":   OLLAMA_MODEL,
-                    "prompt":  prompt,
-                    "stream":  False,
-                    "format":  "json",
-                    "options": {"num_predict": 600, "temperature": 0.1},
-                },
-            )
-            resp.raise_for_status()
-            raw = resp.json().get("response", "{}")
-            parsed = _parse_json_response(raw)
-            if parsed:
-                return _normalize(parsed)
+        sem = get_ollama_semaphore()
+        if sem.locked():
+            logger.info("Waiting for Ollama slot (another request in progress)...")
+        async with sem:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                resp = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model":   OLLAMA_MODEL,
+                        "prompt":  prompt,
+                        "stream":  False,
+                        "format":  "json",
+                        "options": {"num_predict": 600, "temperature": 0.1},
+                    },
+                )
+                resp.raise_for_status()
+                raw = resp.json().get("response", "{}")
+                parsed = _parse_json_response(raw)
+                if parsed:
+                    return _normalize(parsed)
     except Exception:
         pass
 

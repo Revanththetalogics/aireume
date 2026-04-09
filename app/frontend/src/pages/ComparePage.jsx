@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { GitCompare, Trophy, Check, Download } from 'lucide-react'
+import { GitCompare, Trophy, Check, Download, ChevronDown, ChevronUp, MessageCircle } from 'lucide-react'
 import { getHistory, compareResults, exportCsv } from '../lib/api'
 
 function ScoreCell({ value, isWinner, color = 'brand' }) {
@@ -13,6 +13,42 @@ function ScoreCell({ value, isWinner, color = 'brand' }) {
     <div className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-sm ring-1 ${isWinner ? colors[color] : 'text-slate-600 bg-slate-50 ring-slate-200'}`}>
       {isWinner && <Trophy className="w-3.5 h-3.5" />}
       {value}%
+    </div>
+  )
+}
+
+function QualityBadge({ quality }) {
+  const styles = {
+    high: 'bg-green-100 text-green-800 ring-1 ring-green-200',
+    medium: 'bg-amber-100 text-amber-800 ring-1 ring-amber-200',
+    low: 'bg-red-100 text-red-800 ring-1 ring-red-200',
+  }
+  return (
+    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase ${styles[quality] || styles.medium}`}>
+      {quality || 'medium'}
+    </span>
+  )
+}
+
+function CollapsibleSection({ title, icon: Icon, defaultOpen = false, children }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
+  return (
+    <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-brand-50/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          {Icon && <Icon className="w-4 h-4 text-brand-600" />}
+          <h4 className="text-sm font-bold text-brand-900">{title}</h4>
+        </div>
+        {isOpen ? (
+          <ChevronUp className="w-4 h-4 text-brand-500" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-brand-500" />
+        )}
+      </button>
+      {isOpen && <div className="px-5 pb-4 border-t border-brand-50">{children}</div>}
     </div>
   )
 }
@@ -173,6 +209,8 @@ export default function ComparePage() {
                     { label: 'Education',    key: 'score_breakdown.education',       winnerKey: 'education',  isScore: true  },
                     { label: 'Stability',    key: 'score_breakdown.stability',       winnerKey: 'stability',  isScore: true  },
                     { label: 'Risk Level',   key: 'risk_level',                      winnerKey: null,         isScore: false },
+                    { label: 'Employment Gaps', key: 'employment_gaps',              winnerKey: null,         isScore: false, isGaps: true },
+                    { label: 'Analysis Quality', key: 'analysis_quality',            winnerKey: null,         isScore: false, isQuality: true },
                   ].map(row => (
                     <tr key={row.label} className="border-b border-brand-50 hover:bg-brand-50/30 transition-colors">
                       <td className="px-4 py-3.5 text-xs font-bold text-brand-700 uppercase tracking-wide">{row.label}</td>
@@ -193,6 +231,14 @@ export default function ComparePage() {
                                 val === 'Low' ? 'text-green-700' :
                                 val === 'High'? 'text-red-700'   : 'text-amber-700'
                               }`}>{val || '—'}</span>
+                            ) : row.isGaps ? (
+                              <span className={`text-sm font-bold ${
+                                val === 0 ? 'text-green-700' : val === 1 ? 'text-amber-700' : 'text-red-700'
+                              }`}>
+                                {val ?? 0}
+                              </span>
+                            ) : row.isQuality ? (
+                              <QualityBadge quality={val} />
                             ) : (
                               <span className={`text-xs font-bold ${
                                 val === 'Shortlist' ? 'text-green-700' :
@@ -221,6 +267,99 @@ export default function ComparePage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Strengths & Weaknesses Section */}
+            <CollapsibleSection title="Strengths & Weaknesses" defaultOpen={true}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+                {comparison.candidates.map(c => (
+                  <div key={c.id} className="bg-brand-50/50 rounded-xl p-4 ring-1 ring-brand-100">
+                    <h5 className="text-sm font-bold text-brand-900 mb-3">{c.candidate_name}</h5>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs font-semibold text-green-700 mb-1.5 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-green-500" />
+                          Strengths
+                        </p>
+                        <ul className="space-y-1">
+                          {c.strengths?.length > 0 ? c.strengths.map((s, i) => (
+                            <li key={i} className="text-xs text-slate-700 flex items-start gap-1.5">
+                              <span className="text-green-500 mt-0.5">•</span>
+                              {s}
+                            </li>
+                          )) : (
+                            <li className="text-xs text-slate-400 italic">No strengths listed</li>
+                          )}
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-red-700 mb-1.5 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-red-500" />
+                          Weaknesses
+                        </p>
+                        <ul className="space-y-1">
+                          {c.weaknesses?.length > 0 ? c.weaknesses.map((w, i) => (
+                            <li key={i} className="text-xs text-slate-700 flex items-start gap-1.5">
+                              <span className="text-red-500 mt-0.5">•</span>
+                              {w}
+                            </li>
+                          )) : (
+                            <li className="text-xs text-slate-400 italic">No weaknesses listed</li>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+
+            {/* Interview Questions Preview */}
+            <CollapsibleSection title="Interview Questions Preview" icon={MessageCircle}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+                {comparison.candidates.map(c => (
+                  <div key={c.id} className="bg-brand-50/50 rounded-xl p-4 ring-1 ring-brand-100">
+                    <h5 className="text-sm font-bold text-brand-900 mb-3">{c.candidate_name}</h5>
+                    <div className="space-y-2">
+                      {c.interview_questions_preview?.length > 0 ? (
+                        c.interview_questions_preview.map((q, i) => (
+                          <div key={i} className="flex gap-2">
+                            <span className="text-xs font-bold text-brand-500 shrink-0">Q{i + 1}:</span>
+                            <p className="text-xs text-slate-700">{q}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">No questions available</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+
+            {/* Adjacent Skills */}
+            <CollapsibleSection title="Adjacent Skills">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+                {comparison.candidates.map(c => (
+                  <div key={c.id} className="bg-brand-50/50 rounded-xl p-4 ring-1 ring-brand-100">
+                    <h5 className="text-sm font-bold text-brand-900 mb-3">{c.candidate_name}</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {c.adjacent_skills?.length > 0 ? (
+                        c.adjacent_skills.map((skill, i) => (
+                          <span
+                            key={i}
+                            className="px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 rounded-full ring-1 ring-indigo-200"
+                          >
+                            {skill}
+                          </span>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">No adjacent skills listed</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
           </div>
         )}
       </main>

@@ -580,8 +580,8 @@ def _extract_name_relaxed(text: str) -> str:
     return ""
 
 
-def enrich_parsed_resume(data: Dict[str, Any]) -> None:
-    """Fill gaps in parser output in-place (name from NER / email / relaxed header scan)."""
+def enrich_parsed_resume(data: Dict[str, Any], filename: Optional[str] = None) -> None:
+    """Fill gaps in parser output in-place (name from NER / email / relaxed header scan / filename)."""
     contact = data.setdefault("contact_info", {})
     raw = (data.get("raw_text") or "").strip()
     if (contact.get("name") or "").strip():
@@ -601,14 +601,62 @@ def enrich_parsed_resume(data: Dict[str, Any]) -> None:
     if not guess and raw:
         guess = _extract_name_relaxed(raw)
     
+    # Tier 3: Fallback to filename-based extraction
+    if not guess and filename:
+        guess = _name_from_filename(filename)
+
     if guess:
         contact["name"] = guess
+
+
+def _name_from_filename(filename: str) -> str:
+    """Extract a name from the resume filename.
+    
+    Examples:
+        "Suhas Mullangi.pdf" → "Suhas Mullangi"
+        "john_doe_resume_2024.pdf" → "John Doe"
+        "resume_jane_smith.docx" → "Jane Smith"
+    """
+    import re
+    
+    if not filename:
+        return ""
+    
+    # Strip extension
+    name = filename.rsplit(".", 1)[0] if "." in filename else filename
+    
+    # First, replace underscores and hyphens with spaces to enable word boundary matching
+    name = re.sub(r"[_\-]+", " ", name)
+    
+    # Remove common non-name patterns (case-insensitive)
+    # Patterns: resume, cv, curriculum, vitae, updated, final, latest, revised, new, copy
+    name = re.sub(r"(?i)\b(resume|cv|curriculum|vitae|updated?|final|latest|revised?|new|copy)\b", "", name)
+    
+    # Remove dates in various formats (YYYY, YY, MM-DD, DD-MM, etc.)
+    name = re.sub(r"\b(19|20)\d{2}\b", "", name)  # Years like 2024, 1995
+    name = re.sub(r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b", "", name)  # Date patterns
+    name = re.sub(r"\b\d{4}\b", "", name)  # 4-digit numbers (years)
+    
+    # Clean up multiple spaces and strip
+    name = re.sub(r"\s+", " ", name).strip()
+    
+    # Title case the result
+    name = name.title()
+    
+    # Validate: must have 2-5 words and no digits
+    words = name.split()
+    if len(words) < 2 or len(words) > 5:
+        return ""
+    if any(char.isdigit() for char in name):
+        return ""
+    
+    return name
 
 
 def parse_resume(file_bytes: bytes, filename: str) -> Dict[str, Any]:
     start = time.monotonic()
     parser = ResumeParser()
     out = parser.parse_resume(file_bytes, filename)
-    enrich_parsed_resume(out)
+    enrich_parsed_resume(out, filename)
     RESUME_PARSE_DURATION.observe(time.monotonic() - start)
     return out

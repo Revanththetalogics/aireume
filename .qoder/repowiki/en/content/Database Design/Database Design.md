@@ -10,11 +10,24 @@
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 - [002_parser_snapshot_json.py](file://alembic/versions/002_parser_snapshot_json.py)
 - [003_subscription_system.py](file://alembic/versions/003_subscription_system.py)
+- [004_narrative_json.py](file://alembic/versions/004_narrative_json.py)
+- [005_revoked_tokens.py](file://alembic/versions/005_revoked_tokens.py)
+- [006_indexes_and_jdcache_created_at.py](file://alembic/versions/006_indexes_and_jdcache_created_at.py)
 - [main.py](file://app/backend/main.py)
 - [auth.py](file://app/backend/middleware/auth.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
+- [auth_routes.py](file://app/backend/routes/auth.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Added new database migration 004 for narrative_json column in screening_results
+- Added new database migration 005 for revoked_tokens table with JWT token revocation support
+- Added new database migration 006 for strategic indexes and created_at column enhancement
+- Enhanced database performance with connection pooling configuration
+- Updated authentication system with token revocation capabilities
+- Improved query optimization through strategic indexing
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,20 +45,20 @@
 This document describes the database design for Resume AI by ThetaLogics. It covers the entity relationship model, field definitions, indexes, constraints, multi-tenant architecture, subscription and usage tracking, the Alembic migration system, data validation rules, business logic constraints, referential integrity, data access patterns, caching strategies, performance considerations, data lifecycle and retention, backup strategies, and representative queries and reporting scenarios.
 
 ## Project Structure
-The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption.
+The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements include connection pooling for PostgreSQL, token revocation support, and strategic indexing for improved query performance.
 
 ```mermaid
 graph TB
 subgraph "Application"
 A["FastAPI App<br/>main.py"]
 B["Auth Middleware<br/>auth.py"]
-C["Routes<br/>subscription.py / analyze.py"]
+C["Routes<br/>subscription.py / analyze.py / auth.py"]
 end
 subgraph "Database Layer"
 D["SQLAlchemy Engine & Session<br/>database.py"]
 E["Declarative Models<br/>db_models.py"]
 F["Alembic Env & Script<br/>env.py / script.py.mako"]
-G["Migrations<br/>001 / 002 / 003"]
+G["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006"]
 end
 A --> B
 A --> C
@@ -60,25 +73,28 @@ F --> G
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [subscription.py:162-253](file://app/backend/routes/subscription.py#L162-L253)
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
-- [database.py:1-33](file://app/backend/db/database.py#L1-L33)
-- [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
+- [database.py:1-50](file://app/backend/db/database.py#L1-L50)
+- [db_models.py:11-264](file://app/backend/models/db_models.py#L11-L264)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 - [script.py.mako:1-29](file://alembic/script.py.mako#L1-L29)
 - [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
+- [004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
+- [005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
+- [006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
-- [database.py:1-33](file://app/backend/db/database.py#L1-L33)
+- [database.py:1-50](file://app/backend/db/database.py#L1-L50)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Core Components
-This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, and usage tracking.
+This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, and enhanced security features.
 
 - Tenant
   - Purpose: Multi-tenant container with subscription and usage tracking.
-  - Key fields: id, name, slug, plan_id, subscription_status, current_period_start/end, analyses_count_this_month, storage_used_bytes, usage_reset_at, stripe_* identifiers, timestamps.
+  - Key fields: id, name, slug, plan_id, timestamps.
   - Indexes: subscription_status, stripe_customer_id; relationships: plan, users, candidates, templates, results, team_members, usage_logs.
   - Constraints: plan_id FK to subscription_plans; default subscription_status active; usage counters initialized to zero.
 
@@ -98,9 +114,9 @@ This section documents the core entities and their attributes relevant to the mu
   - Indexes: email, resume_file_hash; relationships: tenant, results, transcript_analyses.
 
 - ScreeningResult
-  - Purpose: Stores analysis outputs for a candidate/job combination.
-  - Key fields: id, tenant_id (FK), candidate_id (FK), role_template_id (FK), resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), status, timestamp.
-  - Relationships: tenant, candidate, role_template, comments, training_examples.
+  - Purpose: Stores analysis outputs for a candidate/job combination with asynchronous narrative support.
+  - Key fields: id, tenant_id (FK), candidate_id (FK), role_template_id (FK), resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), status, timestamp.
+  - Indexes: candidate_id, timestamp; relationships: tenant, candidate, role_template, comments, training_examples.
 
 - RoleTemplate
   - Purpose: Job description templates with scoring weights and tags.
@@ -112,15 +128,20 @@ This section documents the core entities and their attributes relevant to the mu
   - Key fields: id, tenant_id (FK, CASCADE), user_id (FK, SET NULL), action, quantity, details (JSON), created_at; indexes: tenant+action, tenant+created_at, created_at.
   - Relationships: tenant, user.
 
+- RevokedToken
+  - Purpose: Tracks revoked JWT tokens to prevent reuse after logout.
+  - Key fields: id, jti (unique, indexed), revoked_at, expires_at.
+  - Indexes: id, jti (unique); relationships: none.
+
 - Additional caching entities
-  - JdCache: shared cache keyed by hash for parsed job descriptions.
+  - JdCache: shared cache keyed by hash for parsed job descriptions with created_at timestamp.
   - Skill: dynamic registry of skills with aliases, domain, status, source, frequency.
 
 **Section sources**
-- [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
+- [db_models.py:11-264](file://app/backend/models/db_models.py#L11-L264)
 
 ## Architecture Overview
-The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations.
+The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations. Recent enhancements include token revocation support and strategic indexing for improved performance.
 
 ```mermaid
 erDiagram
@@ -140,10 +161,11 @@ ROLE_TEMPLATES ||--o{ SCREENING_RESULTS : "used_in"
 ROLE_TEMPLATES ||--o{ TRANSCRIPT_ANALYSES : "used_in"
 SCREENING_RESULTS ||--o{ COMMENTS : "commented_on"
 SCREENING_RESULTS ||--o{ TRAINING_EXAMPLES : "generates"
+REVOKED_TOKENS ||--|| USERS : "tracks"
 ```
 
 **Diagram sources**
-- [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
+- [db_models.py:11-264](file://app/backend/models/db_models.py#L11-L264)
 
 ## Detailed Component Analysis
 
@@ -164,7 +186,7 @@ Sub->>DB : SELECT Tenant + SubscriptionPlan
 Sub->>Sub : _ensure_monthly_reset()
 Sub->>Sub : _get_plan_limits()
 Sub->>DB : INSERT UsageLog + UPDATE Tenant.analyses_count_this_month
-Route->>DB : CREATE ScreeningResult
+Route->>DB : CREATE ScreeningResult with narrative_json
 Route-->>Client : AnalysisResponse
 ```
 
@@ -208,6 +230,33 @@ Deny --> End
 - [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
 - [subscription.py:427-476](file://app/backend/routes/subscription.py#L427-L476)
 
+### Enhanced Authentication and Token Management
+- Token revocation system prevents reuse of invalidated refresh tokens.
+- RevokedToken table stores JWT IDs (JTI) with timestamps for tracking.
+- Logout endpoint decodes refresh tokens and stores their JTI in the revoked_tokens table.
+- Refresh token validation checks against revoked tokens before issuing new tokens.
+
+```mermaid
+sequenceDiagram
+participant Client as "Client"
+participant Auth as "auth.py"
+participant DB as "Database"
+Client->>Auth : POST /api/auth/logout
+Auth->>Auth : Decode refresh token to extract JTI
+Auth->>DB : Query RevokedToken by jti
+DB-->>Auth : Return revoked token if exists
+Auth->>DB : Insert new RevokedToken record
+Auth-->>Client : Clear cookies and return success
+```
+
+**Diagram sources**
+- [auth_routes.py:211-254](file://app/backend/routes/auth.py#L211-L254)
+- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
+
+**Section sources**
+- [auth_routes.py:211-254](file://app/backend/routes/auth.py#L211-L254)
+- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
+
 ### Migration System and Schema Evolution
 - Alembic env registers models and binds metadata to the configured DATABASE_URL.
 - Migrations are idempotent and guard against pre-existing tables/columns.
@@ -215,12 +264,18 @@ Deny --> End
   - 001: Enrich candidates with profile fields; add jd_cache and skills tables.
   - 002: Add parser_snapshot_json to candidates.
   - 003: Enhance subscription_plans, add tenant usage fields, create usage_logs, seed plans, link existing tenants to default plan.
+  - 004: Add narrative_json column to screening_results for async LLM narrative generation.
+  - 005: Add revoked_tokens table for JWT token revocation support.
+  - 006: Add strategic indexes and created_at column to jd_cache.
 
 ```mermaid
 graph LR
 A["Initial State"] --> B["001: Enrich candidates + caches"]
 B --> C["002: Parser snapshot JSON"]
 C --> D["003: Subscription system + usage logs"]
+D --> E["004: Narrative JSON column"]
+E --> F["005: Revoked tokens table"]
+F --> G["006: Strategic indexes + created_at"]
 ```
 
 **Diagram sources**
@@ -228,6 +283,9 @@ C --> D["003: Subscription system + usage logs"]
 - [001_enrich_candidates_add_caches.py:42-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L42-L129)
 - [002_parser_snapshot_json.py:21-34](file://alembic/versions/002_parser_snapshot_json.py#L21-L34)
 - [003_subscription_system.py:43-252](file://alembic/versions/003_subscription_system.py#L43-L252)
+- [004_narrative_json.py:24-36](file://alembic/versions/004_narrative_json.py#L24-L36)
+- [005_revoked_tokens.py:41-66](file://alembic/versions/005_revoked_tokens.py#L41-L66)
+- [006_indexes_and_jdcache_created_at.py:35-72](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L35-L72)
 
 **Section sources**
 - [env.py:1-51](file://alembic/env.py#L1-L51)
@@ -235,18 +293,23 @@ C --> D["003: Subscription system + usage logs"]
 - [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
+- [004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
+- [005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
+- [006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 
 ### Data Validation Rules and Business Logic Constraints
 - Tenant isolation: All sensitive routes filter by tenant_id.
 - Usage limits: Monthly analysis counts enforced per plan limits; storage usage computed from text lengths.
 - Deduplication: Candidate matching by resume_file_hash and fallback by email/tenant.
 - Authentication: JWT decoding and active user lookup; admin-only routes gated by role.
+- Token revocation: Refresh tokens checked against revoked_tokens table during refresh operations.
 - Data types: JSON fields for parsed_data, analysis_result, limits, features; numeric counters for usage; timestamps with timezone support.
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [analyze.py:396-411](file://app/backend/routes/analyze.py#L396-L411)
 - [subscription.py:117-129](file://app/backend/routes/subscription.py#L117-L129)
+- [auth_routes.py:185-189](file://app/backend/routes/auth.py#L185-189)
 
 ### Referential Integrity and Indexes
 - Foreign keys:
@@ -254,6 +317,7 @@ C --> D["003: Subscription system + usage logs"]
   - User.tenant_id -> Tenant.id
   - Candidate.tenant_id -> Tenant.id
   - ScreeningResult.tenant_id -> Tenant.id
+  - ScreeningResult.candidate_id -> Candidate.id
   - RoleTemplate.tenant_id -> Tenant.id
   - UsageLog.tenant_id -> Tenant.id (CASCADE), user_id -> User.id (SET NULL)
 - Indexes:
@@ -261,6 +325,9 @@ C --> D["003: Subscription system + usage logs"]
   - SubscriptionPlans(is_active, sort_order)
   - Tenants(subscription_status), Tenants(stripe_customer_id)
   - UsageLogs(tenant_id, action), UsageLogs(tenant_id, created_at), UsageLogs(created_at)
+  - ScreeningResults(candidate_id), ScreeningResults(timestamp)
+  - RevokedTokens(id), RevokedTokens(jti)
+  - JdCache(hash)
 
 **Section sources**
 - [db_models.py:34-59](file://app/backend/models/db_models.py#L34-L59)
@@ -268,35 +335,48 @@ C --> D["003: Subscription system + usage logs"]
 - [db_models.py:131-146](file://app/backend/models/db_models.py#L131-L146)
 - [db_models.py:154-164](file://app/backend/models/db_models.py#L154-L164)
 - [db_models.py:83-92](file://app/backend/models/db_models.py#L83-L92)
+- [db_models.py:140](file://app/backend/models/db_models.py#L140)
+- [db_models.py:260-264](file://app/backend/models/db_models.py#L260-L264)
 - [001_enrich_candidates_add_caches.py:75-110](file://alembic/versions/001_enrich_candidates_add_caches.py#L75-L110)
 - [003_subscription_system.py:66-117](file://alembic/versions/003_subscription_system.py#L66-L117)
+- [004_narrative_json.py:24-36](file://alembic/versions/004_narrative_json.py#L24-L36)
+- [005_revoked_tokens.py:52-60](file://alembic/versions/005_revoked_tokens.py#L52-L60)
+- [006_indexes_and_jdcache_created_at.py:38-53](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L38-L53)
 
 ### Data Access Patterns, Caching, and Performance
 - Data access patterns:
   - Tenant-scoped queries: filter by tenant_id across entities.
   - Aggregation queries: sum lengths for storage usage; count users for team metrics.
   - Composite indexing: UsageLogs(tenant_id, action), UsageLogs(tenant_id, created_at) for efficient reporting.
+  - Asynchronous processing: narrative_json enables immediate scoring results while LLM narratives generate in background.
 - Caching strategies:
   - JdCache stores parsed job descriptions keyed by hash to avoid repeated parsing.
   - Candidate enrichment fields reduce repeated parsing costs.
+  - Connection pooling for PostgreSQL improves concurrent query performance.
 - Performance considerations:
-  - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id).
+  - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp).
   - Prefer batch operations for inserts (bulk insert for plans).
   - Avoid N+1 queries by using joined eager loading where appropriate.
+  - Connection pooling reduces connection overhead for PostgreSQL deployments.
 
 **Section sources**
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
 - [subscription.py:117-129](file://app/backend/routes/subscription.py#L117-L129)
 - [001_enrich_candidates_add_caches.py:78-110](file://alembic/versions/001_enrich_candidates_add_caches.py#L78-L110)
 - [003_subscription_system.py:93-117](file://alembic/versions/003_subscription_system.py#L93-L117)
+- [database.py:21-37](file://app/backend/db/database.py#L21-L37)
+- [004_narrative_json.py:8-11](file://alembic/versions/004_narrative_json.py#L8-L11)
+- [006_indexes_and_jdcache_created_at.py:8-10](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L8-L10)
 
 ### Data Lifecycle, Retention, and Backup
 - Data lifecycle:
   - Candidates: enriched once and reused for subsequent analyses; parser snapshots retained for auditability.
-  - ScreeningResults: persisted per analysis; comments and training examples augment insights.
+  - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights.
   - UsageLogs: historical audit trail; can be pruned according to policy.
+  - RevokedTokens: temporary storage of invalidated tokens; consider cleanup of expired entries.
 - Retention:
   - No explicit retention policies are defined in code; implement administrative controls to archive or purge historical data.
+  - RevokedTokens may benefit from periodic cleanup of expired entries.
 - Backup:
   - Use database-native backups (e.g., pg_dump for PostgreSQL, SQLite backup mechanisms) and regular snapshots.
   - Consider logical backups for portable deployments.
@@ -311,14 +391,20 @@ C --> D["003: Subscription system + usage logs"]
   - Query: sum(length(raw_resume_text)) + sum(length(parser_snapshot_json)) from candidates where tenant_id = ?.
 - Top skills by frequency
   - Query: select name, frequency from skills order by frequency desc limit 50.
+- Asynchronous narrative processing
+  - Query: select id, candidate_id, timestamp, narrative_json from screening_results where narrative_json is not null order by timestamp desc limit 100.
+- Token revocation tracking
+  - Query: select jti, revoked_at, expires_at from revoked_tokens order by revoked_at desc limit 1000.
 
 **Section sources**
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
 - [subscription.py:117-129](file://app/backend/routes/subscription.py#L117-L129)
 - [003_subscription_system.py:105-117](file://alembic/versions/003_subscription_system.py#L105-L117)
+- [004_narrative_json.py:8](file://alembic/versions/004_narrative_json.py#L8)
+- [006_indexes_and_jdcache_created_at.py:8](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L8)
 
 ## Dependency Analysis
-The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement.
+The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements include connection pooling configuration and token revocation support.
 
 ```mermaid
 graph TB
@@ -326,8 +412,10 @@ M["main.py<br/>lifespan()"] --> D["database.py<br/>Base.metadata.create_all"]
 E["env.py<br/>Alembic env"] --> D
 S["subscription.py<br/>routes"] --> D
 A["analyze.py<br/>routes"] --> D
-A --> S
+AR["auth.py<br/>routes"] --> D
 U["auth.py<br/>middleware"] --> D
+D --> CP["Connection Pooling<br/>PostgreSQL"]
+D --> RT["Revoked Tokens<br/>Token Management"]
 ```
 
 **Diagram sources**
@@ -335,35 +423,52 @@ U["auth.py<br/>middleware"] --> D
 - [env.py:11-20](file://alembic/env.py#L11-L20)
 - [subscription.py:162-253](file://app/backend/routes/subscription.py#L162-L253)
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
+- [auth_routes.py:162-254](file://app/backend/routes/auth.py#L162-L254)
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
+- [database.py:21-37](file://app/backend/db/database.py#L21-L37)
+- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Performance Considerations
-- Indexing: Ensure tenant_id, email, and resume_file_hash are indexed for fast filtering and deduplication.
+- Indexing: Ensure tenant_id, email, resume_file_hash, candidate_id, and timestamp are indexed for fast filtering and deduplication.
 - Query patterns: Use composite indexes for common filters (tenant_id + action, tenant_id + created_at).
 - Caching: Reuse JdCache and candidate enrichment to minimize parsing overhead.
 - Concurrency: Use SQLAlchemy sessions per request and avoid long transactions.
+- Connection pooling: PostgreSQL deployments benefit from connection pooling with configurable pool size and overflow.
+- Asynchronous processing: narrative_json enables non-blocking LLM narrative generation while returning immediate scoring results.
 
-[No sources needed since this section provides general guidance]
+**Updated** Enhanced with connection pooling configuration and asynchronous processing capabilities
+
+**Section sources**
+- [database.py:21-37](file://app/backend/db/database.py#L21-L37)
+- [004_narrative_json.py:8-11](file://alembic/versions/004_narrative_json.py#L8-L11)
+- [006_indexes_and_jdcache_created_at.py:8-10](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L8-L10)
 
 ## Troubleshooting Guide
 - Database connectivity
   - Startup and health checks verify database reachability; failures are logged and do not block service startup.
+  - Connection pooling configuration automatically applies to PostgreSQL deployments.
 - Usage enforcement errors
   - 429 responses indicate exceeded monthly analysis limits; use /api/subscription/check/{action} to pre-validate.
 - Authentication failures
   - Invalid or expired tokens result in 401 responses; ensure JWT_SECRET_KEY is configured.
+  - Token revocation prevents reuse of invalidated refresh tokens.
+- Connection pooling issues
+  - PostgreSQL deployments automatically use connection pooling with configurable parameters.
+  - SQLite deployments use default connection settings without pooling.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
 - [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
 - [auth.py:23-40](file://app/backend/middleware/auth.py#L23-L40)
+- [auth_routes.py:185-189](file://app/backend/routes/auth.py#L185-L189)
+- [database.py:21-37](file://app/backend/db/database.py#L21-L37)
 
 ## Conclusion
-The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. The schema supports caching, efficient indexing, and clear business rules for screening, template management, and team collaboration. Operational practices around retention, backup, and monitoring will ensure reliability and scalability.
+The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements include connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, and strategic indexing for better query performance. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. Operational practices around retention, backup, and monitoring will ensure reliability and scalability.
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -371,7 +476,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 
 ### Appendix A: Entity Field Reference
 - Tenant
-  - Fields: id, name, slug, plan_id, subscription_status, current_period_start, current_period_end, analyses_count_this_month, storage_used_bytes, usage_reset_at, stripe_customer_id, stripe_subscription_id, subscription_updated_at, timestamps.
+  - Fields: id, name, slug, plan_id, timestamps.
   - Indexes: subscription_status, stripe_customer_id.
 - SubscriptionPlan
   - Fields: id, name (unique), display_name, description, limits (JSON), price_monthly, price_yearly, currency, features (JSON), is_active, sort_order, timestamps.
@@ -383,14 +488,37 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
   - Fields: id, tenant_id, name, email, phone, timestamps; enrichment: resume_file_hash, raw_resume_text, parsed_skills/education/work_exp, gap_analysis_json, current_role/company, total_years_exp, profile_quality, profile_updated_at; parser_snapshot_json.
   - Indexes: email, resume_file_hash.
 - ScreeningResult
-  - Fields: id, tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), status, timestamp.
+  - Fields: id, tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), status, timestamp.
+  - Indexes: candidate_id, timestamp.
 - RoleTemplate
   - Fields: id, tenant_id, name, jd_text, scoring_weights (JSON), tags, timestamps.
 - UsageLog
   - Fields: id, tenant_id (CASCADE), user_id (SET NULL), action, quantity, details (JSON), created_at.
   - Indexes: tenant_id+action, tenant_id+created_at, created_at.
+- RevokedToken
+  - Fields: id, jti (unique), revoked_at, expires_at.
+  - Indexes: id, jti (unique).
 
 **Section sources**
-- [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
+- [db_models.py:11-264](file://app/backend/models/db_models.py#L11-L264)
 - [001_enrich_candidates_add_caches.py:75-110](file://alembic/versions/001_enrich_candidates_add_caches.py#L75-L110)
 - [003_subscription_system.py:66-117](file://alembic/versions/003_subscription_system.py#L66-L117)
+- [004_narrative_json.py:8](file://alembic/versions/004_narrative_json.py#L8)
+- [005_revoked_tokens.py:8](file://alembic/versions/005_revoked_tokens.py#L8)
+- [006_indexes_and_jdcache_created_at.py:8](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L8)
+
+### Appendix B: Migration History
+- 001: Enrich candidates with profile fields; add jd_cache and skills tables.
+- 002: Add parser_snapshot_json to candidates.
+- 003: Enhance subscription_plans, add tenant usage fields, create usage_logs, seed plans, link existing tenants to default plan.
+- 004: Add narrative_json column to screening_results for async LLM narrative generation.
+- 005: Add revoked_tokens table for JWT token revocation support.
+- 006: Add strategic indexes and created_at column to jd_cache.
+
+**Section sources**
+- [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
+- [002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
+- [003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
+- [004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
+- [005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
+- [006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)

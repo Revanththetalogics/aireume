@@ -2,10 +2,10 @@
 ........................................................................ [ 26%]
 ........................................................................ [ 40%]
 ........................................................................ [ 53%]
-........................................................................ [ 67%]
+........................................................................ [ 66%]
 ........................................................................ [ 80%]
-........................................................................ [ 94%]
-..............................                                           [100%]
+........................................................................ [ 93%]
+..................................                                       [100%]
 ============================== warnings summary ===============================
 ..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
 ..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
@@ -18,7 +18,7 @@
     warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-534 passed, 7 warnings in 1285.84s (0:21:25)
+538 passed, 7 warnings in 1320.60s (0:22:00)
 C:\Users\DELL\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py:207: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
 The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
 
