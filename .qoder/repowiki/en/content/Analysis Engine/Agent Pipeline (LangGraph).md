@@ -12,10 +12,11 @@
 
 ## Update Summary
 **Changes Made**
-- Added `_llm_request_timeout` constant for consistent timeout handling across multi-agent pipeline
-- Integrated request timeout parameter to both fast and reasoning LLM instances
-- Enhanced timeout configuration with environment variable support (`LLM_NARRATIVE_TIMEOUT`)
-- Improved timeout consistency between LangGraph pipeline and hybrid pipeline
+- Enhanced with cloud-aware LLM configurations including dynamic token limits (fast model: 1500 tokens for cloud vs 600 for local, reasoning model: 2000 tokens for cloud vs 800 for local)
+- Implemented intelligent keep_alive behavior for cost-efficient cloud deployments
+- Optimized context window sizes (6144 for cloud vs 3072 for local)
+- Added automatic cloud detection and authentication for Ollama Cloud
+- Improved cost efficiency by disabling keep_alive for cloud deployments
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -23,18 +24,19 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Timeout Configuration and Management](#timeout-configuration-and-management)
-7. [JSON Serialization Handling](#json-serialization-handling)
-8. [Dependency Analysis](#dependency-analysis)
-9. [Performance Considerations](#performance-considerations)
-10. [Troubleshooting Guide](#troubleshooting-guide)
-11. [Conclusion](#conclusion)
-12. [Appendices](#appendices)
+6. [Cloud-Aware Configuration Management](#cloud-aware-configuration-management)
+7. [Timeout Configuration and Management](#timeout-configuration-and-management)
+8. [JSON Serialization Handling](#json-serialization-handling)
+9. [Dependency Analysis](#dependency-analysis)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
+13. [Appendices](#appendices)
 
 ## Introduction
 This document describes the LangGraph-based multi-agent analysis pipeline that powers complex, step-by-step reasoning workflows for resume and job description evaluation. The pipeline integrates with Ollama models to enable structured extraction, matching, scoring, and recommendation generation. It emphasizes deterministic, schema-bound outputs, robust fallbacks, and graceful degradation when LLM calls fail. The system is designed to support both non-streaming batch processing and streaming SSE responses, while complementing a hybrid approach that combines Python-first determinism with a single LLM narrative.
 
-**Updated** Enhanced timeout handling with consistent `_llm_request_timeout` constant for improved reliability and predictable behavior across all LLM interactions.
+**Updated** Enhanced with cloud-aware LLM configurations that automatically detect Ollama Cloud deployments and optimize token limits, context windows, and keep_alive behavior for cost-efficient operations.
 
 ## Project Structure
 The agent pipeline is implemented as a LangGraph StateGraph with three sequential nodes:
@@ -53,15 +55,17 @@ end
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:551-552](file://app/backend/services/agent_pipeline.py#L551-L552)
+- [agent_pipeline.py:587-602](file://app/backend/services/agent_pipeline.py#L587-L602)
 
 **Section sources**
 - [agent_pipeline.py:4-24](file://app/backend/services/agent_pipeline.py#L4-L24)
-- [agent_pipeline.py:551-552](file://app/backend/services/agent_pipeline.py#L551-L552)
+- [agent_pipeline.py:587-602](file://app/backend/services/agent_pipeline.py#L587-L602)
 
 ## Core Components
 - StateGraph and State: The pipeline defines a strongly-typed state interface that carries inputs, intermediate outputs, and accumulated errors across nodes.
 - LLM singletons: Fast and reasoning LLM clients are created once and reused to reduce connection overhead and improve throughput.
+- Cloud-aware configuration: Automatic detection of Ollama Cloud deployments with optimized token limits and context windows.
+- Intelligent keep_alive management: Cost-efficient cloud deployments disable keep_alive to avoid unnecessary charges.
 - Timeout management: Consistent timeout handling using `_llm_request_timeout` constant for predictable LLM behavior.
 - Node implementations:
   - jd_parser: Extracts structured job requirements from raw job descriptions.
@@ -71,16 +75,15 @@ end
 - JSON serialization: Comprehensive handling of datetime, date, and Decimal objects for proper serialization.
 
 **Section sources**
-- [agent_pipeline.py:115-132](file://app/backend/services/agent_pipeline.py#L115-L132)
-- [agent_pipeline.py:81-110](file://app/backend/services/agent_pipeline.py#L81-L110)
-- [agent_pipeline.py:81-82](file://app/backend/services/agent_pipeline.py#L81-L82)
-- [agent_pipeline.py:172-191](file://app/backend/services/agent_pipeline.py#L172-L191)
-- [agent_pipeline.py:291-333](file://app/backend/services/agent_pipeline.py#L291-L333)
-- [agent_pipeline.py:378-460](file://app/backend/services/agent_pipeline.py#L378-L460)
-- [agent_pipeline.py:577-630](file://app/backend/services/agent_pipeline.py#L577-L630)
+- [agent_pipeline.py:169-186](file://app/backend/services/agent_pipeline.py#L169-L186)
+- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
+- [agent_pipeline.py:226-245](file://app/backend/services/agent_pipeline.py#L226-L245)
+- [agent_pipeline.py:345-387](file://app/backend/services/agent_pipeline.py#L345-L387)
+- [agent_pipeline.py:432-514](file://app/backend/services/agent_pipeline.py#L432-L514)
+- [agent_pipeline.py:631-683](file://app/backend/services/agent_pipeline.py#L631-L683)
 
 ## Architecture Overview
-The agent pipeline orchestrates three specialized agents with consistent timeout management:
+The agent pipeline orchestrates three specialized agents with cloud-aware configuration management:
 - Agent 1 (jd_parser): Parses job descriptions into canonical fields (role, domain, seniority, required skills, required years).
 - Agent 2 (resume_analyser): Builds a candidate profile, matches skills, and evaluates education and timeline.
 - Agent 3 (scorer): Computes a weighted fit score, risk signals, and generates interview questions.
@@ -92,29 +95,29 @@ participant Graph as "StateGraph"
 participant JD as "jd_parser"
 participant RA as "resume_analyser"
 participant SC as "scorer"
-participant O1 as "Fast LLM (request_timeout)"
-participant O2 as "Reasoning LLM (request_timeout)"
+participant O1 as "Fast LLM (cloud-aware)"
+participant O2 as "Reasoning LLM (cloud-aware)"
 Client->>Graph : "run_agent_pipeline(state)"
 Graph->>JD : "invoke(state)"
-JD->>O1 : "ainvoke(prompt) with timeout"
+JD->>O1 : "ainvoke(prompt) with cloud-optimized config"
 O1-->>JD : "structured JSON"
 JD-->>Graph : "jd_analysis + errors"
 Graph->>RA : "invoke(state)"
-RA->>O1 : "ainvoke(prompt) with timeout"
+RA->>O1 : "ainvoke(prompt) with cloud-optimized config"
 O1-->>RA : "structured JSON"
 RA-->>Graph : "candidate_profile + skill_analysis + edu_timeline_analysis + errors"
 Graph->>SC : "invoke(state)"
-SC->>O2 : "ainvoke(prompt) with timeout"
+SC->>O2 : "ainvoke(prompt) with cloud-optimized config"
 O2-->>SC : "structured JSON"
 SC-->>Graph : "final_scores + interview_questions + errors"
 Graph-->>Client : "assemble_result(final_state)"
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:644-645](file://app/backend/services/agent_pipeline.py#L644-L645)
-- [agent_pipeline.py:172-191](file://app/backend/services/agent_pipeline.py#L172-L191)
-- [agent_pipeline.py:291-333](file://app/backend/services/agent_pipeline.py#L291-L333)
-- [agent_pipeline.py:378-460](file://app/backend/services/agent_pipeline.py#L378-L460)
+- [agent_pipeline.py:688-699](file://app/backend/services/agent_pipeline.py#L688-L699)
+- [agent_pipeline.py:226-245](file://app/backend/services/agent_pipeline.py#L226-L245)
+- [agent_pipeline.py:345-387](file://app/backend/services/agent_pipeline.py#L345-L387)
+- [agent_pipeline.py:432-514](file://app/backend/services/agent_pipeline.py#L432-L514)
 
 ## Detailed Component Analysis
 
@@ -147,12 +150,12 @@ PipelineState <.. StateGraph : "typed state"
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:115-132](file://app/backend/services/agent_pipeline.py#L115-L132)
-- [agent_pipeline.py:551-552](file://app/backend/services/agent_pipeline.py#L551-L552)
+- [agent_pipeline.py:169-186](file://app/backend/services/agent_pipeline.py#L169-L186)
+- [agent_pipeline.py:587-602](file://app/backend/services/agent_pipeline.py#L587-L602)
 
 **Section sources**
-- [agent_pipeline.py:115-132](file://app/backend/services/agent_pipeline.py#L115-L132)
-- [agent_pipeline.py:551-552](file://app/backend/services/agent_pipeline.py#L551-L552)
+- [agent_pipeline.py:169-186](file://app/backend/services/agent_pipeline.py#L169-L186)
+- [agent_pipeline.py:587-602](file://app/backend/services/agent_pipeline.py#L587-L602)
 
 ### Node: jd_parser
 - Purpose: Extract canonical job requirements from raw job descriptions.
@@ -176,10 +179,10 @@ ReturnState --> End
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:172-191](file://app/backend/services/agent_pipeline.py#L172-L191)
+- [agent_pipeline.py:226-245](file://app/backend/services/agent_pipeline.py#L226-L245)
 
 **Section sources**
-- [agent_pipeline.py:172-191](file://app/backend/services/agent_pipeline.py#L172-L191)
+- [agent_pipeline.py:226-245](file://app/backend/services/agent_pipeline.py#L226-L245)
 
 ### Node: resume_analyser
 - Purpose: Combine resume parsing, skill matching, education scoring, and timeline analysis into a single LLM call.
@@ -202,12 +205,12 @@ ReturnState --> End(["Exit"])
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:291-333](file://app/backend/services/agent_pipeline.py#L291-L333)
-- [agent_pipeline.py:253-289](file://app/backend/services/agent_pipeline.py#L253-L289)
+- [agent_pipeline.py:345-387](file://app/backend/services/agent_pipeline.py#L345-L387)
+- [agent_pipeline.py:307-343](file://app/backend/services/agent_pipeline.py#L307-L343)
 
 **Section sources**
-- [agent_pipeline.py:182-289](file://app/backend/services/agent_pipeline.py#L182-L289)
-- [agent_pipeline.py:291-333](file://app/backend/services/agent_pipeline.py#L291-L333)
+- [agent_pipeline.py:307-343](file://app/backend/services/agent_pipeline.py#L307-L343)
+- [agent_pipeline.py:345-387](file://app/backend/services/agent_pipeline.py#L345-L387)
 
 ### Node: scorer
 - Purpose: Compute weighted fit score, risk penalties, risk signals, strengths, weaknesses, explainability, and interview questions.
@@ -231,19 +234,19 @@ ReturnState --> End(["Exit"])
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:378-460](file://app/backend/services/agent_pipeline.py#L378-L460)
-- [agent_pipeline.py:474-529](file://app/backend/services/agent_pipeline.py#L474-L529)
+- [agent_pipeline.py:432-514](file://app/backend/services/agent_pipeline.py#L432-L514)
+- [agent_pipeline.py:528-583](file://app/backend/services/agent_pipeline.py#L528-L583)
 
 **Section sources**
-- [agent_pipeline.py:324-460](file://app/backend/services/agent_pipeline.py#L324-L460)
-- [agent_pipeline.py:474-529](file://app/backend/services/agent_pipeline.py#L474-L529)
+- [agent_pipeline.py:528-583](file://app/backend/services/agent_pipeline.py#L528-L583)
+- [agent_pipeline.py:432-514](file://app/backend/services/agent_pipeline.py#L432-L514)
 
 ### Result Assembly and Backward Compatibility
 - The final state is transformed into a unified result dictionary that preserves backward compatibility with the existing AnalysisResponse schema while adding new fields produced by the LangGraph pipeline.
 - Ensures that the frontend's "Stability" bar continues to render by mapping timeline to stability in the score breakdown.
 
 **Section sources**
-- [agent_pipeline.py:577-630](file://app/backend/services/agent_pipeline.py#L577-L630)
+- [agent_pipeline.py:631-683](file://app/backend/services/agent_pipeline.py#L631-L683)
 
 ### Integration with Hybrid Approach
 - While the LangGraph pipeline focuses on structured, schema-bound outputs and deterministic fallbacks, the hybrid pipeline provides a complementary approach:
@@ -255,6 +258,69 @@ ReturnState --> End(["Exit"])
 **Section sources**
 - [hybrid_pipeline.py:1-11](file://app/backend/services/hybrid_pipeline.py#L1-L11)
 - [analyze.py:304-311](file://app/backend/routes/analyze.py#L304-L311)
+
+## Cloud-Aware Configuration Management
+
+**Updated** The agent pipeline now includes comprehensive cloud-aware configuration management for optimal performance and cost efficiency.
+
+### Cloud Detection and Authentication
+The pipeline automatically detects Ollama Cloud deployments and handles authentication:
+
+```python
+def _is_ollama_cloud(base_url: str) -> bool:
+    """Check if the base URL points to Ollama Cloud (ollama.com)."""
+    return "ollama.com" in base_url.lower()
+
+def _get_ollama_headers(base_url: str) -> Dict[str, str]:
+    """Build headers for Ollama API requests. Adds Authorization header for cloud."""
+    headers = {}
+    if _is_ollama_cloud(base_url):
+        api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+```
+
+### Dynamic Token Limits and Context Windows
+The pipeline optimizes LLM configurations based on deployment type:
+
+#### Fast LLM Configuration (Cloud vs Local)
+```python
+# Cloud models need more tokens for verbose output
+# Local: 600 tokens sufficient for combined schema
+# Cloud: 1500 tokens for larger models that generate more verbose output
+_num_predict = 1500 if _is_cloud else 600
+_num_ctx = 6144 if _is_cloud else 3072
+```
+
+#### Reasoning LLM Configuration (Cloud vs Local)
+```python
+# Cloud models need more tokens for verbose output
+# Local: 800 tokens sufficient for scorer + interview_questions
+# Cloud: 2000 tokens for larger models that generate more verbose output
+_num_predict = 2000 if _is_cloud else 800
+_num_ctx = 4096 if _is_cloud else 2048
+```
+
+### Intelligent Keep-Alive Management
+Cost-efficient cloud deployments disable keep_alive to avoid unnecessary charges:
+
+```python
+# Keep model hot only for local Ollama
+if not _is_cloud:
+    _llm_kwargs["keep_alive"] = -1
+```
+
+### Benefits of Cloud-Aware Configuration
+- **Cost Optimization**: Cloud deployments automatically disable keep_alive to prevent unnecessary charges
+- **Performance Tuning**: Larger token limits and context windows for cloud models enable more verbose and accurate outputs
+- **Automatic Authentication**: Seamless Ollama Cloud authentication with API key support
+- **Deployment Flexibility**: Transparent switching between cloud and local deployments without code changes
+- **Resource Efficiency**: Optimized resource allocation based on deployment characteristics
+
+**Section sources**
+- [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
+- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
 
 ## Timeout Configuration and Management
 
@@ -303,9 +369,9 @@ The timeout configuration ensures consistency between:
 - **Graceful Degradation**: Enables proper fallback mechanisms when timeouts occur
 
 **Section sources**
-- [agent_pipeline.py:81-82](file://app/backend/services/agent_pipeline.py#L81-L82)
-- [agent_pipeline.py:88-97](file://app/backend/services/agent_pipeline.py#L88-L97)
+- [agent_pipeline.py:96](file://app/backend/services/agent_pipeline.py#L96)
 - [agent_pipeline.py:105-114](file://app/backend/services/agent_pipeline.py#L105-L114)
+- [agent_pipeline.py:151-162](file://app/backend/services/agent_pipeline.py#L151-L162)
 
 ## JSON Serialization Handling
 
@@ -354,12 +420,14 @@ The JSON serialization handler supports the following non-JSON-serializable type
 
 **Section sources**
 - [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)
-- [agent_pipeline.py:319-321](file://app/backend/services/agent_pipeline.py#L319-L321)
-- [agent_pipeline.py:415-416](file://app/backend/services/agent_pipeline.py#L415-L416)
+- [agent_pipeline.py:369-376](file://app/backend/services/agent_pipeline.py#L369-L376)
+- [agent_pipeline.py:459-478](file://app/backend/services/agent_pipeline.py#L459-L478)
 
 ## Dependency Analysis
 - LangGraph integration: Uses StateGraph with typed state and node callbacks.
 - LLM integration: ChatOllama singletons configured with deterministic settings and long-lived connections.
+- Cloud-aware configuration: Automatic detection of Ollama Cloud deployments with optimized token limits and context windows.
+- Intelligent keep_alive management: Cost-efficient cloud deployments disable keep_alive to avoid unnecessary charges.
 - Timeout management: Centralized `_llm_request_timeout` constant ensures consistent timeout handling across all LLM instances.
 - Error propagation: Each node appends typed errors to the state's errors list, enabling centralized diagnostics.
 - Route integration: The main analysis route invokes the hybrid pipeline and stores results in the database; the LangGraph pipeline is not currently wired into the main route.
@@ -372,23 +440,27 @@ AP --> CO["ChatOllama (fast)"]
 AP --> CR["ChatOllama (reasoning)"]
 AP --> JSH["JSON Serialization Handler"]
 AP --> TT["Timeout Manager"]
+AP --> CD["Cloud Detection"]
+AP --> KA["Keep-Alive Manager"]
 HP["hybrid_pipeline.py"] --> CO2["ChatOllama (reasoning)"]
 AR["routes/analyze.py"] --> HP
 MS["main.py"] --> AR
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:81-110](file://app/backend/services/agent_pipeline.py#L81-L110)
+- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
 - [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)
-- [agent_pipeline.py:81-82](file://app/backend/services/agent_pipeline.py#L81-L82)
+- [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
+- [agent_pipeline.py:125-127](file://app/backend/services/agent_pipeline.py#L125-L127)
 - [hybrid_pipeline.py:82-105](file://app/backend/services/hybrid_pipeline.py#L82-L105)
 - [analyze.py:304-311](file://app/backend/routes/analyze.py#L304-L311)
 - [main.py:200-214](file://app/backend/main.py#L200-L214)
 
 **Section sources**
-- [agent_pipeline.py:81-110](file://app/backend/services/agent_pipeline.py#L81-L110)
+- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
 - [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)
-- [agent_pipeline.py:81-82](file://app/backend/services/agent_pipeline.py#L81-L82)
+- [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
+- [agent_pipeline.py:125-127](file://app/backend/services/agent_pipeline.py#L125-L127)
 - [hybrid_pipeline.py:82-105](file://app/backend/services/hybrid_pipeline.py#L82-L105)
 - [analyze.py:304-311](file://app/backend/routes/analyze.py#L304-L311)
 - [main.py:200-214](file://app/backend/main.py#L200-L214)
@@ -407,6 +479,11 @@ MS["main.py"] --> AR
   - JD cache avoids repeated LLM calls for identical job descriptions.
 - Streaming:
   - The hybrid pipeline supports SSE streaming to provide progressive updates while the LLM narrative is generated.
+- **Updated** Cloud-aware optimizations:
+  - Dynamic token limits increase from 600/800 to 1500/2000 for cloud deployments.
+  - Context windows expand from 3072/2048 to 6144/4096 for cloud deployments.
+  - Intelligent keep_alive disables for cloud to prevent unnecessary charges.
+  - Automatic Ollama Cloud authentication with API key support.
 - **Updated** Timeout management:
   - Centralized timeout configuration prevents resource exhaustion and improves reliability.
   - Consistent timeout handling across all LLM instances ensures predictable performance.
@@ -426,6 +503,11 @@ MS["main.py"] --> AR
   - Invalid recommendations are corrected based on fit score thresholds.
 - Error aggregation:
   - Errors from all nodes are accumulated in the state's errors list for centralized diagnostics.
+- **Updated** Cloud deployment issues:
+  - Verify OLLAMA_BASE_URL points to ollama.com for cloud deployments.
+  - Ensure OLLAMA_API_KEY environment variable is set for authenticated cloud access.
+  - Check that cloud models have sufficient token limits (1500/2000 vs 600/800).
+  - Monitor keep_alive behavior - should be disabled for cloud deployments.
 - **Updated** Timeout-related issues:
   - Monitor `_llm_request_timeout` configuration to ensure appropriate values for your workload.
   - Check environment variable `LLM_NARRATIVE_TIMEOUT` for proper timeout settings.
@@ -438,15 +520,15 @@ MS["main.py"] --> AR
 
 **Section sources**
 - [agent_pipeline.py:125-138](file://app/backend/services/agent_pipeline.py#L125-L138)
+- [agent_pipeline.py:510-514](file://app/backend/services/agent_pipeline.py#L510-L514)
 - [agent_pipeline.py:453-460](file://app/backend/services/agent_pipeline.py#L453-L460)
-- [agent_pipeline.py:422-428](file://app/backend/services/agent_pipeline.py#L422-L428)
-- [agent_pipeline.py:178-179](file://app/backend/services/agent_pipeline.py#L178-L179)
-- [agent_pipeline.py:315-321](file://app/backend/services/agent_pipeline.py#L315-L321)
-- [agent_pipeline.py:443-448](file://app/backend/services/agent_pipeline.py#L443-L448)
-- [agent_pipeline.py:81-82](file://app/backend/services/agent_pipeline.py#L81-L82)
+- [agent_pipeline.py:241-245](file://app/backend/services/agent_pipeline.py#L241-L245)
+- [agent_pipeline.py:380-387](file://app/backend/services/agent_pipeline.py#L380-L387)
+- [agent_pipeline.py:534-545](file://app/backend/services/agent_pipeline.py#L534-L545)
+- [agent_pipeline.py:96](file://app/backend/services/agent_pipeline.py#L96)
 
 ## Conclusion
-The LangGraph-based multi-agent analysis pipeline provides a robust, schema-bound, and deterministic approach to complex, multi-step reasoning workflows. By leveraging Ollama models with careful configuration, typed state management, comprehensive fallbacks, and centralized timeout handling, it ensures reliable operation under varied conditions. The enhanced timeout management with the `_llm_request_timeout` constant provides predictable behavior and improved reliability across all LLM interactions. The enhanced JSON serialization handling for datetime objects, dates, and Decimal values further strengthens the pipeline's reliability and compatibility with diverse data types. While the hybrid pipeline offers a complementary approach with streaming and narrative synthesis, the LangGraph pipeline remains ideal for scenarios requiring strict schema-bound outputs and resilient error handling.
+The LangGraph-based multi-agent analysis pipeline provides a robust, schema-bound, and deterministic approach to complex, multi-step reasoning workflows. By leveraging Ollama models with careful configuration, typed state management, comprehensive fallbacks, and centralized timeout handling, it ensures reliable operation under varied conditions. The enhanced cloud-aware configuration management with dynamic token limits, intelligent keep_alive behavior, and optimized context windows provides cost-efficient operations for cloud deployments while maintaining optimal performance. The enhanced timeout management with the `_llm_request_timeout` constant provides predictable behavior and improved reliability across all LLM interactions. The enhanced JSON serialization handling for datetime objects, dates, and Decimal values further strengthens the pipeline's reliability and compatibility with diverse data types. While the hybrid pipeline offers a complementary approach with streaming and narrative synthesis, the LangGraph pipeline remains ideal for scenarios requiring strict schema-bound outputs and resilient error handling.
 
 ## Appendices
 
@@ -455,14 +537,14 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 - Execution proceeds from job description parsing to candidate analysis and finally to scoring and interview question generation.
 
 **Section sources**
-- [agent_pipeline.py:551-552](file://app/backend/services/agent_pipeline.py#L551-L552)
+- [agent_pipeline.py:587-602](file://app/backend/services/agent_pipeline.py#L587-L602)
 
 ### State Persistence and Error Recovery
 - State includes an errors accumulator for centralized diagnostics.
 - The hybrid pipeline demonstrates persistent storage of analysis results and candidate profiles in the database.
 
 **Section sources**
-- [agent_pipeline.py:131](file://app/backend/services/agent_pipeline.py#L131)
+- [agent_pipeline.py:185](file://app/backend/services/agent_pipeline.py#L185)
 - [analyze.py:462-472](file://app/backend/routes/analyze.py#L462-L472)
 
 ### Performance Monitoring
@@ -470,42 +552,52 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 - Logging captures pipeline stages and errors for operational visibility.
 
 **Section sources**
+- [main.py:354-399](file://app/backend/main.py#L354-L399)
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
-- [main.py:262-326](file://app/backend/main.py#L262-L326)
 
 ### Example: Running the Agent Pipeline
 - The public API entry point constructs initial state, invokes the compiled graph, and assembles the final result.
 
 **Section sources**
-- [agent_pipeline.py:634-645](file://app/backend/services/agent_pipeline.py#L634-L645)
-- [agent_pipeline.py:644-645](file://app/backend/services/agent_pipeline.py#L644-L645)
+- [agent_pipeline.py:688-699](file://app/backend/services/agent_pipeline.py#L688-L699)
+- [agent_pipeline.py:688-699](file://app/backend/services/agent_pipeline.py#L688-L699)
 
-### Timeout Configuration Best Practices
-**Updated** Guidelines for configuring and managing timeouts in the pipeline:
+### Cloud Deployment Configuration Best Practices
+**Updated** Guidelines for configuring and managing cloud-aware deployments:
 
 1. **Environment Configuration**:
-   - Set `LLM_NARRATIVE_TIMEOUT` environment variable to control base timeout (default: 150 seconds)
+   - Set `OLLAMA_BASE_URL` to point to Ollama Cloud (ollama.com) for cloud deployments
+   - Set `OLLAMA_API_KEY` environment variable for authenticated cloud access
+   - Configure `LLM_NARRATIVE_TIMEOUT` environment variable to control base timeout (default: 150 seconds)
    - The pipeline automatically adds a 30-second buffer for HTTP transport overhead
 
-2. **Consistent Timeout Handling**:
+2. **Cloud-Specific Optimizations**:
+   - Fast model token limit increases to 1500 tokens for cloud vs 600 for local
+   - Reasoning model token limit increases to 2000 tokens for cloud vs 800 for local
+   - Context windows expand to 6144 for cloud vs 3072 for local
+   - Keep-alive automatically disabled for cloud deployments to prevent charges
+
+3. **Consistent Timeout Handling**:
    - All LLM instances use the same `_llm_request_timeout` constant
    - Ensures predictable behavior across fast and reasoning models
    - Prevents resource exhaustion and improves reliability
 
-3. **Monitoring and Adjustment**:
+4. **Monitoring and Adjustment**:
    - Monitor LLM response times and adjust `LLM_NARRATIVE_TIMEOUT` accordingly
    - Consider network latency and model complexity when tuning timeout values
    - Test with representative workloads to determine optimal timeout settings
+   - Verify cloud authentication by checking Ollama Cloud status
 
-4. **Fallback Mechanisms**:
+5. **Fallback Mechanisms**:
    - Timeout exceptions trigger graceful fallback to typed-null defaults
    - Error messages are captured in the state's errors list for diagnostics
    - Pipeline continues operation even when individual LLM calls timeout
 
 **Section sources**
-- [agent_pipeline.py:81-82](file://app/backend/services/agent_pipeline.py#L81-L82)
-- [agent_pipeline.py:88-97](file://app/backend/services/agent_pipeline.py#L88-L97)
-- [agent_pipeline.py:105-114](file://app/backend/services/agent_pipeline.py#L105-L114)
+- [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
+- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
+- [agent_pipeline.py:133-164](file://app/backend/services/agent_pipeline.py#L133-L164)
+- [agent_pipeline.py:96](file://app/backend/services/agent_pipeline.py#L96)
 
 ### JSON Serialization Best Practices
 **Updated** Guidelines for handling complex data types in the pipeline:
@@ -518,5 +610,5 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 
 **Section sources**
 - [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)
-- [agent_pipeline.py:319-321](file://app/backend/services/agent_pipeline.py#L319-L321)
-- [agent_pipeline.py:415-416](file://app/backend/services/agent_pipeline.py#L415-L416)
+- [agent_pipeline.py:369-376](file://app/backend/services/agent_pipeline.py#L369-L376)
+- [agent_pipeline.py:459-478](file://app/backend/services/agent_pipeline.py#L459-L478)

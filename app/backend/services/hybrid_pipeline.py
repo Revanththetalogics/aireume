@@ -110,8 +110,8 @@ def _get_llm():
 
             # num_predict: Cloud models need significantly more tokens for verbose output
             # Local: 512 tokens sufficient for narrative JSON (~350-450 tokens)
-            # Cloud: 2048 tokens for large models (480B+) that generate very verbose output
-            _num_predict = 2048 if _is_cloud else 512
+            # Cloud: 4096 tokens for very large models (480B+) that generate extremely verbose output
+            _num_predict = 4096 if _is_cloud else 512
 
             # Build kwargs for ChatOllama
             _llm_kwargs = {
@@ -121,8 +121,8 @@ def _get_llm():
                 "format": "json",
                 "num_predict": _num_predict,
                 # num_ctx: Cloud models need larger context for complex reasoning
-                # 8192 for cloud to handle large outputs, 2048 for local
-                "num_ctx": 8192 if _is_cloud else 2048,
+                # 16384 for cloud to handle very large outputs, 2048 for local
+                "num_ctx": 16384 if _is_cloud else 2048,
                 # HTTP timeout must exceed LLM_NARRATIVE_TIMEOUT to let the
                 # outer asyncio.wait_for control cancellation, not httpx.
                 "request_timeout": _llm_timeout + 30,
@@ -133,13 +133,14 @@ def _get_llm():
                 api_key = os.getenv("OLLAMA_API_KEY", "").strip()
                 if api_key:
                     _llm_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
-                    log.info("Using Ollama Cloud with API key authentication (num_predict=%s)", _num_predict)
+                    log.info("Using Ollama Cloud with API key authentication (num_predict=%s, num_ctx=%s)", _num_predict, _llm_kwargs["num_ctx"])
                 else:
                     log.warning("Ollama Cloud detected but OLLAMA_API_KEY is not set!")
             else:
                 # Keep model always hot in RAM (-1 = never unload) — only for local Ollama
                 _llm_kwargs["keep_alive"] = -1
 
+            log.info("Initializing LLM with config: num_predict=%s, num_ctx=%s, is_cloud=%s", _num_predict, _llm_kwargs["num_ctx"], _is_cloud)
             _REASONING_LLM = ChatOllama(**_llm_kwargs)
         except Exception as e:
             log.warning("LLM init failed: %s", e)
@@ -1348,7 +1349,7 @@ No markdown, no code fences."""
         _is_cloud_retry = _is_ollama_cloud(_base_url)
 
         # num_predict: Cloud models need significantly more tokens for verbose output
-        _num_predict_retry = 2048 if _is_cloud_retry else 512
+        _num_predict_retry = 4096 if _is_cloud_retry else 512
 
         # Build kwargs for retry LLM
         _retry_kwargs = {
@@ -1357,7 +1358,7 @@ No markdown, no code fences."""
             "temperature": 0.3,
             # NO format="json" — let model output freely
             "num_predict": _num_predict_retry,
-            "num_ctx": 8192 if _is_cloud_retry else 2048,
+            "num_ctx": 16384 if _is_cloud_retry else 2048,
             "request_timeout": _llm_timeout + 30,
         }
 

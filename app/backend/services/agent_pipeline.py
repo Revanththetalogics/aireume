@@ -101,11 +101,11 @@ def get_fast_llm() -> ChatOllama:
     global _fast_llm
     if _fast_llm is None:
         _is_cloud = _is_ollama_cloud(OLLAMA_BASE_URL)
-        # Cloud models need more tokens for verbose output
+        # Cloud models need significantly more tokens for verbose output
         # Local: 600 tokens sufficient for combined schema
-        # Cloud: 1500 tokens for larger models that generate more verbose output
-        _num_predict = 1500 if _is_cloud else 600
-        _num_ctx = 6144 if _is_cloud else 3072
+        # Cloud: 3000 tokens for very large models (480B+) that generate extremely verbose output
+        _num_predict = 3000 if _is_cloud else 600
+        _num_ctx = 12288 if _is_cloud else 3072
 
         _llm_kwargs = {
             "model": OLLAMA_FAST_MODEL,
@@ -135,11 +135,11 @@ def get_reasoning_llm() -> ChatOllama:
     global _reasoning_llm
     if _reasoning_llm is None:
         _is_cloud = _is_ollama_cloud(OLLAMA_BASE_URL)
-        # Cloud models need more tokens for verbose output
+        # Cloud models need significantly more tokens for verbose output
         # Local: 800 tokens sufficient for scorer + interview_questions
-        # Cloud: 2000 tokens for larger models that generate more verbose output
-        _num_predict = 2000 if _is_cloud else 800
-        _num_ctx = 4096 if _is_cloud else 2048
+        # Cloud: 4000 tokens for very large models (480B+) that generate extremely verbose output
+        _num_predict = 4000 if _is_cloud else 800
+        _num_ctx = 8192 if _is_cloud else 2048
 
         _llm_kwargs = {
             "model": OLLAMA_REASONING_MODEL,
