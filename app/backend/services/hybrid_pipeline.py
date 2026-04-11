@@ -106,6 +106,12 @@ def _get_llm():
             from langchain_ollama import ChatOllama
             _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
             _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+            _is_cloud = _is_ollama_cloud(_base_url)
+
+            # num_predict: Cloud models need more tokens for verbose output
+            # Local: 512 tokens sufficient for narrative JSON (~350-450 tokens)
+            # Cloud: 1024 tokens for larger models that generate more verbose output
+            _num_predict = 1024 if _is_cloud else 512
 
             # Build kwargs for ChatOllama
             _llm_kwargs = {
@@ -113,18 +119,17 @@ def _get_llm():
                 "base_url": _base_url,
                 "temperature": 0.1,
                 "format": "json",
-                # num_predict: 512 tokens sufficient for narrative JSON (fit_summary + strengths + concerns + rationale + 4 questions ≈ 350-450 tokens).
-                "num_predict": 512,
+                "num_predict": _num_predict,
                 # num_ctx: prompt is ~350 tokens. 2048 = prompt + output + margin.
-                # Still saves ~800 MB KV-cache vs default 4096.
-                "num_ctx": 2048,
+                # Cloud models may need larger context for complex reasoning.
+                "num_ctx": 4096 if _is_cloud else 2048,
                 # HTTP timeout must exceed LLM_NARRATIVE_TIMEOUT to let the
                 # outer asyncio.wait_for control cancellation, not httpx.
                 "request_timeout": _llm_timeout + 30,
             }
 
             # Add headers for Ollama Cloud authentication
-            if _is_ollama_cloud(_base_url):
+            if _is_cloud:
                 api_key = os.getenv("OLLAMA_API_KEY", "").strip()
                 if api_key:
                     _llm_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
@@ -1340,6 +1345,10 @@ No markdown, no code fences."""
         from langchain_ollama import ChatOllama
         _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+        _is_cloud_retry = _is_ollama_cloud(_base_url)
+
+        # num_predict: Cloud models need more tokens for verbose output
+        _num_predict_retry = 1024 if _is_cloud_retry else 512
 
         # Build kwargs for retry LLM
         _retry_kwargs = {
@@ -1347,13 +1356,13 @@ No markdown, no code fences."""
             "base_url": _base_url,
             "temperature": 0.3,
             # NO format="json" — let model output freely
-            "num_predict": 512,
-            "num_ctx": 2048,
+            "num_predict": _num_predict_retry,
+            "num_ctx": 4096 if _is_cloud_retry else 2048,
             "request_timeout": _llm_timeout + 30,
         }
 
         # Add headers for Ollama Cloud authentication
-        if _is_ollama_cloud(_base_url):
+        if _is_cloud_retry:
             api_key = os.getenv("OLLAMA_API_KEY", "").strip()
             if api_key:
                 _retry_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
