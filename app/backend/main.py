@@ -463,13 +463,13 @@ async def deep_health_check():
 @app.get("/api/llm-status")
 async def llm_status():
     """
-    Diagnostic endpoint — shows sentinel state, pulled models, hot models, 
+    Diagnostic endpoint — shows sentinel state, pulled models, hot models,
     and a plain-English diagnosis of why the LLM narrative may be falling back to Python.
 
     Usage from the VPS:
       curl http://localhost:8080/api/llm-status
     """
-    from app.backend.services.llm_service import get_sentinel
+    from app.backend.services.llm_service import get_sentinel, is_ollama_cloud, get_ollama_headers
 
     sentinel = get_sentinel()
     if sentinel is None:
@@ -478,11 +478,13 @@ async def llm_status():
     ollama_url     = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     target_model   = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
     fast_model     = os.getenv("OLLAMA_FAST_MODEL", "qwen3.5:4b")
+    is_cloud       = is_ollama_cloud(ollama_url)
 
     result: dict = {
         "ollama_url":            ollama_url,
         "narrative_model":       target_model,
         "fast_model":            fast_model,
+        "mode":                  "cloud" if is_cloud else "local",
         "ollama_reachable":      False,
         "pulled_models":         [],
         "narrative_model_ready": False,
@@ -495,9 +497,23 @@ async def llm_status():
     sentinel_status = sentinel.get_status()
     result["sentinel"] = sentinel_status
 
+    # For Ollama Cloud, return early with cloud-specific status
+    if is_cloud:
+        result["ollama_reachable"] = True
+        result["narrative_model_ready"] = True
+        result["fast_model_ready"] = True
+        result["diagnosis"] = f"Using Ollama Cloud with model: {target_model}"
+        if sentinel_status.get("healthy"):
+            result["diagnosis"] += " — Cloud connection is healthy."
+        else:
+            result["diagnosis"] += " — Cloud connection status unknown."
+        return result
+
+    # Local Ollama checks
+    headers = get_ollama_headers(ollama_url)
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            tags_resp = await client.get(f"{ollama_url}/api/tags")
+            tags_resp = await client.get(f"{ollama_url}/api/tags", headers=headers)
             tags_resp.raise_for_status()
             result["ollama_reachable"] = True
             result["pulled_models"] = [m["name"] for m in tags_resp.json().get("models", [])]
@@ -508,7 +524,7 @@ async def llm_status():
                 fast_model in m for m in result["pulled_models"]
             )
             try:
-                ps = await client.get(f"{ollama_url}/api/ps")
+                ps = await client.get(f"{ollama_url}/api/ps", headers=headers)
                 if ps.status_code == 200:
                     result["running_models"] = [
                         m["name"] for m in ps.json().get("models", [])

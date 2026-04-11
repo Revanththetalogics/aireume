@@ -83,23 +83,26 @@ services:
     # Give the backend time to finish background tasks (sentinel) on shutdown
     stop_grace_period: 60s
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
+      # Ollama Cloud (default): https://ollama.com — get API key from https://ollama.com/settings/keys
+      # For local Ollama, set OLLAMA_BASE_URL=http://ollama:11434 in your .env file
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:?OLLAMA_API_KEY is required. Get it from https://ollama.com/settings/keys}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aria_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
       - ENVIRONMENT=production
-      # qwen3.5:4b — 4B model (~2.6 GiB), fast structured JSON output on CPU
-      # Used for both parsing helpers and the narrative LLM call.
-      # Generates the narrative JSON in ~15-30s on CPU, and fits entirely
-      # within the reduced 6 GB Ollama memory limit.
-      - OLLAMA_FAST_MODEL=qwen3.5:4b
-      - OLLAMA_MODEL=qwen3.5:4b
-      # qwen3.5:4b takes ~60s on this 8-core CPU; 180s for safety during contention
-      - LLM_NARRATIVE_TIMEOUT=180
+      # Default: qwen3-coder:480b-cloud (powerful cloud model)
+      # For local Ollama, use: qwen3.5:4b
+      - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-qwen3-coder:480b-cloud}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3-coder:480b-cloud}
+      # 300s recommended for large cloud models, 180s for local
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-300}
       # Backend entrypoint waits for Ollama + pulls model into RAM before uvicorn.
-      - OLLAMA_STARTUP_REQUIRED=1
+      # Automatically skipped when using Ollama Cloud.
+      - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
     depends_on:
       postgres:
         condition: service_healthy
+      # Remove this depends_on when using Ollama Cloud only
       ollama:
         condition: service_healthy
     deploy:

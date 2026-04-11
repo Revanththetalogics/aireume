@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from app.backend.services.llm_service import get_ollama_semaphore
+from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
 
 logger = logging.getLogger(__name__)
 
@@ -207,9 +207,11 @@ async def analyze_transcript(
         if sem.locked():
             logger.info("Waiting for Ollama slot (another request in progress)...")
         async with sem:
+            headers = get_ollama_headers(OLLAMA_BASE_URL)
             async with httpx.AsyncClient(timeout=90.0) as client:
                 resp = await client.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
+                    headers=headers,
                     json={
                         "model":   OLLAMA_MODEL,
                         "prompt":  prompt,

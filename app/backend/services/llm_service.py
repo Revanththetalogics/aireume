@@ -9,6 +9,29 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+
+# ─── Ollama Cloud Detection & Headers ────────────────────────────────────────
+
+def is_ollama_cloud(base_url: str) -> bool:
+    """Check if the base URL points to Ollama Cloud (ollama.com)."""
+    return "ollama.com" in base_url.lower()
+
+
+def get_ollama_headers(base_url: str) -> Dict[str, str]:
+    """
+    Build headers for Ollama API requests.
+    Adds Authorization header when using Ollama Cloud with API key.
+    """
+    headers = {}
+    if is_ollama_cloud(base_url):
+        api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+            logger.debug("Ollama Cloud detected: using API key authentication")
+        else:
+            logger.warning("Ollama Cloud detected but OLLAMA_API_KEY is not set!")
+    return headers
+
 # ─── Shared Ollama Semaphore ─────────────────────────────────────────────────
 # Prevents LLM contention across resume narrative, video analysis, and transcript analysis.
 # Ollama with qwen3.5:4b only supports Parallel:1, so we serialize all LLM requests.
@@ -40,6 +63,7 @@ class OllamaHealthSentinel:
         self.last_latency_ms: float = 0
         self._task: asyncio.Task | None = None
         self._running = False
+        self._is_cloud = is_ollama_cloud(self.base_url)
 
     async def start(self):
         """Start the sentinel background loop."""
@@ -67,11 +91,19 @@ class OllamaHealthSentinel:
 
     async def _probe_once(self):
         """Single health probe: lightweight generate with num_predict=1."""
+        # Skip local health checks for Ollama Cloud — cloud doesn't need warmup
+        if self._is_cloud:
+            self.state = OllamaState.HOT
+            self.last_probe_time = time.time()
+            self.last_latency_ms = 0
+            return
+
         start = time.monotonic()
+        headers = get_ollama_headers(self.base_url)
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 # Check if model is loaded via /api/ps
-                resp = await client.get(f"{self.base_url}/api/ps")
+                resp = await client.get(f"{self.base_url}/api/ps", headers=headers)
                 if resp.status_code == 200:
                     models = resp.json().get("models", [])
                     model_hot = any(self.model_name in m.get("name", "") for m in models)
@@ -84,6 +116,7 @@ class OllamaHealthSentinel:
                     logger.info("Ollama model %s not hot, triggering warmup", self.model_name)
                     await client.post(
                         f"{self.base_url}/api/generate",
+                        headers=headers,
                         json={"model": self.model_name, "prompt": "warmup", "stream": False, "options": {"num_predict": 1}},
                         timeout=120.0
                     )
@@ -103,13 +136,20 @@ class OllamaHealthSentinel:
             logger.warning("Ollama health probe failed: %s: %s", type(e).__name__, e)
 
     def get_status(self) -> dict:
-        return {
+        status = {
             "state": self.state.value,
             "model": self.model_name,
             "last_probe_time": self.last_probe_time,
             "last_latency_ms": round(self.last_latency_ms, 1),
             "healthy": self.state == OllamaState.HOT,
         }
+        # Add cloud indicator for better visibility
+        if self._is_cloud:
+            status["mode"] = "cloud"
+            status["message"] = f"Using Ollama Cloud with model: {self.model_name}"
+        else:
+            status["mode"] = "local"
+        return status
 
 
 # Module-level singleton
@@ -166,9 +206,10 @@ class LLMService:
             "format": "json"
         }
 
+        headers = get_ollama_headers(self.base_url)
         _timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150")) + 30
         async with httpx.AsyncClient(timeout=_timeout) as client:  # respects LLM_NARRATIVE_TIMEOUT env var
-            response = await client.post(url, json=payload)
+            response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
             return data.get("response", "")

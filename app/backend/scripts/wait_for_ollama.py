@@ -4,6 +4,7 @@ Block backend startup until Ollama is reachable, the configured model is pulled,
 and a minimal generate call has completed (loads weights into RAM).
 
 Disable with OLLAMA_STARTUP_REQUIRED=0 (local pytest, dev without GPU/model).
+Automatically skipped when using Ollama Cloud (https://ollama.com).
 """
 from __future__ import annotations
 
@@ -18,6 +19,11 @@ import httpx
 def _env_flag(name: str, default: str = "1") -> bool:
     v = os.getenv(name, default).strip().lower()
     return v not in ("0", "false", "no", "off")
+
+
+def _is_ollama_cloud(base_url: str) -> bool:
+    """Check if the base URL points to Ollama Cloud (ollama.com)."""
+    return "ollama.com" in base_url.lower()
 
 
 def _pick_model_name(tags: list, want: str):
@@ -37,6 +43,12 @@ def main() -> int:
         return 0
 
     base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+
+    # Skip local health checks for Ollama Cloud — cloud doesn't need warmup or model pull
+    if _is_ollama_cloud(base):
+        print(f"[wait_for_ollama] Ollama Cloud detected ({base}) — skipping local Ollama gate.", flush=True)
+        print("[wait_for_ollama] Cloud models do not require local warmup or model pulling.", flush=True)
+        return 0
     want = (os.getenv("OLLAMA_MODEL") or os.getenv("OLLAMA_FAST_MODEL") or "qwen3.5:4b").strip()
     poll_sec = float(os.getenv("OLLAMA_POLL_INTERVAL_SEC", "2"))
     deadline = time.monotonic() + float(os.getenv("OLLAMA_WAIT_TIMEOUT_SEC", "120"))

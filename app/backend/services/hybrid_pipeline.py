@@ -94,28 +94,48 @@ def reset_llm_singleton():
     _REASONING_LLM = None
 
 
+def _is_ollama_cloud(base_url: str) -> bool:
+    """Check if the base URL points to Ollama Cloud (ollama.com)."""
+    return "ollama.com" in base_url.lower()
+
+
 def _get_llm():
     global _REASONING_LLM
     if _REASONING_LLM is None:
         try:
             from langchain_ollama import ChatOllama
+            _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
             _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
-            _REASONING_LLM = ChatOllama(
-                model=os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
-                base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-                temperature=0.1,
-                format="json",
+
+            # Build kwargs for ChatOllama
+            _llm_kwargs = {
+                "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+                "base_url": _base_url,
+                "temperature": 0.1,
+                "format": "json",
                 # num_predict: 512 tokens sufficient for narrative JSON (fit_summary + strengths + concerns + rationale + 4 questions ≈ 350-450 tokens).
-                num_predict=512,
+                "num_predict": 512,
                 # num_ctx: prompt is ~350 tokens. 2048 = prompt + output + margin.
                 # Still saves ~800 MB KV-cache vs default 4096.
-                num_ctx=2048,
-                # Keep model always hot in RAM (-1 = never unload)
-                keep_alive=-1,
+                "num_ctx": 2048,
                 # HTTP timeout must exceed LLM_NARRATIVE_TIMEOUT to let the
                 # outer asyncio.wait_for control cancellation, not httpx.
-                request_timeout=_llm_timeout + 30,
-            )
+                "request_timeout": _llm_timeout + 30,
+            }
+
+            # Add headers for Ollama Cloud authentication
+            if _is_ollama_cloud(_base_url):
+                api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+                if api_key:
+                    _llm_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
+                    log.info("Using Ollama Cloud with API key authentication")
+                else:
+                    log.warning("Ollama Cloud detected but OLLAMA_API_KEY is not set!")
+            else:
+                # Keep model always hot in RAM (-1 = never unload) — only for local Ollama
+                _llm_kwargs["keep_alive"] = -1
+
+            _REASONING_LLM = ChatOllama(**_llm_kwargs)
         except Exception as e:
             log.warning("LLM init failed: %s", e)
     return _REASONING_LLM
@@ -1318,17 +1338,30 @@ No markdown, no code fences."""
     if not raw or not str(raw).strip():
         log.warning("LLM returned empty response, retrying without JSON format constraint...")
         from langchain_ollama import ChatOllama
+        _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
-        retry_llm = ChatOllama(
-            model=os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            temperature=0.3,
+
+        # Build kwargs for retry LLM
+        _retry_kwargs = {
+            "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+            "base_url": _base_url,
+            "temperature": 0.3,
             # NO format="json" — let model output freely
-            num_predict=512,
-            num_ctx=2048,
-            keep_alive=-1,
-            request_timeout=_llm_timeout + 30,
-        )
+            "num_predict": 512,
+            "num_ctx": 2048,
+            "request_timeout": _llm_timeout + 30,
+        }
+
+        # Add headers for Ollama Cloud authentication
+        if _is_ollama_cloud(_base_url):
+            api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+            if api_key:
+                _retry_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
+        else:
+            # Keep model always hot in RAM (-1 = never unload) — only for local Ollama
+            _retry_kwargs["keep_alive"] = -1
+
+        retry_llm = ChatOllama(**_retry_kwargs)
         retry_resp = await retry_llm.ainvoke(messages)
         raw = retry_resp.content.strip() if retry_resp and retry_resp.content else ""
         log.debug("Retry LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")

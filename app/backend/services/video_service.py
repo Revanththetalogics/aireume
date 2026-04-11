@@ -13,7 +13,7 @@ import httpx
 import logging
 from pathlib import Path
 
-from app.backend.services.llm_service import get_ollama_semaphore
+from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
 
 logger = logging.getLogger(__name__)
 
@@ -152,9 +152,11 @@ async def analyze_communication(transcript: str, duration_s: float) -> dict:
         if sem.locked():
             logger.info("Waiting for Ollama slot (another request in progress)...")
         async with sem:
+            headers = get_ollama_headers(OLLAMA_BASE_URL)
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
+                    headers=headers,
                     json={
                         "model":   os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
                         "prompt":  prompt,
@@ -262,9 +264,11 @@ Return JSON only:
         if sem.locked():
             logger.info("Waiting for Ollama slot (another request in progress)...")
         async with sem:
+            headers = get_ollama_headers(OLLAMA_BASE_URL)
             async with httpx.AsyncClient(timeout=75.0) as client:
                 resp = await client.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
+                    headers=headers,
                     json={
                         "model":   os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
                         "prompt":  prompt,
