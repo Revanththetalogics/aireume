@@ -265,7 +265,7 @@ function _ts() {
 
 export async function getTemplates() {
   const res = await api.get('/templates')
-  return res.data
+  return res.data.templates || res.data
 }
 
 export async function createTemplate(data) {

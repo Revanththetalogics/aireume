@@ -139,8 +139,11 @@ export default function ComparePage() {
                       {selected.includes(r.id) && <Check className="w-3 h-3 text-white" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-brand-900">Result #{r.id}</p>
-                      <p className="text-xs text-slate-400 font-medium">{new Date(r.timestamp).toLocaleDateString()}</p>
+                      <p className="text-sm font-semibold text-brand-900">{r.candidate_name || `Result #${r.id}`}</p>
+                      <p className="text-xs text-slate-400 font-medium">
+                        {r.job_role && <span>{r.job_role} · </span>}
+                        {new Date(r.timestamp).toLocaleDateString()}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ring-1 ${

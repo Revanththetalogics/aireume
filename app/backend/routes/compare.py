@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import ScreeningResult, User
+from app.backend.models.db_models import ScreeningResult, User, Candidate
 from app.backend.models.schemas import CompareRequest
 
 router = APIRouter(prefix="/api", tags=["compare"])
@@ -40,6 +40,25 @@ def compare_candidates(
     for r in results:
         analysis = json.loads(r.analysis_result)
         parsed   = json.loads(r.parsed_data)
+        
+        # Resolve candidate name from multiple sources
+        candidate_name = (
+            (analysis.get("candidate_name") or "").strip() or
+            (parsed.get("contact_info", {}).get("name") or "").strip() or
+            (parsed.get("candidate_profile", {}).get("name") or "").strip() or
+            None
+        )
+        
+        # Fallback to Candidate table if available
+        if not candidate_name and r.candidate_id:
+            cand = db.get(Candidate, r.candidate_id)
+            if cand and cand.name:
+                candidate_name = cand.name
+        
+        # Final fallback
+        if not candidate_name:
+            candidate_name = f"Result #{r.id}"
+        
         comparison.append({
             "id":                   r.id,
             "timestamp":            r.timestamp,
@@ -54,7 +73,7 @@ def compare_candidates(
             "strengths":            analysis.get("strengths", [])[:3],  # top 3 strengths
             "weaknesses":           analysis.get("weaknesses", [])[:3],  # top 3 weaknesses
             "education_analysis":   analysis.get("education_analysis", ""),
-            "candidate_name":       parsed.get("contact_info", {}).get("name", f"Candidate {r.id}"),
+            "candidate_name":       candidate_name,
             # Enhanced comparison fields
             "employment_gaps":      len(analysis.get("employment_gaps", [])),  # gap count
             "interview_questions_preview": (
