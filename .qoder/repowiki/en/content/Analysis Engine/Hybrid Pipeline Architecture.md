@@ -15,16 +15,16 @@
 - [ResultCard.jsx](file://app/frontend/src/components/ResultCard.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [main.py](file://app/backend/main.py)
+- [README.md](file://README.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced timeout handling for background LLM tasks with configurable LLM_NARRATIVE_TIMEOUT
-- Implemented comprehensive empty response validation in explain_with_llm() function
-- Improved error handling for LLM processing failures with proper asyncio.wait_for() protection
-- Extended frontend polling mechanism from 5 minutes to 10 minutes (60 attempts at 10-second intervals)
-- Added proper asyncio.wait_for() protection for CPU-intensive inference tasks
-- Enhanced timeout configuration with +30 second buffer for proper cancellation handling
+- Enhanced cloud model processing capabilities with increased token limits (2048 tokens) and expanded context window (8192 tokens) for cloud deployments
+- Maintained 512 tokens and 2048 context for local models to ensure optimal performance
+- Added enhanced logging for num_predict values to track cloud vs local model usage
+- Improved fallback mechanisms with proper context window handling for both cloud and local deployments
+- Updated model configuration to support both cloud and local environments seamlessly
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,15 +32,16 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Enhanced Timeout Management](#enhanced-timeout-management)
-7. [Extended Frontend Polling Architecture](#extended-frontend-polling-architecture)
-8. [Background Worker Pattern](#background-worker-pattern)
-9. [Enhanced Explainability Features](#enhanced-explainability-features)
-10. [Security and Input Sanitization](#security-and-input-sanitization)
-11. [Dependency Analysis](#dependency-analysis)
-12. [Performance Considerations](#performance-considerations)
-13. [Troubleshooting Guide](#troubleshooting-guide)
-14. [Conclusion](#conclusion)
+6. [Enhanced Cloud Model Processing](#enhanced-cloud-model-processing)
+7. [Enhanced Timeout Management](#enhanced-timeout-management)
+8. [Extended Frontend Polling Architecture](#extended-frontend-polling-architecture)
+9. [Background Worker Pattern](#background-worker-pattern)
+10. [Enhanced Explainability Features](#enhanced-explainability-features)
+11. [Security and Input Sanitization](#security-and-input-sanitization)
+12. [Dependency Analysis](#dependency-analysis)
+13. [Performance Considerations](#performance-considerations)
+14. [Troubleshooting Guide](#troubleshooting-guide)
+15. [Conclusion](#conclusion)
 
 ## Introduction
 This document explains the hybrid pipeline architecture designed to optimize recruitment analysis performance by combining Python-first deterministic processing with asynchronous LLM processing and narrative polling. The system delivers:
@@ -56,6 +57,8 @@ This document explains the hybrid pipeline architecture designed to optimize rec
 - **Critical Security Enhancement**: Comprehensive input sanitization with pattern-based filtering to prevent prompt injection attacks
 - **Background Processing**: Asynchronous LLM narrative generation with automatic persistence
 - **Extended Polling Architecture**: Frontend polling with 10-minute timeout (60 attempts at 10-second intervals) for CPU-based LLM inference scenarios
+- **Enhanced Cloud Processing**: Optimized token limits and context windows for cloud deployments with 2048 tokens and 8192 context
+- **Local Model Optimization**: Maintained 512 tokens and 2048 context for local deployments to ensure optimal performance
 
 ## Project Structure
 The hybrid pipeline spans services, routes, models, and tests with enhanced background processing and timeout management:
@@ -71,7 +74,7 @@ subgraph "Routes"
 A["analyze.py<br/>Endpoints<br/>+Narrative Polling<br/>+Background Tasks"]
 end
 subgraph "Services"
-B["hybrid_pipeline.py<br/>Hybrid Pipeline<br/>+Background Workers<br/>+Enhanced Explainability<br/>+Score Rationales<br/>+Timeout Management"]
+B["hybrid_pipeline.py<br/>Hybrid Pipeline<br/>+Background Workers<br/>+Enhanced Explainability<br/>+Score Rationales<br/>+Timeout Management<br/>+Cloud Model Optimization"]
 C["parser_service.py<br/>Resume Parser"]
 D["gap_detector.py<br/>Timeline Analyzer"]
 E["llm_service.py<br/>External LLM<br/>+qwen3.5:4b Model<br/>+Empty Response Validation"]
@@ -164,6 +167,8 @@ The hybrid pipeline follows a two-phase design with enhanced timeout management,
 - **Advanced Explainability**: Comprehensive score rationales, risk analysis, seniority alignment, and skill depth visualization
 - **Background Processing**: Asynchronous LLM narrative generation with automatic persistence
 - **Extended Polling**: Frontend polling architecture with 10-minute timeout for CPU-based LLM inference scenarios
+- **Enhanced Cloud Processing**: Optimized token limits and context windows for cloud deployments with 2048 tokens and 8192 context
+- **Local Model Optimization**: Maintained 512 tokens and 2048 context for local deployments to ensure optimal performance
 
 ```mermaid
 sequenceDiagram
@@ -369,6 +374,8 @@ Output --> End(["Enriched Python result with explainability"])
 - **Enhanced**: Comprehensive prompt including score rationales, risk flags, and seniority alignment
 - **Enhanced**: Automatic task registration and lifecycle management with asyncio.wait_for() protection
 - **Enhanced**: Empty response validation to prevent processing of blank LLM outputs
+- **Enhanced**: Cloud model optimization with 2048 tokens and 8192 context window
+- **Enhanced**: Local model optimization with 512 tokens and 2048 context window
 
 ```mermaid
 sequenceDiagram
@@ -404,6 +411,9 @@ DB-->>BGTask : Confirmation
 - **Enhanced**: Model updated to qwen3.5:4b for improved performance and reliability
 - **Enhanced**: Environment-driven timeouts with +30 second buffer for proper cancellation
 - **Enhanced**: Empty response validation prevents processing of blank LLM outputs
+- **Enhanced**: Cloud model optimization with 2048 tokens and 8192 context window
+- **Enhanced**: Local model optimization with 512 tokens and 2048 context window
+- **Enhanced**: Logging for num_predict values to track cloud vs local model usage
 - **Streaming**: Heartbeat pings keep connections alive during LLM processing
 - **Background Tasks**: Proper task lifecycle management with graceful shutdown and asyncio.wait_for() protection
 
@@ -425,6 +435,98 @@ DB-->>BGTask : Confirmation
 - [analyze.py:268-501](file://app/backend/routes/analyze.py#L268-L501)
 - [analyze.py:504-646](file://app/backend/routes/analyze.py#L504-L646)
 - [analyze.py:577-658](file://app/backend/routes/analyze.py#L577-L658)
+
+## Enhanced Cloud Model Processing
+
+### Cloud Deployment Optimization
+The hybrid pipeline now provides enhanced cloud model processing capabilities with optimized token limits and context windows:
+
+#### Cloud Model Configuration
+For cloud deployments (Ollama Cloud detected via base URL containing "ollama.com"):
+- **num_predict**: 2048 tokens for large models (480B+) that generate very verbose output
+- **num_ctx**: 8192 context window for complex reasoning and large outputs
+- **API Authentication**: Automatic Authorization header with OLLAMA_API_KEY when available
+- **Enhanced Logging**: Detailed logging of cloud model usage with num_predict values
+
+#### Local Model Configuration  
+For local deployments (non-cloud base URLs):
+- **num_predict**: 512 tokens sufficient for narrative JSON (~350-450 tokens)
+- **num_ctx**: 2048 context window for local model optimization
+- **Model Persistence**: keep_alive=-1 to keep model hot in RAM
+- **Enhanced Logging**: Clear distinction between cloud and local model usage
+
+#### Automatic Environment Detection
+The system automatically detects cloud vs local environments:
+```python
+def _is_ollama_cloud(base_url: str) -> bool:
+    """Check if the base URL points to Ollama Cloud (ollama.com)."""
+    return "ollama.com" in base_url.lower()
+
+def _get_llm():
+    global _REASONING_LLM
+    if _REASONING_LLM is None:
+        try:
+            _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+            _is_cloud = _is_ollama_cloud(_base_url)
+            
+            # Cloud: 2048 tokens for verbose output, 8192 context
+            # Local: 512 tokens for JSON, 2048 context
+            _num_predict = 2048 if _is_cloud else 512
+            _num_ctx = 8192 if _is_cloud else 2048
+            
+            # Build kwargs for ChatOllama with environment-specific settings
+            _llm_kwargs = {
+                "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+                "base_url": _base_url,
+                "temperature": 0.1,
+                "format": "json",
+                "num_predict": _num_predict,
+                "num_ctx": _num_ctx,
+                "request_timeout": _llm_timeout + 30,
+            }
+            
+            # Add headers for Ollama Cloud authentication
+            if _is_cloud:
+                api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+                if api_key:
+                    _llm_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
+                    log.info("Using Ollama Cloud with API key authentication (num_predict=%s)", _num_predict)
+                else:
+                    log.warning("Ollama Cloud detected but OLLAMA_API_KEY is not set!")
+            else:
+                _llm_kwargs["keep_alive"] = -1
+                
+            _REASONING_LLM = ChatOllama(**_llm_kwargs)
+        except Exception as e:
+            log.warning("LLM init failed: %s", e)
+    return _REASONING_LLM
+```
+
+#### Enhanced Fallback Mechanisms
+The fallback system now includes proper context window handling for both cloud and local deployments:
+```python
+# Retry LLM without JSON format constraint for empty responses
+retry_kwargs = {
+    "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+    "base_url": _base_url,
+    "temperature": 0.3,
+    "num_predict": _num_predict_retry,  # Uses environment-specific num_predict
+    "num_ctx": 8192 if _is_cloud_retry else 2048,  # Uses environment-specific context
+    "request_timeout": _llm_timeout + 30,
+}
+```
+
+#### Performance Benefits
+- **Cloud Models**: 2048 tokens allow for comprehensive verbose output from large models (480B+)
+- **Local Models**: 512 tokens optimize for JSON output size and reduce memory usage
+- **Context Window**: 8192 context enables complex reasoning for cloud deployments
+- **Model Persistence**: Local models stay hot in RAM for faster response times
+- **API Authentication**: Cloud deployments benefit from secure API key authentication
+
+**Section sources**
+- [hybrid_pipeline.py:97-146](file://app/backend/services/hybrid_pipeline.py#L97-L146)
+- [hybrid_pipeline.py:1340-1372](file://app/backend/services/hybrid_pipeline.py#L1340-L1372)
 
 ## Enhanced Timeout Management
 
@@ -839,6 +941,10 @@ I --> J["Database"]
 - **Frontend Responsiveness**: Extended polling architecture (10 minutes) provides real-time updates without blocking user interactions
 - **Timeout Protection**: asyncio.wait_for() prevents blocking during long inference tasks
 - **Empty Response Handling**: Prevents processing of blank LLM outputs, improving system reliability
+- **Cloud Optimization**: 2048 tokens and 8192 context window enable comprehensive cloud model processing
+- **Local Optimization**: 512 tokens and 2048 context window ensure optimal local model performance
+- **Enhanced Logging**: num_predict values logged for better monitoring and debugging
+- **Environment Detection**: Automatic cloud vs local model switching reduces configuration complexity
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -859,6 +965,10 @@ Common issues and resolutions:
 - **Empty Response Errors**: Check LLM output validation and ensure explain_with_llm returns valid JSON
 - **Memory Leaks**: Background tasks are properly cleaned up during application shutdown
 - **Timeout Protection**: Ensure asyncio.wait_for() is properly configured with LLM_NARRATIVE_TIMEOUT
+- **Cloud Model Issues**: Verify OLLAMA_API_KEY is set for cloud deployments; check num_predict logging
+- **Local Model Issues**: Ensure keep_alive=-1 for optimal local model performance; verify 512 token limit
+- **Context Window Problems**: Check num_ctx values are appropriate for cloud (8192) vs local (2048) deployments
+- **Environment Detection**: Verify OLLAMA_BASE_URL contains "ollama.com" for cloud detection
 
 **Section sources**
 - [hybrid_pipeline.py:1384-1407](file://app/backend/services/hybrid_pipeline.py#L1384-L1407)
@@ -891,3 +1001,11 @@ The hybrid pipeline achieves optimal performance by leveraging Python-first dete
 **Task Lifecycle Management**: The comprehensive background task management system ensures proper resource utilization, graceful shutdown handling, and error isolation, contributing to overall system reliability and maintainability. All tasks use asyncio.wait_for() for proper timeout handling, preventing system blocking during long inference operations.
 
 **Empty Response Validation**: The implementation of comprehensive empty response validation in explain_with_llm() prevents processing of blank LLM outputs, improving system reliability and preventing downstream errors in the analysis pipeline.
+
+**Enhanced Cloud Processing**: The implementation of optimized token limits and context windows for cloud deployments (2048 tokens, 8192 context) enables comprehensive processing of large models while maintaining performance. Local deployments continue with optimized settings (512 tokens, 2048 context) for efficient operation.
+
+**Environment Detection**: The automatic cloud vs local model detection simplifies deployment configuration and ensures optimal performance across different environments without manual intervention.
+
+**Enhanced Logging**: The addition of num_predict value logging provides better monitoring and debugging capabilities, enabling administrators to track model usage patterns and optimize performance across cloud and local deployments.
+
+**Fallback Mechanisms**: The enhanced fallback system with proper context window handling ensures reliable operation across both cloud and local environments, with appropriate token limits and context windows for each deployment type.

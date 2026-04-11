@@ -16,12 +16,13 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced hybrid pipeline with improved LLM prompt optimization (reduced from 1024 to 512 tokens)
+- Enhanced hybrid pipeline with improved LLM prompt optimization (reduced from 1024 to 512 tokens for local models)
 - AI-enhanced narrative distinction system with `ai_enhanced` flag for LLM vs fallback narratives
 - Comprehensive score rationale generation with detailed explanations for each score dimension
 - Structured risk analysis with seniority alignment, career trajectory, and stability assessments
 - Enhanced JSON serialization capabilities with unified `_json_default` function across all components
 - Performance optimizations including reduced KV-cache allocation and improved memory management
+- **Updated** Enhanced model configuration guidelines now include cloud model optimization with increased token limits (2048 tokens) for large cloud models (480B+) that generate verbose output, while maintaining local model defaults at 512 tokens
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,7 +43,7 @@
 ## Introduction
 This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis, the resume parsing service supporting PDF and DOCX formats, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
 
-**Updated** The analysis engine now features enhanced AI pipeline capabilities with sophisticated score rationales and comprehensive risk analysis. The system generates detailed explanations for each score dimension and provides structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. Model configuration has been optimized with reduced LLM context sizes for improved performance characteristics.
+**Updated** The analysis engine now features enhanced AI pipeline capabilities with sophisticated score rationales and comprehensive risk analysis. The system generates detailed explanations for each score dimension and provides structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. Model configuration has been optimized with reduced LLM context sizes for improved performance characteristics, with enhanced support for cloud models that require larger token limits for verbose output.
 
 ## Project Structure
 The backend is organized around FastAPI routes, SQLAlchemy models, and modular services. The analysis engine spans:
@@ -158,7 +159,7 @@ The hybrid pipeline executes deterministic Python logic first, then a single LLM
 - Fit score computation with configurable weights and risk penalties
 - LLM narrative generation with robust JSON parsing and fallback
 - **Enhanced**: Score rationales for each dimension and structured risk summary
-- **Optimized**: Reduced LLM context size from 1024 to 512 tokens for improved performance
+- **Optimized**: Reduced LLM context size from 1024 to 512 tokens for local models for improved performance
 
 ```mermaid
 flowchart TD
@@ -440,6 +441,9 @@ Overall --> Output["score_rationales"]
 **Diagram sources**
 - [hybrid_pipeline.py:1480-1525](file://app/backend/services/hybrid_pipeline.py#L1480-L1525)
 
+**Section sources**
+- [hybrid_pipeline.py:1480-1525](file://app/backend/services/hybrid_pipeline.py#L1480-L1525)
+
 ### Structured Risk Summary
 
 The risk summary provides comprehensive risk assessment:
@@ -466,7 +470,10 @@ Summary --> Output["risk_summary"]
 - [hybrid_pipeline.py:1528-1600](file://app/backend/services/hybrid_pipeline.py#L1528-L1600)
 
 **Section sources**
-- [hybrid_pipeline.py:1480-1600](file://app/backend/services/hybrid_pipeline.py#L1480-L1600)
+- [hybrid_pipeline.py:1528-1600](file://app/backend/services/hybrid_pipeline.py#L1528-L1600)
+
+**Section sources**
+- [hybrid_pipeline.py:1528-1600](file://app/backend/services/hybrid_pipeline.py#L1528-L1600)
 
 ## Structured Risk Analysis
 
@@ -518,19 +525,29 @@ Employment stability is evaluated based on:
 
 ## Model Configuration and Performance
 
-**Updated** The analysis engine uses optimized model configurations for enhanced performance and reliability.
+**Updated** The analysis engine uses optimized model configurations for enhanced performance and reliability, with enhanced support for cloud models that require larger token limits for verbose output.
 
 ### Model Specifications
 
 The system utilizes qwen3.5:4b model with optimized settings:
 
-- **Model**: qwen3.5:4b (4 billion parameters)
+- **Model**: qwen3.5:4b (4 billion parameters) or qwen3-coder:480b-cloud (480 billion parameters)
 - **Temperature**: 0.1 for deterministic responses
 - **Format**: JSON for structured output
-- **num_predict**: 512 tokens (reduced from 1024 for improved performance)
-- **num_ctx**: 2048 context window for balanced prompt + output
-- **keep_alive**: -1 for model persistence in RAM
+- **num_predict**: 512 tokens for local models, 2048 tokens for cloud models (optimized for verbose output)
+- **num_ctx**: 2048 context window for local models, 8192 context window for cloud models
+- **keep_alive**: -1 for model persistence in RAM (local only)
 - **Request Timeout**: 180 seconds (150s + 30s buffer)
+
+### Cloud Model Optimization
+
+**Enhanced** The system now includes intelligent model configuration based on deployment environment:
+
+- **Cloud Detection**: Automatically detects Ollama Cloud (ollama.com) vs local deployment
+- **Token Limits**: Cloud models receive 2048 tokens for num_predict to handle verbose output from large models (480B+)
+- **Context Windows**: Cloud models use 8192 context window for complex reasoning tasks
+- **Authentication**: Automatic API key handling for Ollama Cloud with Authorization headers
+- **Performance**: Maintains 512 token limit for local models to optimize memory usage
 
 ### Performance Characteristics
 
@@ -538,16 +555,18 @@ The system utilizes qwen3.5:4b model with optimized settings:
 - **Subsequent Requests**: 30-60 seconds typical
 - **Concurrent Limit**: 2 LLM calls per worker
 - **Memory Management**: Keep-alive sessions reduce cold-start latency
-- **Prompt Optimization**: Reduced num_predict minimizes KV cache allocation by ~800MB
+- **Prompt Optimization**: Reduced num_predict (512) for local models minimizes KV cache allocation by ~800MB
+- **Cloud Optimization**: 2048 token limit for cloud models handles verbose output from large models efficiently
 
 ### Environment Configuration
 
 Key environment variables:
 
-- **OLLAMA_BASE_URL**: Default localhost:11434
-- **OLLAMA_MODEL**: qwen3.5:4b (narrative model)
-- **OLLAMA_FAST_MODEL**: qwen3.5:4b (fast model)
+- **OLLAMA_BASE_URL**: Default localhost:11434 or https://ollama.com for cloud
+- **OLLAMA_MODEL**: qwen3.5:4b (narrative model) or qwen3-coder:480b-cloud (large cloud model)
+- **OLLAMA_FAST_MODEL**: qwen3.5:4b (fast model) or qwen3-coder:480b-cloud (large cloud model)
 - **LLM_NARRATIVE_TIMEOUT**: 150 seconds default
+- **OLLAMA_API_KEY**: Required for Ollama Cloud authentication
 - **OLLAMA_HOST**: docker host for containerized deployments
 
 **Section sources**
@@ -658,14 +677,15 @@ Main --> Ollama
 ## Performance Considerations
 - Concurrency control: semaphore limits concurrent LLM calls to 2 per worker
 - Model hot-loading: keep-alive sessions and in-memory caches reduce cold-start latency
-- Prompt sizing: reduced num_predict (512) and num_ctx (2048) to minimize KV cache allocation
+- Prompt sizing: reduced num_predict (512) and num_ctx (2048) to minimize KV cache allocation for local models
 - Thread pool usage: blocking PDF parsing executed in asyncio.to_thread
 - Streaming: SSE heartbeat pings prevent timeouts for long-running LLM calls
 - Caching: JD cache shared across workers; skills registry hot-reloadable
 - Memory management: JSON parsing utilities and bounded snapshot sizes
 - **Enhanced AI Pipeline**: Optimized score rationale generation with minimal overhead
 - **Model Optimization**: qwen3.5:4b model selected for balanced performance and cost
-- **KV Cache Savings**: ~800MB reduction in memory usage compared to default 4096 context
+- **KV Cache Savings**: ~800MB reduction in memory usage for local models compared to default 4096 context
+- **Cloud Optimization**: Intelligent token limit scaling for cloud models handling verbose output from large models
 
 [No sources needed since this section provides general guidance]
 
@@ -680,7 +700,8 @@ Common issues and resolutions:
 - **Datetime conversion issues**: Unified `_json_default` function ensures consistent datetime serialization across all components
 - **Model loading issues**: Use `/api/llm-status` endpoint to diagnose model readiness and hot status
 - **Performance degradation**: Monitor LLM timeouts and consider increasing LLM_NARRATIVE_TIMEOUT environment variable
-- **KV Cache issues**: Reduced context size (512 tokens) helps prevent memory pressure during LLM calls
+- **KV Cache issues**: Reduced context size (512 tokens) helps prevent memory pressure during LLM calls for local models
+- **Cloud Model Issues**: Ensure OLLAMA_API_KEY is set for Ollama Cloud deployments; verify 480B+ model compatibility
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -691,7 +712,7 @@ Common issues and resolutions:
 ## Conclusion
 The analysis engine blends efficient Python-first processing with a single, well-configured LLM call to deliver fast, deterministic scoring and rich narrative insights. The LangGraph agent pipeline enables scalable, multi-step workflows with structured nodes and robust fallbacks. The resume parsing service and gap detection provide reliable inputs, while the skills registry and scoring logic offer extensible, configurable evaluation criteria suitable for customization and growth.
 
-**Updated** The enhanced AI pipeline capabilities now provide sophisticated score rationales and comprehensive risk analysis, generating detailed explanations for each score dimension and structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The system maintains backward compatibility while delivering significantly improved explainability and risk assessment capabilities. The AI-enhanced narrative distinction system ensures clear differentiation between LLM-generated and fallback content, improving transparency for users.
+**Updated** The enhanced AI pipeline capabilities now provide sophisticated score rationales and comprehensive risk analysis, generating detailed explanations for each score dimension and structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The system maintains backward compatibility while delivering significantly improved explainability and risk assessment capabilities. The AI-enhanced narrative distinction system ensures clear differentiation between LLM-generated and fallback content, improving transparency for users. The enhanced model configuration now intelligently optimizes token limits for both local and cloud deployments, with 2048 tokens for cloud models (480B+) that generate verbose output while maintaining 512 tokens for local models to optimize performance and memory usage.
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -735,12 +756,15 @@ The analysis engine blends efficient Python-first processing with a single, well
 **Updated** For optimal performance with the enhanced AI pipeline:
 
 1. **Model Selection**: qwen3.5:4b provides balanced performance for both fast and reasoning tasks
-2. **Resource Allocation**: Ensure sufficient RAM for model hot-loading and concurrent processing
-3. **Timeout Configuration**: Adjust LLM_NARRATIVE_TIMEOUT based on deployment environment and model size
-4. **Concurrency Control**: Monitor semaphore limits to prevent resource exhaustion
-5. **Monitoring**: Use `/api/llm-status` endpoint for continuous model health monitoring
-6. **Context Optimization**: The reduced context size (512 tokens) provides ~800MB memory savings
-7. **KV Cache Management**: Monitor memory usage during LLM calls to prevent overflow
+2. **Cloud Deployment**: Use qwen3-coder:480b-cloud for cloud deployments requiring verbose output from large models
+3. **Resource Allocation**: Ensure sufficient RAM for model hot-loading and concurrent processing
+4. **Timeout Configuration**: Adjust LLM_NARRATIVE_TIMEOUT based on deployment environment and model size
+5. **Concurrency Control**: Monitor semaphore limits to prevent resource exhaustion
+6. **Monitoring**: Use `/api/llm-status` endpoint for continuous model health monitoring
+7. **Context Optimization**: The reduced context size (512 tokens) provides ~800MB memory savings for local models
+8. **Cloud Token Limits**: Cloud models automatically receive 2048 tokens for verbose output handling
+9. **Authentication**: Set OLLAMA_API_KEY for secure cloud model access
+10. **KV Cache Management**: Monitor memory usage during LLM calls to prevent overflow, especially with cloud models
 
 **Section sources**
 - [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)

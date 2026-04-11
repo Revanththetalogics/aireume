@@ -25,10 +25,12 @@
 
 ## Update Summary
 **Changes Made**
-- Updated LLM_NARRATIVE_TIMEOUT environment variable documentation to reflect the increase from 60 to 120 seconds in production
-- Enhanced timeout configuration explanation showing how backend services use LLM_NARRATIVE_TIMEOUT with additional 30-second buffer
-- Updated troubleshooting guide to include timeout-related issues and solutions
-- Added performance considerations section explaining timeout impact on Qwen 3.5 4B model processing
+- Updated default OLLAMA_BASE_URL to https://ollama.com for cloud-first deployment approach
+- Changed OLLAMA_MODEL to qwen3-coder:480b-cloud for enhanced cloud model capabilities
+- Added OLLAMA_API_KEY requirement for secure cloud API access
+- Increased LLM_NARRATIVE_TIMEOUT from 120 to 300 seconds for improved cloud model processing
+- Enhanced deployment guidance emphasizing cloud-first architecture with local Ollama as optional
+- Updated environment variable documentation to reflect new cloud-first defaults
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -51,11 +53,11 @@ This document explains the Docker configuration for Resume AI by ThetaLogics, co
 - Environment variable handling, secrets management, and configuration inheritance
 - Troubleshooting, health checks, and performance optimization
 - Enhanced Ollama memory allocation settings for optimal LLM performance
-- **Updated** LLM timeout configuration for improved system reliability with Qwen 3.5 4B model processing
+- **Updated** Cloud-first deployment approach with Ollama Cloud as default configuration
 
 ## Project Structure
 The repository organizes Docker assets around three primary services:
-- Backend: FastAPI application with Ollama integration and Alembic migrations
+- Backend: FastAPI application with Ollama Cloud integration and Alembic migrations
 - Frontend: React SPA served by Nginx
 - Infrastructure: Postgres database, Ollama LLM engine, reverse proxy Nginx, optional Watchtower auto-updates, and Certbot for SSL renewal
 
@@ -94,16 +96,16 @@ Certbot --> ProdNginx
 ```
 
 **Diagram sources**
-- [docker-compose.yml:5-101](file://docker-compose.yml#L5-L101)
-- [docker-compose.prod.yml:7-227](file://docker-compose.prod.yml#L7-L227)
+- [docker-compose.yml:5-108](file://docker-compose.yml#L5-L108)
+- [docker-compose.prod.yml:7-235](file://docker-compose.prod.yml#L7-L235)
 
 **Section sources**
-- [docker-compose.yml:1-101](file://docker-compose.yml#L1-L101)
-- [docker-compose.prod.yml:1-227](file://docker-compose.prod.yml#L1-L227)
+- [docker-compose.yml:1-108](file://docker-compose.yml#L1-L108)
+- [docker-compose.prod.yml:1-235](file://docker-compose.prod.yml#L1-L235)
 
 ## Core Components
 - Backend service
-  - Uses a Python slim base image, installs system dependencies, copies requirements and application code, and sets environment variables for database and Ollama connectivity.
+  - Uses a Python slim base image, installs system dependencies, copies requirements and application code, and sets environment variables for database and Ollama Cloud connectivity.
   - Entrypoint runs Alembic migrations for PostgreSQL and waits for Ollama readiness before launching Uvicorn.
   - Exposes port 8000 and supports single-worker default; production overrides to multiple workers.
 - Frontend service
@@ -120,16 +122,16 @@ Certbot --> ProdNginx
   - Certbot for Let's Encrypt certificate lifecycle management.
 
 **Section sources**
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
-- [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
+- [app/backend/Dockerfile:1-49](file://app/backend/Dockerfile#L1-L49)
+- [app/frontend/Dockerfile:1-35](file://app/frontend/Dockerfile#L1-L35)
 - [nginx/Dockerfile:1-13](file://nginx/Dockerfile#L1-L13)
 - [app/backend/scripts/docker-entrypoint.sh:1-20](file://app/backend/scripts/docker-entrypoint.sh#L1-L20)
-- [app/backend/scripts/wait_for_ollama.py:1-96](file://app/backend/scripts/wait_for_ollama.py#L1-L96)
-- [docker-compose.yml:52-96](file://docker-compose.yml#L52-L96)
-- [docker-compose.prod.yml:7-227](file://docker-compose.prod.yml#L7-L227)
+- [app/backend/scripts/wait_for_ollama.py:1-108](file://app/backend/scripts/wait_for_ollama.py#L1-L108)
+- [docker-compose.yml:53-108](file://docker-compose.yml#L53-L108)
+- [docker-compose.prod.yml:7-235](file://docker-compose.prod.yml#L7-L235)
 
 ## Architecture Overview
-The system comprises four primary runtime services plus optional production-only services. Inter-service communication relies on Docker Compose networking with service names as hostnames. The backend coordinates with Postgres and Ollama; Nginx fronts both frontend and backend traffic.
+The system comprises four primary runtime services plus optional production-only services. Inter-service communication relies on Docker Compose networking with service names as hostnames. The backend coordinates with Postgres and Ollama Cloud; Nginx fronts both frontend and backend traffic.
 
 ```mermaid
 graph TB
@@ -152,8 +154,8 @@ Backend --> Ollama
 ```
 
 **Diagram sources**
-- [docker-compose.yml:5-101](file://docker-compose.yml#L5-L101)
-- [docker-compose.prod.yml:7-227](file://docker-compose.prod.yml#L7-L227)
+- [docker-compose.yml:5-108](file://docker-compose.yml#L5-L108)
+- [docker-compose.prod.yml:7-235](file://docker-compose.prod.yml#L7-L235)
 - [app/nginx/nginx.conf:9-36](file://app/nginx/nginx.conf#L9-L36)
 - [nginx/nginx.prod.conf:19-87](file://nginx/nginx.prod.conf#L19-L87)
 
@@ -163,7 +165,7 @@ Backend --> Ollama
 - Base image and build
   - Python 3.11 slim with GCC and curl for system-level dependencies.
   - Copies requirements, application code, Alembic configuration, and helper scripts.
-  - Sets environment variables for Python path, default database URL, and Ollama base URL.
+  - Sets environment variables for Python path, default database URL, and Ollama Cloud base URL.
 - Entrypoint behavior
   - Applies Alembic migrations when the database URL indicates PostgreSQL.
   - Waits for Ollama readiness and model warm-up before starting the application process.
@@ -187,15 +189,15 @@ LaunchUvicorn --> End(["Ready"])
 ```
 
 **Diagram sources**
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
+- [app/backend/Dockerfile:1-49](file://app/backend/Dockerfile#L1-L49)
 - [app/backend/scripts/docker-entrypoint.sh:4-14](file://app/backend/scripts/docker-entrypoint.sh#L4-L14)
 - [app/backend/scripts/wait_for_ollama.py:34-91](file://app/backend/scripts/wait_for_ollama.py#L34-L91)
 - [app/backend/middleware/auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
 
 **Section sources**
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
+- [app/backend/Dockerfile:1-49](file://app/backend/Dockerfile#L1-L49)
 - [app/backend/scripts/docker-entrypoint.sh:1-20](file://app/backend/scripts/docker-entrypoint.sh#L1-L20)
-- [app/backend/scripts/wait_for_ollama.py:1-96](file://app/backend/scripts/wait_for_ollama.py#L1-L96)
+- [app/backend/scripts/wait_for_ollama.py:1-108](file://app/backend/scripts/wait_for_ollama.py#L1-L108)
 - [app/backend/middleware/auth.py:1-23](file://app/backend/middleware/auth.py#L1-L23)
 
 ### Frontend Service
@@ -213,10 +215,10 @@ RuntimeStage --> Serve["Serve SPA on port 8080"]
 ```
 
 **Diagram sources**
-- [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
+- [app/frontend/Dockerfile:1-35](file://app/frontend/Dockerfile#L1-L35)
 
 **Section sources**
-- [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
+- [app/frontend/Dockerfile:1-35](file://app/frontend/Dockerfile#L1-L35)
 - [app/frontend/default.conf:1-19](file://app/frontend/default.conf#L1-L19)
 
 ### Nginx Service
@@ -271,11 +273,11 @@ Ready --> Backend["Backend requests"]
 ```
 
 **Diagram sources**
-- [docker-compose.yml:24-50](file://docker-compose.yml#L24-L50)
+- [docker-compose.yml:24-51](file://docker-compose.yml#L24-L51)
 - [docker-compose.prod.yml:41-184](file://docker-compose.prod.yml#L41-L184)
 
 **Section sources**
-- [docker-compose.yml:6-50](file://docker-compose.yml#L6-L50)
+- [docker-compose.yml:6-51](file://docker-compose.yml#L6-L51)
 - [docker-compose.prod.yml:41-184](file://docker-compose.prod.yml#L41-L184)
 
 ### Optional Production Services
@@ -293,17 +295,17 @@ Certbot["Certbot"] --> Nginx
 ```
 
 **Diagram sources**
-- [docker-compose.prod.yml:192-220](file://docker-compose.prod.yml#L192-L220)
+- [docker-compose.prod.yml:193-220](file://docker-compose.prod.yml#L193-L220)
 
 **Section sources**
-- [docker-compose.prod.yml:186-227](file://docker-compose.prod.yml#L186-L227)
+- [docker-compose.prod.yml:186-235](file://docker-compose.prod.yml#L186-L235)
 
 ## Dependency Analysis
 - Build-time dependencies
   - Backend: Python dependencies pinned in requirements.txt.
   - Frontend: Node packages managed via package.json and installed with npm ci.
 - Runtime dependencies
-  - Backend depends on Postgres availability and Ollama readiness.
+  - Backend depends on Postgres availability and Ollama Cloud readiness.
   - Frontend depends on backend being healthy for API calls.
   - Nginx depends on both frontend and backend services.
 - CI/CD integration
@@ -324,8 +326,8 @@ CI --> NginxImg
 **Diagram sources**
 - [requirements.txt:1-48](file://requirements.txt#L1-L48)
 - [app/frontend/package.json:1-41](file://app/frontend/package.json#L1-L41)
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
-- [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
+- [app/backend/Dockerfile:1-49](file://app/backend/Dockerfile#L1-L49)
+- [app/frontend/Dockerfile:1-35](file://app/frontend/Dockerfile#L1-L35)
 - [nginx/Dockerfile:1-13](file://nginx/Dockerfile#L1-L13)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
@@ -351,10 +353,10 @@ CI --> NginxImg
   - Frontend multi-stage build minimizes runtime image size and improves cold start times.
   - Backend copies requirements first to leverage Docker layer caching.
 - **Updated** Timeout configuration
-  - **Production**: LLM_NARRATIVE_TIMEOUT=120 seconds provides 60 additional seconds of headroom for Qwen 3.5 4B model processing
-  - **Development**: LLM_NARRATIVE_TIMEOUT=60 seconds for faster local iteration
-  - **Backend services**: Add 30-second buffer to HTTP timeouts (e.g., 120 + 30 = 150s for production)
-  - **Impact**: Reduces timeout-related failures during model loading and improves system reliability
+  - **Production**: LLM_NARRATIVE_TIMEOUT=300 seconds provides 240 additional seconds of headroom for Ollama Cloud model processing
+  - **Development**: LLM_NARRATIVE_TIMEOUT=300 seconds for consistent cloud-first behavior
+  - **Backend services**: Add 30-second buffer to HTTP timeouts (e.g., 300 + 30 = 330s for production)
+  - **Impact**: Reduces timeout-related failures during cloud model loading and improves system reliability
 
 ### Memory Allocation Optimizations for Ollama
 The production environment includes several memory-efficient configurations:
@@ -370,6 +372,11 @@ The production environment includes several memory-efficient configurations:
 
 ## Troubleshooting Guide
 Common issues and resolutions:
+- Ollama Cloud API key issues
+  - **Symptom**: Backend fails to authenticate with Ollama Cloud
+  - **Cause**: Missing or invalid OLLAMA_API_KEY environment variable
+  - **Solution**: Set OLLAMA_API_KEY in .env file with valid API key from ollama.com/settings/keys
+  - **Verification**: Check /api/llm-status endpoint for cloud connectivity status
 - Ollama not responding
   - Inspect container logs and ensure the model is pulled.
   - **Updated** Check Ollama memory allocation - ensure 8GB RAM limit is available for the service.
@@ -388,9 +395,9 @@ Common issues and resolutions:
   - **Verification**: Monitor container memory usage during model warmup
 - **Updated** Timeout-related issues
   - **Symptom**: LLM requests timing out during narrative generation
-  - **Cause**: Insufficient LLM_NARRATIVE_TIMEOUT for Qwen 3.5 4B model processing
-  - **Solution**: Increase LLM_NARRATIVE_TIMEOUT from 60 to 120 seconds in production environment
-  - **Backend behavior**: Services automatically add 30-second buffer to HTTP timeouts (120 + 30 = 150s)
+  - **Cause**: Insufficient LLM_NARRATIVE_TIMEOUT for Ollama Cloud model processing
+  - **Solution**: Increase LLM_NARRATIVE_TIMEOUT from 120 to 300 seconds in production environment
+  - **Backend behavior**: Services automatically add 30-second buffer to HTTP timeouts (300 + 30 = 330s)
   - **Verification**: Monitor LLM request duration and adjust timeout based on model loading patterns
 
 Health checks:
@@ -432,31 +439,31 @@ NG-->>HC : "OK"
 - [docker-compose.prod.yml:140-144](file://docker-compose.prod.yml#L140-L144)
 
 ## Conclusion
-The Docker configuration provides a robust development and production environment for Resume AI. It emphasizes predictable service orchestration, optimized LLM performance through enhanced memory allocation settings, secure reverse proxying, and automated deployments. The recent improvements to Ollama memory allocation (increased from 6GB to 8GB) and LLM timeout configuration (increased from 60 to 120 seconds) ensure stable operation of the qwen3.5:4b model with sufficient headroom for concurrent requests and system overhead. Following the documented setup ensures reliable local development and scalable production deployments.
+The Docker configuration provides a robust development and production environment for Resume AI. It emphasizes predictable service orchestration, optimized LLM performance through enhanced memory allocation settings, secure reverse proxying, and automated deployments. The recent improvements to Ollama Cloud integration (updated default base URL, enhanced model selection, API key requirement) and LLM timeout configuration (increased from 120 to 300 seconds) ensure stable operation of the qwen3-coder:480b-cloud model with sufficient headroom for concurrent requests and system overhead. Following the documented setup ensures reliable local development and scalable production deployments with a cloud-first approach.
 
 ## Appendices
 
 ### Environment Variables and Secrets Management
 - Development compose
-  - Backend environment variables include Ollama base URL, model names, database URL, JWT secret, and environment mode.
+  - Backend environment variables include Ollama Cloud base URL, model names, database URL, JWT secret, and environment mode.
   - JWT_SECRET_KEY is set to a development value but should be changed for production.
   - Ollama environment variables configure parallelism, caching, and attention kernels.
-  - **Updated** LLM_NARRATIVE_TIMEOUT=60 seconds for development environment.
+  - **Updated** LLM_NARRATIVE_TIMEOUT=300 seconds for development environment to match cloud-first approach.
 - Production compose
   - Uses environment variables for database credentials, JWT secret, and model selection.
   - JWT_SECRET_KEY is required and validated at startup.
   - Secrets are injected via environment variables and Docker secrets in CI/CD pipelines.
   - **Enhanced** Ollama memory allocation with 8GB RAM limit and optimized KV cache quantization.
-  - **Updated** LLM_NARRATIVE_TIMEOUT=120 seconds for production environment to improve system reliability.
+  - **Updated** LLM_NARRATIVE_TIMEOUT=300 seconds for production environment to improve system reliability.
 - Configuration inheritance
   - Production Dockerfiles bake in production Nginx configuration; development compose mounts local configs.
 
 **Updated** JWT_SECRET_KEY is now required in production environments and will cause a RuntimeError if not set.
 
 **Section sources**
-- [docker-compose.yml:59-75](file://docker-compose.yml#L59-L75)
+- [docker-compose.yml:59-108](file://docker-compose.yml#L59-L108)
 - [docker-compose.yml:33-42](file://docker-compose.yml#L33-L42)
-- [docker-compose.prod.yml:81-95](file://docker-compose.prod.yml#L81-L95)
+- [docker-compose.prod.yml:81-113](file://docker-compose.prod.yml#L81-L113)
 - [docker-compose.prod.yml:44-55](file://docker-compose.prod.yml#L44-L55)
 - [nginx/nginx.prod.conf:1-11](file://nginx/nginx.prod.conf#L1-L11)
 - [app/nginx/nginx.conf:1-11](file://app/nginx/nginx.conf#L1-L11)
@@ -483,7 +490,7 @@ The Docker configuration provides a robust development and production environmen
   - Backend: container port 8000
 
 **Section sources**
-- [docker-compose.yml:87-97](file://docker-compose.yml#L87-L97)
+- [docker-compose.yml:87-108](file://docker-compose.yml#L87-L108)
 - [docker-compose.prod.yml:128-147](file://docker-compose.prod.yml#L128-L147)
 - [app/frontend/Dockerfile:32](file://app/frontend/Dockerfile#L32)
 - [app/frontend/default.conf:2](file://app/frontend/default.conf#L2)
@@ -493,7 +500,7 @@ The Docker configuration provides a robust development and production environmen
 ### Ollama Model Setup and Customization
 The system supports both standard and custom model configurations:
 
-- **Standard Model**: qwen3.5:4b (pre-configured in production)
+- **Standard Model**: qwen3-coder:480b-cloud (cloud-first default)
 - **Custom Model**: ARIA recruiter model built from Modelfile
 - **Setup Script**: Automated model building process for custom AI models
 
@@ -503,22 +510,22 @@ The system supports both standard and custom model configurations:
 - [docker-compose.yml:63-64](file://docker-compose.yml#L63-L64)
 
 ### Timeout Configuration Details
-**Updated** The system now uses configurable timeout values for LLM operations:
+**Updated** The system now uses configurable timeout values for LLM operations with cloud-first defaults:
 
 - **Production Environment**:
-  - LLM_NARRATIVE_TIMEOUT=120 seconds
-  - Backend HTTP timeout = 120 + 30 = 150 seconds
-  - Purpose: Accommodate Qwen 3.5 4B model processing with sufficient headroom
+  - LLM_NARRATIVE_TIMEOUT=300 seconds (increased from 120)
+  - Backend HTTP timeout = 300 + 30 = 330 seconds
+  - Purpose: Accommodate Ollama Cloud model processing with sufficient headroom
 - **Development Environment**:
-  - LLM_NARRATIVE_TIMEOUT=60 seconds
-  - Backend HTTP timeout = 60 + 30 = 90 seconds
-  - Purpose: Faster local iteration and debugging
+  - LLM_NARRATIVE_TIMEOUT=300 seconds (matches cloud-first approach)
+  - Backend HTTP timeout = 300 + 30 = 330 seconds
+  - Purpose: Consistent behavior across environments
 - **Backend Implementation**:
   - Hybrid pipeline: Uses LLM_NARRATIVE_TIMEOUT for streaming narrative generation
   - LLM service: Adds 30-second buffer to HTTPX client timeouts
   - Agent pipeline: Applies same timeout logic for reasoning tasks
 - **Impact**:
-  - Reduces timeout-related failures during model loading
+  - Reduces timeout-related failures during cloud model loading
   - Improves system reliability for complex LLM operations
   - Balances performance with stability requirements
 
@@ -527,3 +534,17 @@ The system supports both standard and custom model configurations:
 - [docker-compose.yml:64-65](file://docker-compose.yml#L64-L65)
 - [app/backend/services/hybrid_pipeline.py:86-103](file://app/backend/services/hybrid_pipeline.py#L86-L103)
 - [app/backend/services/llm_service.py:52-55](file://app/backend/services/llm_service.py#L52-L55)
+
+### Cloud-First Deployment Guidance
+**Updated** The system now emphasizes cloud-first deployment with local Ollama as optional:
+
+- **Cloud-First Default**: OLLAMA_BASE_URL=https://ollama.com with API key authentication
+- **Local Ollama Option**: Set OLLAMA_BASE_URL=http://ollama:11434 for self-hosted deployment
+- **Model Selection**: qwen3-coder:480b-cloud as primary cloud model, qwen3.5:4b for local
+- **API Key Requirement**: OLLAMA_API_KEY is mandatory for cloud deployment
+- **Timeout Configuration**: 300-second timeout optimized for cloud model performance
+
+**Section sources**
+- [docker-compose.yml:61-70](file://docker-compose.yml#L61-L70)
+- [README.md:208-224](file://README.md#L208-L224)
+- [README.md:392-416](file://README.md#L392-L416)

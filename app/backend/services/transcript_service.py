@@ -21,6 +21,11 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
 
 
+def _is_ollama_cloud_local(base_url: str) -> bool:
+    """Check if the base URL points to Ollama Cloud (ollama.com)."""
+    return "ollama.com" in base_url.lower()
+
+
 # ─── Transcript parsers ───────────────────────────────────────────────────────
 
 def _parse_vtt(text: str) -> str:
@@ -208,6 +213,9 @@ async def analyze_transcript(
             logger.info("Waiting for Ollama slot (another request in progress)...")
         async with sem:
             headers = get_ollama_headers(OLLAMA_BASE_URL)
+            # Cloud models need more tokens for verbose output
+            _is_cloud = _is_ollama_cloud_local(OLLAMA_BASE_URL)
+            _num_predict = 1200 if _is_cloud else 600
             async with httpx.AsyncClient(timeout=90.0) as client:
                 resp = await client.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
@@ -217,7 +225,7 @@ async def analyze_transcript(
                         "prompt":  prompt,
                         "stream":  False,
                         "format":  "json",
-                        "options": {"num_predict": 600, "temperature": 0.1},
+                        "options": {"num_predict": _num_predict, "temperature": 0.1},
                     },
                 )
                 resp.raise_for_status()

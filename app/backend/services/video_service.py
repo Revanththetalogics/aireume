@@ -13,12 +13,17 @@ import httpx
 import logging
 from pathlib import Path
 
-from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
+from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers, is_ollama_cloud
 
 logger = logging.getLogger(__name__)
 
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+
+def _is_ollama_cloud_local(base_url: str) -> bool:
+    """Check if the base URL points to Ollama Cloud (ollama.com)."""
+    return "ollama.com" in base_url.lower()
 
 # Pause longer than this (seconds between speech segments) is flagged
 SUSPICIOUS_PAUSE_THRESHOLD = 12.0
@@ -153,6 +158,9 @@ async def analyze_communication(transcript: str, duration_s: float) -> dict:
             logger.info("Waiting for Ollama slot (another request in progress)...")
         async with sem:
             headers = get_ollama_headers(OLLAMA_BASE_URL)
+            # Cloud models need more tokens for verbose output
+            _is_cloud = _is_ollama_cloud_local(OLLAMA_BASE_URL)
+            _num_predict = 800 if _is_cloud else 350
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
@@ -162,7 +170,7 @@ async def analyze_communication(transcript: str, duration_s: float) -> dict:
                         "prompt":  prompt,
                         "stream":  False,
                         "format":  "json",
-                        "options": {"num_predict": 350, "temperature": 0.2},
+                        "options": {"num_predict": _num_predict, "temperature": 0.2},
                     },
                 )
                 resp.raise_for_status()
@@ -265,6 +273,9 @@ Return JSON only:
             logger.info("Waiting for Ollama slot (another request in progress)...")
         async with sem:
             headers = get_ollama_headers(OLLAMA_BASE_URL)
+            # Cloud models need more tokens for verbose output
+            _is_cloud = _is_ollama_cloud_local(OLLAMA_BASE_URL)
+            _num_predict = 1200 if _is_cloud else 600
             async with httpx.AsyncClient(timeout=75.0) as client:
                 resp = await client.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
@@ -274,7 +285,7 @@ Return JSON only:
                         "prompt":  prompt,
                         "stream":  False,
                         "format":  "json",
-                        "options": {"num_predict": 600, "temperature": 0.1},
+                        "options": {"num_predict": _num_predict, "temperature": 0.1},
                     },
                 )
                 resp.raise_for_status()

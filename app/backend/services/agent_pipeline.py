@@ -51,6 +51,21 @@ OLLAMA_BASE_URL       = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_FAST_MODEL     = os.getenv("OLLAMA_FAST_MODEL", "qwen3.5:4b")
 OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
 
+
+def _is_ollama_cloud(base_url: str) -> bool:
+    """Check if the base URL points to Ollama Cloud (ollama.com)."""
+    return "ollama.com" in base_url.lower()
+
+
+def _get_ollama_headers(base_url: str) -> Dict[str, str]:
+    """Build headers for Ollama API requests. Adds Authorization header for cloud."""
+    headers = {}
+    if _is_ollama_cloud(base_url):
+        api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
 DEFAULT_WEIGHTS: Dict[str, float] = {
     "skills":       0.30,
     "experience":   0.20,
@@ -85,16 +100,33 @@ def get_fast_llm() -> ChatOllama:
     """Fast model for jd_parser + resume_analyser. Singleton — never re-initialised."""
     global _fast_llm
     if _fast_llm is None:
-        _fast_llm = ChatOllama(
-            model=OLLAMA_FAST_MODEL,
-            base_url=OLLAMA_BASE_URL,
-            temperature=0.0,
-            format="json",
-            num_predict=600,   # resume_analyser output is larger (combined schema)
-            num_ctx=3072,      # resume text + timeline + JD fits in 3k context
-            keep_alive=-1,     # keep model hot between requests
-            request_timeout=_llm_request_timeout,
-        )
+        _is_cloud = _is_ollama_cloud(OLLAMA_BASE_URL)
+        # Cloud models need more tokens for verbose output
+        # Local: 600 tokens sufficient for combined schema
+        # Cloud: 1500 tokens for larger models that generate more verbose output
+        _num_predict = 1500 if _is_cloud else 600
+        _num_ctx = 6144 if _is_cloud else 3072
+
+        _llm_kwargs = {
+            "model": OLLAMA_FAST_MODEL,
+            "base_url": OLLAMA_BASE_URL,
+            "temperature": 0.0,
+            "format": "json",
+            "num_predict": _num_predict,
+            "num_ctx": _num_ctx,
+            "request_timeout": _llm_request_timeout,
+        }
+
+        # Add headers for Ollama Cloud authentication
+        headers = _get_ollama_headers(OLLAMA_BASE_URL)
+        if headers:
+            _llm_kwargs["headers"] = headers
+
+        # Keep model hot only for local Ollama
+        if not _is_cloud:
+            _llm_kwargs["keep_alive"] = -1
+
+        _fast_llm = ChatOllama(**_llm_kwargs)
     return _fast_llm
 
 
@@ -102,16 +134,33 @@ def get_reasoning_llm() -> ChatOllama:
     """Reasoning model for combined scorer + interview questions. Singleton."""
     global _reasoning_llm
     if _reasoning_llm is None:
-        _reasoning_llm = ChatOllama(
-            model=OLLAMA_REASONING_MODEL,
-            base_url=OLLAMA_BASE_URL,
-            temperature=0.0,
-            format="json",
-            num_predict=800,   # scorer + interview_questions combined output
-            num_ctx=2048,      # scorer input is compact (~500 tokens)
-            keep_alive=-1,
-            request_timeout=_llm_request_timeout,
-        )
+        _is_cloud = _is_ollama_cloud(OLLAMA_BASE_URL)
+        # Cloud models need more tokens for verbose output
+        # Local: 800 tokens sufficient for scorer + interview_questions
+        # Cloud: 2000 tokens for larger models that generate more verbose output
+        _num_predict = 2000 if _is_cloud else 800
+        _num_ctx = 4096 if _is_cloud else 2048
+
+        _llm_kwargs = {
+            "model": OLLAMA_REASONING_MODEL,
+            "base_url": OLLAMA_BASE_URL,
+            "temperature": 0.0,
+            "format": "json",
+            "num_predict": _num_predict,
+            "num_ctx": _num_ctx,
+            "request_timeout": _llm_request_timeout,
+        }
+
+        # Add headers for Ollama Cloud authentication
+        headers = _get_ollama_headers(OLLAMA_BASE_URL)
+        if headers:
+            _llm_kwargs["headers"] = headers
+
+        # Keep model hot only for local Ollama
+        if not _is_cloud:
+            _llm_kwargs["keep_alive"] = -1
+
+        _reasoning_llm = ChatOllama(**_llm_kwargs)
     return _reasoning_llm
 
 
