@@ -78,13 +78,22 @@ def list_candidates(
     for c in candidates:
         candidate_results = results_map.get(c.id, [])
         result_count = len(candidate_results)
-        best = candidate_results[0] if candidate_results else None
+        
+        # Find the result with the highest fit_score
         best_score = None
-        if best:
+        if candidate_results:
             try:
-                best_score = json.loads(best.analysis_result).get("fit_score")
+                scores = []
+                for r in candidate_results:
+                    analysis = json.loads(r.analysis_result)
+                    fit_score = analysis.get("fit_score")
+                    if fit_score is not None:
+                        scores.append(fit_score)
+                
+                if scores:
+                    best_score = max(scores)
             except Exception as e:
-                logger.warning("Non-critical: Failed to parse best analysis result: %s", e)
+                logger.warning("Non-critical: Failed to parse analysis results for best_score: %s", e)
 
         result.append({
             "id":              c.id,
