@@ -84,7 +84,6 @@ export default function ReportPage() {
   const navigate  = useNavigate()
   const [copied, setCopied]           = useState(false)
   const [result, setResult]           = useState(location.state?.result || null)
-  const [candidateName, setCandidateName] = useState(null)
   const [labelStatus, setLabelStatus]   = useState(null)
   const [labelLoading, setLabelLoading] = useState(false)
   const [labelDone, setLabelDone]       = useState(false)
@@ -95,6 +94,9 @@ export default function ReportPage() {
     (r?.contact_info?.name || '').trim() ||
     (r?.candidate_profile?.name || '').trim() ||
     null
+
+  // Initialize candidate name from result
+  const [candidateName, setCandidateName] = useState(resolveName(location.state?.result))
 
   useEffect(() => {
     if (result) {
@@ -184,25 +186,39 @@ export default function ReportPage() {
         </div>
 
         {/* AI Enhancement status indicator in sidebar */}
-        {result.narrative_pending && result.analysis_id && !result.ai_enhanced && (
+        {result.narrative_status === 'pending' && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-brand-50 ring-1 ring-brand-200 text-xs font-semibold text-brand-700">
             <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse shrink-0" />
             AI analysis in progress
             <span className="animate-pulse">…</span>
           </div>
         )}
+        {result.narrative_status === 'processing' && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 ring-1 ring-blue-200 text-xs font-semibold text-blue-700">
+            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
+            AI enhancing report
+            <span className="animate-pulse">…</span>
+          </div>
+        )}
         {/* Fallback narrative (not AI-enhanced) - show "Analysis complete" */}
-        {!result.narrative_pending && result.ai_enhanced === false && (result.strengths?.length > 0 || result.concerns?.length > 0) && (
+        {result.narrative_status === 'ready' && result.ai_enhanced === false && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-xs font-semibold text-slate-700">
             <span className="w-2 h-2 rounded-full bg-slate-500 shrink-0" />
             Analysis complete
           </div>
         )}
         {/* Real AI-enhanced narrative - show "AI Enhanced Report" */}
-        {!result.narrative_pending && result.ai_enhanced === true && (result.strengths?.length > 0 || result.concerns?.length > 0) && (
+        {result.narrative_status === 'ready' && result.ai_enhanced === true && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 ring-1 ring-green-200 text-xs font-semibold text-green-700">
             <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
             AI Enhanced Report
+          </div>
+        )}
+        {/* Failed status */}
+        {result.narrative_status === 'failed' && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 ring-1 ring-amber-200 text-xs font-semibold text-amber-700">
+            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+            Using standard analysis
           </div>
         )}
 

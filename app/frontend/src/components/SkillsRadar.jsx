@@ -205,7 +205,7 @@ export default function SkillsRadar({ matchedSkills = [], missingSkills = [] }) 
                 dataKey="name"
                 type="category"
                 tick={{ fontSize: 11, fill: '#374151', fontWeight: 600 }}
-                width={130}
+                width={160}
                 tickLine={false}
                 axisLine={false}
               />
