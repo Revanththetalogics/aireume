@@ -156,21 +156,47 @@ def get_candidate(
     for r in results:
         try:
             analysis = json.loads(r.analysis_result)
+            parsed = json.loads(r.parsed_data)
         except Exception as e:
-            logger.warning("Non-critical: Failed to parse analysis result for result %s: %s", r.id, e)
+            logger.warning("Non-critical: Failed to parse result data for result %s: %s", r.id, e)
             analysis = {}
+            parsed = {}
+        
+        # Resolve candidate name from multiple sources
+        candidate_name = (
+            (analysis.get("candidate_name") or "").strip() or
+            (parsed.get("contact_info", {}).get("name") or "").strip() or
+            (parsed.get("candidate_profile", {}).get("name") or "").strip() or
+            candidate.name or
+            None
+        )
+        
+        # Include all fields needed by ReportPage
         history.append({
+            # Core fields
             "id":                   r.id,
+            "result_id":            r.id,
             "timestamp":            r.timestamp,
             "status":               r.status,
-            "fit_score":            analysis.get("fit_score"),
-            "final_recommendation": analysis.get("final_recommendation"),
-            "risk_level":           analysis.get("risk_level"),
-            "score_breakdown":      analysis.get("score_breakdown", {}),
-            "matched_skills":       analysis.get("matched_skills", []),
-            "missing_skills":       analysis.get("missing_skills", []),
-            "job_role":             analysis.get("job_role"),
-            "analysis_quality":     analysis.get("analysis_quality"),
+            "candidate_id":         r.candidate_id,
+            "candidate_name":       candidate_name,
+            
+            # Analysis fields (spread all analysis data)
+            **analysis,
+            
+            # Parsed data
+            "parsed_data":          r.parsed_data,
+            "contact_info":         parsed.get("contact_info", {}),
+            "candidate_profile":    parsed.get("candidate_profile", {}),
+            "work_experience":      parsed.get("work_experience", []),
+            "education":            parsed.get("education", []),
+            "skills":               parsed.get("skills", []),
+            
+            # Narrative fields for AI enhancement status
+            "narrative_status":     r.narrative_status,
+            "narrative_json":       r.narrative_json,
+            "narrative_error":      r.narrative_error,
+            "ai_enhanced":          r.narrative_status == "ready" and r.narrative_json is not None,
         })
 
     # Skills snapshot from stored profile
