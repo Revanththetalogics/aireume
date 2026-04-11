@@ -90,12 +90,13 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aria_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
       - ENVIRONMENT=production
-      # Default: qwen3-coder:480b-cloud (powerful cloud model)
+      # Using gemma4:31b-cloud - powerful multimodal model with strong reasoning
+      # Excellent for video malpractice detection, resume analysis, and transcript evaluation
       # For local Ollama, use: qwen3.5:4b
-      - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-qwen3-coder:480b-cloud}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3-coder:480b-cloud}
-      # 300s recommended for large cloud models, 180s for local
-      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-300}
+      - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-gemma4:31b-cloud}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      # 180s recommended for gemma4:31b-cloud (faster than 480B models)
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-180}
       # Backend entrypoint waits for Ollama + pulls model into RAM before uvicorn.
       # Automatically skipped when using Ollama Cloud.
       - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}

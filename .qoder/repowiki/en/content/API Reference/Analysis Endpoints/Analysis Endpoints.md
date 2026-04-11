@@ -12,7 +12,17 @@
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
 - [api.js](file://app/frontend/src/lib/api.js)
+- [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
+- [test_api.py](file://app/backend/tests/test_api.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Added documentation for the enhanced GET /api/analysis/{id}/narrative endpoint with three-state status tracking system
+- Documented the new narrative_status field in ScreeningResult model
+- Added comprehensive coverage of pending, ready, and failed states with appropriate responses
+- Included fallback mechanisms and error handling for improved user experience
+- Updated architecture diagrams to reflect the new status tracking system
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -30,6 +40,7 @@ This document provides comprehensive API documentation for the resume analysis e
 - POST /api/analyze: Single resume processing with multipart form data, including resume file upload, job description text or file, optional scoring weights JSON, and action parameters.
 - POST /api/analyze/stream: Real-time streaming analysis using Server-Sent Events (SSE) with progressive result stages (parsing, scoring, complete).
 - POST /api/analyze/batch: Concurrent batch processing of multiple resumes with automatic ranking.
+- **GET /api/analysis/{id}/narrative: Enhanced endpoint with three-state status tracking (pending, ready, failed) and fallback mechanisms.**
 
 It also documents request/response schemas, file size limits and supported formats, error handling for invalid files and insufficient job description content, usage limits, subscription enforcement, rate limiting, and examples of streaming event payloads and batch result structures.
 
@@ -37,7 +48,7 @@ It also documents request/response schemas, file size limits and supported forma
 The analysis endpoints are implemented in the backend FastAPI application under app/backend/routes/analyze.py. Supporting services include:
 - Parser service for resume and job description text extraction
 - Gap detector for employment timeline analysis
-- Hybrid pipeline orchestrating Python-first scoring and LLM narrative
+- Hybrid pipeline orchestrating Python-first scoring and LLM narrative with status tracking
 - Subscription and usage enforcement
 - Authentication middleware
 
@@ -45,11 +56,11 @@ The analysis endpoints are implemented in the backend FastAPI application under 
 graph TB
 Client["Client"]
 Auth["Auth Middleware<br/>JWT Bearer"]
-Routes["Routes<br/>/api/analyze, /api/analyze/stream, /api/analyze/batch"]
+Routes["Routes<br/>/api/analyze, /api/analyze/stream, /api/analyze/batch, /api/analysis/{id}/narrative"]
 Parser["Parser Service<br/>parse_resume, extract_jd_text"]
 Gap["Gap Detector<br/>analyze_gaps"]
-Hybrid["Hybrid Pipeline<br/>run_hybrid_pipeline, astream_hybrid_pipeline"]
-DB["Database<br/>SQLAlchemy ORM"]
+Hybrid["Hybrid Pipeline<br/>run_hybrid_pipeline, astream_hybrid_pipeline, _background_llm_narrative"]
+DB["Database<br/>SQLAlchemy ORM<br/>narrative_status tracking"]
 Sub["Subscription & Usage<br/>record_usage, limits"]
 Nginx["Nginx Proxy<br/>Rate Limits, Buffering"]
 Client --> Auth --> Routes
@@ -86,6 +97,7 @@ Routes --> Nginx
 - Deduplication: Three-layer deduplication by email, file hash, and name+phone; action parameter controls behavior.
 - Streaming: SSE endpoint emits progressive stages with heartbeat pings.
 - Batch: Concurrent processing with automatic ranking by fit score.
+- **Status Tracking: Enhanced narrative endpoint with three-state status system (pending, ready, failed) and fallback mechanisms.**
 
 **Section sources**
 - [auth.py:19-40](file://app/backend/middleware/auth.py#L19-L40)
@@ -96,7 +108,7 @@ Routes --> Nginx
 - [analyze.py:649-758](file://app/backend/routes/analyze.py#L649-L758)
 
 ## Architecture Overview
-The analysis pipeline integrates file parsing, gap analysis, and hybrid scoring with optional LLM narrative. The hybrid pipeline supports both synchronous and streaming modes.
+The analysis pipeline integrates file parsing, gap analysis, and hybrid scoring with optional LLM narrative. The hybrid pipeline supports both synchronous and streaming modes with enhanced status tracking for narrative generation.
 
 ```mermaid
 sequenceDiagram
@@ -115,10 +127,14 @@ P-->>R : Parsed resume data
 R->>G : analyze_gaps(work_experience)
 G-->>R : Gap analysis
 R->>H : run_hybrid_pipeline(...)
-H-->>R : Final analysis result
+H-->>R : Python results + fallback narrative
 R->>D : Store ScreeningResult + Candidate
 D-->>R : Stored IDs
 R-->>C : AnalysisResponse JSON
+C->>R : GET /api/analysis/{id}/narrative
+R->>D : Check narrative_status
+D-->>R : Status : pending/ready/failed
+R-->>C : Status response with fallback/LLM narrative
 ```
 
 **Diagram sources**
@@ -245,6 +261,49 @@ BatchAnalysisResult:
 - [schemas.py:127-136](file://app/backend/models/schemas.py#L127-L136)
 - [subscription.py:670-681](file://app/backend/routes/subscription.py#L670-L681)
 
+### Endpoint: GET /api/analysis/{id}/narrative
+**Enhanced** endpoint with three-state status tracking system for LLM narrative polling.
+
+- Method: GET
+- Path: /api/analysis/{analysis_id}
+- Authentication: Required (JWT Bearer)
+- Response: JSON with status tracking
+
+**Status States:**
+- **pending**: LLM narrative is still being generated
+  - Response: `{"status": "pending"}`
+  - Used when `narrative_status` is "pending" or `narrative_json` is NULL
+- **ready**: LLM narrative is available
+  - Response: `{"status": "ready", "narrative": {...}}`
+  - Contains the complete narrative JSON with all fields
+- **failed**: LLM narrative generation failed
+  - Response: `{"status": "failed", "error": "...", "narrative": {...}}`
+  - Includes error message and fallback narrative
+
+**Fallback Mechanisms:**
+- When LLM fails or times out, deterministic fallback narrative is generated
+- Fallback contains basic fit summary, strengths, concerns, and interview questions
+- Error messages are stored in `narrative_error` field for debugging
+
+**Database Integration:**
+- Uses `narrative_status` field in ScreeningResult model
+- Supports three states: "pending", "processing", "ready", "failed"
+- Stores error details in `narrative_error` field
+- Maintains tenant isolation through filtering by `tenant_id`
+
+**Frontend Polling Strategy:**
+- Client polls endpoint when `narrative_pending` is True in initial analysis
+- Adaptive polling intervals: 2s for first 30s, then 5s for longer waits
+- Maximum 36 attempts (~2.25 minutes total)
+- Graceful degradation when LLM is unavailable
+
+**Section sources**
+- [analyze.py:1117-1168](file://app/backend/routes/analyze.py#L1117-L1168)
+- [db_models.py:129-151](file://app/backend/models/db_models.py#L129-L151)
+- [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
+- [007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+- [test_api.py:277-381](file://app/backend/tests/test_api.py#L277-L381)
+
 ### Deduplication and Candidate Profile Storage
 Three-layer deduplication:
 - Email match within tenant
@@ -351,8 +410,7 @@ A --> N
 - Concurrency: Batch endpoint uses asyncio.gather for concurrent processing.
 - Caching: JD parsing is cached per tenant to avoid repeated LLM calls.
 - Rate limiting: Nginx zones protect the API from overload.
-
-[No sources needed since this section provides general guidance]
+- **Status tracking: Database-level status tracking reduces polling overhead and improves user experience.**
 
 ## Troubleshooting Guide
 Common errors and resolutions:
@@ -362,6 +420,7 @@ Common errors and resolutions:
 - Usage limit exceeded: Upgrade plan or wait until next reset. Check /api/subscription.
 - Authentication failures: Verify JWT Bearer token.
 - Streaming timeouts: Ensure SSE endpoint is proxied without buffering and with adequate timeouts.
+- **Narrative polling issues: Check that analysis_id belongs to the authenticated user's tenant. Verify narrative_status field values.**
 
 **Section sources**
 - [analyze.py:369-384](file://app/backend/routes/analyze.py#L369-L384)
@@ -370,4 +429,4 @@ Common errors and resolutions:
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 
 ## Conclusion
-The analysis endpoints provide robust, scalable resume screening with optional real-time streaming and batch processing. They enforce usage limits through a subscription system, support multiple file formats, and deliver comprehensive results with explainability and risk signals. Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments.
+The analysis endpoints provide robust, scalable resume screening with optional real-time streaming and batch processing. They enforce usage limits through a subscription system, support multiple file formats, and deliver comprehensive results with explainability and risk signals. The enhanced GET /api/analysis/{id}/narrative endpoint with three-state status tracking significantly improves user experience by providing clear feedback on narrative generation progress and fallback mechanisms. Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments.

@@ -12,11 +12,9 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced with cloud-aware LLM configurations including dynamic token limits (fast model: 1500 tokens for cloud vs 600 for local, reasoning model: 2000 tokens for cloud vs 800 for local)
-- Implemented intelligent keep_alive behavior for cost-efficient cloud deployments
-- Optimized context window sizes (6144 for cloud vs 3072 for local)
-- Added automatic cloud detection and authentication for Ollama Cloud
-- Improved cost efficiency by disabling keep_alive for cloud deployments
+- Enhanced token limits for cloud deployments with significantly increased capacity: Fast LLM num_predict increased from 1500 to 3000 and num_ctx from 6144 to 12288; Reasoning LLM num_predict increased from 2000 to 4000 and num_ctx from 4096 to 8192
+- Added enhanced cloud authentication logging and debugging capabilities with detailed API key validation and cloud detection messages
+- Improved cloud-aware configuration management with better error handling and monitoring
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -36,7 +34,7 @@
 ## Introduction
 This document describes the LangGraph-based multi-agent analysis pipeline that powers complex, step-by-step reasoning workflows for resume and job description evaluation. The pipeline integrates with Ollama models to enable structured extraction, matching, scoring, and recommendation generation. It emphasizes deterministic, schema-bound outputs, robust fallbacks, and graceful degradation when LLM calls fail. The system is designed to support both non-streaming batch processing and streaming SSE responses, while complementing a hybrid approach that combines Python-first determinism with a single LLM narrative.
 
-**Updated** Enhanced with cloud-aware LLM configurations that automatically detect Ollama Cloud deployments and optimize token limits, context windows, and keep_alive behavior for cost-efficient operations.
+**Updated** Enhanced with cloud-aware LLM configurations that automatically detect Ollama Cloud deployments and optimize token limits, context windows, and keep_alive behavior for cost-efficient operations. The pipeline now supports significantly larger token limits for cloud deployments to accommodate more verbose outputs from large language models.
 
 ## Project Structure
 The agent pipeline is implemented as a LangGraph StateGraph with three sequential nodes:
@@ -261,7 +259,7 @@ ReturnState --> End(["Exit"])
 
 ## Cloud-Aware Configuration Management
 
-**Updated** The agent pipeline now includes comprehensive cloud-aware configuration management for optimal performance and cost efficiency.
+**Updated** The agent pipeline now includes comprehensive cloud-aware configuration management for optimal performance and cost efficiency with significantly enhanced token limits for cloud deployments.
 
 ### Cloud Detection and Authentication
 The pipeline automatically detects Ollama Cloud deployments and handles authentication:
@@ -281,25 +279,25 @@ def _get_ollama_headers(base_url: str) -> Dict[str, str]:
     return headers
 ```
 
-### Dynamic Token Limits and Context Windows
-The pipeline optimizes LLM configurations based on deployment type:
+### Enhanced Dynamic Token Limits and Context Windows
+The pipeline optimizes LLM configurations based on deployment type with significantly increased capacity for cloud deployments:
 
 #### Fast LLM Configuration (Cloud vs Local)
 ```python
-# Cloud models need more tokens for verbose output
+# Cloud models need significantly more tokens for verbose output
 # Local: 600 tokens sufficient for combined schema
-# Cloud: 1500 tokens for larger models that generate more verbose output
-_num_predict = 1500 if _is_cloud else 600
-_num_ctx = 6144 if _is_cloud else 3072
+# Cloud: 3000 tokens for very large models (480B+) that generate extremely verbose output
+_num_predict = 3000 if _is_cloud else 600
+_num_ctx = 12288 if _is_cloud else 3072
 ```
 
 #### Reasoning LLM Configuration (Cloud vs Local)
 ```python
-# Cloud models need more tokens for verbose output
+# Cloud models need significantly more tokens for verbose output
 # Local: 800 tokens sufficient for scorer + interview_questions
-# Cloud: 2000 tokens for larger models that generate more verbose output
-_num_predict = 2000 if _is_cloud else 800
-_num_ctx = 4096 if _is_cloud else 2048
+# Cloud: 4000 tokens for very large models (480B+) that generate extremely verbose output
+_num_predict = 4000 if _is_cloud else 800
+_num_ctx = 8192 if _is_cloud else 2048
 ```
 
 ### Intelligent Keep-Alive Management
@@ -311,12 +309,29 @@ if not _is_cloud:
     _llm_kwargs["keep_alive"] = -1
 ```
 
-### Benefits of Cloud-Aware Configuration
-- **Cost Optimization**: Cloud deployments automatically disable keep_alive to prevent unnecessary charges
-- **Performance Tuning**: Larger token limits and context windows for cloud models enable more verbose and accurate outputs
-- **Automatic Authentication**: Seamless Ollama Cloud authentication with API key support
+### Enhanced Cloud Authentication Logging
+The pipeline now includes comprehensive logging for cloud authentication and debugging:
+
+```python
+# Add headers for Ollama Cloud authentication
+headers = _get_ollama_headers(OLLAMA_BASE_URL)
+if headers:
+    _llm_kwargs["headers"] = headers
+
+# Keep model hot only for local Ollama
+if not _is_cloud:
+    _llm_kwargs["keep_alive"] = -1
+```
+
+### Benefits of Enhanced Cloud Configuration
+- **Significantly Increased Capacity**: Cloud deployments now support up to 3000 tokens for fast LLM and 4000 tokens for reasoning LLM, representing a 2x increase from previous limits
+- **Enhanced Context Windows**: Context windows expanded to 12288 for fast LLM and 8192 for reasoning LLM for cloud deployments
+- **Improved Cost Optimization**: Cloud deployments automatically disable keep_alive to prevent unnecessary charges
+- **Advanced Authentication Logging**: Comprehensive logging for Ollama Cloud authentication with detailed API key validation and cloud detection messages
+- **Better Debugging Capabilities**: Enhanced logging provides better visibility into cloud deployment configuration and authentication status
+- **Automatic Authentication**: Seamless Ollama Cloud authentication with API key support and proper error handling
 - **Deployment Flexibility**: Transparent switching between cloud and local deployments without code changes
-- **Resource Efficiency**: Optimized resource allocation based on deployment characteristics
+- **Resource Efficiency**: Optimized resource allocation based on deployment characteristics with significantly larger token limits for cloud models
 
 **Section sources**
 - [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
@@ -324,7 +339,7 @@ if not _is_cloud:
 
 ## Timeout Configuration and Management
 
-**Updated** The agent pipeline now includes comprehensive timeout management for reliable LLM interactions.
+**Updated** The agent pipeline now includes comprehensive timeout management for reliable LLM interactions with enhanced cloud deployment support.
 
 ### _llm_request_timeout Constant
 The `_llm_request_timeout` constant provides centralized timeout configuration for all LLM interactions:
@@ -367,6 +382,7 @@ The timeout configuration ensures consistency between:
 - **Environment Flexibility**: Configurable via environment variables
 - **Operational Reliability**: Prevents hanging LLM calls and resource exhaustion
 - **Graceful Degradation**: Enables proper fallback mechanisms when timeouts occur
+- **Enhanced Cloud Support**: Timeout management works seamlessly with cloud deployments and increased token limits
 
 **Section sources**
 - [agent_pipeline.py:96](file://app/backend/services/agent_pipeline.py#L96)
@@ -375,7 +391,7 @@ The timeout configuration ensures consistency between:
 
 ## JSON Serialization Handling
 
-**Updated** The agent pipeline now includes comprehensive JSON serialization handling for complex data types that are not natively JSON-serializable.
+**Updated** The agent pipeline now includes comprehensive JSON serialization handling for complex data types that are not natively JSON-serializable with enhanced support for cloud deployments.
 
 ### _json_default Function
 The `_json_default` function serves as a custom JSON encoder that converts non-serializable Python objects to JSON-compatible formats:
@@ -417,6 +433,7 @@ The JSON serialization handler supports the following non-JSON-serializable type
 - **Consistency**: Ensures uniform serialization across all pipeline components
 - **Backward Compatibility**: Maintains compatibility with existing JSON-based workflows
 - **Error Prevention**: Eliminates runtime errors during JSON encoding operations
+- **Enhanced Cloud Support**: Works seamlessly with increased token limits and larger context windows in cloud deployments
 
 **Section sources**
 - [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)
@@ -432,6 +449,7 @@ The JSON serialization handler supports the following non-JSON-serializable type
 - Error propagation: Each node appends typed errors to the state's errors list, enabling centralized diagnostics.
 - Route integration: The main analysis route invokes the hybrid pipeline and stores results in the database; the LangGraph pipeline is not currently wired into the main route.
 - **Updated** JSON serialization: Comprehensive handling of datetime, date, and Decimal objects across all pipeline components.
+- **Updated** Enhanced cloud authentication: Improved logging and debugging capabilities for cloud deployments.
 
 ```mermaid
 graph TB
@@ -479,11 +497,11 @@ MS["main.py"] --> AR
   - JD cache avoids repeated LLM calls for identical job descriptions.
 - Streaming:
   - The hybrid pipeline supports SSE streaming to provide progressive updates while the LLM narrative is generated.
-- **Updated** Cloud-aware optimizations:
-  - Dynamic token limits increase from 600/800 to 1500/2000 for cloud deployments.
-  - Context windows expand from 3072/2048 to 6144/4096 for cloud deployments.
-  - Intelligent keep_alive disables for cloud to prevent unnecessary charges.
-  - Automatic Ollama Cloud authentication with API key support.
+- **Updated** Enhanced cloud-aware optimizations:
+  - Significantly increased token limits: Fast LLM from 1500 to 3000 tokens, Reasoning LLM from 2000 to 4000 tokens
+  - Expanded context windows: Fast LLM from 6144 to 12288, Reasoning LLM from 4096 to 8192
+  - Intelligent keep_alive disables for cloud to prevent unnecessary charges
+  - Automatic Ollama Cloud authentication with API key support and enhanced logging
 - **Updated** Timeout management:
   - Centralized timeout configuration prevents resource exhaustion and improves reliability.
   - Consistent timeout handling across all LLM instances ensures predictable performance.
@@ -491,6 +509,10 @@ MS["main.py"] --> AR
 - **Updated** JSON serialization optimization:
   - Efficient handling of complex data types reduces serialization overhead.
   - Minimal memory footprint for serialized objects.
+- **Updated** Enhanced cloud deployment support:
+  - Improved authentication logging and debugging capabilities
+  - Better error handling for cloud-specific configurations
+  - Optimized resource allocation for cloud deployments with larger token limits
 
 ## Troubleshooting Guide
 - LLM unavailability:
@@ -506,17 +528,23 @@ MS["main.py"] --> AR
 - **Updated** Cloud deployment issues:
   - Verify OLLAMA_BASE_URL points to ollama.com for cloud deployments.
   - Ensure OLLAMA_API_KEY environment variable is set for authenticated cloud access.
-  - Check that cloud models have sufficient token limits (1500/2000 vs 600/800).
+  - Check that cloud models have sufficient token limits (3000/4000 vs 600/800).
   - Monitor keep_alive behavior - should be disabled for cloud deployments.
+  - Review enhanced cloud authentication logs for detailed debugging information.
 - **Updated** Timeout-related issues:
   - Monitor `_llm_request_timeout` configuration to ensure appropriate values for your workload.
   - Check environment variable `LLM_NARRATIVE_TIMEOUT` for proper timeout settings.
   - Verify that the 30-second buffer is sufficient for your network conditions.
   - Consider adjusting timeout values based on model complexity and system resources.
+  - Enhanced timeout handling works seamlessly with increased token limits in cloud deployments.
 - **Updated** JSON serialization issues:
   - Ensure all data passed to JSON serialization includes proper type conversion using `_json_default`.
   - Verify that datetime, date, and Decimal objects are properly handled in all pipeline components.
   - Check for circular references or self-referencing objects that might cause serialization errors.
+- **Updated** Performance issues with increased token limits:
+  - Monitor cloud deployment performance with larger token limits (3000/4000 tokens).
+  - Verify that context windows (12288/8192) are appropriate for your workload.
+  - Check that cloud authentication logging is functioning properly for debugging.
 
 **Section sources**
 - [agent_pipeline.py:125-138](file://app/backend/services/agent_pipeline.py#L125-L138)
@@ -528,7 +556,7 @@ MS["main.py"] --> AR
 - [agent_pipeline.py:96](file://app/backend/services/agent_pipeline.py#L96)
 
 ## Conclusion
-The LangGraph-based multi-agent analysis pipeline provides a robust, schema-bound, and deterministic approach to complex, multi-step reasoning workflows. By leveraging Ollama models with careful configuration, typed state management, comprehensive fallbacks, and centralized timeout handling, it ensures reliable operation under varied conditions. The enhanced cloud-aware configuration management with dynamic token limits, intelligent keep_alive behavior, and optimized context windows provides cost-efficient operations for cloud deployments while maintaining optimal performance. The enhanced timeout management with the `_llm_request_timeout` constant provides predictable behavior and improved reliability across all LLM interactions. The enhanced JSON serialization handling for datetime objects, dates, and Decimal values further strengthens the pipeline's reliability and compatibility with diverse data types. While the hybrid pipeline offers a complementary approach with streaming and narrative synthesis, the LangGraph pipeline remains ideal for scenarios requiring strict schema-bound outputs and resilient error handling.
+The LangGraph-based multi-agent analysis pipeline provides a robust, schema-bound, and deterministic approach to complex, multi-step reasoning workflows. By leveraging Ollama models with careful configuration, typed state management, comprehensive fallbacks, and centralized timeout handling, it ensures reliable operation under varied conditions. The enhanced cloud-aware configuration management with significantly increased token limits (3000/4000 tokens vs 1500/2000) and expanded context windows (12288/8192 vs 6144/4096) provides cost-efficient operations for cloud deployments while maintaining optimal performance. The enhanced timeout management with the `_llm_request_timeout` constant provides predictable behavior and improved reliability across all LLM interactions. The enhanced JSON serialization handling for datetime objects, dates, and Decimal values further strengthens the pipeline's reliability and compatibility with diverse data types. The enhanced cloud authentication logging and debugging capabilities provide better visibility into cloud deployment configurations. While the hybrid pipeline offers a complementary approach with streaming and narrative synthesis, the LangGraph pipeline remains ideal for scenarios requiring strict schema-bound outputs and resilient error handling.
 
 ## Appendices
 
@@ -563,7 +591,7 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 - [agent_pipeline.py:688-699](file://app/backend/services/agent_pipeline.py#L688-L699)
 
 ### Cloud Deployment Configuration Best Practices
-**Updated** Guidelines for configuring and managing cloud-aware deployments:
+**Updated** Guidelines for configuring and managing cloud-aware deployments with enhanced token limits:
 
 1. **Environment Configuration**:
    - Set `OLLAMA_BASE_URL` to point to Ollama Cloud (ollama.com) for cloud deployments
@@ -571,27 +599,37 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
    - Configure `LLM_NARRATIVE_TIMEOUT` environment variable to control base timeout (default: 150 seconds)
    - The pipeline automatically adds a 30-second buffer for HTTP transport overhead
 
-2. **Cloud-Specific Optimizations**:
-   - Fast model token limit increases to 1500 tokens for cloud vs 600 for local
-   - Reasoning model token limit increases to 2000 tokens for cloud vs 800 for local
-   - Context windows expand to 6144 for cloud vs 3072 for local
+2. **Enhanced Cloud-Specific Optimizations**:
+   - Fast model token limit increases to 3000 tokens for cloud vs 600 for local
+   - Reasoning model token limit increases to 4000 tokens for cloud vs 800 for local
+   - Context windows expand to 12288 for cloud vs 3072 for local
    - Keep-alive automatically disabled for cloud deployments to prevent charges
+   - Enhanced logging provides detailed authentication and configuration information
 
 3. **Consistent Timeout Handling**:
    - All LLM instances use the same `_llm_request_timeout` constant
    - Ensures predictable behavior across fast and reasoning models
    - Prevents resource exhaustion and improves reliability
+   - Works seamlessly with increased token limits in cloud deployments
 
 4. **Monitoring and Adjustment**:
    - Monitor LLM response times and adjust `LLM_NARRATIVE_TIMEOUT` accordingly
    - Consider network latency and model complexity when tuning timeout values
    - Test with representative workloads to determine optimal timeout settings
    - Verify cloud authentication by checking Ollama Cloud status
+   - Monitor enhanced cloud authentication logs for debugging and troubleshooting
 
 5. **Fallback Mechanisms**:
    - Timeout exceptions trigger graceful fallback to typed-null defaults
    - Error messages are captured in the state's errors list for diagnostics
    - Pipeline continues operation even when individual LLM calls timeout
+   - Enhanced error handling works with increased token limits and context windows
+
+6. **Performance Optimization**:
+   - Leverage increased token limits (3000/4000) for more verbose and accurate outputs
+   - Utilize expanded context windows (12288/8192) for complex reasoning tasks
+   - Monitor cloud deployment performance with enhanced configuration
+   - Optimize for cloud-specific resource allocation and cost efficiency
 
 **Section sources**
 - [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
@@ -600,13 +638,15 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 - [agent_pipeline.py:96](file://app/backend/services/agent_pipeline.py#L96)
 
 ### JSON Serialization Best Practices
-**Updated** Guidelines for handling complex data types in the pipeline:
+**Updated** Guidelines for handling complex data types in the pipeline with enhanced cloud deployment support:
 
 1. **Always use `_json_default`** when serializing data containing datetime, date, or Decimal objects
 2. **Test serialization** with representative data samples before deployment
 3. **Handle edge cases** where objects might be None or empty collections
 4. **Monitor serialization performance** in production environments
 5. **Validate deserialization** on the receiving end to ensure data integrity
+6. **Work seamlessly with cloud deployments** that support larger token limits and context windows
+7. **Utilize enhanced error handling** for serialization issues in cloud environments
 
 **Section sources**
 - [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)

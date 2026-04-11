@@ -163,7 +163,7 @@ def get_sentinel() -> OllamaHealthSentinel | None:
 class LLMService:
     def __init__(self):
         self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")  # Faster 3B model
+        self.model = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
         self.max_retries = 1
 
     async def analyze_resume(

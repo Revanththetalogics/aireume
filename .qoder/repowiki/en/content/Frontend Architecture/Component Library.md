@@ -15,17 +15,19 @@
 - [SkillsRadar.jsx](file://app/frontend/src/components/SkillsRadar.jsx)
 - [Dashboard.jsx](file://app/frontend/src/pages/Dashboard.jsx)
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
-- [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
+- [api.js](file://app/frontend/src/lib/api.js)
 - [ResultCard.test.jsx](file://app/frontend/src/__tests__/ResultCard.test.jsx)
 - [ScoreGauge.test.jsx](file://app/frontend/src/__tests__/ScoreGauge.test.jsx)
+- [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
+- [analyze.py](file://app/backend/routes/analyze.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced ResultCard component documentation to reflect new features including concerns section, executive summary banners, risk flag displays, seniority alignment indicators, and skill depth counts
-- Updated component analysis with comprehensive testing coverage details
-- Added new sections covering enhanced ResultCard capabilities
-- Updated architecture diagrams to reflect expanded functionality
+- Enhanced ResultCard component documentation to reflect new adaptive polling logic with two-tier polling approach
+- Updated component analysis with comprehensive testing coverage details for enhanced features
+- Added new sections covering adaptive polling implementation for optimal user experience
+- Updated architecture diagrams to reflect enhanced ResultCard capabilities with polling optimization
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -105,7 +107,7 @@ ReportPage --> ScoreGauge
 - NavBar: A responsive header with logo, navigation links, and a user menu powered by AuthContext.
 - ProtectedRoute: A route guard that blocks unauthenticated users and shows a loading spinner while checking auth state.
 - UploadForm: Drag-and-drop resume and job description upload with multiple input modes (text, file, URL), scoring weight controls, and submission.
-- ResultCard: A comprehensive results display with enhanced features including concerns section, executive summary banners, risk flag displays, seniority alignment indicators, skill depth counts, and expanded explainability sections.
+- ResultCard: A comprehensive results display with enhanced features including adaptive polling logic, concerns section, executive summary banners, risk flag displays, seniority alignment indicators, skill depth counts, and expanded explainability sections.
 - ScoreGauge: A circular gauge indicating recommendation fit level with thresholds and pending state.
 - Timeline: Employment history visualization with short-tenure indicators and gap severity.
 - SkillsRadar: A category-based skills visualization with matched/missing counts and a bar chart breakdown.
@@ -121,7 +123,7 @@ ReportPage --> ScoreGauge
 - [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
 
 ## Architecture Overview
-The routing layer mounts providers for authentication and subscription, then wraps page content with ProtectedRoute and AppShell. Pages like Dashboard orchestrate state and pass props to UploadForm and ResultCard. ResultCard composes SkillsRadar and Timeline to visualize analysis results, with enhanced functionality for comprehensive candidate evaluation.
+The routing layer mounts providers for authentication and subscription, then wraps page content with ProtectedRoute and AppShell. Pages like Dashboard orchestrate state and pass props to UploadForm and ResultCard. ResultCard composes SkillsRadar and Timeline to visualize analysis results, with enhanced functionality for comprehensive candidate evaluation and adaptive polling optimization.
 
 ```mermaid
 sequenceDiagram
@@ -135,6 +137,7 @@ participant Page as "Dashboard"
 participant Report as "ReportPage"
 participant Form as "UploadForm"
 participant Result as "ResultCard"
+participant Backend as "Backend API"
 Browser->>Router : Navigate to "/"
 Router->>Auth : Initialize tokens
 Auth-->>Router : user, tenant, loading
@@ -147,6 +150,9 @@ Page->>Form : Pass props (files, JD, weights)
 Form-->>Page : onSubmit callback
 Page->>Report : Navigate to ReportPage
 Report->>Result : Pass result with enhanced features
+Result->>Backend : Start adaptive polling
+Backend-->>Result : Polling responses (2s intervals)
+Result->>Backend : Switch to slower polling (5s intervals)
 Result-->>Report : Display comprehensive analysis
 ```
 
@@ -160,6 +166,7 @@ Result-->>Report : Display comprehensive analysis
 - [ReportPage.jsx:82-297](file://app/frontend/src/pages/ReportPage.jsx#L82-L297)
 - [UploadForm.jsx:77-89](file://app/frontend/src/components/UploadForm.jsx#L77-L89)
 - [ResultCard.jsx:265-705](file://app/frontend/src/components/ResultCard.jsx#L265-L705)
+- [api.js:413-416](file://app/frontend/src/lib/api.js#L413-L416)
 
 ## Detailed Component Analysis
 
@@ -240,11 +247,12 @@ ShowError --> Input
 - [UploadForm.test.jsx:26-58](file://app/frontend/src/__tests__/UploadForm.test.jsx#L26-L58)
 
 ### ResultCard
-**Enhanced** The ResultCard component has been significantly expanded with comprehensive new features for enhanced candidate evaluation and analysis presentation.
+**Enhanced** The ResultCard component has been significantly expanded with comprehensive new features and adaptive polling logic for optimal user experience during AI analysis generation.
 
-- Purpose: Presents a comprehensive analysis report with recommendation, score breakdown, strengths/weaknesses/risk signals, explainability, education analysis, domain fit, and interview kit. Now includes enhanced features for concerns section, executive summary banners, risk flag displays, seniority alignment indicators, and skill depth counts.
+- Purpose: Presents a comprehensive analysis report with recommendation, score breakdown, strengths/weaknesses/risk signals, explainability, education analysis, domain fit, and interview kit. Now includes enhanced features for concerns section, executive summary banners, risk flag displays, seniority alignment indicators, skill depth counts, and adaptive polling optimization.
 - Props: result(object) with enhanced keys including fit_summary, concerns, risk_summary, skill_depth, score_rationales, and expanded analysis fields.
 - Enhanced Features:
+  - **Adaptive Polling Logic**: Implements a two-tier polling approach with rapid polling for initial cloud model completion and slower polling for local model processing
   - **Concerns Section**: Dedicated concerns display replacing traditional weaknesses with improved formatting and backward compatibility
   - **Executive Summary Banners**: Gradient executive summary banners with prominent visual presentation
   - **Risk Flag Displays**: Comprehensive risk flag system with severity levels (high, medium, low) and detailed explanations
@@ -252,6 +260,11 @@ ShowError --> Input
   - **Skill Depth Counts**: Visual skill depth indicators showing frequency of skills (e.g., "(8x)", "(3x)")
   - **Enhanced Explainability**: Improved explainability sections with fallback to score rationales
   - **Expanded Analysis Quality**: Enhanced analysis source badges with quality indicators
+- Adaptive Polling Implementation:
+  - **Initial Phase (First 15 attempts)**: 2-second polling intervals for rapid cloud model completion
+  - **Optimization Phase (After 15 attempts)**: 5-second polling intervals for slower local model processing
+  - **Total Timeout**: 2.25 minutes maximum (15 attempts × 2s + 21 attempts × 5s = 135 seconds)
+  - **Smart Error Handling**: Graceful degradation with fallback data when AI enhancement fails
 - Composition: Uses ScoreBar, RiskBadge, CopyButton, CollapsibleSection, EmailModal, and AnalysisSourceBadge internally.
 - Accessibility: Expandable/collapsible sections with chevrons; copy buttons with tooltips; readable typography hierarchy; comprehensive color-coded risk indicators.
 - Styling: Card-based layout with brand accents, colored badges, subtle shadows, and enhanced visual hierarchy for improved readability.
@@ -262,6 +275,7 @@ class ResultCard {
 +props result
 +defaultExpandEducation boolean
 +enhancedFeatures concerns, executiveSummary, riskFlags, seniorityAlignment, skillDepth
++narrativePolling adaptive, two-tier
 }
 class SkillsRadar
 class ScoreBar
@@ -271,6 +285,12 @@ class CollapsibleSection
 class EmailModal
 class AnalysisSourceBadge
 class PendingBanner
+class AdaptivePolling {
++initialPhase 2s intervals
++optimizationPhase 5s intervals
++maxAttempts 36
++smartErrorHandling
+}
 ResultCard --> SkillsRadar : "renders"
 ResultCard --> ScoreBar : "uses"
 ResultCard --> RiskBadge : "uses"
@@ -279,6 +299,7 @@ ResultCard --> CollapsibleSection : "uses"
 ResultCard --> EmailModal : "opens"
 ResultCard --> AnalysisSourceBadge : "renders"
 ResultCard --> PendingBanner : "shows"
+ResultCard --> AdaptivePolling : "implements"
 ```
 
 **Diagram sources**
@@ -340,6 +361,7 @@ ResultCard --> PendingBanner : "shows"
 - ReportPage renders ResultCard with enhanced features for comprehensive analysis display.
 - ResultCard composes SkillsRadar and Timeline for visualization.
 - AuthContext supplies authentication state to NavBar and ProtectedRoute.
+- Backend API provides adaptive polling endpoints for LLM narrative generation.
 
 ```mermaid
 graph LR
@@ -357,6 +379,7 @@ Result --> Radar["SkillsRadar.jsx"]
 Dash --> Time["Timeline.jsx"]
 Report --> Time
 Report --> Gauge["ScoreGauge.jsx"]
+Result --> Polling["Adaptive Polling API"]
 ```
 
 **Diagram sources**
@@ -372,6 +395,7 @@ Report --> Gauge["ScoreGauge.jsx"]
 - [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
 - [Timeline.jsx:3-115](file://app/frontend/src/components/Timeline.jsx#L3-L115)
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
+- [api.js:413-416](file://app/frontend/src/lib/api.js#L413-L416)
 
 **Section sources**
 - [App.jsx:39-61](file://app/frontend/src/App.jsx#L39-L61)
@@ -384,6 +408,8 @@ Report --> Gauge["ScoreGauge.jsx"]
 - Prefer memoization for expensive computations in ResultCard (e.g., explainability sections).
 - Keep SVG animations minimal; rely on transitions for gauge updates.
 - Optimize enhanced ResultCard rendering with conditional displays for new features.
+- **Adaptive Polling Optimization**: Implement intelligent polling intervals to balance user experience and server load.
+- **Smart Fallback Mechanisms**: Graceful degradation when AI enhancement fails to maintain usability.
 
 ## Troubleshooting Guide
 - Authentication not persisting:
@@ -397,6 +423,12 @@ Report --> Gauge["ScoreGauge.jsx"]
 - Enhanced ResultCard features not displaying:
   - Verify result object contains new fields (concerns, fit_summary, risk_summary, skill_depth, score_rationales).
   - Ensure backward compatibility with weaknesses field for concerns fallback.
+- **Adaptive Polling Issues**:
+  - **Polling not starting**: Check narrative_pending flag and effectiveAnalysisId existence.
+  - **Too frequent polling**: Verify initial 2-second intervals for first 15 attempts.
+  - **Slow polling after 15 attempts**: Confirm 5-second intervals kick in after threshold.
+  - **Max attempts reached**: Ensure polling stops after 36 attempts (2.25 minutes).
+  - **Error handling failures**: Check fallback data and error messages when AI enhancement fails.
 - ScoreGauge shows pending:
   - Indicates score is null/undefined; trigger re-analysis after resolving backend issues.
 - Timeline gaps misreported:
@@ -408,18 +440,19 @@ Report --> Gauge["ScoreGauge.jsx"]
 - [UploadForm.jsx:190-194](file://app/frontend/src/components/UploadForm.jsx#L190-L194)
 - [ResultCard.jsx:65-90](file://app/frontend/src/components/ResultCard.jsx#L65-L90)
 - [ResultCard.jsx:282-283](file://app/frontend/src/components/ResultCard.jsx#L282-L283)
+- [ResultCard.jsx:302-380](file://app/frontend/src/components/ResultCard.jsx#L302-L380)
 - [ScoreGauge.jsx:2-3](file://app/frontend/src/components/ScoreGauge.jsx#L2-L3)
 - [Timeline.jsx:96-114](file://app/frontend/src/components/Timeline.jsx#L96-L114)
 
 ## Conclusion
-The component library emphasizes composability, accessibility, and responsive design. Layout and navigation are centralized via AppShell and NavBar, while ProtectedRoute ensures secure access. UploadForm and ResultCard integrate tightly with page-level state to deliver a seamless analysis workflow. The enhanced ResultCard now provides comprehensive candidate evaluation with executive summaries, risk assessments, and detailed skill analysis. Visualization components (ScoreGauge, Timeline, SkillsRadar) provide actionable insights with clear thresholds and category breakdowns.
+The component library emphasizes composability, accessibility, and responsive design. Layout and navigation are centralized via AppShell and NavBar, while ProtectedRoute ensures secure access. UploadForm and ResultCard integrate tightly with page-level state to deliver a seamless analysis workflow. The enhanced ResultCard now provides comprehensive candidate evaluation with executive summaries, risk assessments, and detailed skill analysis. The adaptive polling system optimizes user experience during AI analysis generation with intelligent two-tier polling logic. Visualization components (ScoreGauge, Timeline, SkillsRadar) provide actionable insights with clear thresholds and category breakdowns.
 
 ## Appendices
 
 ### Component Composition Patterns
 - Provider-first routing: AuthProvider -> ProtectedRoute -> AppShell -> Page -> Component.
 - Page-driven orchestration: Dashboard manages file/weight/state and passes callbacks to UploadForm; Dashboard also renders ResultCard and auxiliary components.
-- Enhanced ResultCard composition: ResultCard composes ScoreBar, RiskBadge, CollapsibleSection, EmailModal, and AnalysisSourceBadge with expanded feature support.
+- Enhanced ResultCard composition: ResultCard composes ScoreBar, RiskBadge, CollapsibleSection, EmailModal, and AnalysisSourceBadge with expanded feature support and adaptive polling optimization.
 - ReportPage integration: ReportPage renders enhanced ResultCard with comprehensive analysis display and timeline visualization.
 
 **Section sources**
@@ -432,12 +465,14 @@ The component library emphasizes composability, accessibility, and responsive de
 - UploadForm validates inputs and displays errors; disables submit until ready.
 - ResultCard handles missing data gracefully and shows placeholders; includes backward compatibility for concerns fallback.
 - Enhanced ResultCard validation: Checks for new fields (concerns, fit_summary, risk_summary, skill_depth, score_rationales) with graceful fallbacks.
+- **Adaptive Polling Error Handling**: Smart fallback mechanisms when AI enhancement fails; graceful degradation maintains usability.
 - ScoreGauge and Timeline handle null/undefined inputs and render safe defaults.
 
 **Section sources**
 - [UploadForm.jsx:190-194](file://app/frontend/src/components/UploadForm.jsx#L190-L194)
 - [ResultCard.jsx:282-283](file://app/frontend/src/components/ResultCard.jsx#L282-L283)
 - [ResultCard.jsx:299-304](file://app/frontend/src/components/ResultCard.jsx#L299-L304)
+- [ResultCard.jsx:302-380](file://app/frontend/src/components/ResultCard.jsx#L302-L380)
 - [ScoreGauge.jsx:2-3](file://app/frontend/src/components/ScoreGauge.jsx#L2-L3)
 - [Timeline.jsx:4-11](file://app/frontend/src/components/Timeline.jsx#L4-L11)
 
@@ -447,6 +482,7 @@ The component library emphasizes composability, accessibility, and responsive de
 - Focus management in modals (e.g., EmailModal).
 - Sufficient color contrast and readable typography.
 - Enhanced accessibility: Color-coded risk indicators with proper ARIA labels; comprehensive tooltip support for risk flags.
+- **Adaptive Polling Accessibility**: Optimized polling intervals reduce user frustration during long waits.
 
 **Section sources**
 - [NavBar.jsx:67-111](file://app/frontend/src/components/NavBar.jsx#L67-L111)
@@ -459,6 +495,7 @@ The component library emphasizes composability, accessibility, and responsive de
 - Responsive grids and spacing: Use md:/lg: prefixes for breakpoints.
 - Interactive states: Hover/focus rings and transitions for feedback.
 - Enhanced styling: Gradient backgrounds for executive summaries; color-coded risk badges; skill depth indicators with frequency styling.
+- **Adaptive Polling Visual Feedback**: Loading indicators and status badges provide clear user feedback during polling.
 
 **Section sources**
 - [AppShell.jsx:5](file://app/frontend/src/components/AppShell.jsx#L5)
@@ -473,6 +510,7 @@ The component library emphasizes composability, accessibility, and responsive de
 - ReportPage manages result state and passes enhanced ResultCard with comprehensive analysis data.
 - AuthContext centralizes login/logout and user/tenant state.
 - ProtectedRoute reads AuthContext to gate routes.
+- **Adaptive Polling State**: ResultCard manages polling state with useRef for attempt tracking and timeout management.
 
 **Section sources**
 - [Dashboard.jsx:209-214](file://app/frontend/src/pages/Dashboard.jsx#L209-L214)
@@ -480,6 +518,7 @@ The component library emphasizes composability, accessibility, and responsive de
 - [ReportPage.jsx:86-118](file://app/frontend/src/pages/ReportPage.jsx#L86-L118)
 - [AuthContext.jsx:65-69](file://app/frontend/src/contexts/AuthContext.jsx#L65-L69)
 - [ProtectedRoute.jsx:5](file://app/frontend/src/components/ProtectedRoute.jsx#L5)
+- [ResultCard.jsx:267-272](file://app/frontend/src/components/ResultCard.jsx#L267-L272)
 
 ### Enhanced Feature Testing Coverage
 The enhanced ResultCard includes comprehensive testing for new features:
@@ -489,6 +528,32 @@ The enhanced ResultCard includes comprehensive testing for new features:
 - Skill Depth counts with frequency indicators
 - Enhanced Explainability sections with fallback support
 - Backward compatibility for concerns/weaknesses fields
+- **Adaptive Polling Logic Testing**: Two-tier polling approach with intelligent timing and error handling
 
 **Section sources**
 - [ResultCard.test.jsx:50-133](file://app/frontend/src/__tests__/ResultCard.test.jsx#L50-L133)
+
+### Adaptive Polling Implementation Details
+The ResultCard implements sophisticated adaptive polling logic for optimal user experience:
+
+**Two-Tier Polling Strategy**:
+- **Initial Phase (Attempts 1-15)**: 2-second polling intervals for rapid cloud model completion
+- **Optimization Phase (Attempts 16-36)**: 5-second polling intervals for slower local model processing
+- **Total Duration**: 2.25 minutes maximum (15×2s + 21×5s = 135 seconds)
+- **Smart Error Handling**: Graceful fallback when AI enhancement fails
+
+**Backend Integration**:
+- Polling endpoint: `/api/analysis/{analysis_id}/narrative`
+- Status responses: "ready", "pending", "failed"
+- Fallback data preservation during failures
+
+**Frontend Implementation**:
+- useRef for attempt tracking and timeout management
+- useEffect cleanup to prevent memory leaks
+- Conditional rendering based on polling state
+- User feedback through loading indicators and status badges
+
+**Section sources**
+- [ResultCard.jsx:302-380](file://app/frontend/src/components/ResultCard.jsx#L302-L380)
+- [api.js:413-416](file://app/frontend/src/lib/api.js#L413-L416)
+- [analyze.py:1118-1169](file://app/backend/routes/analyze.py#L1118-L1169)

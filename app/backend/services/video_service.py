@@ -166,7 +166,7 @@ async def analyze_communication(transcript: str, duration_s: float) -> dict:
                     f"{OLLAMA_BASE_URL}/api/generate",
                     headers=headers,
                     json={
-                        "model":   os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
+                        "model":   os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud"),
                         "prompt":  prompt,
                         "stream":  False,
                         "format":  "json",
@@ -281,7 +281,7 @@ Return JSON only:
                     f"{OLLAMA_BASE_URL}/api/generate",
                     headers=headers,
                     json={
-                        "model":   os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
+                        "model":   os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud"),
                         "prompt":  prompt,
                         "stream":  False,
                         "format":  "json",

@@ -62,12 +62,12 @@ services:
       # For local Ollama, set OLLAMA_BASE_URL=http://ollama:11434 in your .env file
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:?OLLAMA_API_KEY is required. Get it from https://ollama.com/settings/keys}
-      # Default: qwen3-coder:480b-cloud (powerful cloud model)
-      # For local Ollama, use: qwen3.5:4b
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3-coder:480b-cloud}
-      - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-qwen3-coder:480b-cloud}
-      # 300s recommended for large cloud models, 60-180s for local
-      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-300}
+      # Using gemma4:31b-cloud - powerful multimodal model with strong reasoning
+      # Excellent for video malpractice detection, resume analysis, and transcript evaluation
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-gemma4:31b-cloud}
+      # 180s recommended for gemma4:31b-cloud (faster than 480B models)
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-180}
       - DATABASE_URL=postgresql://aria:aria_secret@postgres:5432/aria_db
       - JWT_SECRET_KEY=change-this-in-production-use-a-long-random-string
       - ENVIRONMENT=development

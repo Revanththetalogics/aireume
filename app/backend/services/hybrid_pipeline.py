@@ -107,11 +107,16 @@ def _get_llm():
             _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
             _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
             _is_cloud = _is_ollama_cloud(_base_url)
+            
+            # Optional: Enforce cloud-only mode (uncomment to enable)
+            # REQUIRE_CLOUD = os.getenv("OLLAMA_REQUIRE_CLOUD", "false").lower() == "true"
+            # if REQUIRE_CLOUD and not _is_cloud:
+            #     raise RuntimeError(f"OLLAMA_REQUIRE_CLOUD is set but OLLAMA_BASE_URL points to local instance: {_base_url}")
 
             # num_predict: Cloud models need significantly more tokens for verbose output
-            # Local: 1024 tokens for narrative JSON with interview questions (~500-800 tokens typical)
+            # Local: 2048 tokens for narrative JSON with interview questions (can exceed 1024 tokens)
             # Cloud: 4096 tokens for very large models (480B+) that generate extremely verbose output
-            _num_predict = 4096 if _is_cloud else 1024
+            _num_predict = 4096 if _is_cloud else 2048
 
             # Build kwargs for ChatOllama
             # NOTE: "format": "json" is intentionally omitted. Ollama's constrained JSON
@@ -119,7 +124,7 @@ def _get_llm():
             # responses. We rely on prompt instructions + robust _parse_llm_json_response()
             # for JSON extraction instead.
             _llm_kwargs = {
-                "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+                "model": os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud",
                 "base_url": _base_url,
                 "temperature": 0.1,
                 "num_predict": _num_predict,
@@ -1207,21 +1212,26 @@ def _parse_llm_json_response(raw: str) -> dict | None:
     for candidate in (clean,):
         try:
             return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            log.debug("Initial JSON parse failed at position %d: %s", e.pos if hasattr(e, 'pos') else -1, str(e)[:100])
 
     blob = _extract_first_balanced_json_object(clean)
     if blob:
         try:
             return json.loads(blob)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            log.debug("Balanced object parse failed at position %d: %s", e.pos if hasattr(e, 'pos') else -1, str(e)[:100])
             # Trailing commas are a common LLM mistake
             try:
                 fixed = re.sub(r",\s*}", "}", blob)
                 fixed = re.sub(r",\s*]", "]", fixed)
-                return json.loads(fixed)
-            except json.JSONDecodeError:
-                pass
+                parsed = json.loads(fixed)
+                log.debug("Successfully parsed after fixing trailing commas")
+                return parsed
+            except json.JSONDecodeError as e2:
+                log.debug("Parse failed even after comma fix at position %d: %s", e2.pos if hasattr(e2, 'pos') else -1, str(e2)[:100])
+    else:
+        log.debug("Could not extract balanced JSON object from response")
     return None
 
 
@@ -1357,11 +1367,13 @@ No markdown, no code fences."""
         raise RuntimeError("Ollama request timed out")
 
     log.debug("LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
+    log.info("LLM response received: %d characters, %d tokens (approx)", len(raw) if raw else 0, len(raw.split()) if raw else 0)
 
     # Extract JSON from response (handles markdown code blocks and extra text)
     json_match = re.search(r'\{[\s\S]*\}', raw)
     if json_match:
         raw = json_match.group(0)
+        log.debug("Extracted JSON object: %d characters", len(raw))
 
     # Handle empty or whitespace-only response - retry with higher temperature as fallback
     # This is now a safety net for edge cases since primary call no longer uses format="json"
@@ -1373,11 +1385,11 @@ No markdown, no code fences."""
         _is_cloud_retry = _is_ollama_cloud(_base_url)
 
         # num_predict: Cloud models need significantly more tokens for verbose output
-        _num_predict_retry = 4096 if _is_cloud_retry else 1024
+        _num_predict_retry = 4096 if _is_cloud_retry else 2048
 
         # Build kwargs for retry LLM - higher temperature as fallback for edge cases
         _retry_kwargs = {
-            "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+            "model": os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud",
             "base_url": _base_url,
             "temperature": 0.3,
             "num_predict": _num_predict_retry,
@@ -1428,7 +1440,8 @@ No markdown, no code fences."""
 
     data = _parse_llm_json_response(raw)
     if data is None:
-        log.warning("LLM JSON extraction failed. Raw (500 chars): %s", raw[:500] if raw else "<empty>")
+        log.warning("LLM JSON extraction failed. Response length: %d chars. Raw (first 500 chars): %s", len(raw) if raw else 0, raw[:500] if raw else "<empty>")
+        log.warning("LLM JSON extraction failed. Last 200 chars: %s", raw[-200:] if raw and len(raw) > 200 else raw)
         raise ValueError("LLM returned non-JSON response")
 
     # Handle both 'concerns' (new format) and 'weaknesses' (legacy format)
@@ -2121,7 +2134,7 @@ async def run_hybrid_pipeline(
             type(e).__name__,
             str(e)[:200],
             os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+            os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud",
         )
         LLM_FALLBACK_TOTAL.inc()
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
@@ -2241,7 +2254,7 @@ async def astream_hybrid_pipeline(
                 type(e).__name__,
                 str(e)[:200],
                 os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-                os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+                os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud",
             )
             LLM_FALLBACK_TOTAL.inc()
             fallback = _build_fallback_narrative(python_result, python_result["skill_analysis"])

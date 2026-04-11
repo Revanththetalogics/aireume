@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 
 
 def _is_ollama_cloud_local(base_url: str) -> bool:

@@ -234,7 +234,7 @@ class TestLLMService:
         """Test LLMService initializes with correct default values."""
         service = LLMService()
         assert service.base_url == "http://localhost:11434"
-        assert service.model == "qwen3.5:4b"
+        assert service.model == "gemma4:31b-cloud"
         assert service.max_retries == 1
 
     @pytest.mark.asyncio

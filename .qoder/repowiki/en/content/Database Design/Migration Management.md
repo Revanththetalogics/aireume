@@ -8,10 +8,13 @@
 - [alembic/versions/004_narrative_json.py](file://alembic/versions/004_narrative_json.py)
 - [alembic/versions/005_revoked_tokens.py](file://alembic/versions/005_revoked_tokens.py)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py](file://alembic/versions/006_indexes_and_jdcache_created_at.py)
+- [alembic/versions/007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
 - [alembic/env.py](file://alembic/env.py)
 - [alembic.ini](file://alembic.ini)
 - [app/backend/db/database.py](file://app/backend/db/database.py)
 - [app/backend/models/db_models.py](file://app/backend/models/db_models.py)
+- [app/backend/routes/analyze.py](file://app/backend/routes/analyze.py)
+- [app/backend/services/hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 - [.github/workflows/cd.yml](file://.github/workflows/cd.yml)
 - [docker-compose.yml](file://docker-compose.yml)
@@ -20,12 +23,11 @@
 
 ## Update Summary
 **Changes Made**
-- Added three new migration versions (004, 005, 006) to the migration chain
-- Fixed Alembic multiple heads error by correcting migration dependency chain
-- Enhanced database schema with performance indexes and timestamp tracking
-- Added JWT token revocation support with revoked_tokens table
-- Improved screening_results performance with new indexes
-- Added created_at timestamps to jd_cache table
+- Added migration 007 to the migration chain with comprehensive status tracking for LLM narrative generation
+- Enhanced database schema with narrative_status and narrative_error columns for robust status management
+- Implemented four-state status system (pending, processing, ready, failed) with intelligent backfill logic
+- Updated migration workflow to support the new status tracking infrastructure
+- Enhanced service layer integration with background LLM narrative processing
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -40,10 +42,10 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the database migration system for Resume AI by ThetaLogics, powered by Alembic. It covers the complete migration version history from 001 through 006, detailing schema evolution and feature additions. The system now includes JWT token revocation support, enhanced performance indexing, and improved timestamp tracking. It also documents the migration workflow (revision creation, execution, and rollback), database initialization, seed data insertion, and production deployment strategies. Best practices, testing procedures, rollback scenarios, and troubleshooting guidance are included to ensure safe and reliable migrations in development and production environments.
+This document explains the database migration system for Resume AI by ThetaLogics, powered by Alembic. It covers the complete migration version history from 001 through 007, detailing schema evolution and feature additions. The system now includes comprehensive status tracking for LLM narrative generation, JWT token revocation support, enhanced performance indexing, and improved timestamp tracking. It also documents the migration workflow (revision creation, execution, and rollback), database initialization, seed data insertion, and production deployment strategies. Best practices, testing procedures, rollback scenarios, and troubleshooting guidance are included to ensure safe and reliable migrations in development and production environments.
 
 ## Project Structure
-The migration system is organized under the alembic directory with dedicated revision files for each version. The Alembic environment integrates with the application's SQLAlchemy models and database configuration. The current migration chain consists of six versions, each building upon previous changes. CI/CD pipelines automate testing and deployment, while Docker Compose configurations define local and production runtime environments.
+The migration system is organized under the alembic directory with dedicated revision files for each version. The Alembic environment integrates with the application's SQLAlchemy models and database configuration. The current migration chain consists of seven versions, each building upon previous changes. CI/CD pipelines automate testing and deployment, while Docker Compose configurations define local and production runtime environments.
 
 ```mermaid
 graph TB
@@ -55,14 +57,15 @@ F --> G["Version 003<br/>003_subscription_system.py"]
 G --> H["Version 004<br/>004_narrative_json.py"]
 H --> I["Version 005<br/>005_revoked_tokens.py"]
 I --> J["Version 006<br/>006_indexes_and_jdcache_created_at.py"]
-K["CI Workflow<br/>.github/workflows/ci.yml"] --> L["CD Workflow<br/>.github/workflows/cd.yml"]
-M["Local Dev Compose<br/>docker-compose.yml"] --> N["Production Compose<br/>docker-compose.prod.yml"]
+J --> K["Version 007<br/>007_narrative_status.py"]
+L["CI Workflow<br/>.github/workflows/ci.yml"] --> M["CD Workflow<br/>.github/workflows/cd.yml"]
+N["Local Dev Compose<br/>docker-compose.yml"] --> O["Production Compose<br/>docker-compose.prod.yml"]
 ```
 
 **Diagram sources**
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
-- [app/backend/models/db_models.py:1-264](file://app/backend/models/db_models.py#L1-L264)
+- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
@@ -70,6 +73,7 @@ M["Local Dev Compose<br/>docker-compose.yml"] --> N["Production Compose<br/>dock
 - [alembic/versions/004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 - [docker-compose.yml:1-102](file://docker-compose.yml#L1-L102)
@@ -79,13 +83,14 @@ M["Local Dev Compose<br/>docker-compose.yml"] --> N["Production Compose<br/>dock
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-264](file://app/backend/models/db_models.py#L1-L264)
+- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
 - [alembic/versions/004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 - [docker-compose.yml:1-102](file://docker-compose.yml#L1-L102)
@@ -97,7 +102,7 @@ M["Local Dev Compose<br/>docker-compose.yml"] --> N["Production Compose<br/>dock
   - alembic/env.py wires Alembic to the application's Base metadata and DATABASE_URL, and sets up offline/online migration modes.
 - SQLAlchemy models and database:
   - app/backend/db/database.py defines DATABASE_URL normalization and engine creation.
-  - app/backend/models/db_models.py declares all database tables used by migrations, including the new RevokedToken model.
+  - app/backend/models/db_models.py declares all database tables used by migrations, including the enhanced ScreeningResult model with status tracking.
 - Migration versions:
   - 001: Enrich candidates and add caches.
   - 002: Add parser snapshot JSON to candidates.
@@ -105,21 +110,23 @@ M["Local Dev Compose<br/>docker-compose.yml"] --> N["Production Compose<br/>dock
   - 004: Add narrative JSON column to screening results for async LLM narratives.
   - 005: Add revoked tokens table for JWT token revocation support.
   - 006: Add performance indexes and created_at timestamps.
+  - 007: Add narrative_status and narrative_error columns for robust status tracking.
 
 **Section sources**
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-264](file://app/backend/models/db_models.py#L1-L264)
+- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
 - [alembic/versions/004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 
 ## Architecture Overview
-The migration system integrates Alembic with the application's SQLAlchemy models and database configuration. Migrations are executed against the configured DATABASE_URL, and the environment script ensures Alembic targets the correct metadata and connection. The system now supports JWT token revocation and enhanced performance monitoring through strategic indexing.
+The migration system integrates Alembic with the application's SQLAlchemy models and database configuration. Migrations are executed against the configured DATABASE_URL, and the environment script ensures Alembic targets the correct metadata and connection. The system now supports JWT token revocation, enhanced performance monitoring through strategic indexing, and comprehensive status tracking for LLM narrative generation.
 
 ```mermaid
 sequenceDiagram
@@ -128,7 +135,7 @@ participant Env as "alembic/env.py"
 participant DB as "DATABASE_URL"
 participant Meta as "SQLAlchemy Base.metadata"
 participant Models as "db_models.py"
-participant Versions as "001..006"
+participant Versions as "001..007"
 CLI->>Env : "alembic upgrade/downgrade"
 Env->>DB : "resolve connection"
 Env->>Meta : "configure target_metadata"
@@ -140,13 +147,14 @@ Versions-->>CLI : "migration status"
 **Diagram sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-264](file://app/backend/models/db_models.py#L1-L264)
+- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
 - [alembic/versions/004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 
 ## Detailed Component Analysis
 
@@ -310,6 +318,42 @@ AddJD --> End
 **Section sources**
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 
+### Version 007: Comprehensive narrative status tracking
+- Purpose: Adds robust status tracking for LLM narrative generation with intelligent backfill logic.
+- Key changes:
+  - Adds narrative_status column (String(20), default='pending') to support four-state system.
+  - Adds narrative_error column (Text, nullable=True) for error details when failed.
+  - Implements intelligent backfill logic: existing rows with narrative_json become 'ready'.
+  - Uses existence checks to handle partial migration scenarios.
+- Status states:
+  - pending: Initial state when narrative generation starts
+  - processing: LLM narrative is currently being generated
+  - ready: LLM narrative successfully generated and stored
+  - failed: LLM narrative generation encountered an error
+- Idempotency: Safe when columns already exist; handles missing narrative_json gracefully.
+- Downgrade: Drops both columns using batch_alter_table for SQLite compatibility.
+
+```mermaid
+flowchart TD
+Start(["Upgrade"]) --> Inspect["Inspect screening_results columns"]
+Inspect --> CheckStatus{"narrative_status exists?"}
+CheckStatus --> |No| AddStatus["Add narrative_status column with default 'pending'"]
+CheckStatus --> |Yes| CheckError["Check narrative_error"]
+AddStatus --> CheckError
+CheckError --> |No| AddError["Add narrative_error column"]
+CheckError --> |Yes| CheckJson["Check narrative_json existence"]
+AddError --> CheckJson
+CheckJson --> |Exists| Backfill["Backfill existing rows: set status='ready' where narrative_json IS NOT NULL"]
+CheckJson --> |Missing| End(["Done"])
+Backfill --> End
+```
+
+**Diagram sources**
+- [alembic/versions/007_narrative_status.py:32-57](file://alembic/versions/007_narrative_status.py#L32-L57)
+
+**Section sources**
+- [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+
 ### Environment and Configuration
 - alembic/env.py:
   - Loads application models to register them with Alembic metadata.
@@ -330,14 +374,14 @@ Models["db_models.py"] --> Env
 **Diagram sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
-- [app/backend/models/db_models.py:1-264](file://app/backend/models/db_models.py#L1-L264)
+- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
 
 **Section sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-264](file://app/backend/models/db_models.py#L1-L264)
+- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
 
 ## Dependency Analysis
 - Alembic depends on:
@@ -345,7 +389,7 @@ Models["db_models.py"] --> Env
   - DATABASE_URL from app/backend/db/database.py.
   - alembic.ini for configuration and logging.
 - Migrations depend on:
-  - Correct ordering (001 → 002 → 003 → 004 → 005 → 006).
+  - Correct ordering (001 → 002 → 003 → 004 → 005 → 006 → 007).
   - Idempotent operations to handle partial runs or legacy setups.
   - Fixed dependency chain ensuring proper migration sequencing.
 - CI/CD:
@@ -361,33 +405,36 @@ F --> G["003_subscription_system.py"]
 G --> H["004_narrative_json.py"]
 H --> I["005_revoked_tokens.py"]
 I --> J["006_indexes_and_jdcache_created_at.py"]
-K[".github/workflows/ci.yml"] --> L[".github/workflows/cd.yml"]
+J --> K["007_narrative_status.py"]
+L[".github/workflows/ci.yml"] --> M[".github/workflows/cd.yml"]
 ```
 
 **Diagram sources**
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-264](file://app/backend/models/db_models.py#L1-L264)
+- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
 - [alembic/versions/004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
 **Section sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-264](file://app/backend/models/db_models.py#L1-L264)
+- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
 - [alembic/versions/004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
@@ -396,27 +443,33 @@ K[".github/workflows/ci.yml"] --> L[".github/workflows/cd.yml"]
 - Strategic indexing improves query performance for frequently accessed columns.
 - Timestamp tracking enables better audit trails and time-based analytics.
 - Using batch_alter_table for dropping multiple columns minimizes transaction overhead.
+- The new status tracking system provides granular control over LLM narrative generation workflows.
+- Background task coordination ensures non-blocking user experience during LLM processing.
 - Production deployments rely on Docker Compose and Watchtower for automated updates; ensure migrations are run before deploying new backend images to avoid downtime.
 
-**Updated** Enhanced with new performance optimizations from versions 004-006, including JWT token revocation support and improved indexing strategy.
+**Updated** Enhanced with new performance optimizations from versions 004-007, including comprehensive status tracking for LLM narrative generation and improved database performance.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
 - Database URL mismatch:
   - Verify DATABASE_URL in env.py and application configuration.
 - Migration conflicts:
-  - Ensure migrations are applied in order (001 → 002 → 003 → 004 → 005 → 006).
+  - Ensure migrations are applied in order (001 → 002 → 003 → 004 → 005 → 006 → 007).
   - Use downgrade to revert problematic versions before retrying.
 - Multiple heads error:
-  - Verify correct down_revision chain (004 → 005 → 006).
+  - Verify correct down_revision chain (006 → 007).
   - Check that each migration properly references its parent revision.
 - Idempotency failures:
   - Confirm that idempotent checks (existence checks) are functioning as intended.
+- Status tracking issues:
+  - Verify that narrative_status and narrative_error columns exist in screening_results table.
+  - Check that backfill logic ran correctly for existing records.
+  - Monitor background LLM tasks for proper status updates.
 - CI/CD pipeline failures:
   - Review CI workflow logs for backend test failures.
   - For CD, confirm Docker images are built and pushed, and Watchtower is running in production.
 
-**Updated** Added troubleshooting guidance for the new migration chain and token revocation features.
+**Updated** Added troubleshooting guidance for the new migration chain, token revocation features, and comprehensive status tracking system.
 
 **Section sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
@@ -426,13 +479,14 @@ Common issues and resolutions:
 - [alembic/versions/004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
 ## Conclusion
-The Resume AI migration system uses Alembic to evolve the schema safely and predictably. Versions 001 through 006 introduce candidate enrichment, parser snapshots, subscription/usage systems, JWT token revocation, and performance optimizations. The environment and configuration integrate tightly with the application's models and database URL. Recent improvements include fixing the multiple heads error through proper dependency chaining and implementing comprehensive performance indexing. CI/CD pipelines support automated testing and deployment, while idempotent migrations and careful downgrade procedures help maintain safety across environments.
+The Resume AI migration system uses Alembic to evolve the schema safely and predictably. Versions 001 through 007 introduce candidate enrichment, parser snapshots, subscription/usage systems, JWT token revocation, performance optimizations, and comprehensive status tracking for LLM narrative generation. The environment and configuration integrate tightly with the application's models and database URL. Recent improvements include fixing the multiple heads error through proper dependency chaining, implementing comprehensive performance indexing, and adding robust status tracking infrastructure. CI/CD pipelines support automated testing and deployment, while idempotent migrations and careful downgrade procedures help maintain safety across environments.
 
-**Updated** Enhanced with the latest migration chain supporting JWT token revocation and improved database performance.
+**Updated** Enhanced with the latest migration chain supporting JWT token revocation, improved database performance, and comprehensive status tracking for LLM narrative generation.
 
 ## Appendices
 
@@ -489,6 +543,10 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
 - Performance optimization:
   - Implement strategic indexing for frequently queried columns.
   - Monitor migration performance and adjust indexing strategy as needed.
+- Status tracking:
+  - Ensure proper status state transitions in background LLM tasks.
+  - Implement proper error handling and fallback mechanisms.
+  - Test backfill logic for existing records during migration.
 
 **Section sources**
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
@@ -497,4 +555,25 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
 - [alembic/versions/004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
+
+### Status Tracking Implementation Details
+- Four-state status system:
+  - pending: Initial state when background LLM task starts
+  - processing: LLM narrative generation in progress
+  - ready: LLM narrative successfully generated
+  - failed: LLM narrative generation encountered error
+- Service integration:
+  - Background LLM tasks update status in real-time
+  - Routes check narrative_status for display logic
+  - Error messages stored in narrative_error for debugging
+- Backfill logic:
+  - Existing records with narrative_json automatically marked as 'ready'
+  - Graceful handling of partial migration scenarios
+  - Safe operation even when narrative_json column doesn't exist
+
+**Section sources**
+- [app/backend/services/hybrid_pipeline.py:1900-2038](file://app/backend/services/hybrid_pipeline.py#L1900-L2038)
+- [app/backend/routes/analyze.py:1130-1169](file://app/backend/routes/analyze.py#L1130-L1169)
+- [alembic/versions/007_narrative_status.py:32-57](file://alembic/versions/007_narrative_status.py#L32-L57)

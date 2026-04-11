@@ -182,7 +182,8 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 | **Charts** | Recharts | 3.x | Data visualization |
 | **Icons** | Lucide React | latest | Icon library |
 | **LLM Runtime** | Ollama | latest | Local inference |
-| **LLM Model** | qwen3.5:4b | latest | Primary model |
+| **LLM Model** | gemma4:31b-cloud | latest | Primary cloud model |
+| **LLM Model (Local)** | qwen3.5:4b | latest | Local fallback model |
 | **LLM Framework** | LangChain + LangGraph | 0.2.0+ / 0.3.0+ | LLM orchestration |
 | **Authentication** | python-jose + bcrypt | 3.3.0 | JWT + password hashing |
 | **PDF Parsing** | pdfplumber + PyMuPDF | 0.11.5 | Document extraction |
@@ -252,9 +253,9 @@ docker exec -it resume-screener-ollama ollama pull qwen3.5:4b
 |--------|------------------------|--------------|
 | **Setup** | Instant, no GPU needed | Requires GPU/CPU resources |
 | **Data Privacy** | Data sent to Ollama Cloud | Data never leaves your server |
-| **Model Quality** | Access to 100B+ parameter models | Limited by local hardware |
+| **Model Quality** | Access to 31B+ parameter models (gemma4) | Limited by local hardware |
 | **Cost** | Pay per token | Free (hardware cost) |
-| **Latency** | ~10-30s (cloud) | ~15-60s (local) |
+| **Latency** | ~10-20s (cloud) | ~15-60s (local) |
 | **Customization** | Limited customization | Full Modelfile support |
 
 **Note:** Custom Modelfile fine-tuning (via `/api/training`) is only supported with local Ollama.
@@ -398,7 +399,7 @@ cat ~/.ssh/github_actions_vps
 | `POSTGRES_PASSWORD` | PostgreSQL root password | Strong password |
 | `OLLAMA_API_KEY` | Ollama Cloud API key (default) | `ollama_xxxxxxxxxxxxxxxx` |
 | `OLLAMA_BASE_URL` | Ollama API endpoint | `https://ollama.com` or `http://ollama:11434` |
-| `OLLAMA_MODEL` | Primary LLM model | `qwen3-coder:480b-cloud` or `qwen3.5:4b` |
+| `OLLAMA_MODEL` | Primary LLM model | `gemma4:31b-cloud` or `qwen3.5:4b` |
 | `ENVIRONMENT` | Runtime environment | `production` or `development` |
 
 ### Optional Environment Variables
@@ -412,7 +413,7 @@ cat ~/.ssh/github_actions_vps
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | JWT refresh token lifetime |
 | `POSTGRES_USER` | `aria` | PostgreSQL username |
 | `POSTGRES_DB` | `aria_db` | PostgreSQL database name |
-| `OLLAMA_FAST_MODEL` | `qwen3-coder:480b-cloud` | Fallback fast model |
+| `OLLAMA_FAST_MODEL` | `gemma4:31b-cloud` | Fallback fast model |
 
 ### Local Ollama Configuration (Optional)
 

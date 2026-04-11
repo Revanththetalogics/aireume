@@ -12,16 +12,17 @@
 - [main.py](file://app/backend/main.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
+- [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced cloud model compatibility with intelligent deployment environment detection
-- Updated LLM configuration with different temperatures for primary (0.1) and retry (0.3) models
-- Parameter adjustments for cloud models (increased num_predict from 512 to 1024 and num_ctx from 2048 to 4096)
-- Added authentication header handling for cloud deployments
-- Improved fallback system with enhanced retry mechanisms
-- Maintained backward compatibility across all changes
+- Enhanced LLM narrative reliability system with comprehensive four-state status tracking (pending, processing, ready, failed)
+- Implemented adaptive polling architecture with intelligent retry mechanisms and exponential backoff
+- Added robust background task management with proper lifecycle tracking and graceful shutdown
+- Enhanced error handling with detailed status reporting and fallback mechanisms
+- Improved user experience through real-time status updates and adaptive polling intervals
+- Added comprehensive database integration for persistent status tracking across deployments
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -30,11 +31,12 @@
 4. [Hybrid Pipeline Implementation](#hybrid-pipeline-implementation)
 5. [Skills Registry System](#skills-registry-system)
 6. [Background Processing](#background-processing)
-7. [API Integration](#api-integration)
-8. [Testing Framework](#testing-framework)
-9. [Performance Considerations](#performance-considerations)
-10. [Troubleshooting Guide](#troubleshooting-guide)
-11. [Conclusion](#conclusion)
+7. [Status Tracking and Polling](#status-tracking-and-polling)
+8. [API Integration](#api-integration)
+9. [Testing Framework](#testing-framework)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
 
 ## Introduction
 
@@ -42,7 +44,7 @@ The Hybrid Pipeline represents a sophisticated resume analysis system that combi
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
-**Updated** Enhanced with intelligent cloud deployment detection and improved LLM configuration for optimal performance across different environments.
+**Updated** Enhanced with intelligent cloud deployment detection, comprehensive status tracking, and adaptive polling architecture that provides four-state reliability with proper state transitions and enhanced user experience. The system now supports robust background task management with graceful shutdown capabilities and intelligent retry mechanisms.
 
 ## System Architecture
 
@@ -53,6 +55,7 @@ graph TB
 subgraph "Frontend Layer"
 FE[Web Interface]
 API[FastAPI Routes]
+NP[Narrative Polling]
 end
 subgraph "Processing Layer"
 Parser[Resume Parser]
@@ -90,11 +93,12 @@ Agent --> DB
 DB --> Models
 Cloud --> LLM
 Local --> LLM
+NP --> API
 ```
 
 **Diagram sources**
-- [analyze.py:1-800](file://app/backend/routes/analyze.py#L1-L800)
-- [hybrid_pipeline.py:1-800](file://app/backend/services/hybrid_pipeline.py#L1-L800)
+- [analyze.py:1-1169](file://app/backend/routes/analyze.py#L1-L1169)
+- [hybrid_pipeline.py:1-2271](file://app/backend/services/hybrid_pipeline.py#L1-L2271)
 - [agent_pipeline.py:1-650](file://app/backend/services/agent_pipeline.py#L1-L650)
 
 The architecture implements several key design principles:
@@ -103,7 +107,9 @@ The architecture implements several key design principles:
 - **Caching Strategy**: Shared caches reduce redundant computations across multiple requests
 - **Background Processing**: Long-running LLM tasks don't block the main request-response cycle
 - **Environment-Aware Configuration**: Intelligent detection of cloud vs local deployment for optimal parameter tuning
-- **Fallback Mechanisms**: Graceful degradation ensures system reliability under various failure conditions
+- **Enhanced Status Tracking**: Four-state status system (pending, processing, ready, failed) with proper state transitions
+- **Adaptive Polling**: Intelligent polling architecture with exponential backoff and retry mechanisms
+- **Graceful Error Handling**: Comprehensive error reporting with fallback mechanisms and user-friendly messaging
 
 ## Core Components
 
@@ -137,8 +143,8 @@ SkillsRegistry --> Skill : "manages"
 ```
 
 **Diagram sources**
-- [hybrid_pipeline.py:378-481](file://app/backend/services/hybrid_pipeline.py#L378-L481)
-- [db_models.py:240-252](file://app/backend/models/db_models.py#L240-L252)
+- [hybrid_pipeline.py:407-510](file://app/backend/services/hybrid_pipeline.py#L407-L510)
+- [db_models.py:242-254](file://app/backend/models/db_models.py#L242-L254)
 
 The system includes over 400 predefined skills spanning multiple domains including programming languages, frameworks, databases, cloud platforms, DevOps tools, AI/ML technologies, and more. Each skill can have multiple aliases to accommodate different naming conventions.
 
@@ -225,7 +231,7 @@ Note over Client,Background : Frontend polls /api/analysis/{id}/narrative
 
 **Diagram sources**
 - [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
-- [hybrid_pipeline.py:124-2128](file://app/backend/services/hybrid_pipeline.py#L124-L2128)
+- [hybrid_pipeline.py:2040-2130](file://app/backend/services/hybrid_pipeline.py#L2040-L2130)
 
 ### Phase 1: Python Processing (1-2 seconds)
 
@@ -265,11 +271,38 @@ The second phase generates comprehensive narratives and recommendations:
 **Enhanced Fallback System:**
 When LLM processing fails or times out, the system automatically generates a deterministic fallback narrative using the Python phase results. The retry mechanism now includes intelligent cloud detection and parameter optimization.
 
-**Updated** Enhanced with environment-aware configuration and improved retry logic:
-- Primary LLM uses temperature 0.1 for deterministic responses
-- Retry LLM uses temperature 0.3 for more creative responses when primary fails
-- Cloud models automatically use increased num_predict (1024) and num_ctx (4096)
-- Authentication headers are automatically handled for cloud deployments
+**Updated** Enhanced with comprehensive status tracking and adaptive polling architecture:
+- **Four-State Status Tracking**: pending → processing → ready/failure states with proper transitions
+- **Adaptive Polling**: Intelligent polling with exponential backoff (2s for first 30s, then 5s)
+- **Background Task Management**: Robust task lifecycle with graceful shutdown and error recovery
+- **Enhanced Error Reporting**: Detailed status messages and fallback mechanisms
+- **Database Persistence**: Persistent status tracking across deployments and restarts
+
+### Environment-Aware Configuration
+
+The hybrid pipeline implements intelligent environment detection to optimize LLM parameters:
+
+**Cloud Deployment Parameters:**
+- num_predict: 4096 tokens (vs 512 for local) for handling verbose outputs from large cloud models
+- num_ctx: 16384 tokens (vs 2048 for local) for complex reasoning and extended context
+- Temperature: 0.1 for deterministic responses
+- Authentication: Automatic API key header injection for Ollama Cloud deployments
+- Model behavior: keep_alive disabled for cloud (models auto-unload)
+
+**Local Deployment Parameters:**
+- num_predict: 512 tokens (sufficient for narrative JSON)
+- num_ctx: 2048 tokens (adequate for local processing)
+- Temperature: 0.1 for deterministic responses
+- Model behavior: keep_alive set to -1 (never unload) for performance
+
+**Enhanced Logging:**
+- Detailed initialization logs showing num_predict, num_ctx, and cloud detection status
+- Warning messages when cloud deployment detected without API key
+- Debug information for token setting optimization
+
+**Section sources**
+- [hybrid_pipeline.py:97-147](file://app/backend/services/hybrid_pipeline.py#L97-L147)
+- [hybrid_pipeline.py:1350-1365](file://app/backend/services/hybrid_pipeline.py#L1350-L1365)
 
 ## Skills Registry System
 
@@ -333,14 +366,14 @@ The system implements sophisticated background processing to maintain responsive
 stateDiagram-v2
 [*] --> Pending
 Pending --> Processing : Start LLM Task
-Processing --> Completed : LLM Success
-Processing --> Fallback : LLM Timeout/Error
-Completed --> [*]
-Fallback --> [*]
+Processing --> Ready : LLM Success
+Processing --> Failed : LLM Timeout/Error
+Ready --> [*]
+Failed --> [*]
 state Processing {
 [*] --> LLM_Call
-LLM_Call --> DB_Update
-DB_Update --> [*]
+LLM_Call --> DB_Write
+DB_Write --> [*]
 }
 ```
 
@@ -366,6 +399,7 @@ The system maintains a registry of background tasks with proper lifecycle manage
 - Intelligent cloud detection for parameter optimization
 - Automatic authentication header handling for cloud deployments
 - Dynamic num_predict and num_ctx adjustment based on deployment type
+- Enhanced logging for token settings and cloud mode detection
 
 ### Database Integration
 
@@ -377,10 +411,75 @@ The background processing integrates seamlessly with the database layer:
 - Complete analysis history maintained for audit trails
 - Candidate profiles persist for future re-analysis
 
+**Enhanced Status Tracking:**
+- **narrative_status column**: Tracks processing state (pending, processing, ready, failed)
+- **narrative_error column**: Stores detailed error messages for failed states
+- **Persistent State**: Status persists across application restarts and deployments
+- **Backward Compatibility**: Graceful fallback when status columns are missing
+
 **Polling Interface:**
 - Frontend polls `/api/analysis/{id}/narrative` for updates
 - Real-time status reporting for ongoing processing
 - Graceful handling of missing or corrupted data
+- Adaptive polling with exponential backoff
+
+**Section sources**
+- [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
+- [db_models.py:129-148](file://app/backend/models/db_models.py#L129-L148)
+
+## Status Tracking and Polling
+
+### Four-State Status Architecture
+
+The system implements a comprehensive four-state status tracking system that provides clear visibility into the LLM narrative generation process:
+
+```mermaid
+stateDiagram-v2
+[*] --> Pending
+Pending --> Processing : Background Task Started
+Processing --> Ready : LLM Success
+Processing --> Failed : LLM Timeout/Error
+Ready --> [*]
+Failed --> [*]
+```
+
+**Status States:**
+- **Pending**: Initial state when background LLM task is queued
+- **Processing**: Active LLM generation in progress
+- **Ready**: LLM narrative successfully generated and stored
+- **Failed**: LLM generation failed with error details
+
+**Enhanced Error Handling:**
+- **Detailed Error Messages**: Stores specific error information in narrative_error
+- **Fallback Mechanisms**: Automatically generates fallback narrative on failure
+- **Retry Logic**: Implements retry mechanisms with exponential backoff
+- **Graceful Degradation**: Continues operation even when LLM services are unavailable
+
+### Adaptive Polling Architecture
+
+The polling system implements intelligent retry mechanisms with adaptive timing:
+
+**Polling Strategy:**
+- **Initial Phase (0-30s)**: 2-second polling intervals for cloud models
+- **Extended Phase (30s+)**: 5-second polling intervals for local models
+- **Maximum Attempts**: 36 attempts (≈2.25 minutes total)
+- **Exponential Backoff**: Gradual increase in polling intervals for failed states
+
+**Frontend Integration:**
+- **Automatic Polling**: Frontend automatically starts polling when narrative_pending is true
+- **Real-time Updates**: Immediate UI updates when status changes to ready
+- **Error Display**: User-friendly error messages when polling fails
+- **Loading States**: Visual indicators for pending, processing, and failed states
+
+**Backend Polling Endpoint:**
+- **GET /api/analysis/{analysis_id}/narrative**: Returns current status and narrative
+- **Status Responses**: {"status": "pending"}, {"status": "ready", "narrative": {...}}, {"status": "failed", "error": "..."}
+- **Fallback Handling**: Returns fallback narrative when LLM fails
+- **Security**: Tenant-scoped access control prevents unauthorized polling
+
+**Section sources**
+- [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
+- [analyze.py:1118-1168](file://app/backend/routes/analyze.py#L1118-L1168)
 
 ## API Integration
 
@@ -392,7 +491,7 @@ The API provides comprehensive endpoints for both synchronous and asynchronous p
 - `POST /api/analyze`: Single resume analysis with immediate Python scores
 - `POST /api/analyze/stream`: SSE streaming with real-time updates
 - `POST /api/analyze/batch`: Batch processing with concurrency control
-- `GET /api/analysis/{id}/narrative`: LLM narrative retrieval
+- `GET /api/analysis/{id}/narrative`: LLM narrative retrieval with status tracking
 
 **Response Structure:**
 The system maintains backward compatibility while extending functionality:
@@ -445,6 +544,18 @@ The SSE streaming implementation provides real-time feedback:
 - Graceful handling of connection drops
 - Automatic persistence of intermediate results
 
+### Enhanced Polling Interface
+
+**Narrative Polling Endpoint:**
+- **GET /api/analysis/{id}/narrative**: Returns current status and narrative
+- **Status Responses**: {"status": "pending"}, {"status": "ready", "narrative": {...}}, {"status": "failed", "error": "..."}
+- **Adaptive Timing**: Intelligent polling with exponential backoff
+- **Tenant Security**: Access control prevents unauthorized polling
+
+**Section sources**
+- [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
+- [analyze.py:1118-1168](file://app/backend/routes/analyze.py#L1118-L1168)
+
 ## Testing Framework
 
 ### Comprehensive Test Coverage
@@ -462,6 +573,7 @@ The testing suite covers all aspects of the hybrid pipeline with extensive unit 
 - **Skill Matching**: Tests alias expansion, fuzzy matching, and scoring algorithms
 - **Gap Analysis**: Verifies date parsing, interval merging, and gap severity classification
 - **Background Processing**: Validates LLM fallback mechanisms and database integration
+- **Status Tracking**: Tests four-state status transitions and polling functionality
 
 ### Enhanced Mock-Based Testing
 
@@ -472,6 +584,12 @@ The test suite extensively uses mocking to isolate components and simulate vario
 - **Database Mocks**: Test caching and persistence logic
 - **External Service Mocks**: Simulate Ollama and file system operations
 - **Network Mocks**: Test error handling and retry logic with cloud detection
+
+**Status Tracking Tests:**
+- **Background Task Lifecycle**: Validates task registration, completion, and cleanup
+- **Status State Transitions**: Tests proper progression through pending → processing → ready/failure states
+- **Error Recovery**: Validates fallback mechanisms and error reporting
+- **Polling Behavior**: Tests adaptive polling with exponential backoff
 
 ## Performance Considerations
 
@@ -498,6 +616,7 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - Dynamic parameter adjustment based on deployment type
 - Intelligent cloud detection for optimal configuration
 - Automatic authentication header handling reduces overhead
+- Enhanced token limits for cloud deployments improve LLM performance
 
 ### Scalability Features
 
@@ -510,6 +629,16 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - Automatic model warming and health monitoring
 - Graceful degradation under resource constraints
 - Proper cleanup of background tasks
+
+**Enhanced Cloud Support:**
+- Significantly larger token limits (4096 num_predict, 16384 num_ctx) for cloud models
+- Automatic API key authentication with detailed logging
+- Optimized model behavior for cloud vs local deployments
+
+**Status Tracking Scalability:**
+- Database-backed status tracking scales across multiple workers
+- Persistent state survives application restarts
+- Efficient polling with adaptive timing reduces server load
 
 ## Troubleshooting Guide
 
@@ -524,6 +653,7 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Symptoms**: Authentication failures or connection timeouts
 - **Causes**: Missing OLLAMA_API_KEY environment variable
 - **Solutions**: Set OLLAMA_API_KEY for cloud deployments, verify base URL configuration
+- **Monitoring**: Check logs for "Ollama Cloud detected but OLLAMA_API_KEY is not set!" warnings
 
 **Skills Registry Failures:**
 - **Symptoms**: Reduced skill matching accuracy
@@ -534,6 +664,16 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Symptoms**: Slow response times, timeout errors
 - **Causes**: Resource exhaustion, memory leaks, inefficient queries
 - **Solutions**: Monitor resource usage, optimize queries, implement proper cleanup
+
+**Token Limit Issues:**
+- **Symptoms**: LLM responses truncated or incomplete
+- **Causes**: Insufficient token limits for cloud deployments
+- **Solutions**: Verify num_predict and num_ctx settings, check cloud vs local configuration
+
+**Status Tracking Issues:**
+- **Symptoms**: Inconsistent status reporting, missing status updates
+- **Causes**: Database connectivity issues, missing status columns
+- **Solutions**: Verify database schema migration, check status column existence, monitor background task execution
 
 ### Enhanced Diagnostic Tools
 
@@ -546,11 +686,28 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - Automatic cloud/local deployment detection
 - Parameter optimization based on environment
 - Authentication header validation
+- Token limit verification and logging
 
 **Logging and Metrics:**
 - Structured JSON logging for production environments
 - Performance metrics collection and reporting
 - Error tracking and alerting systems
+- Detailed logs for cloud mode and token settings
+
+**Enhanced Logging Features:**
+- Initialization logs showing num_predict, num_ctx, and cloud detection status
+- Warning messages for missing API keys in cloud deployments
+- Debug information for environment-specific parameter optimization
+
+**Status Tracking Diagnostics:**
+- Background task execution logs
+- Status transition timestamps
+- Error message persistence
+- Polling attempt tracking
+
+**Section sources**
+- [hybrid_pipeline.py:135-147](file://app/backend/services/hybrid_pipeline.py#L135-L147)
+- [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
 
 ## Conclusion
 
@@ -558,9 +715,14 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 
 **Updated** The recent enhancements significantly improve the system's adaptability and reliability across different deployment environments. The intelligent cloud detection and parameter optimization ensure optimal performance whether running locally or in cloud environments. The enhanced retry mechanisms with different temperatures (0.1 for primary, 0.3 for retry) provide better fallback behavior while maintaining deterministic responses.
 
-The architecture's modular design, comprehensive testing framework, and robust error handling ensure reliable operation in production environments. The careful attention to performance optimization, memory management, and resource utilization enables the system to scale effectively while maintaining responsive user experiences.
+**Enhanced Reliability Features:**
+- **Four-State Status Tracking**: Comprehensive status monitoring with proper state transitions
+- **Adaptive Polling Architecture**: Intelligent polling with exponential backoff and retry mechanisms
+- **Robust Background Task Management**: Proper lifecycle tracking with graceful shutdown
+- **Enhanced Error Handling**: Detailed status reporting and fallback mechanisms
+- **Database Persistence**: Reliable status tracking across deployments and restarts
 
-Key advantages of this approach include:
+**Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results
 - **Comprehensive analysis** through LLM-powered narratives
 - **Robust fallback mechanisms** ensuring system reliability
@@ -568,5 +730,19 @@ Key advantages of this approach include:
 - **Production-ready architecture** with proper monitoring and maintenance
 - **Environment-aware configuration** optimizing performance across deployments
 - **Enhanced cloud compatibility** with automatic authentication and parameter tuning
+- **Detailed logging** for token settings and cloud mode detection
+- **Improved error handling** for cloud API key authentication
+- **Four-state status tracking** providing clear visibility into processing states
+- **Adaptive polling architecture** optimizing user experience across different deployment types
 
-The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes.
+The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes. The comprehensive status tracking and polling architecture ensure reliable operation in production environments while maintaining responsive user experiences.
+
+**Enhanced Status Tracking Benefits:**
+- **Real-time Visibility**: Clear indication of LLM processing state
+- **User Experience**: Adaptive polling with appropriate delays for different environments
+- **Error Communication**: Detailed error messages and fallback mechanisms
+- **System Reliability**: Graceful degradation when LLM services are unavailable
+- **Operational Insights**: Comprehensive logging and monitoring capabilities
+- **Deployment Flexibility**: Seamless operation across cloud and local environments
+
+The system's modular design, comprehensive testing framework, and robust error handling ensure reliable operation in production environments. The careful attention to performance optimization, memory management, and resource utilization enables the system to scale effectively while maintaining responsive user experiences.
