@@ -109,16 +109,19 @@ def _get_llm():
             _is_cloud = _is_ollama_cloud(_base_url)
 
             # num_predict: Cloud models need significantly more tokens for verbose output
-            # Local: 512 tokens sufficient for narrative JSON (~350-450 tokens)
+            # Local: 1024 tokens for narrative JSON with interview questions (~500-800 tokens typical)
             # Cloud: 4096 tokens for very large models (480B+) that generate extremely verbose output
-            _num_predict = 4096 if _is_cloud else 512
+            _num_predict = 4096 if _is_cloud else 1024
 
             # Build kwargs for ChatOllama
+            # NOTE: "format": "json" is intentionally omitted. Ollama's constrained JSON
+            # decoding mode aborts generation on any non-JSON token, causing empty/partial
+            # responses. We rely on prompt instructions + robust _parse_llm_json_response()
+            # for JSON extraction instead.
             _llm_kwargs = {
                 "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
                 "base_url": _base_url,
                 "temperature": 0.1,
-                "format": "json",
                 "num_predict": _num_predict,
                 # num_ctx: Cloud models need larger context for complex reasoning
                 # 16384 for cloud to handle very large outputs, 2048 for local
@@ -1327,11 +1330,31 @@ Return ONLY valid JSON:
 }}
 No markdown, no code fences."""
 
+    import httpx  # For specific error handling
+    
     from langchain_core.messages import HumanMessage
     messages = [HumanMessage(content=prompt)]
-    response = await llm.ainvoke(messages)
-    raw = response.content if hasattr(response, "content") else str(response)
-    raw = raw.strip() if raw else ""
+    
+    # Wrap primary LLM call with httpx error handling
+    try:
+        response = await llm.ainvoke(messages)
+        raw = response.content if hasattr(response, "content") else str(response)
+        raw = raw.strip() if raw else ""
+    except httpx.HTTPStatusError as e:
+        status_code = e.response.status_code if e.response else 0
+        if status_code == 401:
+            raise RuntimeError("Ollama Cloud authentication failed (invalid API key)")
+        elif status_code == 429:
+            raise RuntimeError("Ollama Cloud rate limited — too many requests")
+        elif status_code >= 500:
+            raise RuntimeError(f"Ollama Cloud server error ({status_code})")
+        else:
+            raise RuntimeError(f"Ollama Cloud HTTP error ({status_code})")
+    except httpx.ConnectError:
+        _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        raise RuntimeError(f"Cannot connect to Ollama at {_base_url}")
+    except httpx.TimeoutException:
+        raise RuntimeError("Ollama request timed out")
 
     log.debug("LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
 
@@ -1340,23 +1363,23 @@ No markdown, no code fences."""
     if json_match:
         raw = json_match.group(0)
 
-    # Handle empty or whitespace-only response - retry without format="json"
+    # Handle empty or whitespace-only response - retry with higher temperature as fallback
+    # This is now a safety net for edge cases since primary call no longer uses format="json"
     if not raw or not str(raw).strip():
-        log.warning("LLM returned empty response, retrying without JSON format constraint...")
+        log.warning("LLM returned empty response, retrying with higher temperature as fallback...")
         from langchain_ollama import ChatOllama
         _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
         _is_cloud_retry = _is_ollama_cloud(_base_url)
 
         # num_predict: Cloud models need significantly more tokens for verbose output
-        _num_predict_retry = 4096 if _is_cloud_retry else 512
+        _num_predict_retry = 4096 if _is_cloud_retry else 1024
 
-        # Build kwargs for retry LLM
+        # Build kwargs for retry LLM - higher temperature as fallback for edge cases
         _retry_kwargs = {
             "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
             "base_url": _base_url,
             "temperature": 0.3,
-            # NO format="json" — let model output freely
             "num_predict": _num_predict_retry,
             "num_ctx": 16384 if _is_cloud_retry else 2048,
             "request_timeout": _llm_timeout + 30,
@@ -1372,8 +1395,25 @@ No markdown, no code fences."""
             _retry_kwargs["keep_alive"] = -1
 
         retry_llm = ChatOllama(**_retry_kwargs)
-        retry_resp = await retry_llm.ainvoke(messages)
-        raw = retry_resp.content.strip() if retry_resp and retry_resp.content else ""
+        
+        # Wrap retry LLM call with httpx error handling
+        try:
+            retry_resp = await retry_llm.ainvoke(messages)
+            raw = retry_resp.content.strip() if retry_resp and retry_resp.content else ""
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code if e.response else 0
+            if status_code == 401:
+                raise RuntimeError("Ollama Cloud authentication failed (invalid API key)")
+            elif status_code == 429:
+                raise RuntimeError("Ollama Cloud rate limited — too many requests")
+            elif status_code >= 500:
+                raise RuntimeError(f"Ollama Cloud server error ({status_code})")
+            else:
+                raise RuntimeError(f"Ollama Cloud HTTP error ({status_code})")
+        except httpx.ConnectError:
+            raise RuntimeError(f"Cannot connect to Ollama at {_base_url}")
+        except httpx.TimeoutException:
+            raise RuntimeError("Ollama request timed out")
         log.debug("Retry LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
 
         # Extract JSON from retry response
@@ -1865,26 +1905,111 @@ async def _background_llm_narrative(
     This runs independently after the Python results are returned.
     Creates its own DB session to avoid sharing with request.
     """
+    # Import here to avoid circular imports
+    from app.backend.db.database import SessionLocal
+    from app.backend.models.db_models import ScreeningResult
+
+    # Helper to write status to DB
+    async def _write_status(status: str, error: Optional[str] = None) -> bool:
+        """Write narrative_status and narrative_error to DB. Returns True on success."""
+        try:
+            db = SessionLocal()
+            try:
+                result = db.query(ScreeningResult).filter(
+                    ScreeningResult.id == screening_result_id,
+                    ScreeningResult.tenant_id == tenant_id,
+                ).first()
+                if result:
+                    result.narrative_status = status
+                    result.narrative_error = error
+                    db.commit()
+                    return True
+            finally:
+                db.close()
+        except Exception as db_err:
+            log.error("Failed to write status to DB: %s", str(db_err)[:200])
+        return False
+
+    # Helper to write narrative with retry
+    async def _write_narrative_with_retry(
+        narrative: Dict[str, Any],
+        status: str,
+        error: Optional[str] = None,
+    ) -> bool:
+        """Write narrative_json, status, and error to DB with one retry on failure."""
+        for attempt in range(2):
+            try:
+                db = SessionLocal()
+                try:
+                    result = db.query(ScreeningResult).filter(
+                        ScreeningResult.id == screening_result_id,
+                        ScreeningResult.tenant_id == tenant_id,
+                    ).first()
+                    if result:
+                        result.narrative_json = json.dumps(narrative, default=str)
+                        result.narrative_status = status
+                        result.narrative_error = error
+                        db.commit()
+                        log.info(
+                            "Wrote narrative_json (status=%s) to screening_result_id=%s",
+                            status,
+                            screening_result_id,
+                        )
+                        return True
+                    else:
+                        log.warning(
+                            "screening_result_id=%s not found for narrative write (tenant_id=%s)",
+                            screening_result_id,
+                            tenant_id,
+                        )
+                        return False
+                finally:
+                    db.close()
+            except Exception as db_err:
+                if attempt == 0:
+                    log.warning(
+                        "DB write failed for screening_result_id=%s, retrying in 2s: %s",
+                        screening_result_id,
+                        str(db_err)[:200],
+                    )
+                    await asyncio.sleep(2)
+                else:
+                    log.error(
+                        "Failed to write narrative to DB for screening_result_id=%s after retry: %s",
+                        screening_result_id,
+                        str(db_err)[:200],
+                    )
+        return False
+
+    # Track status and error for final write
+    narrative_status = "pending"
+    narrative_error: Optional[str] = None
+    llm_result: Optional[Dict[str, Any]] = None
+
     try:
-        # Import here to avoid circular imports
-        from app.backend.db.database import SessionLocal
-        from app.backend.models.db_models import ScreeningResult
-        
         _bg_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
         sem = get_ollama_semaphore()
         if sem.locked():
             log.info("Waiting for Ollama slot (another request in progress)...")
         async with sem:
+            # Write 'processing' status before starting LLM call
+            await _write_status("processing")
+
             start = time.monotonic()
             llm_result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_bg_timeout)
             LLM_CALL_DURATION.observe(time.monotonic() - start)
-        
+
+        # Success path
+        narrative_status = "ready"
+        narrative_error = None
         log.info(
             "Background LLM narrative succeeded for screening_result_id=%s",
             screening_result_id,
         )
     except asyncio.CancelledError:
         log.info("Background LLM task cancelled for screening_result_id=%s", screening_result_id)
+        # Write failed status to DB before returning
+        await _write_status("failed", "Analysis was cancelled")
         return
     except asyncio.TimeoutError:
         log.warning(
@@ -1892,6 +2017,8 @@ async def _background_llm_narrative(
             screening_result_id,
         )
         LLM_FALLBACK_TOTAL.inc()
+        narrative_status = "failed"
+        narrative_error = "AI analysis timed out. Showing standard analysis."
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
     except Exception as e:
         log.warning(
@@ -1901,40 +2028,13 @@ async def _background_llm_narrative(
             str(e)[:200],
         )
         LLM_FALLBACK_TOTAL.inc()
+        narrative_status = "failed"
+        narrative_error = str(e)[:200]
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
-    
-    # Write to DB in a separate session
-    try:
-        from app.backend.db.database import SessionLocal
-        from app.backend.models.db_models import ScreeningResult
-        
-        db = SessionLocal()
-        try:
-            result = db.query(ScreeningResult).filter(
-                ScreeningResult.id == screening_result_id,
-                ScreeningResult.tenant_id == tenant_id,
-            ).first()
-            if result:
-                result.narrative_json = json.dumps(llm_result, default=str)
-                db.commit()
-                log.info(
-                    "Wrote narrative_json to screening_result_id=%s",
-                    screening_result_id,
-                )
-            else:
-                log.warning(
-                    "screening_result_id=%s not found for narrative write (tenant_id=%s)",
-                    screening_result_id,
-                    tenant_id,
-                )
-        finally:
-            db.close()
-    except Exception as db_err:
-        log.error(
-            "Failed to write narrative to DB for screening_result_id=%s: %s",
-            screening_result_id,
-            str(db_err)[:200],
-        )
+
+    # Write final result to DB with retry
+    if llm_result:
+        await _write_narrative_with_retry(llm_result, narrative_status, narrative_error)
 
 
 async def run_hybrid_pipeline(

@@ -324,6 +324,7 @@ class TestNarrativePollingEndpoint:
             parsed_data="{}",
             analysis_result="{}",
             narrative_json=json.dumps(narrative),
+            narrative_status="ready",
         )
         db.add(result)
         db.commit()
@@ -361,6 +362,7 @@ class TestNarrativePollingEndpoint:
             parsed_data="{}",
             analysis_result="{}",
             narrative_json='{"fit_summary": "test"}',
+            narrative_status="ready",
         )
         db.add(result)
         db.commit()

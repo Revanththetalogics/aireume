@@ -1127,6 +1127,7 @@ def get_narrative(
     Returns:
       - {"status": "ready", "narrative": {...}} if narrative is available
       - {"status": "pending"} if LLM is still processing
+      - {"status": "failed", "error": "...", "narrative": {...}} if LLM failed (includes fallback)
       - 404 if analysis not found or not owned by user's tenant
     """
     result = db.query(ScreeningResult).filter(
@@ -1137,12 +1138,31 @@ def get_narrative(
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
     
-    if result.narrative_json:
-        try:
-            narrative = json.loads(result.narrative_json)
-            return {"status": "ready", "narrative": narrative}
-        except json.JSONDecodeError:
-            # Invalid JSON in DB — treat as pending
-            return {"status": "pending"}
+    # Use narrative_status column if available, fall back to checking narrative_json
+    status = getattr(result, 'narrative_status', None)
     
+    if status == 'failed':
+        # Failed — return fallback narrative + error message
+        narrative = None
+        if result.narrative_json:
+            try:
+                narrative = json.loads(result.narrative_json)
+            except json.JSONDecodeError:
+                pass
+        return {
+            "status": "failed",
+            "error": result.narrative_error or "AI analysis encountered an error",
+            "narrative": narrative,
+        }
+    
+    if status == 'ready' or (status is None and result.narrative_json):
+        # Ready — return narrative
+        if result.narrative_json:
+            try:
+                narrative = json.loads(result.narrative_json)
+                return {"status": "ready", "narrative": narrative}
+            except json.JSONDecodeError:
+                return {"status": "pending"}
+    
+    # Still pending or processing
     return {"status": "pending"}

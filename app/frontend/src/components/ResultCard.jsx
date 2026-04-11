@@ -266,9 +266,10 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
   
   // Narrative polling state
   const [narrativeData, setNarrativeData]       = useState(null)
+  const [narrativeError, setNarrativeError]     = useState(null)
   const [isPolling, setIsPolling]               = useState(false)
-  const [pollAttempts, setPollAttempts]         = useState(0)
-  const pollingIntervalRef                      = useRef(null)
+  const pollAttemptRef                          = useRef(0)
+  const pollingTimeoutRef                       = useRef(null)
 
   const {
     fit_score, strengths, weaknesses, education_analysis,
@@ -298,13 +299,35 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
   // narrativeData comes from polling, result.narrative_json would be from initial result
   const aiEnhanced = narrativeData?.ai_enhanced ?? result?.ai_enhanced ?? null
 
-  // Narrative polling effect
+  // Narrative polling effect with adaptive timing
   useEffect(() => {
     // Only start polling if narrative is pending and we have an effective analysis_id
     if (!narrative_pending || !effectiveAnalysisId) return
     
     setIsPolling(true)
-    setPollAttempts(0)
+    setNarrativeError(null)
+    pollAttemptRef.current = 0
+    
+    const MAX_ATTEMPTS = 36 // ~2.25 min total: 15*2s + 21*5s = 30s + 105s
+    
+    const getPollDelay = (attempt) => {
+      // First 15 attempts: 2s interval (covers first 30s for cloud models)
+      // After 15 attempts: 5s interval (for slower local models)
+      return attempt < 15 ? 2000 : 5000
+    }
+    
+    const stopPolling = () => {
+      setIsPolling(false)
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current)
+        pollingTimeoutRef.current = null
+      }
+    }
+    
+    const scheduleNextPoll = () => {
+      const delay = getPollDelay(pollAttemptRef.current)
+      pollingTimeoutRef.current = setTimeout(poll, delay)
+    }
     
     const poll = async () => {
       try {
@@ -313,42 +336,45 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         if (response.status === 'ready' && response.narrative) {
           // Narrative is ready, stop polling and merge data
           setNarrativeData(response.narrative)
-          setIsPolling(false)
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current)
-            pollingIntervalRef.current = null
-          }
+          stopPolling()
+        } else if (response.status === 'failed') {
+          // Narrative failed, use fallback data and show error
+          setNarrativeData(response.narrative || {})
+          setNarrativeError(response.error || 'AI enhancement failed')
+          stopPolling()
         } else {
-          // Still pending, increment attempts
-          setPollAttempts(prev => {
-            const next = prev + 1
-            // Stop polling after 60 attempts (10 minutes at 10s intervals)
-            // Extended for CPU-based LLMs (qwen3.5:4b can take 8+ minutes)
-            if (next >= 60) {
-              setIsPolling(false)
-              if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current)
-                pollingIntervalRef.current = null
-              }
-            }
-            return next
-          })
+          // Still pending, increment attempts and schedule next poll
+          pollAttemptRef.current += 1
+          
+          if (pollAttemptRef.current >= MAX_ATTEMPTS) {
+            // Max attempts reached, stop polling
+            stopPolling()
+          } else {
+            // Schedule next poll with adaptive delay
+            scheduleNextPoll()
+          }
         }
       } catch (err) {
-        // Silent fail - don't disrupt UX on polling errors
+        // On error, continue polling until max attempts
         console.debug('Narrative polling error:', err)
+        pollAttemptRef.current += 1
+        
+        if (pollAttemptRef.current >= MAX_ATTEMPTS) {
+          stopPolling()
+        } else {
+          scheduleNextPoll()
+        }
       }
     }
     
-    // Poll immediately, then every 10 seconds
+    // Poll immediately, then schedule next with adaptive delay
     poll()
-    pollingIntervalRef.current = setInterval(poll, 10000)
     
     // Cleanup on unmount
     return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current)
-        pollingIntervalRef.current = null
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current)
+        pollingTimeoutRef.current = null
       }
     }
   }, [narrative_pending, effectiveAnalysisId])
@@ -408,6 +434,26 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
             analysisQuality={analysis_quality}
             aiEnhanced={aiEnhanced}
           />
+        )}
+
+        {/* Narrative error banner — shown when AI enhancement failed */}
+        {narrativeError && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+            <svg className="h-4 w-4 flex-shrink-0 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+            </svg>
+            <span>AI enhancement unavailable: {narrativeError}. Showing standard analysis.</span>
+          </div>
+        )}
+
+        {/* Standard mode info banner — shown when ai_enhanced is false without error */}
+        {narrativeData && !narrativeData.ai_enhanced && !narrativeError && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-700">
+            <svg className="h-4 w-4 flex-shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+            </svg>
+            <span>AI analysis used standard mode.</span>
+          </div>
         )}
 
         {/* Pending banner */}

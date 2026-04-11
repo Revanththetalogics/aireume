@@ -138,6 +138,8 @@ class ScreeningResult(Base):
     parsed_data        = Column(Text, nullable=False)   # JSON string
     analysis_result    = Column(Text, nullable=False)   # JSON string
     narrative_json     = Column(Text, nullable=True)    # LLM narrative (generated asynchronously)
+    narrative_status   = Column(String(20), default="pending")  # pending | processing | ready | failed
+    narrative_error    = Column(Text, nullable=True)            # error details when failed (null when successful)
     status             = Column(String(50), default="pending")  # pending/shortlisted/rejected/in-review/hired
     timestamp          = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
