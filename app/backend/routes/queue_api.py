@@ -17,10 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import Session
 
-from db.database import get_db
-from models.db_models import User, Tenant
-from routes.auth import get_current_user
-from services.queue_manager import (
+from app.backend.db.database import get_db
+from app.backend.models.db_models import User, Tenant
+from app.backend.routes.auth import get_current_user
+from app.backend.services.queue_manager import (
     get_queue_manager,
     AnalysisJob,
     AnalysisResult,

@@ -26,9 +26,9 @@ from sqlalchemy import select, update, and_, or_, func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from db.database import SessionLocal
-from models.db_models import Tenant, Candidate
-from services.hybrid_pipeline import analyze_resume_hybrid
+from app.backend.db.database import SessionLocal
+from app.backend.models.db_models import Tenant, Candidate
+from app.backend.services.hybrid_pipeline import analyze_resume_hybrid
 
 logger = logging.getLogger(__name__)
 
