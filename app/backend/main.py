@@ -69,6 +69,7 @@ from app.backend.routes import training
 from app.backend.routes import video
 from app.backend.routes import transcript
 from app.backend.routes import subscription
+from app.backend.routes import queue_api
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -267,6 +268,15 @@ async def lifespan(app: FastAPI):
     # Start JD cache cleanup task
     jd_cache_cleanup_task = asyncio.create_task(_cleanup_jd_cache())
 
+    # Start queue worker
+    queue_worker_task = None
+    try:
+        from app.backend.services.queue_manager import start_queue_worker
+        await start_queue_worker()
+        log.info("Queue worker started successfully")
+    except Exception as e:
+        log.exception("Failed to start queue worker: %s", e)
+
     yield
 
     # Shutdown: stop the sentinel gracefully
@@ -275,6 +285,14 @@ async def lifespan(app: FastAPI):
             await llm_service._sentinel.stop()
     except Exception as e:
         log.exception("Error stopping Ollama health sentinel: %s", e)
+
+    # Stop queue worker
+    try:
+        from app.backend.services.queue_manager import stop_queue_worker
+        await stop_queue_worker()
+        log.info("Queue worker stopped")
+    except Exception as e:
+        log.exception("Error stopping queue worker: %s", e)
 
     # Cancel the cleanup tasks
     cleanup_task.cancel()
@@ -338,6 +356,7 @@ app.include_router(training.router)
 app.include_router(video.router)
 app.include_router(transcript.router)
 app.include_router(subscription.router)
+app.include_router(queue_api.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────
