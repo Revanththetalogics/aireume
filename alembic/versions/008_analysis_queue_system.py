@@ -28,119 +28,9 @@ depends_on = None
 
 def upgrade():
     # ============================================================================
-    # 1. ANALYSIS_JOBS - Main queue table
+    # 1. ANALYSIS_ARTIFACTS - Store input files and intermediate data
     # ============================================================================
-    op.create_table(
-        'analysis_jobs',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-        sa.Column('tenant_id', sa.Integer, sa.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True),
-        sa.Column('candidate_id', sa.Integer, sa.ForeignKey('candidates.id', ondelete='SET NULL'), nullable=True, index=True),
-        sa.Column('user_id', sa.Integer, sa.ForeignKey('users.id', ondelete='SET NULL'), nullable=True),
-        
-        # Job identification and deduplication
-        sa.Column('job_type', sa.String(50), nullable=False, default='resume_screening', index=True),
-        sa.Column('resume_hash', sa.String(64), nullable=False, index=True),  # SHA-256 of resume content
-        sa.Column('jd_hash', sa.String(64), nullable=False, index=True),      # SHA-256 of JD content
-        sa.Column('input_hash', sa.String(64), nullable=False, unique=True),  # Combined hash for deduplication
-        
-        # Job status and lifecycle
-        sa.Column('status', sa.String(20), nullable=False, default='queued', index=True),
-        # Status values: 'queued', 'processing', 'completed', 'failed', 'cancelled', 'retrying'
-        sa.Column('priority', sa.Integer, nullable=False, default=5, index=True),  # 1=highest, 10=lowest
-        sa.Column('retry_count', sa.Integer, nullable=False, default=0),
-        sa.Column('max_retries', sa.Integer, nullable=False, default=3),
-        
-        # Timestamps
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), index=True),
-        sa.Column('queued_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column('started_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('failed_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('next_retry_at', sa.DateTime(timezone=True), nullable=True, index=True),
-        
-        # Worker assignment
-        sa.Column('worker_id', sa.String(100), nullable=True, index=True),  # Which worker is processing this
-        sa.Column('worker_heartbeat', sa.DateTime(timezone=True), nullable=True),  # Last heartbeat from worker
-        
-        # Input data references
-        sa.Column('artifact_id', UUID(as_uuid=True), sa.ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True),
-        
-        # Processing metadata
-        sa.Column('processing_stage', sa.String(50), nullable=True),  # Current pipeline stage
-        sa.Column('progress_percent', sa.Integer, nullable=False, default=0),
-        sa.Column('estimated_completion', sa.DateTime(timezone=True), nullable=True),
-        
-        # Error tracking
-        sa.Column('error_message', sa.Text, nullable=True),
-        sa.Column('error_type', sa.String(100), nullable=True),
-        sa.Column('error_stack_trace', sa.Text, nullable=True),
-        sa.Column('error_context', JSONB, nullable=True),  # Additional error context
-        
-        # Result reference (populated when completed)
-        sa.Column('result_id', UUID(as_uuid=True), sa.ForeignKey('analysis_results.id', ondelete='SET NULL'), nullable=True),
-        
-        # Configuration and options
-        sa.Column('job_config', JSONB, nullable=True),  # Pipeline options, model selection, etc.
-        
-        # Indexes for queue operations
-        sa.Index('idx_jobs_queue_processing', 'status', 'priority', 'queued_at'),
-        sa.Index('idx_jobs_retry', 'status', 'next_retry_at'),
-        sa.Index('idx_jobs_worker_heartbeat', 'worker_id', 'worker_heartbeat'),
-        sa.Index('idx_jobs_tenant_status', 'tenant_id', 'status', 'created_at'),
-    )
-
-    # ============================================================================
-    # 2. ANALYSIS_RESULTS - Immutable completed analyses
-    # ============================================================================
-    op.create_table(
-        'analysis_results',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-        sa.Column('job_id', UUID(as_uuid=True), sa.ForeignKey('analysis_jobs.id', ondelete='CASCADE'), nullable=False, unique=True),
-        sa.Column('tenant_id', sa.Integer, sa.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True),
-        sa.Column('candidate_id', sa.Integer, sa.ForeignKey('candidates.id', ondelete='SET NULL'), nullable=True, index=True),
-        
-        # Core analysis data (ALWAYS complete and validated)
-        sa.Column('fit_score', sa.Integer, nullable=False),  # NOT NULL - must have score
-        sa.Column('final_recommendation', sa.String(50), nullable=False),  # NOT NULL
-        sa.Column('risk_level', sa.String(20), nullable=True),
-        
-        # Full analysis JSON (validated before insert)
-        sa.Column('analysis_data', JSONB, nullable=False),  # Complete analysis result
-        sa.Column('parsed_resume', JSONB, nullable=False),  # Parsed resume structure
-        sa.Column('parsed_jd', JSONB, nullable=False),      # Parsed JD structure
-        
-        # AI Enhancement (narrative)
-        sa.Column('narrative_status', sa.String(20), nullable=False, default='pending'),
-        sa.Column('narrative_data', JSONB, nullable=True),
-        sa.Column('narrative_generated_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('ai_enhanced', sa.Boolean, nullable=False, default=False),
-        
-        # Metadata
-        sa.Column('analysis_version', sa.String(20), nullable=False, default='1.0'),  # Pipeline version
-        sa.Column('model_used', sa.String(100), nullable=True),  # LLM model name
-        sa.Column('processing_time_ms', sa.Integer, nullable=True),  # Total processing time
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), index=True),
-        
-        # Quality and confidence
-        sa.Column('analysis_quality', sa.String(20), nullable=False, default='medium'),
-        sa.Column('confidence_score', sa.Float, nullable=True),  # 0.0 - 1.0
-        
-        # Artifact reference
-        sa.Column('artifact_id', UUID(as_uuid=True), sa.ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True),
-        
-        # Indexes
-        sa.Index('idx_results_tenant_created', 'tenant_id', 'created_at'),
-        sa.Index('idx_results_candidate', 'candidate_id', 'created_at'),
-        sa.Index('idx_results_fit_score', 'fit_score'),
-        
-        # Constraints to ensure data quality
-        sa.CheckConstraint('fit_score >= 0 AND fit_score <= 100', name='valid_fit_score'),
-        sa.CheckConstraint('confidence_score IS NULL OR (confidence_score >= 0 AND confidence_score <= 1)', name='valid_confidence'),
-    )
-
-    # ============================================================================
-    # 3. ANALYSIS_ARTIFACTS - Store input files and intermediate data
-    # ============================================================================
+    # Create this FIRST as it has no dependencies
     op.create_table(
         'analysis_artifacts',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
@@ -178,6 +68,126 @@ def upgrade():
         # Indexes
         sa.Index('idx_artifacts_hashes', 'resume_hash', 'jd_hash'),
         sa.Index('idx_artifacts_expires', 'expires_at'),
+    )
+
+    # ============================================================================
+    # 2. ANALYSIS_JOBS - Main queue table
+    # ============================================================================
+    # Create SECOND - depends on analysis_artifacts only (result_id FK added later)
+    op.create_table(
+        'analysis_jobs',
+        sa.Column('id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+        sa.Column('tenant_id', sa.Integer, sa.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True),
+        sa.Column('candidate_id', sa.Integer, sa.ForeignKey('candidates.id', ondelete='SET NULL'), nullable=True, index=True),
+        sa.Column('user_id', sa.Integer, sa.ForeignKey('users.id', ondelete='SET NULL'), nullable=True),
+        
+        # Job identification and deduplication
+        sa.Column('job_type', sa.String(50), nullable=False, default='resume_screening', index=True),
+        sa.Column('resume_hash', sa.String(64), nullable=False, index=True),
+        sa.Column('jd_hash', sa.String(64), nullable=False, index=True),
+        sa.Column('input_hash', sa.String(64), nullable=False, unique=True),
+        
+        # Job status and lifecycle
+        sa.Column('status', sa.String(20), nullable=False, default='queued', index=True),
+        sa.Column('priority', sa.Integer, nullable=False, default=5, index=True),
+        sa.Column('retry_count', sa.Integer, nullable=False, default=0),
+        sa.Column('max_retries', sa.Integer, nullable=False, default=3),
+        
+        # Timestamps
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), index=True),
+        sa.Column('queued_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column('started_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('failed_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('next_retry_at', sa.DateTime(timezone=True), nullable=True, index=True),
+        
+        # Worker assignment
+        sa.Column('worker_id', sa.String(100), nullable=True, index=True),
+        sa.Column('worker_heartbeat', sa.DateTime(timezone=True), nullable=True),
+        
+        # Input data references
+        sa.Column('artifact_id', UUID(as_uuid=True), sa.ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True),
+        
+        # Processing metadata
+        sa.Column('processing_stage', sa.String(50), nullable=True),
+        sa.Column('progress_percent', sa.Integer, nullable=False, default=0),
+        sa.Column('estimated_completion', sa.DateTime(timezone=True), nullable=True),
+        
+        # Error tracking
+        sa.Column('error_message', sa.Text, nullable=True),
+        sa.Column('error_type', sa.String(100), nullable=True),
+        sa.Column('error_stack_trace', sa.Text, nullable=True),
+        sa.Column('error_context', JSONB, nullable=True),
+        
+        # Result reference - NOTE: FK constraint added AFTER analysis_results table is created
+        sa.Column('result_id', UUID(as_uuid=True), nullable=True),
+        
+        # Configuration and options
+        sa.Column('job_config', JSONB, nullable=True),
+        
+        # Indexes for queue operations
+        sa.Index('idx_jobs_queue_processing', 'status', 'priority', 'queued_at'),
+        sa.Index('idx_jobs_retry', 'status', 'next_retry_at'),
+        sa.Index('idx_jobs_worker_heartbeat', 'worker_id', 'worker_heartbeat'),
+        sa.Index('idx_jobs_tenant_status', 'tenant_id', 'status', 'created_at'),
+    )
+
+    # ============================================================================
+    # 3. ANALYSIS_RESULTS - Immutable completed analyses
+    # ============================================================================
+    # Create THIRD - depends on analysis_jobs and analysis_artifacts
+    op.create_table(
+        'analysis_results',
+        sa.Column('id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+        sa.Column('job_id', UUID(as_uuid=True), sa.ForeignKey('analysis_jobs.id', ondelete='CASCADE'), nullable=False, unique=True),
+        sa.Column('tenant_id', sa.Integer, sa.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True),
+        sa.Column('candidate_id', sa.Integer, sa.ForeignKey('candidates.id', ondelete='SET NULL'), nullable=True, index=True),
+        
+        # Core analysis data
+        sa.Column('fit_score', sa.Integer, nullable=False),
+        sa.Column('final_recommendation', sa.String(50), nullable=False),
+        sa.Column('risk_level', sa.String(20), nullable=True),
+        
+        # Full analysis JSON
+        sa.Column('analysis_data', JSONB, nullable=False),
+        sa.Column('parsed_resume', JSONB, nullable=False),
+        sa.Column('parsed_jd', JSONB, nullable=False),
+        
+        # AI Enhancement
+        sa.Column('narrative_status', sa.String(20), nullable=False, default='pending'),
+        sa.Column('narrative_data', JSONB, nullable=True),
+        sa.Column('narrative_generated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('ai_enhanced', sa.Boolean, nullable=False, default=False),
+        
+        # Metadata
+        sa.Column('analysis_version', sa.String(20), nullable=False, default='1.0'),
+        sa.Column('model_used', sa.String(100), nullable=True),
+        sa.Column('processing_time_ms', sa.Integer, nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), index=True),
+        
+        # Quality and confidence
+        sa.Column('analysis_quality', sa.String(20), nullable=False, default='medium'),
+        sa.Column('confidence_score', sa.Float, nullable=True),
+        
+        # Artifact reference
+        sa.Column('artifact_id', UUID(as_uuid=True), sa.ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True),
+        
+        # Indexes
+        sa.Index('idx_results_tenant_created', 'tenant_id', 'created_at'),
+        sa.Index('idx_results_candidate', 'candidate_id', 'created_at'),
+        sa.Index('idx_results_fit_score', 'fit_score'),
+        
+        # Constraints
+        sa.CheckConstraint('fit_score >= 0 AND fit_score <= 100', name='valid_fit_score'),
+        sa.CheckConstraint('confidence_score IS NULL OR (confidence_score >= 0 AND confidence_score <= 1)', name='valid_confidence'),
+    )
+
+    # Now add the FK constraint from analysis_jobs.result_id to analysis_results.id
+    op.create_foreign_key(
+        'fk_jobs_result_id',
+        'analysis_jobs', 'analysis_results',
+        ['result_id'], ['id'],
+        ondelete='SET NULL'
     )
 
     # ============================================================================
