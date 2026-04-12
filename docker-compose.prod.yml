@@ -233,3 +233,8 @@ volumes:
   postgres_data:
   certbot_certs:
   certbot_www:
+
+networks:
+  default:
+    name: aria_network
+    driver: bridge
