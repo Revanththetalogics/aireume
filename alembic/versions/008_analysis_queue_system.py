@@ -1,5 +1,9 @@
-"""
-Migration 008: Analysis Queue System
+"""Analysis Queue System
+
+Revision ID: 008
+Revises: 007
+Create Date: 2026-04-13
+
 Creates a scalable queue-based architecture for resume analysis processing.
 
 This migration introduces:
@@ -13,6 +17,13 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 import uuid
+
+
+# Alembic revision identifiers
+revision = "008"
+down_revision = "007"
+branch_labels = None
+depends_on = None
 
 
 def upgrade():
