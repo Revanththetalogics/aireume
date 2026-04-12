@@ -1073,18 +1073,44 @@ def get_analysis_history(
         .limit(100)
         .all()
     )
-    return [
-        {
+    
+    history = []
+    for r in results:
+        try:
+            analysis = json.loads(r.analysis_result)
+            parsed = json.loads(r.parsed_data)
+        except Exception as e:
+            logger.warning("Non-critical: Failed to parse result data for history %s: %s", r.id, e)
+            analysis = {}
+            parsed = {}
+        
+        # Resolve candidate name from multiple sources
+        candidate_name = (
+            (analysis.get("candidate_name") or "").strip() or
+            (parsed.get("contact_info", {}).get("name") or "").strip() or
+            (parsed.get("candidate_profile", {}).get("name") or "").strip() or
+            None
+        )
+        
+        # Fallback to Candidate table if available
+        if not candidate_name and r.candidate_id:
+            cand = db.get(Candidate, r.candidate_id)
+            if cand and cand.name:
+                candidate_name = cand.name
+        
+        history.append({
             "id":                   r.id,
             "timestamp":            r.timestamp,
             "status":               r.status,
             "candidate_id":         r.candidate_id,
-            "fit_score":            json.loads(r.analysis_result).get("fit_score"),
-            "final_recommendation": json.loads(r.analysis_result).get("final_recommendation"),
-            "risk_level":           json.loads(r.analysis_result).get("risk_level"),
-        }
-        for r in results
-    ]
+            "candidate_name":       candidate_name or f"Result #{r.id}",
+            "job_role":             analysis.get("job_role"),
+            "fit_score":            analysis.get("fit_score"),
+            "final_recommendation": analysis.get("final_recommendation"),
+            "risk_level":           analysis.get("risk_level"),
+        })
+    
+    return history
 
 
 # ─── Result status update ─────────────────────────────────────────────────────
