@@ -89,7 +89,95 @@ api.interceptors.response.use(
   }
 )
 
-// ─── Resume Analysis ──────────────────────────────────────────────────────────
+// ─── Queue-Based Analysis (Async) ────────────────────────────────────────────
+
+/**
+ * Submit a resume analysis job to the queue (returns immediately with job_id)
+ */
+export async function submitAnalysisJob(file, jobDescription, jobFile = null, scoringWeights = null, priority = 5) {
+  const formData = new FormData()
+  formData.append('resume_file', file)
+  if (jobFile) {
+    formData.append('jd_file', jobFile)
+  } else {
+    formData.append('jd_text', jobDescription)
+  }
+  if (scoringWeights) {
+    formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  }
+  formData.append('priority', priority.toString())
+  
+  const response = await api.post('/queue/submit', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return response.data // { job_id, status, queued_at }
+}
+
+/**
+ * Check the status of a queued analysis job
+ */
+export async function getJobStatus(jobId) {
+  const response = await api.get(`/queue/status/${jobId}`)
+  return response.data // { job_id, status, progress_percent, processing_stage, ... }
+}
+
+/**
+ * Get the completed analysis result for a job
+ */
+export async function getJobResult(jobId) {
+  const response = await api.get(`/queue/result/${jobId}`)
+  return response.data // { analysis: {...}, metadata: {...} }
+}
+
+/**
+ * Poll a job until completion (helper function)
+ * @param {string} jobId - Job ID to poll
+ * @param {function} onProgress - Callback for progress updates (status, progress_percent)
+ * @param {number} pollInterval - Milliseconds between polls (default 2000)
+ * @param {number} timeout - Max wait time in ms (default 120000 = 2 min)
+ * @returns {Promise<object>} - Completed analysis result
+ */
+export async function pollJobUntilComplete(jobId, onProgress = null, pollInterval = 2000, timeout = 120000) {
+  const startTime = Date.now()
+  
+  while (true) {
+    if (Date.now() - startTime > timeout) {
+      throw new Error('Job polling timeout - analysis taking too long')
+    }
+    
+    const status = await getJobStatus(jobId)
+    
+    if (onProgress) {
+      onProgress(status)
+    }
+    
+    if (status.status === 'completed') {
+      return await getJobResult(jobId)
+    }
+    
+    if (status.status === 'failed') {
+      throw new Error(status.error_message || 'Analysis failed')
+    }
+    
+    if (status.status === 'cancelled') {
+      throw new Error('Job was cancelled')
+    }
+    
+    // Wait before next poll
+    await new Promise(resolve => setTimeout(resolve, pollInterval))
+  }
+}
+
+/**
+ * Submit job and wait for completion (convenience wrapper)
+ */
+export async function analyzeResumeAsync(file, jobDescription, jobFile = null, scoringWeights = null, onProgress = null) {
+  const { job_id } = await submitAnalysisJob(file, jobDescription, jobFile, scoringWeights)
+  const result = await pollJobUntilComplete(job_id, onProgress)
+  return result.analysis
+}
+
+// ─── Resume Analysis (Legacy Synchronous) ─────────────────────────────────────
 
 export async function analyzeResume(file, jobDescription, jobFile = null, scoringWeights = null) {
   const formData = new FormData()
@@ -397,6 +485,52 @@ export async function analyzeTranscript(
   })
   return res.data
 }
+
+// ─── Queue Management & Monitoring ────────────────────────────────────────────
+
+/**
+ * Get queue statistics (job counts by status, avg processing time, etc.)
+ */
+export async function getQueueStats() {
+  const response = await api.get('/queue/stats')
+  return response.data
+}
+
+/**
+ * List jobs with optional filters
+ */
+export async function listJobs(status = null, limit = 50, offset = 0) {
+  const params = { limit, offset }
+  if (status) params.status = status
+  const response = await api.get('/queue/jobs', { params })
+  return response.data
+}
+
+/**
+ * Retry a failed job
+ */
+export async function retryJob(jobId) {
+  const response = await api.post(`/queue/retry/${jobId}`)
+  return response.data
+}
+
+/**
+ * Cancel a queued or processing job
+ */
+export async function cancelJob(jobId) {
+  const response = await api.delete(`/queue/cancel/${jobId}`)
+  return response.data
+}
+
+/**
+ * Get performance metrics
+ */
+export async function getQueueMetrics() {
+  const response = await api.get('/queue/metrics/performance')
+  return response.data
+}
+
+// ─── Transcript Analysis ──────────────────────────────────────────────────────
 
 export async function getTranscriptAnalyses() {
   const res = await api.get('/transcript/analyses')
