@@ -28,7 +28,6 @@ from sqlalchemy.exc import IntegrityError
 
 from app.backend.db.database import SessionLocal
 from app.backend.models.db_models import Tenant, Candidate
-from app.backend.services.hybrid_pipeline import analyze_resume_hybrid
 
 logger = logging.getLogger(__name__)
 
@@ -370,13 +369,20 @@ class QueueManager:
             job.progress_percent = 10
             db.commit()
             
-            # Run analysis (this calls the existing hybrid pipeline)
+            # Run analysis - TODO: Integrate with existing analyze routes
+            # For now, this is a placeholder that will be replaced with actual integration
             parse_start = time.time()
             
-            result = await analyze_resume_hybrid(
-                resume_text=artifact.resume_text,
+            # Import here to avoid circular dependency
+            from app.backend.routes.analyze import _process_single_resume
+            
+            result = await _process_single_resume(
+                content=artifact.resume_text.encode('utf-8'),
+                filename=artifact.resume_filename,
                 job_description=artifact.jd_text,
                 tenant_id=job.tenant_id,
+                user_id=job.user_id,
+                db=db,
             )
             
             stage_timings['total_analysis'] = int((time.time() - parse_start) * 1000)
