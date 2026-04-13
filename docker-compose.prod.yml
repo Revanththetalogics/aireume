@@ -79,9 +79,7 @@ services:
     container_name: resume-screener-backend
     # 4 workers: backend is I/O-bound (waits on Ollama/DB), so multiple workers
     # serve concurrent users without starving Ollama of CPU cores.
-    # Increase HTTP limits for batch uploads: --limit-request-line 0 disables request line size limit
-    # --h11-max-incomplete-event-size 524288000 = 500MB for request body (h11 is the HTTP parser)
-    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-graceful-shutdown 30 --limit-request-line 0 --h11-max-incomplete-event-size 524288000
+    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-graceful-shutdown 30
     # Give the backend time to finish background tasks (sentinel) on shutdown
     stop_grace_period: 60s
     environment:
