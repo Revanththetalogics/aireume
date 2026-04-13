@@ -70,6 +70,7 @@ from app.backend.routes import video
 from app.backend.routes import transcript
 from app.backend.routes import subscription
 from app.backend.routes import queue_api
+from app.backend.routes import upload
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -357,6 +358,7 @@ app.include_router(video.router)
 app.include_router(transcript.router)
 app.include_router(subscription.router)
 app.include_router(queue_api.router)
+app.include_router(upload.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

@@ -35,16 +35,19 @@
 - [VideoPage.test.jsx](file://app/frontend/src/__tests__/VideoPage.test.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [package.json](file://app/frontend/package.json)
+- [llm_service.py](file://app/backend/services/llm_service.py)
+- [main.py](file://app/backend/main.py)
+- [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
+- [training.py](file://app/backend/routes/training.py)
+- [wait_for_ollama.py](file://app/backend/scripts/wait_for_ollama.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Significantly expanded test suite with 73+ new tests covering LLM service, authentication flows, API endpoints, and integration scenarios
-- Enhanced coverage of error handling, retry mechanisms, and background task processing
-- Added comprehensive testing for LLM service layer, hybrid pipeline, agent pipeline, and analysis service
-- Expanded transcript service and video processing test coverage
-- Enhanced subscription and usage enforcement testing
-- Improved test fixtures for better isolation and reliability
+- Updated test infrastructure to reflect model configuration changes from `qwen3.5:4b` to `gemma4:31b-cloud`
+- Enhanced LLM service testing with proper model validation across all service integrations
+- Updated health sentinel tests to validate new model configuration
+- Improved test consistency with current model settings and service configurations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -61,7 +64,7 @@
 ## Introduction
 This document defines a comprehensive testing strategy for Resume AI by ThetaLogics. It covers backend testing with pytest, frontend testing with Vitest and React Testing Library, API and integration testing patterns, test configuration and mocking, test data management, performance testing, end-to-end workflows, continuous integration with GitHub Actions, and best practices for writing maintainable tests.
 
-**Updated** Significantly expanded test suite now includes 73+ new tests covering LLM service layer, authentication flows, API endpoints, and integration scenarios with enhanced error handling, retry mechanisms, and background task processing.
+**Updated** Significantly expanded test suite now includes 73+ new tests covering LLM service layer, authentication flows, API endpoints, and integration scenarios with enhanced error handling, retry mechanisms, and background task processing. Recent updates ensure test consistency with new model configuration `gemma4:31b-cloud` across all service integrations.
 
 ## Project Structure
 The repository organizes tests by domain with a comprehensive test suite:
@@ -130,7 +133,7 @@ C2 --> F1
   - Component tests for UploadForm, ResultCard, ScoreGauge, VideoPage
   - API module tests validating request shapes and behaviors
 
-**Updated** Significantly enhanced with 73+ new tests covering LLM service layer, authentication flows, API endpoints, and integration scenarios with comprehensive error handling and retry mechanisms.
+**Updated** Significantly enhanced with 73+ new tests covering LLM service layer, authentication flows, API endpoints, and integration scenarios with comprehensive error handling and retry mechanisms. Recent updates ensure test infrastructure validates the new `gemma4:31b-cloud` model configuration consistently across all service integrations.
 
 **Section sources**
 - [conftest.py:1-589](file://app/backend/tests/conftest.py#L1-L589)
@@ -445,6 +448,7 @@ Common issues and resolutions with expanded test coverage:
 - **New**: LLM service test failures
   - Verify JSON parsing fixtures and error handling scenarios
   - Check mock responses match expected LLM service interface
+  - Ensure model configuration matches current `gemma4:31b-cloud` settings
 - **New**: Pipeline testing issues
   - Ensure pipeline fixtures properly mock external dependencies
   - Validate error scenarios and retry mechanisms
@@ -459,6 +463,8 @@ Common issues and resolutions with expanded test coverage:
 
 ## Conclusion
 The testing strategy leverages pytest and FastAPI TestClient for comprehensive backend unit and integration tests, with significantly expanded coverage including 73+ new tests for LLM services, pipelines, and integration scenarios. Frontend tests use Vitest and React Testing Library with mocked axios and DOM APIs. CI/CD pipelines automate test execution and coverage reporting. The expanded test suite ensures robust validation of advanced features including error handling, retry mechanisms, and background task processing, providing reliable coverage for all major components.
+
+**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability.
 
 ## Appendices
 
@@ -485,6 +491,8 @@ The expanded test suite now includes comprehensive coverage for:
 - **Error Handling Testing**: Extensive testing of error scenarios, retry mechanisms, and graceful degradation
 - **Integration Testing**: End-to-end testing of complex workflows and cross-service interactions
 
+**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations.
+
 **Section sources**
 - [test_llm_service.py](file://app/backend/tests/test_llm_service.py)
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
@@ -502,3 +510,22 @@ The expanded test suite now includes comprehensive coverage for:
 - [test_routes_phase2.py](file://app/backend/tests/test_routes_phase2.py)
 - [test_usage_enforcement.py](file://app/backend/tests/test_usage_enforcement.py)
 - [test_llm_json_parse.py](file://app/backend/tests/test_llm_json_parse.py)
+
+### Appendix C: Model Configuration Updates
+Recent changes to model configuration ensure consistency across the entire application stack:
+
+- **LLM Service**: Updated default model from `qwen3.5:4b` to `gemma4:31b-cloud` for improved performance and capabilities
+- **Health Sentinel**: Model configuration updated to reflect new `gemma4:31b-cloud` setting in health monitoring
+- **Agent Pipeline**: Fast and reasoning models configured to use `gemma4:31b-cloud` for consistent performance
+- **Training Routes**: Model references updated to `gemma4:31b-cloud` for training workflows
+- **Wait Script**: Model detection and warmup procedures updated for new model configuration
+
+These changes ensure that all service integrations consistently use the `gemma4:31b-cloud` model, providing reliable performance and compatibility across the Resume AI platform.
+
+**Section sources**
+- [llm_service.py:163-167](file://app/backend/services/llm_service.py#L163-L167)
+- [llm_service.py:56-59](file://app/backend/services/llm_service.py#L56-L59)
+- [agent_pipeline.py:50-52](file://app/backend/services/agent_pipeline.py#L50-L52)
+- [training.py:113-114](file://app/backend/routes/training.py#L113-L114)
+- [wait_for_ollama.py:51-52](file://app/backend/scripts/wait_for_ollama.py#L51-L52)
+- [main.py:157](file://app/backend/main.py#L157)

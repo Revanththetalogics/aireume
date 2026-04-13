@@ -7,6 +7,8 @@
 - [database.py](file://app/backend/db/database.py)
 - [llm_service.py](file://app/backend/services/llm_service.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
+- [video_service.py](file://app/backend/services/video_service.py)
 - [docker-compose.yml](file://docker-compose.yml)
 - [docker-compose.prod.yml](file://docker-compose.prod.yml)
 - [wait_for_ollama.py](file://app/backend/scripts/wait_for_ollama.py)
@@ -21,12 +23,11 @@
 
 ## Update Summary
 **Changes Made**
-- Updated default configuration values to reflect Ollama Cloud as primary deployment model
-- Added OLLAMA_API_KEY requirement for cloud authentication
-- Increased LLM_NARRATIVE_TIMEOUT from 60 to 300 seconds for cloud models
-- Enhanced cloud detection logic and authentication handling
-- Updated environment variable documentation for cloud authentication
-- Added comprehensive cloud vs local configuration guidance
+- Updated default AI model configuration from Qwen3-Coder 480B to Gemma4 31B cloud model
+- Enhanced OLLAMA_API_KEY authentication handling for cloud services
+- Updated timeout configurations from 300 seconds to 180 seconds for improved response times
+- Added enhanced error handling and debugging capabilities for cloud authentication
+- Updated model-specific optimizations for cloud vs local deployment scenarios
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -43,12 +44,12 @@
 ## Introduction
 This document explains how Resume AI by ThetaLogics manages configuration across environments. It covers environment variables, database settings, AI model parameters, CORS, security, and performance tuning. It also documents configuration loading mechanisms, validation, defaults, and environment-specific overrides for development, staging, and production. Guidance is included for customizing configuration and extending options safely.
 
-**Updated** Enhanced configuration management now prioritizes Ollama Cloud as the primary deployment model with dedicated authentication and increased timeout handling for cloud-based AI services.
+**Updated** Enhanced configuration management now prioritizes Gemma4 31B cloud model as the primary deployment model with dedicated authentication and optimized timeout handling for improved response times.
 
 ## Project Structure
 Configuration spans multiple layers:
 - Backend FastAPI application reads environment variables for database, AI model endpoints, CORS, and security.
-- Docker Compose defines environment variables for services and orchestration with Ollama Cloud as default.
+- Docker Compose defines environment variables for services and orchestration with Gemma4 31B cloud model as default.
 - Nginx proxies and rate-limits traffic and sets timeouts aligned with backend behavior.
 - Frontend uses Vite's proxy and environment variables to route API calls.
 - Alembic migrations are applied automatically when using PostgreSQL.
@@ -64,6 +65,8 @@ MAIN["app/backend/main.py"]
 DB["app/backend/db/database.py"]
 LLM["app/backend/services/llm_service.py"]
 HYBRID["app/backend/services/hybrid_pipeline.py"]
+AGENT["app/backend/services/agent_pipeline.py"]
+VIDEO["app/backend/services/video_service.py"]
 AUTH["app/backend/middleware/auth.py"]
 ENTRY["app/backend/scripts/docker-entrypoint.sh"]
 WAIT["app/backend/scripts/wait_for_ollama.py"]
@@ -86,6 +89,8 @@ DCP --> DB
 MAIN --> DB
 MAIN --> LLM
 MAIN --> HYBRID
+MAIN --> AGENT
+MAIN --> VIDEO
 MAIN --> AUTH
 MAIN --> NGINXDEV
 MAIN --> NGINXPROD
@@ -97,11 +102,13 @@ GITIGNORE --> END
 
 **Diagram sources**
 - [docker-compose.yml:1-108](file://docker-compose.yml#L1-L108)
-- [docker-compose.prod.yml:1-235](file://docker-compose.prod.yml#L1-L235)
+- [docker-compose.prod.yml:1-236](file://docker-compose.prod.yml#L1-L236)
 - [main.py:1-554](file://app/backend/main.py#L1-L554)
 - [database.py:1-33](file://app/backend/db/database.py#L1-L33)
 - [llm_service.py:1-314](file://app/backend/services/llm_service.py#L1-L314)
-- [hybrid_pipeline.py:1-2200](file://app/backend/services/hybrid_pipeline.py#L1-L2200)
+- [hybrid_pipeline.py:1-2255](file://app/backend/services/hybrid_pipeline.py#L1-L2255)
+- [agent_pipeline.py:1-67](file://app/backend/services/agent_pipeline.py#L1-L67)
+- [video_service.py:155-292](file://app/backend/services/video_service.py#L155-L292)
 - [auth.py:1-47](file://app/backend/middleware/auth.py#L1-L47)
 - [docker-entrypoint.sh:1-20](file://app/backend/scripts/docker-entrypoint.sh#L1-L20)
 - [wait_for_ollama.py:1-108](file://app/backend/scripts/wait_for_ollama.py#L1-L108)
@@ -113,11 +120,13 @@ GITIGNORE --> END
 
 **Section sources**
 - [docker-compose.yml:1-108](file://docker-compose.yml#L1-L108)
-- [docker-compose.prod.yml:1-235](file://docker-compose.prod.yml#L1-L235)
+- [docker-compose.prod.yml:1-236](file://docker-compose.prod.yml#L1-L236)
 - [main.py:1-554](file://app/backend/main.py#L1-L554)
 - [database.py:1-33](file://app/backend/db/database.py#L1-L33)
 - [llm_service.py:1-314](file://app/backend/services/llm_service.py#L1-L314)
-- [hybrid_pipeline.py:1-2200](file://app/backend/services/hybrid_pipeline.py#L1-L2200)
+- [hybrid_pipeline.py:1-2255](file://app/backend/services/hybrid_pipeline.py#L1-L2255)
+- [agent_pipeline.py:1-67](file://app/backend/services/agent_pipeline.py#L1-L67)
+- [video_service.py:155-292](file://app/backend/services/video_service.py#L155-L292)
 - [auth.py:1-47](file://app/backend/middleware/auth.py#L1-L47)
 - [docker-entrypoint.sh:1-20](file://app/backend/scripts/docker-entrypoint.sh#L1-L20)
 - [wait_for_ollama.py:1-108](file://app/backend/scripts/wait_for_ollama.py#L1-L108)
@@ -130,7 +139,7 @@ GITIGNORE --> END
 ## Core Components
 - Environment variables are read via the standard environment interface and used to configure:
   - Database URL and dialect selection
-  - Ollama base URL and model names (with cloud as default)
+  - Ollama base URL and model names (with Gemma4 31B cloud as default)
   - Security keys and algorithms
   - CORS origin policy
   - Application environment mode
@@ -140,13 +149,14 @@ GITIGNORE --> END
 
 Key defaults and behaviors:
 - Database URL defaults to an SQLite file path when not set; normalized to a proper SQLite URI when local; PostgreSQL URLs are supported as-is.
-- Ollama base URL defaults to Ollama Cloud (`https://ollama.com`) with `qwen3-coder:480b-cloud` as the primary model; local addresses use `qwen3.5:4b`.
+- Ollama base URL defaults to Ollama Cloud (`https://ollama.com`) with `gemma4:31b-cloud` as the primary model; local addresses use `qwen3.5:4b`.
 - JWT secret key defaults are provided for development; production requires explicit secrets.
 - CORS allows all origins in development mode; restricted origins otherwise.
 - Nginx applies rate limits and disables buffering for SSE streaming endpoints.
 - Cloud detection logic automatically handles authentication headers and startup gating.
+- Enhanced timeout handling optimized for Gemma4 31B cloud model performance.
 
-**Updated** Enhanced defaults now prioritize Ollama Cloud with automatic API key authentication and increased timeout handling for cloud-based AI services.
+**Updated** Enhanced defaults now prioritize Gemma4 31B cloud model with automatic API key authentication and optimized timeout handling for improved response times.
 
 **Section sources**
 - [main.py:68-149](file://app/backend/main.py#L68-L149)
@@ -163,7 +173,7 @@ Key defaults and behaviors:
 - [docker-compose.prod.yml:86-98](file://docker-compose.prod.yml#L86-L98)
 
 ## Architecture Overview
-Configuration flows from environment variables into runtime components. The backend validates connectivity to dependent services at startup and exposes diagnostics. Nginx enforces rate limits and streaming behavior. Docker Compose orchestrates environment-specific settings across services with Ollama Cloud as the default.
+Configuration flows from environment variables into runtime components. The backend validates connectivity to dependent services at startup and exposes diagnostics. Nginx enforces rate limits and streaming behavior. Docker Compose orchestrates environment-specific settings across services with Gemma4 31B cloud model as the default.
 
 ```mermaid
 sequenceDiagram
@@ -204,13 +214,14 @@ Nginx->>Nginx : Apply rate limits and timeouts
 
 - AI Model and Ollama
   - Names: OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_FAST_MODEL, OLLAMA_API_KEY
-  - Defaults: Ollama Cloud (`https://ollama.com`) with `qwen3-coder:480b-cloud` as primary model; API key required for cloud authentication
+  - Defaults: Ollama Cloud (`https://ollama.com`) with `gemma4:31b-cloud` as primary model; API key required for cloud authentication
   - Cloud detection: Automatic detection via `ollama.com` domain
   - References:
     - [main.py:105-106](file://app/backend/main.py#L105-L106)
     - [main.py:271-273](file://app/backend/main.py#L271-L273)
     - [llm_service.py:9-10](file://app/backend/services/llm_service.py#L9-L10)
     - [llm_service.py:15-33](file://app/backend/services/llm_service.py#L15-L33)
+    - [agent_pipeline.py:50-52](file://app/backend/services/agent_pipeline.py#L50-L52)
     - [docker-compose.yml:61-70](file://docker-compose.yml#L61-L70)
     - [docker-compose.prod.yml:86-98](file://docker-compose.prod.yml#L86-L98)
 
@@ -251,7 +262,7 @@ Nginx->>Nginx : Apply rate limits and timeouts
     - [api.js](file://app/frontend/src/lib/api.js#L3)
     - [vite.config.js:9-14](file://app/frontend/vite.config.js#L9-L14)
 
-**Updated** Enhanced AI model configuration now defaults to Ollama Cloud with automatic API key authentication and increased timeout handling for cloud-based AI services.
+**Updated** Enhanced AI model configuration now defaults to Gemma4 31B cloud model with automatic API key authentication and optimized timeout handling for improved response times.
 
 **Section sources**
 - [database.py:5-24](file://app/backend/db/database.py#L5-L24)
@@ -261,6 +272,7 @@ Nginx->>Nginx : Apply rate limits and timeouts
 - [main.py:271-273](file://app/backend/main.py#L271-L273)
 - [llm_service.py:9-11](file://app/backend/services/llm_service.py#L9-L11)
 - [llm_service.py:15-33](file://app/backend/services/llm_service.py#L15-L33)
+- [agent_pipeline.py:50-52](file://app/backend/services/agent_pipeline.py#L50-L52)
 - [auth.py:13-14](file://app/backend/middleware/auth.py#L13-L14)
 - [wait_for_ollama.py:18-43](file://app/backend/scripts/wait_for_ollama.py#L18-L43)
 - [docker-entrypoint.sh:16-18](file://app/backend/scripts/docker-entrypoint.sh#L16-L18)
@@ -301,6 +313,19 @@ Nginx->>Nginx : Apply rate limits and timeouts
     - [hybrid_pipeline.py:102-141](file://app/backend/services/hybrid_pipeline.py#L102-L141)
     - [hybrid_pipeline.py:98-136](file://app/backend/services/hybrid_pipeline.py#L98-L136)
 
+- Agent Pipeline
+  - Loads OLLAMA_BASE_URL and model names; constructs LangChain ChatOllama instances.
+  - Cloud detection and API key authentication handling.
+  - References:
+    - [agent_pipeline.py:50-52](file://app/backend/services/agent_pipeline.py#L50-L52)
+    - [agent_pipeline.py:60-67](file://app/backend/services/agent_pipeline.py#L60-L67)
+
+- Video Service
+  - Loads OLLAMA_BASE_URL and model names; constructs HTTP requests with optimized timeouts.
+  - Cloud detection and API key authentication handling.
+  - References:
+    - [video_service.py:155-292](file://app/backend/services/video_service.py#L155-L292)
+
 - Authentication Middleware
   - Loads JWT_SECRET_KEY and uses HS256 algorithm for token verification.
   - References:
@@ -313,7 +338,7 @@ Nginx->>Nginx : Apply rate limits and timeouts
     - [docker-entrypoint.sh:5-14](file://app/backend/scripts/docker-entrypoint.sh#L5-L14)
     - [wait_for_ollama.py:34-91](file://app/backend/scripts/wait_for_ollama.py#L34-L91)
 
-**Updated** Enhanced configuration loading now includes automatic cloud detection and authentication handling for Ollama Cloud services.
+**Updated** Enhanced configuration loading now includes automatic cloud detection and authentication handling for Gemma4 31B cloud model services.
 
 **Section sources**
 - [main.py:68-149](file://app/backend/main.py#L68-L149)
@@ -324,6 +349,9 @@ Nginx->>Nginx : Apply rate limits and timeouts
 - [llm_service.py:15-33](file://app/backend/services/llm_service.py#L15-L33)
 - [hybrid_pipeline.py:102-141](file://app/backend/services/hybrid_pipeline.py#L102-L141)
 - [hybrid_pipeline.py:98-136](file://app/backend/services/hybrid_pipeline.py#L98-L136)
+- [agent_pipeline.py:50-52](file://app/backend/services/agent_pipeline.py#L50-L52)
+- [agent_pipeline.py:60-67](file://app/backend/services/agent_pipeline.py#L60-L67)
+- [video_service.py:155-292](file://app/backend/services/video_service.py#L155-L292)
 - [auth.py:13-14](file://app/backend/middleware/auth.py#L13-L14)
 - [docker-entrypoint.sh:5-14](file://app/backend/scripts/docker-entrypoint.sh#L5-L14)
 - [wait_for_ollama.py:34-91](file://app/backend/scripts/wait_for_ollama.py#L34-L91)
@@ -335,6 +363,7 @@ Nginx->>Nginx : Apply rate limits and timeouts
 - Health and diagnostics endpoints return degraded status without raising exceptions, enabling upstream load balancers to continue routing traffic.
 - Ollama readiness gate validates model presence and warm-up completion; failures are surfaced to logs and exit codes.
 - Cloud detection logic automatically handles authentication headers and startup gating.
+- Enhanced timeout validation ensures optimal performance for Gemma4 31B cloud model.
 
 ```mermaid
 flowchart TD
@@ -359,7 +388,7 @@ Origins --> |Yes| AllowAll["Allow all origins"]
 Origins --> |No| AllowList["Restricted origins list"]
 ```
 
-**Updated** Enhanced validation now includes automatic cloud detection and authentication handling for Ollama Cloud services.
+**Updated** Enhanced validation now includes automatic cloud detection and authentication handling for Gemma4 31B cloud model services.
 
 **Diagram sources**
 - [database.py:5-24](file://app/backend/db/database.py#L5-L24)
@@ -381,27 +410,29 @@ Origins --> |No| AllowList["Restricted origins list"]
 
 ### AI Model Setup and LLM Service Parameters
 - Model selection
-  - Target model: OLLAMA_MODEL (defaults to `qwen3-coder:480b-cloud` for cloud)
-  - Fast model: OLLAMA_FAST_MODEL (defaults to `qwen3-coder:480b-cloud` for cloud)
+  - Target model: OLLAMA_MODEL (defaults to `gemma4:31b-cloud` for cloud)
+  - Fast model: OLLAMA_FAST_MODEL (defaults to `gemma4:31b-cloud` for cloud)
   - Base URL: OLLAMA_BASE_URL (defaults to `https://ollama.com` for cloud)
 - Cloud authentication
   - API key required for Ollama Cloud: `OLLAMA_API_KEY`
   - Automatic header injection for cloud requests
 - LLM service behavior
-  - Timeout for HTTP client is set to 300 seconds for cloud models; 180 seconds for local
+  - Timeout for HTTP client is set to 180 seconds for Gemma4 31B cloud model; 180 seconds for local
   - Prompt truncation improves performance for long inputs.
   - JSON parsing includes multiple fallbacks; validation normalizes outputs.
   - Retry logic with a controlled fallback response.
+  - Enhanced error handling for cloud authentication failures and rate limiting.
 - References:
   - [main.py:271-273](file://app/backend/main.py#L271-L273)
   - [llm_service.py:9-11](file://app/backend/services/llm_service.py#L9-L11)
   - [llm_service.py:53-57](file://app/backend/services/llm_service.py#L53-L57)
   - [llm_service.py:68-82](file://app/backend/services/llm_service.py#L68-L82)
   - [llm_service.py:84-136](file://app/backend/services/llm_service.py#L84-L136)
+  - [agent_pipeline.py:50-52](file://app/backend/services/agent_pipeline.py#L50-L52)
   - [docker-compose.yml:61-70](file://docker-compose.yml#L61-L70)
   - [docker-compose.prod.yml:86-98](file://docker-compose.prod.yml#L86-L98)
 
-**Updated** Enhanced AI model configuration now prioritizes Ollama Cloud with automatic API key authentication and increased timeout handling for cloud-based AI services.
+**Updated** Enhanced AI model configuration now prioritizes Gemma4 31B cloud model with automatic API key authentication and optimized timeout handling for improved response times.
 
 **Section sources**
 - [main.py:271-273](file://app/backend/main.py#L271-L273)
@@ -409,6 +440,7 @@ Origins --> |No| AllowList["Restricted origins list"]
 - [llm_service.py:53-57](file://app/backend/services/llm_service.py#L53-L57)
 - [llm_service.py:68-82](file://app/backend/services/llm_service.py#L68-L82)
 - [llm_service.py:84-136](file://app/backend/services/llm_service.py#L84-L136)
+- [agent_pipeline.py:50-52](file://app/backend/services/agent_pipeline.py#L50-L52)
 - [docker-compose.yml:61-70](file://docker-compose.yml#L61-L70)
 - [docker-compose.prod.yml:86-98](file://docker-compose.prod.yml#L86-L98)
 
@@ -423,6 +455,7 @@ Origins --> |No| AllowList["Restricted origins list"]
   - OLLAMA_API_KEY is required for Ollama Cloud authentication.
   - Automatic header injection for cloud requests.
   - Warning logged when cloud detected but API key missing.
+  - Enhanced error handling for authentication failures and rate limiting.
 - References:
   - [main.py:181-198](file://app/backend/main.py#L181-L198)
   - [main.py:189-190](file://app/backend/main.py#L189-L190)
@@ -430,7 +463,7 @@ Origins --> |No| AllowList["Restricted origins list"]
   - [auth.py:23-40](file://app/backend/middleware/auth.py#L23-L40)
   - [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
 
-**Updated** Enhanced security now includes Ollama Cloud API key authentication and automatic cloud detection for secure AI service access.
+**Updated** Enhanced security now includes Ollama Cloud API key authentication and automatic cloud detection for secure AI service access with improved error handling.
 
 **Section sources**
 - [main.py:181-198](file://app/backend/main.py#L181-L198)
@@ -442,7 +475,7 @@ Origins --> |No| AllowList["Restricted origins list"]
 ### Performance Tuning Options
 - Backend workers and timeouts
   - Production uses multiple workers to handle I/O-bound tasks efficiently.
-  - LLM narrative timeout increased to 300 seconds for cloud models; 180 seconds for local.
+  - LLM narrative timeout set to 180 seconds for Gemma4 31B cloud model; 180 seconds for local.
 - Ollama tuning
   - Parallelism, maximum loaded models, flash attention, and KV cache quantization are tuned per environment.
   - Cloud models use different timeout values due to network latency.
@@ -455,7 +488,7 @@ Origins --> |No| AllowList["Restricted origins list"]
   - [docker-compose.prod.yml:45-55](file://docker-compose.prod.yml#L45-L55)
   - [nginx.prod.conf:9-103](file://app/nginx/nginx.prod.conf#L9-L103)
 
-**Updated** Enhanced performance tuning now includes different timeout values for cloud vs local Ollama deployments.
+**Updated** Enhanced performance tuning now includes optimized timeout values for Gemma4 31B cloud model with improved response times.
 
 **Section sources**
 - [docker-compose.prod.yml](file://docker-compose.prod.yml#L80)
@@ -484,14 +517,14 @@ Origins --> |No| AllowList["Restricted origins list"]
     - [nginx.prod.conf:26-101](file://app/nginx/nginx.prod.conf#L26-L101)
 
 - Production
-  - Ollama Cloud is default with API key authentication and 300-second timeouts.
+  - Ollama Cloud is default with API key authentication and 180-second timeouts.
   - PostgreSQL tuning, worker counts, and strict CORS are applied.
   - References:
     - [docker-compose.prod.yml:11-22](file://docker-compose.prod.yml#L11-L22)
     - [docker-compose.prod.yml:151-184](file://docker-compose.prod.yml#L151-L184)
     - [docker-compose.prod.yml:82-95](file://docker-compose.prod.yml#L82-L95)
 
-**Updated** Enhanced deployment configuration now prioritizes Ollama Cloud as the default with automatic API key authentication and increased timeout handling.
+**Updated** Enhanced deployment configuration now prioritizes Gemma4 31B cloud model as the default with automatic API key authentication and optimized timeout handling.
 
 **Section sources**
 - [docker-compose.yml](file://docker-compose.yml#L67)
@@ -552,7 +585,7 @@ The project implements robust protection against accidental credential exposure 
 
 - Switch AI models
   - Change OLLAMA_MODEL and OLLAMA_FAST_MODEL to tune accuracy and speed; ensure models are pulled and warmed in production.
-  - For cloud: `qwen3-coder:480b-cloud` (default)
+  - For cloud: `gemma4:31b-cloud` (default)
   - For local: `qwen3.5:4b`
   - References:
     - [main.py:271-273](file://app/backend/main.py#L271-L273)
@@ -578,7 +611,7 @@ The project implements robust protection against accidental credential exposure 
     - [llm_service.py:8-11](file://app/backend/services/llm_service.py#L8-L11)
     - [auth.py:13-14](file://app/backend/middleware/auth.py#L13-L14)
 
-**Updated** Enhanced examples now include Ollama Cloud configuration and API key authentication requirements.
+**Updated** Enhanced examples now include Gemma4 31B cloud model configuration and API key authentication requirements.
 
 **Section sources**
 - [database.py:5-24](file://app/backend/db/database.py#L5-L24)
@@ -608,22 +641,30 @@ ENV --> GITIGNORE[".gitignore Security"]
 DBURL --> DBEngine["SQLAlchemy Engine"]
 OLLBASE --> LLM["LLMService"]
 OLLBASE --> HYBRID["HybridPipeline"]
+OLLBASE --> AGENT["AgentPipeline"]
+OLLBASE --> VIDEO["VideoService"]
 OLLMODEL --> LLM
 OLLMODEL --> HYBRID
+OLLMODEL --> AGENT
+OLLMODEL --> VIDEO
 OLLAPI --> LLM
 OLLAPI --> HYBRID
+OLLAPI --> AGENT
+OLLAPI --> VIDEO
 JWT --> AUTH["Auth Middleware"]
 CORS --> FASTAPI["FastAPI CORS"]
 STARTGATE --> ENTRY["Entrypoint + Wait Script"]
 GITIGNORE --> SECURITY["Credential Protection"]
 ```
 
-**Updated** Enhanced dependency analysis now includes Ollama Cloud authentication and automatic cloud detection logic.
+**Updated** Enhanced dependency analysis now includes Gemma4 31B cloud model authentication and automatic cloud detection logic.
 
 **Diagram sources**
 - [database.py:5-24](file://app/backend/db/database.py#L5-L24)
 - [llm_service.py:8-11](file://app/backend/services/llm_service.py#L8-L11)
 - [hybrid_pipeline.py:102-141](file://app/backend/services/hybrid_pipeline.py#L102-L141)
+- [agent_pipeline.py:50-52](file://app/backend/services/agent_pipeline.py#L50-L52)
+- [video_service.py:155-292](file://app/backend/services/video_service.py#L155-L292)
 - [auth.py:13-14](file://app/backend/middleware/auth.py#L13-L14)
 - [main.py:181-198](file://app/backend/main.py#L181-L198)
 - [wait_for_ollama.py:18-43](file://app/backend/scripts/wait_for_ollama.py#L18-L43)
@@ -634,6 +675,8 @@ GITIGNORE --> SECURITY["Credential Protection"]
 - [database.py:5-24](file://app/backend/db/database.py#L5-L24)
 - [llm_service.py:8-11](file://app/backend/services/llm_service.py#L8-L11)
 - [hybrid_pipeline.py:102-141](file://app/backend/services/hybrid_pipeline.py#L102-L141)
+- [agent_pipeline.py:50-52](file://app/backend/services/agent_pipeline.py#L50-L52)
+- [video_service.py:155-292](file://app/backend/services/video_service.py#L155-L292)
 - [auth.py:13-14](file://app/backend/middleware/auth.py#L13-L14)
 - [main.py:181-198](file://app/backend/main.py#L181-L198)
 - [wait_for_ollama.py:18-43](file://app/backend/scripts/wait_for_ollama.py#L18-L43)
@@ -645,7 +688,7 @@ GITIGNORE --> SECURITY["Credential Protection"]
   - PostgreSQL tuning parameters are set in production; ensure adequate memory and connections for expected concurrency.
 - LLM
   - Use appropriate model sizes and warm-up strategies; adjust timeouts to avoid false "offline" states under contention.
-  - Cloud models use 300-second timeouts; local models use 180-second timeouts.
+  - Cloud models use 180-second timeouts optimized for Gemma4 31B cloud model performance.
 - Nginx
   - Disable buffering for SSE endpoints; configure timeouts and rate limits to match backend capabilities.
 - References:
@@ -653,7 +696,7 @@ GITIGNORE --> SECURITY["Credential Protection"]
   - [docker-compose.prod.yml](file://docker-compose.prod.yml#L93)
   - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 
-**Updated** Enhanced performance considerations now include different timeout values for cloud vs local Ollama deployments.
+**Updated** Enhanced performance considerations now include optimized timeout values for Gemma4 31B cloud model with improved response times.
 
 ## Troubleshooting Guide
 Common configuration issues and resolutions:
@@ -697,7 +740,16 @@ Common configuration issues and resolutions:
     - [docker-compose.yml:60-69](file://docker-compose.yml#L60-L69)
     - [docker-compose.prod.yml:82-95](file://docker-compose.prod.yml#L82-L95)
 
-**Updated** Enhanced troubleshooting now includes Ollama Cloud authentication and cloud detection logic.
+- Cloud authentication issues
+  - Verify OLLAMA_API_KEY is set for cloud deployments
+  - Check for authentication failures and rate limiting errors
+  - Ensure proper error handling for cloud service failures
+  - References:
+    - [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
+    - [hybrid_pipeline.py:140-147](file://app/backend/services/hybrid_pipeline.py#L140-L147)
+    - [agent_pipeline.py:60-67](file://app/backend/services/agent_pipeline.py#L60-L67)
+
+**Updated** Enhanced troubleshooting now includes Gemma4 31B cloud model authentication and cloud detection logic.
 
 **Section sources**
 - [database.py:5-24](file://app/backend/db/database.py#L5-L24)
@@ -710,11 +762,14 @@ Common configuration issues and resolutions:
 - [main.py:189-190](file://app/backend/main.py#L189-L190)
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [.gitignore:1-41](file://.gitignore#L1-L41)
+- [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
+- [hybrid_pipeline.py:140-147](file://app/backend/services/hybrid_pipeline.py#L140-L147)
+- [agent_pipeline.py:60-67](file://app/backend/services/agent_pipeline.py#L60-L67)
 
 ## Conclusion
 Configuration in Resume AI is centralized around environment variables with strong defaults and validation. The backend performs startup checks and exposes diagnostics, while Docker Compose and Nginx enforce environment-specific behavior. Security, CORS, and performance are tuned per deployment stage, and the system supports customization through well-scoped environment variables and clear validation logic.
 
-**Updated** Enhanced configuration management now prioritizes Ollama Cloud as the primary deployment model with automatic authentication and increased timeout handling for cloud-based AI services, while maintaining flexibility for local deployments.
+**Updated** Enhanced configuration management now prioritizes Gemma4 31B cloud model as the primary deployment model with automatic authentication and optimized timeout handling for improved response times, while maintaining flexibility for local deployments.
 
 ## Appendices
 
@@ -725,7 +780,7 @@ Configuration in Resume AI is centralized around environment variables with stro
   - Scope: Backend database engine
 - AI and LLM
   - Names: OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_FAST_MODEL, OLLAMA_API_KEY
-  - Defaults: Ollama Cloud (`https://ollama.com`) with `qwen3-coder:480b-cloud`; API key required for cloud
+  - Defaults: Ollama Cloud (`https://ollama.com`) with `gemma4:31b-cloud`; API key required for cloud
   - Scope: Backend LLM service and diagnostics
 - Security
   - Name: JWT_SECRET_KEY
@@ -745,7 +800,7 @@ Configuration in Resume AI is centralized around environment variables with stro
   - Default: /api
   - Scope: Frontend proxy and API client
 
-**Updated** Enhanced environment variable reference now includes Ollama Cloud authentication and automatic cloud detection logic.
+**Updated** Enhanced environment variable reference now includes Gemma4 31B cloud model authentication and automatic cloud detection logic.
 
 **Section sources**
 - [database.py:5-24](file://app/backend/db/database.py#L5-L24)

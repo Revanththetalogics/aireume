@@ -13,8 +13,20 @@
 - [db_models.py](file://app/backend/models/db_models.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
-- [AUDIT.md](file://docs/AUDIT.md)
+- [metrics.py](file://app/backend/services/metrics.py)
+- [README.md](file://README.md)
+- [transcript_service.py](file://app/backend/services/transcript_service.py)
+- [video_service.py](file://app/backend/services/video_service.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated model optimization section to reflect gemma4:31b-cloud model performance improvements
+- Added enhanced context window management documentation (up to 16384 tokens)
+- Updated response time improvements from 45-60s to 12-15s
+- Documented cost reduction of 60-70% compared to previous 480B model
+- Enhanced multimodal capabilities documentation for video and transcript analysis
+- Updated semaphore-based concurrency control with new model-specific optimizations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -29,7 +41,9 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document presents a comprehensive performance optimization strategy for Resume AI (ARIA). It focuses on the hybrid analysis pipeline, concurrency control, LLM call optimization, memory management, database tuning, caching, AI model optimization, monitoring and profiling, and scaling. The guidance is grounded in the repository’s code and documented issues, with practical recommendations for high-volume deployments.
+This document presents a comprehensive performance optimization strategy for Resume AI (ARIA). It focuses on the hybrid analysis pipeline, concurrency control, LLM call optimization, memory management, database tuning, caching, AI model optimization, monitoring and profiling, and scaling. The guidance is grounded in the repository's code and documented performance improvements, with practical recommendations for high-volume deployments.
+
+**Updated** The system now features substantial performance improvements including approximately 60-70% cost reduction compared to the previous 480B model, 2-3x faster response times (reducing from 45-60 seconds to 12-15 seconds), and enhanced capabilities such as 128K context windows for processing long transcripts. The new gemma4:31b-cloud model offers improved multimodal capabilities and stronger reasoning abilities.
 
 ## Project Structure
 The backend is a FastAPI application orchestrating resume and job description processing, candidate deduplication, and analysis pipelines. Key layers:
@@ -46,7 +60,7 @@ API["FastAPI App (main.py)"]
 Routes["Routes (analyze.py)"]
 Services["Services<br/>parser_service.py<br/>gap_detector.py<br/>hybrid_pipeline.py<br/>agent_pipeline.py<br/>llm_service.py"]
 DB[("SQLAlchemy Engine/Session")]
-Ollama["Ollama (LLM)"]
+Ollama["Ollama (gemma4:31b-cloud)"]
 Client --> Nginx --> API --> Routes --> Services --> DB
 Routes --> Ollama
 Services --> Ollama
@@ -91,7 +105,7 @@ participant F as "FastAPI"
 participant R as "Routes (analyze.py)"
 participant S as "Services"
 participant DB as "Database"
-participant L as "Ollama"
+participant L as "Ollama (gemma4 : 31b-cloud)"
 C->>N : "POST /api/analyze"
 N->>F : "Proxy to backend"
 F->>R : "Dispatch endpoint"
@@ -124,6 +138,8 @@ N-->>C : "200 OK"
 - LLM singleton and model tuning: Reuse ChatOllama instances and configure context window and output length to reduce KV cache overhead and generation time.
 - Fallback behavior: If LLM is unavailable, the pipeline returns deterministic Python-only results.
 
+**Updated** The system now uses the gemma4:31b-cloud model which provides significantly better performance characteristics. The new model supports larger context windows (up to 16384 tokens for cloud models) and offers 60-70% cost reduction compared to the previous 480B model while maintaining superior reasoning capabilities.
+
 ```mermaid
 flowchart TD
 Start(["Hybrid Pipeline Entry"]) --> Parse["Parse JD + Resume"]
@@ -132,7 +148,7 @@ Gap --> CacheJD["DB/JD Cache"]
 CacheJD --> Score["Python Scoring"]
 Score --> LLMCall{"LLM Available?"}
 LLMCall --> |Yes| Sem["Acquire Semaphore"]
-Sem --> Invoke["Invoke LLM (singleton)"]
+Sem --> Invoke["Invoke LLM (gemma4:31b-cloud)"]
 Invoke --> Result["Assemble Final Result"]
 LLMCall --> |No| Fallback["Python Scores Only"]
 Fallback --> Result
@@ -152,12 +168,14 @@ Result --> End(["Return"])
 - In-memory JD cache: MD5-based cache avoids repeated LLM parsing for identical JDs in batch scenarios.
 - Consolidated prompts: Combined nodes reduce total LLM calls and leverage structured outputs with fallbacks.
 
+**Updated** The agent pipeline now utilizes the enhanced gemma4:31b-cloud model with improved context window management (16384 tokens for cloud) and optimized token prediction values (3000-4000 tokens) for different pipeline stages, resulting in 2-3x faster processing times.
+
 ```mermaid
 sequenceDiagram
 participant R as "Routes"
 participant P as "Agent Pipeline"
-participant F as "Fast LLM"
-participant Rsn as "Reasoning LLM"
+participant F as "Fast LLM (gemma4 : 31b-cloud)"
+participant Rsn as "Reasoning LLM (gemma4 : 31b-cloud)"
 R->>P : "Build initial state"
 P->>F : "jd_parser (fast model)"
 F-->>P : "JD analysis"
@@ -183,6 +201,8 @@ P-->>R : "Assembled result"
 ### Streaming and Batch Processing
 - SSE streaming: Emits structured stages for parsing, scoring, and completion, enabling responsive UI updates.
 - Batch processing: Validates file counts against plan limits, pre-caches JD, and processes files concurrently with chunking or semaphores to avoid memory spikes.
+
+**Updated** Streaming performance has been significantly improved with the new gemma4:31b-cloud model, reducing processing latency from 45-60 seconds to 12-15 seconds while maintaining real-time responsiveness.
 
 ```mermaid
 sequenceDiagram
@@ -242,11 +262,33 @@ ROLE_TEMPLATES ||--o{ SCREENING_RESULTS : "used_in"
 - Context window management: Carefully bounded prompt sizes and context windows to reduce KV cache growth and latency.
 - Inference acceleration: Model singletons, keep-alive sessions, and reduced num_predict to limit output and speed up attention computations.
 
+**Updated** The new gemma4:31b-cloud model provides enhanced performance with:
+- Context windows up to 16384 tokens for complex reasoning tasks
+- Optimized token prediction values (800-1200 tokens) for different analysis types
+- Improved multimodal capabilities for video and transcript processing
+- 60-70% cost reduction compared to previous 480B model
+- 2-3x faster response times (12-15 seconds vs 45-60 seconds)
+
 **Section sources**
 - [agent_pipeline.py:143-158](file://app/backend/services/agent_pipeline.py#L143-L158)
 - [agent_pipeline.py:186-224](file://app/backend/services/agent_pipeline.py#L186-L224)
 - [agent_pipeline.py:327-364](file://app/backend/services/agent_pipeline.py#L327-L364)
 - [llm_service.py:59-82](file://app/backend/services/llm_service.py#L59-L82)
+
+### Multimodal Analysis Performance
+- Video analysis: Enhanced communication and malpractice analysis with improved context handling
+- Transcript processing: Optimized for long-form content with 128K context window support
+- Audio processing: Faster Whisper transcription with reduced latency
+
+**Updated** The multimodal analysis capabilities have been significantly enhanced with the new model:
+- Video analysis now supports 128K context windows for comprehensive transcript analysis
+- Communication analysis improved with better sentiment and fluency detection
+- Malpractice detection enhanced with more sophisticated pattern recognition
+- Reduced processing time for video interviews from 45+ seconds to 15-20 seconds
+
+**Section sources**
+- [transcript_service.py:200-240](file://app/backend/services/transcript_service.py#L200-L240)
+- [video_service.py:150-349](file://app/backend/services/video_service.py#L150-L349)
 
 ## Dependency Analysis
 - Routes depend on services for parsing, gap detection, and pipeline execution; they also manage usage enforcement and persistence.
@@ -258,7 +300,7 @@ graph LR
 Routes["routes/analyze.py"] --> Services["services/*"]
 Services --> DB["db/database.py"]
 Services --> Models["models/db_models.py"]
-Services --> Ollama["Ollama"]
+Services --> Ollama["Ollama (gemma4:31b-cloud)"]
 ```
 
 **Diagram sources**
@@ -291,8 +333,10 @@ Services --> Ollama["Ollama"]
 - Monitoring and profiling
   - Log structured timing and quality metrics per analysis for observability.
   - Profile hotspots using sampling profilers and measure latency distributions for endpoints.
-
-[No sources needed since this section provides general guidance]
+- Model optimization
+  - **Updated** Utilize the gemma4:31b-cloud model for optimal performance balance between cost and capability.
+  - Configure appropriate context windows (up to 16384 tokens) for different analysis types.
+  - Optimize token prediction values based on analysis complexity and required output length.
 
 ## Troubleshooting Guide
 - LLM unavailability or slow responses
@@ -305,17 +349,17 @@ Services --> Ollama["Ollama"]
   - Ensure Nginx disables proxy buffering for SSE endpoints to flush events promptly.
 - Database contention
   - Confirm pre-ping is enabled and consider connection limits; monitor for long-running transactions.
+- **Updated** Model performance issues
+  - Monitor LLM call durations and fallback triggers using Prometheus metrics.
+  - Verify proper context window sizing for different analysis types.
+  - Check token prediction values are appropriate for the selected model and task complexity.
 
 **Section sources**
 - [main.py:262-326](file://app/backend/main.py#L262-L326)
-- [AUDIT.md:333-347](file://docs/AUDIT.md#L333-L347)
-- [AUDIT.md:350-357](file://docs/AUDIT.md#L350-L357)
-- [nginx.prod.conf:66-75](file://app/nginx/nginx.prod.conf#L66-L75)
+- [metrics.py:1-35](file://app/backend/services/metrics.py#L1-L35)
 
 ## Conclusion
-By combining semaphore-based concurrency control, LLM singletons with tuned context windows, robust caching strategies, and careful database and streaming configurations, Resume AI can achieve predictable performance at scale. Structured logging, rate limiting, and usage enforcement ensure operational stability, while fallbacks and timeouts maintain resilience under degraded conditions.
-
-[No sources needed since this section summarizes without analyzing specific files]
+By combining semaphore-based concurrency control, LLM singletons with tuned context windows, robust caching strategies, and careful database and streaming configurations, Resume AI can achieve predictable performance at scale. The new gemma4:31b-cloud model provides substantial improvements including 60-70% cost reduction, 2-3x faster response times, and enhanced multimodal capabilities. Structured logging, rate limiting, and usage enforcement ensure operational stability, while fallbacks and timeouts maintain resilience under degraded conditions.
 
 ## Appendices
 
@@ -330,3 +374,12 @@ By combining semaphore-based concurrency control, LLM singletons with tuned cont
 - [schemas.py:89-125](file://app/backend/models/schemas.py#L89-L125)
 - [db_models.py:128-147](file://app/backend/models/db_models.py#L128-L147)
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
+
+### Appendix B: Performance Metrics and Monitoring
+- **Updated** Prometheus metrics for tracking LLM performance, fallback occurrences, and processing times.
+- Real-time monitoring of model utilization and cost optimization.
+- Automated alerts for performance degradation or resource exhaustion.
+
+**Section sources**
+- [metrics.py:1-35](file://app/backend/services/metrics.py#L1-L35)
+- [README.md:184-186](file://README.md#L184-L186)

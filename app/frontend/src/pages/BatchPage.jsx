@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, X, Loader2, Trophy, AlertTriangle, Download, BookOpen, LayoutTemplate, BookmarkPlus, Check, Sparkles } from 'lucide-react'
-import { analyzeBatch, exportCsv, exportExcel, getTemplates, createTemplate } from '../lib/api'
+import { analyzeBatch, analyzeBatchChunked, exportCsv, exportExcel, getTemplates, createTemplate } from '../lib/api'
 import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
 
 function FitBadge({ score }) {
@@ -44,6 +44,11 @@ export default function BatchPage() {
   const { checkBeforeAnalysis, getRemainingAnalyses } = useUsageCheck()
   const { subscription, isFeatureAvailable, refreshAfterAnalysis } = useSubscription()
   const [usageCheck, setUsageCheck] = useState(null)
+
+  // Upload progress tracking for chunked uploads
+  const [uploadProgress, setUploadProgress] = useState({})
+  const [overallProgress, setOverallProgress] = useState(null)
+  const [isUploading, setIsUploading] = useState(false)
 
   useEffect(() => {
     getTemplates().then(setSavedJds).catch(() => {})
@@ -102,8 +107,44 @@ export default function BatchPage() {
     setError('')
     setIsLoading(true)
     setResults(null)
+    setUploadProgress({})
+    setOverallProgress(null)
+    
     try {
-      const data = await analyzeBatch(files, jdText)
+      // Calculate total size to determine if we need chunked upload
+      const totalSize = files.reduce((sum, file) => sum + file.size, 0)
+      const useChunkedUpload = totalSize > 50 * 1024 * 1024 // Use chunked upload for > 50MB total
+      
+      let data
+      
+      if (useChunkedUpload) {
+        // Use chunked upload for large batches
+        setIsUploading(true)
+        
+        data = await analyzeBatchChunked(files, jdText, null, null, {
+          onFileProgress: (filename, progress) => {
+            setUploadProgress(prev => ({
+              ...prev,
+              [filename]: progress
+            }))
+          },
+          onOverallProgress: (progress) => {
+            setOverallProgress(progress)
+          },
+          onFileComplete: (filename) => {
+            console.log(`Upload complete: ${filename}`)
+          },
+          onFileError: (filename, error) => {
+            console.error(`Upload failed for ${filename}:`, error)
+          },
+        })
+        
+        setIsUploading(false)
+      } else {
+        // Use regular upload for small batches
+        data = await analyzeBatch(files, jdText)
+      }
+      
       setResults(data)
       setSelected([])
       // Refresh subscription to show updated usage
@@ -117,6 +158,9 @@ export default function BatchPage() {
       )
     } finally {
       setIsLoading(false)
+      setIsUploading(false)
+      setUploadProgress({})
+      setOverallProgress(null)
     }
   }
 
@@ -277,6 +321,25 @@ export default function BatchPage() {
                 </button>
               </div>
             </div>
+
+            {/* Upload Progress */}
+            {isUploading && overallProgress && (
+              <div className="p-4 bg-blue-50 ring-1 ring-blue-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium text-blue-900">Uploading files...</span>
+                  <span className="text-blue-700">{overallProgress.percent}%</span>
+                </div>
+                <div className="w-full bg-blue-100 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-blue-500 h-full transition-all duration-300 ease-out"
+                    style={{ width: `${overallProgress.percent}%` }}
+                  />
+                </div>
+                <div className="text-xs text-blue-600">
+                  {overallProgress.completedFiles} of {overallProgress.totalFiles} files uploaded
+                </div>
+              </div>
+            )}
 
             {error && (
               <div className="p-3.5 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-center gap-2.5 text-sm text-red-700">

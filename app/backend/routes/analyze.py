@@ -1059,6 +1059,187 @@ async def batch_analyze_endpoint(
     )
 
 
+@router.post("/analyze/batch-chunked", response_model=BatchAnalysisResponse)
+async def batch_analyze_chunked_endpoint(
+    upload_ids: list[str] = Form(...),
+    filenames: list[str] = Form(...),
+    job_description: str = Form(None),
+    job_file: UploadFile = File(None),
+    scoring_weights: str = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Batch analysis endpoint for chunked uploads.
+    Reads assembled files from /tmp/aria_chunks/assembled/ and processes them.
+    """
+    from pathlib import Path
+    
+    if not upload_ids or not filenames:
+        raise HTTPException(status_code=400, detail="upload_ids and filenames are required")
+    
+    if len(upload_ids) != len(filenames):
+        raise HTTPException(status_code=400, detail="upload_ids and filenames must have the same length")
+    
+    # Validate batch size
+    if len(upload_ids) > MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum batch size is {MAX_BATCH_SIZE} resumes"
+        )
+    
+    # Read and validate JD file if provided
+    jd_bytes = jd_name = None
+    if job_file and job_file.filename:
+        jd_bytes = await job_file.read()
+        jd_name = job_file.filename
+    
+    # Resolve and validate job description
+    job_description = _resolve_jd(job_description, jd_bytes, jd_name)
+    _check_jd_length(job_description)
+    _check_jd_size(job_description)
+    
+    # Read assembled files from disk
+    assembled_dir = Path("/tmp/aria_chunks/assembled")
+    file_data = []
+    
+    for upload_id, filename in zip(upload_ids, filenames):
+        # Construct the assembled file path
+        safe_filename = f"{upload_id}_{filename}"
+        file_path = assembled_dir / safe_filename
+        
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Assembled file not found for upload {upload_id}. File may have been cleaned up."
+            )
+        
+        # Validate file extension
+        if not filename.lower().endswith(ALLOWED_EXTENSIONS):
+            continue
+        
+        # Read file content
+        try:
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            
+            if len(content) <= 10 * 1024 * 1024:  # Still validate individual file size
+                file_data.append((content, filename))
+        except Exception as e:
+            log.error(f"Failed to read assembled file {file_path}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to read assembled file: {filename}"
+            )
+    
+    valid_count = len(file_data)
+    
+    # Get tenant's plan for batch size limit
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    max_batch_size = MAX_BATCH_SIZE
+    if tenant and tenant.plan:
+        limits = _get_plan_limits(tenant.plan)
+        plan_batch_limit = limits.get("batch_size", MAX_BATCH_SIZE)
+        max_batch_size = min(max_batch_size, plan_batch_limit)
+    
+    if valid_count > max_batch_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your plan allows maximum {max_batch_size} resumes per batch. Please upgrade to process more."
+        )
+    
+    # Check and increment usage
+    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=message)
+    
+    # Validate scoring_weights size
+    _check_scoring_weights_size(scoring_weights)
+    
+    weights = None
+    if scoring_weights:
+        try:
+            weights = json.loads(scoring_weights)
+        except Exception as e:
+            log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
+    
+    # Pre-parse JD once for all resumes
+    _get_or_cache_jd(db, job_description)
+    
+    if not file_data:
+        raise HTTPException(status_code=400, detail="No valid resume files provided")
+    
+    # Process all resumes (same logic as regular batch endpoint)
+    tasks = [
+        _process_with_semaphore(content, filename, job_description, weights, db)
+        for content, filename in file_data
+    ]
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Separate successes from failures
+    batch_results = []
+    failed_items = []
+    
+    for raw, (content, filename) in zip(raw_results, file_data):
+        if isinstance(raw, Exception):
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=str(raw)
+            ))
+            continue
+        
+        parsed_data = raw.pop("_parsed_data", {})
+        gap_analysis = raw.pop("_gap_analysis", {})
+        file_hash = hashlib.md5(content).hexdigest()
+        
+        candidate_id, _ = _get_or_create_candidate(
+            db, parsed_data, current_user.tenant_id,
+            file_hash=file_hash,
+            gap_analysis=gap_analysis,
+            profile_quality=raw.get("analysis_quality", "medium"),
+        )
+        
+        db_result = ScreeningResult(
+            tenant_id=current_user.tenant_id,
+            candidate_id=candidate_id,
+            resume_text=parsed_data.get("raw_text", ""),
+            jd_text=job_description,
+            parsed_data=json.dumps(parsed_data),
+            analysis_result=json.dumps(raw),
+        )
+        db.add(db_result)
+        db.flush()
+        raw["result_id"] = db_result.id
+        batch_results.append({"filename": filename, "result": raw})
+    
+    db.commit()
+    
+    # Clean up assembled files after processing
+    for upload_id, filename in zip(upload_ids, filenames):
+        safe_filename = f"{upload_id}_{filename}"
+        file_path = assembled_dir / safe_filename
+        try:
+            if file_path.exists():
+                file_path.unlink()
+        except Exception as e:
+            log.warning(f"Non-critical: Failed to cleanup assembled file {file_path}: {e}")
+    
+    # Sort by fit score
+    batch_results.sort(key=lambda x: x["result"].get("fit_score") or 0, reverse=True)
+    ranked = [
+        BatchAnalysisResult(rank=i + 1, filename=r["filename"], result=r["result"])
+        for i, r in enumerate(batch_results)
+    ]
+    
+    return BatchAnalysisResponse(
+        results=ranked,
+        failed=failed_items,
+        total=len(file_data),
+        successful=len(ranked),
+        failed_count=len(failed_items),
+    )
+
+
 # ─── History ──────────────────────────────────────────────────────────────────
 
 @router.get("/history")

@@ -310,6 +310,62 @@ export async function analyzeBatch(files, jobDescription, jobFile = null, scorin
   return response.data
 }
 
+/**
+ * Analyze batch of resumes using chunked upload for large files.
+ * This bypasses CDN/proxy upload limits by splitting files into chunks.
+ * 
+ * @param {File[]} files - Array of resume files to analyze
+ * @param {string} jobDescription - Job description text
+ * @param {File|null} jobFile - Optional job description file
+ * @param {Object|null} scoringWeights - Optional custom scoring weights
+ * @param {Object} callbacks - Progress callbacks
+ * @param {Function} callbacks.onFileProgress - Called with (filename, progress) for each file
+ * @param {Function} callbacks.onOverallProgress - Called with overall upload progress
+ * @returns {Promise} Analysis results
+ */
+export async function analyzeBatchChunked(files, jobDescription, jobFile = null, scoringWeights = null, callbacks = {}) {
+  const { uploadMultipleFiles } = await import('./uploadChunked')
+  
+  // Upload all files using chunked upload
+  const uploadResults = await uploadMultipleFiles(files, {
+    onFileProgress: callbacks.onFileProgress || (() => {}),
+    onOverallProgress: callbacks.onOverallProgress || (() => {}),
+    onFileComplete: callbacks.onFileComplete || (() => {}),
+    onFileError: callbacks.onFileError || (() => {}),
+  })
+  
+  // Check if any uploads failed
+  if (uploadResults.failed.length > 0) {
+    throw new Error(`Failed to upload ${uploadResults.failed.length} file(s): ${uploadResults.failed.map(f => f.file).join(', ')}`)
+  }
+  
+  // Now call a new backend endpoint that processes the assembled files
+  const formData = new FormData()
+  
+  // Send upload IDs instead of files - backend will read from assembled directory
+  uploadResults.successful.forEach(({ file: filename, result }) => {
+    formData.append('upload_ids', result.upload_id)
+    formData.append('filenames', filename)
+  })
+  
+  if (jobFile) {
+    formData.append('job_file', jobFile)
+  } else {
+    formData.append('job_description', jobDescription)
+  }
+  
+  if (scoringWeights) {
+    formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  }
+  
+  const response = await api.post('/analyze/batch-chunked', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
+  })
+  
+  return response.data
+}
+
 // ─── History ──────────────────────────────────────────────────────────────────
 
 export async function getHistory() {

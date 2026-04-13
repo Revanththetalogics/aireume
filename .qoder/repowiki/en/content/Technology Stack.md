@@ -19,7 +19,16 @@
 - [app/frontend/vite.config.js](file://app/frontend/vite.config.js)
 - [app/frontend/tailwind.config.js](file://app/frontend/tailwind.config.js)
 - [app/frontend/src/lib/api.js](file://app/frontend/src/lib/api.js)
+- [app/backend/scripts/docker-entrypoint.sh](file://app/backend/scripts/docker-entrypoint.sh)
+- [app/backend/scripts/wait_for_ollama.py](file://app/backend/scripts/wait_for_ollama.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated model specifications to reflect `gemma4:31b-cloud` as primary cloud model with `qwen3.5:4b` as local fallback option
+- Updated architecture diagrams to reflect new model configuration
+- Corrected tech stack section to accurately reflect current model specifications and capabilities
+- Updated performance considerations to reflect new model characteristics
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -59,7 +68,7 @@ MODELS["DB Models"]
 end
 subgraph "Infra"
 POSTGRES["Postgres"]
-OLLAMA["Ollama (llama3/gemma variants)"]
+OLLAMA["Ollama (gemma4:31b-cloud/qwen3.5:4b)"]
 end
 FE --> NGINX --> FASTAPI
 FASTAPI --> ROUTES
@@ -71,12 +80,12 @@ SERVICES --> OLLAMA
 ```
 
 **Diagram sources**
-- [docker-compose.yml:1-101](file://docker-compose.yml#L1-L101)
-- [docker-compose.prod.yml:1-227](file://docker-compose.prod.yml#L1-L227)
+- [docker-compose.yml:1-108](file://docker-compose.yml#L1-L108)
+- [docker-compose.prod.yml:1-236](file://docker-compose.prod.yml#L1-L236)
 - [app/backend/main.py:1-327](file://app/backend/main.py#L1-L327)
 - [app/backend/db/database.py:1-33](file://app/backend/db/database.py#L1-L33)
 - [app/backend/models/db_models.py:1-250](file://app/backend/models/db_models.py#L1-L250)
-- [app/backend/services/agent_pipeline.py:1-634](file://app/backend/services/agent_pipeline.py#L1-L634)
+- [app/backend/services/agent_pipeline.py:1-699](file://app/backend/services/agent_pipeline.py#L1-L699)
 - [app/frontend/package.json:1-41](file://app/frontend/package.json#L1-L41)
 
 **Section sources**
@@ -101,18 +110,18 @@ SERVICES --> OLLAMA
   - faster-whisper and yt-dlp for transcript generation and video processing.
 - AI/ML and LLM integration
   - LangGraph 0.2+, LangChain Community 0.3+, and langchain-ollama 0.2+ for multi-agent pipelines.
-  - Ollama serving llama3 and gemma models locally.
+  - Ollama serving gemma4:31b-cloud (primary cloud model) and qwen3.5:4b (local fallback) models.
 - Frontend
   - React 18, Vite, TailwindCSS, react-router-dom, axios, react-dropzone, recharts.
 - Infrastructure
   - Docker and Docker Compose for local and production deployments.
   - Nginx for reverse proxy and SSL termination.
-  - Certbot for Let’s Encrypt certificates in production.
+  - Certbot for Let's Encrypt certificates in production.
 
 **Section sources**
 - [README.md:23-51](file://README.md#L23-L51)
 - [requirements.txt:1-48](file://requirements.txt#L1-L48)
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
+- [app/backend/Dockerfile:1-49](file://app/backend/Dockerfile#L1-L49)
 - [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
 
 ## Architecture Overview
@@ -127,7 +136,7 @@ Browser["Browser"] --> Nginx["Nginx (SSL)"]
 Nginx --> FE["React SPA"]
 FE --> BE["FastAPI Backend"]
 BE --> DB["Postgres"]
-BE --> LLM["Ollama (llama3/gemma)"]
+BE --> LLM["Ollama (gemma4:31b-cloud/qwen3.5:4b)"]
 ```
 
 **Diagram sources**
@@ -251,14 +260,16 @@ Normalize --> Return(["Parsed Resume JSON"])
 - Singletons for fast and reasoning LLMs reuse connections and keep models hot.
 - JSON parsing helper extracts structured outputs; fallbacks compute scores mathematically when LLM calls fail.
 
+**Updated** Model configuration now uses `gemma4:31b-cloud` as the primary cloud model and `qwen3.5:4b` as the local fallback model. The system automatically detects whether Ollama Cloud is being used and adjusts parameters accordingly, with different token limits and context sizes for cloud vs local models.
+
 ```mermaid
 sequenceDiagram
 participant Client as "Client"
 participant API as "FastAPI analyze endpoint"
 participant Hybrid as "Hybrid Pipeline"
 participant Agent as "Agent Pipeline"
-participant LLM1 as "Fast LLM (llama3.2 : 3b)"
-participant LLM2 as "Reasoning LLM (llama3)"
+participant LLM1 as "Fast LLM (gemma4 : 31b-cloud)"
+participant LLM2 as "Reasoning LLM (gemma4 : 31b-cloud)"
 participant DB as "Postgres"
 Client->>API : POST /api/analyze
 API->>Hybrid : run_hybrid_pipeline(...)
@@ -280,7 +291,7 @@ API-->>Client : JSON response
 
 **Section sources**
 - [app/backend/services/llm_service.py:1-156](file://app/backend/services/llm_service.py#L1-L156)
-- [app/backend/services/agent_pipeline.py:1-634](file://app/backend/services/agent_pipeline.py#L1-L634)
+- [app/backend/services/agent_pipeline.py:1-699](file://app/backend/services/agent_pipeline.py#L1-L699)
 
 ### Frontend: React 18, Vite, TailwindCSS
 - React SPA with routing, state management via context, and UI components.
@@ -321,12 +332,14 @@ UI-->>User : Render results
 - Frontend Dockerfile builds assets with Vite and serves via Nginx.
 - Nginx configuration proxies to backend and frontend; production variant includes SSL and health checks.
 
+**Updated** Ollama configuration now uses `gemma4:31b-cloud` as the primary model and `qwen3.5:4b` for local fallback. The system automatically detects cloud vs local environments and adjusts model parameters accordingly.
+
 ```mermaid
 graph TB
 subgraph "Local Dev"
 DC["docker-compose.yml"]
 PG["Postgres"]
-OL["Ollama"]
+OL["Ollama (gemma4:31b-cloud/qwen3.5:4b)"]
 BE["Backend"]
 FE["Frontend"]
 NX["Nginx"]
@@ -351,21 +364,23 @@ DCP --> CB
 ```
 
 **Diagram sources**
-- [docker-compose.yml:1-101](file://docker-compose.yml#L1-L101)
-- [docker-compose.prod.yml:1-227](file://docker-compose.prod.yml#L1-L227)
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
+- [docker-compose.yml:1-108](file://docker-compose.yml#L1-L108)
+- [docker-compose.prod.yml:1-236](file://docker-compose.prod.yml#L1-L236)
+- [app/backend/Dockerfile:1-49](file://app/backend/Dockerfile#L1-L49)
 - [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
 
 **Section sources**
-- [docker-compose.yml:1-101](file://docker-compose.yml#L1-L101)
-- [docker-compose.prod.yml:1-227](file://docker-compose.prod.yml#L1-L227)
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
+- [docker-compose.yml:1-108](file://docker-compose.yml#L1-L108)
+- [docker-compose.prod.yml:1-236](file://docker-compose.prod.yml#L1-L236)
+- [app/backend/Dockerfile:1-49](file://app/backend/Dockerfile#L1-L49)
 - [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
 
 ## Dependency Analysis
 - Backend dependencies pinned in requirements.txt include FastAPI, Uvicorn, SQLAlchemy, pdfplumber, python-docx, httpx, pydantic, bcrypt/passlib, Alembic, psycopg2-binary, pandas/openpyxl, beautifulsoup4/lxml, faster-whisper/yt-dlp, langgraph/langchain-ollama, and pytest suite.
 - Frontend dependencies include React 18, Vite, TailwindCSS, axios, react-router-dom, react-dropzone, lucide-react, and recharts.
 - Runtime environment variables in Dockerfiles and docker-compose files define database URLs, Ollama base URL, model names, and worker counts.
+
+**Updated** Model configuration now reflects the new primary cloud model (`gemma4:31b-cloud`) and local fallback (`qwen3.5:4b`).
 
 ```mermaid
 graph LR
@@ -386,7 +401,7 @@ AX["axios"]
 end
 subgraph "Infra"
 PG["Postgres"]
-OL["Ollama"]
+OL["Ollama (gemma4:31b-cloud/qwen3.5:4b)"]
 NG["Nginx"]
 end
 FA --> SA
@@ -420,11 +435,14 @@ NG --> FA
   - SQLite used locally; PostgreSQL recommended for production with tuned parameters (shared_buffers, effective_cache_size, work_mem, max_connections) and health checks.
 - LLM inference
   - Ollama parallelism and KV cache quantization tuned for throughput; warmup service ensures models are loaded into RAM on first deploy.
-  - Fast model (llama3.2:3b) for extraction; reasoning model (llama3) for scoring; keep-alive enabled to reuse connections.
+  - Primary cloud model `gemma4:31b-cloud` provides enhanced reasoning capabilities with increased token limits; local fallback `qwen3.5:4b` optimized for deterministic extraction.
+  - Keep-alive enabled to reuse connections; cloud models use different token limits (3000 vs 600) and context sizes (12288 vs 3072) based on environment detection.
 - Frontend
   - Vite build with sourcemaps; Nginx static hosting; SSE streaming reduces perceived latency by delivering staged results.
 - Caching and deduplication
   - JD cache (DB/shared) avoids repeated LLM calls for identical job descriptions; candidate deduplication prevents redundant processing.
+
+**Updated** Performance tuning now accounts for the different capabilities and token limits of `gemma4:31b-cloud` (cloud) vs `qwen3.5:4b` (local), with automatic parameter adjustment based on environment detection.
 
 **Section sources**
 - [docker-compose.prod.yml:75-112](file://docker-compose.prod.yml#L75-L112)
@@ -436,16 +454,21 @@ NG --> FA
 ## Troubleshooting Guide
 - Ollama not responding
   - Check container logs and ensure models are pulled; warmup service loads models into RAM.
+  - For cloud deployments, verify OLLAMA_API_KEY is set and OLLAMA_BASE_URL points to `https://ollama.com`.
 - Database locked errors
-  - SQLite does not support concurrent writes; restart backend container if “database is locked” occurs.
+  - SQLite does not support concurrent writes; restart backend container if "database is locked" occurs.
 - SSL certificate issues
   - Renew certificates with certbot and restart Nginx; ensure DNS A record points to VPS IP.
 - Deploy failures
   - Verify Docker Hub credentials, SSH key added to VPS, and firewall settings; Watchtower auto-restarts containers on new images.
+- Model loading issues
+  - For local deployments, ensure `qwen3.5:4b` is pulled; for cloud deployments, verify API key authentication is configured correctly.
+
+**Updated** Added troubleshooting guidance for the new model configuration, including cloud vs local model selection and API key requirements.
 
 **Section sources**
 - [README.md:339-362](file://README.md#L339-L362)
 - [docker-compose.prod.yml:213-221](file://docker-compose.prod.yml#L213-L221)
 
 ## Conclusion
-Resume AI by ThetaLogics combines a modern React SPA with a FastAPI backend, robust document parsing, and a hybrid AI pipeline powered by Ollama and LangGraph. Docker and Nginx enable straightforward local and production deployments, while careful tuning of Ollama and Postgres ensures predictable performance. The architecture balances determinism (hybrid parsing) with LLM-driven insights, supporting scalable, maintainable growth.
+Resume AI by ThetaLogics combines a modern React SPA with a FastAPI backend, robust document parsing, and a hybrid AI pipeline powered by Ollama and LangGraph. The system now uses `gemma4:31b-cloud` as the primary cloud model with `qwen3.5:4b` as a reliable local fallback, providing enhanced reasoning capabilities while maintaining deterministic extraction performance. Docker and Nginx enable straightforward local and production deployments, while careful tuning of Ollama and Postgres ensures predictable performance. The architecture balances determinism (hybrid parsing) with LLM-driven insights, supporting scalable, maintainable growth with improved model capabilities.

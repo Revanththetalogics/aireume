@@ -13,16 +13,17 @@
 - [db_models.py](file://app/backend/models/db_models.py)
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
 - [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
+- [video_service.py](file://app/backend/services/video_service.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced LLM narrative reliability system with comprehensive four-state status tracking (pending, processing, ready, failed)
-- Implemented adaptive polling architecture with intelligent retry mechanisms and exponential backoff
-- Added robust background task management with proper lifecycle tracking and graceful shutdown
-- Enhanced error handling with detailed status reporting and fallback mechanisms
-- Improved user experience through real-time status updates and adaptive polling intervals
-- Added comprehensive database integration for persistent status tracking across deployments
+- Enhanced JSON parsing error handling with improved debugging capabilities including detailed position tracking and character context for parsing failures
+- Added enhanced error reporting for LLM response processing and improved JSON extraction diagnostics
+- Updated model configuration to use Gemma4 31B cloud model with backward compatibility maintained
+- Implemented comprehensive JSON parsing with balanced brace detection and trailing comma fixes
+- Added detailed logging for JSON parsing failures with position tracking
+- Enhanced retry mechanisms with improved temperature handling for fallback scenarios
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -44,7 +45,7 @@ The Hybrid Pipeline represents a sophisticated resume analysis system that combi
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
-**Updated** Enhanced with intelligent cloud deployment detection, comprehensive status tracking, and adaptive polling architecture that provides four-state reliability with proper state transitions and enhanced user experience. The system now supports robust background task management with graceful shutdown capabilities and intelligent retry mechanisms.
+**Updated** Enhanced with intelligent cloud deployment detection, comprehensive status tracking, and adaptive polling architecture that provides four-state reliability with proper state transitions and enhanced user experience. The system now supports robust background task management with graceful shutdown capabilities and intelligent retry mechanisms. JSON parsing has been significantly enhanced with detailed error reporting and position tracking for improved debugging capabilities.
 
 ## System Architecture
 
@@ -110,6 +111,7 @@ The architecture implements several key design principles:
 - **Enhanced Status Tracking**: Four-state status system (pending, processing, ready, failed) with proper state transitions
 - **Adaptive Polling**: Intelligent polling architecture with exponential backoff and retry mechanisms
 - **Graceful Error Handling**: Comprehensive error reporting with fallback mechanisms and user-friendly messaging
+- **Advanced JSON Parsing**: Enhanced error handling with position tracking and character context for parsing failures
 
 ## Core Components
 
@@ -300,9 +302,17 @@ The hybrid pipeline implements intelligent environment detection to optimize LLM
 - Warning messages when cloud deployment detected without API key
 - Debug information for token setting optimization
 
+**Enhanced JSON Parsing and Error Handling:**
+- **Position Tracking**: Detailed logging of JSON parsing errors with character position information
+- **Character Context**: Enhanced debugging with character context around parsing failures
+- **Balanced Object Extraction**: Automatic detection and extraction of balanced JSON objects
+- **Trailing Comma Fixes**: Automatic correction of common LLM JSON mistakes
+- **Multiple Parsing Attempts**: Multiple strategies for extracting valid JSON from LLM responses
+
 **Section sources**
 - [hybrid_pipeline.py:97-147](file://app/backend/services/hybrid_pipeline.py#L97-L147)
 - [hybrid_pipeline.py:1350-1365](file://app/backend/services/hybrid_pipeline.py#L1350-L1365)
+- [hybrid_pipeline.py:1167-1235](file://app/backend/services/hybrid_pipeline.py#L1167-L1235)
 
 ## Skills Registry System
 
@@ -423,6 +433,12 @@ The background processing integrates seamlessly with the database layer:
 - Graceful handling of missing or corrupted data
 - Adaptive polling with exponential backoff
 
+**Enhanced JSON Parsing Integration:**
+- **Detailed Error Logging**: Position tracking and character context for JSON parsing failures
+- **Automatic Recovery**: Balanced object extraction and trailing comma fixes
+- **Multiple Parsing Strategies**: Progressive fallback from simple to complex parsing attempts
+- **Diagnostic Information**: Comprehensive logging for troubleshooting JSON extraction issues
+
 **Section sources**
 - [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
 - [db_models.py:129-148](file://app/backend/models/db_models.py#L129-L148)
@@ -476,6 +492,12 @@ The polling system implements intelligent retry mechanisms with adaptive timing:
 - **Status Responses**: {"status": "pending"}, {"status": "ready", "narrative": {...}}, {"status": "failed", "error": "..."}
 - **Fallback Handling**: Returns fallback narrative when LLM fails
 - **Security**: Tenant-scoped access control prevents unauthorized polling
+
+**Enhanced JSON Parsing Diagnostics:**
+- **Position Tracking**: Detailed logging of JSON parsing failures with character positions
+- **Character Context**: Enhanced debugging with surrounding character context
+- **Parsing Progression**: Multiple parsing attempts with progressive complexity
+- **Recovery Mechanisms**: Automatic fixes for common JSON extraction issues
 
 **Section sources**
 - [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
@@ -552,6 +574,12 @@ The SSE streaming implementation provides real-time feedback:
 - **Adaptive Timing**: Intelligent polling with exponential backoff
 - **Tenant Security**: Access control prevents unauthorized polling
 
+**Enhanced JSON Extraction Diagnostics:**
+- **Parsing Failure Details**: Comprehensive logging of JSON extraction problems
+- **Position Information**: Character position tracking for debugging
+- **Recovery Attempts**: Multiple strategies for extracting valid JSON
+- **Diagnostic Context**: Enhanced error reporting for troubleshooting
+
 **Section sources**
 - [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
 - [analyze.py:1118-1168](file://app/backend/routes/analyze.py#L1118-L1168)
@@ -574,6 +602,7 @@ The testing suite covers all aspects of the hybrid pipeline with extensive unit 
 - **Gap Analysis**: Verifies date parsing, interval merging, and gap severity classification
 - **Background Processing**: Validates LLM fallback mechanisms and database integration
 - **Status Tracking**: Tests four-state status transitions and polling functionality
+- **JSON Parsing**: Validates enhanced error handling and position tracking capabilities
 
 ### Enhanced Mock-Based Testing
 
@@ -590,6 +619,12 @@ The test suite extensively uses mocking to isolate components and simulate vario
 - **Status State Transitions**: Tests proper progression through pending → processing → ready/failure states
 - **Error Recovery**: Validates fallback mechanisms and error reporting
 - **Polling Behavior**: Tests adaptive polling with exponential backoff
+
+**Enhanced JSON Parsing Tests:**
+- **Position Tracking**: Validates character position logging for parsing failures
+- **Balanced Object Extraction**: Tests automatic detection of balanced JSON objects
+- **Trailing Comma Fixes**: Validates automatic correction of common LLM mistakes
+- **Multiple Parsing Strategies**: Tests progressive fallback from simple to complex parsing attempts
 
 ## Performance Considerations
 
@@ -618,6 +653,12 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - Automatic authentication header handling reduces overhead
 - Enhanced token limits for cloud deployments improve LLM performance
 
+**Enhanced JSON Parsing Performance:**
+- **Efficient Position Tracking**: Minimal overhead for character position logging
+- **Optimized Parsing Algorithms**: Fast balanced object detection and extraction
+- **Smart Retry Logic**: Intelligent fallback mechanisms reduce processing time
+- **Comprehensive Caching**: JSON parsing strategies cached for repeated use
+
 ### Scalability Features
 
 **Concurrency Control:**
@@ -639,6 +680,12 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - Database-backed status tracking scales across multiple workers
 - Persistent state survives application restarts
 - Efficient polling with adaptive timing reduces server load
+
+**Enhanced Model Configuration:**
+- **Gemma4 31B Cloud Model**: Default model selection for optimal performance
+- **Backward Compatibility**: Graceful fallback to previous models when needed
+- **Environment Detection**: Automatic model selection based on deployment type
+- **Parameter Optimization**: Dynamic configuration based on model capabilities
 
 ## Troubleshooting Guide
 
@@ -675,6 +722,16 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Causes**: Database connectivity issues, missing status columns
 - **Solutions**: Verify database schema migration, check status column existence, monitor background task execution
 
+**Enhanced JSON Parsing Issues:**
+- **Symptoms**: JSON parsing failures, position tracking errors
+- **Causes**: Malformed LLM responses, character encoding issues
+- **Solutions**: Check enhanced logging for position information, validate character context, implement recovery strategies
+
+**Model Configuration Problems:**
+- **Symptoms**: Model loading failures, parameter conflicts
+- **Causes**: Incorrect model specification, environment variable issues
+- **Solutions**: Verify OLLAMA_MODEL environment variable, check model availability, validate configuration
+
 ### Enhanced Diagnostic Tools
 
 **Health Monitoring:**
@@ -698,12 +755,25 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - Initialization logs showing num_predict, num_ctx, and cloud detection status
 - Warning messages for missing API keys in cloud deployments
 - Debug information for environment-specific parameter optimization
+- Comprehensive JSON parsing error logs with position tracking
 
 **Status Tracking Diagnostics:**
 - Background task execution logs
 - Status transition timestamps
 - Error message persistence
 - Polling attempt tracking
+
+**Enhanced JSON Parsing Diagnostics:**
+- **Position Tracking Logs**: Detailed character position information for parsing failures
+- **Character Context Analysis**: Surrounding character context for debugging JSON extraction issues
+- **Parsing Strategy Progression**: Logging of multiple parsing attempts and recovery mechanisms
+- **Recovery Success Metrics**: Tracking of automatic fixes for common LLM JSON mistakes
+
+**Model Configuration Diagnostics:**
+- **Model Selection Logs**: Automatic detection and selection of appropriate models
+- **Parameter Optimization Tracking**: Dynamic configuration adjustments based on deployment type
+- **Backward Compatibility Verification**: Graceful fallback mechanism validation
+- **Configuration Conflict Resolution**: Automatic handling of conflicting model settings
 
 **Section sources**
 - [hybrid_pipeline.py:135-147](file://app/backend/services/hybrid_pipeline.py#L135-L147)
@@ -721,6 +791,8 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Robust Background Task Management**: Proper lifecycle tracking with graceful shutdown
 - **Enhanced Error Handling**: Detailed status reporting and fallback mechanisms
 - **Database Persistence**: Reliable status tracking across deployments and restarts
+- **Advanced JSON Parsing**: Comprehensive error handling with position tracking and character context
+- **Enhanced Model Configuration**: Gemma4 31B cloud model with backward compatibility
 
 **Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results
@@ -734,6 +806,8 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Improved error handling** for cloud API key authentication
 - **Four-state status tracking** providing clear visibility into processing states
 - **Adaptive polling architecture** optimizing user experience across different deployment types
+- **Advanced JSON parsing diagnostics** enabling rapid troubleshooting of parsing failures
+- **Enhanced model configuration** ensuring optimal performance with Gemma4 31B cloud model
 
 The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes. The comprehensive status tracking and polling architecture ensure reliable operation in production environments while maintaining responsive user experiences.
 
@@ -744,5 +818,16 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **System Reliability**: Graceful degradation when LLM services are unavailable
 - **Operational Insights**: Comprehensive logging and monitoring capabilities
 - **Deployment Flexibility**: Seamless operation across cloud and local environments
+- **Enhanced Debugging**: Advanced JSON parsing diagnostics for rapid issue resolution
+- **Model Optimization**: Automatic configuration for optimal Gemma4 31B cloud model performance
 
 The system's modular design, comprehensive testing framework, and robust error handling ensure reliable operation in production environments. The careful attention to performance optimization, memory management, and resource utilization enables the system to scale effectively while maintaining responsive user experiences.
+
+**Enhanced JSON Parsing Benefits:**
+- **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
+- **Improved Reliability**: Multiple parsing strategies and automatic recovery mechanisms reduce failure rates
+- **Better Debugging**: Comprehensive logging provides detailed insights into JSON extraction challenges
+- **Enhanced User Experience**: Automatic fixes for common LLM mistakes improve overall system reliability
+- **Production Stability**: Robust error handling ensures consistent performance in production environments
+
+The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
