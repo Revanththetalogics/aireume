@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
@@ -12,13 +12,7 @@ import shutil
 import asyncio
 from datetime import datetime, timezone, timedelta
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.datastructures import UploadFile as StarletteUploadFile
-from starlette.formparsers import MultiPartParser
 from prometheus_fastapi_instrumentator import Instrumentator
-
-# Configure Starlette's multipart parser to allow large file uploads (500MB)
-# This fixes 413 errors on batch uploads without modifying uvicorn CLI
-MultiPartParser.max_file_size = 524_288_000  # 500MB in bytes
 
 # Configure structured logging
 logging.basicConfig(
