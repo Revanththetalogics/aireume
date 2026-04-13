@@ -135,7 +135,11 @@ services:
     image: revanth2245/resume-nginx:latest
     container_name: resume-screener-nginx
     ports:
-      - "8080:80"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
     depends_on:
       - frontend
       - backend
