@@ -86,7 +86,7 @@ export default function BatchPage() {
       'application/msword': ['.doc'],
     },
     maxFiles: maxBatchSize,
-    maxSize: 10 * 1024 * 1024,
+    // No maxSize limit - chunked upload handles large files
   })
 
   const removeFile = (idx) => setFiles(prev => prev.filter((_, i) => i !== idx))
