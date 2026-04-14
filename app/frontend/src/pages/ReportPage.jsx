@@ -160,11 +160,19 @@ export default function ReportPage() {
 
         {/* Back button */}
         <button
-          onClick={() => navigate('/')}
+          onClick={() => {
+            // If coming from batch page, go back to batch results
+            if (location.state?.fromBatch) {
+              navigate('/batch', { state: { results: location.state.batchResults } })
+            } else {
+              // Otherwise use browser back or go to home
+              window.history.length > 1 ? navigate(-1) : navigate('/')
+            }
+          }}
           className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-brand-700 transition-colors self-start"
         >
           <ArrowLeft className="w-4 h-4" />
-          Analyze Another
+          {location.state?.fromBatch ? 'Back to Results' : 'Back'}
         </button>
 
         {/* Report badge + candidate name */}

@@ -463,7 +463,13 @@ export default function BatchPage() {
                         </td>
                         <td className="px-4 py-3.5">
                           <button
-                            onClick={() => navigate('/report', { state: { result: r } })}
+                            onClick={() => navigate('/report', { 
+                              state: { 
+                                result: r,
+                                fromBatch: true,
+                                batchResults: results
+                              } 
+                            })}
                             className="text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
                           >
                             View Report

@@ -360,7 +360,7 @@ export async function analyzeBatchChunked(files, jobDescription, jobFile = null,
   
   const response = await api.post('/analyze/batch-chunked', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 300000,
+    timeout: 600000, // 10 minutes - longer than Cloudflare's 100s timeout
   })
   
   return response.data
