@@ -111,39 +111,29 @@ export default function BatchPage() {
     setOverallProgress(null)
     
     try {
-      // Calculate total size to determine if we need chunked upload
-      const totalSize = files.reduce((sum, file) => sum + file.size, 0)
-      const useChunkedUpload = totalSize > 50 * 1024 * 1024 // Use chunked upload for > 50MB total
+      // Always use chunked upload to bypass Cloudflare 100MB limit
+      // Cloudflare blocks at proxy level, so we can't rely on total size check
+      setIsUploading(true)
       
-      let data
+      const data = await analyzeBatchChunked(files, jdText, null, null, {
+        onFileProgress: (filename, progress) => {
+          setUploadProgress(prev => ({
+            ...prev,
+            [filename]: progress
+          }))
+        },
+        onOverallProgress: (progress) => {
+          setOverallProgress(progress)
+        },
+        onFileComplete: (filename) => {
+          console.log(`Upload complete: ${filename}`)
+        },
+        onFileError: (filename, error) => {
+          console.error(`Upload failed for ${filename}:`, error)
+        },
+      })
       
-      if (useChunkedUpload) {
-        // Use chunked upload for large batches
-        setIsUploading(true)
-        
-        data = await analyzeBatchChunked(files, jdText, null, null, {
-          onFileProgress: (filename, progress) => {
-            setUploadProgress(prev => ({
-              ...prev,
-              [filename]: progress
-            }))
-          },
-          onOverallProgress: (progress) => {
-            setOverallProgress(progress)
-          },
-          onFileComplete: (filename) => {
-            console.log(`Upload complete: ${filename}`)
-          },
-          onFileError: (filename, error) => {
-            console.error(`Upload failed for ${filename}:`, error)
-          },
-        })
-        
-        setIsUploading(false)
-      } else {
-        // Use regular upload for small batches
-        data = await analyzeBatch(files, jdText)
-      }
+      setIsUploading(false)
       
       setResults(data)
       setSelected([])
