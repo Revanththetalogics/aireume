@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, X, Loader2, Trophy, AlertTriangle, Download, BookOpen, LayoutTemplate, BookmarkPlus, Check, Sparkles } from 'lucide-react'
 import { analyzeBatch, analyzeBatchChunked, exportCsv, exportExcel, getTemplates, createTemplate } from '../lib/api'
@@ -26,10 +26,11 @@ function RecommendBadge({ rec }) {
 
 export default function BatchPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [files, setFiles]         = useState([])
   const [jdText, setJdText]       = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [results, setResults]     = useState(null)
+  const [results, setResults]     = useState(location.state?.results || null)
   const [error, setError]         = useState('')
   const [selected, setSelected]   = useState([])
 
@@ -49,6 +50,13 @@ export default function BatchPage() {
   const [uploadProgress, setUploadProgress] = useState({})
   const [overallProgress, setOverallProgress] = useState(null)
   const [isUploading, setIsUploading] = useState(false)
+
+  // Restore results from navigation state (when coming back from report page)
+  useEffect(() => {
+    if (location.state?.results) {
+      setResults(location.state.results)
+    }
+  }, [location.state])
 
   useEffect(() => {
     getTemplates().then(setSavedJds).catch(() => {})
