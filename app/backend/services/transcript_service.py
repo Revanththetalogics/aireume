@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
+from app.backend.services.pii_redaction_service import get_pii_service
+from app.backend.services.evidence_validation_service import get_evidence_service
 
 logger = logging.getLogger(__name__)
 
@@ -98,15 +100,21 @@ def _build_transcript_prompt(
     jd_summary = jd_text[:600] if len(jd_text) > 600 else jd_text
     transcript_summary = transcript[:3000] if len(transcript) > 3000 else transcript
 
-    return f"""You are a fair and unbiased hiring analyst. Evaluate ONLY the content, skills, and knowledge demonstrated in this interview transcript — do NOT consider names, accents, speech style, or any demographic factors.
+    return f"""You are a fair and unbiased hiring analyst. Evaluate ONLY the content, skills, and knowledge demonstrated in this interview transcript.
+
+CRITICAL REQUIREMENTS:
+1. Every strength MUST include a direct quote from the transcript as evidence
+2. Every JD alignment item MUST cite specific transcript evidence
+3. If you cannot find evidence for a requirement, mark demonstrated=false
+4. Do NOT infer skills not explicitly discussed
+5. Do NOT make assumptions based on candidate background
+6. All evidence quotes must be EXACT quotes from the transcript
 
 JOB DESCRIPTION:
 {jd_summary}
 
-INTERVIEW TRANSCRIPT (candidate: {candidate_name or 'Unknown'}):
+INTERVIEW TRANSCRIPT:
 {transcript_summary}
-
-Analyze the candidate's answers strictly on merit against the job description.
 
 Return ONLY valid JSON with this exact structure:
 {{
@@ -114,12 +122,36 @@ Return ONLY valid JSON with this exact structure:
   "technical_depth": <integer 0-100>,
   "communication_quality": <integer 0-100>,
   "jd_alignment": [
-    {{"requirement": "<JD requirement>", "demonstrated": true/false, "evidence": "<brief quote or null>"}}
+    {{
+      "requirement": "<JD requirement>",
+      "demonstrated": true/false,
+      "evidence": "<exact quote from transcript or null>",
+      "confidence": "<high|medium|low>"
+    }}
   ],
-  "strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
-  "areas_for_improvement": ["<area 1>", "<area 2>"],
+  "strengths": [
+    {{
+      "strength": "<identified strength>",
+      "evidence": "<exact quote supporting this strength>"
+    }}
+  ],
+  "areas_for_improvement": [
+    {{
+      "area": "<improvement area>",
+      "reason": "<why this is an area for improvement>",
+      "evidence": "<quote showing gap or null>"
+    }}
+  ],
+  "red_flags": [
+    {{
+      "flag": "<concerning statement or behavior>",
+      "evidence": "<exact quote>",
+      "severity": "<high|medium|low>"
+    }}
+  ],
   "bias_note": "Evaluation based solely on demonstrated skills and knowledge in the transcript.",
-  "recommendation": "<proceed|hold|reject>"
+  "recommendation": "<proceed|hold|reject>",
+  "recommendation_rationale": "<2-3 sentence explanation citing specific evidence>"
 }}
 
 JSON:"""
@@ -149,17 +181,48 @@ def _normalize(data: Dict[str, Any]) -> Dict[str, Any]:
     technical_depth     = max(0, min(100, int(data.get("technical_depth", 50))))
     communication_quality = max(0, min(100, int(data.get("communication_quality", 50))))
 
+    # Normalize JD alignment with confidence
     jd_alignment = [
         {
             "requirement":  item.get("requirement", ""),
             "demonstrated": bool(item.get("demonstrated", False)),
             "evidence":     item.get("evidence"),
+            "confidence":   item.get("confidence", "medium"),
         }
         for item in data.get("jd_alignment", [])
     ]
 
-    strengths = [s for s in data.get("strengths", []) if s][:6]
-    areas     = [a for a in data.get("areas_for_improvement", []) if a][:4]
+    # Normalize strengths (support both old and new format)
+    raw_strengths = data.get("strengths", [])
+    strengths = []
+    for s in raw_strengths:
+        if isinstance(s, dict):
+            strengths.append(s)
+        elif isinstance(s, str) and s:
+            # Old format - convert to new format
+            strengths.append({"strength": s, "evidence": None})
+    strengths = strengths[:6]
+
+    # Normalize areas for improvement
+    raw_areas = data.get("areas_for_improvement", [])
+    areas = []
+    for a in raw_areas:
+        if isinstance(a, dict):
+            areas.append(a)
+        elif isinstance(a, str) and a:
+            # Old format - convert to new format
+            areas.append({"area": a, "reason": None, "evidence": None})
+    areas = areas[:4]
+
+    # Normalize red flags
+    red_flags = [
+        {
+            "flag": item.get("flag", ""),
+            "evidence": item.get("evidence"),
+            "severity": item.get("severity", "medium"),
+        }
+        for item in data.get("red_flags", [])
+    ][:5]  # Max 5 red flags
 
     rec = data.get("recommendation", "hold").lower()
     if rec not in ("proceed", "hold", "reject"):
@@ -172,11 +235,13 @@ def _normalize(data: Dict[str, Any]) -> Dict[str, Any]:
         "jd_alignment":         jd_alignment,
         "strengths":            strengths,
         "areas_for_improvement": areas,
+        "red_flags":            red_flags,
         "bias_note":            data.get(
             "bias_note",
             "Evaluation based solely on demonstrated skills and knowledge in the transcript."
         ),
         "recommendation":       rec,
+        "recommendation_rationale": data.get("recommendation_rationale", ""),
     }
 
 
@@ -186,10 +251,14 @@ def _fallback_result() -> Dict[str, Any]:
         "technical_depth":      50,
         "communication_quality": 50,
         "jd_alignment":         [],
-        "strengths":            ["Analysis temporarily unavailable"],
-        "areas_for_improvement": ["Could not complete detailed analysis"],
+        "strengths":            [{"strength": "Analysis temporarily unavailable", "evidence": None}],
+        "areas_for_improvement": [{"area": "Could not complete detailed analysis", "reason": None, "evidence": None}],
+        "red_flags":            [],
         "bias_note":            "Evaluation based solely on demonstrated skills and knowledge in the transcript.",
         "recommendation":       "hold",
+        "recommendation_rationale": "Analysis could not be completed.",
+        "pii_redacted":         False,
+        "evidence_quality_score": 0,
     }
 
 
@@ -197,14 +266,40 @@ async def analyze_transcript(
     transcript: str,
     jd_text: str,
     candidate_name: str = "",
+    enable_pii_redaction: bool = True,
+    enable_evidence_validation: bool = True,
 ) -> Dict[str, Any]:
     """
-    Send the cleaned transcript + job description to Ollama and return a
-    structured, unbiased analysis result dict.
+    Enterprise-grade transcript analysis with PII redaction and evidence validation.
+    
+    Args:
+        transcript: Cleaned transcript text
+        jd_text: Job description
+        candidate_name: Candidate name (will be redacted if PII redaction enabled)
+        enable_pii_redaction: Redact PII before analysis (default: True)
+        enable_evidence_validation: Validate evidence citations (default: True)
+        
+    Returns:
+        Analysis result with scores, evidence, and validation metrics
     """
     if not transcript or len(transcript) < 30:
         return _fallback_result()
 
+    original_transcript = transcript
+    redaction_result = None
+    
+    # Step 1: PII Redaction
+    if enable_pii_redaction:
+        try:
+            pii_service = get_pii_service()
+            redaction_result = pii_service.redact_pii(transcript)
+            transcript = redaction_result.redacted_text
+            candidate_name = "CANDIDATE"  # Always use generic name after redaction
+            logger.info(f"PII redaction: {redaction_result.redaction_count} entities redacted")
+        except Exception as e:
+            logger.warning(f"PII redaction failed: {e}. Proceeding without redaction.")
+    
+    # Step 2: LLM Analysis
     prompt = _build_transcript_prompt(transcript, jd_text, candidate_name)
 
     try:
@@ -213,10 +308,10 @@ async def analyze_transcript(
             logger.info("Waiting for Ollama slot (another request in progress)...")
         async with sem:
             headers = get_ollama_headers(OLLAMA_BASE_URL)
-            # Cloud models need more tokens for verbose output
+            # Cloud models need more tokens for structured output with evidence
             _is_cloud = _is_ollama_cloud_local(OLLAMA_BASE_URL)
-            _num_predict = 1200 if _is_cloud else 600
-            async with httpx.AsyncClient(timeout=90.0) as client:
+            _num_predict = 2000 if _is_cloud else 1000  # Increased for evidence citations
+            async with httpx.AsyncClient(timeout=120.0) as client:  # Increased timeout
                 resp = await client.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
                     headers=headers,
@@ -232,8 +327,47 @@ async def analyze_transcript(
                 raw = resp.json().get("response", "{}")
                 parsed = _parse_json_response(raw)
                 if parsed:
-                    return _normalize(parsed)
-    except Exception:
-        pass
+                    result = _normalize(parsed)
+                    
+                    # Step 3: Evidence Validation
+                    if enable_evidence_validation:
+                        try:
+                            evidence_service = get_evidence_service()
+                            validation_report = evidence_service.validate_analysis_result(
+                                result, transcript
+                            )
+                            
+                            # Add validation metrics to result
+                            result["evidence_validation"] = {
+                                "total_claims": validation_report.total_claims,
+                                "verified_claims": validation_report.verified_claims,
+                                "hallucinated_claims": validation_report.hallucinated_claims,
+                                "fuzzy_matches": validation_report.fuzzy_matches,
+                                "unsupported_claims": validation_report.unsupported_claims[:3],  # First 3
+                            }
+                            result["evidence_quality_score"] = validation_report.evidence_quality_score
+                            
+                            logger.info(
+                                f"Evidence validation: {validation_report.verified_claims}/{validation_report.total_claims} "
+                                f"claims verified (score: {validation_report.evidence_quality_score:.1f})"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Evidence validation failed: {e}")
+                            result["evidence_quality_score"] = 0
+                    
+                    # Add PII redaction metadata
+                    if redaction_result:
+                        result["pii_redacted"] = True
+                        result["pii_redaction_count"] = redaction_result.redaction_count
+                        result["bias_note"] = (
+                            "Evaluation performed on anonymized transcript with all identifying "
+                            "information redacted. Assessment based purely on demonstrated skills and knowledge."
+                        )
+                    else:
+                        result["pii_redacted"] = False
+                    
+                    return result
+    except Exception as e:
+        logger.error(f"Transcript analysis failed: {e}")
 
     return _fallback_result()
