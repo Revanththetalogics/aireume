@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Sparkles, TrendingUp, AlertCircle, Check, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import api from '../lib/api'
 
 export default function WeightSuggestionPanel({ 
   jobDescription, 
@@ -25,23 +26,17 @@ export default function WeightSuggestionPanel({
       const formData = new FormData()
       formData.append('job_description', jobDescription)
 
-      const response = await fetch('/api/analyze/suggest-weights', {
-        method: 'POST',
+      const response = await api.post('/analyze/suggest-weights', formData, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
+          'Content-Type': 'multipart/form-data'
+        }
       })
 
-      if (!response.ok) {
-        throw new Error('Failed to get weight suggestions')
-      }
-
-      const data = await response.json()
-      setSuggestion(data)
+      setSuggestion(response.data)
       setExpanded(true)
     } catch (err) {
-      setError(err.message)
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to get weight suggestions'
+      setError(errorMsg)
     } finally {
       setLoading(false)
     }
