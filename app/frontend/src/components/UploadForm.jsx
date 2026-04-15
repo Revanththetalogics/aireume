@@ -1,7 +1,9 @@
 import { useCallback, useState, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X, BookOpen, BookmarkPlus, Check, LayoutTemplate } from 'lucide-react'
+import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X, BookOpen, BookmarkPlus, Check, LayoutTemplate, Sparkles } from 'lucide-react'
 import { extractJdFromUrl, getTemplates, createTemplate } from '../lib/api'
+import WeightSuggestionPanel from './WeightSuggestionPanel'
+import UniversalWeightsPanel from './UniversalWeightsPanel'
 
 const WEIGHT_PRESETS = {
   Balanced:        { skills: 0.40, experience: 0.35, stability: 0.15, education: 0.10 },
@@ -92,7 +94,29 @@ export default function UploadForm({
   const [urlLoading, setUrlLoading]       = useState(false)
   const [urlError, setUrlError]           = useState('')
   const [showWeights, setShowWeights]     = useState(false)
-  const localWeights = scoringWeights || { skills: 0.40, experience: 0.35, stability: 0.15, education: 0.10 }
+  const [showAiSuggestion, setShowAiSuggestion] = useState(false)
+  const [useNewWeights, setUseNewWeights] = useState(true)
+  const [weightMetadata, setWeightMetadata] = useState(null)
+  
+  // Default to new 7-weight schema
+  const defaultNewWeights = {
+    core_competencies: 0.30,
+    experience: 0.20,
+    domain_fit: 0.20,
+    education: 0.10,
+    career_trajectory: 0.10,
+    role_excellence: 0.10,
+    risk: -0.10,
+  }
+  
+  const defaultOldWeights = { 
+    skills: 0.40, 
+    experience: 0.35, 
+    stability: 0.15, 
+    education: 0.10 
+  }
+  
+  const localWeights = scoringWeights || (useNewWeights ? defaultNewWeights : defaultOldWeights)
 
   // Saved JD library
   const [savedJds, setSavedJds]           = useState([])
@@ -434,6 +458,31 @@ export default function UploadForm({
           )}
         </div>
 
+        {/* AI Weight Suggestion */}
+        {jobDescription && jobDescription.trim().length > 100 && (
+          <div className="mb-6">
+            <button
+              onClick={() => setShowAiSuggestion(!showAiSuggestion)}
+              className="flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors mb-3"
+            >
+              <Sparkles className="w-4 h-4" />
+              AI Weight Suggestions
+              {showAiSuggestion ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            {showAiSuggestion && (
+              <WeightSuggestionPanel
+                jobDescription={jobDescription}
+                currentWeights={localWeights}
+                onWeightsAccepted={(weights) => {
+                  setUseNewWeights(true)
+                  onScoringWeightsChange && onScoringWeightsChange(weights)
+                  setShowWeights(true)
+                }}
+              />
+            )}
+          </div>
+        )}
+
         {/* Scoring Weights */}
         <div className="mb-6">
           <button
@@ -441,14 +490,38 @@ export default function UploadForm({
             className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-brand-700 transition-colors"
           >
             <SlidersHorizontal className="w-4 h-4" />
-            Scoring Weights
+            Scoring Weights {useNewWeights && '(7-Factor Universal)'}
             {showWeights ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
           {showWeights && (
-            <WeightsPanel
-              weights={localWeights}
-              onChange={(w) => onScoringWeightsChange && onScoringWeightsChange(w)}
-            />
+            <div className="mt-4">
+              {useNewWeights ? (
+                <UniversalWeightsPanel
+                  weights={localWeights}
+                  onChange={(w) => onScoringWeightsChange && onScoringWeightsChange(w)}
+                  roleCategory={weightMetadata?.role_category}
+                  roleExcellenceLabel={weightMetadata?.role_excellence_label}
+                />
+              ) : (
+                <WeightsPanel
+                  weights={localWeights}
+                  onChange={(w) => onScoringWeightsChange && onScoringWeightsChange(w)}
+                />
+              )}
+              <div className="mt-3 flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    setUseNewWeights(!useNewWeights)
+                    onScoringWeightsChange && onScoringWeightsChange(
+                      useNewWeights ? defaultOldWeights : defaultNewWeights
+                    )
+                  }}
+                  className="text-xs text-slate-500 hover:text-indigo-600 transition-colors"
+                >
+                  Switch to {useNewWeights ? 'Legacy (4-weight)' : 'Universal (7-weight)'} mode
+                </button>
+              </div>
+            </div>
           )}
         </div>
 

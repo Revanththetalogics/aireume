@@ -430,11 +430,25 @@ interview: 5 technical (probe missing skills), 3 behavioral STAR (address gaps),
 
 
 async def scorer_node(state: PipelineState) -> dict:
+    from app.backend.services.weight_mapper import convert_to_new_schema
+    
     sa  = state.get("skill_analysis", {})
     eta = state.get("edu_timeline_analysis", {})
     cp  = state.get("candidate_profile", {})
     jd  = state.get("jd_analysis", {})
-    w   = _normalize_weights({**DEFAULT_WEIGHTS, **(state.get("scoring_weights") or {})})
+    
+    # Convert incoming weights to new schema, then map to old internal keys
+    new_weights = convert_to_new_schema(state.get("scoring_weights"))
+    w = {
+        "skills":       new_weights.get("core_competencies", 0.30),
+        "experience":   new_weights.get("experience", 0.20),
+        "architecture": new_weights.get("role_excellence", 0.15),
+        "education":    new_weights.get("education", 0.10),
+        "timeline":     new_weights.get("career_trajectory", 0.10),
+        "domain":       new_weights.get("domain_fit", 0.10),
+        "risk":         new_weights.get("risk", 0.15),
+    }
+    w = _normalize_weights(w)
 
     missing_skills = sa.get("missing_skills", [])
     fallback_iq = {

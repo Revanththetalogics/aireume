@@ -345,7 +345,39 @@ async def analyze_existing_candidate(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
-    # Persist result
+    # ── Version Management ────────────────────────────────────────────────────
+    # When re-analyzing with potentially different weights, create a new version
+    # and archive the old one (Option C: Hybrid versioning approach)
+    
+    # Find current active version for this candidate (if any)
+    current_version = db.query(ScreeningResult).filter(
+        ScreeningResult.candidate_id == candidate_id,
+        ScreeningResult.is_active == True,
+    ).first()
+    
+    # Determine next version number
+    max_version = db.query(ScreeningResult).filter(
+        ScreeningResult.candidate_id == candidate_id
+    ).count()
+    next_version = max_version + 1
+    
+    # Archive current active version
+    if current_version:
+        current_version.is_active = False
+        logger.info(f"Archived version {current_version.version_number} for candidate {candidate_id}")
+    
+    # Extract weight metadata from JD analysis
+    weight_suggestion = jd_analysis.get("weight_suggestion")
+    role_category = None
+    weight_reasoning = None
+    suggested_weights_json = None
+    
+    if weight_suggestion:
+        role_category = weight_suggestion.get("role_category")
+        weight_reasoning = weight_suggestion.get("reasoning")
+        suggested_weights_json = json.dumps(weight_suggestion.get("suggested_weights", {}), default=_json_default)
+    
+    # Create new version as active
     db_result = ScreeningResult(
         tenant_id=current_user.tenant_id,
         candidate_id=candidate_id,
@@ -353,10 +385,17 @@ async def analyze_existing_candidate(
         jd_text=body.job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
         analysis_result=json.dumps(result, default=_json_default),
+        is_active=True,
+        version_number=next_version,
+        role_category=role_category,
+        weight_reasoning=weight_reasoning,
+        suggested_weights_json=suggested_weights_json,
     )
     db.add(db_result)
     db.commit()
     db.refresh(db_result)
+    
+    logger.info(f"Created version {next_version} for candidate {candidate_id} (now active)")
 
     result["result_id"]      = db_result.id
     result["candidate_id"]   = candidate_id

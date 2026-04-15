@@ -72,16 +72,55 @@ def _json_default(obj):
 
 # ─── JD cache helpers ─────────────────────────────────────────────────────────
 
-def _get_or_cache_jd(db: Session, job_description: str) -> dict:
-    """Parse the JD or return the cached result. Shared across all workers via DB."""
+def _get_or_cache_jd(db: Session, job_description: str, suggest_weights: bool = False) -> dict:
+    """
+    Parse the JD or return the cached result. Shared across all workers via DB.
+    
+    Args:
+        db: Database session
+        job_description: Job description text
+        suggest_weights: If True, include LLM weight suggestions in result
+        
+    Returns:
+        JD analysis dict, optionally with 'weight_suggestion' key
+    """
     jd_hash = hashlib.md5(job_description[:2000].encode()).hexdigest()
     cached = db.query(JdCache).filter(JdCache.hash == jd_hash).first()
     if cached:
         try:
-            return json.loads(cached.result_json)
+            jd_analysis = json.loads(cached.result_json)
+            
+            # If weights requested but not in cache, generate them now
+            if suggest_weights and "weight_suggestion" not in jd_analysis:
+                from app.backend.services.weight_suggester import suggest_weights_for_jd
+                weight_suggestion = suggest_weights_for_jd(job_description, timeout=30)
+                if weight_suggestion:
+                    jd_analysis["weight_suggestion"] = weight_suggestion
+                    # Update cache with weight suggestion
+                    try:
+                        cached.result_json = json.dumps(jd_analysis, default=_json_default)
+                        db.commit()
+                    except Exception as e:
+                        log.warning("Non-critical: Failed to update JD cache with weights: %s", e)
+                        db.rollback()
+            
+            return jd_analysis
         except Exception as e:
             log.warning("Non-critical: Failed to parse cached JD JSON, re-parsing: %s", e)
+    
+    # Parse JD
     jd_analysis = parse_jd_rules(job_description)
+    
+    # Add weight suggestion if requested
+    if suggest_weights:
+        from app.backend.services.weight_suggester import suggest_weights_for_jd
+        weight_suggestion = suggest_weights_for_jd(job_description, timeout=30)
+        if weight_suggestion:
+            jd_analysis["weight_suggestion"] = weight_suggestion
+            log.info(f"Weight suggestion: {weight_suggestion['role_category']} role, "
+                    f"confidence: {weight_suggestion.get('confidence', 0)}")
+    
+    # Cache result
     try:
         db.merge(JdCache(hash=jd_hash, result_json=json.dumps(jd_analysis, default=_json_default)))
         db.commit()
@@ -91,6 +130,7 @@ def _get_or_cache_jd(db: Session, job_description: str) -> dict:
             db.rollback()
         except Exception as rollback_err:
             log.warning("Non-critical: Rollback also failed: %s", rollback_err)
+    
     return jd_analysis
 
 
@@ -598,6 +638,17 @@ async def analyze_endpoint(
         action=action,
     )
 
+    # Extract weight metadata from JD analysis if available
+    weight_suggestion = jd_analysis.get("weight_suggestion")
+    role_category = None
+    weight_reasoning = None
+    suggested_weights_json = None
+    
+    if weight_suggestion:
+        role_category = weight_suggestion.get("role_category")
+        weight_reasoning = weight_suggestion.get("reasoning")
+        suggested_weights_json = json.dumps(weight_suggestion.get("suggested_weights", {}), default=_json_default)
+    
     db_result = ScreeningResult(
         tenant_id=current_user.tenant_id,
         candidate_id=candidate_id,
@@ -605,6 +656,11 @@ async def analyze_endpoint(
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
         analysis_result="{}",  # Placeholder — will be updated
+        is_active=True,
+        version_number=1,
+        role_category=role_category,
+        weight_reasoning=weight_reasoning,
+        suggested_weights_json=suggested_weights_json,
     )
     db.add(db_result)
     db.commit()
@@ -1318,6 +1374,62 @@ def update_status(
     result.status = new_status
     db.commit()
     return {"id": result_id, "status": new_status}
+
+
+# ─── Weight suggestion endpoint ──────────────────────────────────────────────
+
+@router.post("/analyze/suggest-weights")
+async def suggest_weights(
+    job_description: str = Form(...),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Suggest optimal scoring weights based on job description analysis.
+    
+    This endpoint analyzes the JD and returns AI-suggested weights without
+    performing a full resume analysis. Frontend can use this to show suggested
+    weights before the user uploads a resume.
+    
+    Returns:
+        {
+            "role_category": "technical|sales|hr|marketing|etc",
+            "seniority_level": "junior|mid|senior|lead|executive",
+            "suggested_weights": {...},
+            "role_excellence_label": "...",
+            "reasoning": "...",
+            "confidence": 0.0-1.0
+        }
+    """
+    from app.backend.services.weight_suggester import suggest_weights_for_jd, create_fallback_suggestion
+    
+    # Validate JD length
+    if not job_description or len(job_description.strip()) < 50:
+        raise HTTPException(
+            status_code=400,
+            detail="Job description is too short. Please provide at least 50 characters."
+        )
+    
+    if len(job_description.split()) < 80:
+        raise HTTPException(
+            status_code=400,
+            detail="Job description is too brief (under 80 words). Please include role details for accurate weight suggestions."
+        )
+    
+    # Get weight suggestions from LLM
+    try:
+        suggestion = suggest_weights_for_jd(job_description, timeout=30)
+        
+        if suggestion:
+            return suggestion
+        else:
+            # LLM failed, return fallback
+            log.warning("LLM weight suggestion failed, using fallback")
+            return create_fallback_suggestion(job_description)
+            
+    except Exception as e:
+        log.exception(f"Error in weight suggestion endpoint: {e}")
+        # Return fallback on error
+        return create_fallback_suggestion(job_description)
 
 
 # ─── Narrative polling endpoint ───────────────────────────────────────────────

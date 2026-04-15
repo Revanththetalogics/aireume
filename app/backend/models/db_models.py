@@ -142,6 +142,13 @@ class ScreeningResult(Base):
     narrative_error    = Column(Text, nullable=True)            # error details when failed (null when successful)
     status             = Column(String(50), default="pending")  # pending/shortlisted/rejected/in-review/hired
     timestamp          = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    
+    # Intelligent scoring weights system (v009 migration)
+    is_active              = Column(Boolean, nullable=True, default=True)   # Marks current version for version management
+    version_number         = Column(Integer, nullable=True, default=1)     # Version tracking for re-scoring scenarios
+    role_category          = Column(String(50), nullable=True)             # Detected role type (technical/sales/hr/etc)
+    weight_reasoning       = Column(Text, nullable=True)                   # LLM explanation for suggested weights
+    suggested_weights_json = Column(Text, nullable=True)                   # Original AI-suggested weights (JSON)
 
     tenant        = relationship("Tenant", back_populates="results")
     candidate     = relationship("Candidate", back_populates="results")
@@ -211,9 +218,39 @@ class TranscriptAnalysis(Base):
 
     candidate     = relationship("Candidate", back_populates="transcript_analyses")
     role_template = relationship("RoleTemplate", back_populates="transcript_analyses")
+    adverse_action_reports = relationship("AdverseActionReport", back_populates="transcript_analysis")
 
 
 # ─── Custom AI training ───────────────────────────────────────────────────────
+
+class AdverseActionReport(Base):
+    """Legally compliant adverse action documentation for hiring decisions."""
+    __tablename__ = "adverse_action_reports"
+
+    id                      = Column(Integer, primary_key=True, index=True)
+    tenant_id               = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    candidate_id            = Column(Integer, ForeignKey("candidates.id"), nullable=True)
+    transcript_analysis_id  = Column(Integer, ForeignKey("transcript_analyses.id"), nullable=True)
+    report_json             = Column(Text, nullable=False)  # Full report with all details
+    decision                = Column(String(20), nullable=False)  # proceed/hold/reject
+    created_at              = Column(DateTime(timezone=True), server_default=func.now())
+
+    transcript_analysis = relationship("TranscriptAnalysis", back_populates="adverse_action_reports")
+
+
+class CalibrationLog(Base):
+    """Calibration and drift detection logs for quality assurance."""
+    __tablename__ = "calibration_logs"
+
+    id                      = Column(Integer, primary_key=True, index=True)
+    tenant_id               = Column(Integer, nullable=True)  # NULL = system-wide
+    average_drift           = Column(Float, nullable=False)
+    max_drift               = Column(Float, nullable=False)
+    recommendation_accuracy = Column(Float, nullable=False)
+    status                  = Column(String(20), nullable=False)  # OK / ALERT
+    results_json            = Column(Text, nullable=False)  # Full calibration results
+    created_at              = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class TrainingExample(Base):
     __tablename__ = "training_examples"

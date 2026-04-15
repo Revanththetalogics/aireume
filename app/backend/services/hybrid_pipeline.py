@@ -1051,8 +1051,29 @@ _DEFAULT_WEIGHTS = {
 
 
 def compute_fit_score(scores: Dict[str, Any], scoring_weights: Optional[Dict] = None) -> Dict[str, Any]:
-    """Compute weighted fit score, risk signals, and recommendation."""
-    w = {**_DEFAULT_WEIGHTS, **(scoring_weights or {})}
+    """
+    Compute weighted fit score, risk signals, and recommendation.
+    
+    Supports both old and new weight schemas for backward compatibility:
+    - Old schema: skills, experience, architecture, education, timeline, domain, risk
+    - New schema: core_competencies, experience, domain_fit, education, career_trajectory, role_excellence, risk
+    """
+    from app.backend.services.weight_mapper import convert_to_new_schema
+    
+    # Convert incoming weights to new schema (handles old, new, or legacy formats)
+    new_weights = convert_to_new_schema(scoring_weights)
+    
+    # Map new schema back to old internal keys for scoring calculation
+    # This maintains backward compatibility with existing scoring logic
+    w = {
+        "skills":       new_weights.get("core_competencies", 0.30),
+        "experience":   new_weights.get("experience", 0.20),
+        "architecture": new_weights.get("role_excellence", 0.15),
+        "education":    new_weights.get("education", 0.10),
+        "timeline":     new_weights.get("career_trajectory", 0.10),
+        "domain":       new_weights.get("domain_fit", 0.10),
+        "risk":         new_weights.get("risk", 0.15),
+    }
 
     skill_score    = scores.get("skill_score",    50)
     exp_score      = scores.get("exp_score",       50)
