@@ -431,6 +431,12 @@ interview: 5 technical (probe missing skills), 3 behavioral STAR (address gaps),
 
 async def scorer_node(state: PipelineState) -> dict:
     from app.backend.services.weight_mapper import convert_to_new_schema
+    from app.backend.services.resume_calibration_service import (
+        get_role_calibration,
+        get_similar_analyses,
+        format_calibration_context,
+        format_similar_analyses_context
+    )
     
     sa  = state.get("skill_analysis", {})
     eta = state.get("edu_timeline_analysis", {})
@@ -449,6 +455,27 @@ async def scorer_node(state: PipelineState) -> dict:
         "risk":         new_weights.get("risk", 0.15),
     }
     w = _normalize_weights(w)
+    
+    # Get calibration context for RAG learning (if db session and tenant_id available)
+    calibration_context = ""
+    similar_context = ""
+    try:
+        db_session = state.get("db_session")
+        tenant_id = state.get("tenant_id")
+        role_category = state.get("role_category", "general")
+        jd_text = state.get("job_description", "")
+        
+        if db_session and tenant_id:
+            # Get calibration data
+            calibration = get_role_calibration(role_category, tenant_id, db_session)
+            calibration_context = format_calibration_context(calibration)
+            
+            # Get similar analyses
+            similar_analyses = get_similar_analyses(jd_text, role_category, tenant_id, db_session, limit=3)
+            similar_context = format_similar_analyses_context(similar_analyses)
+    except Exception as e:
+        # Calibration is optional - don't fail if it errors
+        logger.debug(f"Calibration context unavailable: {e}")
 
     missing_skills = sa.get("missing_skills", [])
     fallback_iq = {
@@ -470,7 +497,9 @@ async def scorer_node(state: PipelineState) -> dict:
 
     try:
         llm    = get_reasoning_llm()
-        prompt = _SCORER_PROMPT.format(
+        
+        # Build enhanced prompt with calibration context
+        base_prompt = _SCORER_PROMPT.format(
             role_title=jd.get("role_title", ""),
             domain=jd.get("domain", "other"),
             skill_score=sa.get("skill_score", 0),
@@ -490,6 +519,17 @@ async def scorer_node(state: PipelineState) -> dict:
             w_architecture=w["architecture"], w_education=w["education"],
             w_timeline=w["timeline"], w_domain=w["domain"], w_risk=w["risk"],
         )
+        
+        # Inject calibration context if available
+        if calibration_context or similar_context:
+            enhanced_prompt = f"""{calibration_context}{similar_context}
+
+Now analyze this candidate using similar reasoning and maintain consistency with past decisions.
+
+{base_prompt}"""
+            prompt = enhanced_prompt
+        else:
+            prompt = base_prompt
         resp   = await llm.ainvoke(prompt)
         result = _parse_json(resp.content, {**fallback_scores, "interview_questions": fallback_iq})
 
@@ -705,8 +745,27 @@ async def run_agent_pipeline(
     parsed_data:     dict,
     gap_analysis:    dict,
     scoring_weights: Optional[Dict[str, float]] = None,
+    db_session:      Optional[Any] = None,
+    tenant_id:       Optional[int] = None,
+    role_category:   Optional[str] = None,
 ) -> dict:
-    """Run the full pipeline and return the assembled result dict (non-streaming)."""
-    state       = build_initial_state(resume_text, job_description, gap_analysis, scoring_weights)
+    """
+    Run the full pipeline and return the assembled result dict (non-streaming).
+    
+    Args:
+        db_session: Database session for calibration (optional)
+        tenant_id: Tenant ID for calibration (optional)
+        role_category: Role category for calibration (optional)
+    """
+    state = build_initial_state(resume_text, job_description, gap_analysis, scoring_weights)
+    
+    # Add calibration context to state if available
+    if db_session:
+        state["db_session"] = db_session
+    if tenant_id:
+        state["tenant_id"] = tenant_id
+    if role_category:
+        state["role_category"] = role_category
+    
     final_state = await pipeline.ainvoke(state)
     return assemble_result(final_state, parsed_data, gap_analysis)
