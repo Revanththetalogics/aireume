@@ -449,6 +449,9 @@ describe('useUsageCheck', () => {
   })
 
   it('should check usage before analysis with local check', async () => {
+    // Mock checkUsage to return allowed
+    api.checkUsage.mockResolvedValue(mockUsageAllowed)
+    
     const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
     const { result } = renderHook(() => useUsageCheck(), { wrapper })
 
