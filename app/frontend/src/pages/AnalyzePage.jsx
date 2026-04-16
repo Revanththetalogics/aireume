@@ -236,7 +236,7 @@ export default function AnalyzePage() {
       await createTemplate({
         name: templateName,
         jd_text: jdMode === 'text' ? jdText : `[File: ${jdFile.name}]`,
-        scoring_weights: JSON.stringify(weights),
+        scoring_weights: weights,
         tags: roleCategory
       })
 
