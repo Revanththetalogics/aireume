@@ -1,14 +1,14 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Users, LayoutTemplate, UserCircle, LogOut, ChevronDown, Upload, GitCompare, Users2, Video, MessageSquareText, Settings } from 'lucide-react'
+import { Sparkles, Users, LayoutTemplate, UserCircle, LogOut, ChevronDown, GitCompare, Users2, Video, MessageSquareText, Settings, LayoutDashboard } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 const NAV_LINKS = [
-  { to: '/',            label: 'Analyze',    icon: Sparkles },
-  { to: '/batch',       label: 'Batch',      icon: Upload },
+  { to: '/',            label: 'Dashboard',  icon: LayoutDashboard },
+  { to: '/analyze',     label: 'Analyze',    icon: Sparkles },
   { to: '/candidates',  label: 'Candidates', icon: Users },
   { to: '/compare',     label: 'Compare',    icon: GitCompare },
-  { to: '/templates',   label: 'Templates',  icon: LayoutTemplate },
+  { to: '/jd-library',  label: 'JD Library', icon: LayoutTemplate },
   { to: '/video',       label: 'Video',      icon: Video },
   { to: '/transcript',  label: 'Transcript', icon: MessageSquareText },
   { to: '/team',        label: 'Team',       icon: Users2 },

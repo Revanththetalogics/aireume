@@ -6,6 +6,12 @@ import ProtectedRoute from './components/ProtectedRoute'
 import AppShell from './components/AppShell'
 import ErrorBoundary from './components/ErrorBoundary'
 
+// New pages
+const DashboardNew = lazy(() => import('./pages/DashboardNew'))
+const AnalyzePage  = lazy(() => import('./pages/AnalyzePage'))
+const JDLibraryPage = lazy(() => import('./pages/JDLibraryPage'))
+
+// Existing pages
 const Dashboard    = lazy(() => import('./pages/Dashboard'))
 const ReportPage   = lazy(() => import('./pages/ReportPage'))
 const LoginPage    = lazy(() => import('./pages/LoginPage'))
@@ -43,18 +49,32 @@ function App() {
       <ErrorBoundary>
         <Suspense fallback={<PageLoader />}>
           <Routes>
+          {/* Public routes */}
           <Route path="/login"      element={<LoginPage />} />
           <Route path="/register"   element={<RegisterPage />} />
-          <Route path="/"           element={<Shell><Dashboard /></Shell>} />
+          
+          {/* New routes */}
+          <Route path="/"           element={<Shell><DashboardNew /></Shell>} />
+          <Route path="/analyze"    element={<Shell><AnalyzePage /></Shell>} />
+          <Route path="/jd-library" element={<Shell><JDLibraryPage /></Shell>} />
+          
+          {/* Existing routes */}
           <Route path="/report"     element={<Shell><ReportPage /></Shell>} />
-          <Route path="/batch"      element={<Shell><BatchPage /></Shell>} />
           <Route path="/candidates" element={<Shell><CandidatesPage /></Shell>} />
           <Route path="/compare"    element={<Shell><ComparePage /></Shell>} />
-          <Route path="/templates"  element={<Shell><TemplatesPage /></Shell>} />
           <Route path="/team"       element={<Shell><TeamPage /></Shell>} />
           <Route path="/transcript" element={<Shell><TranscriptPage /></Shell>} />
           <Route path="/video"      element={<Shell><VideoPage /></Shell>} />
           <Route path="/settings"   element={<Shell><SettingsPage /></Shell>} />
+          
+          {/* Backward compatibility redirects */}
+          <Route path="/batch"      element={<Navigate to="/analyze" replace />} />
+          <Route path="/templates"  element={<Navigate to="/jd-library" replace />} />
+          
+          {/* Legacy route for old dashboard (kept for compatibility) */}
+          <Route path="/dashboard-old" element={<Shell><Dashboard /></Shell>} />
+          
+          {/* Catch all */}
           <Route path="*"           element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
