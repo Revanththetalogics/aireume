@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '010_add_jd_text'
-down_revision = '009_intelligent_scoring_weights'
+down_revision = '009'
 branch_labels = None
 depends_on = None
 
