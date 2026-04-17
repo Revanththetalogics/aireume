@@ -281,20 +281,39 @@ export async function analyzeResumeStream(
 
       try {
         const event = JSON.parse(raw)
+        console.log('[SSE] Received event:', event.stage, event)
+        
         if (event.stage === 'complete') {
           finalResult = event.result
+          console.log('[SSE] Final result captured:', finalResult?.fit_score)
+        } else if (event.stage === 'parsing') {
+          // Parsing stage also contains the result - use as fallback
+          if (!finalResult && event.result) {
+            console.log('[SSE] Storing parsing result as fallback')
+            finalResult = event.result
+          }
+          if (onStageComplete) {
+            onStageComplete(event)
+          }
+        } else if (event.stage === 'error') {
+          throw new Error(event.result?.message || 'Analysis failed')
         } else if (onStageComplete) {
           onStageComplete(event)
         }
-      } catch { /* malformed event — skip */ }
+      } catch (parseError) {
+        console.error('[SSE] Failed to parse event:', raw, parseError)
+        // Don't throw - continue processing other events
+      }
     }
     
     if (streamDone) break
   }
 
   if (!finalResult) {
+    console.error('[SSE] Stream ended without final result')
     throw new Error('Stream ended without a complete result.')
   }
+  console.log('[SSE] Returning final result:', finalResult?.fit_score)
   return finalResult
 }
 
