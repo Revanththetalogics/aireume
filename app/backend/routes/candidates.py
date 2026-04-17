@@ -171,11 +171,20 @@ def get_candidate(
             None
         )
         
+        # Parse and merge narrative_json if available
+        narrative_data = {}
+        if r.narrative_json:
+            try:
+                narrative_data = json.loads(r.narrative_json)
+            except Exception as e:
+                logger.warning("Non-critical: Failed to parse narrative_json for result %s: %s", r.id, e)
+        
         # Include all fields needed by ReportPage
         history.append({
             # Core fields
             "id":                   r.id,
             "result_id":            r.id,
+            "analysis_id":          r.id,  # For narrative polling
             "timestamp":            r.timestamp,
             "status":               r.status,
             "candidate_id":         r.candidate_id,
@@ -183,6 +192,9 @@ def get_candidate(
             
             # Analysis fields (spread all analysis data)
             **analysis,
+            
+            # Merge narrative data (strengths, weaknesses, etc.)
+            **narrative_data,
             
             # Parsed data
             "parsed_data":          r.parsed_data,
@@ -193,10 +205,10 @@ def get_candidate(
             "skills":               parsed.get("skills", []),
             
             # Narrative fields for AI enhancement status
-            "narrative_status":     r.narrative_status,
-            "narrative_json":       r.narrative_json,
+            "narrative_status":     r.narrative_status or "pending",
             "narrative_error":      r.narrative_error,
             "ai_enhanced":          r.narrative_status == "ready" and r.narrative_json is not None,
+            "narrative_pending":    r.narrative_status in ("pending", "processing"),
         })
 
     # Skills snapshot from stored profile
