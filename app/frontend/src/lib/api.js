@@ -258,6 +258,7 @@ export async function analyzeResumeStream(
   const decoder = new TextDecoder()
   let   buffer  = ''
   let   finalResult = null
+  let   streamDone = false
 
   while (true) {
     const { done, value } = await reader.read()
@@ -273,7 +274,10 @@ export async function analyzeResumeStream(
       const line = part.trim()
       if (!line.startsWith('data: ')) continue
       const raw = line.slice(6).trim()
-      if (raw === '[DONE]') break
+      if (raw === '[DONE]') {
+        streamDone = true
+        break
+      }
 
       try {
         const event = JSON.parse(raw)
@@ -284,6 +288,8 @@ export async function analyzeResumeStream(
         }
       } catch { /* malformed event — skip */ }
     }
+    
+    if (streamDone) break
   }
 
   if (!finalResult) {
