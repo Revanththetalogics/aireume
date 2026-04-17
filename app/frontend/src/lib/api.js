@@ -445,8 +445,8 @@ export async function getCandidate(id) {
 }
 
 export async function updateCandidateName(candidateId, name) {
-  const res = await api.patch(`/candidates/${candidateId}`, { name })
-  return res.data
+  const response = await api.put(`/candidates/${candidateId}/name`, { name })
+  return response.data
 }
 
 // ─── Email Generation ─────────────────────────────────────────────────────────

@@ -140,6 +140,7 @@ class ScreeningResult(Base):
     narrative_json     = Column(Text, nullable=True)    # LLM narrative (generated asynchronously)
     narrative_status   = Column(String(20), default="pending")  # pending | processing | ready | failed
     narrative_error    = Column(Text, nullable=True)            # error details when failed (null when successful)
+    narrative_generated_at = Column(DateTime(timezone=True), nullable=True)  # timestamp when narrative completed
     status             = Column(String(50), default="pending")  # pending/shortlisted/rejected/in-review/hired
     timestamp          = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     

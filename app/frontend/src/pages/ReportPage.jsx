@@ -7,7 +7,7 @@ import {
 import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
 import Timeline from '../components/Timeline'
-import { labelTrainingExample, updateResultStatus, updateCandidateName } from '../lib/api'
+import { labelTrainingExample, updateResultStatus, updateCandidateName, getNarrative } from '../lib/api'
 
 function InlineNameEditor({ initialName, candidateId, onSaved }) {
   const [editing, setEditing]   = useState(false)
@@ -87,6 +87,7 @@ export default function ReportPage() {
   const [labelStatus, setLabelStatus]   = useState(null)
   const [labelLoading, setLabelLoading] = useState(false)
   const [labelDone, setLabelDone]       = useState(false)
+  const [narrativePolling, setNarrativePolling] = useState(false)
 
   /** Resolve name from all possible result paths — returns null if unknown */
   const resolveName = (r) =>
@@ -118,6 +119,76 @@ export default function ReportPage() {
     }
     navigate('/', { replace: true })
   }, [result, location.search, navigate])
+
+  // Poll for narrative completion if status is pending or processing
+  useEffect(() => {
+    if (!result?.analysis_id && !result?.result_id) return
+    
+    const analysisId = result.analysis_id || result.result_id
+    const status = result.narrative_status || 'pending'
+    
+    // Only poll if narrative is pending or processing
+    if (status !== 'pending' && status !== 'processing') return
+    
+    setNarrativePolling(true)
+    let pollCount = 0
+    const maxPolls = 60 // Poll for max 2 minutes (60 * 2s)
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        const narrativeData = await getNarrative(analysisId)
+        
+        if (narrativeData.status === 'ready') {
+          // Merge narrative into result
+          setResult(prev => ({
+            ...prev,
+            ...narrativeData.narrative,
+            narrative_status: 'ready',
+            ai_enhanced: true,
+          }))
+          setNarrativePolling(false)
+          clearInterval(pollInterval)
+        } else if (narrativeData.status === 'failed') {
+          // Use fallback narrative if available
+          if (narrativeData.narrative) {
+            setResult(prev => ({
+              ...prev,
+              ...narrativeData.narrative,
+              narrative_status: 'failed',
+              narrative_error: narrativeData.error,
+              ai_enhanced: false,
+            }))
+          } else {
+            setResult(prev => ({
+              ...prev,
+              narrative_status: 'failed',
+              narrative_error: narrativeData.error,
+            }))
+          }
+          setNarrativePolling(false)
+          clearInterval(pollInterval)
+        } else if (narrativeData.status === 'processing') {
+          // Update status to show processing
+          setResult(prev => ({ ...prev, narrative_status: 'processing' }))
+        }
+        
+        pollCount++
+        if (pollCount >= maxPolls) {
+          // Stop polling after max attempts
+          setNarrativePolling(false)
+          clearInterval(pollInterval)
+        }
+      } catch (error) {
+        console.error('Narrative polling error:', error)
+        // Continue polling on error (might be transient)
+      }
+    }, 2000) // Poll every 2 seconds
+    
+    return () => {
+      clearInterval(pollInterval)
+      setNarrativePolling(false)
+    }
+  }, [result?.analysis_id, result?.result_id, result?.narrative_status])
 
   if (!result) return null
 

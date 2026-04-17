@@ -1970,8 +1970,10 @@ async def _background_llm_narrative(
         status: str,
         error: Optional[str] = None,
     ) -> bool:
-        """Write narrative_json, status, and error to DB with one retry on failure."""
-        for attempt in range(2):
+        """Write narrative_json, status, error, and timestamp to DB with retry and exponential backoff."""
+        from datetime import datetime, timezone
+        
+        for attempt in range(3):  # Increased to 3 retries
             try:
                 db = SessionLocal()
                 try:
@@ -1983,6 +1985,9 @@ async def _background_llm_narrative(
                         result.narrative_json = json.dumps(narrative, default=str)
                         result.narrative_status = status
                         result.narrative_error = error
+                        # Set timestamp when narrative is ready or failed
+                        if status in ('ready', 'failed'):
+                            result.narrative_generated_at = datetime.now(timezone.utc)
                         db.commit()
                         log.info(
                             "Wrote narrative_json (status=%s) to screening_result_id=%s",
@@ -2000,16 +2005,19 @@ async def _background_llm_narrative(
                 finally:
                     db.close()
             except Exception as db_err:
-                if attempt == 0:
+                if attempt < 2:  # Not the last attempt
+                    backoff = 2 ** attempt  # Exponential backoff: 1s, 2s
                     log.warning(
-                        "DB write failed for screening_result_id=%s, retrying in 2s: %s",
+                        "DB write failed for screening_result_id=%s (attempt %d/3), retrying in %ds: %s",
                         screening_result_id,
+                        attempt + 1,
+                        backoff,
                         str(db_err)[:200],
                     )
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(backoff)
                 else:
                     log.error(
-                        "Failed to write narrative to DB for screening_result_id=%s after retry: %s",
+                        "Failed to write narrative to DB for screening_result_id=%s after 3 attempts: %s",
                         screening_result_id,
                         str(db_err)[:200],
                     )

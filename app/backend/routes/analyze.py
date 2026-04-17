@@ -1444,9 +1444,10 @@ def get_narrative(
     Poll for LLM narrative after Python results are returned.
     
     Returns:
-      - {"status": "ready", "narrative": {...}} if narrative is available
-      - {"status": "pending"} if LLM is still processing
-      - {"status": "failed", "error": "...", "narrative": {...}} if LLM failed (includes fallback)
+      - {"status": "ready", "narrative": {...}, "generated_at": "..."} if narrative is available
+      - {"status": "processing"} if LLM is currently generating
+      - {"status": "pending"} if LLM hasn't started yet
+      - {"status": "failed", "error": "...", "narrative": {...}, "generated_at": "..."} if LLM failed (includes fallback)
       - 404 if analysis not found or not owned by user's tenant
     """
     result = db.query(ScreeningResult).filter(
@@ -1458,7 +1459,12 @@ def get_narrative(
         raise HTTPException(status_code=404, detail="Analysis not found")
     
     # Use narrative_status column if available, fall back to checking narrative_json
-    status = getattr(result, 'narrative_status', None)
+    status = getattr(result, 'narrative_status', None) or 'pending'
+    
+    # Get timestamp if available
+    generated_at = None
+    if hasattr(result, 'narrative_generated_at') and result.narrative_generated_at:
+        generated_at = result.narrative_generated_at.isoformat()
     
     if status == 'failed':
         # Failed — return fallback narrative + error message
@@ -1472,6 +1478,7 @@ def get_narrative(
             "status": "failed",
             "error": result.narrative_error or "AI analysis encountered an error",
             "narrative": narrative,
+            "generated_at": generated_at,
         }
     
     if status == 'ready' or (status is None and result.narrative_json):
@@ -1479,9 +1486,13 @@ def get_narrative(
         if result.narrative_json:
             try:
                 narrative = json.loads(result.narrative_json)
-                return {"status": "ready", "narrative": narrative}
+                return {
+                    "status": "ready",
+                    "narrative": narrative,
+                    "generated_at": generated_at,
+                }
             except json.JSONDecodeError:
                 return {"status": "pending"}
     
-    # Still pending or processing
-    return {"status": "pending"}
+    # Return current status (pending or processing)
+    return {"status": status}
