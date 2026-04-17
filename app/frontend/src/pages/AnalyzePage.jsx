@@ -243,13 +243,13 @@ export default function AnalyzePage() {
       // Run analysis - auto-detect single vs batch
       if (files.length === 1) {
         // Single analysis
-        await analyzeResumeStream(
+        const result = await analyzeResumeStream(
           files[0],
           jdMode === 'text' ? jdText : null,
           jdMode === 'file' ? jdFile : null,
           weights
         )
-        navigate('/report')
+        navigate('/report', { state: { result } })
       } else {
         // Batch analysis
         await analyzeBatchChunked(
