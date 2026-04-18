@@ -56,6 +56,8 @@ export default function AnalyzePage() {
   const [draftSaved, setDraftSaved] = useState(false)
   const [showJdLibrary, setShowJdLibrary] = useState(false)
   const [savedJds, setSavedJds] = useState([])
+  const [loadedFromLibrary, setLoadedFromLibrary] = useState(false)
+  const [loadedTemplateId, setLoadedTemplateId] = useState(null)
   const jdLibraryRef = useRef(null)
 
   // Load saved JDs
@@ -191,6 +193,10 @@ export default function AnalyzePage() {
     setJdMode('text')
     setShowJdLibrary(false)
     
+    // Mark as loaded from library to prevent duplicate save
+    setLoadedFromLibrary(true)
+    setLoadedTemplateId(template.id)
+    
     // Load weights if available
     let hasWeights = false
     if (template.scoring_weights) {
@@ -240,14 +246,17 @@ export default function AnalyzePage() {
     setIsAnalyzing(true)
 
     try {
-      // Save JD + weights to database
-      const templateName = `${roleCategory || 'General'} - ${new Date().toLocaleDateString()}`
-      await createTemplate({
-        name: templateName,
-        jd_text: jdMode === 'text' ? jdText : `[File: ${jdFile.name}]`,
-        scoring_weights: weights,
-        tags: roleCategory
-      })
+      // Only save JD template if it's NEW (not loaded from library)
+      // This prevents duplicate JD creation
+      if (!loadedFromLibrary) {
+        const templateName = `${roleCategory || 'General'} - ${new Date().toLocaleDateString()}`
+        await createTemplate({
+          name: templateName,
+          jd_text: jdMode === 'text' ? jdText : `[File: ${jdFile.name}]`,
+          scoring_weights: weights,
+          tags: roleCategory
+        })
+      }
 
       // Run analysis - auto-detect single vs batch
       if (files.length === 1) {
