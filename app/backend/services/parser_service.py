@@ -236,8 +236,43 @@ class ResumeParser:
         return text
 
     def _extract_docx(self, file_bytes: bytes) -> str:
-        doc = Document(io.BytesIO(file_bytes))
-        return "\n".join([para.text for para in doc.paragraphs])
+        """Extract text from DOCX with fallback for corrupted/unusual files."""
+        try:
+            doc = Document(io.BytesIO(file_bytes))
+            text = "\n".join([para.text for para in doc.paragraphs])
+            if text.strip():
+                return text
+        except Exception as e:
+            logger.warning("python-docx extraction failed, trying zipfile fallback: %s", e)
+        
+        # Fallback: Extract document.xml directly from DOCX zip
+        try:
+            import zipfile
+            import xml.etree.ElementTree as ET
+            
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as docx_zip:
+                # Try to find and read document.xml
+                if 'word/document.xml' in docx_zip.namelist():
+                    xml_content = docx_zip.read('word/document.xml')
+                    tree = ET.fromstring(xml_content)
+                    
+                    # Extract all text nodes
+                    # Namespace for Word XML
+                    ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+                    text_elements = tree.findall('.//w:t', ns)
+                    text = '\n'.join([elem.text for elem in text_elements if elem.text])
+                    
+                    if text.strip():
+                        logger.info("Successfully extracted DOCX text using zipfile fallback")
+                        return text
+        except Exception as e:
+            logger.warning("Zipfile fallback also failed: %s", e)
+        
+        raise ValueError(
+            "Unable to extract text from this Word document. "
+            "The file may be corrupted or in an unsupported format. "
+            "Please try re-saving the document or converting to PDF."
+        )
 
     def parse_resume(self, file_bytes: bytes, filename: str) -> Dict[str, Any]:
         text = self.extract_text(file_bytes, filename)
