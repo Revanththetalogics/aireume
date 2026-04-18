@@ -2197,9 +2197,17 @@ async def astream_hybrid_pipeline(
         {"stage": "complete", "result": {full merged result}}
     """
     # Phase 1 — Python (instant)
-    python_result = _run_python_phase(
-        resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis
-    )
+    try:
+        python_result = _run_python_phase(
+            resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis
+        )
+    except Exception as e:
+        log.exception("Python phase failed in astream_hybrid_pipeline: %s", e)
+        # Yield error and minimal fallback result
+        error_result = _fallback_result(gap_analysis)
+        yield {"stage": "parsing", "result": error_result}
+        yield {"stage": "complete", "result": error_result}
+        return
 
     llm_context = {
         "jd_analysis":       python_result["jd_analysis"],
