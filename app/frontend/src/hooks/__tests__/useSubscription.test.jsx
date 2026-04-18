@@ -453,7 +453,13 @@ describe('useUsageCheck', () => {
     api.checkUsage.mockResolvedValue(mockUsageAllowed)
     
     const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+    const { result: subscriptionResult } = renderHook(() => useSubscription(), { wrapper })
     const { result } = renderHook(() => useUsageCheck(), { wrapper })
+
+    // Wait for subscription to load
+    await waitFor(() => {
+      expect(subscriptionResult.current.subscription).not.toBeNull()
+    })
 
     await waitFor(() => {
       expect(result.current).toBeDefined()
