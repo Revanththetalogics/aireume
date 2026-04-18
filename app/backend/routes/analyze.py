@@ -822,6 +822,17 @@ async def analyze_stream_endpoint(
         return StreamingResponse(_error_stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    # Enhance contact extraction with LLM (better accuracy for edge cases)
+    log.info("Contact info BEFORE LLM enrichment: %s", parsed_data.get("contact_info", {}))
+    try:
+        from app.backend.services.parser_service import enrich_parsed_resume_async
+        await enrich_parsed_resume_async(parsed_data, resume.filename)
+        log.info("Contact info AFTER LLM enrichment: %s", parsed_data.get("contact_info", {}))
+    except Exception as e:
+        log.warning("Non-critical: LLM contact enrichment failed: %s", e)
+        import traceback
+        log.warning("Traceback: %s", traceback.format_exc())
+
     gap_analysis = analyze_gaps(parsed_data.get("work_experience", []))
     jd_analysis  = _get_or_cache_jd(db, job_description)
 
