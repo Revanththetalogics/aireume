@@ -433,12 +433,36 @@ export default function ReportPage() {
         {/* Scrollable result content */}
         <div className="report-content flex-1 overflow-y-auto p-6 space-y-5 print:overflow-visible print:p-4">
 
-          {/* Print-only header */}
-          <div className="hidden print:block mb-4">
-            <span className="text-xs font-bold text-brand-600 uppercase tracking-widest">Screening Report</span>
-            <h1 className="text-2xl font-extrabold text-brand-900">{candidateName || 'Unknown Candidate'}</h1>
-            {role && <p className="text-slate-500">{role}</p>}
-            <p className="text-sm text-slate-400">Analyzed on {timestamp} · Powered by ARIA · ThetaLogics</p>
+          {/* Print-only header with candidate information */}
+          <div className="hidden print:block mb-6 pb-4 border-b-2 border-brand-200">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <span className="text-xs font-bold text-brand-600 uppercase tracking-widest">Screening Report</span>
+                <h1 className="text-2xl font-extrabold text-brand-900 mt-1">{candidateName || 'Unknown Candidate'}</h1>
+                {role && <p className="text-base font-semibold text-slate-700 mt-1">Position: {role}</p>}
+              </div>
+              <div className="text-right text-sm">
+                <p className="text-slate-400">Analyzed on {timestamp}</p>
+                <p className="text-xs text-slate-400 mt-1">Powered by ARIA · ThetaLogics</p>
+              </div>
+            </div>
+            {/* Candidate Contact Information */}
+            {(result?.contact_info?.email || result?.contact_info?.phone) && (
+              <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t border-brand-100">
+                {result?.contact_info?.email && (
+                  <div>
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Email</span>
+                    <p className="text-sm text-slate-700 font-medium">{result.contact_info.email}</p>
+                  </div>
+                )}
+                {result?.contact_info?.phone && (
+                  <div>
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Phone</span>
+                    <p className="text-sm text-slate-700 font-medium">{result.contact_info.phone}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <ResultCard result={result} defaultExpandEducation />

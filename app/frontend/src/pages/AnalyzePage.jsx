@@ -192,19 +192,28 @@ export default function AnalyzePage() {
     setShowJdLibrary(false)
     
     // Load weights if available
+    let hasWeights = false
     if (template.scoring_weights) {
       try {
         const savedWeights = typeof template.scoring_weights === 'string' 
           ? JSON.parse(template.scoring_weights) 
           : template.scoring_weights
-        setWeights(savedWeights)
+        
+        // Only set weights if they're valid and not empty
+        if (savedWeights && Object.keys(savedWeights).length > 0) {
+          setWeights(savedWeights)
+          hasWeights = true
+        }
       } catch (e) {
         console.error('Failed to parse weights:', e)
       }
     }
     
-    // Trigger AI suggestion for loaded JD
-    setShowAiSuggestion(true)
+    // Only trigger AI suggestion if weights are NOT available
+    // This prevents unnecessary LLM calls when weights are already saved
+    if (!hasWeights) {
+      setShowAiSuggestion(true)
+    }
   }
 
   // Handle analysis

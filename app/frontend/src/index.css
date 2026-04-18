@@ -139,8 +139,9 @@ input[type='checkbox'] {
 
   body {
     background: white !important;
-    font-size: 12pt;
+    font-size: 11pt;
     color: #1e293b;
+    line-height: 1.4;
   }
   body::before, body::after { display: none; }
 
@@ -149,12 +150,67 @@ input[type='checkbox'] {
     max-width: 100% !important;
   }
 
-  .rounded-xl, .rounded-lg, .rounded-3xl { border-radius: 4px !important; }
-  .shadow-sm, .shadow-brand { box-shadow: none !important; }
+  /* Reduce border radius for cleaner print */
+  .rounded-xl, .rounded-lg, .rounded-3xl, .rounded-2xl { border-radius: 3px !important; }
+  
+  /* Remove shadows for cleaner print */
+  .shadow-sm, .shadow-brand, .shadow-brand-sm { box-shadow: none !important; }
 
+  /* Page break controls */
   .print\:break-before-page { break-before: page; }
+  .print\:break-after-avoid { break-after: avoid; }
+  .print\:break-inside-avoid { break-inside: avoid; }
 
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  /* Preserve colors for charts and badges */
+  * { 
+    -webkit-print-color-adjust: exact !important; 
+    print-color-adjust: exact !important; 
+  }
 
+  /* Remove sticky positioning */
   header, .sticky { position: static !important; }
+
+  /* Optimize spacing for print */
+  .report-content {
+    padding: 0.5in !important;
+  }
+
+  /* Ensure sections don't break across pages */
+  .bg-brand-50, .bg-green-50, .bg-red-50, .bg-slate-50,
+  .ring-1, .rounded-2xl {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Reduce excessive spacing */
+  .space-y-5 > * + * {
+    margin-top: 1rem !important;
+  }
+
+  /* Optimize font sizes for print */
+  h1 { font-size: 20pt !important; }
+  h2 { font-size: 16pt !important; }
+  h3 { font-size: 13pt !important; }
+  
+  /* Ensure text is readable */
+  .text-xs { font-size: 9pt !important; }
+  .text-sm { font-size: 10pt !important; }
+  .text-base { font-size: 11pt !important; }
+
+  /* Hide interactive elements */
+  button:not(.print\:block), 
+  .hover\:bg-brand-50,
+  [class*="hover:"] {
+    display: none !important;
+  }
+
+  /* Optimize grid layouts for print */
+  .grid-cols-2 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Ensure borders are visible */
+  .border, .border-t, .border-b, .ring-1 {
+    border-color: #cbd5e1 !important;
+  }
 }

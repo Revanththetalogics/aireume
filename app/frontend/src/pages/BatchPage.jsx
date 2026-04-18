@@ -169,6 +169,22 @@ export default function BatchPage() {
   const handleLoadJd = (template) => {
     setJdText(template.jd_text)
     setShowJdPicker(false)
+    
+    // Load weights if available
+    if (template.scoring_weights) {
+      try {
+        const savedWeights = typeof template.scoring_weights === 'string' 
+          ? JSON.parse(template.scoring_weights) 
+          : template.scoring_weights
+        
+        // Only set weights if they're valid and not empty
+        if (savedWeights && Object.keys(savedWeights).length > 0) {
+          setWeights(savedWeights)
+        }
+      } catch (e) {
+        console.error('Failed to parse weights from template:', e)
+      }
+    }
   }
 
   const handleSaveJd = async () => {
