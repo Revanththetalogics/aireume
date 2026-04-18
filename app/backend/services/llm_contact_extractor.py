@@ -79,6 +79,7 @@ JSON output:"""
             
             result = response.json()
             llm_output = result.get("response", "").strip()
+            logger.debug("[LLM Contact Extractor] Raw LLM output (first 300 chars): %s", llm_output[:300])
             
             # Try to parse JSON from LLM output
             # LLM might wrap JSON in markdown code blocks
@@ -88,6 +89,7 @@ JSON output:"""
                 llm_output = llm_output.split("```")[1].split("```")[0].strip()
             
             contact_info = json.loads(llm_output)
+            logger.debug("[LLM Contact Extractor] Parsed contact_info: %s", contact_info)
             
             # Validate structure
             if not isinstance(contact_info, dict):
