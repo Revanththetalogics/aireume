@@ -34,8 +34,10 @@ async def extract_contact_with_llm(resume_text: str, timeout: float = 10.0) -> O
     Returns:
         Dict with keys: name, email, phone, linkedin (or None on failure)
     """
+    logger.info("[LLM Contact Extractor] Starting extraction...")
     # Only use first 1000 characters (header section) to save tokens
     header = resume_text[:1000]
+    logger.debug("[LLM Contact Extractor] Header text (first 200 chars): %s", header[:200])
     
     prompt = f"""Extract the candidate's contact information from this resume header.
 Return ONLY a valid JSON object with these exact keys: name, email, phone, linkedin.
@@ -93,20 +95,24 @@ JSON output:"""
                     cleaned[key] = str(value).strip()
             
             if cleaned:
-                logger.info("LLM contact extraction successful: name=%s, email=%s", 
-                           cleaned.get("name"), cleaned.get("email"))
+                logger.info("[LLM Contact Extractor] SUCCESS - Extracted: name=%s, email=%s, phone=%s", 
+                           cleaned.get("name"), cleaned.get("email"), cleaned.get("phone"))
                 return cleaned
+            else:
+                logger.warning("[LLM Contact Extractor] No valid fields extracted from LLM response")
             
             return None
             
     except json.JSONDecodeError as e:
-        logger.warning("LLM contact extraction JSON parse error: %s | Output: %s", e, llm_output[:200])
+        logger.warning("[LLM Contact Extractor] JSON parse error: %s | Output: %s", e, llm_output[:200])
         return None
     except httpx.TimeoutException:
-        logger.warning("LLM contact extraction timed out after %.1fs", timeout)
+        logger.warning("[LLM Contact Extractor] Timed out after %.1fs", timeout)
         return None
     except Exception as e:
-        logger.warning("LLM contact extraction failed: %s: %s", type(e).__name__, str(e)[:200])
+        logger.warning("[LLM Contact Extractor] Failed: %s: %s", type(e).__name__, str(e)[:200])
+        import traceback
+        logger.debug("[LLM Contact Extractor] Traceback: %s", traceback.format_exc())
         return None
 
 
