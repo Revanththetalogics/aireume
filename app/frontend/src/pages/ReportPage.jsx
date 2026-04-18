@@ -4,6 +4,7 @@ import {
   ArrowLeft, Share2, Download, CheckCircle, Check,
   ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon,
 } from 'lucide-react'
+import html2pdf from 'html2pdf.js'
 import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
 import Timeline from '../components/Timeline'
@@ -207,7 +208,49 @@ export default function ReportPage() {
     }).catch(() => window.prompt('Copy this report link:', shareUrl))
   }
 
-  const handleDownload = () => window.print()
+  const [isDownloading, setIsDownloading] = useState(false)
+
+  const handleDownload = async () => {
+    if (isDownloading) return
+    
+    setIsDownloading(true)
+    try {
+      // Get the report content element
+      const element = document.querySelector('.report-content')
+      if (!element) {
+        alert('Report content not found. Please try again.')
+        setIsDownloading(false)
+        return
+      }
+
+      // PDF options
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: `${candidateName || 'Candidate'}_Screening_Report.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { 
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          letterRendering: true
+        },
+        jsPDF: { 
+          unit: 'mm', 
+          format: 'a4', 
+          orientation: 'portrait'
+        },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      }
+
+      // Generate and download PDF
+      await html2pdf().set(opt).from(element).save()
+    } catch (error) {
+      console.error('PDF generation error:', error)
+      alert('Failed to generate PDF. Please try again or use the browser print option (Ctrl+P).')
+    } finally {
+      setIsDownloading(false)
+    }
+  }
 
   const handleLabel = async (outcome) => {
     const resultId = result?.result_id
@@ -369,16 +412,26 @@ export default function ReportPage() {
             </button>
             <button
               onClick={handleDownload}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white btn-brand shadow-brand-sm"
+              disabled={isDownloading}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white btn-brand shadow-brand-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Download className="w-4 h-4" />
-              Download PDF
+              {isDownloading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating PDF...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Download PDF
+                </>
+              )}
             </button>
           </div>
         </div>
 
         {/* Scrollable result content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5 print:overflow-visible print:p-4">
+        <div className="report-content flex-1 overflow-y-auto p-6 space-y-5 print:overflow-visible print:p-4">
 
           {/* Print-only header */}
           <div className="hidden print:block mb-4">
