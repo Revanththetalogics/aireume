@@ -703,6 +703,16 @@ async def analyze_endpoint(
         or (_cand_row.name if _cand_row and _cand_row.name else None)
         or None
     )
+    
+    # Add contact_info to result for PDF generation
+    # This ensures email and phone are available in the frontend
+    contact_info = parsed_data.get("contact_info", {})
+    if contact_info:
+        result["contact_info"] = {
+            "name": contact_info.get("name"),
+            "email": contact_info.get("email"),
+            "phone": contact_info.get("phone"),
+        }
 
     if is_dup and action not in ("update_profile", "create_new"):
         existing = db.get(Candidate, candidate_id)
