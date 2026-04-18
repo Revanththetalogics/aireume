@@ -375,6 +375,13 @@ async def _process_single_resume(
             "pipeline_errors": [f"Parse error: {str(e)}"],
         }
 
+    # Enhance contact extraction with LLM (better accuracy for edge cases)
+    try:
+        from app.backend.services.parser_service import enrich_parsed_resume_async
+        await enrich_parsed_resume_async(parsed_data, filename)
+    except Exception as e:
+        log.warning("Non-critical: LLM contact enrichment failed: %s", e)
+
     work_exp     = parsed_data.get("work_experience", [])
     gap_analysis = analyze_gaps(work_exp)
 

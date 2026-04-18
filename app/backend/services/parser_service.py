@@ -580,8 +580,56 @@ def _extract_name_relaxed(text: str) -> str:
     return ""
 
 
+async def enrich_parsed_resume_async(data: Dict[str, Any], filename: Optional[str] = None) -> None:
+    """Fill gaps in parser output in-place using LLM + NER + regex fallbacks."""
+    from app.backend.services.llm_contact_extractor import extract_contact_with_llm, merge_contact_info
+    
+    contact = data.setdefault("contact_info", {})
+    raw = (data.get("raw_text") or "").strip()
+    
+    # If we already have complete contact info, skip
+    if contact.get("name") and contact.get("email"):
+        return
+    
+    # Try LLM extraction first (most accurate, handles all edge cases)
+    llm_contact = None
+    if raw:
+        try:
+            llm_contact = await extract_contact_with_llm(raw, timeout=8.0)
+        except Exception as e:
+            logger.warning("LLM contact extraction failed, using fallbacks: %s", e)
+    
+    # Merge LLM results with existing regex results
+    if llm_contact:
+        contact.update(merge_contact_info(contact, llm_contact))
+    
+    # If still no name, try traditional fallbacks
+    if not contact.get("name"):
+        guess = None
+        
+        # Tier 1: Try spaCy NER
+        if raw:
+            guess = _extract_name_ner(raw)
+        
+        # Tier 2: Fallback to email-based extraction
+        if not guess:
+            email = (contact.get("email") or "").strip()
+            guess = _name_from_email(email)
+        
+        # Tier 3: Fallback to relaxed header scan
+        if not guess and raw:
+            guess = _extract_name_relaxed(raw)
+        
+        # Tier 4: Fallback to filename-based extraction
+        if not guess and filename:
+            guess = _name_from_filename(filename)
+        
+        if guess:
+            contact["name"] = guess
+
+
 def enrich_parsed_resume(data: Dict[str, Any], filename: Optional[str] = None) -> None:
-    """Fill gaps in parser output in-place (name from NER / email / relaxed header scan / filename)."""
+    """Synchronous wrapper - Fill gaps in parser output in-place (name from NER / email / relaxed header scan / filename)."""
     contact = data.setdefault("contact_info", {})
     raw = (data.get("raw_text") or "").strip()
     if (contact.get("name") or "").strip():
