@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:9b")
 
+# Import Ollama Cloud authentication helper
+from app.backend.services.llm_service import get_ollama_headers
+
 
 async def extract_contact_with_llm(resume_text: str, timeout: float = 10.0) -> Optional[Dict[str, str]]:
     """
@@ -55,9 +58,13 @@ Resume header:
 JSON output:"""
 
     try:
+        # Get authentication headers for Ollama Cloud
+        headers = get_ollama_headers(OLLAMA_BASE_URL)
+        
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 f"{OLLAMA_BASE_URL}/api/generate",
+                headers=headers,
                 json={
                     "model": OLLAMA_MODEL,
                     "prompt": prompt,
