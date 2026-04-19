@@ -14,19 +14,30 @@
 - [database.py](file://app/backend/db/database.py)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Enhanced data persistence documentation to reflect complete candidate profile storage during analysis pipeline
+- Updated parser snapshot JSON section to emphasize full parse output storage
+- Added improved error handling and fallback mechanisms documentation
+- Updated streaming capabilities section to reflect enhanced SSE handling
+- Enhanced deduplication logic documentation with three-layer matching approach
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
+6. [Enhanced Data Persistence](#enhanced-data-persistence)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
 
 ## Introduction
 This document explains the candidate profile storage system in Resume AI. It covers the Candidate model structure, the end-to-end data persistence workflow from resume uploads through parsing to database storage, enriched profile fields, the parser snapshot JSON role, examples of profile updates and contact info merging, and data integrity and optimization strategies.
+
+**Updated** Enhanced data persistence ensures complete candidate profile information is saved during analysis pipeline, preventing data loss during parsing stage.
 
 ## Project Structure
 The candidate profile storage spans models, routes, services, and migrations:
@@ -226,6 +237,8 @@ The parser snapshot captures the complete output of parse_resume, including cont
 - Purpose: Auditability and re-analysis independence from parsing heuristics.
 - Fallback: If snapshot is missing, reconstructed from denormalized columns.
 
+**Updated** Enhanced data persistence ensures the parser snapshot is stored immediately during the analysis pipeline to prevent data loss during parsing stage.
+
 ```mermaid
 flowchart TD
 Start(["Store Candidate Profile"]) --> CheckSnap["Has parser_snapshot_json?"]
@@ -252,6 +265,8 @@ Store --> End(["Done"])
 - Deduplication: Three-layer matching by email, file hash, and name+phone.
 - Enrichment: Gap analysis, skills registry, and hybrid scoring.
 - Storage: Candidate row updated with enriched fields and snapshot; ScreeningResult persisted.
+
+**Updated** Enhanced data persistence ensures complete candidate profile information is saved during analysis pipeline, preventing data loss during parsing stage.
 
 ```mermaid
 sequenceDiagram
@@ -317,9 +332,11 @@ Route-->>Client : result
 - [candidates.py:192-302](file://app/backend/routes/candidates.py#L192-L302)
 
 ### Contact Info Merging and Validation
-- Contact info precedence: snapshot contact_info merged with candidate’s edited name/email/phone.
+- Contact info precedence: snapshot contact_info merged with candidate's edited name/email/phone.
 - Validation: minimal checks on JD length and file sizes; deduplication ensures uniqueness.
 - Deduplication layers: email, file hash, name+phone.
+
+**Updated** Enhanced data persistence ensures contact information merging occurs during the analysis pipeline to prevent data loss during parsing stage.
 
 ```mermaid
 flowchart TD
@@ -360,6 +377,86 @@ Constraints:
 - [analyze.py:109-116](file://app/backend/routes/analyze.py#L109-L116)
 - [002_parser_snapshot_json.py:21-28](file://alembic/versions/002_parser_snapshot_json.py#L21-L28)
 
+## Enhanced Data Persistence
+
+### Three-Layer Candidate Deduplication
+The system implements a robust three-layer deduplication strategy to ensure candidate profiles are not duplicated unnecessarily:
+
+1. **Email Match**: Primary deduplication using email address
+2. **File Hash Match**: Secondary deduplication using MD5 hash of resume file bytes
+3. **Name + Phone Match**: Tertiary deduplication using combination of name and phone number
+
+**Updated** Enhanced data persistence ensures that during the deduplication process, complete candidate profile information is saved immediately to prevent data loss during parsing stage.
+
+```mermaid
+flowchart TD
+Start(["Candidate Analysis"]) --> Action{"Action Type"}
+Action --> |None/unrecognized| EmailMatch["Layer 1: Email Match"]
+Action --> |use_existing| UseExisting["Load Stored Profile"]
+Action --> |update_profile| UpdateProfile["Update Existing Profile"]
+Action --> |create_new| CreateNew["Create New Candidate"]
+EmailMatch --> EmailFound{"Email Found?"}
+EmailFound --> |Yes| ReturnExisting["Return Existing Candidate"]
+EmailFound --> |No| HashMatch["Layer 2: File Hash Match"]
+HashMatch --> HashFound{"File Hash Found?"}
+HashFound --> |Yes| ReturnExisting
+HashFound --> |No| NamePhoneMatch["Layer 3: Name + Phone Match"]
+NamePhoneMatch --> NamePhoneFound{"Name + Phone Found?"}
+NamePhoneFound --> |Yes| ReturnExisting
+NamePhoneFound --> |No| CreateNew
+UseExisting --> LoadProfile["Load Stored Profile"]
+UpdateProfile --> SaveProfile["Save Updated Profile"]
+CreateNew --> SaveNew["Create New Candidate"]
+```
+
+**Diagram sources**
+- [analyze.py:182-241](file://app/backend/routes/analyze.py#L182-L241)
+
+### Improved Error Handling and Fallback Mechanisms
+The enhanced data persistence includes comprehensive error handling to prevent data loss:
+
+- **Parsing Failures**: Graceful fallback with empty parsed data structure
+- **Database Save Errors**: Early DB saves during SSE streaming to prevent data loss
+- **Snapshot Reconstruction**: Automatic reconstruction from denormalized columns when snapshot is missing
+
+**Updated** Enhanced error handling ensures that even if parsing fails or database operations encounter issues, candidate profile information is still persisted to prevent data loss during the analysis pipeline.
+
+```mermaid
+flowchart TD
+ParseStart["Resume Parse Attempt"] --> ParseSuccess{"Parse Success?"}
+ParseSuccess --> |Yes| ContinueAnalysis["Continue Analysis"]
+ParseSuccess --> |No| FallbackData["Create Fallback Parsed Data"]
+FallbackData --> ContinueAnalysis
+ContinueAnalysis --> CreateCandidate["Create/Update Candidate"]
+CreateCandidate --> SaveToDB["Save to Database"]
+SaveToDB --> DBSuccess{"DB Save Success?"}
+DBSuccess --> |Yes| CompleteAnalysis["Complete Analysis"]
+DBSuccess --> |No| RetryMechanism["Retry Mechanism"]
+RetryMechanism --> SnapshotFallback["Use Snapshot Fallback"]
+SnapshotFallback --> CompleteAnalysis
+CompleteAnalysis --> StreamSSE["Stream SSE Results"]
+StreamSSE --> EarlyDBSave["Early DB Save During Streaming"]
+EarlyDBSave --> FinalDBSave["Final DB Save"]
+FinalDBSave --> AnalysisComplete["Analysis Complete"]
+```
+
+**Diagram sources**
+- [analyze.py:567-588](file://app/backend/routes/analyze.py#L567-L588)
+- [analyze.py:832-876](file://app/backend/routes/analyze.py#L832-L876)
+
+### Enhanced Streaming Capabilities
+The system now includes improved streaming capabilities with early database saves to prevent data loss:
+
+- **Early DB Saves**: Candidate profiles are saved immediately after parsing phase
+- **Progressive Updates**: Analysis results are progressively updated in the database
+- **Resilient Streaming**: Even if client disconnects, partial results are preserved
+
+**Updated** Enhanced streaming capabilities ensure that candidate profile information is persisted immediately after the parsing phase, preventing data loss during SSE streaming when clients may disconnect.
+
+**Section sources**
+- [analyze.py:567-588](file://app/backend/routes/analyze.py#L567-L588)
+- [analyze.py:832-876](file://app/backend/routes/analyze.py#L832-L876)
+
 ## Dependency Analysis
 - Routes depend on parser_service, gap_detector, and hybrid_pipeline.
 - Candidate enrichment depends on gap_detector and skills registry.
@@ -396,8 +493,9 @@ M2["002_parser_snapshot_json.py"] --> Models
 - Snapshot size cap: bounds row size and memory footprint.
 - Index on resume_file_hash: accelerates deduplication by file hash.
 - Asynchronous streaming: SSE endpoints stream intermediate results for responsiveness.
+- **Enhanced persistence**: Immediate saving of candidate profiles prevents data loss and reduces recovery complexity.
 
-[No sources needed since this section provides general guidance]
+**Updated** Enhanced persistence mechanisms improve system reliability by ensuring candidate profile information is saved immediately during the analysis pipeline, reducing the risk of data loss during parsing failures or system interruptions.
 
 ## Troubleshooting Guide
 Common issues and remedies:
@@ -406,6 +504,9 @@ Common issues and remedies:
 - Excessive resume size: Rejected at 10 MB; compress or optimize.
 - Excessive JD file size: Rejected at 5 MB; prefer text-based files.
 - Deduplication not matching: Verify email, file hash, and name+phone combinations; consider update_profile action.
+- **Enhanced persistence failures**: If candidate profiles fail to save, check database connectivity and retry mechanism; system automatically falls back to snapshot reconstruction.
+
+**Updated** Enhanced troubleshooting guidance now includes specific steps for handling persistence failures and data loss scenarios during the analysis pipeline.
 
 **Section sources**
 - [analyze.py:268-290](file://app/backend/routes/analyze.py#L268-L290)
@@ -415,3 +516,5 @@ Common issues and remedies:
 
 ## Conclusion
 The candidate profile storage system in Resume AI combines robust parsing, gap analysis, and hybrid scoring with a durable schema that persists enriched profiles and a full parser snapshot. This enables fast re-analysis, auditability, and consistent candidate evaluation across job descriptions while maintaining data integrity and performance.
+
+**Updated** The enhanced data persistence ensures complete candidate profile information is saved during the analysis pipeline, preventing data loss during parsing stage and providing reliable fallback mechanisms for system resilience. This comprehensive approach to data persistence makes the system more robust and suitable for production environments where data integrity is critical.

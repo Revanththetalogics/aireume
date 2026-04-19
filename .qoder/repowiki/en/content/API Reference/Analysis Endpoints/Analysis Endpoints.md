@@ -14,15 +14,15 @@
 - [api.js](file://app/frontend/src/lib/api.js)
 - [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
 - [test_api.py](file://app/backend/tests/test_api.py)
+- [test_routes_phase2.py](file://app/backend/tests/test_routes_phase2.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Removed documentation for LLM-based contact enrichment system that was eliminated from the analysis pipeline
-- Updated AnalysisResponse schema to remove contact_info field from core and extended fields
-- Removed references to enrich_parsed_resume_async function and related contact extraction enhancements
-- Updated response schemas to reflect simplified contact information handling
-- Clarified that contact information is now handled through parser service fallback methods only
+- Updated streaming analysis endpoint documentation to reflect bug fix that improves data persistence reliability during resume parsing workflows
+- Added comprehensive coverage of early database save mechanism for client disconnection scenarios
+- Enhanced streaming endpoint reliability section with specific implementation details
+- Updated troubleshooting guide to include client disconnection handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -38,7 +38,7 @@
 ## Introduction
 This document provides comprehensive API documentation for the resume analysis endpoints. It covers:
 - POST /api/analyze: Single resume processing with multipart form data, including resume file upload, job description text or file, optional scoring weights JSON, and action parameters.
-- POST /api/analyze/stream: Real-time streaming analysis using Server-Sent Events (SSE) with progressive result stages (parsing, scoring, complete).
+- POST /api/analyze/stream: Real-time streaming analysis using Server-Sent Events (SSE) with progressive result stages (parsing, scoring, complete) and enhanced data persistence reliability.
 - POST /api/analyze/batch: Concurrent batch processing of multiple resumes with automatic ranking.
 - **GET /api/analysis/{id}/narrative: Enhanced endpoint with three-state status tracking (pending, ready, failed) and fallback mechanisms.**
 
@@ -95,10 +95,11 @@ Routes --> Nginx
 - Usage enforcement: Monthly analysis limits per tenant plan, enforced before processing.
 - File validation: Allowed resume formats (.pdf, .docx, .doc) with size limits; job description file size limit.
 - Deduplication: Three-layer deduplication by email, file hash, and name+phone; action parameter controls behavior.
-- Streaming: SSE endpoint emits progressive stages with heartbeat pings.
+- Streaming: SSE endpoint emits progressive stages with heartbeat pings and enhanced data persistence reliability.
 - Batch: Concurrent processing with automatic ranking by fit score.
 - **Status Tracking: Enhanced narrative endpoint with three-state status system (pending, ready, failed) and fallback mechanisms.**
 - **Contact Information: Simplified handling through parser service fallback methods (NER, email-based, relaxed header scan, filename-based) without LLM-based enrichment.**
+- **Data Persistence Reliability: Enhanced streaming endpoint with early database save mechanism to ensure Python results are preserved when clients disconnect.**
 
 **Section sources**
 - [auth.py:19-40](file://app/backend/middleware/auth.py#L19-L40)
@@ -109,7 +110,7 @@ Routes --> Nginx
 - [analyze.py:649-758](file://app/backend/routes/analyze.py#L649-L758)
 
 ## Architecture Overview
-The analysis pipeline integrates file parsing, gap analysis, and hybrid scoring with optional LLM narrative. The hybrid pipeline supports both synchronous and streaming modes with enhanced status tracking for narrative generation. Contact information is now handled through enhanced fallback methods in the parser service.
+The analysis pipeline integrates file parsing, gap analysis, and hybrid scoring with optional LLM narrative. The hybrid pipeline supports both synchronous and streaming modes with enhanced status tracking for narrative generation. Contact information is now handled through enhanced fallback methods in the parser service. The streaming endpoint includes enhanced data persistence reliability through early database saving mechanisms.
 
 ```mermaid
 sequenceDiagram
@@ -198,7 +199,7 @@ Error handling:
 - [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
 
 ### Endpoint: POST /api/analyze/stream
-Real-time streaming analysis using Server-Sent Events (SSE).
+Real-time streaming analysis using Server-Sent Events (SSE) with enhanced data persistence reliability.
 
 - Method: POST
 - Path: /api/analyze/stream
@@ -207,11 +208,24 @@ Real-time streaming analysis using Server-Sent Events (SSE).
 - Form fields: same as single endpoint
 - Response: text/event-stream
 
+**Enhanced Data Persistence Reliability:**
+The streaming endpoint now includes sophisticated client disconnection handling to ensure data integrity:
+
+- **Early Database Save Mechanism:** When a client disconnects during analysis, the system automatically saves Python results to the database to prevent data loss
+- **Client Disconnection Detection:** The system continuously checks for client disconnection between analysis stages using `await request.is_disconnected()`
+- **Conditional Save Logic:** Results are only saved when they contain the full Python scoring data (specifically during "parsing" and "complete" stages)
+- **Guaranteed Completion:** The system ensures database persistence regardless of client connectivity issues
+
 Streaming stages:
 - Stage "parsing": Python-only scores and partial analysis (within 2s)
 - Stage "scoring": LLM narrative and explainability (after ~40s)
 - Stage "complete": full merged result
 - Heartbeat pings maintain connection through proxies
+
+**Enhanced Reliability Features:**
+- **Automatic Recovery:** When clients disconnect, Python results are automatically persisted to prevent data loss
+- **Resource Cleanup:** The system guarantees "[DONE]" event delivery even in error conditions
+- **Connection Monitoring:** Continuous monitoring for client disconnection during both startup and active streaming phases
 
 Proxy configuration:
 - Nginx disables buffering for SSE to prevent Cloudflare 524 errors
@@ -224,6 +238,7 @@ Frontend consumption example:
 
 **Section sources**
 - [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
+- [analyze.py:775-833](file://app/backend/routes/analyze.py#L775-L833)
 - [hybrid_pipeline.py:1410-1498](file://app/backend/services/hybrid_pipeline.py#L1410-L1498)
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [api.js:96-141](file://app/frontend/src/lib/api.js#L96-L141)
@@ -440,6 +455,7 @@ A --> N
 - Rate limiting: Nginx zones protect the API from overload.
 - **Status tracking: Database-level status tracking reduces polling overhead and improves user experience.**
 - **Enhanced contact fallbacks: Improved contact information extraction reduces dependency on LLM-based contact enrichment.**
+- **Enhanced Streaming Reliability: Early database save mechanism prevents data loss during client disconnections and ensures complete analysis results are always persisted.**
 
 ## Troubleshooting Guide
 Common errors and resolutions:
@@ -449,16 +465,28 @@ Common errors and resolutions:
 - Usage limit exceeded: Upgrade plan or wait until next reset. Check /api/subscription.
 - Authentication failures: Verify JWT Bearer token.
 - Streaming timeouts: Ensure SSE endpoint is proxied without buffering and with adequate timeouts.
+- **Client disconnection issues: The enhanced streaming endpoint now automatically saves Python results when clients disconnect, preventing data loss.**
 - **Narrative polling issues: Check that analysis_id belongs to the authenticated user's tenant. Verify narrative_status field values.**
 - **Contact information issues: Verify that enhanced fallback methods are working correctly. Check parser service contact extraction logs.**
+
+**Enhanced Streaming Troubleshooting:**
+- **Early Database Save Failures:** Monitor logs for "Failed to save early DB results" warnings and ensure database connectivity
+- **Client Disconnection Detection:** The system continuously monitors for disconnections during both parsing and streaming phases
+- **Guaranteed Completion Events:** The system ensures "[DONE]" event delivery even in error conditions
+- **Resource Cleanup:** Background tasks are properly cancelled and cleaned up when clients disconnect
 
 **Section sources**
 - [analyze.py:369-384](file://app/backend/routes/analyze.py#L369-L384)
 - [analyze.py:255-266](file://app/backend/routes/analyze.py#L255-L266)
 - [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
+- [test_routes_phase2.py:221-262](file://app/backend/tests/test_routes_phase2.py#L221-L262)
 
 ## Conclusion
 The analysis endpoints provide robust, scalable resume screening with optional real-time streaming and batch processing. They enforce usage limits through a subscription system, support multiple file formats, and deliver comprehensive results with explainability and risk signals. The enhanced GET /api/analysis/{id}/narrative endpoint with three-state status tracking significantly improves user experience by providing clear feedback on narrative generation progress and fallback mechanisms. 
 
-**Updated** The elimination of the LLM-based contact enrichment system simplifies the pipeline while maintaining contact information accuracy through enhanced fallback methods in the parser service. This change reduces complexity, improves performance, and maintains the quality of contact information extraction through multiple fallback tiers (NER, email-based, relaxed header scan, filename-based). Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments.
+**Updated** The elimination of the LLM-based contact enrichment system simplifies the pipeline while maintaining contact information accuracy through enhanced fallback methods in the parser service. This change reduces complexity, improves performance, and maintains the quality of contact information extraction through multiple fallback tiers (NER, email-based, relaxed header scan, filename-based).
+
+**Enhanced Streaming Reliability:** The recent bug fix significantly improves data persistence reliability during resume parsing workflows by implementing an early database save mechanism. When clients disconnect during streaming analysis, the system automatically captures and persists Python results to prevent data loss, ensuring complete analysis results are always available for retrieval and polling. This enhancement provides robust protection against network interruptions and client-side disconnections while maintaining the streaming experience for connected clients.
+
+Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments with enhanced data integrity guarantees.

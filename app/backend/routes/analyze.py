@@ -803,10 +803,21 @@ async def analyze_stream_endpoint(
                             if stage_result:
                                 stage_result["result_id"] = screening_result_id
                                 stage_result["candidate_id"] = candidate_id
-                                db_result.analysis_result = json.dumps(stage_result, default=_json_default)
-                                db.commit()
-                                python_scores_saved = True
-                                log.info("Early DB save completed after client disconnect")
+                                # Use a dedicated session to avoid detached object issues
+                                # The route's db session may be closed before the streaming generator runs
+                                from app.backend.db.database import SessionLocal
+                                disc_db = SessionLocal()
+                                try:
+                                    sr = disc_db.query(ScreeningResult).filter(ScreeningResult.id == screening_result_id).first()
+                                    if sr:
+                                        sr.analysis_result = json.dumps(stage_result, default=_json_default)
+                                        disc_db.commit()
+                                        python_scores_saved = True
+                                        log.info("Early DB save completed after client disconnect (fit_score=%s)", stage_result.get("fit_score"))
+                                    else:
+                                        log.error("ScreeningResult id=%s not found for disconnect save", screening_result_id)
+                                finally:
+                                    disc_db.close()
                         except Exception as db_exc:
                             log.warning("Failed to save early DB results: %s", db_exc)
                     return
@@ -826,10 +837,21 @@ async def analyze_stream_endpoint(
                             # Ensure we have the full Python result with all fields
                             parsing_result["result_id"] = screening_result_id
                             parsing_result["candidate_id"] = candidate_id
-                            db_result.analysis_result = json.dumps(parsing_result, default=_json_default)
-                            db.commit()
-                            python_scores_saved = True
-                            log.info("Early DB save completed after parsing phase")
+                            # Use a dedicated session to avoid detached object issues
+                            # The route's db session may be closed before the streaming generator runs
+                            from app.backend.db.database import SessionLocal
+                            early_db = SessionLocal()
+                            try:
+                                sr = early_db.query(ScreeningResult).filter(ScreeningResult.id == screening_result_id).first()
+                                if sr:
+                                    sr.analysis_result = json.dumps(parsing_result, default=_json_default)
+                                    early_db.commit()
+                                    python_scores_saved = True
+                                    log.info("Early DB save completed after parsing phase (fit_score=%s)", parsing_result.get("fit_score"))
+                                else:
+                                    log.error("ScreeningResult id=%s not found for early save", screening_result_id)
+                            finally:
+                                early_db.close()
                     except Exception as db_exc:
                         log.warning("Failed to save early DB results after parsing: %s", db_exc)
 
@@ -858,19 +880,26 @@ async def analyze_stream_endpoint(
                 if existing:
                     final_result["duplicate_candidate"] = _build_duplicate_info(db, existing).model_dump(mode='json')
 
-            # Update the analysis_result column
-            db_result.analysis_result = json.dumps(final_result, default=_json_default)
-
-            # Update candidate profile quality based on analysis
-            _store_candidate_profile(
-                db.get(Candidate, candidate_id) or db.query(Candidate).filter(Candidate.id == candidate_id).first(),
-                parsed_data,
-                gap_analysis,
-                file_hash,
-                final_result.get("analysis_quality", "medium"),
-            )
-            db.commit()
+            # Use a dedicated session for the final save to avoid detached object issues
+            # The route's db session may be closed before the streaming generator runs
+            from app.backend.db.database import SessionLocal
+            save_db = SessionLocal()
+            try:
+                sr = save_db.query(ScreeningResult).filter(ScreeningResult.id == screening_result_id).first()
+                if sr:
+                    sr.analysis_result = json.dumps(final_result, default=_json_default)
+                    # Also update candidate profile
+                    cand = save_db.query(Candidate).filter(Candidate.id == candidate_id).first()
+                    if cand:
+                        _store_candidate_profile(cand, parsed_data, gap_analysis, file_hash, final_result.get("analysis_quality", "medium"))
+                    save_db.commit()
+                    log.info("Final DB save completed for screening_result_id=%s (fit_score=%s)", screening_result_id, final_result.get("fit_score"))
+                else:
+                    log.error("ScreeningResult id=%s not found for final save", screening_result_id)
+            finally:
+                save_db.close()
         except Exception as db_exc:
+            log.error("Final DB save failed for screening_result_id=%s: %s", screening_result_id, db_exc)
             final_result["pipeline_errors"] = final_result.get("pipeline_errors", []) + [
                 f"DB save error: {str(db_exc)}"
             ]

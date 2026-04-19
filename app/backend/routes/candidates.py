@@ -159,7 +159,15 @@ def get_candidate(
         except Exception as e:
             logger.warning("Non-critical: Failed to parse analysis_result for result %s: %s", r.id, e)
             analysis = {}
-        
+
+        # Log when analysis_result is empty or missing critical fields
+        if not analysis or analysis.get("fit_score") is None:
+            logger.warning(
+                "analysis_result for screening_result_id=%s is empty or missing fit_score "
+                "(has %d keys, fit_score=%s). Will reconstruct from parsed_data.",
+                r.id, len(analysis), analysis.get("fit_score"),
+            )
+
         # Parse and merge narrative_json if available
         narrative_data = {}
         if r.narrative_json:
@@ -167,7 +175,16 @@ def get_candidate(
                 narrative_data = json.loads(r.narrative_json)
             except Exception as e:
                 logger.warning("Non-critical: Failed to parse narrative_json for result %s: %s", r.id, e)
-        
+
+        # Parse parsed_data as fallback source for missing analysis_result fields
+        # parsed_data is always saved correctly (not a placeholder like analysis_result can be)
+        parsed = {}
+        if r.parsed_data:
+            try:
+                parsed = json.loads(r.parsed_data)
+            except Exception as e:
+                logger.warning("Non-critical: Failed to parse parsed_data for result %s: %s", r.id, e)
+
         # Merge narrative data with analysis - narrative fields take precedence
         # but only for narrative-specific fields (strengths, weaknesses, etc.)
         # Preserve analysis fields like fit_score, final_recommendation
@@ -181,7 +198,70 @@ def get_candidate(
             for field in narrative_fields:
                 if field in narrative_data:
                     merged_data[field] = narrative_data[field]
-        
+
+        # ── Ensure key fields exist with fallback to parsed_data ──────────────
+        # When analysis_result is empty/incomplete (e.g., DB save failed during SSE
+        # streaming), reconstruct essential fields from parsed_data and other DB
+        # columns so the Candidates page report matches the post-analysis report.
+
+        if not merged_data.get("contact_info"):
+            merged_data["contact_info"] = parsed.get("contact_info") or {
+                "name": candidate.name,
+                "email": candidate.email,
+                "phone": candidate.phone,
+            }
+
+        if not merged_data.get("candidate_profile"):
+            # Reconstruct candidate_profile from parsed_data
+            work_exp = parsed.get("work_experience", [])
+            contact = parsed.get("contact_info", {})
+            merged_data["candidate_profile"] = {
+                "name": contact.get("name", ""),
+                "email": contact.get("email", ""),
+                "phone": contact.get("phone", ""),
+                "skills_identified": parsed.get("skills", []),
+                "education": parsed.get("education", []),
+                "work_experience": work_exp,
+                "career_summary": "",
+                "total_effective_years": candidate.total_years_exp or 0,
+                "current_role": work_exp[0].get("title", "") if work_exp else (candidate.current_role or ""),
+                "current_company": work_exp[0].get("company", "") if work_exp else (candidate.current_company or ""),
+            }
+
+        if not merged_data.get("work_experience"):
+            merged_data["work_experience"] = parsed.get("work_experience", [])
+
+        # Ensure all fields expected by ReportPage / ResultCard have defaults
+        merged_data.setdefault("fit_score", None)
+        merged_data.setdefault("job_role", None)
+        merged_data.setdefault("final_recommendation", "Pending")
+        merged_data.setdefault("risk_level", None)
+        merged_data.setdefault("score_breakdown", {})
+        merged_data.setdefault("strengths", [])
+        merged_data.setdefault("weaknesses", [])
+        merged_data.setdefault("concerns", [])
+        merged_data.setdefault("risk_signals", [])
+        merged_data.setdefault("employment_gaps", [])
+        merged_data.setdefault("skill_analysis", {})
+        merged_data.setdefault("jd_analysis", {})
+        merged_data.setdefault("edu_timeline_analysis", {})
+        merged_data.setdefault("education_analysis", None)
+        merged_data.setdefault("matched_skills", [])
+        merged_data.setdefault("missing_skills", [])
+        merged_data.setdefault("adjacent_skills", [])
+        merged_data.setdefault("required_skills_count", 0)
+        merged_data.setdefault("analysis_quality", "low")
+        merged_data.setdefault("pipeline_errors", [])
+        merged_data.setdefault("score_rationales", {})
+        merged_data.setdefault("risk_summary", {})
+        merged_data.setdefault("skill_depth", {})
+        # Include the ScreeningResult status (pending/shortlisted/rejected/in-review/hired)
+        merged_data.setdefault("status", r.status or "pending")
+        # narrative_pending and ai_enhanced are computed from narrative_status below,
+        # NOT from analysis_result (which may contain stale values)
+        merged_data.pop("narrative_pending", None)
+        merged_data.pop("ai_enhanced", None)
+
         # Resolve candidate name from multiple sources
         candidate_name = (
             (merged_data.get("candidate_name") or "").strip() or
@@ -190,7 +270,7 @@ def get_candidate(
             candidate.name or
             None
         )
-        
+
         # Build result with EXACT same structure as analysis result
         # This ensures ReportPage receives consistent data regardless of source
         result_item = {
@@ -201,19 +281,19 @@ def get_candidate(
             "timestamp":            r.timestamp,
             "candidate_id":         r.candidate_id,
             "candidate_name":       candidate_name,
-            
+
             # Narrative status fields (for UI polling)
             "narrative_status":     r.narrative_status or "pending",
             "narrative_error":      r.narrative_error,
             "ai_enhanced":          r.narrative_status == "ready" and r.narrative_json is not None,
             "narrative_pending":    r.narrative_status in ("pending", "processing"),
         }
-        
+
         # Spread all analysis data - this ensures EXACT same structure as direct analysis
-        # merged_data contains: fit_score, final_recommendation, candidate_profile, 
+        # merged_data contains: fit_score, final_recommendation, candidate_profile,
         # contact_info, strengths, weaknesses, etc.
         result_item.update(merged_data)
-        
+
         history.append(result_item)
 
     # Skills snapshot from stored profile

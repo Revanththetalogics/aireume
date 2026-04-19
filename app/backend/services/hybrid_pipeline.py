@@ -1972,6 +1972,16 @@ async def _background_llm_narrative(
                         # This ensures the Candidates page shows the full report, not "PENDING"
                         try:
                             current_analysis = json.loads(result.analysis_result or "{}")
+                            # If analysis_result is empty or missing critical fields,
+                            # use python_result as the base (available from outer scope)
+                            if not current_analysis.get("fit_score") and python_result.get("fit_score") is not None:
+                                log.warning(
+                                    "analysis_result for screening_result_id=%s is empty/missing fit_score "
+                                    "(%d keys). Using python_result as base for narrative merge.",
+                                    screening_result_id, len(current_analysis),
+                                )
+                                base = {k: v for k, v in python_result.items() if not k.startswith("_")}
+                                current_analysis = base
                             merged_analysis = _merge_llm_into_result(current_analysis, narrative)
                             result.analysis_result = json.dumps(merged_analysis, default=str)
                         except Exception as merge_err:
