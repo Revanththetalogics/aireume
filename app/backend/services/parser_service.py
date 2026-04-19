@@ -976,7 +976,10 @@ class ResumeParser:
         SKIP_WORDS = {
             'resume', 'curriculum', 'vitae', 'cv', 'profile', 'summary',
             'objective', 'contact', 'address', 'details', 'information',
-            'page', 'updated', 'date',
+            'page', 'updated', 'date', 'domain', 'experience', 'education',
+            'skills', 'employment', 'work', 'projects', 'references',
+            'certifications', 'awards', 'publications', 'languages',
+            'interests', 'hobbies', 'activities', 'achievements',
         }
         lines = text.strip().split('\n')
         for line in lines[:15]:
@@ -1024,10 +1027,27 @@ class ResumeParser:
         if email_match:
             info['email'] = email_match.group(0)
 
-        # Phone
-        phone_match = re.search(r'[\+]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,4}[-\s\.]?[0-9]{1,9}', text)
-        if phone_match:
-            info['phone'] = phone_match.group(0)
+        # Phone - stricter pattern to avoid matching years
+        # Must have at least 7 digits and look like a real phone number
+        phone_patterns = [
+            # International: +1-555-123-4567, +91 98765 43210
+            r'\+[0-9]{1,3}[-\s.]?[0-9]{1,4}[-\s.]?[0-9]{1,4}[-\s.]?[0-9]{1,9}',
+            # With parentheses: (555) 123-4567, (555)123-4567
+            r'\([0-9]{2,4}\)\s*[0-9]{1,4}[-\s.]?[0-9]{1,9}',
+            # Standard: 555-123-4567, 555.123.4567, 555 123 4567
+            r'\b[0-9]{3,4}[-\s.][0-9]{3,4}[-\s.][0-9]{4}\b',
+        ]
+        for pattern in phone_patterns:
+            phone_match = re.search(pattern, text)
+            if phone_match:
+                phone = phone_match.group(0).strip()
+                # Validate: must have at least 7 digits and not be a year (1900-2099)
+                digits_only = re.sub(r'\D', '', phone)
+                if len(digits_only) >= 7:
+                    year_check = int(digits_only[:4]) if len(digits_only) >= 4 else 0
+                    if not (1900 <= year_check <= 2099):
+                        info['phone'] = phone
+                        break
 
         # LinkedIn
         linkedin_match = re.search(r'linkedin\.com/in/[A-Za-z0-9\-_%]+', text, re.IGNORECASE)
