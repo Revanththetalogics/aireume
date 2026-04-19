@@ -22,6 +22,13 @@ httpx==0.28.1
 pypdf==5.1.0
 pdfplumber==0.11.4
 python-docx==1.1.2
+pymupdf==1.25.1
+
+# Document Processing
+docx2txt==0.8
+striprtf==0.0.26
+odfpy==1.4.1
+antiword==0.1.0
 
 # NLP & Text Processing
 spacy==3.8.2

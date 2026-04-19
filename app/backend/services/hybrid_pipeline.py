@@ -1051,29 +1051,8 @@ _DEFAULT_WEIGHTS = {
 
 
 def compute_fit_score(scores: Dict[str, Any], scoring_weights: Optional[Dict] = None) -> Dict[str, Any]:
-    """
-    Compute weighted fit score, risk signals, and recommendation.
-    
-    Supports both old and new weight schemas for backward compatibility:
-    - Old schema: skills, experience, architecture, education, timeline, domain, risk
-    - New schema: core_competencies, experience, domain_fit, education, career_trajectory, role_excellence, risk
-    """
-    from app.backend.services.weight_mapper import convert_to_new_schema
-    
-    # Convert incoming weights to new schema (handles old, new, or legacy formats)
-    new_weights = convert_to_new_schema(scoring_weights)
-    
-    # Map new schema back to old internal keys for scoring calculation
-    # This maintains backward compatibility with existing scoring logic
-    w = {
-        "skills":       new_weights.get("core_competencies", 0.30),
-        "experience":   new_weights.get("experience", 0.20),
-        "architecture": new_weights.get("role_excellence", 0.15),
-        "education":    new_weights.get("education", 0.10),
-        "timeline":     new_weights.get("career_trajectory", 0.10),
-        "domain":       new_weights.get("domain_fit", 0.10),
-        "risk":         new_weights.get("risk", 0.15),
-    }
+    """Compute weighted fit score, risk signals, and recommendation."""
+    w = {**_DEFAULT_WEIGHTS, **(scoring_weights or {})}
 
     skill_score    = scores.get("skill_score",    50)
     exp_score      = scores.get("exp_score",       50)
@@ -1970,10 +1949,8 @@ async def _background_llm_narrative(
         status: str,
         error: Optional[str] = None,
     ) -> bool:
-        """Write narrative_json, status, error, and timestamp to DB with retry and exponential backoff."""
-        from datetime import datetime, timezone
-        
-        for attempt in range(3):  # Increased to 3 retries
+        """Write narrative_json, status, and error to DB with one retry on failure."""
+        for attempt in range(2):
             try:
                 db = SessionLocal()
                 try:
@@ -1985,9 +1962,6 @@ async def _background_llm_narrative(
                         result.narrative_json = json.dumps(narrative, default=str)
                         result.narrative_status = status
                         result.narrative_error = error
-                        # Set timestamp when narrative is ready or failed
-                        if status in ('ready', 'failed'):
-                            result.narrative_generated_at = datetime.now(timezone.utc)
                         db.commit()
                         log.info(
                             "Wrote narrative_json (status=%s) to screening_result_id=%s",
@@ -2005,19 +1979,16 @@ async def _background_llm_narrative(
                 finally:
                     db.close()
             except Exception as db_err:
-                if attempt < 2:  # Not the last attempt
-                    backoff = 2 ** attempt  # Exponential backoff: 1s, 2s
+                if attempt == 0:
                     log.warning(
-                        "DB write failed for screening_result_id=%s (attempt %d/3), retrying in %ds: %s",
+                        "DB write failed for screening_result_id=%s, retrying in 2s: %s",
                         screening_result_id,
-                        attempt + 1,
-                        backoff,
                         str(db_err)[:200],
                     )
-                    await asyncio.sleep(backoff)
+                    await asyncio.sleep(2)
                 else:
                     log.error(
-                        "Failed to write narrative to DB for screening_result_id=%s after 3 attempts: %s",
+                        "Failed to write narrative to DB for screening_result_id=%s after retry: %s",
                         screening_result_id,
                         str(db_err)[:200],
                     )
@@ -2197,17 +2168,9 @@ async def astream_hybrid_pipeline(
         {"stage": "complete", "result": {full merged result}}
     """
     # Phase 1 — Python (instant)
-    try:
-        python_result = _run_python_phase(
-            resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis
-        )
-    except Exception as e:
-        log.exception("Python phase failed in astream_hybrid_pipeline: %s", e)
-        # Yield error and minimal fallback result
-        error_result = _fallback_result(gap_analysis)
-        yield {"stage": "parsing", "result": error_result}
-        yield {"stage": "complete", "result": error_result}
-        return
+    python_result = _run_python_phase(
+        resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis
+    )
 
     llm_context = {
         "jd_analysis":       python_result["jd_analysis"],

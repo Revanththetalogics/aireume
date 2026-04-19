@@ -2,7 +2,10 @@ import re
 import io
 import logging
 import time
-from typing import List, Dict, Any, Optional
+import subprocess
+import tempfile
+import os
+from typing import List, Dict, Any, Optional, Set
 import pdfplumber
 from docx import Document
 
@@ -21,6 +24,25 @@ try:
     _HAS_UNIDECODE = True
 except ImportError:
     _HAS_UNIDECODE = False
+
+try:
+    import docx2txt
+    _HAS_DOCX2TXT = True
+except ImportError:
+    _HAS_DOCX2TXT = False
+
+try:
+    from striprtf.striprtf import rtf_to_text
+    _HAS_STRIPRTF = True
+except ImportError:
+    _HAS_STRIPRTF = False
+
+try:
+    from odf import opendocument
+    from odf.text import P
+    _HAS_ODFPY = True
+except ImportError:
+    _HAS_ODFPY = False
 
 
 # ─── spaCy NER singleton for name extraction (Tier 0) ────────────────────────
@@ -185,94 +207,534 @@ class ResumeParser:
             r'(\d{4})\s*[-–—]\s*(\d{4}|present|current|now)',
         ]
 
+    # Supported formats mapping
+    SUPPORTED_FORMATS = {
+        '.pdf': '_extract_pdf_multistage',
+        '.docx': '_extract_docx_multistage',
+        '.doc': '_extract_doc_multistage',
+        '.txt': '_extract_txt',
+        '.rtf': '_extract_rtf',
+        '.odt': '_extract_odt',
+    }
+
     def extract_text(self, file_bytes: bytes, filename: str) -> str:
-        if filename.lower().endswith('.pdf'):
-            return self._extract_pdf(file_bytes)
-        elif filename.lower().endswith(('.docx', '.doc')):
-            return self._extract_docx(file_bytes)
-        elif filename.lower().endswith('.txt'):
-            return file_bytes.decode('utf-8')
+        """Extract text from resume file using multi-stage pipeline."""
+        ext = os.path.splitext(filename.lower())[1]
+        
+        if ext == '.pdf':
+            return self._extract_pdf_multistage(file_bytes)
+        elif ext == '.docx':
+            return self._extract_docx_multistage(file_bytes)
+        elif ext == '.doc':
+            return self._extract_doc_multistage(file_bytes)
+        elif ext == '.txt':
+            return self._extract_txt(file_bytes)
+        elif ext == '.rtf':
+            return self._extract_rtf(file_bytes)
+        elif ext == '.odt':
+            return self._extract_odt(file_bytes)
         else:
-            raise ValueError(f"Unsupported file format: {filename}")
+            raise ValueError(f"Unsupported file format: {filename}. Supported: {list(self.SUPPORTED_FORMATS.keys())}")
 
-    def _extract_pdf(self, file_bytes: bytes) -> str:
-        """PyMuPDF primary (handles multi-column, correct reading order); pdfplumber fallback."""
-        text = ""
-
+    def _extract_pdf_multistage(self, file_bytes: bytes) -> str:
+        """
+        Multi-stage PDF extraction pipeline.
+        
+        Stage 1: PyMuPDF (best for multi-column, correct reading order)
+        Stage 2: pdfplumber with table extraction (best for structured tables)
+        Stage 3: Combined deduplicated output
+        """
+        text_parts = []
+        seen_texts: Set[str] = set()
+        
+        def add_unique_text(text: str, source: str) -> None:
+            """Add text if not already seen (deduplication)."""
+            if not text or not text.strip():
+                return
+            # Normalize for comparison
+            normalized = re.sub(r'\s+', ' ', text.strip().lower())
+            if normalized and normalized not in seen_texts and len(normalized) > 3:
+                seen_texts.add(normalized)
+                text_parts.append((text.strip(), source))
+        
+        # Stage 1: PyMuPDF extraction (primary - best for layout preservation)
         if _HAS_PYMUPDF:
             try:
                 doc = pymupdf.open(stream=file_bytes, filetype="pdf")
-                pages_text = []
-                for page in doc:
-                    pages_text.append(page.get_text("text"))
+                for page_num, page in enumerate(doc):
+                    page_text = page.get_text("text")
+                    if page_text.strip():
+                        add_unique_text(page_text, f"pymupdf_page_{page_num}")
                 doc.close()
-                text = "\n".join(pages_text)
+                logger.info("PyMuPDF extraction completed")
             except Exception as e:
-                logger.warning("PyMuPDF extraction failed, falling back to pdfplumber: %s", e)
-                text = ""
-
-        # pdfplumber fallback if PyMuPDF unavailable or returned empty
-        if not text.strip():
-            logger.info("Using pdfplumber fallback for PDF extraction (PyMuPDF unavailable or empty result)")
-            try:
-                with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-                    text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-            except Exception as e:
-                logger.warning("pdfplumber fallback also failed: %s", e)
-                text = ""
-
-        # Scanned-PDF guard — raise early with actionable message
+                logger.warning("PyMuPDF extraction failed: %s", e)
+        
+        # Stage 2: pdfplumber with table extraction (for tables and structured data)
+        try:
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                for page_num, page in enumerate(pdf.pages):
+                    # Extract tables first (contact info often in tables)
+                    tables = page.extract_tables()
+                    for table_idx, table in enumerate(tables):
+                        for row in table:
+                            if row:
+                                row_text = " | ".join(str(cell) for cell in row if cell)
+                                if row_text.strip():
+                                    add_unique_text(row_text, f"table_{page_num}_{table_idx}")
+                    
+                    # Extract regular text
+                    page_text = page.extract_text() or ""
+                    if page_text.strip():
+                        add_unique_text(page_text, f"pdfplumber_page_{page_num}")
+            logger.info("pdfplumber extraction completed with table support")
+        except Exception as e:
+            logger.warning("pdfplumber extraction failed: %s", e)
+        
+        # Combine all extracted text with source priority
+        # Prioritize table content (often contains contact info) and header areas
+        combined_parts = []
+        table_parts = []
+        text_parts_list = []
+        
+        for text, source in text_parts:
+            if 'table' in source:
+                table_parts.append(text)
+            else:
+                text_parts_list.append(text)
+        
+        # Order: tables first (contact info), then regular text
+        combined_parts = table_parts + text_parts_list
+        
+        # Final deduplication pass
+        final_lines = []
+        final_seen: Set[str] = set()
+        for part in combined_parts:
+            for line in part.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                normalized = re.sub(r'\s+', ' ', line.lower())
+                if normalized not in final_seen and len(line) > 1:
+                    final_seen.add(normalized)
+                    final_lines.append(line)
+        
+        text = '\n'.join(final_lines)
+        
+        # Scanned-PDF guard
         if len(text.strip()) < 100:
             raise ValueError(
                 "This PDF appears to be a scanned image and cannot be read automatically. "
                 "Please upload a text-based PDF (exported from Word/Google Docs) rather than "
                 "a scanned or photographed document."
             )
-
-        # Normalise Unicode characters (e.g. résumé → resume, accented skill names)
+        
+        # Normalise Unicode characters
         if _HAS_UNIDECODE:
             text = _unidecode(text)
+        
+        logger.info(f"Multi-stage PDF extraction: extracted {len(final_lines)} unique lines")
+        return text
 
+    def _extract_pdf(self, file_bytes: bytes) -> str:
+        """Legacy PDF extraction - kept for backward compatibility."""
+        return self._extract_pdf_multistage(file_bytes)
+
+    def _extract_docx_multistage(self, file_bytes: bytes) -> str:
+        """
+        Multi-stage DOCX extraction pipeline for maximum content recovery.
+        
+        Stage 1: Headers (contact info often in headers)
+        Stage 2: Textboxes and shapes using docx2txt
+        Stage 3: Tables (contact info often in tables)
+        Stage 4: Regular paragraphs
+        Stage 5: XML fallback for corrupted files
+        """
+        text_parts = []
+        seen_texts: Set[str] = set()
+        
+        def add_unique_text(text: str, source: str) -> None:
+            """Add text if not already seen (deduplication)."""
+            if not text or not text.strip():
+                return
+            # Normalize for comparison
+            normalized = re.sub(r'\s+', ' ', text.strip().lower())
+            if normalized and normalized not in seen_texts and len(normalized) > 2:
+                seen_texts.add(normalized)
+                text_parts.append((text.strip(), source))
+        
+        try:
+            doc = Document(io.BytesIO(file_bytes))
+            
+            # Stage 1: Extract text from headers (often contains contact info)
+            try:
+                for section_idx, section in enumerate(doc.sections):
+                    header = section.header
+                    header_texts = []
+                    for para in header.paragraphs:
+                        if para.text.strip():
+                            header_texts.append(para.text.strip())
+                    if header_texts:
+                        header_text = "\n".join(header_texts)
+                        add_unique_text(header_text, f"header_{section_idx}")
+                logger.info("DOCX header extraction completed")
+            except Exception as e:
+                logger.warning("Header extraction failed: %s", e)
+            
+            # Stage 2: Extract text from textboxes/shapes using docx2txt
+            if _HAS_DOCX2TXT:
+                try:
+                    # Save to temp file for docx2txt
+                    with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as tmp:
+                        tmp.write(file_bytes)
+                        tmp_path = tmp.name
+                    
+                    try:
+                        textbox_text = docx2txt.process(tmp_path)
+                        if textbox_text.strip():
+                            add_unique_text(textbox_text, "textboxes_docx2txt")
+                            logger.info("DOCX textbox extraction completed via docx2txt")
+                    finally:
+                        os.unlink(tmp_path)
+                except Exception as e:
+                    logger.warning("docx2txt extraction failed: %s", e)
+            
+            # Stage 3: Extract text from tables (contact info often in tables)
+            try:
+                for table_idx, table in enumerate(doc.tables):
+                    for row_idx, row in enumerate(table.rows):
+                        row_texts = []
+                        for cell in row.cells:
+                            if cell.text.strip():
+                                row_texts.append(cell.text.strip())
+                        if row_texts:
+                            row_text = " | ".join(row_texts)
+                            add_unique_text(row_text, f"table_{table_idx}_row_{row_idx}")
+                logger.info("DOCX table extraction completed")
+            except Exception as e:
+                logger.warning("Table extraction failed: %s", e)
+            
+            # Stage 4: Extract text from paragraphs
+            try:
+                paragraph_texts = []
+                for para in doc.paragraphs:
+                    if para.text.strip():
+                        paragraph_texts.append(para.text.strip())
+                if paragraph_texts:
+                    add_unique_text("\n".join(paragraph_texts), "paragraphs")
+                logger.info("DOCX paragraph extraction completed")
+            except Exception as e:
+                logger.warning("Paragraph extraction failed: %s", e)
+                
+        except Exception as e:
+            logger.warning("python-docx extraction failed, trying XML fallback: %s", e)
+        
+        # Stage 5: XML fallback for corrupted/unusual files
+        if not text_parts:
+            try:
+                import zipfile
+                import xml.etree.ElementTree as ET
+                
+                with zipfile.ZipFile(io.BytesIO(file_bytes)) as docx_zip:
+                    # Try to find and read document.xml
+                    if 'word/document.xml' in docx_zip.namelist():
+                        xml_content = docx_zip.read('word/document.xml')
+                        tree = ET.fromstring(xml_content)
+                        
+                        # Extract all text nodes
+                        ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+                        text_elements = tree.findall('.//w:t', ns)
+                        xml_text = '\n'.join([elem.text for elem in text_elements if elem.text])
+                        
+                        if xml_text.strip():
+                            add_unique_text(xml_text, "xml_fallback")
+                            logger.info("DOCX XML fallback extraction completed")
+            except Exception as e:
+                logger.warning("XML fallback also failed: %s", e)
+        
+        if not text_parts:
+            raise ValueError(
+                "Unable to extract text from this Word document. "
+                "The file may be corrupted or in an unsupported format. "
+                "Please try re-saving the document or converting to PDF."
+            )
+        
+        # Combine all extracted text with source priority
+        # Order: headers first (contact info), then textboxes, then tables, then paragraphs
+        source_priority = {
+            'header': 0,
+            'textbox': 1,
+            'table': 2,
+            'paragraph': 3,
+            'xml': 4,
+        }
+        
+        sorted_parts = sorted(text_parts, key=lambda x: (
+            next((v for k, v in source_priority.items() if k in x[1]), 5),
+            x[1]
+        ))
+        
+        # Final deduplication pass
+        final_lines = []
+        final_seen: Set[str] = set()
+        for text, source in sorted_parts:
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                normalized = re.sub(r'\s+', ' ', line.lower())
+                if normalized not in final_seen and len(line) > 1:
+                    final_seen.add(normalized)
+                    final_lines.append(line)
+        
+        text = '\n'.join(final_lines)
+        logger.info(f"Multi-stage DOCX extraction: extracted {len(final_lines)} unique lines")
         return text
 
     def _extract_docx(self, file_bytes: bytes) -> str:
-        """Extract text from DOCX with fallback for corrupted/unusual files."""
-        try:
-            doc = Document(io.BytesIO(file_bytes))
-            text = "\n".join([para.text for para in doc.paragraphs])
-            if text.strip():
-                return text
-        except Exception as e:
-            logger.warning("python-docx extraction failed, trying zipfile fallback: %s", e)
+        """Legacy DOCX extraction - kept for backward compatibility."""
+        return self._extract_docx_multistage(file_bytes)
+
+    def _extract_doc_multistage(self, file_bytes: bytes) -> str:
+        """
+        Multi-stage DOC (legacy Word) extraction pipeline.
         
-        # Fallback: Extract document.xml directly from DOCX zip
-        try:
-            import zipfile
-            import xml.etree.ElementTree as ET
-            
-            with zipfile.ZipFile(io.BytesIO(file_bytes)) as docx_zip:
-                # Try to find and read document.xml
-                if 'word/document.xml' in docx_zip.namelist():
-                    xml_content = docx_zip.read('word/document.xml')
-                    tree = ET.fromstring(xml_content)
-                    
-                    # Extract all text nodes
-                    # Namespace for Word XML
-                    ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
-                    text_elements = tree.findall('.//w:t', ns)
-                    text = '\n'.join([elem.text for elem in text_elements if elem.text])
-                    
-                    if text.strip():
-                        logger.info("Successfully extracted DOCX text using zipfile fallback")
-                        return text
-        except Exception as e:
-            logger.warning("Zipfile fallback also failed: %s", e)
+        Stage 1: Try antiword if available (best for .doc files)
+        Stage 2: Try LibreOffice headless conversion to DOCX
+        Stage 3: Best-effort ASCII extraction
+        """
+        text_parts = []
         
-        raise ValueError(
-            "Unable to extract text from this Word document. "
-            "The file may be corrupted or in an unsupported format. "
-            "Please try re-saving the document or converting to PDF."
-        )
+        # Stage 1: Try antiword if available
+        try:
+            result = subprocess.run(
+                ['antiword', '-'],
+                input=file_bytes,
+                capture_output=True,
+                timeout=10
+            )
+            if result.returncode == 0 and result.stdout:
+                text = result.stdout.decode('utf-8', errors='ignore')
+                if text.strip():
+                    text_parts.append((text, "antiword"))
+                    logger.info("DOC extraction completed via antiword")
+        except (subprocess.SubprocessError, FileNotFoundError, Exception) as e:
+            logger.debug("antiword not available or failed: %s", e)
+        
+        # Stage 2: Try LibreOffice conversion
+        if not text_parts:
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.doc', delete=False) as tmp_in:
+                    tmp_in.write(file_bytes)
+                    tmp_in_path = tmp_in.name
+                
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    # Convert DOC to DOCX using LibreOffice
+                    result = subprocess.run(
+                        ['soffice', '--headless', '--convert-to', 'docx', 
+                         '--outdir', tmp_dir, tmp_in_path],
+                        capture_output=True,
+                        timeout=30
+                    )
+                    
+                    if result.returncode == 0:
+                        # Find the converted file
+                        converted_files = [f for f in os.listdir(tmp_dir) if f.endswith('.docx')]
+                        if converted_files:
+                            docx_path = os.path.join(tmp_dir, converted_files[0])
+                            with open(docx_path, 'rb') as f:
+                                docx_bytes = f.read()
+                            # Extract using DOCX pipeline
+                            text = self._extract_docx_multistage(docx_bytes)
+                            if text.strip():
+                                text_parts.append((text, "libreoffice_conversion"))
+                                logger.info("DOC extraction completed via LibreOffice conversion")
+                
+                os.unlink(tmp_in_path)
+            except (subprocess.SubprocessError, FileNotFoundError, Exception) as e:
+                logger.debug("LibreOffice conversion not available or failed: %s", e)
+        
+        # Stage 3: Best-effort ASCII extraction
+        if not text_parts:
+            try:
+                raw = file_bytes.decode("latin-1", errors="ignore")
+                # Remove non-printable characters except newline/tab
+                cleaned = re.sub(r"[^\x20-\x7E\n\t]", " ", raw)
+                # Collapse multiple spaces but keep newlines
+                cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+                lines = [l.strip() for l in cleaned.splitlines() if len(l.strip()) > 4]
+                text = "\n".join(lines)
+                if text.strip():
+                    text_parts.append((text, "ascii_fallback"))
+                    logger.info("DOC extraction completed via ASCII fallback")
+            except Exception as e:
+                logger.warning("ASCII fallback failed: %s", e)
+        
+        if not text_parts:
+            raise ValueError(
+                "Unable to extract text from this legacy Word document (.doc). "
+                "Please convert to DOCX or PDF and try again."
+            )
+        
+        # Combine and deduplicate
+        final_lines = []
+        final_seen: Set[str] = set()
+        for text, source in text_parts:
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                normalized = re.sub(r'\s+', ' ', line.lower())
+                if normalized not in final_seen and len(line) > 1:
+                    final_seen.add(normalized)
+                    final_lines.append(line)
+        
+        text = '\n'.join(final_lines)
+        logger.info(f"Multi-stage DOC extraction: extracted {len(final_lines)} unique lines")
+        return text
+
+    def _extract_txt(self, file_bytes: bytes) -> str:
+        """Extract text from TXT file with multiple encoding attempts."""
+        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
+        
+        for encoding in encodings:
+            try:
+                text = file_bytes.decode(encoding)
+                if text.strip():
+                    logger.info(f"TXT extraction completed with {encoding} encoding")
+                    return text
+            except (UnicodeDecodeError, LookupError):
+                continue
+        
+        raise ValueError("Unable to decode text file. Unsupported encoding.")
+
+    def _extract_rtf(self, file_bytes: bytes) -> str:
+        """
+        Multi-stage RTF extraction pipeline.
+        
+        Stage 1: Use striprtf library if available
+        Stage 2: Regex-based RTF stripping fallback
+        """
+        text_parts = []
+        
+        # Stage 1: Use striprtf library
+        if _HAS_STRIPRTF:
+            try:
+                raw = file_bytes.decode('utf-8', errors='ignore')
+                text = rtf_to_text(raw)
+                if text.strip():
+                    text_parts.append((text, "striprtf"))
+                    logger.info("RTF extraction completed via striprtf")
+            except Exception as e:
+                logger.warning("striprtf extraction failed: %s", e)
+        
+        # Stage 2: Regex-based fallback
+        if not text_parts:
+            try:
+                raw = file_bytes.decode("latin-1", errors="ignore")
+                # Strip RTF control words, groups, and backslash escapes
+                text = re.sub(r"\\[a-z]+\-?\d*\s?", " ", raw)
+                text = re.sub(r"\{[^{}]*\}", " ", text)
+                text = re.sub(r"[{}\\]", " ", text)
+                text = re.sub(r"\s+", " ", text)
+                if text.strip():
+                    text_parts.append((text.strip(), "regex_fallback"))
+                    logger.info("RTF extraction completed via regex fallback")
+            except Exception as e:
+                logger.warning("RTF regex fallback failed: %s", e)
+        
+        if not text_parts:
+            raise ValueError("Unable to extract text from RTF file.")
+        
+        # Combine and deduplicate
+        final_lines = []
+        final_seen: Set[str] = set()
+        for text, source in text_parts:
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                normalized = re.sub(r'\s+', ' ', line.lower())
+                if normalized not in final_seen and len(line) > 1:
+                    final_seen.add(normalized)
+                    final_lines.append(line)
+        
+        text = '\n'.join(final_lines)
+        logger.info(f"Multi-stage RTF extraction: extracted {len(final_lines)} unique lines")
+        return text
+
+    def _extract_odt(self, file_bytes: bytes) -> str:
+        """
+        Multi-stage ODT (OpenDocument Text) extraction pipeline.
+        
+        Stage 1: Use odfpy library if available
+        Stage 2: ZIP-based XML extraction fallback
+        """
+        text_parts = []
+        
+        # Stage 1: Use odfpy library
+        if _HAS_ODFPY:
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.odt', delete=False) as tmp:
+                    tmp.write(file_bytes)
+                    tmp_path = tmp.name
+                
+                try:
+                    doc = opendocument.load(tmp_path)
+                    paragraphs = []
+                    for paragraph in doc.getElementsByType(P):
+                        text_content = str(paragraph)
+                        # Extract text between tags
+                        text_match = re.search(r'>([^<]+)<', text_content)
+                        if text_match:
+                            paragraphs.append(text_match.group(1))
+                    
+                    if paragraphs:
+                        text = '\n'.join(paragraphs)
+                        if text.strip():
+                            text_parts.append((text, "odfpy"))
+                            logger.info("ODT extraction completed via odfpy")
+                finally:
+                    os.unlink(tmp_path)
+            except Exception as e:
+                logger.warning("odfpy extraction failed: %s", e)
+        
+        # Stage 2: ZIP-based XML extraction
+        if not text_parts:
+            try:
+                import zipfile
+                
+                with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+                    with z.open("content.xml") as f:
+                        xml = f.read().decode("utf-8", errors="ignore")
+                
+                text = re.sub(r"<[^>]+>", " ", xml)
+                text = re.sub(r"\s+", " ", text)
+                if text.strip():
+                    text_parts.append((text.strip(), "xml_fallback"))
+                    logger.info("ODT extraction completed via XML fallback")
+            except Exception as e:
+                logger.warning("ODT XML fallback failed: %s", e)
+        
+        if not text_parts:
+            raise ValueError("Unable to extract text from ODT file.")
+        
+        # Combine and deduplicate
+        final_lines = []
+        final_seen: Set[str] = set()
+        for text, source in text_parts:
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                normalized = re.sub(r'\s+', ' ', line.lower())
+                if normalized not in final_seen and len(line) > 1:
+                    final_seen.add(normalized)
+                    final_lines.append(line)
+        
+        text = '\n'.join(final_lines)
+        logger.info(f"Multi-stage ODT extraction: extracted {len(final_lines)} unique lines")
+        return text
 
     def parse_resume(self, file_bytes: bytes, filename: str) -> Dict[str, Any]:
         text = self.extract_text(file_bytes, filename)

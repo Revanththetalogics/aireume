@@ -72,55 +72,16 @@ def _json_default(obj):
 
 # ─── JD cache helpers ─────────────────────────────────────────────────────────
 
-def _get_or_cache_jd(db: Session, job_description: str, suggest_weights: bool = False) -> dict:
-    """
-    Parse the JD or return the cached result. Shared across all workers via DB.
-    
-    Args:
-        db: Database session
-        job_description: Job description text
-        suggest_weights: If True, include LLM weight suggestions in result
-        
-    Returns:
-        JD analysis dict, optionally with 'weight_suggestion' key
-    """
+def _get_or_cache_jd(db: Session, job_description: str) -> dict:
+    """Parse the JD or return the cached result. Shared across all workers via DB."""
     jd_hash = hashlib.md5(job_description[:2000].encode()).hexdigest()
     cached = db.query(JdCache).filter(JdCache.hash == jd_hash).first()
     if cached:
         try:
-            jd_analysis = json.loads(cached.result_json)
-            
-            # If weights requested but not in cache, generate them now
-            if suggest_weights and "weight_suggestion" not in jd_analysis:
-                from app.backend.services.weight_suggester import suggest_weights_for_jd
-                weight_suggestion = suggest_weights_for_jd(job_description, timeout=30)
-                if weight_suggestion:
-                    jd_analysis["weight_suggestion"] = weight_suggestion
-                    # Update cache with weight suggestion
-                    try:
-                        cached.result_json = json.dumps(jd_analysis, default=_json_default)
-                        db.commit()
-                    except Exception as e:
-                        log.warning("Non-critical: Failed to update JD cache with weights: %s", e)
-                        db.rollback()
-            
-            return jd_analysis
+            return json.loads(cached.result_json)
         except Exception as e:
             log.warning("Non-critical: Failed to parse cached JD JSON, re-parsing: %s", e)
-    
-    # Parse JD
     jd_analysis = parse_jd_rules(job_description)
-    
-    # Add weight suggestion if requested
-    if suggest_weights:
-        from app.backend.services.weight_suggester import suggest_weights_for_jd
-        weight_suggestion = suggest_weights_for_jd(job_description, timeout=30)
-        if weight_suggestion:
-            jd_analysis["weight_suggestion"] = weight_suggestion
-            log.info(f"Weight suggestion: {weight_suggestion['role_category']} role, "
-                    f"confidence: {weight_suggestion.get('confidence', 0)}")
-    
-    # Cache result
     try:
         db.merge(JdCache(hash=jd_hash, result_json=json.dumps(jd_analysis, default=_json_default)))
         db.commit()
@@ -130,7 +91,6 @@ def _get_or_cache_jd(db: Session, job_description: str, suggest_weights: bool = 
             db.rollback()
         except Exception as rollback_err:
             log.warning("Non-critical: Rollback also failed: %s", rollback_err)
-    
     return jd_analysis
 
 
@@ -374,17 +334,6 @@ async def _process_single_resume(
             **_fallback_result({}),
             "pipeline_errors": [f"Parse error: {str(e)}"],
         }
-
-    # Enhance contact extraction with LLM (better accuracy for edge cases)
-    log.info("Contact info BEFORE LLM enrichment: %s", parsed_data.get("contact_info", {}))
-    try:
-        from app.backend.services.parser_service import enrich_parsed_resume_async
-        await enrich_parsed_resume_async(parsed_data, filename)
-        log.info("Contact info AFTER LLM enrichment: %s", parsed_data.get("contact_info", {}))
-    except Exception as e:
-        log.warning("Non-critical: LLM contact enrichment failed: %s", e)
-        import traceback
-        log.warning("Traceback: %s", traceback.format_exc())
 
     work_exp     = parsed_data.get("work_experience", [])
     gap_analysis = analyze_gaps(work_exp)
@@ -649,17 +598,6 @@ async def analyze_endpoint(
         action=action,
     )
 
-    # Extract weight metadata from JD analysis if available
-    weight_suggestion = jd_analysis.get("weight_suggestion")
-    role_category = None
-    weight_reasoning = None
-    suggested_weights_json = None
-    
-    if weight_suggestion:
-        role_category = weight_suggestion.get("role_category")
-        weight_reasoning = weight_suggestion.get("reasoning")
-        suggested_weights_json = json.dumps(weight_suggestion.get("suggested_weights", {}), default=_json_default)
-    
     db_result = ScreeningResult(
         tenant_id=current_user.tenant_id,
         candidate_id=candidate_id,
@@ -667,11 +605,6 @@ async def analyze_endpoint(
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
         analysis_result="{}",  # Placeholder — will be updated
-        is_active=True,
-        version_number=1,
-        role_category=role_category,
-        weight_reasoning=weight_reasoning,
-        suggested_weights_json=suggested_weights_json,
     )
     db.add(db_result)
     db.commit()
@@ -714,16 +647,6 @@ async def analyze_endpoint(
         or (_cand_row.name if _cand_row and _cand_row.name else None)
         or None
     )
-    
-    # Add contact_info to result for PDF generation
-    # This ensures email and phone are available in the frontend
-    contact_info = parsed_data.get("contact_info", {})
-    if contact_info:
-        result["contact_info"] = {
-            "name": contact_info.get("name"),
-            "email": contact_info.get("email"),
-            "phone": contact_info.get("phone"),
-        }
 
     if is_dup and action not in ("update_profile", "create_new"):
         existing = db.get(Candidate, candidate_id)
@@ -821,17 +744,6 @@ async def analyze_stream_endpoint(
             yield "data: [DONE]\n\n"
         return StreamingResponse(_error_stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-    # Enhance contact extraction with LLM (better accuracy for edge cases)
-    log.info("Contact info BEFORE LLM enrichment: %s", parsed_data.get("contact_info", {}))
-    try:
-        from app.backend.services.parser_service import enrich_parsed_resume_async
-        await enrich_parsed_resume_async(parsed_data, resume.filename)
-        log.info("Contact info AFTER LLM enrichment: %s", parsed_data.get("contact_info", {}))
-    except Exception as e:
-        log.warning("Non-critical: LLM contact enrichment failed: %s", e)
-        import traceback
-        log.warning("Traceback: %s", traceback.format_exc())
 
     gap_analysis = analyze_gaps(parsed_data.get("work_experience", []))
     jd_analysis  = _get_or_cache_jd(db, job_description)
@@ -938,17 +850,6 @@ async def analyze_stream_endpoint(
                 or (_cand_row_s.name if _cand_row_s and _cand_row_s.name else None)
                 or None
             )
-            
-            # Add contact_info to final_result for PDF generation
-            # This ensures email and phone are available in the frontend
-            contact_info = parsed_data.get("contact_info", {})
-            if contact_info:
-                final_result["contact_info"] = {
-                    "name": contact_info.get("name"),
-                    "email": contact_info.get("email"),
-                    "phone": contact_info.get("phone"),
-                }
-            
             if is_dup and action not in ("update_profile", "create_new"):
                 existing = db.get(Candidate, candidate_id)
                 if existing:
@@ -1158,187 +1059,6 @@ async def batch_analyze_endpoint(
     )
 
 
-@router.post("/analyze/batch-chunked", response_model=BatchAnalysisResponse)
-async def batch_analyze_chunked_endpoint(
-    upload_ids: list[str] = Form(...),
-    filenames: list[str] = Form(...),
-    job_description: str = Form(None),
-    job_file: UploadFile = File(None),
-    scoring_weights: str = Form(None),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Batch analysis endpoint for chunked uploads.
-    Reads assembled files from /tmp/aria_chunks/assembled/ and processes them.
-    """
-    from pathlib import Path
-    
-    if not upload_ids or not filenames:
-        raise HTTPException(status_code=400, detail="upload_ids and filenames are required")
-    
-    if len(upload_ids) != len(filenames):
-        raise HTTPException(status_code=400, detail="upload_ids and filenames must have the same length")
-    
-    # Validate batch size
-    if len(upload_ids) > MAX_BATCH_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Maximum batch size is {MAX_BATCH_SIZE} resumes"
-        )
-    
-    # Read and validate JD file if provided
-    jd_bytes = jd_name = None
-    if job_file and job_file.filename:
-        jd_bytes = await job_file.read()
-        jd_name = job_file.filename
-    
-    # Resolve and validate job description
-    job_description = _resolve_jd(job_description, jd_bytes, jd_name)
-    _check_jd_length(job_description)
-    _check_jd_size(job_description)
-    
-    # Read assembled files from disk
-    assembled_dir = Path("/tmp/aria_chunks/assembled")
-    file_data = []
-    
-    for upload_id, filename in zip(upload_ids, filenames):
-        # Construct the assembled file path
-        safe_filename = f"{upload_id}_{filename}"
-        file_path = assembled_dir / safe_filename
-        
-        if not file_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Assembled file not found for upload {upload_id}. File may have been cleaned up."
-            )
-        
-        # Validate file extension
-        if not filename.lower().endswith(ALLOWED_EXTENSIONS):
-            continue
-        
-        # Read file content
-        try:
-            with open(file_path, 'rb') as f:
-                content = f.read()
-            
-            if len(content) <= 10 * 1024 * 1024:  # Still validate individual file size
-                file_data.append((content, filename))
-        except Exception as e:
-            log.error(f"Failed to read assembled file {file_path}: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to read assembled file: {filename}"
-            )
-    
-    valid_count = len(file_data)
-    
-    # Get tenant's plan for batch size limit
-    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-    max_batch_size = MAX_BATCH_SIZE
-    if tenant and tenant.plan:
-        limits = _get_plan_limits(tenant.plan)
-        plan_batch_limit = limits.get("batch_size", MAX_BATCH_SIZE)
-        max_batch_size = min(max_batch_size, plan_batch_limit)
-    
-    if valid_count > max_batch_size:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Your plan allows maximum {max_batch_size} resumes per batch. Please upgrade to process more."
-        )
-    
-    # Check and increment usage
-    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=message)
-    
-    # Validate scoring_weights size
-    _check_scoring_weights_size(scoring_weights)
-    
-    weights = None
-    if scoring_weights:
-        try:
-            weights = json.loads(scoring_weights)
-        except Exception as e:
-            log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
-    
-    # Pre-parse JD once for all resumes
-    _get_or_cache_jd(db, job_description)
-    
-    if not file_data:
-        raise HTTPException(status_code=400, detail="No valid resume files provided")
-    
-    # Process all resumes (same logic as regular batch endpoint)
-    tasks = [
-        _process_with_semaphore(content, filename, job_description, weights, db)
-        for content, filename in file_data
-    ]
-    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    # Separate successes from failures
-    batch_results = []
-    failed_items = []
-    
-    for raw, (content, filename) in zip(raw_results, file_data):
-        if isinstance(raw, Exception):
-            failed_items.append(BatchFailedItem(
-                filename=filename,
-                error=str(raw)
-            ))
-            continue
-        
-        parsed_data = raw.pop("_parsed_data", {})
-        gap_analysis = raw.pop("_gap_analysis", {})
-        file_hash = hashlib.md5(content).hexdigest()
-        
-        candidate_id, _ = _get_or_create_candidate(
-            db, parsed_data, current_user.tenant_id,
-            file_hash=file_hash,
-            gap_analysis=gap_analysis,
-            profile_quality=raw.get("analysis_quality", "medium"),
-        )
-        
-        db_result = ScreeningResult(
-            tenant_id=current_user.tenant_id,
-            candidate_id=candidate_id,
-            resume_text=parsed_data.get("raw_text", ""),
-            jd_text=job_description,
-            parsed_data=json.dumps(parsed_data),
-            analysis_result=json.dumps(raw),
-        )
-        db.add(db_result)
-        db.flush()
-        raw["result_id"] = db_result.id
-        batch_results.append({"filename": filename, "result": raw})
-    
-    db.commit()
-    
-    # Clean up assembled files after processing
-    for upload_id, filename in zip(upload_ids, filenames):
-        safe_filename = f"{upload_id}_{filename}"
-        file_path = assembled_dir / safe_filename
-        try:
-            if file_path.exists():
-                file_path.unlink()
-        except Exception as e:
-            log.warning(f"Non-critical: Failed to cleanup assembled file {file_path}: {e}")
-    
-    # Sort by fit score
-    batch_results.sort(key=lambda x: x["result"].get("fit_score") or 0, reverse=True)
-    ranked = [
-        BatchAnalysisResult(rank=i + 1, filename=r["filename"], result=r["result"])
-        for i, r in enumerate(batch_results)
-    ]
-    
-    return BatchAnalysisResponse(
-        results=ranked,
-        failed=failed_items,
-        total=len(file_data),
-        successful=len(ranked),
-        failed_count=len(failed_items),
-    )
-
-
 # ─── History ──────────────────────────────────────────────────────────────────
 
 @router.get("/history")
@@ -1353,44 +1073,18 @@ def get_analysis_history(
         .limit(100)
         .all()
     )
-    
-    history = []
-    for r in results:
-        try:
-            analysis = json.loads(r.analysis_result)
-            parsed = json.loads(r.parsed_data)
-        except Exception as e:
-            logger.warning("Non-critical: Failed to parse result data for history %s: %s", r.id, e)
-            analysis = {}
-            parsed = {}
-        
-        # Resolve candidate name from multiple sources
-        candidate_name = (
-            (analysis.get("candidate_name") or "").strip() or
-            (parsed.get("contact_info", {}).get("name") or "").strip() or
-            (parsed.get("candidate_profile", {}).get("name") or "").strip() or
-            None
-        )
-        
-        # Fallback to Candidate table if available
-        if not candidate_name and r.candidate_id:
-            cand = db.get(Candidate, r.candidate_id)
-            if cand and cand.name:
-                candidate_name = cand.name
-        
-        history.append({
+    return [
+        {
             "id":                   r.id,
             "timestamp":            r.timestamp,
             "status":               r.status,
             "candidate_id":         r.candidate_id,
-            "candidate_name":       candidate_name or f"Result #{r.id}",
-            "job_role":             analysis.get("job_role"),
-            "fit_score":            analysis.get("fit_score"),
-            "final_recommendation": analysis.get("final_recommendation"),
-            "risk_level":           analysis.get("risk_level"),
-        })
-    
-    return history
+            "fit_score":            json.loads(r.analysis_result).get("fit_score"),
+            "final_recommendation": json.loads(r.analysis_result).get("final_recommendation"),
+            "risk_level":           json.loads(r.analysis_result).get("risk_level"),
+        }
+        for r in results
+    ]
 
 
 # ─── Result status update ─────────────────────────────────────────────────────
@@ -1419,62 +1113,6 @@ def update_status(
     return {"id": result_id, "status": new_status}
 
 
-# ─── Weight suggestion endpoint ──────────────────────────────────────────────
-
-@router.post("/analyze/suggest-weights")
-async def suggest_weights(
-    job_description: str = Form(...),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Suggest optimal scoring weights based on job description analysis.
-    
-    This endpoint analyzes the JD and returns AI-suggested weights without
-    performing a full resume analysis. Frontend can use this to show suggested
-    weights before the user uploads a resume.
-    
-    Returns:
-        {
-            "role_category": "technical|sales|hr|marketing|etc",
-            "seniority_level": "junior|mid|senior|lead|executive",
-            "suggested_weights": {...},
-            "role_excellence_label": "...",
-            "reasoning": "...",
-            "confidence": 0.0-1.0
-        }
-    """
-    from app.backend.services.weight_suggester import suggest_weights_for_jd, create_fallback_suggestion
-    
-    # Validate JD length
-    if not job_description or len(job_description.strip()) < 50:
-        raise HTTPException(
-            status_code=400,
-            detail="Job description is too short. Please provide at least 50 characters."
-        )
-    
-    if len(job_description.split()) < 80:
-        raise HTTPException(
-            status_code=400,
-            detail="Job description is too brief (under 80 words). Please include role details for accurate weight suggestions."
-        )
-    
-    # Get weight suggestions from LLM
-    try:
-        suggestion = suggest_weights_for_jd(job_description, timeout=30)
-        
-        if suggestion:
-            return suggestion
-        else:
-            # LLM failed, return fallback
-            log.warning("LLM weight suggestion failed, using fallback")
-            return create_fallback_suggestion(job_description)
-            
-    except Exception as e:
-        log.exception(f"Error in weight suggestion endpoint: {e}")
-        # Return fallback on error
-        return create_fallback_suggestion(job_description)
-
-
 # ─── Narrative polling endpoint ───────────────────────────────────────────────
 
 @router.get("/analysis/{analysis_id}/narrative")
@@ -1487,10 +1125,9 @@ def get_narrative(
     Poll for LLM narrative after Python results are returned.
     
     Returns:
-      - {"status": "ready", "narrative": {...}, "generated_at": "..."} if narrative is available
-      - {"status": "processing"} if LLM is currently generating
-      - {"status": "pending"} if LLM hasn't started yet
-      - {"status": "failed", "error": "...", "narrative": {...}, "generated_at": "..."} if LLM failed (includes fallback)
+      - {"status": "ready", "narrative": {...}} if narrative is available
+      - {"status": "pending"} if LLM is still processing
+      - {"status": "failed", "error": "...", "narrative": {...}} if LLM failed (includes fallback)
       - 404 if analysis not found or not owned by user's tenant
     """
     result = db.query(ScreeningResult).filter(
@@ -1502,12 +1139,7 @@ def get_narrative(
         raise HTTPException(status_code=404, detail="Analysis not found")
     
     # Use narrative_status column if available, fall back to checking narrative_json
-    status = getattr(result, 'narrative_status', None) or 'pending'
-    
-    # Get timestamp if available
-    generated_at = None
-    if hasattr(result, 'narrative_generated_at') and result.narrative_generated_at:
-        generated_at = result.narrative_generated_at.isoformat()
+    status = getattr(result, 'narrative_status', None)
     
     if status == 'failed':
         # Failed — return fallback narrative + error message
@@ -1521,7 +1153,6 @@ def get_narrative(
             "status": "failed",
             "error": result.narrative_error or "AI analysis encountered an error",
             "narrative": narrative,
-            "generated_at": generated_at,
         }
     
     if status == 'ready' or (status is None and result.narrative_json):
@@ -1529,13 +1160,9 @@ def get_narrative(
         if result.narrative_json:
             try:
                 narrative = json.loads(result.narrative_json)
-                return {
-                    "status": "ready",
-                    "narrative": narrative,
-                    "generated_at": generated_at,
-                }
+                return {"status": "ready", "narrative": narrative}
             except json.JSONDecodeError:
                 return {"status": "pending"}
     
-    # Return current status (pending or processing)
-    return {"status": status}
+    # Still pending or processing
+    return {"status": "pending"}
