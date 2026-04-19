@@ -41,6 +41,133 @@ database.engine = test_engine
 database.SessionLocal = TestingSessionLocal
 app.dependency_overrides[database.get_db] = override_get_db
 
+
+# Import all models
+from app.backend.models.db_models import *  # noqa: F401, F403
+
+# Import queue manager models - they have their own Base
+# We need to handle them specially for test database setup
+from app.backend.services import queue_manager as _qm
+
+# Mock queue worker functions to prevent database access during tests
+from unittest.mock import MagicMock
+_qm.start_queue_worker = AsyncMock()
+_qm.stop_queue_worker = AsyncMock()
+
+
+def _create_all_tables():
+    """Create all tables including queue tables."""
+    from sqlalchemy import text
+    
+    # First create main tables (tenants, users, candidates, etc.)
+    database.Base.metadata.create_all(bind=test_engine)
+    
+    # Create queue tables using raw SQL to avoid FK resolution issues
+    # The queue tables reference main tables (tenants, candidates, users)
+    with test_engine.connect() as conn:
+        # Create analysis_jobs table without FK constraints
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS analysis_jobs (
+                id VARCHAR(36) PRIMARY KEY,
+                tenant_id INTEGER NOT NULL,
+                candidate_id INTEGER,
+                user_id INTEGER,
+                job_type VARCHAR(50) NOT NULL DEFAULT 'resume_screening',
+                resume_hash VARCHAR(64) NOT NULL,
+                jd_hash VARCHAR(64) NOT NULL,
+                input_hash VARCHAR(64) NOT NULL UNIQUE,
+                status VARCHAR(20) NOT NULL DEFAULT 'queued',
+                priority INTEGER NOT NULL DEFAULT 5,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                max_retries INTEGER NOT NULL DEFAULT 3,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                queued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
+                failed_at TIMESTAMP,
+                next_retry_at TIMESTAMP,
+                worker_id VARCHAR(100),
+                worker_heartbeat TIMESTAMP,
+                artifact_id VARCHAR(36),
+                processing_stage VARCHAR(50),
+                progress_percent INTEGER NOT NULL DEFAULT 0,
+                estimated_completion TIMESTAMP,
+                error_message TEXT,
+                error_type VARCHAR(100),
+                error_stack_trace TEXT,
+                error_context TEXT,
+                result_id VARCHAR(36),
+                job_config TEXT
+            )
+        """))
+        
+        # Create analysis_results table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS analysis_results (
+                id VARCHAR(36) PRIMARY KEY,
+                job_id VARCHAR(36) NOT NULL,
+                tenant_id INTEGER NOT NULL,
+                candidate_id INTEGER NOT NULL,
+                fit_score INTEGER,
+                recommendation VARCHAR(50),
+                strengths TEXT,
+                weaknesses TEXT,
+                skill_analysis TEXT,
+                experience_analysis TEXT,
+                education_analysis TEXT,
+                risk_signals TEXT,
+                interview_questions TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        # Create analysis_artifacts table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS analysis_artifacts (
+                id VARCHAR(36) PRIMARY KEY,
+                job_id VARCHAR(36) NOT NULL,
+                tenant_id INTEGER NOT NULL,
+                artifact_type VARCHAR(50) NOT NULL,
+                content_type VARCHAR(100) NOT NULL,
+                storage_path VARCHAR(500) NOT NULL,
+                size_bytes INTEGER,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        # Create job_metrics table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS job_metrics (
+                id VARCHAR(36) PRIMARY KEY,
+                job_id VARCHAR(36) NOT NULL,
+                tenant_id INTEGER NOT NULL,
+                queue_time_ms INTEGER,
+                processing_time_ms INTEGER,
+                total_time_ms INTEGER,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                worker_id VARCHAR(100),
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        conn.commit()
+
+
+def _drop_all_tables():
+    """Drop all tables."""
+    from sqlalchemy import text
+    
+    # Drop queue tables first (in reverse order of creation)
+    with test_engine.connect() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS job_metrics"))
+        conn.execute(text("DROP TABLE IF EXISTS analysis_artifacts"))
+        conn.execute(text("DROP TABLE IF EXISTS analysis_results"))
+        conn.execute(text("DROP TABLE IF EXISTS analysis_jobs"))
+        conn.commit()
+    
+    # Then drop main tables
+    database.Base.metadata.drop_all(bind=test_engine)
+
 # ─── Patch bcrypt → sha256_crypt for local test compatibility ────────────────
 # passlib 1.7.4 + bcrypt 4.x has a known incompatibility. Use sha256_crypt in
 # tests (same API, no C-library issues, not for production).
@@ -56,21 +183,23 @@ except Exception:
 
 @pytest.fixture(scope="function")
 def db():
-    database.Base.metadata.create_all(bind=test_engine)
+    # Create all tables including queue tables
+    _create_all_tables()
     db = TestingSessionLocal()
     try:
         yield db
     finally:
         db.close()
-        database.Base.metadata.drop_all(bind=test_engine)
+        _drop_all_tables()
 
 
 @pytest.fixture(scope="function")
 def client():
-    database.Base.metadata.create_all(bind=test_engine)
+    # Create all tables including queue tables
+    _create_all_tables()
     with TestClient(app) as c:
         yield c
-    database.Base.metadata.drop_all(bind=test_engine)
+    _drop_all_tables()
 
 
 # ─── Authenticated client fixture ────────────────────────────────────────────
