@@ -14,7 +14,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:9b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 
 # Import Ollama Cloud authentication helper
 from app.backend.services.llm_service import get_ollama_headers
@@ -42,17 +42,17 @@ async def extract_contact_with_llm(resume_text: str, timeout: float = 15.0) -> O
     header = resume_text[:1000]
     logger.info("[LLM Contact Extractor] Header text (first 200 chars): %s", header[:200])
     
-    system_prompt = """You are a contact information extractor. Extract contact details from resume text and return ONLY valid JSON."""
+    system_prompt = """You are a contact information extractor. Extract ONLY the candidate's personal contact details from resume text and return ONLY valid JSON. Be precise and conservative."""
     
     user_prompt = f"""Extract the candidate's contact information from this resume header.
 Return ONLY a valid JSON object with these exact keys: name, email, phone, linkedin.
 If a field is not found, use null for that field.
 
-Rules:
-- name: Full name as written (preserve capitalization, hyphens, apostrophes)
-- email: Email address
-- phone: Phone number (preserve formatting)
-- linkedin: LinkedIn profile URL or username
+CRITICAL RULES:
+- name: Full name of the person (e.g., "John Smith", "Priya Patel", "Jean-Luc Dubois"). Do NOT extract company names, job titles, or section headers like "Domain" or "Experience".
+- email: Valid email address containing @ symbol (e.g., "john@email.com")
+- phone: Phone number with digits, optionally with +, -, spaces, or parentheses. Must look like a real phone number (e.g., "+1-555-123-4567", "(555) 123-4567"). Do NOT extract years like "2008" or "2020".
+- linkedin: LinkedIn profile URL or username (e.g., "linkedin.com/in/johnsmith" or "@johnsmith")
 
 Resume header:
 {header}
