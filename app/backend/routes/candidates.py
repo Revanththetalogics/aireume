@@ -156,20 +156,9 @@ def get_candidate(
     for r in results:
         try:
             analysis = json.loads(r.analysis_result)
-            parsed = json.loads(r.parsed_data)
         except Exception as e:
-            logger.warning("Non-critical: Failed to parse result data for result %s: %s", r.id, e)
+            logger.warning("Non-critical: Failed to parse analysis_result for result %s: %s", r.id, e)
             analysis = {}
-            parsed = {}
-        
-        # Resolve candidate name from multiple sources
-        candidate_name = (
-            (analysis.get("candidate_name") or "").strip() or
-            (parsed.get("contact_info", {}).get("name") or "").strip() or
-            (parsed.get("candidate_profile", {}).get("name") or "").strip() or
-            candidate.name or
-            None
-        )
         
         # Parse and merge narrative_json if available
         narrative_data = {}
@@ -193,34 +182,39 @@ def get_candidate(
                 if field in narrative_data:
                     merged_data[field] = narrative_data[field]
         
-        # Include all fields needed by ReportPage
-        history.append({
-            # Core fields
+        # Resolve candidate name from multiple sources
+        candidate_name = (
+            (merged_data.get("candidate_name") or "").strip() or
+            (merged_data.get("contact_info", {}).get("name") or "").strip() or
+            (merged_data.get("candidate_profile", {}).get("name") or "").strip() or
+            candidate.name or
+            None
+        )
+        
+        # Build result with EXACT same structure as analysis result
+        # This ensures ReportPage receives consistent data regardless of source
+        result_item = {
+            # IDs and metadata (minimal additions for UI)
             "id":                   r.id,
             "result_id":            r.id,
             "analysis_id":          r.id,  # For narrative polling
             "timestamp":            r.timestamp,
-            "status":               r.status,
             "candidate_id":         r.candidate_id,
             "candidate_name":       candidate_name,
             
-            # Analysis fields (spread all merged data)
-            **merged_data,
-            
-            # Parsed data - use enriched data from analysis if available, fallback to raw parsed data
-            "parsed_data":          r.parsed_data,
-            "contact_info":         merged_data.get("contact_info") or parsed.get("contact_info", {}),
-            "candidate_profile":    merged_data.get("candidate_profile") or parsed.get("candidate_profile", {}),
-            "work_experience":      merged_data.get("work_experience") or parsed.get("work_experience", []),
-            "education":            merged_data.get("education") or parsed.get("education", []),
-            "skills":               merged_data.get("skills") or parsed.get("skills", []),
-            
-            # Narrative fields for AI enhancement status
+            # Narrative status fields (for UI polling)
             "narrative_status":     r.narrative_status or "pending",
             "narrative_error":      r.narrative_error,
             "ai_enhanced":          r.narrative_status == "ready" and r.narrative_json is not None,
             "narrative_pending":    r.narrative_status in ("pending", "processing"),
-        })
+        }
+        
+        # Spread all analysis data - this ensures EXACT same structure as direct analysis
+        # merged_data contains: fit_score, final_recommendation, candidate_profile, 
+        # contact_info, strengths, weaknesses, etc.
+        result_item.update(merged_data)
+        
+        history.append(result_item)
 
     # Skills snapshot from stored profile
     skills_snapshot = []

@@ -23,14 +23,16 @@
 - [008_analysis_queue_system.py](file://alembic/versions/008_analysis_queue_system.py)
 - [009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
 - [test_candidate_dedup.py](file://app/backend/tests/test_candidate_dedup.py)
+- [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced field-level merge strategy in candidate data processing to preserve critical analysis fields
-- Fixed bug where core analysis fields like fit_score and final_recommendation were being overwritten by narrative data
-- Implemented selective narrative enhancement that preserves critical analysis fields while allowing narrative overrides
-- Updated candidate history merging to maintain integrity of core analysis results
+- Enhanced field-level merge strategy to preserve critical analysis fields during narrative integration
+- Improved fallback mechanism for enriched analysis data with robust error handling
+- Fixed bug where candidate profiles appeared empty by properly utilizing merged analysis data when available
+- Strengthened data integrity protection for fit_score, final_recommendation, and other core analysis fields
+- Enhanced background LLM narrative processing with improved merge fallback handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -702,6 +704,8 @@ The candidate management system integrates robust parsing, deduplication, intell
 - recommendation_rationale: Reasoning for recommendation
 - explainability: Detailed explainability data
 - interview_questions: Interview question recommendations
+
+**Updated** Enhanced with improved fallback mechanism that ensures candidate profiles never appear empty by properly utilizing merged analysis data when available, with robust error handling for merge failures.
 
 **Section sources**
 - [candidates.py:182-195](file://app/backend/routes/candidates.py#L182-L195)
