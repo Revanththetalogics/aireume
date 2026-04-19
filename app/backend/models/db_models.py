@@ -144,6 +144,7 @@ class ScreeningResult(Base):
     is_active          = Column(Boolean, default=True)          # active version for candidate analysis
     version_number     = Column(Integer, default=1)             # version tracking for re-analysis
     role_category      = Column(String(50), nullable=True)      # technical, sales, hr, marketing, operations, leadership
+    weight_reasoning   = Column(Text, nullable=True)            # JSON: reasoning for suggested weights
     timestamp          = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     tenant        = relationship("Tenant", back_populates="results")
