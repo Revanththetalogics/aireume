@@ -20,7 +20,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:9b")
 from app.backend.services.llm_service import get_ollama_headers
 
 
-async def extract_contact_with_llm(resume_text: str, timeout: float = 10.0) -> Optional[Dict[str, str]]:
+async def extract_contact_with_llm(resume_text: str, timeout: float = 15.0) -> Optional[Dict[str, str]]:
     """
     Extract contact information from resume text using LLM.
     
@@ -42,7 +42,9 @@ async def extract_contact_with_llm(resume_text: str, timeout: float = 10.0) -> O
     header = resume_text[:1000]
     logger.debug("[LLM Contact Extractor] Header text (first 200 chars): %s", header[:200])
     
-    prompt = f"""Extract the candidate's contact information from this resume header.
+    system_prompt = """You are a contact information extractor. Extract contact details from resume text and return ONLY valid JSON."""
+    
+    user_prompt = f"""Extract the candidate's contact information from this resume header.
 Return ONLY a valid JSON object with these exact keys: name, email, phone, linkedin.
 If a field is not found, use null for that field.
 
@@ -63,22 +65,25 @@ JSON output:"""
         
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
+                f"{OLLAMA_BASE_URL}/api/chat",
                 headers=headers,
                 json={
                     "model": OLLAMA_MODEL,
-                    "prompt": prompt,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
                     "stream": False,
                     "options": {
-                        "temperature": 0.1,  # Low temperature for deterministic extraction
-                        "num_predict": 200,  # Short response expected
+                        "temperature": 0.1,
+                        "num_predict": 200,
                     }
                 }
             )
             response.raise_for_status()
             
             result = response.json()
-            llm_output = result.get("response", "").strip()
+            llm_output = result.get("message", {}).get("content", "").strip()
             logger.debug("[LLM Contact Extractor] Raw LLM output (first 300 chars): %s", llm_output[:300])
             
             # Try to parse JSON from LLM output
