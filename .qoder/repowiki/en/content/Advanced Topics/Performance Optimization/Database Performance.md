@@ -18,6 +18,13 @@
 - [requirements.txt](file://requirements.txt)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Updated connection pooling configuration section to reflect new pool settings (15/35)
+- Added new section on connection pool sizing considerations
+- Updated troubleshooting guide to include pool configuration guidance
+- Enhanced performance considerations with connection pool implications
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -121,7 +128,7 @@ Svc --> JC
 Skills are stored in a dedicated table with unique names and optional aliases. The hybrid pipeline integrates a skills registry that uses keyword extraction to match skills efficiently. Indexes on id and name support fast lookups.
 
 Optimization strategies:
-- Use the skills registry’s keyword processor to minimize regex scans over large texts.
+- Use the skills registry's keyword processor to minimize regex scans over large texts.
 - Maintain frequency counts to prioritize high-value skills.
 - Normalize skill names and aliases to reduce false negatives.
 
@@ -276,20 +283,46 @@ TENANTS ||--o{ USAGE_LOGS : "owns"
 - [db_models.py:84](file://app/backend/models/db_models.py#L84)
 
 ### Connection Pooling and Transaction Management
-- Engine configured with pool_pre_ping for robust connections.
-- Sessions are created per request and closed after use.
-- Transactions are explicit around writes (add/commit/refresh) and batched for performance.
+
+**Updated** Upgraded connection pool configuration from 10/20 to 15/35 to support increased concurrent processing
+
+The database connection pool has been upgraded from the previous configuration of pool_size: 10 and max_overflow: 20 to pool_size: 15 and max_overflow: 35. This enhancement provides better support for concurrent database operations while maintaining connection reliability through pool_pre_ping.
+
+Connection pool configuration:
+- **Pool Size**: 15 connections (previously 10)
+- **Max Overflow**: 35 connections (previously 20)
+- **Pool Recycle**: 3600 seconds (1 hour)
+- **Pool Pre-Ping**: Enabled for connection validation
+- **Connect Args**: SQLite-specific thread checking disabled for PostgreSQL
+
+```mermaid
+flowchart TD
+Start(["Application Startup"]) --> CheckDB["Check DATABASE_URL"]
+CheckDB --> IsPostgres{"Is PostgreSQL?"}
+IsPostgres --> |Yes| SetupPool["Configure Pool: 15/35"]
+IsPostgres --> |No| SetupSQLite["Setup SQLite Engine"]
+SetupPool --> CreateEngine["Create Engine with Pool Settings"]
+SetupSQLite --> CreateEngine
+CreateEngine --> PrePing["Enable pool_pre_ping"]
+PrePing --> Ready["Ready for Connections"]
+```
+
+**Diagram sources**
+- [database.py:21-28](file://app/backend/db/database.py#L21-L28)
+- [database.py:32-37](file://app/backend/db/database.py#L32-L37)
 
 Recommendations:
-- Tune pool size and timeouts based on workload.
-- Use autocommit=False and autoflush=False as configured.
-- Wrap bulk operations in a single transaction to reduce overhead.
+- Monitor connection pool utilization during peak loads
+- Adjust pool settings based on observed concurrent request patterns
+- Use autocommit=False and autoflush=False as configured
+- Wrap bulk operations in a single transaction to reduce overhead
 
 **Section sources**
 - [database.py:20](file://app/backend/db/database.py#L20)
 - [database.py:22](file://app/backend/db/database.py#L22)
-- [database.py:27-33](file://app/backend/db/database.py#L27-L33)
-- [analyze.py:470-472](file://app/backend/routes/analyze.py#L470-L472)
+- [database.py:24-28](file://app/backend/db/database.py#L24-L28)
+- [database.py:32](file://app/backend/db/database.py#L32)
+- [database.py:35](file://app/backend/db/database.py#L35)
 
 ### Caching Mechanisms for Hot Data
 - JD cache: shared across workers via DB; reduces repeated parsing costs.
@@ -321,7 +354,7 @@ Persist --> End(["Done"])
 ### Query Optimization Examples
 
 #### Skills Matching Query
-- Use the skills registry’s processor to extract keywords from resume text.
+- Use the skills registry's processor to extract keywords from resume text.
 - Prefer exact or normalized matches; leverage aliases for fuzzy coverage.
 - Maintain frequency to rank matches.
 
@@ -349,14 +382,10 @@ Persist --> End(["Done"])
 
 Note: These are general recommendations; adjust based on profiling and monitoring.
 
-[No sources needed since this section provides general guidance]
-
 ### Query Execution Plans and Monitoring
 - Use EXPLAIN/EXPLAIN ANALYZE to inspect query plans for slow routes.
 - Monitor slow query logs and set thresholds for long-running statements.
 - Track metrics like query duration, rows examined, and lock waits.
-
-[No sources needed since this section provides general guidance]
 
 ## Dependency Analysis
 The database layer depends on SQLAlchemy and Alembic for schema management. Routes depend on models and services. The hybrid pipeline depends on the skills registry and JD cache.
@@ -385,18 +414,27 @@ Pipeline --> Models
 - [db_models.py:1-250](file://app/backend/models/db_models.py#L1-L250)
 
 ## Performance Considerations
+
+**Updated** Enhanced connection pool sizing considerations for improved concurrent processing
+
 - Use tenant_id filters everywhere to prevent cross-tenant scans.
 - Prefer covering indexes for common filters (email, resume hash, created_at).
 - Batch writes for high-throughput scenarios; use flush/commit judiciously.
 - Cache hot data (JD cache, skills registry) to reduce repeated computation.
 - Monitor and tune PostgreSQL settings for your workload.
+- **Connection Pool Sizing**: The upgraded pool configuration (15/35) provides better concurrency handling for concurrent database operations while maintaining connection reliability.
 
 [No sources needed since this section provides general guidance]
 
 ## Troubleshooting Guide
+
+**Updated** Added connection pool configuration guidance for troubleshooting
+
 - Health checks: the health endpoint validates database connectivity and LLM availability.
 - Startup checks: the application performs database and skills registry initialization at startup.
 - Connection issues: ensure DATABASE_URL is correctly set and reachable; pool_pre_ping helps detect dead connections.
+- **Connection Pool Issues**: Monitor pool utilization and consider adjusting pool_size and max_overflow based on observed concurrent request patterns.
+- **Connection Leaks**: Ensure proper session cleanup in all routes and services.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -404,7 +442,7 @@ Pipeline --> Models
 - [database.py:20](file://app/backend/db/database.py#L20)
 
 ## Conclusion
-By leveraging proper indexing, caching, transaction batching, and tenant-scoped queries, Resume AI can achieve strong database performance. The hybrid pipeline’s integration with the skills registry and JD cache significantly reduces repeated work. Align operational settings with workload characteristics and continuously monitor query performance to sustain growth.
+By leveraging proper indexing, caching, transaction batching, and tenant-scoped queries, Resume AI can achieve strong database performance. The hybrid pipeline's integration with the skills registry and JD cache significantly reduces repeated work. The upgraded connection pool configuration (15/35) provides enhanced support for concurrent processing. Align operational settings with workload characteristics and continuously monitor query performance to sustain growth.
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -427,5 +465,6 @@ By leveraging proper indexing, caching, transaction batching, and tenant-scoped 
 - Monitor table sizes and growth rates.
 - Scale vertically or horizontally based on CPU, memory, and I/O.
 - Consider partitioning large tables by time or tenant if growth warrants.
+- **Connection Pool Planning**: Plan for increased concurrent connections as user base grows, considering the current pool configuration of 15/35 as a baseline for scaling decisions.
 
 [No sources needed since this section provides general guidance]

@@ -366,6 +366,33 @@ async def _process_single_resume(
     return result
 
 
+# ─── Weight Suggestion Endpoint ───────────────────────────────────────────────
+
+@router.post("/analyze/suggest-weights")
+async def suggest_weights_endpoint(
+    job_description: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """AI-powered weight suggestion based on job description."""
+    if not job_description or len(job_description.strip()) < 50:
+        raise HTTPException(status_code=400, detail="Job description too short")
+
+    from app.backend.services.weight_suggester import suggest_weights_for_jd, create_fallback_suggestion
+
+    try:
+        suggestion = suggest_weights_for_jd(job_description)
+        if suggestion is None:
+            # Return fallback suggestion instead of error
+            suggestion = create_fallback_suggestion(job_description)
+        return suggestion
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("Weight suggestion failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to generate weight suggestions")
+
+
 # ─── Single resume analysis (non-streaming, JSON response) ────────────────────
 
 def _check_and_increment_usage(db: Session, tenant_id: int, user_id: int, quantity: int = 1) -> tuple[bool, str]:

@@ -7,7 +7,7 @@
 - [analysis_service.py](file://app/backend/services/analysis_service.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
 - [main.py](file://app/backend/main.py)
-- [wait_for_ollama.py](file://app/backend/scripts/wait_for_implicit_ollama.py)
+- [wait_for_ollama.py](file://app/backend/scripts/wait_for_ollama.py)
 - [setup-recruiter-model.sh](file://ollama/setup-recruiter-model.sh)
 - [docker-compose.yml](file://docker-compose.yml)
 - [docker-compose.prod.yml](file://docker-compose.prod.yml)
@@ -23,12 +23,11 @@
 
 ## Update Summary
 **Changes Made**
-- **Enhanced LLM Contact Extraction Service**: Added comprehensive contact information extraction service with improved model configuration, better prompt engineering, and enhanced error handling mechanisms
-- **Integrated Contact Extraction Pipeline**: Implemented async contact extraction with LLM-based accuracy and regex fallback strategies
-- **Enhanced Prompt Engineering**: Developed specialized prompts for contact information extraction with strict JSON schema validation
-- **Improved Error Handling**: Added comprehensive timeout handling, JSON parsing fallbacks, and structured error logging
-- **Advanced Merge Strategy**: Implemented sophisticated merging algorithm that prefers LLM accuracy for names while using regex for email/phone precision
-- **Cloud Authentication Integration**: Integrated contact extraction with existing cloud authentication system for seamless Ollama Cloud support
+- **Enhanced Intelligent Concurrency Detection**: Implemented automatic concurrency control based on deployment type (local vs cloud) with dynamic semaphore configuration
+- **Cloud-Aware Semaphore Management**: Added intelligent concurrency detection that automatically configures max_concurrent=8 for cloud deployments and max_concurrent=1 for local deployments
+- **Enhanced Health Sentinel Optimization**: Improved cloud detection logic in health sentinel to skip unnecessary warmup procedures for cloud instances
+- **Deployment-Type Aware Resource Management**: Integrated deployment type detection across all LLM services for optimal resource utilization
+- **Enhanced Error Handling**: Added comprehensive logging for concurrency detection and deployment type identification
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -43,17 +42,18 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the LLM service integration with Ollama for AI-powered analysis and reasoning in the Resume Screening platform. It covers the ChatOllama integration, model configuration parameters, inference optimization techniques, singleton pattern implementation, comprehensive model migration from Qwen3-Coder 480B to Gemma4 31B cloud model, enhanced cloud authentication system, cloud detection logic, optimized health checks, comprehensive timeout management, automatic header injection, enhanced semaphore-based concurrency control, memory management strategies, model selection criteria, performance tuning parameters, fallback mechanisms, prompt engineering patterns, response parsing, error handling for timeout scenarios, security considerations, rate limiting, and monitoring approaches for LLM usage.
+This document explains the LLM service integration with Ollama for AI-powered analysis and reasoning in the Resume Screening platform. It covers the ChatOllama integration, model configuration parameters, inference optimization techniques, singleton pattern implementation, comprehensive model migration from Qwen3-Coder 480B to Gemma4 31B cloud model, enhanced cloud authentication system, intelligent concurrency detection based on deployment type, optimized health checks, comprehensive timeout management, automatic header injection, enhanced semaphore-based concurrency control, memory management strategies, model selection criteria, performance tuning parameters, fallback mechanisms, prompt engineering patterns, response parsing, error handling for timeout scenarios, security considerations, rate limiting, and monitoring approaches for LLM usage.
 
-**Updated** Enhanced with comprehensive model migration to Gemma4 31B cloud model, comprehensive cloud authentication support, automatic Bearer token injection, intelligent cloud detection that optimizes health checks and eliminates unnecessary warmup procedures for cloud instances, LLM_NARRATIVE_TIMEOUT=180s for cloud models, persistent model loading via OLLAMA_KEEP_ALIVE=-1, shared semaphore integration for controlled concurrency across all LLM services, and **NEW** enhanced LLM contact extraction service with improved model configuration, better prompt engineering, and enhanced error handling mechanisms.
+**Updated** Enhanced with comprehensive intelligent concurrency detection system that automatically adapts to deployment type (local vs cloud), comprehensive model migration to Gemma4 31B cloud model, comprehensive cloud authentication support, automatic Bearer token injection, intelligent cloud detection that optimizes health checks and eliminates unnecessary warmup procedures for cloud instances, LLM_NARRATIVE_TIMEOUT=180s for cloud models, persistent model loading via OLLAMA_KEEP_ALIVE=-1, shared semaphore integration for controlled concurrency across all LLM services, and **NEW** enhanced LLM contact extraction service with improved model configuration, better prompt engineering, and enhanced error handling mechanisms.
 
 ## Project Structure
-The LLM integration spans several modules with comprehensive cloud-awareness, enhanced authentication, optimized performance, and **NEW** contact extraction capabilities:
+The LLM integration spans several modules with comprehensive cloud-awareness, enhanced authentication, optimized performance, intelligent concurrency detection, and **NEW** contact extraction capabilities:
 - Services: LLM service for direct Ollama calls, hybrid pipeline with ChatOllama, analysis orchestration, Ollama health sentinel monitoring, **transcript analysis**, **video analysis**, and **NEW contact extraction service** with integrated semantic merging.
 - Routes: API endpoints that trigger analysis, enforce usage limits, and provide narrative polling support.
 - Infrastructure: Ollama container configuration with persistent model loading, model setup script, and Nginx rate limiting.
 - Startup: Health checks, warm-up script, and sentinel-based monitoring to ensure Ollama readiness.
 - **Cloud Authentication**: New cloud detection functions and automatic Bearer token injection for Ollama Cloud instances.
+- **Intelligent Concurrency Detection**: **NEW** system that automatically detects deployment type and configures semaphore concurrency accordingly.
 - **Enhanced Timeout Management**: Configurable LLM_NARRATIVE_TIMEOUT environment variable with automatic HTTP client timeout calculation.
 - **Contact Extraction Pipeline**: **NEW** async contact extraction service with LLM-based accuracy and regex fallback strategies.
 
@@ -78,25 +78,29 @@ O["Enhanced Semaphore Control"]
 P["Contact Extraction Service (llm_contact_extractor.py)"]
 Q["Parser Service Integration (parser_service.py)"]
 R["Contact Merge Strategy"]
+S["Intelligent Concurrency Detection"]
+T["Deployment Type Detection"]
+U["Semaphore Configuration"]
 end
 subgraph "Infrastructure"
-S["Ollama Container (docker-compose.prod.yml)"]
-T["Nginx Rate Limits (nginx.prod.conf)"]
-U["Wait Script (wait_for_ollama.py)"]
-V["Model Setup (setup-recruiter-model.sh)"]
-W["Cloud Authentication (OLLAMA_API_KEY)"]
-X["Environment Configuration"]
+V["Ollama Container (docker-compose.prod.yml)"]
+W["Nginx Rate Limits (nginx.prod.conf)"]
+X["Wait Script (wait_for_ollama.py)"]
+Y["Model Setup (setup-recruiter-model.sh)"]
+Z["Cloud Authentication (OLLAMA_API_KEY)"]
+AA["Environment Configuration"]
+BB["Concurrent Request Management"]
 end
 A --> B
 B --> C
 B --> D
-E --> S
+E --> V
 E --> G
-S --> G
-T --> A
+V --> G
+W --> A
 F --> D
-U --> S
-V --> S
+X --> V
+Y --> V
 H --> G
 I --> C
 I --> G
@@ -108,10 +112,10 @@ K --> G
 L --> C
 L --> D
 L --> G
-W --> K
-W --> L
-X --> S
-X --> G
+Z --> K
+Z --> L
+AA --> V
+AA --> G
 M --> C
 M --> D
 M --> G
@@ -128,6 +132,10 @@ O --> J
 O --> P
 P --> Q
 R --> Q
+S --> O
+T --> S
+U --> S
+BB --> O
 ```
 
 **Diagram sources**
@@ -153,21 +161,22 @@ R --> Q
 - [main.py:104-149](file://app/backend/main.py#L104-L149)
 
 ## Core Components
-- LLM Service: Encapsulates Ollama HTTP calls, prompt building, JSON parsing, normalization, and fallback responses with configurable timeout handling. **Now includes shared semaphore for controlled concurrency, cloud authentication support, and enhanced timeout management**.
+- LLM Service: Encapsulates Ollama HTTP calls, prompt building, JSON parsing, normalization, and fallback responses with configurable timeout handling. **Now includes shared semaphore for controlled concurrency, cloud authentication support, intelligent concurrency detection, and enhanced timeout management**.
 - Hybrid Pipeline: Provides a ChatOllama singleton, **semaphore-controlled concurrency** for LLM requests, and performance-tuned model parameters with enhanced timeout management and persistent model loading.
 - Agent Pipeline: Manages fast and reasoning LLM instances with unified timeout configuration for different model types.
 - Analysis Service: Orchestrates skill matching, gap analysis, and LLM narrative generation.
 - Routes: Enforce usage limits, stream results, persist outcomes, and support narrative polling architecture.
-- Startup and Monitoring: Health checks, warm-up script, diagnostic endpoints, and Ollama health sentinel monitoring with optimized model state detection.
-- **Transcript Service**: **New** service for analyzing interview transcripts with shared semaphore control and cloud authentication.
-- **Video Service**: **New** service for analyzing video interviews with shared semaphore control and cloud authentication.
+- Startup and Monitoring: Health checks, warm-up script, diagnostic endpoints, and Ollama health sentinel monitoring with optimized model state detection and intelligent concurrency management.
+- **Transcript Service**: **New** service for analyzing interview transcripts with shared semaphore control, cloud authentication, and intelligent concurrency detection.
+- **Video Service**: **New** service for analyzing video interviews with shared semaphore control, cloud authentication, and intelligent concurrency detection.
 - **Contact Extraction Service**: **NEW** comprehensive service for extracting contact information using LLM with specialized prompts, JSON parsing, and structured merging strategy.
 - **Parser Service Integration**: **NEW** integration layer that orchestrates contact extraction pipeline with LLM and regex fallbacks.
 - **Cloud Authentication**: **New** system for detecting Ollama Cloud instances and injecting Bearer token authentication automatically.
+- **Intelligent Concurrency Detection**: **NEW** comprehensive system that automatically detects deployment type and configures semaphore concurrency for optimal resource utilization.
 - **Enhanced Timeout Management**: **New** comprehensive timeout system with LLM_NARRATIVE_TIMEOUT=180s for cloud models and automatic HTTP client timeout calculation.
 - **Persistent Model Loading**: **New** OLLAMA_KEEP_ALIVE=-1 configuration for optimal performance across all deployments.
 
-**Updated** All LLM components now utilize the enhanced shared semaphore system for controlled concurrency, prevent CPU timeouts and resource contention, include cloud authentication support for seamless Ollama Cloud integration, and feature comprehensive timeout management with LLM_NARRATIVE_TIMEOUT=180s for cloud models. **NEW** contact extraction service provides specialized LLM-based contact information extraction with integrated fallback strategies.
+**Updated** All LLM components now utilize the enhanced shared semaphore system for controlled concurrency, intelligent deployment type detection, prevent CPU timeouts and resource contention, include cloud authentication support for seamless Ollama Cloud integration, and feature comprehensive timeout management with LLM_NARRATIVE_TIMEOUT=180s for cloud models. **NEW** contact extraction service provides specialized LLM-based contact information extraction with integrated fallback strategies and intelligent concurrency management.
 
 **Section sources**
 - [llm_service.py:7-157](file://app/backend/services/llm_service.py#L7-L157)
@@ -182,19 +191,20 @@ R --> Q
 - [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
 
 ## Architecture Overview
-The system uses a hybrid approach with comprehensive cloud-aware authentication, enhanced timeout management, optimized performance, and **NEW** contact extraction capabilities:
+The system uses a hybrid approach with comprehensive cloud-aware authentication, enhanced timeout management, optimized performance, intelligent concurrency detection, and **NEW** contact extraction capabilities:
 - Python-first scoring and gap detection for speed.
 - Single LLM call via ChatOllama for narrative and qualitative insights.
 - Configurable timeout handling with LLM_NARRATIVE_TIMEOUT=180s in production for large cloud models.
-- **Enhanced Concurrency Control**: Shared semaphore system prevents CPU timeouts and resource contention across all LLM services.
+- **Enhanced Concurrency Control**: Shared semaphore system prevents CPU timeouts and resource contention across all LLM services with intelligent deployment-type detection.
 - **Cloud Authentication**: Automatic Bearer token injection for Ollama Cloud instances with OLLAMA_API_KEY environment variable.
+- **Intelligent Concurrency Detection**: Automatic detection of deployment type (local vs cloud) to optimize semaphore configuration and resource management.
 - **Cloud Detection**: Intelligent detection of cloud vs local instances to optimize health checks and warmup procedures.
 - **Enhanced Timeout Management**: Automatic HTTP client timeout calculation as LLM_NARRATIVE_TIMEOUT + 30 seconds for proper cancellation handling.
 - **Persistent Model Loading**: OLLAMA_KEEP_ALIVE=-1 ensures models remain loaded in RAM, eliminating cold-start latency.
 - **Optimized Health Sentinel Pattern**: Continuous monitoring with automatic warmup and model state tracking that eliminates redundant API calls when models are already hot.
 - **Contact Extraction Pipeline**: **NEW** async contact extraction with LLM-based accuracy and regex fallback strategies.
 - **Semantic Merge Strategy**: **NEW** sophisticated merging algorithm that leverages LLM accuracy for names while using regex precision for email/phone.
-- Concurrency control via a semaphore to prevent resource exhaustion.
+- Concurrency control via a semaphore to prevent resource exhaustion with intelligent deployment-type awareness.
 - Startup and runtime checks to ensure model availability and readiness.
 - **Narrative Polling Architecture**: Asynchronous LLM processing allows immediate response while background tasks handle time-consuming analysis.
 
@@ -212,10 +222,13 @@ participant Llama as "ChatOllama (singleton)"
 participant Semaphore as "Shared Semaphore"
 participant CloudAuth as "Cloud Auth System"
 participant Ollama as "Ollama Server"
+participant ConcurrencyDetector as "Intelligent Concurrency Detection"
 Client->>Route : POST /api/analyze
 Route->>Parser : parse_resume()
 Parser-->>Route : parsed_data
 Route->>ContactExtractor : extract_contact_with_llm()
+ContactExtractor->>ConcurrencyDetector : detect_deployment_type()
+ConcurrencyDetector-->>ContactExtractor : cloud/local detection
 ContactExtractor->>CloudAuth : get_ollama_headers(base_url)
 CloudAuth-->>ContactExtractor : Bearer token headers
 ContactExtractor->>Ollama : /api/chat (contact extraction)
@@ -225,6 +238,8 @@ ContactParser-->>Route : enriched contact info
 Route->>Gap : analyze_gaps()
 Gap-->>Route : gap_analysis
 Route->>Hybrid : run_hybrid_pipeline()
+Hybrid->>ConcurrencyDetector : detect_deployment_type()
+ConcurrencyDetector-->>Hybrid : deployment type (cloud/local)
 Hybrid->>Sentinel : check_model_state()
 Sentinel->>Ollama : GET /api/ps (optimized check)
 Ollama-->>Sentinel : running models list
@@ -234,16 +249,16 @@ Hybrid->>CloudAuth : is_ollama_cloud(base_url)
 CloudAuth-->>Hybrid : cloud_instance = true/false
 alt Cloud Instance
 CloudAuth-->>Hybrid : get_ollama_headers(base_url)
-Hybrid->>Semaphore : acquire()
-Semaphore-->>Hybrid : slot available
+Hybrid->>Semaphore : acquire() with intelligent concurrency
+Semaphore-->>Hybrid : slot available (max_concurrent=8 for cloud)
 Hybrid->>Llama : generate(JSON prompt) with Bearer token
 Llama->>Ollama : HTTP /api/generate (timeout : LLM_NARRATIVE_TIMEOUT + 30s)
 Ollama-->>Llama : JSON response
 Llama-->>Hybrid : result
 Hybrid->>Semaphore : release()
 else Local Instance
-Hybrid->>Semaphore : acquire()
-Semaphore-->>Hybrid : slot available
+Hybrid->>Semaphore : acquire() with intelligent concurrency
+Semaphore-->>Hybrid : slot available (max_concurrent=1 for local)
 Hybrid->>Llama : generate(JSON prompt)
 Llama->>Ollama : HTTP /api/generate (timeout : LLM_NARRATIVE_TIMEOUT + 30s)
 Ollama-->>Llama : JSON response
@@ -263,6 +278,45 @@ Route-->>Client : analysis result
 - [parser_service.py:1080-1101](file://app/backend/services/parser_service.py#L1080-L1101)
 
 ## Detailed Component Analysis
+
+### Enhanced Intelligent Concurrency Detection System
+- **Deployment Type Detection**: Automatic detection of Ollama Cloud vs local instances using `is_ollama_cloud()` function that checks for "ollama.com" in the base URL.
+- **Dynamic Semaphore Configuration**: Intelligent semaphore creation with max_concurrent=8 for cloud deployments and max_concurrent=1 for local deployments.
+- **Environment Variable Override**: Supports OLLAMA_MAX_CONCURRENT environment variable for manual override of concurrency settings.
+- **Lazy Initialization**: Semaphore is lazily created with deployment-type-aware configuration.
+- **Cross-Service Integration**: All LLM services (transcript, video, contact extraction) inherit the intelligent concurrency configuration.
+- **Resource Contention Prevention**: Prevents CPU timeouts and resource exhaustion across all LLM services with optimal concurrency settings.
+- **Enhanced Error Handling**: Comprehensive logging for deployment type detection and concurrency configuration issues.
+
+**Updated** Enhanced with comprehensive intelligent concurrency detection system that automatically adapts to deployment type, prevents CPU timeouts and resource contention across all LLM services, includes environment variable override support, and provides comprehensive logging for debugging concurrency issues.
+
+```mermaid
+flowchart TD
+Start(["Intelligent Concurrency Detection"]) --> DetectType["Detect Deployment Type"]
+DetectType --> CheckEnv["Check OLLAMA_MAX_CONCURRENT"]
+CheckEnv --> HasOverride{"Override Set?"}
+HasOverride --> |Yes| UseOverride["Use Manual Configuration"]
+HasOverride --> |No| AutoDetect["Auto-Detect Based on Base URL"]
+AutoDetect --> IsCloud{"Base URL Contains 'ollama.com'?"}
+IsCloud --> |Yes| SetCloud["Set max_concurrent=8"]
+IsCloud --> |No| SetLocal["Set max_concurrent=1"]
+SetCloud --> CreateSemaphore["Create Semaphore"]
+SetLocal --> CreateSemaphore
+UseOverride --> CreateSemaphore
+CreateSemaphore --> ApplyToServices["Apply to All LLM Services"]
+ApplyToServices --> MonitorUsage["Monitor Semaphore Usage"]
+MonitorUsage --> LogConfig["Log Configuration Details"]
+```
+
+**Diagram sources**
+- [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
+- [transcript_service.py:305-310](file://app/backend/services/transcript_service.py#L305-L310)
+- [video_service.py:155-160](file://app/backend/services/video_service.py#L155-L160)
+
+**Section sources**
+- [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
+- [transcript_service.py:305-310](file://app/backend/services/transcript_service.py#L305-L310)
+- [video_service.py:155-160](file://app/backend/services/video_service.py#L155-L160)
 
 ### Enhanced Cloud Authentication and Detection System
 - **Cloud Detection Functions**: `is_ollama_cloud()` function detects Ollama Cloud instances by checking for "ollama.com" in the base URL.
@@ -305,24 +359,25 @@ UseLocal --> NormalWarmup["Perform Local Warmup"]
 - [docker-compose.prod.yml:86-92](file://docker-compose.prod.yml#L86-L92)
 
 ### Enhanced Semaphore-Based Concurrency Control
-- **Shared Semaphore System**: Prevents LLM contention across resume narrative, video analysis, transcript analysis, and **NEW contact extraction** services.
-- **Lazy Initialization**: Semaphore is lazily created and initialized with max_concurrent=1 for Ollama with gemma4:31b-cloud (Parallel:1).
+- **Intelligent Deployment Detection**: Prevents LLM contention across resume narrative, video analysis, transcript analysis, and **NEW contact extraction** services with deployment-type-aware configuration.
+- **Dynamic Semaphore Creation**: Semaphore is lazily created with max_concurrent=8 for cloud deployments and max_concurrent=1 for local deployments.
 - **Resource Contention Prevention**: All LLM service calls wrap HTTP requests with shared semaphore for controlled concurrency.
 - **Logging and Debugging**: Proper logging for debugging resource contention scenarios, including waiting for Ollama slot messages.
 - **Consistent Behavior**: Applied across hybrid pipeline, transcript service, video service, and **NEW contact extraction service** for uniform resource management.
 - **Cloud Integration**: Semaphore system works seamlessly with cloud authentication to prevent resource contention across all LLM services.
+- **Environment Override Support**: Supports OLLAMA_MAX_CONCURRENT environment variable for manual concurrency control.
 
-**Updated** Enhanced with cloud-awareness to prevent CPU timeouts and resource contention across all LLM services with lazy initialization, proper logging, and cloud authentication integration. **NEW** contact extraction service utilizes shared semaphore for controlled concurrency.
+**Updated** Enhanced with intelligent deployment-type detection to prevent CPU timeouts and resource contention across all LLM services with dynamic semaphore configuration, proper logging, and environment variable override support. **NEW** contact extraction service utilizes shared semaphore for controlled concurrency.
 
 ```mermaid
 flowchart TD
-Start(["Shared Semaphore System"]) --> LazyInit["Lazy Initialization"]
+Start(["Intelligent Semaphore System"]) --> LazyInit["Lazy Initialization"]
 LazyInit --> CheckLock{"Semaphore Locked?"}
 CheckLock --> |Yes| LogWait["Log: Waiting for Ollama slot..."]
 LogWait --> Acquire["Acquire Semaphore"]
 CheckLock --> |No| Acquire
-Acquire --> Execute["Execute LLM Request"]
-Execute --> CloudCheck["Check Cloud Instance"]
+Acquire --> CheckDeployment["Check Deployment Type"]
+CheckDeployment --> CloudCheck["Check Cloud Instance"]
 CloudCheck --> CloudAuth["Apply Cloud Authentication"]
 CloudAuth --> Release["Release Semaphore"]
 Release --> Complete["Request Complete"]
@@ -394,8 +449,9 @@ StreamTimeout2 --> ContactTimeout2["Contact Timeout: 8s"]
 - **Enhanced Status Reporting**: Provides detailed status including last probe time, latency, and health indicators with improved error diagnostics.
 - **Cloud Optimization**: Automatically skips warmup procedures for cloud instances as they don't require local model loading.
 - **Cloud Status Reporting**: Includes mode indicator (cloud/local) and cloud-specific status information.
+- **Intelligent Concurrency Integration**: Health sentinel integrates with intelligent concurrency detection for optimal resource management.
 
-**Updated** Enhanced with cloud detection that automatically skips warmup procedures for cloud instances, significantly improving performance and reducing unnecessary API calls. Added comprehensive cloud status reporting and enhanced error logging.
+**Updated** Enhanced with cloud detection that automatically skips warmup procedures for cloud instances, significantly improving performance and reducing unnecessary API calls. Added comprehensive cloud status reporting and enhanced error logging. Integrated with intelligent concurrency detection for optimal resource management.
 
 ```mermaid
 flowchart TD
@@ -446,9 +502,10 @@ Sleep --> ProbeLoop
 - **Semaphore Debugging**: Added logging for semaphore contention scenarios to aid in debugging resource management issues.
 - **Cloud Authentication Logging**: Added logging for cloud detection, API key validation, and authentication success/failure scenarios.
 - **Health Sentinel Logging**: Enhanced logging for model state transitions and optimization benefits.
+- **Concurrency Detection Logging**: **NEW** comprehensive logging for deployment type detection and concurrency configuration issues.
 - **Contact Extraction Logging**: **NEW** comprehensive logging for contact extraction pipeline with detailed error tracking.
 
-**New Section** Enhanced error logging provides better diagnostics with exception type information for improved troubleshooting, including comprehensive cloud authentication logging, health sentinel monitoring, and **NEW** contact extraction service logging.
+**New Section** Enhanced error logging provides better diagnostics with exception type information for improved troubleshooting, including comprehensive cloud authentication logging, health sentinel monitoring, concurrency detection logging, and **NEW** contact extraction service logging.
 
 **Section sources**
 - [llm_service.py:86-90](file://app/backend/services/llm_service.py#L86-L90)
@@ -461,8 +518,9 @@ Sleep --> ProbeLoop
 - **Real-time Status**: Combines sentinel status with live Ollama API queries for accurate state reporting.
 - **Cloud Status Reporting**: Includes mode indicator (cloud/local) and cloud-specific status information.
 - **Enhanced Cloud Detection**: Provides detailed cloud vs local instance status with optimization suggestions.
+- **Concurrency Detection Reporting**: **NEW** includes deployment type detection and semaphore configuration status.
 
-**New Section** Comprehensive LLM status endpoint providing real-time monitoring and actionable diagnostics with cloud-aware status reporting and optimization guidance.
+**New Section** Comprehensive LLM status endpoint providing real-time monitoring and actionable diagnostics with cloud-aware status reporting, concurrency detection reporting, and optimization guidance.
 
 ```mermaid
 sequenceDiagram
@@ -470,15 +528,19 @@ participant Client as "Client"
 participant API as "llm_status()"
 participant Sentinel as "get_sentinel()"
 participant CloudAuth as "is_ollama_cloud()"
+participant ConcurrencyDetector as "get_ollama_semaphore()"
 participant Ollama as "Ollama API"
 Client->>API : GET /api/llm-status
 API->>Sentinel : get_sentinel()
 Sentinel-->>API : sentinel_status
 API->>CloudAuth : is_ollama_cloud(ollama_url)
 CloudAuth-->>API : is_cloud
+API->>ConcurrencyDetector : get_ollama_semaphore()
+ConcurrencyDetector-->>API : semaphore_config
 alt Cloud Instance
 API->>API : Skip local Ollama checks
 API->>API : Set cloud-specific status
+API->>API : Include concurrency config
 else Local Instance
 API->>Ollama : GET /api/tags
 Ollama-->>API : pulled_models
@@ -503,16 +565,16 @@ API-->>Client : comprehensive_status_report
   - Normalization to bounded ranges and acceptable values.
   - Retry loop with a single retry attempt and fallback response on failure.
   - Configurable HTTP client timeout using LLM_NARRATIVE_TIMEOUT environment variable with +30 second buffer.
-  - **Enhanced Concurrency**: Now includes shared semaphore integration for controlled request execution.
+  - **Enhanced Concurrency**: Now includes shared semaphore integration for controlled request execution with intelligent deployment detection.
   - **Cloud Authentication**: Automatically injects Bearer token headers for cloud instances.
   - **Enhanced Timeout Management**: HTTP client timeout automatically calculated as LLM_NARRATIVE_TIMEOUT + 30 seconds.
 
-**Updated** HTTP client now uses configurable timeout (180s in production) instead of hardcoded 60 seconds, with automatic +30 second buffer calculation for improved reliability. Integrated with shared semaphore system for controlled concurrency, cloud authentication support, and comprehensive timeout management.
+**Updated** HTTP client now uses configurable timeout (180s in production) instead of hardcoded 60 seconds, with automatic +30 second buffer calculation for improved reliability. Integrated with shared semaphore system for controlled concurrency, cloud authentication support, intelligent concurrency detection, and comprehensive timeout management.
 
 ```mermaid
 flowchart TD
 Start(["analyze_resume"]) --> Build["Build Prompt"]
-Start --> Semaphore["Acquire Semaphore"]
+Start --> Semaphore["Acquire Semaphore with Deployment Detection"]
 Semaphore --> RetryLoop{"Attempt < max_retries + 1?"}
 RetryLoop --> |Yes| GetTimeout["Calculate timeout: LLM_NARRATIVE_TIMEOUT + 30s"]
 GetTimeout --> CloudCheck["Check Cloud Instance"]
@@ -541,7 +603,7 @@ Release2 --> Return
 
 ### ChatOllama Integration and Hybrid Pipeline
 - Singleton pattern: ChatOllama instance is created once and reused globally.
-- **Enhanced Concurrency**: Semaphore-based concurrency control limits concurrent LLM calls to one per worker for Ollama gemma4:31b-cloud (Parallel:1).
+- **Enhanced Concurrency**: Semaphore-based concurrency control limits concurrent LLM calls to one per worker for Ollama gemma4:31b-cloud (Parallel:1) with intelligent deployment detection.
 - Performance tuning:
   - num_predict tuned to the expected JSON output size to avoid oversized KV allocations.
   - num_ctx reduced from defaults to minimize memory footprint and improve attention speed.
@@ -549,12 +611,13 @@ Release2 --> Return
 - Enhanced timeout management: HTTP timeout set to LLM_NARRATIVE_TIMEOUT + 30 seconds to ensure proper cancellation handling.
 - **Health Integration**: Hybrid pipeline now integrates with health sentinel to check model state before making LLM calls.
 - **Persistent Model Loading**: keep_alive=-1 ensures models remain loaded in RAM for optimal performance.
-- **Semaphore Integration**: All LLM calls in hybrid pipeline now use shared semaphore for controlled execution.
+- **Semaphore Integration**: All LLM calls in hybrid pipeline now use shared semaphore for controlled execution with intelligent concurrency detection.
 - **Cloud Authentication**: Automatic Bearer token injection for cloud instances using OLLAMA_API_KEY environment variable.
 - **Cloud Detection**: Intelligent detection of cloud vs local instances to optimize behavior and configuration.
 - **Enhanced Timeout Management**: Automatic HTTP client timeout calculation and request timeout configuration.
+- **Intelligent Concurrency Detection**: Automatic deployment-type-aware semaphore configuration for optimal resource utilization.
 
-**Updated** HTTP timeout now exceeds LLM_NARRATIVE_TIMEOUT by 30 seconds to allow asyncio.wait_for control cancellation rather than httpx timeout termination. Persistent model loading via keep_alive=-1 eliminates cold-start latency. Enhanced with shared semaphore system for controlled concurrency, comprehensive cloud authentication support, and enhanced timeout management.
+**Updated** HTTP timeout now exceeds LLM_NARRATIVE_TIMEOUT by 30 seconds to allow asyncio.wait_for control cancellation rather than httpx timeout termination. Persistent model loading via keep_alive=-1 eliminates cold-start latency. Enhanced with shared semaphore system for controlled concurrency, comprehensive cloud authentication support, intelligent concurrency detection, and enhanced timeout management.
 
 ```mermaid
 classDiagram
@@ -595,11 +658,16 @@ class TimeoutManagement {
 +http_timeout : float
 +request_timeout : float
 }
+class ConcurrencyDetection {
++detect_deployment_type(base_url) : str
++get_semaphore_config() : dict
+}
 HybridPipeline --> ChatOllama : "singleton with configurable timeout"
 HybridPipeline --> OllamaHealthSentinel : "health monitoring"
 HybridPipeline --> SharedSemaphore : "concurrency control"
 HybridPipeline --> CloudAuthSystem : "cloud authentication"
 HybridPipeline --> TimeoutManagement : "timeout management"
+HybridPipeline --> ConcurrencyDetection : "intelligent concurrency"
 ```
 
 **Diagram sources**
@@ -616,28 +684,30 @@ HybridPipeline --> TimeoutManagement : "timeout management"
 - Unified timeout calculation: Both use LLM_NARRATIVE_TIMEOUT + 30 seconds for consistency.
 - Request timeout configuration: Ensures proper cancellation handling across different model types.
 - **Cloud Optimization**: Automatic cloud detection adjusts timeout parameters for different model types.
+- **Intelligent Concurrency**: **NEW** deployment-type-aware resource management for optimal performance.
 
-**New Section** Agent pipeline implements consistent timeout management alongside hybrid pipeline for comprehensive system-wide timeout control with cloud-aware optimizations.
+**New Section** Agent pipeline implements consistent timeout management alongside hybrid pipeline for comprehensive system-wide timeout control with cloud-aware optimizations and intelligent concurrency detection.
 
 **Section sources**
 - [agent_pipeline.py:80-115](file://app/backend/services/agent_pipeline.py#L80-L115)
 
 ### Transcript Analysis Service with Semaphore Control
 - **New Service**: Dedicated service for analyzing interview transcripts using LLM.
-- **Semaphore Integration**: Uses shared semaphore to prevent resource contention with other LLM services.
+- **Semaphore Integration**: Uses shared semaphore to prevent resource contention with other LLM services and intelligent deployment detection.
 - **Prompt Engineering**: Builds structured prompts for transcript analysis with job description context.
 - **JSON Parsing**: Extracts structured analysis results with strengths, areas for improvement, and recommendations.
 - **Fallback Mechanisms**: Provides default analysis results when LLM calls fail.
 - **Logging**: Includes semaphore waiting logs and detailed error logging.
 - **Cloud Authentication**: Integrated with cloud authentication system for seamless cloud instance support.
 - **Enhanced Timeout Management**: Uses LLM_NARRATIVE_TIMEOUT + 30 seconds for HTTP client timeout calculation.
+- **Intelligent Concurrency**: **NEW** deployment-type-aware semaphore configuration for optimal resource utilization.
 
-**New Section** Transcript analysis service with integrated semaphore control, cloud authentication support, and enhanced timeout management for consistent resource management across all LLM services.
+**New Section** Transcript analysis service with integrated semaphore control, cloud authentication support, intelligent concurrency detection, and enhanced timeout management for consistent resource management across all LLM services.
 
 ```mermaid
 flowchart TD
 Start(["analyze_transcript"]) --> BuildPrompt["Build Transcript Prompt"]
-BuildPrompt --> AcquireSem["Acquire Shared Semaphore"]
+BuildPrompt --> AcquireSem["Acquire Shared Semaphore with Deployment Detection"]
 AcquireSem --> CheckLength{"Transcript > 30 chars?"}
 CheckLength --> |No| Fallback["Return Fallback Result"]
 CheckLength --> |Yes| CloudCheck["Check Cloud Instance"]
@@ -660,27 +730,28 @@ Fallback2 --> ReleaseSem2["Release Semaphore"]
 
 ### Video Analysis Service with Semaphore Control
 - **New Service**: Comprehensive video interview analysis combining transcription, communication assessment, and malpractice detection.
-- **Semaphore Integration**: Uses shared semaphore to coordinate with other LLM services and prevent resource contention.
+- **Semaphore Integration**: Uses shared semaphore to coordinate with other LLM services and prevent resource contention with intelligent deployment detection.
 - **Multi-Modal Analysis**: Processes audio/video data to extract meaningful insights about candidate performance.
 - **Communication Analysis**: Evaluates speaking rate, clarity, articulation, and communication effectiveness.
 - **Malpractice Detection**: Identifies potential interview malpractice signals using LLM analysis.
 - **Parallel Processing**: Combines multiple analysis tasks efficiently using asyncio.gather.
 - **Cloud Authentication**: Integrated with cloud authentication system for seamless cloud instance support.
 - **Enhanced Timeout Management**: Uses LLM_NARRATIVE_TIMEOUT + 30 seconds for HTTP client timeout calculation.
+- **Intelligent Concurrency**: **NEW** deployment-type-aware semaphore configuration for optimal resource utilization.
 
-**New Section** Video analysis service with integrated semaphore control, cloud authentication support, and enhanced timeout management for coordinated resource management across all LLM services.
+**New Section** Video analysis service with integrated semaphore control, cloud authentication support, intelligent concurrency detection, and enhanced timeout management for coordinated resource management across all LLM services.
 
 ```mermaid
 flowchart TD
 Start(["analyze_video_file"]) --> Transcribe["Transcribe Video"]
 Transcribe --> ExtractSignals["Extract Pause Signals"]
 ExtractSignals --> ParallelExec["Parallel: Communication + Malpractice Analysis"]
-ParallelExec --> AcquireSem1["Acquire Semaphore (Communication)"]
+ParallelExec --> AcquireSem1["Acquire Semaphore with Deployment Detection (Communication)"]
 AcquireSem1 --> CloudCheck1["Check Cloud Instance"]
 CloudCheck1 --> InjectHeaders1["Inject Bearer Token"]
 InjectHeaders1 --> CallComm["Call Ollama for Communication Analysis"]
 CallComm --> ReleaseSem1["Release Semaphore"]
-AcquireSem2["Acquire Semaphore (Malpractice)"] --> CloudCheck2["Check Cloud Instance"]
+AcquireSem2["Acquire Semaphore with Deployment Detection (Malpractice)"] --> CloudCheck2["Check Cloud Instance"]
 CloudCheck2 --> InjectHeaders2["Inject Bearer Token"]
 InjectHeaders2 --> CallMal["Call Ollama for Malpractice Analysis"]
 CallMal --> ReleaseSem2["Release Semaphore"]
@@ -708,12 +779,13 @@ MergeResults --> Return["Return Analysis"]
   - **Cloud Authentication**: Seamlessly integrates with existing cloud authentication system for Ollama Cloud support.
   - **Timeout Management**: Uses 8-second timeout for rapid response while maintaining extraction accuracy.
   - **Comprehensive Error Handling**: Detailed logging for JSON parsing errors, timeouts, and general exceptions.
+  - **Intelligent Concurrency**: **NEW** deployment-type-aware semaphore configuration for optimal resource utilization.
 - **Accuracy Enhancements**:
   - Handles international names, non-standard formats, and creative resume layouts.
   - Extracts names with titles/suffixes (Dr., Jr., III, etc.) more accurately than regex.
   - Provides specialized extraction for phone numbers and LinkedIn URLs.
 
-**New Section** Comprehensive contact extraction service with specialized prompts, JSON parsing fallbacks, structured validation, cloud authentication integration, and optimized timeout management for accurate contact information extraction.
+**New Section** Comprehensive contact extraction service with specialized prompts, JSON parsing fallbacks, structured validation, cloud authentication integration, intelligent concurrency detection, and optimized timeout management for accurate contact information extraction.
 
 ```mermaid
 flowchart TD
@@ -762,13 +834,14 @@ NoData --> LogWarning["Log Warning"]
   - **Fallback Strategy**: Uses LLM extraction first, then merges with existing regex results.
   - **Conditional Processing**: Skips extraction if complete contact information already exists.
   - **Error Resilience**: Continues parsing even if contact extraction fails.
+  - **Intelligent Concurrency**: **NEW** deployment-type-aware resource management for optimal performance.
 - **Enrichment Process**:
   - **Initial Check**: Skip if name and email already present.
   - **LLM Extraction**: Attempt LLM-based extraction with 8-second timeout.
   - **Merge Results**: Apply semantic merge strategy to combine LLM and regex results.
   - **Traditional Fallbacks**: Use NER, email-based, relaxed header, and filename-based extraction if needed.
 
-**New Section** Comprehensive parser service integration that orchestrates contact extraction pipeline with LLM and regex fallbacks for complete contact information enrichment.
+**New Section** Comprehensive parser service integration that orchestrates contact extraction pipeline with LLM and regex fallbacks, intelligent concurrency detection, and optimized resource management.
 
 ```mermaid
 flowchart TD
@@ -814,6 +887,7 @@ Skip --> Final
 - Calls the LLM service to generate narrative insights.
 - Merges Python-derived metrics with LLM-generated qualitative insights.
 - **Narrative Polling Integration**: Supports asynchronous LLM processing with background tasks and polling endpoints.
+- **Intelligent Concurrency**: **NEW** deployment-type-aware resource management for optimal performance.
 
 ```mermaid
 sequenceDiagram
@@ -845,8 +919,9 @@ AS-->>Caller : merged result
 - **Narrative Polling Endpoints**: Support asynchronous LLM processing with GET /api/analysis/{id}/narrative endpoint for polling.
 - **Cloud Status Reporting**: Enhanced status endpoint provides cloud-aware diagnostics and guidance.
 - **Enhanced Error Handling**: Improved error messages for timeout scenarios and cloud authentication issues.
+- **Intelligent Concurrency Reporting**: **NEW** includes deployment type detection and semaphore configuration status in diagnostics.
 
-**Updated** Added narrative polling architecture with dedicated endpoint for retrieving LLM-generated narratives asynchronously. Enhanced status endpoint with cloud-aware reporting and guidance. Improved error handling for timeout scenarios and cloud authentication debugging.
+**Updated** Added narrative polling architecture with dedicated endpoint for retrieving LLM-generated narratives asynchronously. Enhanced status endpoint with cloud-aware reporting and guidance. Improved error handling for timeout scenarios and cloud authentication debugging. **NEW** intelligent concurrency reporting for deployment-type-aware resource management diagnostics.
 
 ```mermaid
 sequenceDiagram
@@ -884,8 +959,9 @@ Route-->>Client : {"status" : "ready", "narrative" : {...}}
 - **Persistent Model Loading**: OLLAMA_KEEP_ALIVE=-1 ensures models remain loaded in RAM after warmup.
 - **Cloud Detection**: Enhanced startup procedure with cloud detection that automatically skips local warmup for cloud instances.
 - **Enhanced Error Handling**: Comprehensive error logging for startup failures and cloud authentication issues.
+- **Intelligent Concurrency**: **NEW** deployment-type-aware resource management during startup and warmup procedures.
 
-**Updated** Enhanced startup procedure with health sentinel initialization, persistent model loading, cloud detection that automatically skips local warmup for cloud instances, and comprehensive error logging for debugging startup issues.
+**Updated** Enhanced startup procedure with health sentinel initialization, persistent model loading, cloud detection that automatically skips local warmup for cloud instances, comprehensive error logging for debugging startup issues, and **NEW** intelligent concurrency detection during startup and warmup procedures.
 
 ```mermaid
 flowchart TD
@@ -923,13 +999,14 @@ SkipWarmup --> Ready["Ready"]
 - Nginx applies rate limiting and disables buffering for SSE streaming to avoid 524 errors.
 - **Health Sentinel Dependencies**: New dependencies on httpx for health probing and asyncio for background monitoring.
 - **Persistent Model Loading**: OLLAMA_KEEP_ALIVE=-1 environment variable ensures models remain loaded in RAM.
-- **Semaphore Dependencies**: New shared semaphore system with lazy initialization and logging capabilities.
-- **Transcript and Video Services**: Depend on shared semaphore for coordinated resource management.
+- **Semaphore Dependencies**: New shared semaphore system with lazy initialization, deployment-type detection, and logging capabilities.
+- **Transcript and Video Services**: Depend on shared semaphore for coordinated resource management with intelligent concurrency detection.
 - **Cloud Authentication Dependencies**: New cloud detection functions and environment variable handling for OLLAMA_API_KEY.
 - **Enhanced Timeout Dependencies**: New timeout configuration system with increased values for cloud models.
-- **Enhanced Error Logging Dependencies**: New comprehensive logging system for debugging cloud authentication and timeout issues.
+- **Enhanced Error Logging Dependencies**: New comprehensive logging system for debugging cloud authentication, timeout issues, and concurrency detection problems.
 - **Contact Extraction Dependencies**: **NEW** httpx dependency for async LLM calls and specialized prompt engineering.
 - **Parser Service Integration Dependencies**: **NEW** integration with contact extraction service and semantic merge strategy.
+- **Intelligent Concurrency Detection Dependencies**: **NEW** deployment-type detection functions and environment variable handling for OLLAMA_MAX_CONCURRENT.
 
 ```mermaid
 graph LR
@@ -950,7 +1027,9 @@ U["Enhanced Error Logging"] --> V["Comprehensive Logging"]
 W["Persistent Model Loading"] --> X["OLLAMA_KEEP_ALIVE=-1"]
 Y["Contact Extraction Service"] --> Z["httpx AsyncClient"]
 AA["Parser Service Integration"] --> BB["Semantic Merge Strategy"]
-CC["Contact Merge Algorithm"] --> DD["LLM + Regex Fallbacks"]
+CC["Intelligent Concurrency Detection"] --> DD["Deployment Type Detection"]
+EE["Semaphore Configuration"] --> FF["max_concurrent=8/1"]
+GG["Concurrent Request Management"] --> HH["Resource Contention Prevention"]
 ```
 
 **Diagram sources**
@@ -975,22 +1054,23 @@ CC["Contact Merge Algorithm"] --> DD["LLM + Regex Fallbacks"]
 ## Performance Considerations
 - num_predict tuning: Set to approximately the expected output token count plus headroom to prevent oversized KV allocations.
 - num_ctx reduction: Lower context window reduces memory usage and accelerates attention computations.
-- **Enhanced Concurrency Control**: Shared semaphore limits concurrent LLM calls to one per worker to prevent CPU timeouts and resource contention.
+- **Enhanced Concurrency Control**: Shared semaphore limits concurrent LLM calls to one per worker to prevent CPU timeouts and resource contention with intelligent deployment-type detection.
 - Warm-up strategy: Preloading models into RAM via OLLAMA_KEEP_ALIVE=-1 avoids cold-start latency.
 - Streaming and buffering: Nginx disables buffering for SSE to ensure timely delivery of events.
 - **Enhanced timeout management**: Configurable LLM_NARRATIVE_TIMEOUT environment variable (180s in production for cloud models) with +30 second buffer for improved reliability and proper cancellation handling.
 - **Optimized Health Sentinel**: Background monitoring with configurable probe intervals minimizes overhead while providing continuous model state awareness. The new model state detection eliminates redundant API calls when models are already hot, significantly reducing network overhead.
 - **Narrative Polling Architecture**: Asynchronous LLM processing allows immediate response while background tasks handle time-consuming analysis.
 - **Persistent Model Loading**: OLLAMA_KEEP_ALIVE=-1 ensures models remain loaded in RAM, eliminating cold-start delays and improving response times.
-- **Resource Contention Prevention**: Shared semaphore system prevents CPU timeouts by serializing LLM requests for Ollama gemma4:31b-cloud (Parallel:1).
-- **Cloud Optimization**: Automatic cloud detection and warmup skipping eliminates unnecessary local operations for cloud instances.
+- **Resource Contention Prevention**: Shared semaphore system prevents CPU timeouts by serializing LLM requests for Ollama gemma4:31b-cloud (Parallel:1) with intelligent concurrency detection.
+- **Cloud Optimization**: Automatic cloud detection and warmup skipping eliminates unnecessary local operations for cloud instances with deployment-type-aware resource management.
 - **Enhanced Cloud Authentication**: Seamless Bearer token injection for cloud instances improves security and reduces authentication overhead.
-- **Enhanced Error Handling**: Comprehensive logging and debugging capabilities for cloud authentication, timeout management, and resource contention issues.
-- **Cloud-Aware Performance**: Different timeout parameters and model configurations for cloud vs local instances optimize performance across deployment scenarios.
-- **Contact Extraction Performance**: **NEW** 8-second timeout for rapid contact extraction while maintaining accuracy, integrated with shared semaphore for controlled concurrency.
+- **Enhanced Error Handling**: Comprehensive logging and debugging capabilities for cloud authentication, timeout management, resource contention issues, and **NEW** concurrency detection problems.
+- **Cloud-Aware Performance**: Different timeout parameters and model configurations for cloud vs local instances optimize performance across deployment scenarios with intelligent resource management.
+- **Contact Extraction Performance**: **NEW** 8-second timeout for rapid contact extraction while maintaining accuracy, integrated with shared semaphore for controlled concurrency and deployment-type-aware optimization.
 - **Semantic Merge Efficiency**: **NEW** intelligent merging strategy reduces redundant processing by leveraging LLM accuracy where it matters most (names) and regex precision where it's fastest (email/phone).
+- **Intelligent Concurrency Optimization**: **NEW** automatic deployment-type detection optimizes semaphore configuration for maximum throughput and minimal resource contention.
 
-**Updated** Added comprehensive timeout management considerations with LLM_NARRATIVE_TIMEOUT=180s for cloud models, optimized health sentinel with model state detection, persistent model loading via OLLAMA_KEEP_ALIVE=-1, cloud-aware optimization, enhanced cloud authentication support, comprehensive semaphore-based concurrency control, enhanced error logging, cloud-aware performance optimization across all LLM services, and **NEW** contact extraction service with optimized performance characteristics.
+**Updated** Added comprehensive timeout management considerations with LLM_NARRATIVE_TIMEOUT=180s for cloud models, optimized health sentinel with model state detection, persistent model loading via OLLAMA_KEEP_ALIVE=-1, cloud-aware optimization with intelligent concurrency detection, enhanced cloud authentication support, comprehensive semaphore-based concurrency control with deployment-type awareness, enhanced error logging, cloud-aware performance optimization across all LLM services, and **NEW** intelligent concurrency detection system that automatically adapts to deployment type for optimal resource utilization.
 
 **Section sources**
 - [hybrid_pipeline.py:55-62](file://app/backend/services/hybrid_pipeline.py#L55-L62)
@@ -1005,6 +1085,7 @@ CC["Contact Merge Algorithm"] --> DD["LLM + Regex Fallbacks"]
   - Run the warm-up script to ensure the model is pulled and loaded.
   - **Health Sentinel Monitoring**: Check /api/llm-status for detailed model state and diagnosis.
   - **Cloud Status Verification**: Check if the system is correctly detecting cloud vs local instances.
+  - **Concurrency Detection Issues**: **NEW** Check deployment type detection logs and semaphore configuration for concurrency problems.
 - Timeout scenarios:
   - LLMService retries once and falls back to a deterministic response.
   - Hybrid pipeline's ChatOllama singleton and semaphore help manage concurrency under load.
@@ -1014,6 +1095,7 @@ CC["Contact Merge Algorithm"] --> DD["LLM + Regex Fallbacks"]
   - **Cloud Authentication Issues**: Verify OLLAMA_API_KEY environment variable is set correctly for cloud instances.
   - **Enhanced Cloud Debugging**: Check cloud detection logs and API key validation messages for authentication issues.
   - **Contact Extraction Issues**: **NEW** Check contact extraction logs for JSON parsing errors, timeout issues, and LLM response validation problems.
+  - **Concurrency Detection Problems**: **NEW** Verify deployment type detection accuracy and semaphore configuration logs for intelligent concurrency issues.
 - Rate limiting:
   - Nginx zones limit API requests; adjust burst and nodelay as needed.
   - Frontend checks remaining analyses before initiating operations.
@@ -1025,25 +1107,29 @@ CC["Contact Merge Algorithm"] --> DD["LLM + Regex Fallbacks"]
   - **Persistent Model Issues**: Verify OLLAMA_KEEP_ALIVE=-1 is set in environment variables if models are not staying loaded.
   - **Cloud Detection Problems**: Verify OLLAMA_BASE_URL points to cloud (ollama.com) for cloud authentication to work.
   - **Enhanced Cloud Detection**: Check cloud detection logs for proper identification of cloud vs local instances.
+  - **Concurrency Detection Issues**: **NEW** Verify deployment type detection accuracy and semaphore configuration for optimal resource management.
 - **Semaphore Issues**:
   - **Resource Contention**: Monitor logs for semaphore waiting messages to identify bottlenecks.
   - **Deadlock Prevention**: Ensure all semaphore acquisitions are properly released in error handling paths.
   - **Timeout Configuration**: Adjust LLM_NARRATIVE_TIMEOUT if semaphore waits are too frequent.
   - **Cloud Semaphore Issues**: Verify semaphore works correctly with cloud authentication and timeout configurations.
   - **Contact Extraction Semaphore**: **NEW** Monitor contact extraction semaphore usage for optimal performance.
+  - **Intelligent Concurrency Issues**: **NEW** Check deployment type detection and semaphore configuration logs for concurrency problems.
 - **Cloud Authentication Issues**:
   - **API Key Missing**: Check that OLLAMA_API_KEY environment variable is set for cloud instances.
   - **Cloud Detection Failure**: Verify OLLAMA_BASE_URL contains "ollama.com" for proper cloud detection.
   - **Bearer Token Errors**: Check that API key format is correct and not expired.
   - **Enhanced Cloud Debugging**: Review comprehensive cloud authentication logs for detailed debugging information.
+  - **Concurrency Detection Problems**: **NEW** Verify deployment type detection accuracy affects cloud authentication behavior.
 - **Contact Extraction Issues**:
   - **JSON Parsing Failures**: Check LLM output format and ensure proper JSON structure.
   - **Timeout Problems**: Verify 8-second timeout is appropriate for contact extraction workload.
   - **Merge Strategy Issues**: Review semantic merge algorithm for proper LLM and regex integration.
   - **Cloud Authentication Problems**: Ensure contact extraction service properly inherits cloud authentication headers.
-- **Enhanced Error Logging**: Utilize comprehensive logging system for debugging cloud authentication, timeout management, resource contention issues, and **NEW** contact extraction service problems.
+  - **Concurrency Issues**: **NEW** Verify contact extraction service uses appropriate semaphore configuration for deployment type.
+- **Enhanced Error Logging**: Utilize comprehensive logging system for debugging cloud authentication, timeout management, resource contention issues, **NEW** concurrency detection problems, and **NEW** contact extraction service problems.
 
-**Updated** Enhanced troubleshooting with health sentinel monitoring, model state tracking, optimized detection capabilities, persistent model loading verification, cloud authentication debugging, comprehensive semaphore-based resource contention debugging, cloud-aware configuration verification, enhanced error logging, cloud authentication issue resolution, and **NEW** comprehensive contact extraction service troubleshooting capabilities.
+**Updated** Enhanced troubleshooting with health sentinel monitoring, model state tracking, optimized detection capabilities, persistent model loading verification, cloud authentication debugging, comprehensive semaphore-based resource contention debugging, cloud-aware configuration verification, enhanced error logging, cloud authentication issue resolution, **NEW** intelligent concurrency detection troubleshooting, and **NEW** comprehensive contact extraction service troubleshooting capabilities.
 
 **Section sources**
 - [main.py:262-326](file://app/backend/main.py#L262-L326)
@@ -1053,9 +1139,9 @@ CC["Contact Merge Algorithm"] --> DD["LLM + Regex Fallbacks"]
 - [llm_contact_extractor.py:120-130](file://app/backend/services/llm_contact_extractor.py#L120-L130)
 
 ## Conclusion
-The LLM integration combines robust prompt engineering, ChatOllama singleton and semaphore controls, and strict performance tuning to deliver reliable, low-latency analysis. Enhanced timeout management with the LLM_NARRATIVE_TIMEOUT environment variable (180s in production for cloud models) provides configurable timeout handling across all LLM components. Startup diagnostics and warm-up procedures ensure model availability, while usage enforcement and rate limiting protect system stability. The hybrid approach balances deterministic Python scoring with targeted LLM narrative generation for optimal accuracy and throughput. **New health sentinel pattern provides continuous monitoring, automatic warmup, and comprehensive model state tracking for improved reliability and observability. The optimized model state detection eliminates redundant API calls when models are already hot, significantly improving system performance while maintaining robust error handling and comprehensive diagnostics. Persistent model loading via OLLAMA_KEEP_ALIVE=-1 ensures models remain hot in RAM, eliminating cold-start latency and improving response times. Enhanced semaphore-based concurrency control prevents CPU timeouts and resource contention across all LLM services, ensuring stable operation under load while maintaining optimal resource utilization. **New cloud authentication system provides seamless integration with Ollama Cloud, automatic Bearer token injection, and intelligent cloud detection that optimizes performance by skipping unnecessary local operations.** **Enhanced cloud-aware optimization improves system reliability, operational flexibility, and resource management across all LLM services while maintaining security and performance standards.** **Enhanced error logging and comprehensive debugging capabilities provide detailed insights into cloud authentication, timeout management, and resource contention issues.** **NEW** comprehensive contact extraction service with specialized prompts, JSON parsing fallbacks, and semantic merging strategy enhances the platform's ability to extract accurate contact information from diverse resume formats while maintaining system performance and reliability.
+The LLM integration combines robust prompt engineering, ChatOllama singleton and semaphore controls, and strict performance tuning to deliver reliable, low-latency analysis. Enhanced timeout management with the LLM_NARRATIVE_TIMEOUT environment variable (180s in production for cloud models) provides configurable timeout handling across all LLM components. Startup diagnostics and warm-up procedures ensure model availability, while usage enforcement and rate limiting protect system stability. The hybrid approach balances deterministic Python scoring with targeted LLM narrative generation for optimal accuracy and throughput. **New health sentinel pattern provides continuous monitoring, automatic warmup, and comprehensive model state tracking for improved reliability and observability. The optimized model state detection eliminates redundant API calls when models are already hot, significantly improving system performance while maintaining robust error handling and comprehensive diagnostics. Persistent model loading via OLLAMA_KEEP_ALIVE=-1 ensures models remain hot in RAM, eliminating cold-start latency and improving response times. Enhanced semaphore-based concurrency control prevents CPU timeouts and resource contention across all LLM services with intelligent deployment-type detection, ensuring stable operation under load while maintaining optimal resource utilization. **New cloud authentication system provides seamless integration with Ollama Cloud, automatic Bearer token injection, and intelligent cloud detection that optimizes performance by skipping unnecessary local operations.** **Enhanced cloud-aware optimization improves system reliability, operational flexibility, and resource management across all LLM services while maintaining security and performance standards.** **Enhanced error logging and comprehensive debugging capabilities provide detailed insights into cloud authentication, timeout management, resource contention, and **NEW** intelligent concurrency detection issues.** **NEW** comprehensive contact extraction service with specialized prompts, JSON parsing fallbacks, semantic merging strategy, optimized performance characteristics, and intelligent concurrency detection enhances the platform's ability to extract accurate contact information from diverse resume formats while maintaining system performance and reliability.
 
-**Updated** Improved timeout handling with LLM_NARRATIVE_TIMEOUT=180s for cloud models, enhanced health monitoring with optimized model state detection, persistent model loading via OLLAMA_KEEP_ALIVE=-1, optimized performance through intelligent model state detection and cloud optimization, comprehensive cloud authentication support, enhanced semaphore-based concurrency control, enhanced error logging and debugging capabilities, enhanced cloud-aware optimization that improves system reliability, operational flexibility, and resource management across all LLM services, and **NEW** comprehensive contact extraction service with specialized prompts, JSON parsing fallbacks, semantic merging strategy, and optimized performance characteristics.
+**Updated** Improved timeout handling with LLM_NARRATIVE_TIMEOUT=180s for cloud models, enhanced health monitoring with optimized model state detection, persistent model loading via OLLAMA_KEEP_ALIVE=-1, optimized performance through intelligent model state detection, cloud optimization with intelligent concurrency detection, comprehensive cloud authentication support, enhanced semaphore-based concurrency control with deployment-type awareness, enhanced error logging and debugging capabilities, enhanced cloud-aware optimization that improves system reliability, operational flexibility, and resource management across all LLM services, and **NEW** comprehensive contact extraction service with specialized prompts, JSON parsing fallbacks, semantic merging strategy, optimized performance characteristics, and intelligent concurrency detection.
 
 ## Appendices
 
@@ -1064,6 +1150,7 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - Provide explicit JSON schema expectations in prompts.
 - Include contextual metrics (match percentage, experience, gaps, risks) to guide reasoning.
 - **Contact Extraction Prompts**: **NEW** specialized prompts with strict JSON schema validation and comprehensive field extraction rules.
+- **Intelligent Concurrency Optimization**: **NEW** deployment-type-aware prompt engineering for optimal resource utilization.
 
 **Section sources**
 - [llm_service.py:69-82](file://app/backend/services/llm_service.py#L69-L82)
@@ -1073,6 +1160,7 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - Strict JSON parsing with fallbacks for markdown code blocks and loose JSON.
 - Normalization enforces bounded values and acceptable enumerations.
 - **Contact Extraction Validation**: **NEW** specialized validation for contact information with null value cleaning and structure verification.
+- **Intelligent Concurrency Parsing**: **NEW** deployment-type-aware response parsing for optimal resource management.
 
 **Section sources**
 - [llm_service.py:84-126](file://app/backend/services/llm_service.py#L84-L126)
@@ -1086,8 +1174,9 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Semaphore Security**: Shared semaphore prevents resource exhaustion attacks and ensures fair resource allocation.
 - **Cloud Authentication Security**: API keys are stored in environment variables and injected only for cloud instances, preventing credential exposure in local deployments.
 - **Bearer Token Security**: Automatic Bearer token injection uses OLLAMA_API_KEY environment variable with proper logging and validation.
-- **Enhanced Security Logging**: Comprehensive logging for cloud authentication, timeout management, and resource contention scenarios.
+- **Enhanced Security Logging**: Comprehensive logging for cloud authentication, timeout management, resource contention, and **NEW** concurrency detection scenarios.
 - **Contact Extraction Security**: **NEW** secure handling of sensitive contact information with proper logging and error handling.
+- **Intelligent Concurrency Security**: **NEW** deployment-type-aware security considerations for optimal resource protection.
 
 **Section sources**
 - [main.py:182-198](file://app/backend/main.py#L182-L198)
@@ -1105,10 +1194,11 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Semaphore Monitoring**: Track semaphore usage patterns and resource contention scenarios for system optimization.
 - **Cloud Authentication Monitoring**: Monitor cloud detection accuracy and API key validation for secure cloud instance access.
 - **Cloud Status Monitoring**: Track cloud vs local instance behavior and performance differences.
-- **Enhanced Error Logging Monitoring**: Comprehensive logging system for debugging cloud authentication, timeout, and resource contention issues.
+- **Enhanced Error Logging Monitoring**: Comprehensive logging system for debugging cloud authentication, timeout, resource contention, and **NEW** concurrency detection issues.
 - **Contact Extraction Monitoring**: **NEW** monitor contact extraction service performance, accuracy metrics, and error rates.
+- **Intelligent Concurrency Monitoring**: **NEW** monitor deployment type detection accuracy and semaphore configuration effectiveness.
 
-**Updated** Added comprehensive monitoring capabilities for health sentinel, model state tracking, narrative polling architecture, optimized performance metrics, persistent model loading verification, semaphore-based resource management monitoring, cloud authentication system, cloud status monitoring, enhanced error logging for debugging cloud authentication and timeout issues, and **NEW** contact extraction service monitoring capabilities.
+**Updated** Added comprehensive monitoring capabilities for health sentinel, model state tracking, narrative polling architecture, optimized performance metrics, persistent model loading verification, semaphore-based resource management monitoring, cloud authentication system, cloud status monitoring, enhanced error logging for debugging cloud authentication, timeout, and resource contention issues, **NEW** intelligent concurrency detection monitoring, and **NEW** contact extraction service monitoring capabilities.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -1125,13 +1215,16 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Semaphore Timeout**: Inherits LLM_NARRATIVE_TIMEOUT for coordinated resource management.
 - **Cloud Model Configuration**: Large cloud models (gemma4:31b-cloud) require 180s timeout, while local models use 180s.
 - **Contact Extraction Timeout**: **NEW** 8-second timeout for rapid contact information extraction.
+- **Intelligent Concurrency Configuration**: **NEW** deployment-type-aware semaphore configuration with max_concurrent=8 for cloud and max_concurrent=1 for local.
 - **Configuration Examples**:
   - Fast model: `LLM_NARRATIVE_TIMEOUT=180` → HTTP timeout: 210 seconds
   - Reasoning model: `LLM_NARRATIVE_TIMEOUT=180` → HTTP timeout: 210 seconds
   - Large cloud models: `LLM_NARRATIVE_TIMEOUT=180` → HTTP timeout: 210 seconds
   - Contact extraction: `timeout=8` seconds for rapid response
+  - Cloud deployment: `OLLAMA_MAX_CONCURRENT=8` for optimal throughput
+  - Local deployment: `OLLAMA_MAX_CONCURRENT=1` for resource protection
 
-**New Section** Comprehensive timeout configuration guide for optimal system performance tuning with enhanced cloud model support, semaphore integration, cloud-aware optimizations, and **NEW** contact extraction service timeout configuration.
+**New Section** Comprehensive timeout configuration guide for optimal system performance tuning with enhanced cloud model support, semaphore integration, cloud-aware optimizations, intelligent concurrency detection, and **NEW** contact extraction service timeout configuration.
 
 **Section sources**
 - [docker-compose.prod.yml:99](file://docker-compose.prod.yml#L99)
@@ -1151,8 +1244,9 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Optimization Benefits**: Eliminates redundant API calls when models are already hot, reducing network overhead and improving response times.
 - **Cloud Optimization**: Automatically sets HOT state for cloud instances, skipping unnecessary warmup procedures.
 - **Enhanced Cloud Detection**: Improved cloud detection reduces false positives and optimizes health check behavior.
+- **Intelligent Concurrency Integration**: Health sentinel integrates with intelligent concurrency detection for optimal resource management.
 
-**New Section** Comprehensive model state management and health monitoring capabilities with performance optimization, cloud-aware behavior, and enhanced cloud detection for improved system reliability.
+**New Section** Comprehensive model state management and health monitoring capabilities with performance optimization, cloud-aware behavior, enhanced cloud detection, and intelligent concurrency integration for improved system reliability.
 
 **Section sources**
 - [llm_service.py:13-18](file://app/backend/services/llm_service.py#L13-L18)
@@ -1180,8 +1274,9 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Background Task Management**: Proper cleanup and cancellation of background tasks during shutdown.
 - **Fallback Handling**: Graceful degradation when LLM processing fails or times out.
 - **Enhanced Error Handling**: Improved error messages and fallback mechanisms for timeout scenarios.
+- **Intelligent Concurrency**: **NEW** deployment-type-aware resource management during polling operations.
 
-**New Section** Asynchronous narrative processing with polling architecture for improved user experience and enhanced error handling.
+**New Section** Asynchronous narrative processing with polling architecture for improved user experience, enhanced error handling, and **NEW** intelligent concurrency detection for optimal resource utilization during polling operations.
 
 **Section sources**
 - [analyze.py:1117-1148](file://app/backend/routes/analyze.py#L1117-L1148)
@@ -1200,8 +1295,9 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Enhanced Error Logging Tests**: Tests verify comprehensive logging for cloud authentication, timeout management, and resource contention debugging.
 - **Cloud Detection Tests**: Tests validate intelligent cloud vs local instance detection logic.
 - **Contact Extraction Tests**: **NEW** comprehensive tests for contact extraction service including JSON parsing, timeout handling, and semantic merging.
+- **Intelligent Concurrency Detection Tests**: **NEW** comprehensive tests for deployment-type-aware semaphore configuration and resource management.
 
-**Updated** Comprehensive test coverage for optimized health monitoring system, performance improvements, persistent model loading, semaphore-based concurrency control, cloud authentication system, enhanced timeout configuration, enhanced error logging, cloud detection logic, and **NEW** comprehensive contact extraction service testing.
+**Updated** Comprehensive test coverage for optimized health monitoring system, performance improvements, persistent model loading, semaphore-based concurrency control, cloud authentication system, enhanced timeout configuration, enhanced error logging, cloud detection logic, **NEW** intelligent concurrency detection system, and **NEW** comprehensive contact extraction service testing.
 
 **Section sources**
 - [test_llm_service.py:100-118](file://app/backend/tests/test_llm_service.py#L100-L118)
@@ -1217,8 +1313,9 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Cloud-Aware Operation**: Works seamlessly with cloud authentication system to prevent resource contention across all LLM services.
 - **Enhanced Cloud Integration**: Semaphore system integrates with cloud detection and authentication for optimal resource management.
 - **Contact Extraction Integration**: **NEW** Contact extraction service utilizes shared semaphore for controlled concurrency.
+- **Intelligent Concurrency Integration**: **NEW** Deployment-type-aware semaphore configuration for optimal resource utilization.
 
-**New Section** Detailed implementation of shared semaphore system for resource management across all LLM services with cloud authentication integration, enhanced cloud-aware optimizations, and **NEW** contact extraction service integration.
+**New Section** Detailed implementation of shared semaphore system for resource management across all LLM services with cloud authentication integration, enhanced cloud-aware optimizations, **NEW** intelligent concurrency detection, and **NEW** contact extraction service integration.
 
 **Section sources**
 - [llm_service.py:12-23](file://app/backend/services/llm_service.py#L12-L23)
@@ -1237,8 +1334,9 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Enhanced Error Logging**: Detailed logging for cloud authentication debugging and troubleshooting.
 - **Cloud Status Reporting**: Real-time cloud vs local instance status reporting for monitoring and diagnostics.
 - **Contact Extraction Integration**: **NEW** Contact extraction service seamlessly inherits cloud authentication capabilities.
+- **Intelligent Concurrency Integration**: **NEW** Cloud authentication system integrates with deployment-type detection for optimal resource management.
 
-**New Section** Detailed implementation of cloud authentication system including cloud detection logic, API key management, security measures, comprehensive logging, fallback handling, and **NEW** contact extraction service integration.
+**New Section** Detailed implementation of cloud authentication system including cloud detection logic, API key management, security measures, comprehensive logging, fallback handling, and **NEW** intelligent concurrency detection integration for optimal cloud resource management.
 
 **Section sources**
 - [llm_service.py:15-33](file://app/backend/services/llm_service.py#L15-L33)
@@ -1255,8 +1353,10 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Resource Contention Debugging**: Logging for semaphore waiting messages and resource management issues.
 - **Cloud Detection Debugging**: Logging for cloud vs local instance detection accuracy and optimization benefits.
 - **Contact Extraction Debugging**: **NEW** Comprehensive logging for contact extraction pipeline with detailed error tracking and performance metrics.
+- **Concurrency Detection Debugging**: **NEW** Logging for deployment type detection accuracy and semaphore configuration issues.
+- **Intelligent Concurrency Debugging**: **NEW** Comprehensive logging for intelligent concurrency detection system debugging.
 
-**New Section** Comprehensive error logging and debugging system covering cloud authentication, timeout management, resource contention, health sentinel monitoring, cloud detection, and **NEW** contact extraction service debugging for improved troubleshooting and system reliability.
+**New Section** Comprehensive error logging and debugging system covering cloud authentication, timeout management, resource contention, health sentinel monitoring, cloud detection, intelligent concurrency detection, and **NEW** contact extraction service debugging for improved troubleshooting and system reliability.
 
 **Section sources**
 - [llm_service.py:86-90](file://app/backend/services/llm_service.py#L86-L90)
@@ -1270,9 +1370,28 @@ The LLM integration combines robust prompt engineering, ChatOllama singleton and
 - **Timeout Management**: **NEW** 8-second timeout for rapid response while maintaining extraction accuracy.
 - **Semantic Merge Strategy**: **NEW** sophisticated merging algorithm that leverages LLM accuracy for names while using regex precision for email/phone.
 - **Performance Optimization**: **NEW** optimized for contact extraction workload with specialized model configuration and prompt engineering.
+- **Intelligent Concurrency**: **NEW** deployment-type-aware resource management for optimal contact extraction performance.
+- **Concurrent Request Management**: **NEW** optimized semaphore configuration for contact extraction service with intelligent concurrency detection.
 
-**New Section** Detailed implementation of contact extraction service including specialized prompt engineering, JSON parsing fallbacks, structured validation, cloud authentication integration, timeout management, and semantic merge strategy for optimal contact information extraction accuracy and performance.
+**New Section** Detailed implementation of contact extraction service including specialized prompt engineering, JSON parsing fallbacks, structured validation, cloud authentication integration, timeout management, semantic merge strategy, performance optimization, and **NEW** intelligent concurrency detection for optimal contact information extraction accuracy and performance.
 
 **Section sources**
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 - [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
+
+### Intelligent Concurrency Detection Implementation Details
+- **Deployment Type Detection**: **NEW** automatic detection of Ollama Cloud vs local instances using base URL analysis.
+- **Dynamic Semaphore Configuration**: **NEW** automatic configuration of max_concurrent=8 for cloud and max_concurrent=1 for local deployments.
+- **Environment Override Support**: **NEW** supports OLLAMA_MAX_CONCURRENT environment variable for manual concurrency control.
+- **Lazy Initialization**: **NEW** semaphore creation with deployment-type-aware configuration.
+- **Cross-Service Integration**: **NEW** intelligent concurrency detection integrated across all LLM services for uniform resource management.
+- **Resource Contention Prevention**: **NEW** prevents CPU timeouts and resource exhaustion with optimal concurrency settings.
+- **Enhanced Error Handling**: **NEW** comprehensive logging for deployment type detection and concurrency configuration issues.
+- **Performance Optimization**: **NEW** automatic optimization of resource utilization based on deployment characteristics.
+
+**New Section** Detailed implementation of intelligent concurrency detection system including deployment type detection algorithms, dynamic semaphore configuration, environment override support, cross-service integration, resource contention prevention, comprehensive error logging, and performance optimization for optimal system resource utilization.
+
+**Section sources**
+- [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
+- [transcript_service.py:305-310](file://app/backend/services/transcript_service.py#L305-L310)
+- [video_service.py:155-160](file://app/backend/services/video_service.py#L155-L160)

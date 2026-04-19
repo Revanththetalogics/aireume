@@ -24,6 +24,10 @@
 
 ## Update Summary
 **Changes Made**
+- Enhanced Docker configuration with increased Uvicorn workers from 4 to 6 for improved concurrency
+- Adjusted resource limits from 3CPUs/4GB to 4CPUs/6GB for backend service
+- Increased Ollama resource allocation from 2CPUs/6GB to 8CPUs/8GB for better LLM performance
+- Optimized PostgreSQL resource allocation to 2CPUs/6GB for database stability
 - Enhanced Ollama model warmup mechanism with dedicated warmup container using single-run approach
 - Implemented persistent model loading with OLLAMA_KEEP_ALIVE=-1 for continuous availability
 - Increased LLM_NARRATIVE_TIMEOUT from 120s to 180s for better concurrent request handling
@@ -57,9 +61,9 @@ graph TB
 subgraph "Production Stack"
 NGINX["Nginx (reverse proxy)"]
 FRONT["React Frontend (static on port 8080)"]
-BACK["FastAPI Backend"]
+BACK["FastAPI Backend (6 workers)"]
 DB["PostgreSQL"]
-OLL["Ollama (LLM)"]
+OLL["Ollama (8GB RAM)"]
 WARM["Ollama-Warmup (single-run)"]
 end
 CLIENT["Browser"] --> NGINX
@@ -86,7 +90,7 @@ OLL --> WARM
 
 ## Core Components
 - Backend service
-  - Uvicorn with multiple workers for I/O-bound concurrency
+  - **Updated**: Uvicorn with 6 workers for enhanced I/O-bound concurrency
   - Alembic migrations executed at startup for PostgreSQL
   - Startup gating for Ollama readiness and model warm-up
   - Health endpoint validating database and LLM connectivity
@@ -101,13 +105,13 @@ OLL --> WARM
   - Uses OLLAMA_KEEP_ALIVE=-1 to persist model in memory
   - Exits after successful warmup, leaving the model loaded in Ollama
 - Supporting services
-  - PostgreSQL for persistence
-  - Ollama for local LLM inference with increased memory allocation (8GB)
+  - PostgreSQL for persistence with optimized resource allocation
+  - **Updated**: Ollama for local LLM inference with increased memory allocation (8GB)
   - Watchtower for automated image updates
   - Certbot for Let's Encrypt certificate renewal
 
 Key production configuration highlights:
-- Resource limits and health checks for resilience
+- **Updated**: Resource limits and health checks for enhanced resilience with 4CPUs/6GB backend allocation
 - Dynamic DNS resolution for Docker embedded DNS to avoid stale IPs
 - Streaming and CORS handling for SSE and cross-origin requests
 - **Enhanced**: Dedicated warmup job with persistent model loading using OLLAMA_KEEP_ALIVE=-1
@@ -145,10 +149,10 @@ NX["Nginx (nginx.prod.conf)"]
 end
 subgraph "Application Layer"
 FE["Frontend (Nginx static on port 8080)"]
-BE["Backend (FastAPI/Uvicorn)"]
+BE["Backend (FastAPI/Uvicorn with 6 workers)"]
 end
 subgraph "Data Layer"
-PG["PostgreSQL"]
+PG["PostgreSQL (2CPUs/6GB)"]
 OL["Ollama (8GB RAM)"]
 WU["Ollama-Warmup (single-run)"]
 end
@@ -175,7 +179,6 @@ Nginx is configured with:
 - Resolver with short TTL to refresh backend/frontend IPs
 - Health endpoint proxying to backend
 - Streaming endpoint for SSE with appropriate timeouts and buffer settings
-- API proxy with CORS handling for preflight
 - **Updated**: SPA fallback now proxies to frontend service on port 8080
 - Logging and performance tuning (keepalive, gzip)
 
@@ -198,6 +201,7 @@ Operational notes:
   - Backend enforces JWT_SECRET_KEY environment variable in production
   - Raises RuntimeError if JWT_SECRET_KEY is not set in production environment
   - Uses development fallback only in non-production environments
+- **Updated**: Enhanced concurrency with 6 Uvicorn workers for improved I/O-bound performance
 - Health endpoint
   - Validates database connectivity and Ollama availability
   - Returns degraded status without raising errors to prevent upstream failures
@@ -210,13 +214,13 @@ participant Entrypoint as "Entrypoint Script"
 participant JWTCheck as "JWT Secret Validation"
 participant Alembic as "Alembic"
 participant Wait as "Wait for Ollama"
-participant Uvicorn as "Uvicorn"
+participant Uvicorn as "Uvicorn (6 workers)"
 Entrypoint->>JWTCheck : "Validate JWT_SECRET_KEY"
 JWTCheck-->>Entrypoint : "Valid or raise error"
 Entrypoint->>Alembic : "Upgrade to head (PostgreSQL)"
 Entrypoint->>Wait : "Check Ollama readiness and warm model"
 Wait-->>Entrypoint : "Ready"
-Entrypoint->>Uvicorn : "Start server"
+Entrypoint->>Uvicorn : "Start server with 6 workers"
 ```
 
 **Diagram sources**
@@ -301,7 +305,7 @@ Inter-service dependencies and health checks:
 
 ```mermaid
 graph LR
-PG["PostgreSQL"] -- "healthy" --> BE["Backend"]
+PG["PostgreSQL (2CPUs/6GB)"] -- "healthy" --> BE["Backend (6 workers, 4CPUs/6GB)"]
 OL["Ollama (8GB RAM, KEEP_ALIVE=-1)"] -- "persistent" --> BE
 FE["Frontend (port 8080)"] -- "available" --> NX["Nginx"]
 BE -- "available" --> NX
@@ -322,7 +326,8 @@ NX -- "healthy" --> CL["Client"]
 - [docker-compose.prod.yml:156-188](file://docker-compose.prod.yml#L156-L188)
 
 ## Performance Considerations
-- Backend workers: configured for I/O-bound concurrency; adjust based on CPU and memory headroom
+- **Updated**: Backend workers: increased from 4 to 6 workers for enhanced I/O-bound concurrency; adjust based on CPU and memory headroom
+- **Updated**: Backend resource allocation: 4CPUs/6GB provides optimal balance for 6 workers with sufficient headroom
 - PostgreSQL tuning: shared_buffers, work_mem, and max_connections optimized for 6 GB RAM allocation
 - **Updated**: Ollama settings: thread count, parallel requests, and KV cache quantization to maximize throughput and reduce memory pressure with increased 8GB allocation
 - **Enhanced**: Persistent model loading eliminates warmup overhead for subsequent requests
@@ -346,6 +351,10 @@ Common operational issues and remedies:
   - **Updated**: Verify Ollama-warmup service completes successfully
   - Check: OLLAMA_KEEP_ALIVE=-1 persists model in memory
   - Verify: LLM_NARRATIVE_TIMEOUT=180 allows sufficient time for concurrent requests
+- **Backend performance issues**
+  - **Updated**: Verify backend has sufficient resources with 4CPUs/6GB allocation
+  - Check: Uvicorn workers count is set to 6 in `docker-compose.prod.yml` line 82
+  - Monitor: Backend CPU utilization and worker thread saturation
 - Ollama not responding
   - Inspect container logs and ensure the model is pulled and warmed
 - Database locked errors
@@ -365,7 +374,7 @@ Common operational issues and remedies:
 - [docker-compose.prod.yml:96-97](file://docker-compose.prod.yml#L96-L97)
 
 ## Conclusion
-This production deployment leverages Docker Compose to orchestrate a resilient stack with Nginx as the reverse proxy, Alembic-managed PostgreSQL migrations, and Ollama for AI inference. The configuration emphasizes health checks, dynamic DNS resolution, streaming support, and automated image updates via Watchtower. **Critical security enhancements** include mandatory JWT_SECRET_KEY enforcement in production environments. **Enhanced**: The Ollama model warmup mechanism now uses a dedicated single-run container with persistent loading via OLLAMA_KEEP_ALIVE=-1, eliminating continuous keep-alive loops. **Updated**: LLM_NARRATIVE_TIMEOUT has been increased to 180s to better handle concurrent requests and improve system stability under load conditions. For production hardening, integrate external load balancing, SSL termination, and centralized monitoring/alerting.
+This production deployment leverages Docker Compose to orchestrate a resilient stack with Nginx as the reverse proxy, Alembic-managed PostgreSQL migrations, and Ollama for AI inference. The configuration emphasizes health checks, dynamic DNS resolution, streaming support, and automated image updates via Watchtower. **Critical security enhancements** include mandatory JWT_SECRET_KEY enforcement in production environments. **Enhanced**: The Ollama model warmup mechanism now uses a dedicated single-run container with persistent loading via OLLAMA_KEEP_ALIVE=-1, eliminating continuous keep-alive loops. **Updated**: LLM_NARRATIVE_TIMEOUT has been increased to 180s to better handle concurrent requests and improve system stability under load conditions. **Updated**: Backend service now operates with 6 Uvicorn workers and 4CPUs/6GB resource allocation for optimal performance. For production hardening, integrate external load balancing, SSL termination, and centralized monitoring/alerting.
 
 ## Appendices
 
@@ -420,7 +429,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
 
 ### E. Scaling and Auto-Scaling
 - Horizontal scaling
-  - Increase Uvicorn workers in the backend service for CPU-bound tasks
+  - **Updated**: Backend service already configured with 6 Uvicorn workers for optimal CPU-bound tasks
   - Use an external load balancer to distribute traffic across replicas
 - Auto-scaling
   - Scale backend pods based on CPU utilization and response latency
@@ -428,6 +437,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - **Consider**: JWT_SECRET_KEY must be synchronized across scaled instances
   - **Updated**: Consider Ollama memory constraints when scaling multiple instances
   - **Enhanced**: Persistent model loading reduces scaling complexity as models remain loaded
+  - **Updated**: Backend resource allocation (4CPUs/6GB) provides headroom for horizontal scaling
 
 **Section sources**
 - [docker-compose.prod.yml:101-112](file://docker-compose.prod.yml#L101-L112)
@@ -483,6 +493,8 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - **Verify**: JWT_SECRET_KEY is set in production environment
   - **Verify**: Ollama memory allocation is set to 8GB
   - **Verify**: LLM_NARRATIVE_TIMEOUT=180 for concurrent request handling
+  - **Verify**: Backend has 6 Uvicorn workers configured
+  - **Verify**: Backend resource allocation is 4CPUs/6GB
 - Deploy
   - Pull latest images and restart services
 - Post-deploy
@@ -506,6 +518,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
 - **Include**: JWT_SECRET_KEY rollback considerations for authentication continuity
 - **Updated**: Consider reverting Ollama memory allocation if stability issues arise
 - **Enhanced**: If persistent model loading fails, revert to continuous warmup approach
+- **Updated**: Consider reducing backend workers from 6 back to 4 if performance issues occur
 
 **Section sources**
 - [docker-compose.prod.yml:192-211](file://docker-compose.prod.yml#L192-L211)
@@ -517,6 +530,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - Review logs and metrics
   - **Monitor**: Ollama memory usage patterns
   - **Verify**: Persistent model loading continues to work correctly
+  - **Monitor**: Backend worker utilization and performance
 - Monthly
   - Rotate JWT_SECRET_KEY and update repository secrets
   - Validate database and Ollama volume snapshots
@@ -524,6 +538,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - **Review**: JWT_SECRET_KEY security audit and rotation policy compliance
   - **Review**: Ollama memory allocation effectiveness under production load
   - **Review**: LLM_NARRATIVE_TIMEOUT effectiveness for concurrent request handling
+  - **Review**: Backend worker configuration effectiveness and resource utilization
 
 **Section sources**
 - [docker-compose.prod.yml:213-221](file://docker-compose.prod.yml#L213-L221)
