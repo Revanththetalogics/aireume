@@ -993,6 +993,19 @@ class ResumeParser:
 
     def _name_from_header_line(self, line: str, skip_words: set) -> str:
         """Try to read a person name from one header line (possibly 'Name | phone | city')."""
+        # Additional phrases that are definitely not names
+        skip_phrases = {
+            'software development', 'software engineer', 'software engineering',
+            'data scientist', 'data science', 'machine learning', 'deep learning',
+            'full stack', 'frontend developer', 'backend developer', 'web developer',
+            'mobile developer', 'devops engineer', 'systems engineer',
+            'project manager', 'product manager', 'scrum master', 'agile coach',
+            'business analyst', 'quality assurance', 'qa engineer', 'test engineer',
+            'database administrator', 'network engineer', 'security engineer',
+            'cloud architect', 'solution architect', 'technical lead', 'team lead',
+            'engineering manager', 'cto', 'cio', 'ceo', 'cfo', 'coo',
+            'vice president', 'director of', 'head of', 'lead of',
+        }
         segments = re.split(r'\s*[|•]\s*', line)
         for seg in segments:
             seg = seg.strip()
@@ -1007,8 +1020,17 @@ class ResumeParser:
             words = seg.split()
             if not (1 <= len(words) <= 5):
                 continue
+            # Check individual words against skip_words
             if any(w.lower() in skip_words for w in words):
                 continue
+            # Check entire phrase against skip_phrases
+            seg_lower = seg.lower()
+            if any(phrase in seg_lower for phrase in skip_phrases):
+                continue
+            # Check for job title patterns (e.g., "Developer" at end)
+            if any(w.lower() in ('developer', 'engineer', 'manager', 'analyst', 'architect', 'lead', 'consultant') for w in words[-1:]):
+                continue
+            # Name should have Title Case (most words capitalized)
             cap_count = sum(1 for w in words if w and w[0].isupper())
             if cap_count >= max(1, len(words) - 1):
                 return seg
