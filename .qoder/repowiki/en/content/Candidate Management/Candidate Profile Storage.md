@@ -16,11 +16,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced data persistence documentation to reflect complete candidate profile storage during analysis pipeline
-- Updated parser snapshot JSON section to emphasize full parse output storage
-- Added improved error handling and fallback mechanisms documentation
-- Updated streaming capabilities section to reflect enhanced SSE handling
-- Enhanced deduplication logic documentation with three-layer matching approach
+- Enhanced data reconstruction capabilities documentation to reflect comprehensive fallback mechanisms using parsed_data as backup source
+- Updated systematic reconstruction of key fields like contact_info, candidate_profile, and work_experience
+- Added improved error logging for data quality issues with detailed warning messages
+- Updated parser snapshot JSON section to emphasize full parse output storage and reconstruction capabilities
+- Enhanced three-layer candidate deduplication documentation with improved error handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -37,14 +37,14 @@
 ## Introduction
 This document explains the candidate profile storage system in Resume AI. It covers the Candidate model structure, the end-to-end data persistence workflow from resume uploads through parsing to database storage, enriched profile fields, the parser snapshot JSON role, examples of profile updates and contact info merging, and data integrity and optimization strategies.
 
-**Updated** Enhanced data persistence ensures complete candidate profile information is saved during analysis pipeline, preventing data loss during parsing stage.
+**Updated** Enhanced data reconstruction capabilities ensure complete candidate profile information is available even when analysis results are incomplete, with comprehensive fallback mechanisms and improved error logging for data quality issues.
 
 ## Project Structure
 The candidate profile storage spans models, routes, services, and migrations:
 - Models define the Candidate table and related entities.
-- Routes orchestrate parsing, deduplication, and persistence.
-- Services implement parsing, gap analysis, and hybrid scoring.
-- Migrations evolve the schema to support enriched profiles and snapshots.
+- Routes orchestrate parsing, deduplication, and persistence with enhanced reconstruction capabilities.
+- Services implement parsing, gap analysis, and hybrid scoring with fallback mechanisms.
+- Migrations evolve the schema to support enriched profiles, snapshots, and reconstruction features.
 
 ```mermaid
 graph TB
@@ -52,13 +52,13 @@ subgraph "Models"
 A["db_models.py<br/>Candidate, ScreeningResult, JdCache, Skill"]
 end
 subgraph "Routes"
-B["routes/analyze.py<br/>Single/Batch/Stream analysis"]
-C["routes/candidates.py<br/>List/Get/Update, re-analyze existing"]
+B["routes/analyze.py<br/>Single/Batch/Stream analysis with reconstruction"]
+C["routes/candidates.py<br/>List/Get/Update with fallback mechanisms"]
 end
 subgraph "Services"
 D["parser_service.py<br/>ResumeParser, parse_resume"]
 E["gap_detector.py<br/>GapDetector.analyze"]
-F["hybrid_pipeline.py<br/>run_hybrid_pipeline"]
+F["hybrid_pipeline.py<br/>run_hybrid_pipeline with fallback"]
 end
 subgraph "Migrations"
 G["001_enrich_candidates_add_caches.py"]
@@ -101,11 +101,11 @@ H --> A
 - [database.py:1-33](file://app/backend/db/database.py#L1-L33)
 
 ## Core Components
-- Candidate model: stores enriched profile fields and parser snapshot for reuse.
-- Parser service: extracts text and structured data from resumes.
+- Candidate model: stores enriched profile fields and parser snapshot for reuse with reconstruction capabilities.
+- Parser service: extracts text and structured data from resumes with fallback mechanisms.
 - Gap detector: computes employment timeline, gaps, overlaps, and total experience.
-- Hybrid pipeline: orchestrates Python rules and LLM scoring.
-- Routes: handle upload, deduplication, storage, and re-analysis.
+- Hybrid pipeline: orchestrates Python rules and LLM scoring with comprehensive fallback handling.
+- Routes: handle upload, deduplication, storage, re-analysis, and systematic data reconstruction.
 
 Key enriched profile fields on Candidate:
 - resume_file_hash: MD5 of file bytes for deduplication.
@@ -115,7 +115,7 @@ Key enriched profile fields on Candidate:
 - current_role, current_company, total_years_exp: denormalized quick-access fields.
 - profile_quality: quality label for the stored profile.
 - profile_updated_at: timestamp of last enrichment.
-- parser_snapshot_json: full JSON of parse_resume output for audit/re-analysis.
+- parser_snapshot_json: full JSON of parse_resume output for audit/re-analysis and reconstruction.
 
 **Section sources**
 - [db_models.py:97-126](file://app/backend/models/db_models.py#L97-L126)
@@ -124,7 +124,7 @@ Key enriched profile fields on Candidate:
 - [analyze.py:118-145](file://app/backend/routes/analyze.py#L118-L145)
 
 ## Architecture Overview
-End-to-end flow from upload to persistent candidate profile:
+End-to-end flow from upload to persistent candidate profile with enhanced reconstruction capabilities:
 
 ```mermaid
 sequenceDiagram
@@ -146,7 +146,7 @@ Route->>Hybrid : run_hybrid_pipeline(...)
 Hybrid-->>Route : result (scores, narrative, etc.)
 Route->>DB : _get_or_create_candidate(...)
 DB-->>Route : candidate_id
-Route->>DB : persist ScreeningResult
+Route->>DB : persist ScreeningResult with fallback reconstruction
 Route-->>Client : result + candidate_id
 ```
 
@@ -164,7 +164,7 @@ The Candidate entity stores both denormalized and normalized fields for efficien
 - Identity and tenant association.
 - Contact info (name, email, phone).
 - Enriched profile fields for reuse.
-- Parser snapshot for auditability.
+- Parser snapshot for auditability and reconstruction.
 - Timestamps for freshness.
 
 ```mermaid
@@ -236,8 +236,9 @@ The parser snapshot captures the complete output of parse_resume, including cont
 
 - Purpose: Auditability and re-analysis independence from parsing heuristics.
 - Fallback: If snapshot is missing, reconstructed from denormalized columns.
+- Reconstruction: Systematic reconstruction of contact_info, candidate_profile, and work_experience from parsed_data backup source.
 
-**Updated** Enhanced data persistence ensures the parser snapshot is stored immediately during the analysis pipeline to prevent data loss during parsing stage.
+**Updated** Enhanced data reconstruction capabilities ensure that when analysis results are incomplete, the system can systematically reconstruct key fields using parsed_data as the backup source, providing comprehensive fallback mechanisms.
 
 ```mermaid
 flowchart TD
@@ -264,9 +265,9 @@ Store --> End(["Done"])
 ### Data Persistence Workflow
 - Deduplication: Three-layer matching by email, file hash, and name+phone.
 - Enrichment: Gap analysis, skills registry, and hybrid scoring.
-- Storage: Candidate row updated with enriched fields and snapshot; ScreeningResult persisted.
+- Storage: Candidate row updated with enriched fields and snapshot; ScreeningResult persisted with comprehensive fallback mechanisms.
 
-**Updated** Enhanced data persistence ensures complete candidate profile information is saved during analysis pipeline, preventing data loss during parsing stage.
+**Updated** Enhanced data persistence ensures complete candidate profile information is saved during analysis pipeline, preventing data loss during parsing stage with systematic reconstruction capabilities.
 
 ```mermaid
 sequenceDiagram
@@ -283,7 +284,7 @@ else create_new
 Route->>DB : create Candidate
 Store->>DB : write enriched fields + snapshot
 end
-Route->>DB : persist ScreeningResult
+Route->>DB : persist ScreeningResult with fallback reconstruction
 ```
 
 **Diagram sources**
@@ -300,6 +301,7 @@ Route->>DB : persist ScreeningResult
 - Gap analysis informs total_years_exp and highlights risks (overlaps, short stints).
 - Skills registry improves coverage and consistency across resumes.
 - Quality label (profile_quality) helps prioritize higher-quality profiles.
+- Parser snapshot enables systematic reconstruction of incomplete analysis results.
 
 **Section sources**
 - [db_models.py:107-121](file://app/backend/models/db_models.py#L107-L121)
@@ -307,7 +309,7 @@ Route->>DB : persist ScreeningResult
 - [hybrid_pipeline.py:323-427](file://app/backend/services/hybrid_pipeline.py#L323-L427)
 
 ### Re-analyzing Existing Candidates
-The system supports re-analyzing an existing candidate against a new job description using the stored profile, skipping full parsing and relying on the snapshot or denormalized columns.
+The system supports re-analyzing an existing candidate against a new job description using the stored profile, skipping full parsing and relying on the snapshot or denormalized columns with enhanced reconstruction capabilities.
 
 ```mermaid
 sequenceDiagram
@@ -318,8 +320,8 @@ participant DB as "Candidate/ScreeningResult"
 Client->>Route : POST /api/candidates/{id}/analyze-jd
 Route->>DB : load candidate (snapshot or denormalized)
 Route->>Hybrid : run_hybrid_pipeline(parsed_data, gap_analysis)
-Hybrid-->>Route : result
-Route->>DB : persist ScreeningResult
+Hybrid-->>Route : result with reconstruction fallback
+Route->>DB : persist ScreeningResult with enhanced error handling
 Route-->>Client : result
 ```
 
@@ -335,8 +337,9 @@ Route-->>Client : result
 - Contact info precedence: snapshot contact_info merged with candidate's edited name/email/phone.
 - Validation: minimal checks on JD length and file sizes; deduplication ensures uniqueness.
 - Deduplication layers: email, file hash, name+phone.
+- Reconstruction: systematic fallback using parsed_data when snapshot is missing.
 
-**Updated** Enhanced data persistence ensures contact information merging occurs during the analysis pipeline to prevent data loss during parsing stage.
+**Updated** Enhanced data reconstruction ensures contact information merging occurs during the analysis pipeline with systematic fallback mechanisms using parsed_data as backup source.
 
 ```mermaid
 flowchart TD
@@ -371,6 +374,7 @@ The snapshot JSON mirrors the output of parse_resume:
 Constraints:
 - Maximum serialized size enforced to prevent oversized rows.
 - Stored as Text to accommodate large JSON.
+- Reconstruction fallback enabled through systematic field restoration.
 
 **Section sources**
 - [parser_service.py:547-552](file://app/backend/services/parser_service.py#L547-L552)
@@ -386,7 +390,7 @@ The system implements a robust three-layer deduplication strategy to ensure cand
 2. **File Hash Match**: Secondary deduplication using MD5 hash of resume file bytes
 3. **Name + Phone Match**: Tertiary deduplication using combination of name and phone number
 
-**Updated** Enhanced data persistence ensures that during the deduplication process, complete candidate profile information is saved immediately to prevent data loss during parsing stage.
+**Updated** Enhanced data persistence ensures that during the deduplication process, complete candidate profile information is saved immediately to prevent data loss during parsing stage with comprehensive reconstruction capabilities.
 
 ```mermaid
 flowchart TD
@@ -412,14 +416,15 @@ CreateNew --> SaveNew["Create New Candidate"]
 **Diagram sources**
 - [analyze.py:182-241](file://app/backend/routes/analyze.py#L182-L241)
 
-### Improved Error Handling and Fallback Mechanisms
-The enhanced data persistence includes comprehensive error handling to prevent data loss:
+### Comprehensive Fallback Mechanisms and Data Reconstruction
+The enhanced data persistence includes comprehensive fallback mechanisms to ensure data integrity:
 
-- **Parsing Failures**: Graceful fallback with empty parsed data structure
-- **Database Save Errors**: Early DB saves during SSE streaming to prevent data loss
-- **Snapshot Reconstruction**: Automatic reconstruction from denormalized columns when snapshot is missing
+- **Parsed Data Backup**: parsed_data serves as the primary backup source for reconstruction
+- **Systematic Field Restoration**: contact_info, candidate_profile, and work_experience are systematically reconstructed
+- **Enhanced Error Logging**: Detailed warning messages for data quality issues with specific field identification
+- **Reconstruction Logic**: When analysis_result is empty or missing critical fields, systematic fallback occurs
 
-**Updated** Enhanced error handling ensures that even if parsing fails or database operations encounter issues, candidate profile information is still persisted to prevent data loss during the analysis pipeline.
+**Updated** Enhanced error handling ensures that even if parsing fails or database operations encounter issues, candidate profile information is still persisted to prevent data loss during the analysis pipeline through comprehensive fallback mechanisms.
 
 ```mermaid
 flowchart TD
@@ -450,17 +455,19 @@ The system now includes improved streaming capabilities with early database save
 - **Early DB Saves**: Candidate profiles are saved immediately after parsing phase
 - **Progressive Updates**: Analysis results are progressively updated in the database
 - **Resilient Streaming**: Even if client disconnects, partial results are preserved
+- **Reconstruction Fallback**: Systematic fallback mechanisms ensure complete data availability
 
-**Updated** Enhanced streaming capabilities ensure that candidate profile information is persisted immediately after the parsing phase, preventing data loss during SSE streaming when clients may disconnect.
+**Updated** Enhanced streaming capabilities ensure that candidate profile information is persisted immediately after the parsing phase, preventing data loss during SSE streaming when clients may disconnect, with comprehensive reconstruction fallback mechanisms.
 
 **Section sources**
 - [analyze.py:567-588](file://app/backend/routes/analyze.py#L567-L588)
 - [analyze.py:832-876](file://app/backend/routes/analyze.py#L832-L876)
 
 ## Dependency Analysis
-- Routes depend on parser_service, gap_detector, and hybrid_pipeline.
+- Routes depend on parser_service, gap_detector, and hybrid_pipeline with enhanced fallback capabilities.
 - Candidate enrichment depends on gap_detector and skills registry.
 - Persistence depends on SQLAlchemy models and Alembic migrations.
+- Reconstruction logic depends on systematic fallback mechanisms and error logging.
 
 ```mermaid
 graph LR
@@ -494,8 +501,9 @@ M2["002_parser_snapshot_json.py"] --> Models
 - Index on resume_file_hash: accelerates deduplication by file hash.
 - Asynchronous streaming: SSE endpoints stream intermediate results for responsiveness.
 - **Enhanced persistence**: Immediate saving of candidate profiles prevents data loss and reduces recovery complexity.
+- **Reconstruction efficiency**: Systematic fallback mechanisms minimize computational overhead for incomplete results.
 
-**Updated** Enhanced persistence mechanisms improve system reliability by ensuring candidate profile information is saved immediately during the analysis pipeline, reducing the risk of data loss during parsing failures or system interruptions.
+**Updated** Enhanced persistence mechanisms improve system reliability by ensuring candidate profile information is saved immediately during the analysis pipeline, reducing the risk of data loss during parsing failures or system interruptions. The systematic reconstruction capabilities provide efficient fallback mechanisms that minimize computational overhead while ensuring data integrity.
 
 ## Troubleshooting Guide
 Common issues and remedies:
@@ -504,9 +512,10 @@ Common issues and remedies:
 - Excessive resume size: Rejected at 10 MB; compress or optimize.
 - Excessive JD file size: Rejected at 5 MB; prefer text-based files.
 - Deduplication not matching: Verify email, file hash, and name+phone combinations; consider update_profile action.
-- **Enhanced persistence failures**: If candidate profiles fail to save, check database connectivity and retry mechanism; system automatically falls back to snapshot reconstruction.
+- **Enhanced persistence failures**: If candidate profiles fail to save, check database connectivity and retry mechanism; system automatically falls back to snapshot reconstruction with detailed error logging.
+- **Incomplete analysis results**: System automatically reconstructs missing fields using parsed_data backup source with comprehensive fallback mechanisms.
 
-**Updated** Enhanced troubleshooting guidance now includes specific steps for handling persistence failures and data loss scenarios during the analysis pipeline.
+**Updated** Enhanced troubleshooting guidance now includes specific steps for handling persistence failures and data loss scenarios during the analysis pipeline, with detailed information about systematic reconstruction capabilities and enhanced error logging for data quality issues.
 
 **Section sources**
 - [analyze.py:268-290](file://app/backend/routes/analyze.py#L268-L290)
@@ -517,4 +526,4 @@ Common issues and remedies:
 ## Conclusion
 The candidate profile storage system in Resume AI combines robust parsing, gap analysis, and hybrid scoring with a durable schema that persists enriched profiles and a full parser snapshot. This enables fast re-analysis, auditability, and consistent candidate evaluation across job descriptions while maintaining data integrity and performance.
 
-**Updated** The enhanced data persistence ensures complete candidate profile information is saved during the analysis pipeline, preventing data loss during parsing stage and providing reliable fallback mechanisms for system resilience. This comprehensive approach to data persistence makes the system more robust and suitable for production environments where data integrity is critical.
+**Updated** The enhanced data reconstruction capabilities ensure complete candidate profile information is available even when analysis results are incomplete, with comprehensive fallback mechanisms using parsed_data as backup source. The systematic reconstruction of key fields like contact_info, candidate_profile, and work_experience, combined with improved error logging for data quality issues, makes the system more robust and suitable for production environments where data integrity is critical. These enhancements provide reliable fallback mechanisms that ensure candidate analysis results remain accessible and complete even under challenging circumstances.

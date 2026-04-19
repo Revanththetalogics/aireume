@@ -6,6 +6,7 @@
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [db_models.py](file://app/backend/models/db_models.py)
+- [database.py](file://app/backend/db/database.py)
 - [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
 - [nginx.prod.conf](file://nginx/nginx.prod.conf)
 - [main.py](file://app/backend/main.py)
@@ -14,11 +15,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced database persistence mechanism in analyze_stream_endpoint to properly save complete analysis results during parsing stage
-- Implemented early database saves to ensure candidate_profile and contact_info data is reliably persisted
-- Added sophisticated client disconnection handling with automatic early result persistence
-- Improved reliability of streaming analysis by saving Python results immediately after parsing phase
-- Enhanced error handling and graceful degradation scenarios for connection interruptions
+- Enhanced database session management for SSE streaming operations with dedicated database sessions to prevent detached object errors
+- Added comprehensive error handling for ScreeningResult record persistence during streaming saves
+- Implemented systematic data recovery mechanisms for incomplete analysis results through early database saves
+- Introduced dedicated SessionLocal instances for client disconnection scenarios and final result persistence
+- Enhanced reliability of streaming analysis by preventing database session closure issues during long-running SSE operations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -37,7 +38,7 @@ This document provides comprehensive documentation for the POST /api/analyze/str
 - Scoring: LLM-generated narrative (after approximately 40 seconds)
 - Complete: Final merged result with strengths, weaknesses, recommendations, and interview questions
 
-The implementation ensures SSE protocol compliance, includes heartbeat pings to maintain connections, and handles connection lifecycle, error propagation, and graceful degradation when the LLM is unavailable. **Updated** to include enhanced database persistence mechanisms that guarantee reliable saving of candidate_profile and contact_info data during the parsing stage, even in case of client disconnections.
+The implementation ensures SSE protocol compliance, includes heartbeat pings to maintain connections, and handles connection lifecycle, error propagation, and graceful degradation when the LLM is unavailable. **Updated** to include enhanced database session management that prevents detached object errors during streaming saves, comprehensive error handling for ScreeningResult record persistence, and systematic data recovery mechanisms for incomplete analysis results.
 
 ## Project Structure
 The streaming analysis spans backend route handlers, a hybrid pipeline orchestrator, and frontend client-side consumption. Supporting infrastructure includes Nginx configuration for SSE buffering and FastAPI application initialization.
@@ -55,6 +56,7 @@ MAIN["main.py<br/>FastAPI app + health checks"]
 ENDPOINT["routes/analyze.py<br/>_json_default()"]
 SERIALIZER["routes/templates.py<br/>_json_default()"]
 DB_MODELS["models/db_models.py<br/>Candidate & ScreeningResult"]
+DB_SESSION["db/database.py<br/>SessionLocal()"]
 end
 subgraph "Infrastructure"
 NGINX_APP["app/nginx/nginx.prod.conf<br/>/api/analyze/stream"]
@@ -69,6 +71,7 @@ NGINX_ROOT --> ROUTES
 ENDPOINT --> ROUTES
 SERIALIZER --> ROUTES
 DB_MODELS --> ROUTES
+DB_SESSION --> ROUTES
 ```
 
 **Diagram sources**
@@ -76,6 +79,7 @@ DB_MODELS --> ROUTES
 - [hybrid_pipeline.py:1410-1498](file://app/backend/services/hybrid_pipeline.py#L1410-L1498)
 - [api.js:75-147](file://app/frontend/src/lib/api.js#L75-L147)
 - [db_models.py:98-156](file://app/backend/models/db_models.py#L98-L156)
+- [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
@@ -87,6 +91,7 @@ DB_MODELS --> ROUTES
 - [hybrid_pipeline.py:1410-1498](file://app/backend/services/hybrid_pipeline.py#L1410-L1498)
 - [api.js:75-147](file://app/frontend/src/lib/api.js#L75-L147)
 - [db_models.py:98-156](file://app/backend/models/db_models.py#L98-L156)
+- [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
@@ -96,7 +101,7 @@ DB_MODELS --> ROUTES
 - Hybrid pipeline: Executes Python scoring (instant) followed by LLM narrative generation with heartbeat pings.
 - Frontend consumer: Uses fetch with ReadableStream to process SSE events and update UI progressively.
 - Infrastructure: Nginx disables buffering for SSE and sets appropriate timeouts to prevent 524 errors.
-- **Updated** Database persistence: Enhanced mechanisms ensure candidate_profile and contact_info data is reliably saved during parsing stage, with automatic early saves on client disconnection.
+- **Updated** Database session management: Enhanced mechanisms ensure reliable database operations during streaming by using dedicated SessionLocal instances to prevent detached object errors and handle client disconnections gracefully.
 
 Key implementation references:
 - Route handler and SSE response: [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
@@ -105,6 +110,7 @@ Key implementation references:
 - Nginx SSE configuration: [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95), [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
 - **Updated** JSON serialization helper: [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57)
 - Database models: [db_models.py:98-156](file://app/backend/models/db_models.py#L98-L156)
+- **Updated** Database session factory: [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 **Section sources**
 - [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
@@ -114,9 +120,10 @@ Key implementation references:
 - [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
 - [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57)
 - [db_models.py:98-156](file://app/backend/models/db_models.py#L98-L156)
+- [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 ## Architecture Overview
-The streaming analysis follows a strict three-stage flow: Python parsing, LLM scoring, and completion. The backend emits structured events compliant with SSE, while the frontend consumes them in real time. **Updated** to include enhanced database persistence that guarantees reliable saving of candidate_profile and contact_info data during the parsing stage, with automatic early saves triggered by client disconnections.
+The streaming analysis follows a strict three-stage flow: Python parsing, LLM scoring, and completion. The backend emits structured events compliant with SSE, while the frontend consumes them in real time. **Updated** to include enhanced database session management that prevents detached object errors during streaming saves and ensures reliable data persistence through dedicated database sessions.
 
 ```mermaid
 sequenceDiagram
@@ -126,6 +133,7 @@ participant Serializer as "_json_default()<br/>JSON Serialization"
 participant Pipeline as "Hybrid Pipeline<br/>astream_hybrid_pipeline()"
 participant LLM as "LLM (Ollama)"
 participant DB as "Database<br/>ScreeningResult & Candidate"
+participant SessionLocal as "SessionLocal()<br/>Dedicated Sessions"
 Client->>API : POST /api/analyze/stream (multipart/form-data)
 API->>API : Validate inputs, parse resume/JD
 API->>Serializer : Handle datetime/date/Decimal serialization
@@ -133,6 +141,7 @@ API->>DB : Create ScreeningResult placeholder
 API->>Pipeline : Start astream_hybrid_pipeline()
 Pipeline->>Pipeline : Run Python phase (scores)
 Pipeline-->>API : Event {"stage" : "parsing","result" : {...}}
+API->>SessionLocal : Use dedicated session for early save
 API->>DB : Early save - persist Python results with candidate_profile/contact_info
 API-->>Client : data : {"stage" : "parsing",...}
 API->>Serializer : Serialize with _json_default()
@@ -143,6 +152,7 @@ API-->>Client : " : ping"
 end
 Pipeline-->>API : Event {"stage" : "scoring","result" : {...}}
 API-->>Client : data : {"stage" : "scoring",...}
+API->>SessionLocal : Use dedicated session for final save
 API->>DB : Persist final result (candidate + screening)
 API->>Serializer : Serialize final result
 API-->>Client : data : {"stage" : "complete","result" : {...}}
@@ -154,11 +164,13 @@ API-->>Client : data : [DONE]
 - [hybrid_pipeline.py:1410-1498](file://app/backend/services/hybrid_pipeline.py#L1410-L1498)
 - [api.js:96-147](file://app/frontend/src/lib/api.js#L96-L147)
 - [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57)
+- [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 **Section sources**
 - [analyze.py:565-640](file://app/backend/routes/analyze.py#L565-L640)
 - [hybrid_pipeline.py:1410-1498](file://app/backend/services/hybrid_pipeline.py#L1410-L1498)
 - [api.js:96-147](file://app/frontend/src/lib/api.js#L96-L147)
+- [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 ## Detailed Component Analysis
 
@@ -169,15 +181,15 @@ Responsibilities:
 - Stream progressive events using FastAPI's StreamingResponse with text/event-stream.
 - Emit SSE heartbeat comments during LLM wait to keep connections alive.
 - **Updated** Serialize all events using `_json_default` to handle datetime, date, and Decimal objects.
-- **Enhanced** Implement sophisticated database persistence with early saves for candidate_profile and contact_info data.
-- **Enhanced** Handle client disconnections gracefully with automatic early result persistence.
-- Persist final result to the database and append metadata (IDs, names).
+- **Enhanced** Implement sophisticated database persistence with dedicated SessionLocal instances to prevent detached object errors.
+- **Enhanced** Handle client disconnections gracefully with automatic early result persistence using dedicated database sessions.
+- Persist final result to the database using dedicated sessions and append metadata (IDs, names).
 - Emit a final "complete" event followed by "[DONE]" marker.
 
 Event emission timeline:
-- Stage "parsing": emitted immediately after Python phase completes, with early database save.
+- Stage "parsing": emitted immediately after Python phase completes, with early database save using dedicated session.
 - Stage "scoring": emitted after LLM completes or falls back.
-- Stage "complete": emitted after DB persistence with merged result.
+- Stage "complete": emitted after DB persistence with merged result using dedicated session.
 - Marker "[DONE]": signals end of stream.
 
 Headers:
@@ -189,7 +201,7 @@ Error handling:
 - On parsing failures, emits an "error" event with message and terminates with "[DONE]".
 - On pipeline exceptions, emits an "error" event and persists a fallback result.
 - **Updated** Uses `_json_default` for all JSON serialization to prevent crashes.
-- **Enhanced** Handles client disconnections with automatic early database saves.
+- **Enhanced** Handles client disconnections with automatic early database saves using dedicated sessions.
 
 References:
 - Route definition and SSE response: [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
@@ -201,28 +213,40 @@ References:
 - [analyze.py:565-640](file://app/backend/routes/analyze.py#L565-L640)
 - [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57)
 
-### Enhanced Database Persistence Mechanisms
-The analyze_stream_endpoint now includes sophisticated database persistence mechanisms to ensure reliable data saving:
+### Enhanced Database Session Management for SSE Streaming
+The analyze_stream_endpoint now includes sophisticated database session management to prevent detached object errors and ensure reliable data persistence:
 
-**Early Database Saves:**
-- After parsing phase completes, Python results are automatically saved to ScreeningResult with candidate_profile and contact_info data
+**Dedicated Database Sessions:**
+- Uses SessionLocal() instances for all database operations during streaming to prevent session detachment issues
+- Prevents "Object is not associated with this session" errors that can occur when the route's database session is closed
+- Ensures proper transaction handling and connection management throughout the streaming lifecycle
+
+**Early Database Saves with Dedicated Sessions:**
+- After parsing phase completes, Python results are automatically saved to ScreeningResult using dedicated sessions
 - The system tracks whether Python scores have been saved to prevent duplicate writes
-- Early saves occur regardless of client connection state
+- Early saves occur regardless of client connection state using dedicated database sessions
 
-**Client Disconnection Handling:**
-- System monitors client connection status between streaming stages
-- If client disconnects, automatic early save captures Python results with full candidate_profile and contact_info
+**Client Disconnection Handling with Dedicated Sessions:**
+- System monitors client connection status between streaming stages using dedicated session instances
+- If client disconnects, automatic early save captures Python results with full candidate_profile and contact_info using dedicated sessions
 - Prevents data loss when clients close connections prematurely
 
+**Final Result Persistence with Dedicated Sessions:**
+- Uses dedicated SessionLocal instances for final result persistence to ensure data integrity
+- Prevents detached object errors during the final database commit operation
+- Automatically updates candidate profiles alongside analysis results
+
 **Reliability Features:**
-- Multiple layers of database persistence ensure data integrity
-- Automatic rollback and error handling for database operations
+- Multiple layers of database persistence ensure data integrity using dedicated sessions
+- Automatic rollback and error handling for database operations with dedicated session management
 - Logging of all persistence operations for debugging and monitoring
 
 **Section sources**
 - [analyze.py:775-835](file://app/backend/routes/analyze.py#L775-L835)
 - [analyze.py:800-812](file://app/backend/routes/analyze.py#L800-L812)
 - [analyze.py:820-835](file://app/backend/routes/analyze.py#L820-L835)
+- [analyze.py:883-900](file://app/backend/routes/analyze.py#L883-L900)
+- [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 ### Hybrid Pipeline: astream_hybrid_pipeline
 Responsibilities:
@@ -294,7 +318,7 @@ Each event emitted by the backend adheres to the SSE "data:" line format with a 
 - Stage "parsing":
   - Contains Python-generated scores and profiles (e.g., fit_score, matched_skills, missing_skills, score_breakdown, risk_signals, etc.).
   - **Updated** All datetime fields serialized as ISO format strings, Decimal values as floats.
-  - **Enhanced** Includes complete candidate_profile and contact_info data for reliable persistence.
+  - **Enhanced** Includes complete candidate_profile and contact_info data for reliable persistence using dedicated sessions.
   - Example structure reference: [hybrid_pipeline.py:1262-1333](file://app/backend/services/hybrid_pipeline.py#L1262-L1333)
 
 - Stage "scoring":
@@ -305,7 +329,7 @@ Each event emitted by the backend adheres to the SSE "data:" line format with a 
 - Stage "complete":
   - Merged result combining Python and LLM outputs, plus persisted metadata (IDs, names).
   - **Updated** All temporal fields serialized as ISO format strings, numeric values as appropriate types.
-  - **Enhanced** Includes final candidate_profile and contact_info data with analysis quality indicators.
+  - **Enhanced** Includes final candidate_profile and contact_info data with analysis quality indicators, persisted using dedicated database sessions.
   - References: [analyze.py:589-640](file://app/backend/routes/analyze.py#L589-L640), [hybrid_pipeline.py:1336-1350](file://app/backend/services/hybrid_pipeline.py#L1336-L1350)
 
 - Stage "error":
@@ -358,7 +382,7 @@ References:
 Connection handling:
 - Backend uses StreamingResponse with text/event-stream and disables caching.
 - Nginx disables buffering and gzip for SSE, sets extended timeouts, and strips Connection header.
-- **Enhanced** Client disconnection detection with automatic early database saves.
+- **Enhanced** Client disconnection detection with automatic early database saves using dedicated sessions.
 
 Timeouts:
 - LLM narrative timeout defaults to 150 seconds; configurable via LLM_NARRATIVE_TIMEOUT environment variable.
@@ -368,7 +392,7 @@ Retry mechanisms:
 - Heartbeat pings every 5 seconds keep the connection alive during LLM wait.
 - Graceful fallback to Python-generated narrative when LLM is unavailable or times out.
 - Frontend should implement retry logic at the application level if needed (e.g., re-submit analysis on error).
-- **Enhanced** Automatic early result persistence prevents data loss on client disconnects.
+- **Enhanced** Automatic early result persistence prevents data loss on client disconnects using dedicated database sessions.
 
 References:
 - SSE headers and buffering: [analyze.py:642-646](file://app/backend/routes/analyze.py#L642-L646), [nginx.prod.conf:81-94](file://app/nginx/nginx.prod.conf#L81-L94)
@@ -385,7 +409,7 @@ References:
 Real-time updates:
 - Progressive UI updates occur as "parsing" and "scoring" events are received.
 - The frontend can render partial results immediately after "parsing" and enhance with narrative after "scoring".
-- **Enhanced** Early database saves ensure reliable data persistence even if client disconnects.
+- **Enhanced** Early database saves ensure reliable data persistence even if client disconnects using dedicated sessions.
 
 Streaming response headers:
 - Content-Type: text/event-stream
@@ -406,7 +430,7 @@ Backend error handling:
 - Pipeline exceptions: emits "error" event and persists a fallback result.
 - DB persistence errors: appended to pipeline_errors in the final result.
 - **Updated** JSON serialization errors: prevented by `_json_default` function.
-- **Enhanced** Client disconnection errors: triggers automatic early database saves.
+- **Enhanced** Client disconnection errors: triggers automatic early database saves using dedicated sessions.
 
 Frontend error handling:
 - Validates response.ok and throws descriptive errors.
@@ -432,6 +456,7 @@ The streaming analysis depends on:
 - Health checks and environment diagnostics for LLM readiness.
 - **Updated** JSON serialization utilities for handling datetime, date, and Decimal objects.
 - **Enhanced** Database models for Candidate and ScreeningResult persistence.
+- **Updated** Database session management using dedicated SessionLocal instances.
 
 ```mermaid
 graph TB
@@ -444,15 +469,7 @@ Health["main.py<br/>/health + /api/llm-status"]
 Serializer["routes/analyze.py<br/>_json_default()"]
 TemplateSerializer["routes/templates.py<br/>_json_default()"]
 DBModels["models/db_models.py<br/>Candidate & ScreeningResult"]
-Frontend --> Routes
-Routes --> Pipeline
-Routes --> NginxApp
-NginxApp --> Routes
-NginxRoot --> Routes
-Health --> Routes
-Routes --> Serializer
-Serializer --> TemplateSerializer
-Routes --> DBModels
+DBSession["db/database.py<br/>SessionLocal()"]
 ```
 
 **Diagram sources**
@@ -465,6 +482,7 @@ Routes --> DBModels
 - [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57)
 - [templates.py:18-25](file://app/backend/routes/templates.py#L18-L25)
 - [db_models.py:98-156](file://app/backend/models/db_models.py#L98-L156)
+- [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 **Section sources**
 - [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
@@ -476,6 +494,7 @@ Routes --> DBModels
 - [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57)
 - [templates.py:18-25](file://app/backend/routes/templates.py#L18-L25)
 - [db_models.py:98-156](file://app/backend/models/db_models.py#L98-L156)
+- [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 ## Performance Considerations
 - Python phase is designed to complete within 2 seconds, ensuring quick "parsing" events.
@@ -484,8 +503,8 @@ Routes --> DBModels
 - Extended proxy timeouts (600 seconds) accommodate long-running LLM calls.
 - Concurrency control via semaphore limits simultaneous LLM calls to 2 per worker.
 - **Updated** JSON serialization overhead is minimal and prevents runtime crashes.
-- **Enhanced** Database persistence adds minimal overhead while ensuring data reliability.
-- **Enhanced** Early database saves prevent data loss and improve user experience.
+- **Enhanced** Database session management adds minimal overhead while ensuring data reliability and preventing detached object errors.
+- **Enhanced** Early database saves prevent data loss and improve user experience through dedicated session management.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -513,14 +532,19 @@ Common issues and resolutions:
   - Solution: Ensure `_json_default` function is used for all JSON serialization in streaming endpoints.
   - References: [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57), [templates.py:18-25](file://app/backend/routes/templates.py#L18-L25)
 
+- **Enhanced** Database session errors:
+  - Symptom: "Object is not associated with this session" errors during streaming.
+  - Solution: Verify dedicated SessionLocal instances are used for all database operations during streaming.
+  - References: [analyze.py:806-820](file://app/backend/routes/analyze.py#L806-L820), [analyze.py:840-854](file://app/backend/routes/analyze.py#L840-L854), [database.py:39-40](file://app/backend/db/database.py#L39-L40)
+
 - **Enhanced** Data persistence failures:
   - Symptom: Missing candidate_profile or contact_info data after analysis.
-  - Solution: Check database logs for early save operations; verify client disconnection handling.
+  - Solution: Check database logs for early save operations; verify client disconnection handling with dedicated sessions.
   - References: [analyze.py:798-812](file://app/backend/routes/analyze.py#L798-L812), [analyze.py:820-835](file://app/backend/routes/analyze.py#L820-L835)
 
 - **Enhanced** Client disconnection issues:
   - Symptom: Analysis appears to fail when client closes browser window.
-  - Solution: Early database saves automatically capture Python results; verify python_scores_saved flag.
+  - Solution: Early database saves automatically capture Python results using dedicated sessions; verify python_scores_saved flag.
   - References: [analyze.py:798-812](file://app/backend/routes/analyze.py#L798-L812), [analyze.py:820-835](file://app/backend/routes/analyze.py#L820-L835)
 
 **Section sources**
@@ -534,6 +558,9 @@ Common issues and resolutions:
 - [templates.py:18-25](file://app/backend/routes/templates.py#L18-L25)
 - [analyze.py:798-812](file://app/backend/routes/analyze.py#L798-L812)
 - [analyze.py:820-835](file://app/backend/routes/analyze.py#L820-L835)
+- [analyze.py:806-820](file://app/backend/routes/analyze.py#L806-L820)
+- [analyze.py:840-854](file://app/backend/routes/analyze.py#L840-L854)
+- [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 ## Conclusion
-The POST /api/analyze/stream endpoint provides a robust, real-time streaming analysis experience. By separating deterministic Python scoring from LLM narrative generation and emitting structured SSE events with heartbeat pings, the system ensures responsive UI updates and reliable operation even under adverse conditions. **Updated** to include enhanced database persistence mechanisms that guarantee reliable saving of candidate_profile and contact_info data during the parsing stage, with automatic early saves triggered by client disconnections. These enhancements ensure that critical analysis data is never lost, improving the overall reliability and user experience of the streaming analysis system.
+The POST /api/analyze/stream endpoint provides a robust, real-time streaming analysis experience. By separating deterministic Python scoring from LLM narrative generation and emitting structured SSE events with heartbeat pings, the system ensures responsive UI updates and reliable operation even under adverse conditions. **Updated** to include enhanced database session management that prevents detached object errors during streaming saves, comprehensive error handling for ScreeningResult record persistence, and systematic data recovery mechanisms for incomplete analysis results. The implementation uses dedicated SessionLocal instances throughout the streaming lifecycle to ensure reliable database operations, automatic early saves during client disconnections, and final result persistence with proper transaction handling. These enhancements ensure that critical analysis data is never lost, improving the overall reliability and user experience of the streaming analysis system.

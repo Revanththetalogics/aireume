@@ -20,10 +20,11 @@
 
 ## Update Summary
 **Changes Made**
-- **Enhanced Data Persistence**: Added `_merge_llm_into_result` function that ensures complete report data persistence by merging LLM-generated narrative data with existing analysis results
-- **Improved Candidate History Views**: Background LLM narrative task now merges narrative data into analysis_result, preventing incomplete reports from displaying as 'PENDING' state in candidate history views
-- **Robust Error Handling**: Enhanced fallback mechanisms with comprehensive status tracking and database persistence
-- **Streamlined Architecture**: Simplified error handling while maintaining core functionality and reliability
+- **Enhanced LLM Integration**: Improved background processing capabilities with systematic narrative merging using python_result as base when database persistence fails
+- **Fallback Mechanisms**: Added comprehensive fallback handling for cases where analysis_result becomes empty or missing critical fields
+- **Enhanced Error Handling**: Strengthened error handling for streaming operations with improved timeout management and graceful degradation
+- **Data Persistence Enhancement**: Implemented robust fallback mechanisms ensuring complete report data remains available even when LLM processing fails or times out
+- **Background Processing Improvements**: Enhanced background task management with improved status tracking and database persistence
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -45,7 +46,7 @@ The Hybrid Pipeline represents a sophisticated resume analysis system that combi
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
-**Updated** The system now features enhanced data persistence capabilities with the new `_merge_llm_into_result` function that ensures complete report data remains available even when LLM processing fails or times out. The background LLM narrative task now merges LLM-generated narrative data with existing analysis results, preventing incomplete reports from displaying as 'PENDING' state in candidate history views.
+**Updated** The system now features enhanced data persistence capabilities with the new `_merge_llm_into_result` function that ensures complete report data remains available even when LLM processing fails or times out. The background LLM narrative task now merges LLM-generated narrative data with existing analysis results, preventing incomplete reports from displaying as 'PENDING' state in candidate history views. Enhanced fallback mechanisms provide comprehensive error handling for cases where analysis_result becomes empty or missing critical fields.
 
 ## System Architecture
 
@@ -58,32 +59,35 @@ FE[Web Interface]
 API[FastAPI Routes]
 NP[Narrative Polling]
 CH[Candidate History Views]
-end
+STREAM[Streaming Operations]
+END
 subgraph "Processing Layer"
 Parser[Resume Parser]
 Gap[Gap Detector]
 Hybrid[Hybrid Pipeline]
 Agent[Agent Pipeline]
-end
+END
 subgraph "Analysis Layer"
 Skills[Skills Registry]
 LLM[LLM Services]
 Cache[JD Cache]
-end
+END
 subgraph "Data Layer"
 DB[(PostgreSQL Database)]
 AR[Analysis Result Storage]
 NR[Narrative Result Storage]
-end
+STATUS[Status Tracking]
+END
 subgraph "Deployment Layer"
 Cloud[Cloud Deployment]
 Local[Local Deployment]
-end
+END
 FE --> API
 API --> Parser
 API --> Gap
 API --> Hybrid
 API --> Agent
+API --> STREAM
 Hybrid --> Skills
 Hybrid --> LLM
 Agent --> LLM
@@ -95,15 +99,17 @@ Hybrid --> DB
 Agent --> DB
 DB --> AR
 DB --> NR
+DB --> STATUS
 CH --> API
 NP --> API
+STREAM --> API
 Cloud --> LLM
 Local --> LLM
 ```
 
 **Diagram sources**
-- [analyze.py:1-1169](file://app/backend/routes/analyze.py#L1-L1169)
-- [hybrid_pipeline.py:1-2284](file://app/backend/services/hybrid_pipeline.py#L1-L2284)
+- [analyze.py:1-1201](file://app/backend/routes/analyze.py#L1-L1201)
+- [hybrid_pipeline.py:1-2314](file://app/backend/services/hybrid_pipeline.py#L1-L2314)
 - [agent_pipeline.py:1-650](file://app/backend/services/agent_pipeline.py#L1-L650)
 - [candidates.py:150-262](file://app/backend/routes/candidates.py#L150-L262)
 
@@ -118,6 +124,8 @@ The architecture implements several key design principles:
 - **Simplified Error Handling**: Streamlined error reporting with fallback mechanisms and user-friendly messaging
 - **Advanced JSON Parsing**: Enhanced error handling with position tracking and character context for parsing failures
 - **Data Persistence Enhancement**: Complete report data persistence through LLM result merging
+- **Streaming Error Handling**: Robust error handling for streaming operations with graceful degradation
+- **Fallback Mechanisms**: Comprehensive fallback handling for empty analysis results and missing critical fields
 
 ## Core Components
 
@@ -219,6 +227,7 @@ participant Python as "Python Phase"
 participant LLM as "LLM Phase"
 participant Background as "Background Task"
 participant Merge as "Merge Function"
+participant Fallback as "Fallback Handler"
 Client->>Route : POST /api/analyze
 Route->>Hybrid : run_hybrid_pipeline()
 Hybrid->>Python : Phase 1 Processing
@@ -238,6 +247,7 @@ Merge-->>Background : Merged Analysis
 Background->>Route : Update DB with Merged Result
 Route-->>Client : Immediate Python Results
 Note over Client,Background : Frontend polls /api/analysis/{id}/narrative
+Note over Background,Fallback : Enhanced fallback mechanisms for empty analysis results
 ```
 
 **Diagram sources**
@@ -286,6 +296,10 @@ The second phase generates comprehensive narratives and recommendations:
 
 **Enhanced Data Merging**: The new `_merge_llm_into_result` function ensures that LLM-generated narrative data is seamlessly integrated with existing analysis results, creating complete reports that persist in the database even when LLM processing encounters issues.
 
+**Enhanced Fallback Mechanisms**: The system now includes comprehensive fallback handling for cases where analysis_result becomes empty or missing critical fields. When this occurs, the system uses python_result as the base for narrative merge, ensuring complete report data remains available.
+
+**Enhanced Error Handling**: The streaming operations now feature improved timeout management and graceful degradation. The system handles LLM timeouts and errors more robustly, providing fallback narratives and maintaining system stability.
+
 **Updated** Enhanced with comprehensive status tracking and adaptive polling architecture:
 - **Four-State Status Tracking**: pending → processing → ready/failure states with proper transitions
 - **Adaptive Polling**: Intelligent polling with exponential backoff (2s for first 30s, then 5s)
@@ -293,6 +307,8 @@ The second phase generates comprehensive narratives and recommendations:
 - **Enhanced Error Reporting**: Detailed status messages and fallback mechanisms
 - **Database Persistence**: Persistent status tracking across deployments and restarts
 - **Complete Report Persistence**: Merged LLM data ensures full reports remain available in candidate history
+- **Fallback Mechanism**: Systematic narrative merging using python_result as base when database persistence fails
+- **Streaming Error Handling**: Robust error handling for streaming operations with graceful degradation
 
 ### Environment-Aware Configuration
 
@@ -446,7 +462,12 @@ The background processing integrates seamlessly with the database layer:
 
 ```mermaid
 flowchart TD
-Python[Python Analysis Result] --> Merge[_merge_llm_into_result]
+Python[Python Analysis Result] --> CheckEmpty{Check Analysis Result}
+CheckEmpty --> EmptyAnalysis{Empty/Missing Critical Fields?}
+EmptyAnalysis --> |Yes| UsePython[Use python_result as Base]
+EmptyAnalysis --> |No| UseCurrent[Use Current Analysis]
+UsePython --> Merge[_merge_llm_into_result]
+UseCurrent --> Merge
 LLM[LLM Narrative Result] --> Merge
 Merge --> Analysis[Complete Analysis Result]
 Analysis --> DB[Database Persistence]
@@ -455,6 +476,8 @@ Analysis --> DB[Database Persistence]
 **Diagram sources**
 - [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
 - [hybrid_pipeline.py:1971-1976](file://app/backend/services/hybrid_pipeline.py#L1971-L1976)
+
+**Enhanced Fallback Mechanisms**: When analysis_result becomes empty or missing critical fields, the system automatically uses python_result as the base for narrative merge, ensuring complete report data remains available.
 
 **Polling Interface:**
 - Frontend polls `/api/analysis/{id}/narrative` for updates
@@ -467,6 +490,8 @@ Analysis --> DB[Database Persistence]
 - **Automatic Recovery**: Balanced object extraction and trailing comma fixes
 - **Multiple Parsing Strategies**: Progressive fallback from simple to complex parsing attempts
 - **Diagnostic Information**: Comprehensive logging for troubleshooting JSON extraction issues
+
+**Enhanced Streaming Error Handling**: The streaming operations now feature improved timeout management and graceful degradation, handling LLM timeouts and errors more robustly.
 
 **Section sources**
 - [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
@@ -527,6 +552,8 @@ The polling system implements intelligent retry mechanisms with adaptive timing:
 - **Character Context**: Enhanced debugging with surrounding character context
 - **Parsing Progression**: Multiple parsing attempts with progressive complexity
 - **Recovery Mechanisms**: Automatic fixes for common JSON extraction issues
+
+**Enhanced Fallback Mechanisms**: The system now includes comprehensive fallback handling for empty analysis results and missing critical fields, ensuring complete report data remains available.
 
 **Section sources**
 - [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
@@ -589,6 +616,12 @@ The SSE streaming implementation provides real-time feedback:
 - `{"stage": "scoring", "result": {...Complete Python analysis...}}`
 - `{"stage": "complete", "result": {...Final analysis with LLM...}}`
 
+**Enhanced Error Handling:**
+- **Timeout Management**: Improved timeout handling for LLM operations
+- **Graceful Degradation**: Automatic fallback to Python scoring when LLM fails
+- **Connection Resilience**: Better handling of connection drops and network issues
+- **Progressive Disclosure**: Immediate feedback during processing with fallback mechanisms
+
 **Client Benefits:**
 - Immediate feedback during processing
 - Progressive disclosure of results
@@ -608,6 +641,8 @@ The SSE streaming implementation provides real-time feedback:
 - **Position Information**: Character position tracking for debugging
 - **Recovery Attempts**: Multiple strategies for extracting valid JSON
 - **Diagnostic Context**: Enhanced error reporting for troubleshooting
+
+**Enhanced Fallback Mechanisms**: The streaming interface now includes comprehensive fallback handling for empty analysis results and missing critical fields.
 
 **Section sources**
 - [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
@@ -633,6 +668,8 @@ The testing suite covers all aspects of the hybrid pipeline with extensive unit 
 - **Status Tracking**: Tests four-state status transitions and polling functionality
 - **JSON Parsing**: Validates enhanced error handling and position tracking capabilities
 - **Data Merging**: Tests `_merge_llm_into_result` function for proper LLM result integration
+- **Fallback Mechanisms**: Tests handling of empty analysis results and missing critical fields
+- **Streaming Operations**: Validates enhanced error handling for streaming scenarios
 
 ### Enhanced Mock-Based Testing
 
@@ -660,6 +697,12 @@ The test suite extensively uses mocking to isolate components and simulate vario
 - **Merge Function Validation**: Tests `_merge_llm_into_result` for proper LLM result integration
 - **Backward Compatibility**: Validates handling of both old and new LLM result formats
 - **Error Handling**: Tests robustness when LLM results are incomplete or malformed
+- **Fallback Mechanism Tests**: Validates systematic narrative merging using python_result as base
+
+**Enhanced Streaming Tests:**
+- **Timeout Handling**: Tests improved timeout management and graceful degradation
+- **Connection Resilience**: Validates handling of connection drops and network issues
+- **Progressive Disclosure**: Tests immediate feedback during processing with fallback mechanisms
 
 ## Performance Considerations
 
@@ -727,6 +770,7 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Database Indexing**: Proper indexing on status and timestamp fields for fast queries
 - **Connection Pooling**: Optimized database connections for concurrent operations
 - **Background Processing**: Non-blocking LLM processing ensures responsive user experience
+- **Fallback Mechanism Performance**: Systematic narrative merging using python_result as base minimizes performance impact
 
 ## Troubleshooting Guide
 
@@ -768,6 +812,7 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Causes**: Database write failures, merge function errors
 - **Solutions**: Check database connectivity, verify merge function logs, monitor background task execution
 - **Monitoring**: Look for "Failed to merge narrative into analysis_result" warnings
+- **Fallback Mechanism**: Check for "analysis_result is empty/missing fit_score" warnings
 
 **Enhanced JSON Parsing Issues:**
 - **Symptoms**: JSON parsing failures, position tracking errors
@@ -778,6 +823,11 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Symptoms**: Model loading failures, parameter conflicts
 - **Causes**: Incorrect model specification, environment variable issues
 - **Solutions**: Verify OLLAMA_MODEL environment variable, check model availability, validate configuration
+
+**Enhanced Streaming Issues:**
+- **Symptoms**: Streaming timeouts, connection drops
+- **Causes**: Network instability, LLM timeouts, resource constraints
+- **Solutions**: Check timeout configurations, validate network connectivity, monitor resource usage
 
 ### Enhanced Diagnostic Tools
 
@@ -827,6 +877,13 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Database Write Success Metrics**: Tracking of successful and failed database writes
 - **Background Task Health Monitoring**: Continuous monitoring of background processing health
 - **Candidate History View Validation**: Ensuring complete reports appear correctly in candidate history
+- **Fallback Mechanism Validation**: Monitoring systematic narrative merging using python_result as base
+
+**Enhanced Streaming Diagnostics:**
+- **Timeout Handling Logs**: Detailed logging of streaming timeout scenarios
+- **Connection Resilience Metrics**: Tracking of connection drop handling and recovery
+- **Progressive Disclosure Validation**: Ensuring immediate feedback during processing
+- **Fallback Mechanism Monitoring**: Validating graceful degradation in streaming scenarios
 
 **Section sources**
 - [hybrid_pipeline.py:135-147](file://app/backend/services/hybrid_pipeline.py#L135-L147)
@@ -848,6 +905,8 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Advanced JSON Parsing**: Comprehensive error handling with position tracking and character context
 - **Complete Report Persistence**: Merged LLM data ensures full reports remain available in candidate history
 - **Enhanced Data Merging**: Seamless integration of LLM results with existing analysis data
+- **Enhanced Fallback Mechanisms**: Comprehensive fallback handling for empty analysis results and missing critical fields
+- **Streaming Error Handling**: Robust error handling for streaming operations with graceful degradation
 
 **Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results
@@ -864,6 +923,7 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Advanced JSON parsing diagnostics** enabling rapid troubleshooting of parsing failures
 - **Enhanced model configuration** ensuring optimal performance with Gemma4 31B cloud model
 - **Complete data persistence** guaranteeing reports remain accessible even with LLM failures
+- **Enhanced streaming capabilities** providing robust error handling for real-time operations
 
 The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes. The comprehensive status tracking and polling architecture ensure reliable operation in production environments while maintaining responsive user experiences.
 
@@ -877,6 +937,8 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Enhanced Debugging**: Advanced JSON parsing diagnostics for rapid issue resolution
 - **Model Optimization**: Automatic configuration for optimal Gemma4 31B cloud model performance
 - **Data Integrity**: Complete report persistence ensures candidate history displays full analysis data
+- **Enhanced Fallback Mechanisms**: Systematic narrative merging ensures complete report availability
+- **Streaming Reliability**: Robust error handling maintains system stability during real-time operations
 
 **Enhanced Data Persistence Benefits:**
 - **Reliable Report Availability**: Complete analysis data remains accessible even when LLM processing fails
@@ -884,6 +946,13 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Seamless Integration**: LLM results are automatically merged with existing analysis data
 - **Backward Compatibility**: Works with both old and new LLM result formats
 - **Error Resilience**: Database write failures don't compromise report completeness
+- **Fallback Mechanism Effectiveness**: Systematic narrative merging using python_result as base ensures complete reports
+
+**Enhanced Streaming Benefits:**
+- **Robust Timeout Handling**: Improved timeout management and graceful degradation
+- **Connection Resilience**: Better handling of connection drops and network issues
+- **Progressive Feedback**: Immediate feedback during processing with fallback mechanisms
+- **System Stability**: Enhanced error handling maintains system reliability during real-time operations
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -895,6 +964,7 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Future Extensibility**: Clean foundation for adding new features without architectural debt
 - **Data Integrity**: Robust mechanisms ensure complete report data persistence
 - **User Experience**: Seamless operation even when LLM processing encounters issues
+- **Streaming Excellence**: Enhanced error handling provides reliable real-time operations
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -906,6 +976,7 @@ The system's architecture represents a mature balance between functionality and 
 - **Production Stability**: Robust error handling ensures consistent performance in production environments
 - **Complete Report Integrity**: Merged LLM data guarantees candidate history displays full analysis information
 - **Error Resilience**: Database write failures don't compromise the availability of complete reports
+- **Fallback Mechanism Reliability**: Systematic narrative merging ensures complete report availability even with database failures
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -916,5 +987,24 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
 - **Future Extensibility**: Clean foundation for adding new features without architectural debt
 - **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
+- **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
+
+The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+
+**Enhanced Fallback Mechanisms Benefits:**
+- **Systematic Data Recovery**: When analysis_result becomes empty or missing critical fields, the system uses python_result as the base for narrative merge
+- **Complete Report Availability**: Ensures candidate history displays full analysis information regardless of LLM processing outcomes
+- **Error Resilience**: Database write failures and merge function errors don't compromise report completeness
+- **User Experience**: Recruiters always receive complete analysis data, preventing confusion from 'PENDING' state displays
+- **Data Integrity**: Maintains the integrity of analysis history even when LLM processing encounters issues
+
+The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+
+**Enhanced Streaming Error Handling Benefits:**
+- **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
+- **Graceful Degradation**: Automatic fallback to Python scoring maintains system functionality
+- **Connection Resilience**: Better handling of network issues and connection drops
+- **Progressive Feedback**: Immediate user feedback during processing with fallback mechanisms
+- **System Reliability**: Enhanced error handling maintains stable operation during real-time streaming
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.

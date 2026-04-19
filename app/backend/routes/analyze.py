@@ -1105,18 +1105,45 @@ def get_analysis_history(
         .limit(100)
         .all()
     )
-    return [
-        {
-            "id":                   r.id,
-            "timestamp":            r.timestamp,
-            "status":               r.status,
-            "candidate_id":         r.candidate_id,
-            "fit_score":            json.loads(r.analysis_result).get("fit_score"),
-            "final_recommendation": json.loads(r.analysis_result).get("final_recommendation"),
-            "risk_level":           json.loads(r.analysis_result).get("risk_level"),
-        }
-        for r in results
-    ]
+    def _safe_loads(data):
+        try:
+            return json.loads(data or "{}")
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    output = []
+    for r in results:
+        analysis = _safe_loads(r.analysis_result)
+        parsed = _safe_loads(r.parsed_data)
+
+        # Resolve candidate name from multiple sources
+        candidate_name = (
+            (analysis.get("candidate_name") or "").strip() or
+            (analysis.get("contact_info", {}).get("name") or "").strip() or
+            (analysis.get("candidate_profile", {}).get("name") or "").strip() or
+            (parsed.get("contact_info", {}).get("name") or "").strip() or
+            None
+        )
+
+        job_role = (
+            analysis.get("job_role") or
+            analysis.get("jd_analysis", {}).get("role_title") or
+            None
+        )
+
+        output.append({
+            "id": r.id,
+            "timestamp": r.timestamp,
+            "status": r.status,
+            "candidate_id": r.candidate_id,
+            "fit_score": analysis.get("fit_score"),
+            "final_recommendation": analysis.get("final_recommendation"),
+            "risk_level": analysis.get("risk_level"),
+            "candidate_name": candidate_name,
+            "job_role": job_role,
+        })
+
+    return output
 
 
 # ─── Result status update ─────────────────────────────────────────────────────
