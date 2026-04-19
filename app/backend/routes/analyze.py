@@ -13,6 +13,7 @@ Key changes vs old LangGraph version:
 
 import hashlib
 import json
+import os
 import asyncio
 import logging
 import time
@@ -55,7 +56,7 @@ MAX_SCORING_WEIGHTS_SIZE = 4 * 1024  # 4KB
 
 # ─── Batch processing concurrency control ───────────────────────────────────────
 
-_BATCH_SEMAPHORE = asyncio.Semaphore(5)
+_BATCH_SEMAPHORE = asyncio.Semaphore(int(os.getenv("BATCH_MAX_CONCURRENT", "30")))
 MAX_BATCH_SIZE = 50
 
 

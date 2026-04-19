@@ -79,7 +79,7 @@ services:
     container_name: resume-screener-backend
     # 4 workers: backend is I/O-bound (waits on Ollama/DB), so multiple workers
     # serve concurrent users without starving Ollama of CPU cores.
-    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-graceful-shutdown 30
+    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 6 --timeout-graceful-shutdown 30
     # Give the backend time to finish background tasks (sentinel) on shutdown
     stop_grace_period: 60s
     environment:
@@ -109,8 +109,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '3'
-          memory: 4G
+          cpus: '4'
+          memory: 6G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

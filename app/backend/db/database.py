@@ -22,8 +22,8 @@ _is_postgres = DATABASE_URL.startswith("postgresql")
 _pool_kwargs = {}
 if _is_postgres:
     _pool_kwargs = {
-        "pool_size": 10,
-        "max_overflow": 20,
+        "pool_size": 15,
+        "max_overflow": 35,
         "pool_recycle": 3600,
     }
 

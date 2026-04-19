@@ -38,10 +38,28 @@ def get_ollama_headers(base_url: str) -> Dict[str, str]:
 _ollama_semaphore: asyncio.Semaphore | None = None
 
 
-def get_ollama_semaphore(max_concurrent: int = 1) -> asyncio.Semaphore:
-    """Get the shared Ollama semaphore. Lazily creates it if needed."""
+def get_ollama_semaphore(max_concurrent: int | None = None) -> asyncio.Semaphore:
+    """Get the shared Ollama semaphore. Lazily creates it if needed.
+
+    If max_concurrent is not provided, auto-detects based on OLLAMA_BASE_URL:
+      - Ollama Cloud (https:// or ollama.com) → default 8
+      - Local Ollama → default 1
+    Can be overridden with OLLAMA_MAX_CONCURRENT env var.
+    """
     global _ollama_semaphore
     if _ollama_semaphore is None:
+        if max_concurrent is None:
+            # Check env var first
+            env_val = os.getenv("OLLAMA_MAX_CONCURRENT")
+            if env_val is not None:
+                max_concurrent = int(env_val)
+            else:
+                # Auto-detect: cloud vs local
+                base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+                if base_url.startswith("https://") or "ollama.com" in base_url.lower():
+                    max_concurrent = 8  # Cloud can handle more concurrent requests
+                else:
+                    max_concurrent = 1  # Local Ollama is single-threaded
         _ollama_semaphore = asyncio.Semaphore(max_concurrent)
     return _ollama_semaphore
 

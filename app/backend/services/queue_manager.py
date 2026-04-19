@@ -198,7 +198,7 @@ class QueueManager:
         self.current_job_id: Optional[uuid.UUID] = None
         
         # Configuration
-        self.max_concurrent_jobs = int(os.getenv("QUEUE_MAX_CONCURRENT", "3"))
+        self.max_concurrent_jobs = int(os.getenv("QUEUE_MAX_CONCURRENT", "10"))
         self.poll_interval_seconds = int(os.getenv("QUEUE_POLL_INTERVAL", "2"))
         self.heartbeat_interval_seconds = int(os.getenv("QUEUE_HEARTBEAT_INTERVAL", "30"))
         self.stale_job_timeout_seconds = int(os.getenv("QUEUE_STALE_TIMEOUT", "600"))  # 10 min
