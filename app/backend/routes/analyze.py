@@ -796,7 +796,8 @@ async def analyze_stream_endpoint(
                 if await request.is_disconnected():
                     log.warning("Client disconnected during streaming analysis")
                     # Early DB save: ensure Python results are preserved
-                    if not python_scores_saved and event.get("stage") in ("scoring", "complete"):
+                    # Only save on "parsing" stage which has the full Python results
+                    if not python_scores_saved and event.get("stage") in ("parsing", "complete"):
                         try:
                             stage_result = event.get("result", {})
                             if stage_result:
@@ -816,19 +817,21 @@ async def analyze_stream_endpoint(
                     continue
                 yield f"data: {json.dumps(event, default=_json_default)}\n\n"
 
-                # Early DB save after Python scoring phase completes
-                if event.get("stage") == "scoring":
+                # Early DB save after Python parsing phase completes (NOT scoring phase)
+                # The "parsing" stage contains the full Python results
+                if event.get("stage") == "parsing" and not python_scores_saved:
                     try:
-                        scoring_result = event.get("result", {})
-                        if scoring_result:
-                            scoring_result["result_id"] = screening_result_id
-                            scoring_result["candidate_id"] = candidate_id
-                            db_result.analysis_result = json.dumps(scoring_result, default=_json_default)
+                        parsing_result = event.get("result", {})
+                        if parsing_result:
+                            # Ensure we have the full Python result with all fields
+                            parsing_result["result_id"] = screening_result_id
+                            parsing_result["candidate_id"] = candidate_id
+                            db_result.analysis_result = json.dumps(parsing_result, default=_json_default)
                             db.commit()
                             python_scores_saved = True
-                            log.info("Early DB save completed after scoring phase")
+                            log.info("Early DB save completed after parsing phase")
                     except Exception as db_exc:
-                        log.warning("Failed to save early DB results after scoring: %s", db_exc)
+                        log.warning("Failed to save early DB results after parsing: %s", db_exc)
 
                 if event.get("stage") == "complete":
                     final_result = event.get("result", {})

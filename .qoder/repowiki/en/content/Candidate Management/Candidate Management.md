@@ -28,7 +28,9 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced field-level merge strategy to preserve critical analysis fields during narrative integration
+- Enhanced API response unification: The candidates route now consolidates data structures to eliminate inconsistencies between candidates endpoint and analysis results
+- Unified approach uses analysis_result as the authoritative data source with consolidated candidate information structure
+- Implemented field-level merge strategy that preserves critical analysis fields during narrative integration
 - Improved fallback mechanism for enriched analysis data with robust error handling
 - Fixed bug where candidate profiles appeared empty by properly utilizing merged analysis data when available
 - Strengthened data integrity protection for fit_score, final_recommendation, and other core analysis fields
@@ -49,7 +51,7 @@
 ## Introduction
 This document describes the candidate management system for Resume AI by ThetaLogics. It covers how candidate profiles are stored, how resumes are parsed and analyzed, how deduplication works across resumes and analysis results, and how search, filtering, history, and analysis results are managed. It also documents integration between parsing services and candidate data storage, bulk operations, export capabilities, and data portability features. Finally, it outlines strategies for extending candidate metadata and customizing parsing workflows, along with privacy and lifecycle considerations.
 
-**Updated** Enhanced with field-level merge strategy that preserves critical analysis fields while allowing selective narrative enhancements, ensuring data integrity and reliability.
+**Updated** Enhanced with API response unification that consolidates data structures and eliminates inconsistencies between candidates endpoint and analysis results, using analysis_result as the authoritative data source.
 
 ## Project Structure
 The candidate management system spans models, services, and routes:
@@ -133,7 +135,7 @@ RCM --> SR
 - Deduplication logic identifies duplicates across email, file hash, and name+phone.
 - Routes expose endpoints for single and batch analysis, candidate listing/detail, history, export, comparison, and weight suggestions.
 
-**Updated** Enhanced with field-level merge strategy that preserves critical analysis fields like fit_score and final_recommendation during narrative integration.
+**Updated** Enhanced with API response unification that ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source.
 
 **Section sources**
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
@@ -148,7 +150,7 @@ RCM --> SR
 - [analyze.py:147-214](file://app/backend/routes/analyze.py#L147-L214)
 
 ## Architecture Overview
-The system integrates parsing, gap detection, hybrid scoring, intelligent weight management, and persistence. Deduplication ensures candidate identity is preserved across uploads and re-analyses. Profiles are stored for fast re-analysis and auditability with enhanced contact extraction capabilities and field-level data integrity.
+The system integrates parsing, gap detection, hybrid scoring, intelligent weight management, and persistence. Deduplication ensures candidate identity is preserved across uploads and re-analyses. Profiles are stored for fast re-analysis and auditability with enhanced contact extraction capabilities and field-level data integrity. The unified API response approach ensures consistent data structures across all endpoints.
 
 ```mermaid
 sequenceDiagram
@@ -387,9 +389,11 @@ Route-->>Route : attach candidate_id/result_id
 - [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
 - [analysis_service.py:6-121](file://app/backend/services/analysis_service.py#L6-L121)
 
-### Enhanced Field-Level Merge Strategy
-**Critical Update**: Implemented field-level merge strategy that preserves critical analysis fields while allowing selective narrative enhancements.
+### API Response Unification and Enhanced Field-Level Merge Strategy
+**Critical Update**: Implemented API response unification that consolidates data structures and eliminates inconsistencies between candidates endpoint and analysis results.
 
+- **Unified Data Source**: Both candidates endpoint and analysis results now use analysis_result as the authoritative data source.
+- **Consistent Structure**: The candidates route builds results with "EXACT same structure as analysis result" ensuring uniform data presentation.
 - **Core Analysis Fields Preservation**: fit_score, final_recommendation, and other critical analysis fields are protected from narrative overwrites.
 - **Selective Narrative Enhancement**: Only narrative-specific fields (strengths, weaknesses, concerns, recommendation_rationale, explainability) are merged from narrative data.
 - **Field Priority Logic**: Core analysis fields take precedence over narrative data to maintain data integrity.
@@ -397,7 +401,8 @@ Route-->>Route : attach candidate_id/result_id
 
 ```mermaid
 flowchart TD
-StartMerge(["Merge Analysis + Narrative"]) --> CoreFields["Extract Core Analysis Fields"]
+StartMerge(["API Response Unification"]) --> UnifiedStructure["Build EXACT same structure as analysis result"]
+UnifiedStructure --> CoreFields["Extract Core Analysis Fields"]
 CoreFields --> CheckNarrative{"Narrative Data Available?"}
 CheckNarrative --> |No| ReturnCore["Return Core Analysis Only"]
 CheckNarrative --> |Yes| ExtractNarrative["Extract Narrative Fields"]
@@ -453,7 +458,7 @@ Store --> ReturnNew["Return new id, is_dup=False"]
 
 ### Candidate Search and Filtering
 - List candidates with pagination and optional search by name or email.
-- Detail endpoint returns enriched profile, skills snapshot, and history.
+- Detail endpoint returns enriched profile, skills snapshot, and history with unified data structure.
 - GET /api/history lists recent screening results for the tenant.
 
 ```mermaid
@@ -464,11 +469,11 @@ participant DB as "DB"
 Client->>CandRoute : GET /api/candidates?page=&page_size=&search=
 CandRoute->>DB : query(Candidate).filter(tenant).search
 DB-->>CandRoute : candidates
-CandRoute-->>Client : enriched list
+CandRoute-->>Client : enriched list with unified structure
 Client->>CandRoute : GET /api/candidates/{id}
 CandRoute->>DB : query(Candidate) + ScreeningResult
 DB-->>CandRoute : candidate + history
-CandRoute-->>Client : detail + history
+CandRoute-->>Client : detail + history with unified structure
 ```
 
 **Diagram sources**
@@ -481,11 +486,12 @@ CandRoute-->>Client : detail + history
 - ScreeningResult persists parsed_data and analysis_result as JSON for auditability.
 - **Updated**: Enhanced with intelligent scoring weights metadata (role_category, weight_reasoning, suggested_weights_json).
 - **Updated**: Version management with is_active flag and version_number for historical tracking.
+- **Updated**: API response unification ensures consistent data structure across all history endpoints.
 - **Updated**: Field-level merge strategy ensures critical analysis fields remain intact during narrative integration.
 - History endpoint aggregates recent results with fit_score, recommendation, and risk level.
 - Candidate detail endpoint augments history with analysis quality and score breakdown.
 
-**Updated** Enhanced with field-level merge strategy that preserves critical analysis fields during narrative integration.
+**Updated** Enhanced with API response unification that ensures consistent data structure across all history endpoints and field-level merge strategy that preserves critical analysis fields during narrative integration.
 
 **Section sources**
 - [db_models.py:128-150](file://app/backend/models/db_models.py#L128-L150)
@@ -498,9 +504,10 @@ CandRoute-->>Client : detail + history
 - The route persists both the ScreeningResult with weights metadata and updates the Candidate profile snapshot.
 - parser_snapshot_json captures the complete parser output for re-analysis and auditing.
 - **Updated**: Weight metadata is stored with screening results for future comparisons and analysis.
+- **Updated**: API response unification ensures consistent data structure across all integration points.
 - **Updated**: Field-level merge strategy ensures data integrity during narrative integration.
 
-**Updated** Integrated intelligent scoring weights system into the parsing and storage workflow with enhanced field-level data protection.
+**Updated** Integrated intelligent scoring weights system into the parsing and storage workflow with enhanced field-level data protection and API response unification.
 
 **Section sources**
 - [analyze.py:454-476](file://app/backend/routes/analyze.py#L454-L476)
@@ -510,6 +517,7 @@ CandRoute-->>Client : detail + history
 - Batch analysis endpoint supports multiple resumes with plan-based limits and usage enforcement.
 - Export endpoints (CSV/Excel) stream screening results for selected IDs or all recent results.
 - **Updated**: Export includes enhanced weight metadata and version information for comprehensive reporting.
+- **Updated**: API response unification ensures consistent data structure in exported results.
 - **Updated**: Field-level merge strategy ensures exported data maintains critical analysis field integrity.
 
 ```mermaid
@@ -525,7 +533,7 @@ Route-->>Client : ranked batch results
 Client->>Export : GET /api/export/csv?ids=
 Export->>DB : fetch results (including weights metadata)
 DB-->>Export : rows
-Export-->>Client : CSV stream
+Export-->>Client : CSV stream with unified structure
 ```
 
 **Diagram sources**
@@ -542,9 +550,10 @@ Export-->>Client : CSV stream
   - Auditability and reproducibility of parsing decisions.
   - Export of raw parsed fields alongside analysis results.
 - **Updated**: Enhanced with intelligent scoring weights metadata for comprehensive data portability.
+- **Updated**: API response unification ensures consistent data structure for portable results.
 - **Updated**: Field-level merge strategy ensures portable data maintains critical analysis field integrity.
 
-**Updated** Enhanced parser snapshot with intelligent scoring weights metadata for improved portability and data integrity.
+**Updated** Enhanced parser snapshot with intelligent scoring weights metadata for improved portability and data integrity with API response unification.
 
 **Section sources**
 - [db_models.py:120-121](file://app/backend/models/db_models.py#L120-L121)
@@ -557,8 +566,9 @@ Export-->>Client : CSV stream
 - **Updated**: Enhance contact extraction by integrating LLM contact extractor into parsing pipeline.
 - **Updated**: Customize weight schemas by extending weight mapper and suggester services.
 - **Updated**: Extend field-level merge strategy by adding new critical fields to preservation logic.
+- **Updated**: API response unification allows for consistent extension of data structures across all endpoints.
 
-**Updated** Enhanced with LLM contact extraction integration, customizable weight schemas, and extensible field-level merge strategy.
+**Updated** Enhanced with LLM contact extraction integration, customizable weight schemas, extensible field-level merge strategy, and API response unification for consistent data structure extensions.
 
 **Section sources**
 - [db_models.py:97-126](file://app/backend/models/db_models.py#L97-L126)
@@ -572,6 +582,7 @@ Export-->>Client : CSV stream
 - parser_snapshot_json and raw_resume_text are retained; consider implementing retention policies and deletion endpoints.
 - Usage logs track analysis counts per tenant; leverage for compliance and billing.
 - **Updated**: Intelligent scoring weights metadata requires careful privacy consideration for sensitive role-based data.
+- **Updated**: API response unification ensures consistent privacy considerations across all endpoints.
 - **Updated**: Field-level merge strategy ensures critical analysis fields maintain integrity during narrative processing.
 - Recommendations:
   - Add tenant-aware soft-delete and anonymization.
@@ -580,14 +591,14 @@ Export-->>Client : CSV stream
   - Consider GDPR-compliant handling of AI-generated weight suggestions.
   - Monitor field-level merge operations for data integrity compliance.
 
-**Updated** Enhanced privacy considerations for intelligent scoring weights metadata and AI-generated suggestions, with field-level data integrity protection.
+**Updated** Enhanced privacy considerations for intelligent scoring weights metadata and AI-generated suggestions, with API response unification and field-level data integrity protection.
 
 **Section sources**
 - [db_models.py:79-93](file://app/backend/models/db_models.py#L79-L93)
 - [candidates.py:26-80](file://app/backend/routes/candidates.py#L26-L80)
 
 ## Dependency Analysis
-The following diagram shows key dependencies among modules involved in candidate management with enhanced field-level data protection.
+The following diagram shows key dependencies among modules involved in candidate management with enhanced API response unification and field-level data protection.
 
 ```mermaid
 graph LR
@@ -629,6 +640,7 @@ LS --> AS["analysis_service.py"]
 - Batch analysis enforces plan-based limits and parallel processing.
 - **Updated**: LLM contact extraction uses optimized timeouts and fallback strategies for performance.
 - **Updated**: Intelligent scoring weights system includes caching and normalization for efficient computation.
+- **Updated**: API response unification optimizes data processing by ensuring consistent structures across all endpoints.
 - **Updated**: Field-level merge strategy optimizes data processing by avoiding unnecessary field overwrites.
 
 ## Troubleshooting Guide
@@ -639,6 +651,7 @@ Common issues and resolutions:
 - Exceeding usage limits: Monthly analysis or batch size limits enforced; upgrade plan.
 - **Updated**: LLM contact extraction failures: Automatic fallback to regex/NLP methods; check model availability.
 - **Updated**: Intelligent scoring weights conversion errors: Automatic fallback to default weights; verify input format.
+- **Updated**: API response unification issues: Ensure analysis_result structure consistency across all endpoints.
 - **Updated**: Field-level merge failures: Core analysis fields remain intact; check narrative data format; verify critical field preservation.
 
 **Section sources**
@@ -649,7 +662,7 @@ Common issues and resolutions:
 - [weight_mapper.py:212-246](file://app/backend/services/weight_mapper.py#L212-L246)
 
 ## Conclusion
-The candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and auditability. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. Extensibility is provided through model additions, parser customization, skills registry updates, intelligent weight management, and configurable field-level merge logic. Privacy and lifecycle management should be considered for production deployments with enhanced attention to AI-generated metadata and data integrity protection.
+The candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and auditability. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. Extensibility is provided through model additions, parser customization, skills registry updates, intelligent weight management, configurable field-level merge logic, and consistent API response structures. Privacy and lifecycle management should be considered for production deployments with enhanced attention to AI-generated metadata, data integrity protection, and unified API response structures.
 
 ## Appendices
 
@@ -687,7 +700,14 @@ The candidate management system integrates robust parsing, deduplication, intell
 - [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
 - [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
 
-### Field-Level Merge Strategy Details
+### API Response Unification Details
+**Unified Data Structure Benefits**:
+- Consistent field naming and structure across all endpoints
+- Elimination of endpoint-specific variations in data presentation
+- Simplified frontend integration with predictable data shapes
+- Enhanced debugging and monitoring capabilities
+- Improved cache consistency and performance
+
 **Critical Analysis Fields Preserved**:
 - fit_score: Core scoring metric (0-100)
 - final_recommendation: Candidate recommendation (Shortlist/Consider/Reject/Pending)
@@ -705,7 +725,7 @@ The candidate management system integrates robust parsing, deduplication, intell
 - explainability: Detailed explainability data
 - interview_questions: Interview question recommendations
 
-**Updated** Enhanced with improved fallback mechanism that ensures candidate profiles never appear empty by properly utilizing merged analysis data when available, with robust error handling for merge failures.
+**Updated** Enhanced with API response unification that ensures consistent data structures across all endpoints and improved fallback mechanism that ensures candidate profiles never appear empty by properly utilizing merged analysis data when available, with robust error handling for merge failures.
 
 **Section sources**
 - [candidates.py:182-195](file://app/backend/routes/candidates.py#L182-L195)
