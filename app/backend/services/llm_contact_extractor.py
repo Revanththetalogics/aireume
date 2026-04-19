@@ -40,7 +40,7 @@ async def extract_contact_with_llm(resume_text: str, timeout: float = 15.0) -> O
     logger.info("[LLM Contact Extractor] Starting extraction...")
     # Only use first 1000 characters (header section) to save tokens
     header = resume_text[:1000]
-    logger.debug("[LLM Contact Extractor] Header text (first 200 chars): %s", header[:200])
+    logger.info("[LLM Contact Extractor] Header text (first 200 chars): %s", header[:200])
     
     system_prompt = """You are a contact information extractor. Extract contact details from resume text and return ONLY valid JSON."""
     
