@@ -28,9 +28,10 @@
 - Enhanced observability with structured logging and request correlation IDs
 - Added comprehensive fallback strategies for all extraction methods
 - Enhanced spaCy NER integration with tiered name extraction approach
-- **Updated**: Enhanced name extraction with skip_phrases dictionary containing 30+ professional titles and job-related phrases
+- **Updated**: Enhanced name extraction with expanded skip_phrases dictionary containing 30+ professional titles and job-related phrases
 - **Updated**: Improved phone number detection with multi-pattern regex approach and year validation to prevent false positives
 - **Updated**: Expanded SKIP_WORDS collection with additional words for better contact information distinction
+- **Updated**: Enhanced skip_phrases dictionary in _name_from_header_line function with commonly misinterpreted section headers
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -49,7 +50,7 @@
 ## Introduction
 This document describes the resume parsing service that extracts structured data from PDF and DOCX formats. It explains the text processing pipeline, including OCR capabilities, formatting preservation, and data normalization. It also covers supported file formats, parsing accuracy characteristics, fallback strategies for malformed documents, examples of extracted data schemas, parsing configuration options, integration patterns with the analysis engine, and enhanced error handling with comprehensive logging and observability features.
 
-**Updated**: The service now features enhanced DOCX parsing capabilities with a comprehensive multi-stage extraction pipeline and a robust zipfile fallback system for corrupted files, along with integration of a new LLM contact extraction service for improved accuracy in contact information extraction. Sophisticated fallback mechanisms have been implemented for all resume formats including PDF (PyMuPDF, pdfplumber), DOCX (headers, textboxes, tables, paragraphs, XML fallback), DOC (antiword, LibreOffice conversion, ASCII extraction), RTF (striprtf), and ODT (odfpy). **Enhanced**: Name extraction now includes a comprehensive skip_phrases dictionary with 30+ professional titles and improved phone number detection with multi-pattern regex and year validation.
+**Updated**: The service now features enhanced DOCX parsing capabilities with a comprehensive multi-stage extraction pipeline and a robust zipfile fallback system for corrupted files, along with integration of a new LLM contact extraction service for improved accuracy in contact information extraction. Sophisticated fallback mechanisms have been implemented for all resume formats including PDF (PyMuPDF, pdfplumber), DOCX (headers, textboxes, tables, paragraphs, XML fallback), DOC (antiword, LibreOffice conversion, ASCII extraction), RTF (striprtf), and ODT (odfpy). **Enhanced**: Name extraction now includes an expanded skip_phrases dictionary with 30+ professional titles and improved phone number detection with multi-pattern regex and year validation.
 
 ## Project Structure
 The parser service is implemented as a dedicated module and integrated into the broader analysis pipeline. Key integration points include:
@@ -111,7 +112,7 @@ S4 --> LOGGING
 
 **Section sources**
 - [analyze.py:1-200](file://app/backend/routes/analyze.py#L1-L200)
-- [parser_service.py:1-1250](file://app/backend/services/parser_service.py#L1-L1250)
+- [parser_service.py:1-1255](file://app/backend/services/parser_service.py#L1-L1255)
 - [gap_detector.py:1-219](file://app/backend/services/gap_detector.py#L1-L219)
 - [hybrid_pipeline.py:1-200](file://app/backend/services/hybrid_pipeline.py#L1-L200)
 - [db_models.py:1-250](file://app/backend/models/db_models.py#L1-L250)
@@ -138,12 +139,12 @@ Key capabilities:
 - **Enhanced**: Multi-stage DOCX extraction with zipfile fallback system for corrupted files.
 - **Enhanced**: Async LLM contact extraction with intelligent merging strategy.
 - **Enhanced**: Sophisticated fallback mechanisms for all resume formats with comprehensive error handling.
-- **Enhanced**: **Skip phrases dictionary**: 30+ professional titles and job-related phrases excluded from name extraction.
+- **Enhanced**: **Expanded skip_phrases dictionary**: 30+ professional titles and job-related phrases excluded from name extraction.
 - **Enhanced**: **Multi-pattern phone detection**: Enhanced regex patterns with year validation to prevent false positives.
 - **Enhanced**: **Expanded skip words**: Additional words for better contact information distinction.
 
 **Section sources**
-- [parser_service.py:130-1250](file://app/backend/services/parser_service.py#L130-L1250)
+- [parser_service.py:130-1255](file://app/backend/services/parser_service.py#L130-L1255)
 - [llm_contact_extractor.py:1-165](file://app/backend/services/llm_contact_extractor.py#L1-L165)
 - [gap_detector.py:103-219](file://app/backend/services/gap_detector.py#L103-L219)
 - [hybrid_pipeline.py:467-751](file://app/backend/services/hybrid_pipeline.py#L467-L751)
@@ -184,7 +185,7 @@ Route-->>Client : analysis_result
 
 **Diagram sources**
 - [analyze.py:449-649](file://app/backend/routes/analyze.py#L449-L649)
-- [parser_service.py:1201-1250](file://app/backend/services/parser_service.py#L1201-L1250)
+- [parser_service.py:1201-1255](file://app/backend/services/parser_service.py#L1201-L1255)
 - [llm_contact_extractor.py:23-131](file://app/backend/services/llm_contact_extractor.py#L23-L131)
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
 - [hybrid_pipeline.py:1-12](file://app/backend/services/hybrid_pipeline.py#L1-L12)
@@ -228,7 +229,7 @@ class ResumeParser {
 ```
 
 **Diagram sources**
-- [parser_service.py:198-1250](file://app/backend/services/parser_service.py#L198-L1250)
+- [parser_service.py:198-1255](file://app/backend/services/parser_service.py#L198-L1255)
 
 **Section sources**
 - [parser_service.py:220-238](file://app/backend/services/parser_service.py#L220-L238)
@@ -393,11 +394,11 @@ FilenameTier --> Return["Return enriched data"]
 - [parser_service.py:1080-1155](file://app/backend/services/parser_service.py#L1080-L1155)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 
-### Enhanced Name Extraction with Skip Phrases Dictionary
+### Enhanced Name Extraction with Expanded Skip Phrases Dictionary
 **Updated Section**: The name extraction algorithm now includes sophisticated filtering mechanisms to prevent false positive name detection:
 
 - **SKIP_WORDS Collection**: Comprehensive set of 25+ words that indicate non-name content (resume, curriculum, vitae, cv, profile, summary, objective, contact, address, details, information, page, updated, date, experience, education, skills, employment, work, projects, references, certifications, awards, publications, languages, interests, hobbies, activities, achievements)
-- **skip_phrases Dictionary**: Contains 30+ professional titles and job-related phrases that are definitively not names (software development, software engineer, data scientist, project manager, business analyst, cloud architect, engineering manager, vice president, director of, head of, lead of, etc.)
+- **skip_phrases Dictionary**: Contains 30+ professional titles and job-related phrases that are definitively not names, including newly added section headers like 'key expertise', 'key skills', 'core competencies', 'top skills', 'technical experience', 'embedded experience', 'professional experience', 'work experience', 'career highlights', 'summary', 'objective', 'personal details', 'contact information', and 'contact details'
 - **Multi-stage Filtering**: Applies skip_words, skip_phrases, and job title pattern checks before accepting potential names
 
 **Enhanced**: Implements comprehensive filtering to distinguish between actual names and contact information or job titles.
@@ -430,10 +431,10 @@ Loop --> End(["Return empty if none found"])
 ```
 
 **Diagram sources**
-- [parser_service.py:994-1037](file://app/backend/services/parser_service.py#L994-L1037)
+- [parser_service.py:994-1042](file://app/backend/services/parser_service.py#L994-L1042)
 
 **Section sources**
-- [parser_service.py:975-1037](file://app/backend/services/parser_service.py#L975-L1037)
+- [parser_service.py:975-1042](file://app/backend/services/parser_service.py#L975-L1042)
 
 ### Enhanced Phone Number Detection
 **Updated Section**: The phone number extraction algorithm now uses a sophisticated multi-pattern approach with validation to prevent false positives:
@@ -531,7 +532,7 @@ Normalize --> Return(["Return normalized text"])
 - Name: Header-based heuristic with pipe/separator splitting; relaxed fallback scans first lines for title-case names.
 - Email/Phone/LinkedIn: Regex-based extraction; LinkedIn pattern supports common URL forms.
 - **Enhanced**: LLM-based extraction using Ollama/Gemma for international names, creative layouts, and edge cases.
-- **Enhanced**: **Skip phrases filtering**: Professional titles and job-related phrases excluded from name extraction.
+- **Enhanced**: **Expanded skip phrases filtering**: Professional titles and job-related phrases excluded from name extraction.
 - **Enhanced**: **Multi-pattern phone validation**: Enhanced phone number detection with digit and year validation.
 
 **Enhanced**: Implements tiered name extraction with spaCy NER for improved accuracy.
@@ -727,7 +728,7 @@ The parser service implements comprehensive logging with structured error report
 **Updated Section**: Implements sophisticated filtering mechanisms to prevent false positive name detection:
 
 - **SKIP_WORDS Collection**: Comprehensive set of 25+ words indicating non-name content
-- **skip_phrases Dictionary**: 30+ professional titles and job-related phrases excluded from name extraction
+- **Expanded skip_phrases Dictionary**: 30+ professional titles and job-related phrases excluded from name extraction, including newly added section headers like 'key expertise', 'key skills', 'core competencies', 'top skills', 'technical experience', 'embedded experience', 'professional experience', 'work experience', 'career highlights', 'summary', 'objective', 'personal details', 'contact information', and 'contact details'
 - **Multi-stage Validation**: Applies filters in sequence to ensure accurate name detection
 - **Job Title Pattern Recognition**: Prevents matching job titles as names
 
@@ -764,7 +765,7 @@ The parser service implements comprehensive logging with structured error report
 
 **Section sources**
 - [metrics.py:1-35](file://app/backend/services/metrics.py#L1-L35)
-- [parser_service.py:1201-1250](file://app/backend/services/parser_service.py#L1201-L1250)
+- [parser_service.py:1201-1255](file://app/backend/services/parser_service.py#L1201-L1255)
 
 ## Dependency Analysis
 External libraries and their roles:
@@ -823,7 +824,7 @@ MAIN["main.py"] --> JF["JsonFormatter"]
 - **Enhanced**: **Lazy loading**: Optional dependencies (spaCy, docx2txt, striprtf, odfpy) loaded only when needed.
 - **Enhanced**: **Graceful degradation**: System continues operating with reduced functionality when dependencies unavailable.
 - **Enhanced**: **Async processing**: LLM contact extraction uses async HTTP client for non-blocking operations.
-- **Enhanced**: **Skip phrase filtering**: Reduces false positives in name extraction by excluding professional titles and job-related phrases.
+- **Enhanced**: **Expanded skip phrase filtering**: Reduces false positives in name extraction by excluding professional titles, job-related phrases, and commonly misinterpreted section headers.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -838,7 +839,7 @@ Common issues and resolutions:
 - **Enhanced**: **RTF extraction failures**: striprtf library and regex fallback ensure content recovery.
 - **Enhanced**: **ODT extraction failures**: odfpy and ZIP/XML fallback provide comprehensive recovery.
 - **Enhanced**: **LLM contact extraction failures**: Graceful fallback to regex and traditional methods.
-- **Enhanced**: **Name extraction issues**: Skip phrases dictionary prevents matching professional titles as names.
+- **Enhanced**: **Name extraction issues**: Expanded skip phrases dictionary prevents matching professional titles and section headers as names.
 - **Enhanced**: **Phone number false positives**: Multi-pattern validation with year checking prevents matching dates as phone numbers.
 - **Enhanced**: **Logging issues**: Structured logging provides consistent error reporting across environments.
 - **Enhanced**: **Performance problems**: Prometheus metrics help identify bottlenecks in parsing operations.
@@ -850,7 +851,7 @@ Common issues and resolutions:
 - [main.py:262-327](file://app/backend/main.py#L262-L327)
 
 ## Conclusion
-The parser service provides a robust, deterministic foundation for extracting structured resume data from PDF and DOCX formats. It integrates tightly with gap detection and a hybrid scoring pipeline, enabling accurate and efficient candidate analysis. Its enhanced error handling, comprehensive logging, retry mechanisms, and performance monitoring deliver resilience, observability, and scalability for production use. The tiered name extraction approach, comprehensive multi-stage extraction pipelines with sophisticated fallback mechanisms, and integration with LLM contact extraction ensure reliable operation even with corrupted files and complex resume layouts. **Enhanced**: The addition of skip_phrases dictionary, improved phone number detection, and expanded SKIP_WORDS collection significantly improves the accuracy of contact information extraction by preventing false positives and better distinguishing between names, professional titles, and contact details.
+The parser service provides a robust, deterministic foundation for extracting structured resume data from PDF and DOCX formats. It integrates tightly with gap detection and a hybrid scoring pipeline, enabling accurate and efficient candidate analysis. Its enhanced error handling, comprehensive logging, retry mechanisms, and performance monitoring deliver resilience, observability, and scalability for production use. The tiered name extraction approach, comprehensive multi-stage extraction pipelines with sophisticated fallback mechanisms, and integration with LLM contact extraction ensure reliable operation even with corrupted files and complex resume layouts. **Enhanced**: The expansion of the skip_phrases dictionary, improved phone number detection, and expanded SKIP_WORDS collection significantly improves the accuracy of contact information extraction by preventing false positives and better distinguishing between names, professional titles, and contact details. The newly added section headers like 'key expertise', 'key skills', 'core competencies', 'top skills', 'technical experience', 'embedded experience', 'professional experience', 'work experience', 'career highlights', 'summary', 'objective', 'personal details', 'contact information', and 'contact details' in the skip_phrases dictionary prevent these commonly misinterpreted section headers from being mistakenly identified as candidate names.
 
 ## Appendices
 
@@ -872,7 +873,7 @@ The parser service provides a robust, deterministic foundation for extracting st
 - **Enhanced**: **NER Configuration**: Optional spaCy model loading with graceful fallback.
 - **Enhanced**: **Logging Configuration**: Structured logging with environment-specific formatting.
 - **Enhanced**: **LLM Contact Extraction**: Configurable timeout and model selection.
-- **Enhanced**: **Name Extraction Filters**: Skip phrases dictionary and expanded SKIP_WORDS collection.
+- **Enhanced**: **Name Extraction Filters**: Expanded skip phrases dictionary and expanded SKIP_WORDS collection.
 
 **Section sources**
 - [analyze.py:506-649](file://app/backend/routes/analyze.py#L506-L649)
@@ -920,11 +921,11 @@ The parser service provides a robust, deterministic foundation for extracting st
 - **Intelligent Merging**: Strategic combination of LLM and regex results
 
 #### Enhanced Name Extraction Features
-- **Skip Phrases Dictionary**: 30+ professional titles excluded from name extraction
+- **Expanded Skip Phrases Dictionary**: 30+ professional titles and section headers excluded from name extraction
 - **Expanded SKIP_WORDS Collection**: 25+ words indicating non-name content
 - **Multi-stage Filtering**: Applies skip_words, skip_phrases, and job title pattern checks
 - **Phone Number Validation**: Multi-pattern regex with digit and year validation
-- **False Positive Prevention**: Sophisticated filtering prevents matching job titles as names
+- **False Positive Prevention**: Sophisticated filtering prevents matching job titles and section headers as names
 
 **Section sources**
 - [parser_service.py:1-14](file://app/backend/services/parser_service.py#L1-L14)

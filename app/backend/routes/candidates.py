@@ -179,6 +179,20 @@ def get_candidate(
             except Exception as e:
                 logger.warning("Non-critical: Failed to parse narrative_json for result %s: %s", r.id, e)
         
+        # Merge narrative data with analysis - narrative fields take precedence
+        # but only for narrative-specific fields (strengths, weaknesses, etc.)
+        # Preserve analysis fields like fit_score, final_recommendation
+        merged_data = dict(analysis)
+        if narrative_data:
+            # Only merge narrative-specific fields, not core analysis fields
+            narrative_fields = {
+                "ai_enhanced", "fit_summary", "strengths", "concerns", "weaknesses",
+                "recommendation_rationale", "explainability", "interview_questions"
+            }
+            for field in narrative_fields:
+                if field in narrative_data:
+                    merged_data[field] = narrative_data[field]
+        
         # Include all fields needed by ReportPage
         history.append({
             # Core fields
@@ -190,11 +204,8 @@ def get_candidate(
             "candidate_id":         r.candidate_id,
             "candidate_name":       candidate_name,
             
-            # Analysis fields (spread all analysis data)
-            **analysis,
-            
-            # Merge narrative data (strengths, weaknesses, etc.)
-            **narrative_data,
+            # Analysis fields (spread all merged data)
+            **merged_data,
             
             # Parsed data
             "parsed_data":          r.parsed_data,

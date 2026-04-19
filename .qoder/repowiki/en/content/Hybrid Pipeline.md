@@ -15,14 +15,15 @@
 - [weight_mapper.py](file://app/backend/services/weight_mapper.py)
 - [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
 - [video_service.py](file://app/backend/services/video_service.py)
+- [candidates.py](file://app/backend/routes/candidates.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- **Simplified Python Phase Execution**: Removed error handling and fallback mechanisms from `_run_python_phase` function, reducing complexity while maintaining core functionality
-- **Removed Weight Schema Conversion**: Eliminated weight mapper functionality and simplified scoring calculations in hybrid pipeline
-- **Streamlined Architecture**: Removed complex fallback systems and weight transformation logic for improved maintainability
-- **Enhanced Reliability**: Maintained deterministic Python processing while simplifying error handling
+- **Enhanced Data Persistence**: Added `_merge_llm_into_result` function that ensures complete report data persistence by merging LLM-generated narrative data with existing analysis results
+- **Improved Candidate History Views**: Background LLM narrative task now merges narrative data into analysis_result, preventing incomplete reports from displaying as 'PENDING' state in candidate history views
+- **Robust Error Handling**: Enhanced fallback mechanisms with comprehensive status tracking and database persistence
+- **Streamlined Architecture**: Simplified error handling while maintaining core functionality and reliability
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -44,7 +45,7 @@ The Hybrid Pipeline represents a sophisticated resume analysis system that combi
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
-**Updated** The system now features a simplified architecture with streamlined error handling and enhanced reliability. The Python phase execution has been simplified to focus on core functionality while maintaining robust performance characteristics.
+**Updated** The system now features enhanced data persistence capabilities with the new `_merge_llm_into_result` function that ensures complete report data remains available even when LLM processing fails or times out. The background LLM narrative task now merges LLM-generated narrative data with existing analysis results, preventing incomplete reports from displaying as 'PENDING' state in candidate history views.
 
 ## System Architecture
 
@@ -56,6 +57,7 @@ subgraph "Frontend Layer"
 FE[Web Interface]
 API[FastAPI Routes]
 NP[Narrative Polling]
+CH[Candidate History Views]
 end
 subgraph "Processing Layer"
 Parser[Resume Parser]
@@ -68,13 +70,14 @@ Skills[Skills Registry]
 LLM[LLM Services]
 Cache[JD Cache]
 end
+subgraph "Data Layer"
+DB[(PostgreSQL Database)]
+AR[Analysis Result Storage]
+NR[Narrative Result Storage]
+end
 subgraph "Deployment Layer"
 Cloud[Cloud Deployment]
 Local[Local Deployment]
-end
-subgraph "Storage Layer"
-DB[(PostgreSQL Database)]
-Models[ORM Models]
 end
 FE --> API
 API --> Parser
@@ -90,16 +93,19 @@ Parser --> DB
 Gap --> DB
 Hybrid --> DB
 Agent --> DB
-DB --> Models
+DB --> AR
+DB --> NR
+CH --> API
+NP --> API
 Cloud --> LLM
 Local --> LLM
-NP --> API
 ```
 
 **Diagram sources**
 - [analyze.py:1-1169](file://app/backend/routes/analyze.py#L1-L1169)
 - [hybrid_pipeline.py:1-2284](file://app/backend/services/hybrid_pipeline.py#L1-L2284)
 - [agent_pipeline.py:1-650](file://app/backend/services/agent_pipeline.py#L1-L650)
+- [candidates.py:150-262](file://app/backend/routes/candidates.py#L150-L262)
 
 The architecture implements several key design principles:
 
@@ -111,6 +117,7 @@ The architecture implements several key design principles:
 - **Adaptive Polling**: Intelligent polling architecture with exponential backoff and retry mechanisms
 - **Simplified Error Handling**: Streamlined error reporting with fallback mechanisms and user-friendly messaging
 - **Advanced JSON Parsing**: Enhanced error handling with position tracking and character context for parsing failures
+- **Data Persistence Enhancement**: Complete report data persistence through LLM result merging
 
 ## Core Components
 
@@ -211,6 +218,7 @@ participant Hybrid as "Hybrid Pipeline"
 participant Python as "Python Phase"
 participant LLM as "LLM Phase"
 participant Background as "Background Task"
+participant Merge as "Merge Function"
 Client->>Route : POST /api/analyze
 Route->>Hybrid : run_hybrid_pipeline()
 Hybrid->>Python : Phase 1 Processing
@@ -225,7 +233,9 @@ Python-->>Hybrid : Python Scores
 Hybrid->>Background : Start LLM Task
 Background->>LLM : explain_with_llm()
 LLM-->>Background : LLM Results
-Background->>Route : Update DB with LLM
+Background->>Merge : _merge_llm_into_result()
+Merge-->>Background : Merged Analysis
+Background->>Route : Update DB with Merged Result
 Route-->>Client : Immediate Python Results
 Note over Client,Background : Frontend polls /api/analysis/{id}/narrative
 ```
@@ -233,6 +243,7 @@ Note over Client,Background : Frontend polls /api/analysis/{id}/narrative
 **Diagram sources**
 - [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
 - [hybrid_pipeline.py:2052-2144](file://app/backend/services/hybrid_pipeline.py#L2052-L2144)
+- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
 
 ### Phase 1: Python Processing (1-2 seconds)
 
@@ -258,7 +269,7 @@ The first phase executes entirely in Python, providing immediate results with co
 - **Domain Fit**: Assesses technical domain alignment
 - **Architecture Assessment**: Evaluates system design and leadership experience
 
-**Simplified Error Handling**: The Python phase now focuses on core functionality with streamlined error handling, ensuring reliable operation without complex fallback mechanisms.
+**Enhanced Data Persistence**: The Python phase now focuses on core functionality with streamlined error handling, ensuring reliable operation without complex fallback mechanisms. The results are immediately available to the client while background processing continues.
 
 ### Phase 2: LLM Processing (40+ seconds)
 
@@ -273,12 +284,15 @@ The second phase generates comprehensive narratives and recommendations:
 
 **Enhanced Fallback System**: When LLM processing fails or times out, the system automatically generates a deterministic fallback narrative using the Python phase results. The retry mechanism now includes intelligent cloud detection and parameter optimization.
 
+**Enhanced Data Merging**: The new `_merge_llm_into_result` function ensures that LLM-generated narrative data is seamlessly integrated with existing analysis results, creating complete reports that persist in the database even when LLM processing encounters issues.
+
 **Updated** Enhanced with comprehensive status tracking and adaptive polling architecture:
 - **Four-State Status Tracking**: pending → processing → ready/failure states with proper transitions
 - **Adaptive Polling**: Intelligent polling with exponential backoff (2s for first 30s, then 5s)
 - **Background Task Management**: Robust task lifecycle with graceful shutdown and error recovery
 - **Enhanced Error Reporting**: Detailed status messages and fallback mechanisms
 - **Database Persistence**: Persistent status tracking across deployments and restarts
+- **Complete Report Persistence**: Merged LLM data ensures full reports remain available in candidate history
 
 ### Environment-Aware Configuration
 
@@ -382,7 +396,8 @@ Ready --> [*]
 Failed --> [*]
 state Processing {
 [*] --> LLM_Call
-LLM_Call --> DB_Write
+LLM_Call --> Merge_Data
+Merge_Data --> DB_Write
 DB_Write --> [*]
 }
 ```
@@ -426,6 +441,20 @@ The background processing integrates seamlessly with the database layer:
 - **narrative_error column**: Stores detailed error messages for failed states
 - **Persistent State**: Status persists across application restarts and deployments
 - **Backward Compatibility**: Graceful fallback when status columns are missing
+
+**Enhanced Data Merging**: The new `_merge_llm_into_result` function ensures that LLM-generated narrative data is seamlessly integrated with existing analysis results:
+
+```mermaid
+flowchart TD
+Python[Python Analysis Result] --> Merge[_merge_llm_into_result]
+LLM[LLM Narrative Result] --> Merge
+Merge --> Analysis[Complete Analysis Result]
+Analysis --> DB[Database Persistence]
+```
+
+**Diagram sources**
+- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
+- [hybrid_pipeline.py:1971-1976](file://app/backend/services/hybrid_pipeline.py#L1971-L1976)
 
 **Polling Interface:**
 - Frontend polls `/api/analysis/{id}/narrative` for updates
@@ -488,7 +517,7 @@ The polling system implements intelligent retry mechanisms with adaptive timing:
 - **Loading States**: Visual indicators for pending, processing, and failed states
 
 **Backend Polling Endpoint:**
-- **GET /api/analysis/{analysis_id}/narrative**: Returns current status and narrative
+- **GET /api/analysis/{id}/narrative**: Returns current status and narrative
 - **Status Responses**: {"status": "pending"}, {"status": "ready", "narrative": {...}}, {"status": "failed", "error": "..."}
 - **Fallback Handling**: Returns fallback narrative when LLM fails
 - **Security**: Tenant-scoped access control prevents unauthorized polling
@@ -603,6 +632,7 @@ The testing suite covers all aspects of the hybrid pipeline with extensive unit 
 - **Background Processing**: Validates LLM fallback mechanisms and database integration
 - **Status Tracking**: Tests four-state status transitions and polling functionality
 - **JSON Parsing**: Validates enhanced error handling and position tracking capabilities
+- **Data Merging**: Tests `_merge_llm_into_result` function for proper LLM result integration
 
 ### Enhanced Mock-Based Testing
 
@@ -625,6 +655,11 @@ The test suite extensively uses mocking to isolate components and simulate vario
 - **Balanced Object Extraction**: Tests automatic detection of balanced JSON objects
 - **Trailing Comma Fixes**: Validates automatic correction of common LLM mistakes
 - **Multiple Parsing Strategies**: Tests progressive fallback from simple to complex parsing attempts
+
+**Data Merging Tests:**
+- **Merge Function Validation**: Tests `_merge_llm_into_result` for proper LLM result integration
+- **Backward Compatibility**: Validates handling of both old and new LLM result formats
+- **Error Handling**: Tests robustness when LLM results are incomplete or malformed
 
 ## Performance Considerations
 
@@ -687,6 +722,12 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Environment Detection**: Automatic model selection based on deployment type
 - **Parameter Optimization**: Dynamic configuration based on model capabilities
 
+**Enhanced Data Persistence Performance:**
+- **Efficient Merging**: Optimized `_merge_llm_into_result` function for minimal overhead
+- **Database Indexing**: Proper indexing on status and timestamp fields for fast queries
+- **Connection Pooling**: Optimized database connections for concurrent operations
+- **Background Processing**: Non-blocking LLM processing ensures responsive user experience
+
 ## Troubleshooting Guide
 
 ### Common Issues and Solutions
@@ -721,6 +762,12 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Symptoms**: Inconsistent status reporting, missing status updates
 - **Causes**: Database connectivity issues, missing status columns
 - **Solutions**: Verify database schema migration, check status column existence, monitor background task execution
+
+**Enhanced Data Persistence Issues:**
+- **Symptoms**: Incomplete reports in candidate history, 'PENDING' state display
+- **Causes**: Database write failures, merge function errors
+- **Solutions**: Check database connectivity, verify merge function logs, monitor background task execution
+- **Monitoring**: Look for "Failed to merge narrative into analysis_result" warnings
 
 **Enhanced JSON Parsing Issues:**
 - **Symptoms**: JSON parsing failures, position tracking errors
@@ -775,6 +822,12 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Backward Compatibility Verification**: Graceful fallback mechanism validation
 - **Configuration Conflict Resolution**: Automatic handling of conflicting model settings
 
+**Enhanced Data Persistence Diagnostics:**
+- **Merge Function Logs**: Detailed logging of LLM result merging process
+- **Database Write Success Metrics**: Tracking of successful and failed database writes
+- **Background Task Health Monitoring**: Continuous monitoring of background processing health
+- **Candidate History View Validation**: Ensuring complete reports appear correctly in candidate history
+
 **Section sources**
 - [hybrid_pipeline.py:135-147](file://app/backend/services/hybrid_pipeline.py#L135-L147)
 - [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
@@ -783,7 +836,7 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 
 The Hybrid Pipeline represents a mature, production-ready solution that successfully balances computational efficiency with intelligent analysis. By leveraging the strengths of both Python-based rule engines and LLM-powered natural language processing, the system delivers both immediate actionable insights and comprehensive qualitative analysis.
 
-**Updated** The recent architectural changes significantly simplify the system while maintaining its core functionality. The removal of complex error handling and weight schema conversion logic improves maintainability and reliability. The streamlined `_run_python_phase` function focuses on essential operations, while the enhanced retry mechanisms with different temperatures (0.1 for primary, 0.3 for retry) provide better fallback behavior while maintaining deterministic responses.
+**Updated** The recent architectural enhancements significantly improve the system's reliability and data persistence capabilities. The introduction of the `_merge_llm_into_result` function ensures that LLM-generated narrative data is seamlessly integrated with existing analysis results, creating complete reports that persist in the database even when LLM processing fails or times out. This enhancement prevents incomplete reports from displaying as 'PENDING' state in candidate history views, providing recruiters with comprehensive analysis data regardless of LLM processing outcomes.
 
 **Enhanced Reliability Features:**
 - **Simplified Python Phase**: Reduced complexity while maintaining core functionality
@@ -793,6 +846,8 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Enhanced Error Handling**: Detailed status reporting and fallback mechanisms
 - **Database Persistence**: Reliable status tracking across deployments and restarts
 - **Advanced JSON Parsing**: Comprehensive error handling with position tracking and character context
+- **Complete Report Persistence**: Merged LLM data ensures full reports remain available in candidate history
+- **Enhanced Data Merging**: Seamless integration of LLM results with existing analysis data
 
 **Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results
@@ -808,6 +863,7 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Adaptive polling architecture** optimizing user experience across different deployment types
 - **Advanced JSON parsing diagnostics** enabling rapid troubleshooting of parsing failures
 - **Enhanced model configuration** ensuring optimal performance with Gemma4 31B cloud model
+- **Complete data persistence** guaranteeing reports remain accessible even with LLM failures
 
 The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes. The comprehensive status tracking and polling architecture ensure reliable operation in production environments while maintaining responsive user experiences.
 
@@ -820,15 +876,36 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Deployment Flexibility**: Seamless operation across cloud and local environments
 - **Enhanced Debugging**: Advanced JSON parsing diagnostics for rapid issue resolution
 - **Model Optimization**: Automatic configuration for optimal Gemma4 31B cloud model performance
+- **Data Integrity**: Complete report persistence ensures candidate history displays full analysis data
 
-The system's modular design, comprehensive testing framework, and robust error handling ensure reliable operation in production environments. The careful attention to performance optimization, memory management, and resource utilization enables the system to scale effectively while maintaining responsive user experiences.
+**Enhanced Data Persistence Benefits:**
+- **Reliable Report Availability**: Complete analysis data remains accessible even when LLM processing fails
+- **Candidate History Accuracy**: Prevents 'PENDING' state display issues in candidate history views
+- **Seamless Integration**: LLM results are automatically merged with existing analysis data
+- **Backward Compatibility**: Works with both old and new LLM result formats
+- **Error Resilience**: Database write failures don't compromise report completeness
 
-**Enhanced JSON Parsing Benefits:**
+The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+
+**Enhanced Architecture Benefits:**
+- **Reduced Complexity**: Streamlined error handling and weight schema conversion logic
+- **Improved Maintainability**: Easier to understand and modify core functionality
+- **Enhanced Reliability**: Fewer failure points in the system architecture
+- **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
+- **Future Extensibility**: Clean foundation for adding new features without architectural debt
+- **Data Integrity**: Robust mechanisms ensure complete report data persistence
+- **User Experience**: Seamless operation even when LLM processing encounters issues
+
+The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+
+**Enhanced Data Merging Benefits:**
 - **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
 - **Improved Reliability**: Multiple parsing strategies and automatic recovery mechanisms reduce failure rates
 - **Better Debugging**: Comprehensive logging provides detailed insights into JSON extraction challenges
 - **Enhanced User Experience**: Automatic fixes for common LLM mistakes improve overall system reliability
 - **Production Stability**: Robust error handling ensures consistent performance in production environments
+- **Complete Report Integrity**: Merged LLM data guarantees candidate history displays full analysis information
+- **Error Resilience**: Database write failures don't compromise the availability of complete reports
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -838,5 +915,6 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced Reliability**: Fewer failure points in the system architecture
 - **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
 - **Future Extensibility**: Clean foundation for adding new features without architectural debt
+- **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
