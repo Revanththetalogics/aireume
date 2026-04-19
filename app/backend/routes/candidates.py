@@ -207,13 +207,13 @@ def get_candidate(
             # Analysis fields (spread all merged data)
             **merged_data,
             
-            # Parsed data
+            # Parsed data - use enriched data from analysis if available, fallback to raw parsed data
             "parsed_data":          r.parsed_data,
-            "contact_info":         parsed.get("contact_info", {}),
-            "candidate_profile":    parsed.get("candidate_profile", {}),
-            "work_experience":      parsed.get("work_experience", []),
-            "education":            parsed.get("education", []),
-            "skills":               parsed.get("skills", []),
+            "contact_info":         merged_data.get("contact_info") or parsed.get("contact_info", {}),
+            "candidate_profile":    merged_data.get("candidate_profile") or parsed.get("candidate_profile", {}),
+            "work_experience":      merged_data.get("work_experience") or parsed.get("work_experience", []),
+            "education":            merged_data.get("education") or parsed.get("education", []),
+            "skills":               merged_data.get("skills") or parsed.get("skills", []),
             
             # Narrative fields for AI enhancement status
             "narrative_status":     r.narrative_status or "pending",

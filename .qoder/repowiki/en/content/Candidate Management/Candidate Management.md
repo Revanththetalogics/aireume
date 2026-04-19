@@ -7,28 +7,30 @@
 - [db_models.py](file://app/backend/models/db_models.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [parser_service.py](file://app/backend/services/parser_service.py)
+- [llm_service.py](file://app/backend/services/llm_service.py)
 - [llm_contact_extractor.py](file://app/backend/services/llm_contact_extractor.py)
 - [weight_mapper.py](file://app/backend/services/weight_mapper.py)
 - [weight_suggester.py](file://app/backend/services/weight_suggester.py)
 - [gap_detector.py](file://app/backend/services/gap_detector.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [analysis_service.py](file://app/backend/services/analysis_service.py)
+- [consensus_analyzer.py](file://app/backend/services/consensus_analyzer.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
 - [candidates.py](file://app/backend/routes/candidates.py)
 - [export.py](file://app/backend/routes/export.py)
 - [compare.py](file://app/backend/routes/compare.py)
 - [002_parser_snapshot_json.py](file://alembic/versions/002_parser_snapshot_json.py)
+- [008_analysis_queue_system.py](file://alembic/versions/008_analysis_queue_system.py)
 - [009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
 - [test_candidate_dedup.py](file://app/backend/tests/test_candidate_dedup.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced LLM contact extraction capabilities with new LLM-based contact information extraction
-- Improved resume parsing with DOCX fallback and multi-stage extraction pipeline
-- Integrated intelligent scoring weights system with universal schema support
-- Added weight suggestion endpoint and version management for screening results
-- Updated hybrid pipeline to support new weight schemas and automatic conversion
+- Enhanced field-level merge strategy in candidate data processing to preserve critical analysis fields
+- Fixed bug where core analysis fields like fit_score and final_recommendation were being overwritten by narrative data
+- Implemented selective narrative enhancement that preserves critical analysis fields while allowing narrative overrides
+- Updated candidate history merging to maintain integrity of core analysis results
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -45,12 +47,12 @@
 ## Introduction
 This document describes the candidate management system for Resume AI by ThetaLogics. It covers how candidate profiles are stored, how resumes are parsed and analyzed, how deduplication works across resumes and analysis results, and how search, filtering, history, and analysis results are managed. It also documents integration between parsing services and candidate data storage, bulk operations, export capabilities, and data portability features. Finally, it outlines strategies for extending candidate metadata and customizing parsing workflows, along with privacy and lifecycle considerations.
 
-**Updated** Enhanced with new LLM contact extraction capabilities, improved resume parsing with DOCX fallback, and integration with intelligent scoring weights system for better candidate evaluation.
+**Updated** Enhanced with field-level merge strategy that preserves critical analysis fields while allowing selective narrative enhancements, ensuring data integrity and reliability.
 
 ## Project Structure
 The candidate management system spans models, services, and routes:
 - Models define the persistent entities (Candidate, ScreeningResult, JdCache, Skill, etc.) and relationships.
-- Services encapsulate parsing, gap detection, hybrid pipeline scoring, LLM orchestration, and intelligent weight management.
+- Services encapsulate parsing, gap detection, hybrid pipeline scoring, LLM orchestration, intelligent weight management, and field-level data merging.
 - Routes expose endpoints for analysis, candidate listing/detail, history, export, comparison, and weight suggestions.
 
 ```mermaid
@@ -63,12 +65,14 @@ SK["Skill"]
 end
 subgraph "Services"
 PS["parser_service.py"]
+LS["llm_service.py"]
 LCE["llm_contact_extractor.py"]
 WM["weight_mapper.py"]
 WS["weight_suggester.py"]
 GD["gap_detector.py"]
 HP["hybrid_pipeline.py"]
 AS["analysis_service.py"]
+CA["consensus_analyzer.py"]
 end
 subgraph "Routes"
 RA["analyze.py"]
@@ -77,12 +81,14 @@ RE["export.py"]
 RCM["compare.py"]
 end
 RA --> PS
+RA --> LS
 RA --> LCE
 RA --> WM
 RA --> WS
 RA --> GD
 RA --> HP
 RA --> AS
+RA --> CA
 RA --> C
 RA --> SR
 RA --> JC
@@ -93,14 +99,16 @@ RCM --> SR
 ```
 
 **Diagram sources**
-- [db_models.py:97-146](file://app/backend/models/db_models.py#L97-L146)
+- [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
 - [parser_service.py:130-552](file://app/backend/services/parser_service.py#L130-L552)
+- [llm_service.py:163-314](file://app/backend/services/llm_service.py#L163-L314)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 - [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
 - [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
 - [gap_detector.py:103-219](file://app/backend/services/gap_detector.py#L103-L219)
 - [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
 - [analysis_service.py:6-121](file://app/backend/services/analysis_service.py#L6-L121)
+- [consensus_analyzer.py:278-316](file://app/backend/services/consensus_analyzer.py#L278-L316)
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
 - [candidates.py:26-189](file://app/backend/routes/candidates.py#L26-L189)
 - [export.py:20-104](file://app/backend/routes/export.py#L20-L104)
@@ -112,33 +120,40 @@ RCM --> SR
 
 ## Core Components
 - Candidate entity stores enriched profile fields, parser snapshot, and metadata used for deduplication and re-analysis.
-- ScreeningResult persists analysis outcomes, weights metadata, and links to candidates and role templates.
+- ScreeningResult persists analysis outcomes, weights metadata, narrative data, and links to candidates and role templates.
 - Parser service extracts text and structured data from resumes with enhanced DOCX fallback and multi-stage extraction.
+- LLM service provides reliable analysis with validated fit_score and final_recommendation fields.
 - LLM contact extractor provides accurate contact information extraction using Gemini model with fallback strategies.
 - Weight mapper and suggester services manage intelligent scoring weights with universal schema support and role-adaptive recommendations.
 - Gap detector computes timelines, gaps, overlaps, and total experience.
 - Hybrid pipeline orchestrates Python-based scoring and LLM narrative with support for new weight schemas.
+- Consensus analyzer processes multiple analysis results with field-level merge strategy preserving critical fields.
 - Deduplication logic identifies duplicates across email, file hash, and name+phone.
 - Routes expose endpoints for single and batch analysis, candidate listing/detail, history, export, comparison, and weight suggestions.
 
+**Updated** Enhanced with field-level merge strategy that preserves critical analysis fields like fit_score and final_recommendation during narrative integration.
+
 **Section sources**
-- [db_models.py:97-146](file://app/backend/models/db_models.py#L97-L146)
+- [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
 - [parser_service.py:193-552](file://app/backend/services/parser_service.py#L193-L552)
+- [llm_service.py:263-284](file://app/backend/services/llm_service.py#L263-L284)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 - [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
 - [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
 - [gap_detector.py:103-219](file://app/backend/services/gap_detector.py#L103-L219)
 - [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
+- [consensus_analyzer.py:278-316](file://app/backend/services/consensus_analyzer.py#L278-L316)
 - [analyze.py:147-214](file://app/backend/routes/analyze.py#L147-L214)
 
 ## Architecture Overview
-The system integrates parsing, gap detection, hybrid scoring, intelligent weight management, and persistence. Deduplication ensures candidate identity is preserved across uploads and re-analyses. Profiles are stored for fast re-analysis and auditability with enhanced contact extraction capabilities.
+The system integrates parsing, gap detection, hybrid scoring, intelligent weight management, and persistence. Deduplication ensures candidate identity is preserved across uploads and re-analyses. Profiles are stored for fast re-analysis and auditability with enhanced contact extraction capabilities and field-level data integrity.
 
 ```mermaid
 sequenceDiagram
 participant Client as "Client"
 participant Route as "analyze.py"
 participant Parser as "parser_service.py"
+participant LLM as "llm_service.py"
 participant LLMContact as "llm_contact_extractor.py"
 participant Gap as "gap_detector.py"
 participant Pipe as "hybrid_pipeline.py"
@@ -153,6 +168,8 @@ Parser-->>Route : parsed_data + contact_info
 Route->>Gap : analyze_gaps(work_experience)
 Gap-->>Route : gap_analysis
 Route->>Pipe : run_hybrid_pipeline(parsed_data, gap_analysis, jd, weights)
+Pipe->>LLM : analyze_with_llm()
+LLM-->>Pipe : validated_analysis_result
 Pipe-->>Route : analysis_result + fit_score
 Route->>DB : _get_or_create_candidate()
 DB-->>Route : candidate_id, is_dup
@@ -164,10 +181,11 @@ Route-->>Client : analysis_result + candidate_id/result_id
 **Diagram sources**
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
 - [parser_service.py:547-552](file://app/backend/services/parser_service.py#L547-L552)
+- [llm_service.py:297-314](file://app/backend/services/llm_service.py#L297-L314)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
 - [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
-- [db_models.py:97-146](file://app/backend/models/db_models.py#L97-L146)
+- [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
 
 ## Detailed Component Analysis
 
@@ -255,6 +273,18 @@ MergeContact --> End(["Return parsed_data"])
 - [parser_service.py:130-552](file://app/backend/services/parser_service.py#L130-L552)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 
+### LLM Service and Field-Level Validation
+- **Reliable Analysis**: Provides validated fit_score (0-100) and final_recommendation fields with strict validation.
+- **Structured Output**: Returns JSON with fit_score, strengths, weaknesses, education_analysis, risk_signals, and final_recommendation.
+- **Field Validation**: Ensures fit_score stays within bounds, arrays are limited to 5 items, and recommendations are valid.
+- **Fallback Mechanism**: Provides default values when LLM analysis fails.
+
+**Updated** Enhanced with field-level validation that preserves critical analysis fields during narrative integration.
+
+**Section sources**
+- [llm_service.py:263-284](file://app/backend/services/llm_service.py#L263-L284)
+- [llm_service.py:286-294](file://app/backend/services/llm_service.py#L286-L294)
+
 ### LLM Contact Extraction System
 - **Primary Method**: LLM-based contact extraction using Gemini model for highest accuracy.
 - **Fallback Strategy**: spaCy NER, email-based extraction, relaxed header scanning, and filename-based extraction.
@@ -338,6 +368,8 @@ participant SR as "ScreeningResult"
 Route->>WM : convert_to_new_schema(scoring_weights)
 WM-->>Route : normalized_weights
 Route->>HP : run_hybrid_pipeline(resume_text, job_description, parsed_data, gap_analysis, jd_analysis, weights)
+HP->>LLM : analyze_with_llm()
+LLM-->>HP : validated_analysis_result
 HP-->>Route : result (scores, matched/missing skills, breakdown)
 Route->>SR : persist ScreeningResult (with weights metadata)
 SR-->>Route : result_id
@@ -352,6 +384,34 @@ Route-->>Route : attach candidate_id/result_id
 **Section sources**
 - [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
 - [analysis_service.py:6-121](file://app/backend/services/analysis_service.py#L6-L121)
+
+### Enhanced Field-Level Merge Strategy
+**Critical Update**: Implemented field-level merge strategy that preserves critical analysis fields while allowing selective narrative enhancements.
+
+- **Core Analysis Fields Preservation**: fit_score, final_recommendation, and other critical analysis fields are protected from narrative overwrites.
+- **Selective Narrative Enhancement**: Only narrative-specific fields (strengths, weaknesses, concerns, recommendation_rationale, explainability) are merged from narrative data.
+- **Field Priority Logic**: Core analysis fields take precedence over narrative data to maintain data integrity.
+- **Background Task Integration**: Narrative data is merged into analysis_result during background LLM narrative generation.
+
+```mermaid
+flowchart TD
+StartMerge(["Merge Analysis + Narrative"]) --> CoreFields["Extract Core Analysis Fields"]
+CoreFields --> CheckNarrative{"Narrative Data Available?"}
+CheckNarrative --> |No| ReturnCore["Return Core Analysis Only"]
+CheckNarrative --> |Yes| ExtractNarrative["Extract Narrative Fields"]
+ExtractNarrative --> MergeStrategy["Apply Field-Level Merge Strategy"]
+MergeStrategy --> PreserveCore["Preserve Core Analysis Fields"]
+PreserveCore --> OverrideNarrative["Override with Narrative for Specific Fields"]
+OverrideNarrative --> FinalResult["Return Merged Result"]
+```
+
+**Diagram sources**
+- [candidates.py:182-195](file://app/backend/routes/candidates.py#L182-L195)
+- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
+
+**Section sources**
+- [candidates.py:182-195](file://app/backend/routes/candidates.py#L182-L195)
+- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
 
 ### Deduplication Strategies
 - Three-layer deduplication:
@@ -419,13 +479,14 @@ CandRoute-->>Client : detail + history
 - ScreeningResult persists parsed_data and analysis_result as JSON for auditability.
 - **Updated**: Enhanced with intelligent scoring weights metadata (role_category, weight_reasoning, suggested_weights_json).
 - **Updated**: Version management with is_active flag and version_number for historical tracking.
+- **Updated**: Field-level merge strategy ensures critical analysis fields remain intact during narrative integration.
 - History endpoint aggregates recent results with fit_score, recommendation, and risk level.
 - Candidate detail endpoint augments history with analysis quality and score breakdown.
 
-**Updated** Enhanced with intelligent scoring weights system and version management for comprehensive history tracking.
+**Updated** Enhanced with field-level merge strategy that preserves critical analysis fields during narrative integration.
 
 **Section sources**
-- [db_models.py:128-146](file://app/backend/models/db_models.py#L128-L146)
+- [db_models.py:128-150](file://app/backend/models/db_models.py#L128-L150)
 - [analyze.py:763-786](file://app/backend/routes/analyze.py#L763-L786)
 - [candidates.py:122-140](file://app/backend/routes/candidates.py#L122-L140)
 - [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
@@ -435,8 +496,9 @@ CandRoute-->>Client : detail + history
 - The route persists both the ScreeningResult with weights metadata and updates the Candidate profile snapshot.
 - parser_snapshot_json captures the complete parser output for re-analysis and auditing.
 - **Updated**: Weight metadata is stored with screening results for future comparisons and analysis.
+- **Updated**: Field-level merge strategy ensures data integrity during narrative integration.
 
-**Updated** Integrated intelligent scoring weights system into the parsing and storage workflow.
+**Updated** Integrated intelligent scoring weights system into the parsing and storage workflow with enhanced field-level data protection.
 
 **Section sources**
 - [analyze.py:454-476](file://app/backend/routes/analyze.py#L454-L476)
@@ -446,6 +508,7 @@ CandRoute-->>Client : detail + history
 - Batch analysis endpoint supports multiple resumes with plan-based limits and usage enforcement.
 - Export endpoints (CSV/Excel) stream screening results for selected IDs or all recent results.
 - **Updated**: Export includes enhanced weight metadata and version information for comprehensive reporting.
+- **Updated**: Field-level merge strategy ensures exported data maintains critical analysis field integrity.
 
 ```mermaid
 sequenceDiagram
@@ -477,8 +540,9 @@ Export-->>Client : CSV stream
   - Auditability and reproducibility of parsing decisions.
   - Export of raw parsed fields alongside analysis results.
 - **Updated**: Enhanced with intelligent scoring weights metadata for comprehensive data portability.
+- **Updated**: Field-level merge strategy ensures portable data maintains critical analysis field integrity.
 
-**Updated** Enhanced parser snapshot with intelligent scoring weights metadata for improved portability.
+**Updated** Enhanced parser snapshot with intelligent scoring weights metadata for improved portability and data integrity.
 
 **Section sources**
 - [db_models.py:120-121](file://app/backend/models/db_models.py#L120-L121)
@@ -490,8 +554,9 @@ Export-->>Client : CSV stream
 - Adjust skills registry and matching by updating skills lists and aliases in the SkillsRegistry.
 - **Updated**: Enhance contact extraction by integrating LLM contact extractor into parsing pipeline.
 - **Updated**: Customize weight schemas by extending weight mapper and suggester services.
+- **Updated**: Extend field-level merge strategy by adding new critical fields to preservation logic.
 
-**Updated** Enhanced with LLM contact extraction integration and customizable weight schemas.
+**Updated** Enhanced with LLM contact extraction integration, customizable weight schemas, and extensible field-level merge strategy.
 
 **Section sources**
 - [db_models.py:97-126](file://app/backend/models/db_models.py#L97-L126)
@@ -505,20 +570,22 @@ Export-->>Client : CSV stream
 - parser_snapshot_json and raw_resume_text are retained; consider implementing retention policies and deletion endpoints.
 - Usage logs track analysis counts per tenant; leverage for compliance and billing.
 - **Updated**: Intelligent scoring weights metadata requires careful privacy consideration for sensitive role-based data.
+- **Updated**: Field-level merge strategy ensures critical analysis fields maintain integrity during narrative processing.
 - Recommendations:
   - Add tenant-aware soft-delete and anonymization.
   - Implement data export/deletion APIs aligned with privacy regulations.
   - Add encryption-at-rest for sensitive fields if required.
   - Consider GDPR-compliant handling of AI-generated weight suggestions.
+  - Monitor field-level merge operations for data integrity compliance.
 
-**Updated** Enhanced privacy considerations for intelligent scoring weights metadata and AI-generated suggestions.
+**Updated** Enhanced privacy considerations for intelligent scoring weights metadata and AI-generated suggestions, with field-level data integrity protection.
 
 **Section sources**
 - [db_models.py:79-93](file://app/backend/models/db_models.py#L79-L93)
 - [candidates.py:26-80](file://app/backend/routes/candidates.py#L26-L80)
 
 ## Dependency Analysis
-The following diagram shows key dependencies among modules involved in candidate management with enhanced intelligent scoring system.
+The following diagram shows key dependencies among modules involved in candidate management with enhanced field-level data protection.
 
 ```mermaid
 graph LR
@@ -534,6 +601,8 @@ RA --> DBM["models/db_models.py"]
 RC["routes/candidates.py"] --> DBM
 RE["routes/export.py"] --> DBM
 RCM["routes/compare.py"] --> DBM
+LS["llm_service.py"] --> HP
+LS --> AS["analysis_service.py"]
 ```
 
 **Diagram sources**
@@ -541,7 +610,8 @@ RCM["routes/compare.py"] --> DBM
 - [candidates.py:20-21](file://app/backend/routes/candidates.py#L20-L21)
 - [export.py:14-15](file://app/backend/routes/export.py#L14-L15)
 - [compare.py:9-11](file://app/backend/routes/compare.py#L9-L11)
-- [db_models.py:97-146](file://app/backend/models/db_models.py#L97-L146)
+- [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
+- [llm_service.py:163-314](file://app/backend/services/llm_service.py#L163-L314)
 
 **Section sources**
 - [analyze.py:32-39](file://app/backend/routes/analyze.py#L32-L39)
@@ -557,6 +627,7 @@ RCM["routes/compare.py"] --> DBM
 - Batch analysis enforces plan-based limits and parallel processing.
 - **Updated**: LLM contact extraction uses optimized timeouts and fallback strategies for performance.
 - **Updated**: Intelligent scoring weights system includes caching and normalization for efficient computation.
+- **Updated**: Field-level merge strategy optimizes data processing by avoiding unnecessary field overwrites.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -566,6 +637,7 @@ Common issues and resolutions:
 - Exceeding usage limits: Monthly analysis or batch size limits enforced; upgrade plan.
 - **Updated**: LLM contact extraction failures: Automatic fallback to regex/NLP methods; check model availability.
 - **Updated**: Intelligent scoring weights conversion errors: Automatic fallback to default weights; verify input format.
+- **Updated**: Field-level merge failures: Core analysis fields remain intact; check narrative data format; verify critical field preservation.
 
 **Section sources**
 - [parser_service.py:175-181](file://app/backend/services/parser_service.py#L175-L181)
@@ -575,7 +647,7 @@ Common issues and resolutions:
 - [weight_mapper.py:212-246](file://app/backend/services/weight_mapper.py#L212-L246)
 
 ## Conclusion
-The candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and auditability. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. Extensibility is provided through model additions, parser customization, skills registry updates, and intelligent weight management. Privacy and lifecycle management should be considered for production deployments with enhanced attention to AI-generated metadata.
+The candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and auditability. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. Extensibility is provided through model additions, parser customization, skills registry updates, intelligent weight management, and configurable field-level merge logic. Privacy and lifecycle management should be considered for production deployments with enhanced attention to AI-generated metadata and data integrity protection.
 
 ## Appendices
 
@@ -612,3 +684,26 @@ The candidate management system integrates robust parsing, deduplication, intell
 - [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
 - [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
 - [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
+
+### Field-Level Merge Strategy Details
+**Critical Analysis Fields Preserved**:
+- fit_score: Core scoring metric (0-100)
+- final_recommendation: Candidate recommendation (Shortlist/Consider/Reject/Pending)
+- analysis_quality: Quality assessment of analysis
+- recommendation: Alternative recommendation field
+- risk_level: Risk assessment level
+
+**Narrative Fields That Can Override**:
+- ai_enhanced: AI enhancement status flag
+- fit_summary: Summary of candidate fit
+- strengths: Candidate strengths
+- concerns: Candidate concerns
+- weaknesses: Candidate weaknesses
+- recommendation_rationale: Reasoning for recommendation
+- explainability: Detailed explainability data
+- interview_questions: Interview question recommendations
+
+**Section sources**
+- [candidates.py:182-195](file://app/backend/routes/candidates.py#L182-L195)
+- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
+- [llm_service.py:263-284](file://app/backend/services/llm_service.py#L263-L284)
