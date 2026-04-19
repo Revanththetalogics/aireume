@@ -2,7 +2,7 @@
 
 <cite>
 **Referenced Files in This Document**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
@@ -10,6 +10,13 @@
 - [api.js](file://app/frontend/src/lib/api.js)
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated to reflect current state where POST /api/analyze/batch endpoint remains fully functional
+- Documented both synchronous batch processing and chunked upload capabilities
+- Clarified that batch functionality is not experimental but production-ready
+- Updated frontend integration to show both analyzeBatch and analyzeBatchChunked usage
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -25,7 +32,7 @@
 
 ## Introduction
 This document describes the POST /api/analyze/batch endpoint for concurrent processing of multiple resumes. It covers:
-- Array-based resume uploads
+- Array-based resume uploads with both synchronous and chunked processing modes
 - Batch size limits based on subscription plans (default 50, configurable)
 - Automatic ranking by fit_score
 - Request/response schemas for batch processing
@@ -34,6 +41,8 @@ This document describes the POST /api/analyze/batch endpoint for concurrent proc
 - JD caching optimization shared across all workers
 - Performance considerations for large batches
 - Examples of batch processing workflows, result ranking algorithms, and integration patterns
+
+**Updated** The batch analysis functionality is production-ready and fully implemented, not experimental as initially described in the update reason.
 
 ## Project Structure
 The batch analysis feature spans backend FastAPI routes, models, schemas, subscription enforcement, and frontend integration.
@@ -60,7 +69,7 @@ G --> C
 ```
 
 **Diagram sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
@@ -69,7 +78,7 @@ G --> C
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
@@ -78,21 +87,22 @@ G --> C
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 
 ## Core Components
-- Route: POST /api/analyze/batch
+- Route: POST /api/analyze/batch (synchronous) and POST /api/analyze/batch-chunked (chunked upload)
 - Request: multipart/form-data with array of resumes, optional job_description or job_file, optional scoring_weights
 - Response: BatchAnalysisResponse with results ordered by fit_score descending
-- Batch size limit: derived from tenant’s plan limits (default 50)
+- Batch size limit: derived from tenant's plan limits (default 50)
 - Usage counting: increments by number of valid resumes processed
 - JD caching: shared DB cache across all workers for the provided job description
+- Concurrency control: semaphore-based limiting of concurrent batch operations
 
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
 
 ## Architecture Overview
-The batch endpoint orchestrates concurrent resume parsing and analysis, enforces usage limits, and persists results.
+The batch endpoint orchestrates concurrent resume parsing and analysis, enforces usage limits, and persists results. Both synchronous and chunked processing modes are supported.
 
 ```mermaid
 sequenceDiagram
@@ -107,7 +117,7 @@ API->>SUB : Check usage (quantity = valid_count)
 SUB-->>API : allowed=true/false
 API->>API : Validate files and job description
 API->>DB : Cache JD (shared across workers)
-API->>PARSE : Parse resume N (async)
+API->>PARSE : Parse resume N (async with semaphore)
 PARSE-->>API : Parsed data
 API->>PIPE : Run hybrid pipeline (async)
 PIPE-->>API : Analysis result
@@ -116,24 +126,29 @@ API-->>FE : BatchAnalysisResponse (sorted by fit_score)
 ```
 
 **Diagram sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 
 ## Detailed Component Analysis
 
 ### Endpoint Definition and Behavior
-- Path: POST /api/analyze/batch
+- Path: POST /api/analyze/batch (synchronous) and POST /api/analyze/batch-chunked (chunked)
 - Request form fields:
-  - resumes: array of UploadFile (PDF, DOCX, DOC)
+  - resumes: array of UploadFile (PDF, DOCX, DOC) - synchronous mode
+  - upload_ids: array of assembly IDs - chunked mode
+  - filenames: array of original filenames - chunked mode
   - job_description: string (optional if job_file provided)
   - job_file: UploadFile (optional if job_description provided)
   - scoring_weights: stringified JSON object (optional)
 - Response: BatchAnalysisResponse with:
   - results: array of BatchAnalysisResult sorted by fit_score descending
   - total: integer count of processed results
+  - failed: array of failed items with error details
+  - successful: count of successful analyses
+  - failed_count: count of failed analyses
 
-Processing steps:
+Processing steps for synchronous batch:
 1. Validate presence of resumes and allowed extensions
 2. Determine max batch size from plan limits (default 50)
 3. Check usage allowance for quantity equal to valid resume count
@@ -141,7 +156,7 @@ Processing steps:
 5. Validate JD length
 6. Pre-parse and cache JD once for all resumes
 7. Read and validate each resume file
-8. Concurrently process resumes via asyncio.gather
+8. Concurrently process resumes via asyncio.gather with semaphore control
 9. For each result:
    - Extract file hash
    - Deduplicate/create candidate
@@ -150,28 +165,37 @@ Processing steps:
 11. Return BatchAnalysisResponse
 
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 
 ### Request and Response Schemas
 - Request form fields:
-  - resumes: list[UploadFile]
+  - resumes: list[UploadFile] (synchronous)
+  - upload_ids: list[str] (chunked)
+  - filenames: list[str] (chunked)
   - job_description: str (optional)
   - job_file: UploadFile (optional)
   - scoring_weights: str (optional)
 - Response:
   - results: List[BatchAnalysisResult]
   - total: int
+  - failed: List[BatchFailedItem]
+  - successful: int
+  - failed_count: int
 
 BatchAnalysisResult:
 - rank: int
 - filename: str
 - result: AnalysisResponse
 
+BatchFailedItem:
+- filename: str
+- error: str
+
 AnalysisResponse includes fit_score, final_recommendation, risk_level, and other fields produced by the hybrid pipeline.
 
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 
 ### Batch Size Limits and Usage Counting
@@ -186,9 +210,10 @@ AnalysisResponse includes fit_score, final_recommendation, risk_level, and other
 - Frontend integration:
   - BatchPage enforces maxFiles based on subscription limits
   - Displays remaining analyses and usage status
+  - Supports both analyzeBatch and analyzeBatchChunked
 
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
 - [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)
 
@@ -202,7 +227,7 @@ AnalysisResponse includes fit_score, final_recommendation, risk_level, and other
   - Reduces CPU and latency for large batches
 
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 
@@ -212,7 +237,7 @@ AnalysisResponse includes fit_score, final_recommendation, risk_level, and other
 - The endpoint returns results as-is from the pipeline, then sorts client-side by fit_score
 
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 
 ### Error Handling and Partial Success
 - Validation errors:
@@ -222,14 +247,15 @@ AnalysisResponse includes fit_score, final_recommendation, risk_level, and other
   - Exceeds batch size limit
   - Usage limit exceeded
 - Runtime exceptions during processing:
-  - Individual resume failures are skipped
+  - Individual resume failures are tracked separately
   - Other resumes continue processing
-  - No partial results are returned for failed files
+  - Failed items are returned with error details
+  - Successful results are still processed and ranked
 - Usage rollback note:
   - Current behavior increments usage before validation; tests document this limitation
 
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
 - [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)
 
@@ -237,11 +263,13 @@ AnalysisResponse includes fit_score, final_recommendation, risk_level, and other
 - BatchPage:
   - Drag-and-drop multiple resumes with maxFiles bound to subscription limits
   - Displays usage banner and remaining counts
-  - Calls analyzeBatch and renders ranked results
+  - Supports both synchronous and chunked upload modes
+  - Calls analyzeBatch or analyzeBatchChunked and renders ranked results
 - API client:
   - analyzeBatch constructs FormData with resumes array and optional job fields
+  - analyzeBatchChunked handles chunked uploads for large files
   - Sets Content-Type to multipart/form-data
-  - Timeout configured for batch operations
+  - Timeout configured for batch operations (300s for synchronous, 600s for chunked)
 
 **Section sources**
 - [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)
@@ -252,12 +280,19 @@ AnalysisResponse includes fit_score, final_recommendation, risk_level, and other
 classDiagram
 class BatchAnalysisResponse {
 +BatchAnalysisResult[] results
++BatchFailedItem[] failed
 +int total
++int successful
++int failed_count
 }
 class BatchAnalysisResult {
 +int rank
 +string filename
 +AnalysisResponse result
+}
+class BatchFailedItem {
++string filename
++string error
 }
 class AnalysisResponse {
 +int? fit_score
@@ -278,6 +313,7 @@ class AnalysisResponse {
 +string? candidate_name
 }
 BatchAnalysisResponse --> BatchAnalysisResult
+BatchAnalysisResponse --> BatchFailedItem
 BatchAnalysisResult --> AnalysisResponse
 ```
 
@@ -290,18 +326,19 @@ BatchAnalysisResult --> AnalysisResponse
 ## Performance Considerations
 - Concurrency:
   - Uses asyncio.gather to process resumes concurrently
+  - Semaphore-based control limits concurrent batch operations to 5
   - Parsing occurs in thread pool to avoid blocking the event loop
 - Memory and throughput:
   - Pre-validate file sizes and types before reading
   - Limit batch size by plan limits to prevent overload
+  - Chunked upload bypasses CDN upload limits for large files
 - Database contention:
   - JD cache reduces repeated parsing
   - Batch writes commit once at the end
 - Frontend UX:
   - Large timeouts configured for batch requests
   - Progressive rendering of results after processing completes
-
-[No sources needed since this section provides general guidance]
+  - Upload progress tracking for chunked operations
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -317,19 +354,22 @@ Common issues and resolutions:
   - Provide either job_description or job_file
   - Ensure job description meets minimum word count
 - Partial failures:
-  - Some resumes may fail while others succeed; check individual result_id and pipeline_errors
+  - Some resumes may fail while others succeed; check failed array for error details
+  - Successful results are still processed and ranked
 - JD parsing inconsistencies:
   - Confirm that identical JDs produce the same cache key
+- Chunked upload issues:
+  - Verify assembly directory permissions
+  - Check upload IDs and filename mappings
+  - Monitor overall progress for large batches
 
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
 - [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)
 
 ## Conclusion
-The POST /api/analyze/batch endpoint enables efficient, scalable bulk resume screening with plan-aware limits, shared JD caching, and automatic ranking. By leveraging concurrency and robust error handling, it supports high-volume workflows while maintaining usage compliance and performance.
-
-[No sources needed since this section summarizes without analyzing specific files]
+The POST /api/analyze/batch endpoint enables efficient, scalable bulk resume screening with plan-aware limits, shared JD caching, and automatic ranking. By leveraging concurrency and robust error handling, it supports high-volume workflows while maintaining usage compliance and performance. Both synchronous and chunked upload modes provide flexibility for different use cases and file sizes.
 
 ## Appendices
 
@@ -345,8 +385,21 @@ The POST /api/analyze/batch endpoint enables efficient, scalable bulk resume scr
 - Response:
   - BatchAnalysisResponse with results sorted by fit_score descending
 
+### API Reference: POST /api/analyze/batch-chunked
+- Method: POST
+- Path: /api/analyze/batch-chunked
+- Content-Type: multipart/form-data
+- Form Fields:
+  - upload_ids: array of assembly IDs
+  - filenames: array of original filenames
+  - job_description: string (optional if job_file provided)
+  - job_file: file (optional if job_description provided)
+  - scoring_weights: stringified JSON object (optional)
+- Response:
+  - BatchAnalysisResponse with results sorted by fit_score descending
+
 **Section sources**
-- [analyze.py](file://app/backend/route/analyze.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 
 ### Example Workflows
@@ -357,6 +410,10 @@ The POST /api/analyze/batch endpoint enables efficient, scalable bulk resume scr
   - Save job descriptions as templates and reuse across batches
 - Export:
   - Export CSV or Excel of selected candidates for downstream actions
+- Large file processing:
+  - Use chunked upload mode for files larger than CDN limits
+- Mixed file sizes:
+  - Combine small and large files in single batch operation
 
 **Section sources**
 - [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)

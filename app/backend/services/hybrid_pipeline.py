@@ -1949,7 +1949,11 @@ async def _background_llm_narrative(
         status: str,
         error: Optional[str] = None,
     ) -> bool:
-        """Write narrative_json, status, and error to DB with one retry on failure."""
+        """Write narrative_json, status, and error to DB with one retry on failure.
+        
+        Also updates analysis_result with merged narrative data so the complete
+        report is available when viewing from the Candidates page.
+        """
         for attempt in range(2):
             try:
                 db = SessionLocal()
@@ -1959,9 +1963,25 @@ async def _background_llm_narrative(
                         ScreeningResult.tenant_id == tenant_id,
                     ).first()
                     if result:
+                        # Update narrative fields
                         result.narrative_json = json.dumps(narrative, default=str)
                         result.narrative_status = status
                         result.narrative_error = error
+                        
+                        # Merge narrative into analysis_result for complete report persistence
+                        # This ensures the Candidates page shows the full report, not "PENDING"
+                        try:
+                            current_analysis = json.loads(result.analysis_result or "{}")
+                            merged_analysis = _merge_llm_into_result(current_analysis, narrative)
+                            result.analysis_result = json.dumps(merged_analysis, default=str)
+                        except Exception as merge_err:
+                            log.warning(
+                                "Failed to merge narrative into analysis_result for screening_result_id=%s: %s",
+                                screening_result_id,
+                                str(merge_err)[:200],
+                            )
+                            # Continue even if merge fails - narrative_json is still saved
+                        
                         db.commit()
                         log.info(
                             "Wrote narrative_json (status=%s) to screening_result_id=%s",

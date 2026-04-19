@@ -12,18 +12,17 @@
 - [main.py](file://app/backend/main.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
+- [weight_mapper.py](file://app/backend/services/weight_mapper.py)
 - [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
 - [video_service.py](file://app/backend/services/video_service.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced JSON parsing error handling with improved debugging capabilities including detailed position tracking and character context for parsing failures
-- Added enhanced error reporting for LLM response processing and improved JSON extraction diagnostics
-- Updated model configuration to use Gemma4 31B cloud model with backward compatibility maintained
-- Implemented comprehensive JSON parsing with balanced brace detection and trailing comma fixes
-- Added detailed logging for JSON parsing failures with position tracking
-- Enhanced retry mechanisms with improved temperature handling for fallback scenarios
+- **Simplified Python Phase Execution**: Removed error handling and fallback mechanisms from `_run_python_phase` function, reducing complexity while maintaining core functionality
+- **Removed Weight Schema Conversion**: Eliminated weight mapper functionality and simplified scoring calculations in hybrid pipeline
+- **Streamlined Architecture**: Removed complex fallback systems and weight transformation logic for improved maintainability
+- **Enhanced Reliability**: Maintained deterministic Python processing while simplifying error handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -45,7 +44,7 @@ The Hybrid Pipeline represents a sophisticated resume analysis system that combi
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
-**Updated** Enhanced with intelligent cloud deployment detection, comprehensive status tracking, and adaptive polling architecture that provides four-state reliability with proper state transitions and enhanced user experience. The system now supports robust background task management with graceful shutdown capabilities and intelligent retry mechanisms. JSON parsing has been significantly enhanced with detailed error reporting and position tracking for improved debugging capabilities.
+**Updated** The system now features a simplified architecture with streamlined error handling and enhanced reliability. The Python phase execution has been simplified to focus on core functionality while maintaining robust performance characteristics.
 
 ## System Architecture
 
@@ -99,7 +98,7 @@ NP --> API
 
 **Diagram sources**
 - [analyze.py:1-1169](file://app/backend/routes/analyze.py#L1-L1169)
-- [hybrid_pipeline.py:1-2271](file://app/backend/services/hybrid_pipeline.py#L1-L2271)
+- [hybrid_pipeline.py:1-2284](file://app/backend/services/hybrid_pipeline.py#L1-L2284)
 - [agent_pipeline.py:1-650](file://app/backend/services/agent_pipeline.py#L1-L650)
 
 The architecture implements several key design principles:
@@ -110,7 +109,7 @@ The architecture implements several key design principles:
 - **Environment-Aware Configuration**: Intelligent detection of cloud vs local deployment for optimal parameter tuning
 - **Enhanced Status Tracking**: Four-state status system (pending, processing, ready, failed) with proper state transitions
 - **Adaptive Polling**: Intelligent polling architecture with exponential backoff and retry mechanisms
-- **Graceful Error Handling**: Comprehensive error reporting with fallback mechanisms and user-friendly messaging
+- **Simplified Error Handling**: Streamlined error reporting with fallback mechanisms and user-friendly messaging
 - **Advanced JSON Parsing**: Enhanced error handling with position tracking and character context for parsing failures
 
 ## Core Components
@@ -233,7 +232,7 @@ Note over Client,Background : Frontend polls /api/analysis/{id}/narrative
 
 **Diagram sources**
 - [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
-- [hybrid_pipeline.py:2040-2130](file://app/backend/services/hybrid_pipeline.py#L2040-L2130)
+- [hybrid_pipeline.py:2052-2144](file://app/backend/services/hybrid_pipeline.py#L2052-L2144)
 
 ### Phase 1: Python Processing (1-2 seconds)
 
@@ -259,6 +258,8 @@ The first phase executes entirely in Python, providing immediate results with co
 - **Domain Fit**: Assesses technical domain alignment
 - **Architecture Assessment**: Evaluates system design and leadership experience
 
+**Simplified Error Handling**: The Python phase now focuses on core functionality with streamlined error handling, ensuring reliable operation without complex fallback mechanisms.
+
 ### Phase 2: LLM Processing (40+ seconds)
 
 The second phase generates comprehensive narratives and recommendations:
@@ -270,8 +271,7 @@ The second phase generates comprehensive narratives and recommendations:
 - **Interview Questions**: Generates targeted technical, behavioral, and culture-fit questions
 - **Risk Assessment**: Documents potential risks and mitigation strategies
 
-**Enhanced Fallback System:**
-When LLM processing fails or times out, the system automatically generates a deterministic fallback narrative using the Python phase results. The retry mechanism now includes intelligent cloud detection and parameter optimization.
+**Enhanced Fallback System**: When LLM processing fails or times out, the system automatically generates a deterministic fallback narrative using the Python phase results. The retry mechanism now includes intelligent cloud detection and parameter optimization.
 
 **Updated** Enhanced with comprehensive status tracking and adaptive polling architecture:
 - **Four-State Status Tracking**: pending → processing → ready/failure states with proper transitions
@@ -783,16 +783,16 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 
 The Hybrid Pipeline represents a mature, production-ready solution that successfully balances computational efficiency with intelligent analysis. By leveraging the strengths of both Python-based rule engines and LLM-powered natural language processing, the system delivers both immediate actionable insights and comprehensive qualitative analysis.
 
-**Updated** The recent enhancements significantly improve the system's adaptability and reliability across different deployment environments. The intelligent cloud detection and parameter optimization ensure optimal performance whether running locally or in cloud environments. The enhanced retry mechanisms with different temperatures (0.1 for primary, 0.3 for retry) provide better fallback behavior while maintaining deterministic responses.
+**Updated** The recent architectural changes significantly simplify the system while maintaining its core functionality. The removal of complex error handling and weight schema conversion logic improves maintainability and reliability. The streamlined `_run_python_phase` function focuses on essential operations, while the enhanced retry mechanisms with different temperatures (0.1 for primary, 0.3 for retry) provide better fallback behavior while maintaining deterministic responses.
 
 **Enhanced Reliability Features:**
+- **Simplified Python Phase**: Reduced complexity while maintaining core functionality
 - **Four-State Status Tracking**: Comprehensive status monitoring with proper state transitions
 - **Adaptive Polling Architecture**: Intelligent polling with exponential backoff and retry mechanisms
 - **Robust Background Task Management**: Proper lifecycle tracking with graceful shutdown
 - **Enhanced Error Handling**: Detailed status reporting and fallback mechanisms
 - **Database Persistence**: Reliable status tracking across deployments and restarts
 - **Advanced JSON Parsing**: Comprehensive error handling with position tracking and character context
-- **Enhanced Model Configuration**: Gemma4 31B cloud model with backward compatibility
 
 **Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results
@@ -831,3 +831,12 @@ The system's modular design, comprehensive testing framework, and robust error h
 - **Production Stability**: Robust error handling ensures consistent performance in production environments
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+
+**Simplified Architecture Benefits:**
+- **Reduced Complexity**: Streamlined error handling and weight schema conversion logic
+- **Improved Maintainability**: Easier to understand and modify core functionality
+- **Enhanced Reliability**: Fewer failure points in the system architecture
+- **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
+- **Future Extensibility**: Clean foundation for adding new features without architectural debt
+
+The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.

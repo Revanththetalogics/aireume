@@ -9,6 +9,10 @@
 - [alembic/versions/005_revoked_tokens.py](file://alembic/versions/005_revoked_tokens.py)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py](file://alembic/versions/006_indexes_and_jdcache_created_at.py)
 - [alembic/versions/007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
+- [alembic/versions/008_analysis_queue_system.py](file://alembic/versions/008_analysis_queue_system.py)
+- [alembic/versions/009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
+- [alembic/versions/010_add_jd_text_to_screening_result.py](file://alembic/versions/010_add_jd_text_to_screening_result.py)
+- [alembic/versions/011_narrative_tracking_enhancement.py](file://alembic/versions/011_narrative_tracking_enhancement.py)
 - [alembic/env.py](file://alembic/env.py)
 - [alembic.ini](file://alembic.ini)
 - [app/backend/db/database.py](file://app/backend/db/database.py)
@@ -23,11 +27,13 @@
 
 ## Update Summary
 **Changes Made**
-- Added migration 007 to the migration chain with comprehensive status tracking for LLM narrative generation
-- Enhanced database schema with narrative_status and narrative_error columns for robust status management
-- Implemented four-state status system (pending, processing, ready, failed) with intelligent backfill logic
-- Updated migration workflow to support the new status tracking infrastructure
-- Enhanced service layer integration with background LLM narrative processing
+- Updated migration chain to include versions 008 through 011 with comprehensive enhancements
+- Added intelligent scoring weights system with role category detection and version management
+- Enhanced ScreeningResult table with role_category, weight_reasoning, and suggested_weights_json columns
+- Introduced narrative tracking enhancements with narrative_generated_at timestamp
+- Added JD text storage and advanced indexing for improved performance
+- Updated migration workflow to support the expanded feature set
+- Enhanced service layer integration with intelligent scoring and background processing
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,10 +48,10 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the database migration system for Resume AI by ThetaLogics, powered by Alembic. It covers the complete migration version history from 001 through 007, detailing schema evolution and feature additions. The system now includes comprehensive status tracking for LLM narrative generation, JWT token revocation support, enhanced performance indexing, and improved timestamp tracking. It also documents the migration workflow (revision creation, execution, and rollback), database initialization, seed data insertion, and production deployment strategies. Best practices, testing procedures, rollback scenarios, and troubleshooting guidance are included to ensure safe and reliable migrations in development and production environments.
+This document explains the database migration system for Resume AI by ThetaLogics, powered by Alembic. It covers the complete migration version history from 001 through 011, detailing schema evolution and feature additions. The system now includes comprehensive intelligent scoring with role category detection, advanced narrative tracking with timestamps, JD text storage for RAG learning, enhanced performance indexing, and improved version management for screening results. It also documents the migration workflow (revision creation, execution, and rollback), database initialization, seed data insertion, and production deployment strategies. Best practices, testing procedures, rollback scenarios, and troubleshooting guidance are included to ensure safe and reliable migrations in development and production environments.
 
 ## Project Structure
-The migration system is organized under the alembic directory with dedicated revision files for each version. The Alembic environment integrates with the application's SQLAlchemy models and database configuration. The current migration chain consists of seven versions, each building upon previous changes. CI/CD pipelines automate testing and deployment, while Docker Compose configurations define local and production runtime environments.
+The migration system is organized under the alembic directory with dedicated revision files for each version. The Alembic environment integrates with the application's SQLAlchemy models and database configuration. The current migration chain consists of eleven versions, each building upon previous changes. CI/CD pipelines automate testing and deployment, while Docker Compose configurations define local and production runtime environments.
 
 ```mermaid
 graph TB
@@ -58,14 +64,18 @@ G --> H["Version 004<br/>004_narrative_json.py"]
 H --> I["Version 005<br/>005_revoked_tokens.py"]
 I --> J["Version 006<br/>006_indexes_and_jdcache_created_at.py"]
 J --> K["Version 007<br/>007_narrative_status.py"]
-L["CI Workflow<br/>.github/workflows/ci.yml"] --> M["CD Workflow<br/>.github/workflows/cd.yml"]
-N["Local Dev Compose<br/>docker-compose.yml"] --> O["Production Compose<br/>docker-compose.prod.yml"]
+K --> L["Version 008<br/>008_analysis_queue_system.py"]
+L --> M["Version 009<br/>009_intelligent_scoring_weights.py"]
+M --> N["Version 010<br/>010_add_jd_text_to_screening_result.py"]
+N --> O["Version 011<br/>011_narrative_tracking_enhancement.py"]
+P["CI Workflow<br/>.github/workflows/ci.yml"] --> Q["CD Workflow<br/>.github/workflows/cd.yml"]
+R["Local Dev Compose<br/>docker-compose.yml"] --> S["Production Compose<br/>docker-compose.prod.yml"]
 ```
 
 **Diagram sources**
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
-- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
+- [app/backend/models/db_models.py:1-269](file://app/backend/models/db_models.py#L1-L269)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
@@ -74,6 +84,10 @@ N["Local Dev Compose<br/>docker-compose.yml"] --> O["Production Compose<br/>dock
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 - [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+- [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 - [docker-compose.yml:1-102](file://docker-compose.yml#L1-L102)
@@ -83,7 +97,7 @@ N["Local Dev Compose<br/>docker-compose.yml"] --> O["Production Compose<br/>dock
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
+- [app/backend/models/db_models.py:1-269](file://app/backend/models/db_models.py#L1-L269)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
@@ -91,6 +105,10 @@ N["Local Dev Compose<br/>docker-compose.yml"] --> O["Production Compose<br/>dock
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 - [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+- [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 - [docker-compose.yml:1-102](file://docker-compose.yml#L1-L102)
@@ -102,7 +120,7 @@ N["Local Dev Compose<br/>docker-compose.yml"] --> O["Production Compose<br/>dock
   - alembic/env.py wires Alembic to the application's Base metadata and DATABASE_URL, and sets up offline/online migration modes.
 - SQLAlchemy models and database:
   - app/backend/db/database.py defines DATABASE_URL normalization and engine creation.
-  - app/backend/models/db_models.py declares all database tables used by migrations, including the enhanced ScreeningResult model with status tracking.
+  - app/backend/models/db_models.py declares all database tables used by migrations, including the enhanced ScreeningResult model with intelligent scoring capabilities.
 - Migration versions:
   - 001: Enrich candidates and add caches.
   - 002: Add parser snapshot JSON to candidates.
@@ -111,12 +129,16 @@ N["Local Dev Compose<br/>docker-compose.yml"] --> O["Production Compose<br/>dock
   - 005: Add revoked tokens table for JWT token revocation support.
   - 006: Add performance indexes and created_at timestamps.
   - 007: Add narrative_status and narrative_error columns for robust status tracking.
+  - 008: Add analysis queue system for background processing.
+  - 009: Intelligent scoring weights system with role category detection and version management.
+  - 010: Add JD text storage and advanced indexing for RAG learning.
+  - 011: Narrative tracking enhancements with generated timestamps and backfill logic.
 
 **Section sources**
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
+- [app/backend/models/db_models.py:1-269](file://app/backend/models/db_models.py#L1-L269)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
@@ -124,9 +146,13 @@ N["Local Dev Compose<br/>docker-compose.yml"] --> O["Production Compose<br/>dock
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 - [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+- [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 
 ## Architecture Overview
-The migration system integrates Alembic with the application's SQLAlchemy models and database configuration. Migrations are executed against the configured DATABASE_URL, and the environment script ensures Alembic targets the correct metadata and connection. The system now supports JWT token revocation, enhanced performance monitoring through strategic indexing, and comprehensive status tracking for LLM narrative generation.
+The migration system integrates Alembic with the application's SQLAlchemy models and database configuration. Migrations are executed against the configured DATABASE_URL, and the environment script ensures Alembic targets the correct metadata and connection. The system now supports JWT token revocation, enhanced performance monitoring through strategic indexing, comprehensive status tracking for LLM narrative generation, intelligent scoring with role category detection, and advanced background processing capabilities.
 
 ```mermaid
 sequenceDiagram
@@ -135,7 +161,7 @@ participant Env as "alembic/env.py"
 participant DB as "DATABASE_URL"
 participant Meta as "SQLAlchemy Base.metadata"
 participant Models as "db_models.py"
-participant Versions as "001..007"
+participant Versions as "001..011"
 CLI->>Env : "alembic upgrade/downgrade"
 Env->>DB : "resolve connection"
 Env->>Meta : "configure target_metadata"
@@ -147,7 +173,7 @@ Versions-->>CLI : "migration status"
 **Diagram sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
+- [app/backend/models/db_models.py:1-269](file://app/backend/models/db_models.py#L1-L269)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
@@ -155,6 +181,10 @@ Versions-->>CLI : "migration status"
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 - [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+- [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 
 ## Detailed Component Analysis
 
@@ -354,6 +384,128 @@ Backfill --> End
 **Section sources**
 - [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 
+### Version 008: Analysis queue system
+- Purpose: Implements background processing queue for analysis tasks to improve system responsiveness.
+- Key changes:
+  - Creates analysis_queue table with task management and priority handling.
+  - Adds indexes on status and created_at for efficient queue operations.
+  - Supports task prioritization and retry mechanisms.
+- Idempotency: Safe when table already exists; ensures indexes are present.
+- Downgrade: Drops indexes and table in reverse order.
+
+**Section sources**
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+
+### Version 009: Intelligent scoring weights system
+- Purpose: Introduces intelligent, role-adaptive scoring weights with version management and role category detection.
+- Key changes:
+  - Adds is_active boolean column for version management of screening results.
+  - Adds version_number integer column for tracking result versions.
+  - Adds role_category string column for role classification (technical, sales, hr, etc.).
+  - Adds weight_reasoning text column for storing AI-generated weight explanations.
+  - Adds suggested_weights_json text column for storing suggested scoring weights.
+  - Creates indexes on is_active and version_number for efficient querying.
+  - Applies defaults to existing records (is_active=True, version_number=1).
+- Status states:
+  - pending: Initial state for new screening results
+  - shortlisted: Candidate selected for further consideration
+  - rejected: Candidate not suitable for position
+  - in-review: Under evaluation by hiring team
+  - hired: Candidate successfully placed
+- Idempotency: Safe when columns already exist; applies defaults to existing records.
+- Downgrade: Drops all new columns and indexes in reverse order.
+
+```mermaid
+flowchart TD
+Start(["Upgrade"]) --> CheckColumns["Check screening_results columns"]
+CheckColumns --> IsActive{"is_active exists?"}
+IsActive --> |No| AddActive["Add is_active boolean column"]
+IsActive --> |Yes| VersionNum["Check version_number"]
+AddActive --> VersionNum
+VersionNum --> |No| AddVersion["Add version_number integer column"]
+VersionNum --> |Yes| RoleCat["Check role_category"]
+AddVersion --> RoleCat
+RoleCat --> |No| AddRole["Add role_category string column"]
+RoleCat --> |Yes| Reasoning["Check weight_reasoning"]
+AddRole --> Reasoning
+Reasoning --> |No| AddReason["Add weight_reasoning text column"]
+Reasoning --> |Yes| Suggested["Check suggested_weights_json"]
+AddReason --> Suggested
+Suggested --> |No| AddSuggested["Add suggested_weights_json text column"]
+Suggested --> |Yes| CreateIdx["Create indexes on is_active and version_number"]
+AddSuggested --> CreateIdx
+CreateIdx --> Defaults["Apply defaults to existing records"]
+Defaults --> End(["Done"])
+```
+
+**Diagram sources**
+- [alembic/versions/009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
+
+**Section sources**
+- [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+
+### Version 010: JD text storage and advanced indexing
+- Purpose: Adds JD text storage for RAG learning and creates advanced indexes for improved performance.
+- Key changes:
+  - Adds jd_text column to screening_results table for similarity matching.
+  - Creates index on role_category for faster calibration queries.
+  - Creates composite index on (tenant_id, role_category, is_active) for calibration performance.
+- Idempotency: Safe when columns/indexes already exist; handles partial migration scenarios.
+- Downgrade: Drops indexes and column in reverse order.
+
+```mermaid
+flowchart TD
+Start(["Upgrade"]) --> CheckSR["Check screening_results columns"]
+CheckSR --> JDText{"jd_text exists?"}
+JDText --> |No| AddJD["Add jd_text text column"]
+JDText --> |Yes| CheckIdx["Check existing indexes"]
+AddJD --> CheckIdx
+CheckIdx --> RoleIdx{"role_category index exists?"}
+RoleIdx --> |No| AddRoleIdx["Create index on role_category"]
+RoleIdx --> |Yes| CalibIdx["Check calibration index"]
+AddRoleIdx --> CalibIdx
+CalibIdx --> CalibExists{"calibration index exists?"}
+CalibExists --> |No| AddCalib["Create composite index (tenant_id, role_category, is_active)"]
+CalibExists --> |Yes| End(["Done"])
+AddCalib --> End
+```
+
+**Diagram sources**
+- [alembic/versions/010_add_jd_text_to_screening_result.py:28-57](file://alembic/versions/010_add_jd_text_to_screening_result.py#L28-L57)
+
+**Section sources**
+- [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+
+### Version 011: Narrative tracking enhancements
+- Purpose: Adds narrative_generated_at timestamp for tracking completion time and enhances backfill logic.
+- Key changes:
+  - Adds narrative_generated_at DateTime column for tracking when LLM narrative completes.
+  - Enhances backfill logic to properly set narrative_status for existing records.
+  - Handles edge cases where narrative_status might be empty vs NULL.
+- Status states:
+  - pending: Initial state when narrative generation starts
+  - ready: LLM narrative successfully generated and stored
+- Idempotency: Safe when columns already exist; applies enhanced backfill logic.
+- Downgrade: Drops narrative_generated_at column.
+
+```mermaid
+flowchart TD
+Start(["Upgrade"]) --> CheckColumns["Check screening_results columns"]
+CheckColumns --> GenAt{"narrative_generated_at exists?"}
+GenAt --> |No| AddGen["Add narrative_generated_at timestamp column"]
+GenAt --> |Yes| Backfill["Enhanced backfill logic"]
+AddGen --> Backfill
+Backfill --> ReadyCheck["Set status='ready' for records with narrative_json"]
+ReadyCheck --> PendingCheck["Set status='pending' for records without narrative_json"]
+PendingCheck --> End(["Done"])
+```
+
+**Diagram sources**
+- [alembic/versions/011_narrative_tracking_enhancement.py:25-51](file://alembic/versions/011_narrative_tracking_enhancement.py#L25-L51)
+
+**Section sources**
+- [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
+
 ### Environment and Configuration
 - alembic/env.py:
   - Loads application models to register them with Alembic metadata.
@@ -374,14 +526,14 @@ Models["db_models.py"] --> Env
 **Diagram sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
-- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
+- [app/backend/models/db_models.py:1-269](file://app/backend/models/db_models.py#L1-L269)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
 
 **Section sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
+- [app/backend/models/db_models.py:1-269](file://app/backend/models/db_models.py#L1-L269)
 
 ## Dependency Analysis
 - Alembic depends on:
@@ -389,7 +541,7 @@ Models["db_models.py"] --> Env
   - DATABASE_URL from app/backend/db/database.py.
   - alembic.ini for configuration and logging.
 - Migrations depend on:
-  - Correct ordering (001 → 002 → 003 → 004 → 005 → 006 → 007).
+  - Correct ordering (001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011).
   - Idempotent operations to handle partial runs or legacy setups.
   - Fixed dependency chain ensuring proper migration sequencing.
 - CI/CD:
@@ -406,14 +558,18 @@ G --> H["004_narrative_json.py"]
 H --> I["005_revoked_tokens.py"]
 I --> J["006_indexes_and_jdcache_created_at.py"]
 J --> K["007_narrative_status.py"]
-L[".github/workflows/ci.yml"] --> M[".github/workflows/cd.yml"]
+K --> L["008_analysis_queue_system.py"]
+L --> M["009_intelligent_scoring_weights.py"]
+M --> N["010_add_jd_text_to_screening_result.py"]
+N --> O["011_narrative_tracking_enhancement.py"]
+P[".github/workflows/ci.yml"] --> Q[".github/workflows/cd.yml"]
 ```
 
 **Diagram sources**
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
+- [app/backend/models/db_models.py:1-269](file://app/backend/models/db_models.py#L1-L269)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
@@ -421,13 +577,17 @@ L[".github/workflows/ci.yml"] --> M[".github/workflows/cd.yml"]
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 - [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+- [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
 **Section sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [app/backend/db/database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [app/backend/models/db_models.py:1-266](file://app/backend/models/db_models.py#L1-L266)
+- [app/backend/models/db_models.py:1-269](file://app/backend/models/db_models.py#L1-L269)
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
 - [alembic/versions/002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
 - [alembic/versions/003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
@@ -435,6 +595,10 @@ L[".github/workflows/ci.yml"] --> M[".github/workflows/cd.yml"]
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 - [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+- [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
@@ -443,33 +607,42 @@ L[".github/workflows/ci.yml"] --> M[".github/workflows/cd.yml"]
 - Strategic indexing improves query performance for frequently accessed columns.
 - Timestamp tracking enables better audit trails and time-based analytics.
 - Using batch_alter_table for dropping multiple columns minimizes transaction overhead.
-- The new status tracking system provides granular control over LLM narrative generation workflows.
-- Background task coordination ensures non-blocking user experience during LLM processing.
+- The new intelligent scoring system provides granular control over role-based weighting and version management.
+- Advanced indexing on role_category and composite indexes optimize calibration and filtering queries.
+- Background processing queues ensure non-blocking user experience during heavy computations.
+- Narrative tracking enhancements provide precise timing and status management for LLM operations.
 - Production deployments rely on Docker Compose and Watchtower for automated updates; ensure migrations are run before deploying new backend images to avoid downtime.
 
-**Updated** Enhanced with new performance optimizations from versions 004-007, including comprehensive status tracking for LLM narrative generation and improved database performance.
+**Updated** Enhanced with new performance optimizations from versions 008-011, including intelligent scoring with role category detection, advanced indexing, background processing, and comprehensive narrative tracking.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
 - Database URL mismatch:
   - Verify DATABASE_URL in env.py and application configuration.
 - Migration conflicts:
-  - Ensure migrations are applied in order (001 → 002 → 003 → 004 → 005 → 006 → 007).
+  - Ensure migrations are applied in order (001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011).
   - Use downgrade to revert problematic versions before retrying.
 - Multiple heads error:
-  - Verify correct down_revision chain (006 → 007).
+  - Verify correct down_revision chain (010 → 011).
   - Check that each migration properly references its parent revision.
 - Idempotency failures:
   - Confirm that idempotent checks (existence checks) are functioning as intended.
-- Status tracking issues:
+- Intelligent scoring issues:
+  - Verify that role_category, weight_reasoning, and suggested_weights_json columns exist in screening_results table.
+  - Check that version management columns (is_active, version_number) are properly populated.
+  - Monitor background analysis queue for proper task processing.
+- Narrative tracking issues:
   - Verify that narrative_status and narrative_error columns exist in screening_results table.
   - Check that backfill logic ran correctly for existing records.
-  - Monitor background LLM tasks for proper status updates.
+  - Monitor background LLM tasks for proper status updates and narrative_generated_at timestamps.
+- Analysis queue problems:
+  - Verify that analysis_queue table exists with proper indexes.
+  - Check queue worker processes are running and processing tasks.
 - CI/CD pipeline failures:
   - Review CI workflow logs for backend test failures.
   - For CD, confirm Docker images are built and pushed, and Watchtower is running in production.
 
-**Updated** Added troubleshooting guidance for the new migration chain, token revocation features, and comprehensive status tracking system.
+**Updated** Added troubleshooting guidance for the expanded migration chain, intelligent scoring system, advanced indexing, background processing, and comprehensive narrative tracking enhancements.
 
 **Section sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
@@ -480,13 +653,17 @@ Common issues and resolutions:
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 - [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+- [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
 ## Conclusion
-The Resume AI migration system uses Alembic to evolve the schema safely and predictably. Versions 001 through 007 introduce candidate enrichment, parser snapshots, subscription/usage systems, JWT token revocation, performance optimizations, and comprehensive status tracking for LLM narrative generation. The environment and configuration integrate tightly with the application's models and database URL. Recent improvements include fixing the multiple heads error through proper dependency chaining, implementing comprehensive performance indexing, and adding robust status tracking infrastructure. CI/CD pipelines support automated testing and deployment, while idempotent migrations and careful downgrade procedures help maintain safety across environments.
+The Resume AI migration system uses Alembic to evolve the schema safely and predictably. Versions 001 through 011 introduce candidate enrichment, parser snapshots, subscription/usage systems, JWT token revocation, performance optimizations, comprehensive status tracking for LLM narrative generation, intelligent scoring with role category detection, advanced indexing, background processing queues, and narrative tracking enhancements. The environment and configuration integrate tightly with the application's models and database URL. Recent improvements include fixing the multiple heads error through proper dependency chaining, implementing comprehensive performance indexing, adding robust status tracking infrastructure, and introducing intelligent scoring capabilities. CI/CD pipelines support automated testing and deployment, while idempotent migrations and careful downgrade procedures help maintain safety across environments.
 
-**Updated** Enhanced with the latest migration chain supporting JWT token revocation, improved database performance, and comprehensive status tracking for LLM narrative generation.
+**Updated** Enhanced with the latest migration chain supporting JWT token revocation, intelligent scoring with role category detection, advanced indexing, background processing, and comprehensive narrative tracking enhancements.
 
 ## Appendices
 
@@ -543,10 +720,15 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
 - Performance optimization:
   - Implement strategic indexing for frequently queried columns.
   - Monitor migration performance and adjust indexing strategy as needed.
+- Intelligent scoring:
+  - Ensure proper role category assignment and weight reasoning storage.
+  - Implement proper version management with is_active and version_number columns.
+  - Test backfill logic for existing records during migration.
 - Status tracking:
   - Ensure proper status state transitions in background LLM tasks.
   - Implement proper error handling and fallback mechanisms.
   - Test backfill logic for existing records during migration.
+  - Monitor narrative_generated_at timestamps for accurate completion tracking.
 
 **Section sources**
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
@@ -556,16 +738,84 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
 - [alembic/versions/005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [alembic/versions/006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
 - [alembic/versions/007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+- [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 
-### Status Tracking Implementation Details
-- Four-state status system:
-  - pending: Initial state when background LLM task starts
-  - processing: LLM narrative generation in progress
-  - ready: LLM narrative successfully generated
-  - failed: LLM narrative generation encountered error
+### Intelligent Scoring System Implementation Details
+- Role category system:
+  - Supports categories: technical, sales, hr, marketing, operations, leadership
+  - Enables role-adaptive scoring weights and suggestions
+  - Facilitates intelligent calibration and filtering
+- Version management:
+  - is_active flag for current version identification
+  - version_number for tracking result evolution
+  - Composite indexing for efficient version queries
+- Weight reasoning:
+  - Stores AI-generated explanations for scoring decisions
+  - Supports transparency and auditability in decision-making
+- Backfill logic:
+  - Existing records automatically receive defaults (is_active=True, version_number=1)
+  - Graceful handling of partial migration scenarios
+  - Safe operation even when new columns don't exist
+
+**Section sources**
+- [app/backend/models/db_models.py:129-154](file://app/backend/models/db_models.py#L129-L154)
+- [alembic/versions/009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
+
+### Advanced Indexing and Performance Optimization
+- Strategic indexing:
+  - role_category index for calibration queries
+  - Composite index (tenant_id, role_category, is_active) for performance
+  - Indexes on is_active and version_number for intelligent scoring
+  - Performance indexes on candidate_id and timestamp for screening results
+- Query optimization:
+  - Efficient role-based filtering and calibration
+  - Fast version retrieval and comparison
+  - Optimized background queue operations
+- Backward compatibility:
+  - All new indexes are created conditionally
+  - Safe operation when indexes already exist
+  - Graceful handling of partial migration scenarios
+
+**Section sources**
+- [alembic/versions/009_intelligent_scoring_weights.py:59-73](file://alembic/versions/009_intelligent_scoring_weights.py#L59-L73)
+- [alembic/versions/010_add_jd_text_to_screening_result.py:42-56](file://alembic/versions/010_add_jd_text_to_screening_result.py#L42-L56)
+- [alembic/versions/006_indexes_and_jdcache_created_at.py:35-63](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L35-L63)
+
+### Background Processing and Queue Management
+- Analysis queue system:
+  - Dedicated table for background task management
+  - Priority-based task scheduling and execution
+  - Retry mechanisms and error handling
+  - Indexes for efficient queue operations
+- Integration points:
+  - Seamless coordination with intelligent scoring system
+  - Support for narrative generation and processing
+  - Background task coordination for LLM operations
+- Monitoring and maintenance:
+  - Queue worker processes for continuous operation
+  - Task status tracking and reporting
+  - Periodic cleanup and maintenance procedures
+
+**Section sources**
+- [alembic/versions/008_analysis_queue_system.py:1-120](file://alembic/versions/008_analysis_queue_system.py#L1-L120)
+- [app/backend/services/hybrid_pipeline.py:1900-2038](file://app/backend/services/hybrid_pipeline.py#L1900-L2038)
+- [app/backend/routes/analyze.py:1130-1169](file://app/backend/routes/analyze.py#L1130-L1169)
+
+### Narrative Tracking Enhancement Implementation Details
+- Completion tracking:
+  - narrative_generated_at timestamp for precise completion timing
+  - Enhanced backfill logic for existing records
+  - Improved status management for LLM operations
+- Status management:
+  - Four-state system: pending, processing, ready, failed
+  - Enhanced error tracking and reporting
+  - Backward compatibility with existing status values
 - Service integration:
-  - Background LLM tasks update status in real-time
+  - Real-time status updates in background LLM tasks
   - Routes check narrative_status for display logic
   - Error messages stored in narrative_error for debugging
 - Backfill logic:
@@ -574,6 +824,6 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
   - Safe operation even when narrative_json column doesn't exist
 
 **Section sources**
+- [alembic/versions/011_narrative_tracking_enhancement.py:20-51](file://alembic/versions/011_narrative_tracking_enhancement.py#L20-L51)
 - [app/backend/services/hybrid_pipeline.py:1900-2038](file://app/backend/services/hybrid_pipeline.py#L1900-L2038)
 - [app/backend/routes/analyze.py:1130-1169](file://app/backend/routes/analyze.py#L1130-L1169)
-- [alembic/versions/007_narrative_status.py:32-57](file://alembic/versions/007_narrative_status.py#L32-L57)

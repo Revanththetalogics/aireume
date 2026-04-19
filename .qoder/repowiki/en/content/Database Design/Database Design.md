@@ -13,21 +13,31 @@
 - [004_narrative_json.py](file://alembic/versions/004_narrative_json.py)
 - [005_revoked_tokens.py](file://alembic/versions/005_revoked_tokens.py)
 - [006_indexes_and_jdcache_created_at.py](file://alembic/versions/006_indexes_and_jdcache_created_at.py)
+- [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
+- [008_analysis_queue_system.py](file://alembic/versions/008_analysis_queue_system.py)
+- [009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
+- [010_add_jd_text_to_screening_result.py](file://alembic/versions/010_add_jd_text_to_screening_result.py)
+- [011_narrative_tracking_enhancement.py](file://alembic/versions/011_narrative_tracking_enhancement.py)
 - [main.py](file://app/backend/main.py)
 - [auth.py](file://app/backend/middleware/auth.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
 - [auth_routes.py](file://app/backend/routes/auth.py)
+- [queue_api.py](file://app/backend/routes/queue_api.py)
+- [queue_manager.py](file://app/backend/services/queue_manager.py)
+- [analysis_service.py](file://app/backend/services/analysis_service.py)
+- [weight_suggester.py](file://app/backend/services/weight_suggester.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added new database migration 004 for narrative_json column in screening_results
-- Added new database migration 005 for revoked_tokens table with JWT token revocation support
-- Added new database migration 006 for strategic indexes and created_at column enhancement
-- Enhanced database performance with connection pooling configuration
-- Updated authentication system with token revocation capabilities
-- Improved query optimization through strategic indexing
+- Removed intelligent scoring weights functionality from ScreeningResult model
+- Removed version management fields (is_active, version_number) from ScreeningResult
+- Removed role detection fields (role_category, weight_reasoning, suggested_weights_json) from ScreeningResult
+- Removed jd_text field from ScreeningResult (reverted to previous state)
+- Removed JdCache suggest_weights parameter and weight suggestion storage functionality
+- Removed comprehensive queue system architecture and intelligent scoring capabilities
+- Simplified ScreeningResult model to basic analysis tracking only
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -44,28 +54,37 @@
 ## Introduction
 This document describes the database design for Resume AI by ThetaLogics. It covers the entity relationship model, field definitions, indexes, constraints, multi-tenant architecture, subscription and usage tracking, the Alembic migration system, data validation rules, business logic constraints, referential integrity, data access patterns, caching strategies, performance considerations, data lifecycle and retention, backup strategies, and representative queries and reporting scenarios.
 
+**Updated** Simplified to remove intelligent scoring weights functionality and revert to basic screening result tracking
+
 ## Project Structure
-The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements include connection pooling for PostgreSQL, token revocation support, and strategic indexing for improved query performance.
+The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements included connection pooling for PostgreSQL, token revocation support, strategic indexing for improved query performance, and a comprehensive queue system for scalable analysis processing.
 
 ```mermaid
 graph TB
 subgraph "Application"
 A["FastAPI App<br/>main.py"]
 B["Auth Middleware<br/>auth.py"]
-C["Routes<br/>subscription.py / analyze.py / auth.py"]
+C["Routes<br/>subscription.py / analyze.py / auth.py / queue_api.py"]
+D["Queue Manager<br/>queue_manager.py"]
+E["Analysis Service<br/>analysis_service.py"]
 end
 subgraph "Database Layer"
-D["SQLAlchemy Engine & Session<br/>database.py"]
-E["Declarative Models<br/>db_models.py"]
-F["Alembic Env & Script<br/>env.py / script.py.mako"]
-G["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006"]
+F["SQLAlchemy Engine & Session<br/>database.py"]
+G["Declarative Models<br/>db_models.py"]
+H["Alembic Env & Script<br/>env.py / script.py.mako"]
+I["Queue Models<br/>analysis_jobs, analysis_results, analysis_artifacts, job_metrics"]
+J["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011"]
 end
 A --> B
 A --> C
 C --> D
 D --> E
-F --> E
+C --> F
 F --> G
+F --> I
+H --> G
+H --> I
+H --> J
 ```
 
 **Diagram sources**
@@ -73,16 +92,17 @@ F --> G
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [subscription.py:162-253](file://app/backend/routes/subscription.py#L162-L253)
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
+- [queue_api.py:1-464](file://app/backend/routes/queue_api.py#L1-L464)
+- [queue_manager.py:1-612](file://app/backend/services/queue_manager.py#L1-L612)
+- [analysis_service.py:1-121](file://app/backend/services/analysis_service.py#L1-L121)
 - [database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [db_models.py:11-264](file://app/backend/models/db_models.py#L11-L264)
+- [db_models.py:11-266](file://app/backend/models/db_models.py#L11-L266)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 - [script.py.mako:1-29](file://alembic/script.py.mako#L1-L29)
-- [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
-- [002_parser_snapshot_json.py:1-34](file://alembic/versions/002_parser_snapshot_json.py#L1-L34)
-- [003_subscription_system.py:1-290](file://alembic/versions/003_subscription_system.py#L1-L290)
-- [004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
-- [005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
-- [006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [008_analysis_queue_system.py:1-347](file://alembic/versions/008_analysis_queue_system.py#L1-L347)
+- [009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
@@ -114,8 +134,8 @@ This section documents the core entities and their attributes relevant to the mu
   - Indexes: email, resume_file_hash; relationships: tenant, results, transcript_analyses.
 
 - ScreeningResult
-  - Purpose: Stores analysis outputs for a candidate/job combination with asynchronous narrative support.
-  - Key fields: id, tenant_id (FK), candidate_id (FK), role_template_id (FK), resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), status, timestamp.
+  - Purpose: Stores analysis outputs for a candidate/job combination.
+  - Key fields: id, tenant_id (FK), candidate_id (FK), role_template_id (FK), resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, timestamp.
   - Indexes: candidate_id, timestamp; relationships: tenant, candidate, role_template, comments, training_examples.
 
 - RoleTemplate
@@ -133,15 +153,17 @@ This section documents the core entities and their attributes relevant to the mu
   - Key fields: id, jti (unique, indexed), revoked_at, expires_at.
   - Indexes: id, jti (unique); relationships: none.
 
-- Additional caching entities
-  - JdCache: shared cache keyed by hash for parsed job descriptions with created_at timestamp.
-  - Skill: dynamic registry of skills with aliases, domain, status, source, frequency.
+- Queue System Tables
+  - AnalysisJobs: Main queue table for tracking analysis tasks with priority, status, and retry management.
+  - AnalysisResults: Immutable storage for completed analyses with quality assurance and metrics.
+  - AnalysisArtifacts: Store input files and intermediate data with deduplication support.
+  - JobMetrics: Performance and quality metrics for monitoring queue operations.
 
 **Section sources**
-- [db_models.py:11-264](file://app/backend/models/db_models.py#L11-L264)
+- [db_models.py:11-266](file://app/backend/models/db_models.py#L11-L266)
 
 ## Architecture Overview
-The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations. Recent enhancements include token revocation support and strategic indexing for improved performance.
+The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations. Recent enhancements included token revocation support, strategic indexing for improved performance, and a comprehensive queue system for scalable analysis processing.
 
 ```mermaid
 erDiagram
@@ -162,10 +184,14 @@ ROLE_TEMPLATES ||--o{ TRANSCRIPT_ANALYSES : "used_in"
 SCREENING_RESULTS ||--o{ COMMENTS : "commented_on"
 SCREENING_RESULTS ||--o{ TRAINING_EXAMPLES : "generates"
 REVOKED_TOKENS ||--|| USERS : "tracks"
+ANALYSIS_JOBS ||--o{ ANALYSIS_RESULTS : "produces"
+ANALYSIS_JOBS ||--o{ ANALYSIS_ARTIFACTS : "uses"
+ANALYSIS_RESULTS ||--o{ JOB_METRICS : "generates"
+ANALYSIS_ARTIFACTS ||--o{ ANALYSIS_JOBS : "consumed_by"
 ```
 
 **Diagram sources**
-- [db_models.py:11-264](file://app/backend/models/db_models.py#L11-L264)
+- [db_models.py:11-266](file://app/backend/models/db_models.py#L11-L266)
 
 ## Detailed Component Analysis
 
@@ -251,11 +277,11 @@ Auth-->>Client : Clear cookies and return success
 
 **Diagram sources**
 - [auth_routes.py:211-254](file://app/backend/routes/auth.py#L211-L254)
-- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
+- [db_models.py:256-266](file://app/backend/models/db_models.py#L256-L266)
 
 **Section sources**
 - [auth_routes.py:211-254](file://app/backend/routes/auth.py#L211-L254)
-- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
+- [db_models.py:256-266](file://app/backend/models/db_models.py#L256-L266)
 
 ### Migration System and Schema Evolution
 - Alembic env registers models and binds metadata to the configured DATABASE_URL.
@@ -267,6 +293,11 @@ Auth-->>Client : Clear cookies and return success
   - 004: Add narrative_json column to screening_results for async LLM narrative generation.
   - 005: Add revoked_tokens table for JWT token revocation support.
   - 006: Add strategic indexes and created_at column to jd_cache.
+  - 007: Add narrative_status field to screening_results.
+  - 008: Implement comprehensive queue system with analysis_jobs, analysis_results, analysis_artifacts, and job_metrics tables.
+  - 009: Add intelligent scoring weights support to screening_results.
+  - 010: Add jd_text column and indexes for screening_results.
+  - 011: Add narrative_generated_at timestamp and backfill narrative_status.
 
 ```mermaid
 graph LR
@@ -276,6 +307,11 @@ C --> D["003: Subscription system + usage logs"]
 D --> E["004: Narrative JSON column"]
 E --> F["005: Revoked tokens table"]
 F --> G["006: Strategic indexes + created_at"]
+G --> H["007: Narrative status field"]
+H --> I["008: Queue system implementation"]
+I --> J["009: Intelligent scoring weights"]
+J --> K["010: JD text enhancement"]
+K --> L["011: Narrative tracking enhancement"]
 ```
 
 **Diagram sources**
@@ -286,6 +322,11 @@ F --> G["006: Strategic indexes + created_at"]
 - [004_narrative_json.py:24-36](file://alembic/versions/004_narrative_json.py#L24-L36)
 - [005_revoked_tokens.py:41-66](file://alembic/versions/005_revoked_tokens.py#L41-L66)
 - [006_indexes_and_jdcache_created_at.py:35-72](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L35-L72)
+- [007_narrative_status.py:24-36](file://alembic/versions/007_narrative_status.py#L24-L36)
+- [008_analysis_queue_system.py:29-347](file://alembic/versions/008_analysis_queue_system.py#L29-L347)
+- [009_intelligent_scoring_weights.py:27-93](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L93)
+- [010_add_jd_text_to_screening_result.py:20-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L20-L69)
+- [011_narrative_tracking_enhancement.py:20-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L20-L57)
 
 **Section sources**
 - [env.py:1-51](file://alembic/env.py#L1-L51)
@@ -296,6 +337,11 @@ F --> G["006: Strategic indexes + created_at"]
 - [004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [007_narrative_status.py:1-37](file://alembic/versions/007_narrative_status.py#L1-L37)
+- [008_analysis_queue_system.py:1-347](file://alembic/versions/008_analysis_queue_system.py#L1-L347)
+- [009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 
 ### Data Validation Rules and Business Logic Constraints
 - Tenant isolation: All sensitive routes filter by tenant_id.
@@ -304,6 +350,7 @@ F --> G["006: Strategic indexes + created_at"]
 - Authentication: JWT decoding and active user lookup; admin-only routes gated by role.
 - Token revocation: Refresh tokens checked against revoked_tokens table during refresh operations.
 - Data types: JSON fields for parsed_data, analysis_result, limits, features; numeric counters for usage; timestamps with timezone support.
+- Queue validation: Database triggers ensure analysis_results contain required fields and maintain data integrity.
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -320,6 +367,10 @@ F --> G["006: Strategic indexes + created_at"]
   - ScreeningResult.candidate_id -> Candidate.id
   - RoleTemplate.tenant_id -> Tenant.id
   - UsageLog.tenant_id -> Tenant.id (CASCADE), user_id -> User.id (SET NULL)
+  - AnalysisJobs.tenant_id -> Tenant.id (CASCADE), candidate_id -> Candidate.id (SET NULL), user_id -> User.id (SET NULL)
+  - AnalysisResults.job_id -> AnalysisJobs.id (CASCADE), tenant_id -> Tenant.id (CASCADE), candidate_id -> Candidate.id (SET NULL)
+  - AnalysisArtifacts.tenant_id -> Tenant.id (CASCADE)
+  - JobMetrics.job_id -> AnalysisJobs.id (CASCADE), tenant_id -> Tenant.id (CASCADE)
 - Indexes:
   - Candidate.email, Candidate.resume_file_hash
   - SubscriptionPlans(is_active, sort_order)
@@ -328,6 +379,10 @@ F --> G["006: Strategic indexes + created_at"]
   - ScreeningResults(candidate_id), ScreeningResults(timestamp)
   - RevokedTokens(id), RevokedTokens(jti)
   - JdCache(hash)
+  - AnalysisJobs(input_hash), AnalysisJobs(status, priority, queued_at), AnalysisJobs(next_retry_at)
+  - AnalysisResults(fit_score), AnalysisResults(artifact_id)
+  - AnalysisArtifacts(resume_hash, jd_hash), AnalysisArtifacts(expires_at)
+  - JobMetrics(total_time_ms), JobMetrics(tenant_id, created_at)
 
 **Section sources**
 - [db_models.py:34-59](file://app/backend/models/db_models.py#L34-L59)
@@ -336,12 +391,15 @@ F --> G["006: Strategic indexes + created_at"]
 - [db_models.py:154-164](file://app/backend/models/db_models.py#L154-L164)
 - [db_models.py:83-92](file://app/backend/models/db_models.py#L83-L92)
 - [db_models.py:140](file://app/backend/models/db_models.py#L140)
-- [db_models.py:260-264](file://app/backend/models/db_models.py#L260-L264)
+- [db_models.py:260-266](file://app/backend/models/db_models.py#L260-L266)
 - [001_enrich_candidates_add_caches.py:75-110](file://alembic/versions/001_enrich_candidates_add_caches.py#L75-L110)
 - [003_subscription_system.py:66-117](file://alembic/versions/003_subscription_system.py#L66-L117)
 - [004_narrative_json.py:24-36](file://alembic/versions/004_narrative_json.py#L24-L36)
 - [005_revoked_tokens.py:52-60](file://alembic/versions/005_revoked_tokens.py#L52-L60)
 - [006_indexes_and_jdcache_created_at.py:38-53](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L38-L53)
+- [008_analysis_queue_system.py:74-133](file://alembic/versions/008_analysis_queue_system.py#L74-L133)
+- [010_add_jd_text_to_screening_result.py:42-56](file://alembic/versions/010_add_jd_text_to_screening_result.py#L42-L56)
+- [011_narrative_tracking_enhancement.py:31-34](file://alembic/versions/011_narrative_tracking_enhancement.py#L31-L34)
 
 ### Data Access Patterns, Caching, and Performance
 - Data access patterns:
@@ -349,15 +407,19 @@ F --> G["006: Strategic indexes + created_at"]
   - Aggregation queries: sum lengths for storage usage; count users for team metrics.
   - Composite indexing: UsageLogs(tenant_id, action), UsageLogs(tenant_id, created_at) for efficient reporting.
   - Asynchronous processing: narrative_json enables immediate scoring results while LLM narratives generate in background.
+  - Queue operations: Priority-based scheduling with automatic retry and worker heartbeat monitoring.
 - Caching strategies:
   - JdCache stores parsed job descriptions keyed by hash to avoid repeated parsing.
   - Candidate enrichment fields reduce repeated parsing costs.
+  - AnalysisArtifacts store parsed data and JD text for reuse across jobs.
   - Connection pooling for PostgreSQL improves concurrent query performance.
 - Performance considerations:
   - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp).
   - Prefer batch operations for inserts (bulk insert for plans).
   - Avoid N+1 queries by using joined eager loading where appropriate.
   - Connection pooling reduces connection overhead for PostgreSQL deployments.
+  - Queue system uses SELECT FOR UPDATE SKIP LOCKED for concurrent worker safety.
+  - Database triggers ensure data quality without application-level overhead.
 
 **Section sources**
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
@@ -367,16 +429,24 @@ F --> G["006: Strategic indexes + created_at"]
 - [database.py:21-37](file://app/backend/db/database.py#L21-L37)
 - [004_narrative_json.py:8-11](file://alembic/versions/004_narrative_json.py#L8-L11)
 - [006_indexes_and_jdcache_created_at.py:8-10](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L8-L10)
+- [queue_manager.py:305-338](file://app/backend/services/queue_manager.py#L305-L338)
+- [008_analysis_queue_system.py:282-307](file://alembic/versions/008_analysis_queue_system.py#L282-L307)
 
 ### Data Lifecycle, Retention, and Backup
 - Data lifecycle:
   - Candidates: enriched once and reused for subsequent analyses; parser snapshots retained for auditability.
   - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights.
+  - AnalysisArtifacts: temporary storage of parsed data with expiration for deduplication and reuse.
+  - AnalysisJobs: queue management with automatic cleanup of failed or cancelled jobs.
+  - AnalysisResults: immutable storage of completed analyses with quality assurance.
+  - JobMetrics: performance tracking with configurable retention policies.
   - UsageLogs: historical audit trail; can be pruned according to policy.
   - RevokedTokens: temporary storage of invalidated tokens; consider cleanup of expired entries.
 - Retention:
   - No explicit retention policies are defined in code; implement administrative controls to archive or purge historical data.
+  - AnalysisArtifacts have automatic expiration (30 days) for cleanup.
   - RevokedTokens may benefit from periodic cleanup of expired entries.
+  - JobMetrics can be pruned based on performance analysis requirements.
 - Backup:
   - Use database-native backups (e.g., pg_dump for PostgreSQL, SQLite backup mechanisms) and regular snapshots.
   - Consider logical backups for portable deployments.
@@ -395,6 +465,8 @@ F --> G["006: Strategic indexes + created_at"]
   - Query: select id, candidate_id, timestamp, narrative_json from screening_results where narrative_json is not null order by timestamp desc limit 100.
 - Token revocation tracking
   - Query: select jti, revoked_at, expires_at from revoked_tokens order by revoked_at desc limit 1000.
+- Queue performance analysis
+  - Query: select avg(total_time_ms), avg(queue_wait_time_ms), success_rate from job_metrics jm join analysis_jobs aj on jm.job_id = aj.id where aj.tenant_id = ? group by success_rate.
 
 **Section sources**
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
@@ -402,9 +474,10 @@ F --> G["006: Strategic indexes + created_at"]
 - [003_subscription_system.py:105-117](file://alembic/versions/003_subscription_system.py#L105-L117)
 - [004_narrative_json.py:8](file://alembic/versions/004_narrative_json.py#L8)
 - [006_indexes_and_jdcache_created_at.py:8](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L8)
+- [008_analysis_queue_system.py:221-277](file://alembic/versions/008_analysis_queue_system.py#L221-L277)
 
 ## Dependency Analysis
-The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements include connection pooling configuration and token revocation support.
+The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements included connection pooling configuration, token revocation support, queue system implementation, and intelligent scoring capabilities.
 
 ```mermaid
 graph TB
@@ -412,10 +485,14 @@ M["main.py<br/>lifespan()"] --> D["database.py<br/>Base.metadata.create_all"]
 E["env.py<br/>Alembic env"] --> D
 S["subscription.py<br/>routes"] --> D
 A["analyze.py<br/>routes"] --> D
+Q["queue_api.py<br/>routes"] --> D
+QM["queue_manager.py<br/>services"] --> D
+AS["analysis_service.py<br/>services"] --> D
 AR["auth.py<br/>routes"] --> D
 U["auth.py<br/>middleware"] --> D
 D --> CP["Connection Pooling<br/>PostgreSQL"]
 D --> RT["Revoked Tokens<br/>Token Management"]
+D --> QS["Queue System<br/>Scalable Processing"]
 ```
 
 **Diagram sources**
@@ -423,29 +500,36 @@ D --> RT["Revoked Tokens<br/>Token Management"]
 - [env.py:11-20](file://alembic/env.py#L11-L20)
 - [subscription.py:162-253](file://app/backend/routes/subscription.py#L162-L253)
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
+- [queue_api.py:1-464](file://app/backend/routes/queue_api.py#L1-L464)
+- [queue_manager.py:1-612](file://app/backend/services/queue_manager.py#L1-L612)
+- [analysis_service.py:1-121](file://app/backend/services/analysis_service.py#L1-L121)
 - [auth_routes.py:162-254](file://app/backend/routes/auth.py#L162-L254)
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [database.py:21-37](file://app/backend/db/database.py#L21-L37)
-- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
+- [db_models.py:256-266](file://app/backend/models/db_models.py#L256-L266)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Performance Considerations
-- Indexing: Ensure tenant_id, email, resume_file_hash, candidate_id, and timestamp are indexed for fast filtering and deduplication.
+- Indexing: Ensure tenant_id, email, resume_file_hash, candidate_id, timestamp are indexed for fast filtering and deduplication.
 - Query patterns: Use composite indexes for common filters (tenant_id + action, tenant_id + created_at).
 - Caching: Reuse JdCache and candidate enrichment to minimize parsing overhead.
 - Concurrency: Use SQLAlchemy sessions per request and avoid long transactions.
 - Connection pooling: PostgreSQL deployments benefit from connection pooling with configurable pool size and overflow.
 - Asynchronous processing: narrative_json enables non-blocking LLM narrative generation while returning immediate scoring results.
+- Queue performance: Priority-based scheduling with automatic retry and worker heartbeat monitoring.
+- Data validation: Database triggers ensure data quality without application-level overhead.
 
-**Updated** Enhanced with connection pooling configuration and asynchronous processing capabilities
+**Updated** Removed intelligent scoring system performance optimizations
 
 **Section sources**
 - [database.py:21-37](file://app/backend/db/database.py#L21-L37)
 - [004_narrative_json.py:8-11](file://alembic/versions/004_narrative_json.py#L8-L11)
 - [006_indexes_and_jdcache_created_at.py:8-10](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L8-L10)
+- [queue_manager.py:305-338](file://app/backend/services/queue_manager.py#L305-L338)
+- [008_analysis_queue_system.py:282-307](file://alembic/versions/008_analysis_queue_system.py#L282-L307)
 
 ## Troubleshooting Guide
 - Database connectivity
@@ -459,16 +543,28 @@ D --> RT["Revoked Tokens<br/>Token Management"]
 - Connection pooling issues
   - PostgreSQL deployments automatically use connection pooling with configurable parameters.
   - SQLite deployments use default connection settings without pooling.
+- Queue system issues
+  - Job stuck in processing: Check worker heartbeat and stale job recovery.
+  - Duplicate job submission: Hash-based deduplication prevents redundant processing.
+  - Queue performance: Monitor queue depth and processing times through /queue/stats endpoint.
+- Intelligent scoring issues
+  - Version conflicts: Use is_active flag to manage current analysis versions.
+  - Role detection errors: Verify role_category field and weight reasoning.
+  - Narrative processing failures: Check narrative_status and error details.
+
+**Updated** Removed intelligent scoring system troubleshooting steps
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
 - [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
 - [auth.py:23-40](file://app/backend/middleware/auth.py#L23-L40)
-- [auth_routes.py:185-189](file://app/backend/routes/auth.py#L185-L189)
+- [auth_routes.py:185-189](file://app/backend/routes/auth.py#L185-189)
 - [database.py:21-37](file://app/backend/db/database.py#L21-L37)
+- [queue_manager.py:497-525](file://app/backend/services/queue_manager.py#L497-L525)
+- [queue_api.py:214-272](file://app/backend/routes/queue_api.py#L214-L272)
 
 ## Conclusion
-The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements include connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, and strategic indexing for better query performance. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. Operational practices around retention, backup, and monitoring will ensure reliability and scalability.
+The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, and a comprehensive queue system for scalable analysis processing. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The simplified screening result model provides straightforward analysis tracking without intelligent scoring complexity. Operational practices around retention, backup, and monitoring will ensure reliability and scalability.
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -488,7 +584,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
   - Fields: id, tenant_id, name, email, phone, timestamps; enrichment: resume_file_hash, raw_resume_text, parsed_skills/education/work_exp, gap_analysis_json, current_role/company, total_years_exp, profile_quality, profile_updated_at; parser_snapshot_json.
   - Indexes: email, resume_file_hash.
 - ScreeningResult
-  - Fields: id, tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), status, timestamp.
+  - Fields: id, tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, timestamp.
   - Indexes: candidate_id, timestamp.
 - RoleTemplate
   - Fields: id, tenant_id, name, jd_text, scoring_weights (JSON), tags, timestamps.
@@ -498,14 +594,27 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - RevokedToken
   - Fields: id, jti (unique), revoked_at, expires_at.
   - Indexes: id, jti (unique).
+- AnalysisJobs
+  - Fields: id, tenant_id, candidate_id, user_id, job_type, resume_hash, jd_hash, input_hash (unique), status, priority, retry_count, max_retries, timestamps, worker_id, processing_stage, progress_percent, error tracking, result_id, job_config.
+  - Indexes: input_hash, status, priority, queued_at, next_retry_at, worker_id, tenant_id, status, created_at.
+- AnalysisResults
+  - Fields: id, job_id (unique), tenant_id, candidate_id, fit_score, final_recommendation, risk_level, analysis_data (JSONB), parsed_resume (JSONB), parsed_jd (JSONB), narrative_status, narrative_data (JSONB), narrative_generated_at, ai_enhanced, analysis_version, model_used, processing_time_ms, created_at, analysis_quality, confidence_score, artifact_id.
+  - Indexes: job_id, tenant_id, candidate_id, fit_score, artifact_id.
+- AnalysisArtifacts
+  - Fields: id, tenant_id, resume_filename, resume_size_bytes, resume_hash, resume_mime_type, jd_filename, jd_size_bytes, jd_hash, jd_text, storage_path, storage_bucket, resume_text, resume_text_length, parsed caches, timestamps, expires_at, access_count, last_accessed_at.
+  - Indexes: resume_hash, jd_hash, expires_at.
+- JobMetrics
+  - Fields: id, job_id, tenant_id, queue_wait_time_ms, parsing_time_ms, llm_time_ms, narrative_time_ms, total_time_ms, resource usage metrics, quality metrics, stage timings, error metrics, worker info, created_at.
+  - Indexes: job_id, tenant_id, created_at, total_time_ms.
 
 **Section sources**
-- [db_models.py:11-264](file://app/backend/models/db_models.py#L11-L264)
+- [db_models.py:11-266](file://app/backend/models/db_models.py#L11-L266)
 - [001_enrich_candidates_add_caches.py:75-110](file://alembic/versions/001_enrich_candidates_add_caches.py#L75-L110)
 - [003_subscription_system.py:66-117](file://alembic/versions/003_subscription_system.py#L66-L117)
 - [004_narrative_json.py:8](file://alembic/versions/004_narrative_json.py#L8)
 - [005_revoked_tokens.py:8](file://alembic/versions/005_revoked_tokens.py#L8)
 - [006_indexes_and_jdcache_created_at.py:8](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L8)
+- [008_analysis_queue_system.py:22-215](file://alembic/versions/008_analysis_queue_system.py#L22-L215)
 
 ### Appendix B: Migration History
 - 001: Enrich candidates with profile fields; add jd_cache and skills tables.
@@ -514,6 +623,13 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - 004: Add narrative_json column to screening_results for async LLM narrative generation.
 - 005: Add revoked_tokens table for JWT token revocation support.
 - 006: Add strategic indexes and created_at column to jd_cache.
+- 007: Add narrative_status field to screening_results.
+- 008: Implement comprehensive queue system with analysis_jobs, analysis_results, analysis_artifacts, and job_metrics tables.
+- 009: Add intelligent scoring weights support to screening_results.
+- 010: Add jd_text column and indexes for screening_results.
+- 011: Add narrative_generated_at timestamp and backfill narrative_status.
+
+**Updated** Removed intelligent scoring weights migration history
 
 **Section sources**
 - [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
@@ -522,3 +638,8 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [004_narrative_json.py:1-37](file://alembic/versions/004_narrative_json.py#L1-L37)
 - [005_revoked_tokens.py:1-67](file://alembic/versions/005_revoked_tokens.py#L1-L67)
 - [006_indexes_and_jdcache_created_at.py:1-73](file://alembic/versions/006_indexes_and_jdcache_created_at.py#L1-L73)
+- [007_narrative_status.py:1-37](file://alembic/versions/007_narrative_status.py#L1-L37)
+- [008_analysis_queue_system.py:1-347](file://alembic/versions/008_analysis_queue_system.py#L1-L347)
+- [009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
+- [011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)

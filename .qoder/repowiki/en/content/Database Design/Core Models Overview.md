@@ -8,9 +8,24 @@
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 - [002_parser_snapshot_json.py](file://alembic/versions/002_parser_snapshot_json.py)
 - [003_subscription_system.py](file://alembic/versions/003_subscription_system.py)
+- [004_narrative_json.py](file://alembic/versions/004_narrative_json.py)
+- [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
+- [009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
+- [010_add_jd_text_to_screening_result.py](file://alembic/versions/010_add_jd_text_to_screening_result.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
+- [weight_suggester.py](file://app/backend/services/weight_suggester.py)
+- [weight_mapper.py](file://app/backend/services/weight_mapper.py)
+- [candidates.py](file://app/backend/routes/candidates.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Enhanced ScreeningResult model with new weight_reasoning and suggested_weights_json columns added to fix runtime errors and improve intelligent scoring functionality
+- Added comprehensive version management system with is_active and version_number fields for historical tracking
+- Integrated role-based weight suggestion system with automatic weight extraction from JD analysis
+- Enhanced front-end visualization to display weight reasoning and suggested weights for improved transparency
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -26,8 +41,10 @@
 ## Introduction
 This document provides a comprehensive overview of the core database models in Resume AI by ThetaLogics. It documents the 12 core SQLAlchemy models, their fields, data types, primary and foreign keys, indexes, constraints, and relationships. It also explains the base model inheritance pattern, shared conventions, and practical usage patterns derived from the codebase. The goal is to help developers and stakeholders understand how data is modeled, stored, and interconnected across the system.
 
+**Updated** Enhanced with intelligent scoring weights system and role-based screening functionality that enables sophisticated position categorization and adaptive weight management. The ScreeningResult model now includes comprehensive metadata tracking for weight reasoning and suggested weights, improving transparency and runtime reliability.
+
 ## Project Structure
-The database models are defined in a single module and are orchestrated by a shared declarative base. Migrations evolve the schema over time, and the application initializes tables at startup.
+The database models are defined in a single module and are orchestrated by a shared declarative base. Migrations evolve the schema over time, and the application initializes tables at startup. The intelligent scoring system introduces version management and role-based weight suggestions for enhanced analysis capabilities.
 
 ```mermaid
 graph TB
@@ -35,26 +52,38 @@ subgraph "Database Layer"
 Base["declarative_base()<br/>app/backend/db/database.py"]
 Models["SQLAlchemy Models<br/>app/backend/models/db_models.py"]
 Alembic["Alembic Migrations<br/>alembic/versions/*"]
+IntelligentWeights["Intelligent Scoring System<br/>Role-based weight management"]
+VersionManagement["Version Management<br/>is_active, version_number tracking"]
+WeightMetadata["Weight Metadata<br/>weight_reasoning, suggested_weights_json"]
 end
 subgraph "Application Layer"
 Main["FastAPI App<br/>app/backend/main.py"]
+Services["Service Layer<br/>Agent Pipeline, Weight Suggester"]
+Routes["Route Handlers<br/>Candidates, Analysis"]
 end
 Main --> Base
 Base --> Models
 Models --> Alembic
+Models --> IntelligentWeights
+Models --> VersionManagement
+Models --> WeightMetadata
+Services --> IntelligentWeights
+Routes --> VersionManagement
+Routes --> WeightMetadata
 ```
 
 **Diagram sources**
 - [database.py:24](file://app/backend/db/database.py#L24)
 - [db_models.py:6](file://app/backend/models/db_models.py#L6)
 - [main.py:160](file://app/backend/main.py#L160)
+- [009_intelligent_scoring_weights.py:1](file://alembic/versions/009_intelligent_scoring_weights.py#L1)
 
 **Section sources**
 - [database.py:1-33](file://app/backend/db/database.py#L1-L33)
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
 
 ## Core Components
-This section enumerates the 12 core models, their fields, data types, primary/foreign keys, indexes, and constraints. It also highlights shared patterns and business logic constraints.
+This section enumerates the 12 core models, their fields, data types, primary/foreign keys, indexes, and constraints. It also highlights shared patterns and business logic constraints, including the new intelligent scoring capabilities.
 
 - SubscriptionPlan
   - Purpose: Defines subscription tiers with pricing, features, and ordering.
@@ -151,20 +180,28 @@ This section enumerates the 12 core models, their fields, data types, primary/fo
   - Relationships: back-populates to Tenant.candidates; forward relations to ScreeningResult and TranscriptAnalysis.
 
 - ScreeningResult
-  - Purpose: Results of resume-JD matching and analysis.
+  - Purpose: Results of resume-JD matching and analysis with intelligent scoring capabilities and comprehensive metadata tracking.
   - Fields:
     - id: integer, primary key, indexed
     - tenant_id: integer, foreign key to tenants.id, nullable
     - candidate_id: integer, foreign key to candidates.id, nullable
     - role_template_id: integer, foreign key to role_templates.id, nullable
     - resume_text: text, not null
-    - jd_text: text, not null
+    - jd_text: text, nullable
     - parsed_data: text (JSON string), not null
     - analysis_result: text (JSON string), not null
+    - narrative_json: text, nullable
+    - narrative_status: string(20), default "pending"
+    - narrative_error: text, nullable
     - status: string(50), default "pending"
-    - timestamp: datetime with timezone, server default now()
-  - Indexes: none explicitly declared.
-  - Constraints: JSON fields store structured outputs; status enum-like values guide workflow.
+    - is_active: boolean, default True
+    - version_number: integer, default 1
+    - role_category: string(50), nullable
+    - weight_reasoning: text, nullable
+    - suggested_weights_json: text, nullable
+    - timestamp: datetime with timezone, server default now(), indexed
+  - Indexes: composite index on (is_active, candidate_id); composite index on (candidate_id, version_number); index on role_category; index on tenant_id, role_category, is_active
+  - Constraints: JSON fields store structured outputs; status enum-like values guide workflow; version management ensures historical tracking
   - Relationships: back-populates to Tenant.results, Candidate.results, RoleTemplate.results; forward relations to Comment and TrainingExample.
 
 - RoleTemplate
@@ -258,13 +295,17 @@ This section enumerates the 12 core models, their fields, data types, primary/fo
   - Relationships: no foreign keys; standalone registry table.
 
 **Section sources**
-- [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
+- [db_models.py:11-269](file://app/backend/models/db_models.py#L11-L269)
 - [001_enrich_candidates_add_caches.py:42-111](file://alembic/versions/001_enrich_candidates_add_caches.py#L42-L111)
 - [002_parser_snapshot_json.py:21-34](file://alembic/versions/002_parser_snapshot_json.py#L21-L34)
 - [003_subscription_system.py:43-118](file://alembic/versions/003_subscription_system.py#L43-L118)
+- [004_narrative_json.py:1](file://alembic/versions/004_narrative_json.py#L1)
+- [007_narrative_status.py:1](file://alembic/versions/007_narrative_status.py#L1)
+- [009_intelligent_scoring_weights.py:1](file://alembic/versions/009_intelligent_scoring_weights.py#L1)
+- [010_add_jd_text_to_screening_result.py:1](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1)
 
 ## Architecture Overview
-The models follow a multi-tenancy-first design with explicit foreign keys and bidirectional relationships. The base declarative class centralizes ORM configuration. Migrations evolve the schema safely and idempotently.
+The models follow a multi-tenancy-first design with explicit foreign keys and bidirectional relationships. The base declarative class centralizes ORM configuration. Migrations evolve the schema safely and idempotently. The intelligent scoring system introduces version management and role-based weight suggestions for enhanced analysis capabilities.
 
 ```mermaid
 classDiagram
@@ -349,7 +390,15 @@ class ScreeningResult {
 +string jd_text
 +string parsed_data
 +string analysis_result
++string narrative_json
++string narrative_status
++string narrative_error
 +string status
++boolean is_active
++int version_number
++string role_category
++string weight_reasoning
++string suggested_weights_json
 +datetime timestamp
 }
 class RoleTemplate {
@@ -439,7 +488,7 @@ ScreeningResult "1" --> "many" TrainingExample : "screening_result_id"
 ```
 
 **Diagram sources**
-- [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
+- [db_models.py:11-269](file://app/backend/models/db_models.py#L11-L269)
 
 ## Detailed Component Analysis
 
@@ -452,7 +501,68 @@ ScreeningResult "1" --> "many" TrainingExample : "screening_result_id"
 
 **Section sources**
 - [database.py:24](file://app/backend/db/database.py#L24)
-- [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
+- [db_models.py:11-269](file://app/backend/models/db_models.py#L11-L269)
+
+### Enhanced ScreeningResult Model with Intelligent Scoring
+**Updated** The ScreeningResult model now includes comprehensive intelligent scoring capabilities with version management and role-based weight suggestions. The addition of weight_reasoning and suggested_weights_json columns addresses runtime errors and improves transparency in the scoring process.
+
+- ScreeningResult: Enhanced with intelligent scoring system supporting role-based analysis and version tracking.
+  - Fields:
+    - id: integer, primary key, indexed
+    - tenant_id: integer, foreign key to tenants.id, nullable
+    - candidate_id: integer, foreign key to candidates.id, nullable
+    - role_template_id: integer, foreign key to role_templates.id, nullable
+    - resume_text: text, not null
+    - jd_text: text, nullable (added in migration 010)
+    - parsed_data: text (JSON string), not null
+    - analysis_result: text (JSON string), not null
+    - narrative_json: text, nullable (added in migration 004)
+    - narrative_status: string(20), default "pending"
+    - narrative_error: text, nullable
+    - status: string(50), default "pending"
+    - is_active: boolean, default True (version management)
+    - version_number: integer, default 1 (version management)
+    - role_category: string(50), nullable (technical, sales, hr, marketing, operations, leadership)
+    - weight_reasoning: text, nullable (explanation for weight selection)
+    - suggested_weights_json: text, nullable (JSON of suggested weights)
+    - timestamp: datetime with timezone, server default now(), indexed
+  - Indexes: Composite indexes on (is_active, candidate_id) and (candidate_id, version_number) for efficient version queries; index on role_category for calibration queries
+  - Constraints: All new fields are nullable for backward compatibility; version management ensures historical tracking
+  - Relationships: back-populates to Tenant.results, Candidate.results, RoleTemplate.results; forward relations to Comment and TrainingExample
+
+**Section sources**
+- [db_models.py:129-154](file://app/backend/models/db_models.py#L129-L154)
+- [009_intelligent_scoring_weights.py:1](file://alembic/versions/009_intelligent_scoring_weights.py#L1)
+- [010_add_jd_text_to_screening_result.py:1](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1)
+
+### Intelligent Scoring Weights System
+**New** The intelligent scoring system provides role-based weight management with comprehensive default weight suggestions for different position categories.
+
+- Role-based weight categories:
+  - Technical: Higher emphasis on architecture/design, domain fit, and technical excellence
+  - Sales: Focus on revenue achievement, core competencies, and performance metrics
+  - HR: Emphasis on certifications, strategic impact, and organizational development
+  - Marketing: Focus on campaign strategy, brand impact, and digital marketing expertise
+  - Operations: Emphasis on process optimization, efficiency, and operational excellence
+  - Leadership: Strong focus on experience, strategic vision, and leadership impact
+
+- Weight suggestion service:
+  - Provides default weights for each role category
+  - Generates human-readable labels for role excellence factors
+  - Supports fallback mechanisms when LLM analysis is unavailable
+  - Maintains backward compatibility with legacy weight systems
+
+- Version management and metadata tracking:
+  - Automatic extraction of weight metadata from JD analysis
+  - Comprehensive weight reasoning documentation for transparency
+  - JSON serialization of suggested weights for programmatic access
+  - Runtime error prevention through proper field initialization
+
+**Section sources**
+- [weight_suggester.py:180-247](file://app/backend/services/weight_suggester.py#L180-L247)
+- [weight_mapper.py:284-318](file://app/backend/services/weight_mapper.py#L284-L318)
+- [agent_pipeline.py:464-475](file://app/backend/services/agent_pipeline.py#L464-L475)
+- [candidates.py:381-405](file://app/backend/routes/candidates.py#L381-L405)
 
 ### Subscription and Usage Tracking
 - SubscriptionPlan: Adds pricing, features, and plan metadata; migration seeds initial plans and sets default plan for existing tenants.
@@ -513,7 +623,7 @@ BuildSkills --> End(["Ready for matching"])
 - [hybrid_pipeline.py:73-182](file://app/backend/services/hybrid_pipeline.py#L73-L182)
 
 ### Screening and Collaboration
-- ScreeningResult: Stores resume/JD texts, parsed data, and analysis results; supports status transitions.
+- ScreeningResult: Enhanced with intelligent scoring capabilities, version management, and role-based weight suggestions.
 - RoleTemplate: Encapsulates job descriptions and scoring weights.
 - Comment: Enables team collaboration on screening outcomes.
 - TrainingExample: Captures labeled examples for custom training.
@@ -527,24 +637,24 @@ participant Result as "ScreeningResult"
 participant Comment as "Comment"
 participant Train as "TrainingExample"
 Client->>API : "Upload resume + select JD template"
-API->>DB : "Create ScreeningResult (resume_text, jd_text, parsed_data, analysis_result)"
-DB-->>API : "Result created"
+API->>DB : "Create ScreeningResult (resume_text, jd_text, parsed_data, analysis_result, role_category, suggested_weights_json, weight_reasoning)"
+DB-->>API : "Result created with intelligent weights"
 Client->>API : "Add Comment"
 API->>DB : "Create Comment (result_id, user_id, text)"
 DB-->>API : "Comment created"
 Client->>API : "Label outcome"
 API->>DB : "Create TrainingExample (screening_result_id, outcome, feedback)"
 DB-->>API : "TrainingExample created"
-API-->>Client : "Results with comments and training examples"
+API-->>Client : "Results with intelligent scoring and comments"
 ```
 
 **Diagram sources**
-- [db_models.py:128-147](file://app/backend/models/db_models.py#L128-L147)
+- [db_models.py:128-154](file://app/backend/models/db_models.py#L128-L154)
 - [db_models.py:181-192](file://app/backend/models/db_models.py#L181-L192)
 - [db_models.py:214-225](file://app/backend/models/db_models.py#L214-L225)
 
 **Section sources**
-- [db_models.py:128-147](file://app/backend/models/db_models.py#L128-L147)
+- [db_models.py:128-154](file://app/backend/models/db_models.py#L128-L154)
 - [db_models.py:151-165](file://app/backend/models/db_models.py#L151-L165)
 - [db_models.py:181-192](file://app/backend/models/db_models.py#L181-L192)
 - [db_models.py:214-225](file://app/backend/models/db_models.py#L214-L225)
@@ -607,8 +717,8 @@ API-->>Client : "Structured analysis results"
   - Use Tenant(name="Acme Inc", slug="acme", plan_id=existing_plan_id, ...)
 - Create a Candidate under a Tenant:
   - Use Candidate(tenant_id=tenant.id, name="John Doe", email="john@example.com", ...)
-- Add a ScreeningResult linking Candidate and RoleTemplate:
-  - Use ScreeningResult(tenant_id=tenant.id, candidate_id=candidate.id, role_template_id=template.id, resume_text="...", jd_text="...", parsed_data="...", analysis_result="...", status="pending")
+- Add a ScreeningResult with intelligent scoring capabilities:
+  - Use ScreeningResult(tenant_id=tenant.id, candidate_id=candidate.id, role_template_id=template.id, resume_text="...", jd_text="...", parsed_data="...", analysis_result="...", status="pending", role_category="technical", suggested_weights_json="...", weight_reasoning="...")
 - Insert a Comment on a ScreeningResult:
   - Use Comment(result_id=result.id, user_id=user.id, text="Great insights!")
 - Create a TranscriptAnalysis:
@@ -619,7 +729,7 @@ Note: These examples describe construction patterns; refer to the model definiti
 **Section sources**
 - [db_models.py:31-59](file://app/backend/models/db_models.py#L31-L59)
 - [db_models.py:97-126](file://app/backend/models/db_models.py#L97-L126)
-- [db_models.py:128-147](file://app/backend/models/db_models.py#L128-L147)
+- [db_models.py:128-154](file://app/backend/models/db_models.py#L128-L154)
 - [db_models.py:181-192](file://app/backend/models/db_models.py#L181-L192)
 - [db_models.py:196-210](file://app/backend/models/db_models.py#L196-L210)
 
@@ -632,17 +742,23 @@ Note: These examples describe construction patterns; refer to the model definiti
   - Query(UsageLog).filter(UsageLog.tenant_id == tenant.id).order_by(UsageLog.created_at.desc()).all()
 - Get TranscriptAnalyses for a Candidate:
   - Query(TranscriptAnalysis).filter(TranscriptAnalysis.candidate_id == candidate.id).all()
+- Query ScreeningResults by role category:
+  - Query(ScreeningResult).filter(ScreeningResult.role_category == "technical").all()
+- Get current active version of a candidate's analysis:
+  - Query(ScreeningResult).filter(ScreeningResult.candidate_id == candidate_id, ScreeningResult.is_active == True).first()
+- Get version history for a candidate:
+  - Query(ScreeningResult).filter(ScreeningResult.candidate_id == candidate_id).order_by(ScreeningResult.version_number).all()
 
 These patterns leverage relationships and foreign keys defined in the models.
 
 **Section sources**
 - [db_models.py:97-126](file://app/backend/models/db_models.py#L97-L126)
-- [db_models.py:128-147](file://app/backend/models/db_models.py#L128-L147)
+- [db_models.py:128-154](file://app/backend/models/db_models.py#L128-L154)
 - [db_models.py:196-210](file://app/backend/models/db_models.py#L196-L210)
 - [db_models.py:79-93](file://app/backend/models/db_models.py#L79-L93)
 
 ## Dependency Analysis
-The models depend on the shared declarative base and SQLAlchemy constructs. Relationships are defined via foreign keys and relationship() declarations. Migrations manage schema evolution and indexes.
+The models depend on the shared declarative base and SQLAlchemy constructs. Relationships are defined via foreign keys and relationship() declarations. Migrations manage schema evolution and indexes. The intelligent scoring system introduces additional dependencies on weight suggestion services and calibration data.
 
 ```mermaid
 graph TB
@@ -650,36 +766,56 @@ DB["SQLAlchemy Engine<br/>app/backend/db/database.py"]
 Base["Declarative Base<br/>app/backend/db/database.py"]
 Models["Models Module<br/>app/backend/models/db_models.py"]
 Migs["Alembic Migrations<br/>alembic/versions/*"]
+WeightSuggester["Weight Suggester Service<br/>Role-based weight recommendations"]
+Calibration["Calibration Service<br/>Historical analysis patterns"]
+AgentPipeline["Agent Pipeline<br/>Intelligent scoring orchestration"]
+VersionManager["Version Management<br/>is_active, version_number tracking"]
+Frontend["Frontend Components<br/>Weight visualization, reasoning display"]
 DB --> Base
 Base --> Models
 Models --> Migs
+Models --> WeightSuggester
+Models --> Calibration
+Models --> VersionManager
+AgentPipeline --> WeightSuggester
+AgentPipeline --> Calibration
+Frontend --> VersionManager
+Frontend --> WeightSuggester
 ```
 
 **Diagram sources**
 - [database.py:20-24](file://app/backend/db/database.py#L20-L24)
 - [db_models.py:6](file://app/backend/models/db_models.py#L6)
+- [weight_suggester.py:1](file://app/backend/services/weight_suggester.py#L1)
+- [agent_pipeline.py:1](file://app/backend/services/agent_pipeline.py#L1)
 
 **Section sources**
 - [database.py:1-33](file://app/backend/db/database.py#L1-L33)
-- [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
+- [db_models.py:11-269](file://app/backend/models/db_models.py#L11-L269)
 
 ## Performance Considerations
-- Indexes: Several fields are indexed to speed up lookups (email, slug, resume_file_hash, usage-log composite indexes). Ensure additional indexes are added for frequently filtered/sorted columns in production.
+- Indexes: Several fields are indexed to speed up lookups (email, slug, resume_file_hash, usage-log composite indexes). New indexes for intelligent scoring (is_active, version_number, role_category) improve query performance for version management and role-based filtering.
 - JSON fields: Storing structured data in JSON reduces normalization overhead but can limit indexing granularity; consider selective denormalization if queries require frequent filtering on nested fields.
 - Cascading deletes: UsageLog uses cascade delete on tenant and set null on user; ensure appropriate cascade behavior for your workload to avoid orphaned records.
 - Timezone-aware timestamps: Using timezone-aware datetimes avoids ambiguity in cross-timezone deployments.
-
-[No sources needed since this section provides general guidance]
+- Version management: The is_active and version_number fields enable efficient querying of current versions while maintaining historical data for analysis and comparison.
+- Weight metadata: The suggested_weights_json field stores serialized weight configurations for quick access without requiring complex joins or calculations.
 
 ## Troubleshooting Guide
 - Startup table creation: The application creates tables at startup; failures are logged but do not prevent server startup.
 - Health checks: The /health endpoint validates database connectivity and LLM availability; use it to diagnose runtime issues.
 - Usage tracking: If usage logs are missing, verify that the UsageLog insertion occurs after successful actions and that tenant usage fields are updated accordingly.
+- Intelligent scoring: If role-based weights are not appearing, verify that the 009 migration has been applied and that the weight_suggestion service is functioning correctly.
+- Version conflicts: If version management issues occur, check that is_active is properly managed when creating new versions of ScreeningResult records.
+- Weight metadata: If weight_reasoning or suggested_weights_json fields are empty, verify that the JD analysis includes weight suggestion data and that the route handler properly extracts and serializes this information.
+- Frontend display: If weight reasoning is not visible in the UI, check that the frontend components properly handle the new weight_reasoning field and that the data is being transmitted correctly from the backend.
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
 - [003_subscription_system.py:93-118](file://alembic/versions/003_subscription_system.py#L93-L118)
+- [009_intelligent_scoring_weights.py:76-93](file://alembic/versions/009_intelligent_scoring_weights.py#L76-L93)
+- [candidates.py:381-405](file://app/backend/routes/candidates.py#L381-L405)
 
 ## Conclusion
-The core models form a cohesive, multi-tenant data layer supporting resume screening, transcript analysis, team collaboration, and subscription-based usage tracking. The shared base class and explicit relationships enable clear data flows, while migrations ensure schema evolution remains safe and predictable. By following the documented patterns and constraints, developers can reliably extend functionality and maintain data integrity.
+The core models form a cohesive, multi-tenant data layer supporting resume screening, transcript analysis, team collaboration, and subscription-based usage tracking. The enhanced ScreeningResult model with intelligent scoring capabilities provides sophisticated role-based analysis and version management. The addition of weight_reasoning and suggested_weights_json columns addresses runtime errors and improves transparency in the scoring process. The shared base class and explicit relationships enable clear data flows, while migrations ensure schema evolution remains safe and predictable. The intelligent scoring system with role-based weight suggestions enables more accurate and contextually appropriate candidate evaluation across different position categories. By following the documented patterns and constraints, developers can reliably extend functionality and maintain data integrity.

@@ -16,8 +16,20 @@
 - [compare.py](file://app/backend/routes/compare.py)
 - [export.py](file://app/backend/routes/export.py)
 - [training.py](file://app/backend/routes/training.py)
+- [upload.py](file://app/backend/routes/upload.py)
+- [queue_api.py](file://app/backend/routes/queue_api.py)
+- [weight_mapper.py](file://app/backend/services/weight_mapper.py)
+- [weight_suggester.py](file://app/backend/services/weight_suggester.py)
 - [api.js](file://app/frontend/src/lib/api.js)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Added new chunked upload endpoints for handling large file uploads
+- Added new queue API endpoints for job management and monitoring
+- Enhanced analysis endpoints with LLM narrative enrichment
+- Added intelligent scoring weight management system with AI suggestions
+- Updated analysis endpoints to support both streaming and queued processing modes
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -34,7 +46,10 @@
 ## Introduction
 This document provides a comprehensive API reference for Resume AI by ThetaLogics. It covers all REST endpoints, request/response schemas, authentication, rate limiting, usage tracking, and integration patterns. The API is organized around:
 - Authentication and user management
-- Resume analysis (single and batch)
+- Resume analysis (single and batch) with enhanced LLM enrichment
+- Chunked upload system for large file handling
+- Job queue management for asynchronous processing
+- Intelligent scoring weight management with AI suggestions
 - Candidate and template management
 - Subscription and usage tracking
 - Team collaboration and comments
@@ -59,9 +74,13 @@ R_EMAIL["Routes: email_gen.py"]
 R_COMPARE["Routes: compare.py"]
 R_EXPORT["Routes: export.py"]
 R_TRAIN["Routes: training.py"]
+R_UPLOAD["Routes: upload.py"]
+R_QUEUE["Routes: queue_api.py"]
 MW["Middleware: auth.py"]
 SC["Models: schemas.py"]
 DBM["Models: db_models.py"]
+WS["Services: weight_suggester.py"]
+WM["Services: weight_mapper.py"]
 end
 subgraph "Frontend"
 FE["Client: api.js"]
@@ -76,6 +95,8 @@ M --> R_EMAIL
 M --> R_COMPARE
 M --> R_EXPORT
 M --> R_TRAIN
+M --> R_UPLOAD
+M --> R_QUEUE
 R_AUTH --> MW
 R_ANALYZE --> MW
 R_CAND --> MW
@@ -86,6 +107,8 @@ R_EMAIL --> MW
 R_COMPARE --> MW
 R_EXPORT --> MW
 R_TRAIN --> MW
+R_UPLOAD --> MW
+R_QUEUE --> MW
 FE --> M
 MW --> DBM
 R_ANALYZE --> DBM
@@ -97,15 +120,12 @@ R_EMAIL --> DBM
 R_COMPARE --> DBM
 R_EXPORT --> DBM
 R_TRAIN --> DBM
-R_ANALYZE --> SC
-R_CAND --> SC
-R_TMPL --> SC
-R_SUB --> SC
-R_TEAM --> SC
-R_EMAIL --> SC
-R_COMPARE --> SC
-R_EXPORT --> SC
-R_TRAIN --> SC
+R_UPLOAD --> DBM
+R_QUEUE --> DBM
+R_ANALYZE --> WS
+R_ANALYZE --> WM
+R_UPLOAD --> WS
+R_QUEUE --> WM
 ```
 
 **Diagram sources**
@@ -123,6 +143,10 @@ R_TRAIN --> SC
 - [compare.py:13-78](file://app/backend/routes/compare.py#L13-78)
 - [export.py:17-105](file://app/backend/routes/export.py#L17-105)
 - [training.py:18-153](file://app/backend/routes/training.py#L18-153)
+- [upload.py:36-361](file://app/backend/routes/upload.py#L36-361)
+- [queue_api.py:31-464](file://app/backend/routes/queue_api.py#L31-464)
+- [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-360)
+- [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-307)
 - [api.js:1-395](file://app/frontend/src/lib/api.js#L1-L395)
 
 **Section sources**
@@ -143,6 +167,14 @@ R_TRAIN --> SC
 - Streaming and Batch Processing
   - SSE streaming for long-running analysis
   - Batch analysis with concurrency and deduplication
+- Intelligent Scoring System
+  - Universal 7-weight schema with backward compatibility
+  - AI-powered weight suggestions
+  - Dynamic weight mapping and normalization
+- Job Queue Management
+  - Asynchronous job processing with priority queuing
+  - Real-time job status monitoring
+  - Administrative job operations (retry, cancel)
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -150,13 +182,17 @@ R_TRAIN --> SC
 - [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
 - [subscription.py:72-84](file://app/backend/routes/subscription.py#L72-L84)
 - [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
+- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
+- [weight_suggester.py:23-307](file://app/backend/services/weight_suggester.py#L23-307)
+- [queue_api.py:34-464](file://app/backend/routes/queue_api.py#L34-L464)
 
 ## Architecture Overview
 The API follows a layered architecture:
 - Routers expose endpoints grouped by feature
 - Middleware enforces authentication and authorization
-- Services orchestrate analysis and LLM interactions
-- Database models persist state and usage metrics
+- Services orchestrate analysis, LLM interactions, and intelligent scoring
+- Database models persist state, usage metrics, and job queues
+- Queue system manages asynchronous job processing with priority scheduling
 
 ```mermaid
 sequenceDiagram
@@ -165,6 +201,7 @@ participant A as "Auth Router"
 participant U as "User"
 participant T as "Tenant"
 participant S as "Subscription Router"
+participant Q as "Queue Manager"
 C->>A : POST /api/auth/register
 A->>U : Create admin user
 A->>T : Create tenant
@@ -172,11 +209,15 @@ A-->>C : TokenResponse(access_token, refresh_token, user, tenant)
 C->>S : GET /api/subscription
 S->>T : Load tenant + plan
 S-->>C : FullSubscriptionResponse
+C->>Q : POST /api/queue/submit
+Q->>Q : Enqueue job with priority
+Q-->>C : Job queued successfully
 ```
 
 **Diagram sources**
 - [auth.py:57-96](file://app/backend/routes/auth.py#L57-L96)
 - [subscription.py:172-253](file://app/backend/routes/subscription.py#L172-L253)
+- [queue_api.py:38-76](file://app/backend/routes/queue_api.py#L38-L76)
 
 ## Detailed Component Analysis
 
@@ -210,45 +251,121 @@ Security and requirements:
 
 ### Resume Analysis Endpoints
 - POST /api/analyze
-  - Purpose: Single resume analysis
+  - Purpose: Single resume analysis with LLM narrative enrichment
   - Body: multipart/form-data
     - resume: file (.pdf, .docx, .doc)
     - job_description: string or
     - job_file: file (alternative to text)
-    - scoring_weights: JSON string (optional)
+    - scoring_weights: JSON string (universal 7-weight schema)
     - action: string (use_existing | update_profile | create_new | None)
-  - Response: AnalysisResponse
+  - Response: AnalysisResponse with AI enhancement fields
   - Behavior:
     - Validates file size and extension
     - Checks usage limits and increments counters
     - Parses resume, analyzes gaps, resolves JD (text or file)
     - Deduplicates candidates across three layers
     - Persists result and candidate profile
-    - Returns enriched result with candidate metadata
+    - Returns enriched result with candidate metadata and AI narrative status
 - POST /api/analyze/stream
-  - Purpose: Streaming analysis via SSE
+  - Purpose: Streaming analysis via SSE with real-time updates
   - Body: same as above
-  - Response: SSE events
-    - stage: parsing, scoring, complete
-    - result: partial or final result
-  - Behavior: Streams intermediate stages, persists final result
+  - Response: SSE events with progressive analysis results
+  - Behavior: Streams intermediate stages, persists Python scores immediately, LLM narrative processed asynchronously
 - POST /api/analyze/batch
-  - Purpose: Batch analysis
+  - Purpose: Batch analysis with intelligent scoring
   - Body: resumes: list[file], optional job_description/job_file, scoring_weights
   - Response: BatchAnalysisResponse (ordered by fit_score)
   - Behavior: Validates batch size against plan limits, processes concurrently, deduplicates, persists, sorts by score
+- POST /api/analyze/suggest-weights
+  - Purpose: AI-powered weight suggestions based on job description
+  - Body: multipart/form-data with job_description
+  - Response: WeightSuggestionResponse (role_category, seniority_level, suggested_weights, reasoning)
+  - Behavior: Uses LLM to analyze job requirements and suggest optimal scoring weights
 
 Usage and limits:
 - Monthly analysis counts tracked per tenant
 - Plan limits enforced; returns 429 on overrun
 - Batch size limited by plan
+- Intelligent weight system supports both legacy and universal schemas
 
 **Section sources**
-- [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [analyze.py:651-758](file://app/backend/routes/analyze.py#L651-L758)
-- [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
-- [schemas.py:89-136](file://app/backend/models/schemas.py#L89-L136)
+- [analyze.py:442-666](file://app/backend/routes/analyze.py#L442-L666)
+- [analyze.py:671-905](file://app/backend/routes/analyze.py#L671-L905)
+- [analyze.py:922-1059](file://app/backend/routes/analyze.py#L922-L1059)
+- [analyze.py:1118-1169](file://app/backend/routes/analyze.py#L1118-L1169)
+- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+
+### Chunked Upload Endpoints
+- POST /api/upload/chunk
+  - Purpose: Upload large files in chunks to bypass CDN limits
+  - Body: multipart/form-data with chunk upload parameters
+  - Response: ChunkUploadResponse (success, upload_id, chunk_index, total_chunks)
+  - Behavior: Validates chunk boundaries, stores chunks temporarily, maintains upload session
+- POST /api/upload/finalize
+  - Purpose: Finalize chunked upload and assemble complete file
+  - Body: FinalizeUploadRequest (upload_id, filename, total_chunks, file_hash)
+  - Response: FinalizeUploadResponse (success, upload_id, filename, file_size)
+  - Behavior: Verifies all chunks present, assembles file, validates integrity, cleans up temporary chunks
+- DELETE /api/upload/cancel/{upload_id}
+  - Purpose: Cancel in-progress chunked upload
+  - Response: Success message
+  - Behavior: Removes temporary chunk files and metadata
+
+Security and requirements:
+- Maximum chunk size: 15MB, maximum file size: 500MB
+- Automatic cleanup of orphaned chunks after 24 hours
+- MD5 hash validation for file integrity
+- Backward compatible with existing upload flows
+
+**Section sources**
+- [upload.py:99-204](file://app/backend/routes/upload.py#L99-L204)
+- [upload.py:207-323](file://app/backend/routes/upload.py#L207-L323)
+- [upload.py:326-361](file://app/backend/routes/upload.py#L326-L361)
+
+### Job Queue Management Endpoints
+- POST /api/queue/submit
+  - Purpose: Submit analysis job to queue for asynchronous processing
+  - Body: form-data with analysis parameters
+  - Response: JobSubmissionResponse (job_id, status, message)
+  - Behavior: Creates job with priority level, enqueues for processing
+- GET /api/queue/status/{job_id}
+  - Purpose: Check job status and progress
+  - Response: JobStatusResponse (status, progress_percent, processing_stage, timing info)
+  - Behavior: Returns real-time job status with queue position estimates
+- GET /api/queue/result/{job_id}
+  - Purpose: Retrieve completed analysis result
+  - Response: AnalysisResultResponse (full analysis data, AI enhancement status)
+  - Behavior: Returns complete analysis including parsed resume/JD and AI narrative
+- GET /api/queue/stats
+  - Purpose: Get tenant-wide queue statistics
+  - Response: QueueStatsResponse (job distribution, processing metrics)
+  - Behavior: Aggregates queue performance metrics and tenant usage
+- GET /api/queue/jobs
+  - Purpose: List tenant's jobs with pagination
+  - Response: JobListResponse (jobs array with metadata)
+  - Behavior: Returns paginated job history filtered by tenant
+- POST /api/queue/retry/{job_id}
+  - Purpose: Manually retry failed job
+  - Response: JobRetryResponse (status, message)
+  - Behavior: Resets job state and requeues for processing
+- DELETE /api/queue/cancel/{job_id}
+  - Purpose: Cancel queued or processing job
+  - Response: JobCancelResponse (status, message)
+  - Behavior: Cancels job and updates status appropriately
+
+Priority system:
+- 1-2: High priority (premium users, urgent)
+- 3-5: Normal priority (default)
+- 6-10: Low priority (batch jobs, background)
+
+**Section sources**
+- [queue_api.py:38-76](file://app/backend/routes/queue_api.py#L38-L76)
+- [queue_api.py:82-141](file://app/backend/routes/queue_api.py#L82-L141)
+- [queue_api.py:144-207](file://app/backend/routes/queue_api.py#L144-L207)
+- [queue_api.py:214-272](file://app/backend/routes/queue_api.py#L214-L272)
+- [queue_api.py:275-316](file://app/backend/routes/queue_api.py#L275-L316)
+- [queue_api.py:323-364](file://app/backend/routes/queue_api.py#L323-L364)
+- [queue_api.py:367-398](file://app/backend/routes/queue_api.py#L367-L398)
 
 ### Candidate Management Endpoints
 - GET /api/candidates
@@ -401,6 +518,9 @@ Key dependencies and relationships:
 - Analysis routes depend on parser service, gap detector, hybrid pipeline, and subscription usage enforcement
 - Team endpoints enforce admin role for invites and removals
 - Subscription routes maintain tenant usage counters and logs
+- Queue API depends on queue manager for job orchestration
+- Upload routes handle chunked file processing with temporary storage
+- Weight management system provides intelligent scoring with AI suggestions
 
 ```mermaid
 graph LR
@@ -414,7 +534,11 @@ EMAIL["Email Router"] --> MW
 COMPARE["Compare Router"] --> MW
 EXPORT["Export Router"] --> MW
 TRAIN["Training Router"] --> MW
+UPLOAD["Upload Router"] --> MW
+QUEUE["Queue Router"] --> MW
 ANALYZE --> DBM["DB Models"]
+UPLOAD --> DBM
+QUEUE --> DBM
 CAND --> DBM
 TMPL --> DBM
 SUB --> DBM
@@ -424,6 +548,10 @@ COMPARE --> DBM
 EXPORT --> DBM
 TRAIN --> DBM
 MW --> DBM
+ANALYZE --> WS["Weight Suggester"]
+ANALYZE --> WM["Weight Mapper"]
+UPLOAD --> WS
+QUEUE --> WM
 ```
 
 **Diagram sources**
@@ -437,7 +565,11 @@ MW --> DBM
 - [compare.py:13-78](file://app/backend/routes/compare.py#L13-78)
 - [export.py:17-105](file://app/backend/routes/export.py#L17-105)
 - [training.py:18-153](file://app/backend/routes/training.py#L18-153)
+- [upload.py:36-361](file://app/backend/routes/upload.py#L36-361)
+- [queue_api.py:31-464](file://app/backend/routes/queue_api.py#L31-464)
 - [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
+- [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-360)
+- [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-307)
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -448,9 +580,10 @@ MW --> DBM
 - Batch analysis processes multiple resumes concurrently with plan-enforced limits
 - Deduplication minimizes redundant processing and storage
 - DB shared JD cache accelerates repeated analyses with the same job description
+- Chunked upload system handles large files efficiently with automatic cleanup
+- Job queue system provides scalable asynchronous processing with priority scheduling
+- Intelligent weight system optimizes scoring accuracy with AI-powered suggestions
 - Frontend client sets reasonable timeouts for long-running operations
-
-[No sources needed since this section provides general guidance]
 
 ## Troubleshooting Guide
 Common errors and resolutions:
@@ -461,17 +594,20 @@ Common errors and resolutions:
   - Cause: Non-admin attempting admin-only operation
   - Resolution: Ensure admin role
 - 400 Bad Request
-  - Cause: Invalid file type, oversized file, insufficient JD length, invalid JSON
+  - Cause: Invalid file type, oversized file, insufficient JD length, invalid JSON, chunk validation errors
   - Resolution: Validate inputs and file constraints
 - 404 Not Found
-  - Cause: Resource not found (user, candidate, template, result)
+  - Cause: Resource not found (user, candidate, template, result, job)
   - Resolution: Verify IDs and tenant scoping
 - 429 Too Many Requests
   - Cause: Monthly analysis limit exceeded
   - Resolution: Upgrade plan or wait for reset
 - 500 Internal Server Error
-  - Cause: Pipeline or LLM failures
+  - Cause: Pipeline or LLM failures, queue processing errors
   - Resolution: Retry or check /health and /api/llm-status
+- 503 Service Unavailable
+  - Cause: Queue system overloaded, LLM service unavailable
+  - Resolution: Retry with exponential backoff, check queue stats
 
 **Section sources**
 - [auth.py:23-40](file://app/backend/middleware/auth.py#L23-L40)
@@ -479,11 +615,11 @@ Common errors and resolutions:
 - [analyze.py:255-266](file://app/backend/routes/analyze.py#L255-L266)
 - [subscription.py:293-318](file://app/backend/routes/subscription.py#L293-L318)
 - [email_gen.py:77-96](file://app/backend/routes/email_gen.py#L77-L96)
+- [upload.py:128-156](file://app/backend/routes/upload.py#L128-L156)
+- [queue_api.py:323-344](file://app/backend/routes/queue_api.py#L323-L344)
 
 ## Conclusion
-This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, and collaborative features. Clients should implement token refresh, handle streaming events, and respect rate limits. Administrators can manage plans and usage via dedicated endpoints.
-
-[No sources needed since this section summarizes without analyzing specific files]
+This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. Clients should implement token refresh, handle streaming events, respect rate limits, and utilize the queue system for optimal performance. Administrators can manage plans, usage, and queue operations via dedicated endpoints.
 
 ## Appendices
 
@@ -505,17 +641,44 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [subscription.py:72-84](file://app/backend/routes/subscription.py#L72-L84)
 - [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
 
+### Intelligent Scoring System
+- Universal 7-weight schema: core_competencies, experience, domain_fit, education, career_trajectory, role_excellence, risk
+- Backward compatibility with legacy 4-weight schema
+- AI-powered weight suggestions based on job description analysis
+- Dynamic weight normalization ensuring sum equals 1.0
+- Adaptive labels based on role category (technical, sales, hr, marketing, operations, leadership)
+
+**Section sources**
+- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
+- [weight_suggester.py:23-307](file://app/backend/services/weight_suggester.py#L23-L307)
+
+### Job Queue System
+- Priority-based job scheduling (1-10 scale)
+- Real-time job status monitoring with progress tracking
+- Automatic retry with exponential backoff
+- Administrative operations (retry, cancel, cancel_all)
+- Performance metrics and queue statistics
+- Tenant-scoped job isolation
+
+**Section sources**
+- [queue_api.py:34-464](file://app/backend/routes/queue_api.py#L34-L464)
+
 ### Example Client Integrations
 - JavaScript (frontend)
   - Axios client with interceptors for token injection and auto-refresh
   - Streaming analysis via fetch with SSE handling
+  - Chunked upload implementation with progress tracking
+  - Queue job monitoring with polling
   - Batch uploads and exports
 - Python (backend)
   - Use requests or aiohttp to call endpoints
   - Manage bearer tokens and handle 401/429 responses
+  - Implement chunked upload with proper error handling
+  - Monitor queue jobs with retry logic
 - Go
   - Use net/http or gorilla/mux
   - Implement JWT verification and bearer token parsing
+  - Handle chunked upload streams and queue operations
 
 **Section sources**
 - [api.js:9-43](file://app/frontend/src/lib/api.js#L9-L43)
@@ -526,17 +689,29 @@ This API provides a robust foundation for AI-powered resume screening with stron
 ### Request/Response Schemas
 - AnalysisResponse
   - Fit score, strengths, weaknesses, risk signals, recommendations, score breakdown, matched/missing skills, interview questions, explainability, quality flags, duplicate candidate info
+  - AI enhancement fields: narrative_status, narrative_data, ai_enhanced
 - BatchAnalysisResponse
   - results: list of BatchAnalysisResult (rank, filename, result)
 - TokenResponse
   - access_token, refresh_token, token_type, user, tenant
 - Subscription responses
   - PlanResponse, CurrentPlanResponse, UsageResponse, FullSubscriptionResponse, UsageCheckResponse
+- ChunkUploadResponse
+  - success, upload_id, chunk_index, total_chunks, message
+- FinalizeUploadResponse
+  - success, upload_id, filename, file_size, message
+- JobStatusResponse
+  - job_id, status, progress_percent, processing_stage, timing information
+- WeightSuggestionResponse
+  - role_category, seniority_level, suggested_weights, reasoning, confidence, role_excellence_label
 
 **Section sources**
 - [schemas.py:89-136](file://app/backend/models/schemas.py#L89-L136)
 - [schemas.py:151-156](file://app/backend/models/schemas.py#L151-L156)
 - [schemas.py:344-379](file://app/backend/models/schemas.py#L344-L379)
+- [upload.py:49-73](file://app/backend/routes/upload.py#L49-L73)
+- [queue_api.py:105-141](file://app/backend/routes/queue_api.py#L105-L141)
+- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 
 ### Data Model Overview
 ```mermaid
@@ -602,6 +777,9 @@ class ScreeningResult {
 +string parsed_data
 +string analysis_result
 +string status
++string narrative_status
++string narrative_json
++string narrative_error
 }
 class RoleTemplate {
 +int id
@@ -625,16 +803,69 @@ class UsageLog {
 +int quantity
 +string details
 }
+class AnalysisJob {
++uuid id
++int tenant_id
++int user_id
++int candidate_id
++uuid result_id
++string status
++int priority
++int progress_percent
++string processing_stage
++string error_message
++string error_type
++int retry_count
++int max_retries
++datetime queued_at
++datetime started_at
++datetime completed_at
++datetime failed_at
++datetime next_retry_at
++string worker_id
+}
+class AnalysisResult {
++uuid id
++uuid job_id
++int tenant_id
++int candidate_id
++float fit_score
++string final_recommendation
++string risk_level
++string analysis_quality
++float confidence_score
++int processing_time_ms
++json analysis_data
++json parsed_resume
++json parsed_jd
++string narrative_status
++json narrative_data
++bool ai_enhanced
++string model_used
++string analysis_version
+}
+class JobMetrics {
++uuid job_id
++int tenant_id
++int total_time_ms
++int parse_time_ms
++int analysis_time_ms
++int llm_time_ms
++int retry_count
+}
 SubscriptionPlan "1" --> "many" Tenant : "plan"
 Tenant "1" --> "many" User : "users"
 Tenant "1" --> "many" Candidate : "candidates"
 Tenant "1" --> "many" ScreeningResult : "results"
 Tenant "1" --> "many" RoleTemplate : "templates"
 Tenant "1" --> "many" UsageLog : "usage_logs"
+Tenant "1" --> "many" AnalysisJob : "jobs"
 Candidate "1" --> "many" ScreeningResult : "results"
 RoleTemplate "1" --> "many" ScreeningResult : "results"
 User "1" --> "many" Comment : "comments"
 ScreeningResult "1" --> "many" Comment : "comments"
+AnalysisJob "1" --> "many" AnalysisResult : "results"
+AnalysisJob "1" --> "many" JobMetrics : "metrics"
 ```
 
 **Diagram sources**

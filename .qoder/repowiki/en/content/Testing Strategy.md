@@ -5,6 +5,9 @@
 - [ci.yml](file://.github/workflows/ci.yml)
 - [cd.yml](file://.github/workflows/cd.yml)
 - [conftest.py](file://app/backend/tests/conftest.py)
+- [queue_manager.py](file://app/backend/services/queue_manager.py)
+- [queue_api.py](file://app/backend/routes/queue_api.py)
+- [008_analysis_queue_system.py](file://alembic/versions/008_analysis_queue_system.py)
 - [test_api.py](file://app/backend/tests/test_api.py)
 - [test_auth.py](file://app/backend/tests/test_auth.py)
 - [test_subscription.py](file://app/backend/tests/test_subscription.py)
@@ -39,15 +42,15 @@
 - [main.py](file://app/backend/main.py)
 - [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
 - [training.py](file://app/backend/routes/training.py)
-- [wait_for_ollama.py](file://app/backend/scripts/wait_for_ollama.py)
+- [wait_for_ollama.py](file://app/backend/scripts/wait_for_ompala.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated test infrastructure to reflect model configuration changes from `qwen3.5:4b` to `gemma4:31b-cloud`
-- Enhanced LLM service testing with proper model validation across all service integrations
-- Updated health sentinel tests to validate new model configuration
-- Improved test consistency with current model settings and service configurations
+- Enhanced test database setup infrastructure with sophisticated table creation/destruction mechanisms for queue system tables
+- Improved queue worker mocking with AsyncMock to prevent database access during tests
+- Added comprehensive queue system database schema support in test fixtures
+- Updated queue-related test patterns to leverage enhanced database infrastructure
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -83,6 +86,7 @@ B5["LLM Service Tests"]
 B6["Pipeline Tests"]
 B7["Service Layer Tests"]
 B8["Integration Tests"]
+B9["Queue System Tests"]
 end
 subgraph "Frontend Test Suite"
 F1["Vitest"]
@@ -100,6 +104,7 @@ B1 --> B5
 B1 --> B6
 B1 --> B7
 B1 --> B8
+B1 --> B9
 F1 --> F2
 F1 --> F3
 C1 --> B1
@@ -111,7 +116,7 @@ C2 --> F1
 **Diagram sources**
 - [ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
-- [conftest.py:1-589](file://app/backend/tests/conftest.py#L1-L589)
+- [conftest.py:1-718](file://app/backend/tests/conftest.py#L1-L718)
 - [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
 
 **Section sources**
@@ -121,11 +126,13 @@ C2 --> F1
 ## Core Components
 - Backend test harness with comprehensive fixture system
   - Shared fixtures for database, HTTP client, authentication, and service mocks
-  - In-memory SQLite database with per-test lifecycle
+  - In-memory SQLite database with per-test lifecycle and sophisticated queue table management
   - Authentication fixtures that register and log in users, injecting Authorization headers
   - Mocks for external services (Ollama, Whisper, hybrid pipeline) to isolate unit tests
   - Extensive test data fixtures for resumes, transcripts, and subscription plans
   - Specialized fixtures for LLM service testing, pipeline validation, and error scenarios
+  - **Enhanced**: Sophisticated queue system database infrastructure with custom table creation/destruction
+  - **Enhanced**: AsyncMock-based queue worker mocking to prevent database access during tests
 - Frontend test harness
   - Global setup for DOM matchers
   - Mocked axios with explicit request/response spies
@@ -136,7 +143,7 @@ C2 --> F1
 **Updated** Significantly enhanced with 73+ new tests covering LLM service layer, authentication flows, API endpoints, and integration scenarios with comprehensive error handling and retry mechanisms. Recent updates ensure test infrastructure validates the new `gemma4:31b-cloud` model configuration consistently across all service integrations.
 
 **Section sources**
-- [conftest.py:1-589](file://app/backend/tests/conftest.py#L1-L589)
+- [conftest.py:1-718](file://app/backend/tests/conftest.py#L1-L718)
 - [setup.js:1-2](file://app/frontend/src/__tests__/setup.js#L1-L2)
 - [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
 
@@ -146,6 +153,7 @@ The testing architecture separates concerns across layers with comprehensive cov
 - Component and integration tests for frontend using Vitest and React Testing Library
 - CI/CD pipelines that run backend and frontend tests in parallel and upload coverage
 - Specialized testing for LLM services, pipelines, and background task processing
+- **Enhanced**: Comprehensive queue system testing with dedicated database infrastructure
 
 ```mermaid
 sequenceDiagram
@@ -169,6 +177,7 @@ VT-->>GH : "Test results"
 ### Backend Testing with pytest - Comprehensive Test Suite
 Key patterns with expanded coverage:
 - Database isolation using an in-memory SQLite engine and per-test metadata creation/drop
+- **Enhanced**: Sophisticated queue table creation using raw SQL to avoid FK resolution issues
 - HTTP client testing with FastAPI TestClient and dependency overrides
 - Authentication fixtures that register/log in users and attach Authorization headers
 - Service-level mocks for external integrations (Ollama, Whisper, hybrid pipeline)
@@ -177,9 +186,10 @@ Key patterns with expanded coverage:
 - **New**: Pipeline testing covering hybrid and agent pipeline validation
 - **New**: Transcript service and video processing comprehensive testing
 - **New**: Background task and retry mechanism testing
+- **Enhanced**: Queue system testing with comprehensive database schema support
 
 Representative fixtures and expanded test coverage:
-- Database fixture: creates and tears down tables per test
+- Database fixture: creates and tears down tables per test with queue system support
 - HTTP client fixture: initializes app routes and cleans up after each test
 - Auth fixtures: register and login users; return clients with Authorization headers
 - Mocks: Ollama communication/malpractice/transcript/email; Whisper transcription; hybrid pipeline
@@ -187,28 +197,30 @@ Representative fixtures and expanded test coverage:
 - **New**: LLM service fixtures for JSON parsing validation and error scenarios
 - **New**: Pipeline fixtures for hybrid and agent pipeline testing
 - **New**: Transcript and video processing fixtures with comprehensive mocking
+- **Enhanced**: Queue system fixtures with AsyncMock-based worker mocking
 
 ```mermaid
 flowchart TD
-Start(["Test starts"]) --> DB["Create in-memory DB tables"]
+Start(["Test starts"]) --> DB["Create in-memory DB tables<br/>including queue tables"]
 DB --> Client["Initialize TestClient and override dependencies"]
 Client --> Auth["Authenticate via register/login and inject headers"]
 Auth --> Mocks["Patch external services with AsyncMock/MagicMock"]
-Mocks --> LLM["Test LLM service layer"]
+Mocks --> Queue["Mock queue workers with AsyncMock"]
+Queue --> LLM["Test LLM service layer"]
 LLM --> Pipelines["Test hybrid/agent pipelines"]
 Pipelines --> Services["Test analysis/transcript/video services"]
 Services --> RouteCall["Invoke route under test"]
 RouteCall --> Asserts["Assert response status and payload"]
-Asserts --> Cleanup["Drop DB tables and close sessions"]
+Asserts --> Cleanup["Drop queue tables then main tables<br/>and close sessions"]
 Cleanup --> End(["Test ends"])
 ```
 
 **Diagram sources**
-- [conftest.py:57-123](file://app/backend/tests/conftest.py#L57-L123)
+- [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
 - [test_api.py:23-100](file://app/backend/tests/test_api.py#L23-L100)
 
 **Section sources**
-- [conftest.py:57-123](file://app/backend/tests/conftest.py#L57-L123)
+- [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
 - [test_api.py:23-100](file://app/backend/tests/test_api.py#L23-L100)
 - [test_auth.py:15-95](file://app/backend/tests/test_auth.py#L15-L95)
 - [test_subscription.py:12-132](file://app/backend/tests/test_subscription.py#L12-L132)
@@ -270,6 +282,7 @@ Backend API tests now validate comprehensive endpoint coverage:
 - **New**: Transcript analysis endpoints with comprehensive validation
 - **New**: Background task and retry mechanism endpoints
 - **New**: Usage enforcement and rate limiting endpoints
+- **Enhanced**: Queue system endpoints with comprehensive testing
 
 Frontend API tests validate:
 - Export CSV/Excel requests and download behavior
@@ -307,6 +320,7 @@ Backend integration tests now cover:
 - **New**: Pipeline integration testing with retry mechanisms
 - **New**: Background task processing validation
 - **New**: Subscription and usage enforcement integration
+- **Enhanced**: Queue system integration testing with comprehensive database support
 
 Frontend integration tests:
 - Page-level tests (e.g., VideoPage) mock API module and router dependencies
@@ -325,6 +339,7 @@ Backend:
 - Shared fixtures centralize DB setup, auth, and service mocks
 - **New**: Specialized fixtures for LLM service testing and pipeline validation
 - **New**: Enhanced error handling and retry mechanism testing infrastructure
+- **Enhanced**: Sophisticated queue system database infrastructure with AsyncMock-based worker mocking
 
 Frontend:
 - Vitest configuration via package.json scripts
@@ -345,6 +360,7 @@ Backend:
 - **New**: LLM service test data with JSON parsing scenarios
 - **New**: Pipeline test data with error conditions and edge cases
 - **New**: Transcript and video processing test fixtures
+- **Enhanced**: Queue system test data with comprehensive job/result structures
 
 Frontend:
 - Mock result objects for video analysis (low and high risk)
@@ -354,6 +370,60 @@ Frontend:
 **Section sources**
 - [conftest.py:294-421](file://app/backend/tests/conftest.py#L294-L421)
 - [VideoPage.test.jsx:28-86](file://app/frontend/src/__tests__/VideoPage.test.jsx#L28-L86)
+
+### Queue System Testing Infrastructure - Enhanced Database Setup
+**New Section**: The enhanced test infrastructure now includes sophisticated queue system database management:
+
+#### Sophisticated Table Creation Mechanisms
+The `_create_all_tables()` function implements a two-phase table creation process:
+1. **Main Tables Creation**: Creates standard application tables using SQLAlchemy metadata
+2. **Queue Tables Creation**: Uses raw SQL to create queue system tables without FK constraints
+   - `analysis_jobs`: Main queue table for tracking analysis tasks
+   - `analysis_results`: Immutable storage for completed analyses  
+   - `analysis_artifacts`: Store intermediate processing artifacts
+   - `job_metrics`: Performance and quality metrics for monitoring
+
+#### Advanced Table Destruction
+The `_drop_all_tables()` function implements careful cleanup:
+1. **Queue Tables First**: Drops queue tables in reverse order to avoid FK violations
+2. **Main Tables Second**: Drops standard application tables
+3. **Proper Cleanup Order**: Ensures referential integrity during test teardown
+
+#### Enhanced Queue Worker Mocking
+Queue workers are mocked using AsyncMock to prevent database access:
+- `start_queue_worker` mocked with AsyncMock
+- `stop_queue_worker` mocked with AsyncMock
+- Prevents actual queue processing during tests
+
+#### Queue System Database Schema Support
+The test infrastructure supports the complete queue system schema:
+- UUID primary keys for all tables
+- JSONB columns for flexible data storage
+- Proper indexing for queue operations
+- Foreign key relationships with appropriate constraints
+- Triggers and views for enhanced functionality
+
+```mermaid
+flowchart TD
+CreateTables["_create_all_tables()"] --> Main["Create main application tables<br/>using SQLAlchemy metadata"]
+CreateTables --> Queue["Create queue tables using raw SQL<br/>without FK constraints"]
+Queue --> Jobs["analysis_jobs table<br/>with UUID primary keys"]
+Queue --> Results["analysis_results table<br/>immutable completed data"]
+Queue --> Artifacts["analysis_artifacts table<br/>intermediate data storage"]
+Queue --> Metrics["job_metrics table<br/>performance tracking"]
+Cleanup["_drop_all_tables()"] --> QueueDrop["Drop queue tables first<br/>reverse order of creation"]
+Cleanup --> MainDrop["Drop main tables second<br/>standard metadata drop"]
+```
+
+**Diagram sources**
+- [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
+- [queue_manager.py:46-183](file://app/backend/services/queue_manager.py#L46-L183)
+- [008_analysis_queue_system.py:29-236](file://alembic/versions/008_analysis_queue_system.py#L29-L236)
+
+**Section sources**
+- [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
+- [queue_manager.py:46-183](file://app/backend/services/queue_manager.py#L46-L183)
+- [008_analysis_queue_system.py:29-236](file://alembic/versions/008_analysis_queue_system.py#L29-L236)
 
 ### Continuous Integration Testing with GitHub Actions
 Workflows:
@@ -379,6 +449,7 @@ Guidelines derived from expanded test suite:
   - **New**: Test LLM service error handling and retry mechanisms
   - **New**: Validate pipeline processing with comprehensive edge cases
   - **New**: Test background task processing and queue handling
+  - **Enhanced**: Leverage sophisticated queue system database infrastructure
 - Frontend
   - Mock axios and browser APIs to focus on component behavior
   - Test user interactions (clicks, input changes) and resulting UI updates
@@ -396,6 +467,7 @@ Backend test dependencies with expanded coverage:
 - pytest, FastAPI TestClient, SQLAlchemy in-memory DB, passlib sha256_crypt for bcrypt compatibility
 - External service mocks via unittest.mock
 - **New**: Enhanced LLM service testing dependencies and specialized fixtures
+- **Enhanced**: Queue system testing dependencies with AsyncMock support
 
 Frontend test dependencies:
 - Vitest, React Testing Library, jest-dom
@@ -406,6 +478,7 @@ graph LR
 Py["pytest"] --> FA["FastAPI TestClient"]
 Py --> SA["SQLAlchemy in-memory DB"]
 Py --> UM["unittest.mock"]
+Py --> AM["AsyncMock"]
 VT["Vitest"] --> RTL["React Testing Library"]
 VT --> AX["Mocked axios"]
 VT --> DOM["Mocked DOM APIs"]
@@ -426,6 +499,8 @@ VT --> DOM["Mocked DOM APIs"]
   - Limit heavy computations in tests; rely on mocks for LLM and transcription services
   - **New**: Optimize LLM service testing with efficient mock implementations
   - **New**: Minimize pipeline testing overhead with focused fixtures
+  - **Enhanced**: Queue system testing optimized with AsyncMock-based worker mocking
+  - **Enhanced**: Efficient queue table creation/destruction mechanisms
 - Frontend
   - Avoid real network calls by mocking axios
   - Use minimal DOM queries and focus on user-centric assertions
@@ -455,6 +530,10 @@ Common issues and resolutions with expanded test coverage:
 - **New**: Background task testing problems
   - Verify task queue mocking and background process simulation
   - Check retry mechanism validation and error propagation
+- **Enhanced**: Queue system test failures
+  - Verify queue table creation order and FK constraint handling
+  - Ensure AsyncMock-based worker mocking prevents database access
+  - Check queue system database schema compliance
 
 **Section sources**
 - [test-locally.ps1:36-96](file://test-locally.ps1#L36-L96)
@@ -464,7 +543,7 @@ Common issues and resolutions with expanded test coverage:
 ## Conclusion
 The testing strategy leverages pytest and FastAPI TestClient for comprehensive backend unit and integration tests, with significantly expanded coverage including 73+ new tests for LLM services, pipelines, and integration scenarios. Frontend tests use Vitest and React Testing Library with mocked axios and DOM APIs. CI/CD pipelines automate test execution and coverage reporting. The expanded test suite ensures robust validation of advanced features including error handling, retry mechanisms, and background task processing, providing reliable coverage for all major components.
 
-**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability.
+**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability. The enhanced queue system testing infrastructure provides comprehensive coverage for the scalable job queue architecture with sophisticated database management and worker mocking capabilities.
 
 ## Appendices
 
@@ -490,8 +569,9 @@ The expanded test suite now includes comprehensive coverage for:
 - **Background Task Testing**: Validation of asynchronous task processing and queue management
 - **Error Handling Testing**: Extensive testing of error scenarios, retry mechanisms, and graceful degradation
 - **Integration Testing**: End-to-end testing of complex workflows and cross-service interactions
+- **Queue System Testing**: Comprehensive testing of the scalable job queue architecture with database schema validation
 
-**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations.
+**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations. The enhanced queue system testing infrastructure provides complete coverage of the job queue architecture with sophisticated database management and worker mocking.
 
 **Section sources**
 - [test_llm_service.py](file://app/backend/tests/test_llm_service.py)
@@ -529,3 +609,31 @@ These changes ensure that all service integrations consistently use the `gemma4:
 - [training.py:113-114](file://app/backend/routes/training.py#L113-L114)
 - [wait_for_ollama.py:51-52](file://app/backend/scripts/wait_for_ollama.py#L51-L52)
 - [main.py:157](file://app/backend/main.py#L157)
+
+### Appendix D: Queue System Database Schema Compliance
+**New Section**: The enhanced test infrastructure ensures complete compliance with the queue system database schema:
+
+#### Database Schema Validation
+The test infrastructure validates the complete queue system schema:
+- **analysis_jobs**: UUID primary key, proper indexing, foreign key constraints
+- **analysis_results**: Immutable storage with validation triggers
+- **analysis_artifacts**: Intermediate data storage with deduplication support
+- **job_metrics**: Performance tracking with comprehensive metrics
+
+#### Queue Worker Mocking Compliance
+Queue workers are properly mocked to prevent database access:
+- `start_queue_worker` AsyncMock prevents actual queue processing
+- `stop_queue_worker` AsyncMock ensures clean shutdown simulation
+- No database connections are established during queue-related tests
+
+#### Test Data Integrity
+Queue system test data maintains referential integrity:
+- Proper UUID generation for all queue entities
+- Consistent hash-based deduplication logic
+- Valid job status transitions and timestamps
+- Comprehensive error handling scenarios
+
+**Section sources**
+- [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
+- [queue_manager.py:46-183](file://app/backend/services/queue_manager.py#L46-L183)
+- [008_analysis_queue_system.py:29-236](file://alembic/versions/008_analysis_queue_system.py#L29-L236)

@@ -18,11 +18,11 @@
 
 ## Update Summary
 **Changes Made**
-- Added documentation for the enhanced GET /api/analysis/{id}/narrative endpoint with three-state status tracking system
-- Documented the new narrative_status field in ScreeningResult model
-- Added comprehensive coverage of pending, ready, and failed states with appropriate responses
-- Included fallback mechanisms and error handling for improved user experience
-- Updated architecture diagrams to reflect the new status tracking system
+- Removed documentation for LLM-based contact enrichment system that was eliminated from the analysis pipeline
+- Updated AnalysisResponse schema to remove contact_info field from core and extended fields
+- Removed references to enrich_parsed_resume_async function and related contact extraction enhancements
+- Updated response schemas to reflect simplified contact information handling
+- Clarified that contact information is now handled through parser service fallback methods only
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -46,7 +46,7 @@ It also documents request/response schemas, file size limits and supported forma
 
 ## Project Structure
 The analysis endpoints are implemented in the backend FastAPI application under app/backend/routes/analyze.py. Supporting services include:
-- Parser service for resume and job description text extraction
+- Parser service for resume and job description text extraction with enhanced contact information fallback
 - Gap detector for employment timeline analysis
 - Hybrid pipeline orchestrating Python-first scoring and LLM narrative with status tracking
 - Subscription and usage enforcement
@@ -57,7 +57,7 @@ graph TB
 Client["Client"]
 Auth["Auth Middleware<br/>JWT Bearer"]
 Routes["Routes<br/>/api/analyze, /api/analyze/stream, /api/analyze/batch, /api/analysis/{id}/narrative"]
-Parser["Parser Service<br/>parse_resume, extract_jd_text"]
+Parser["Parser Service<br/>parse_resume, extract_jd_text<br/>enhanced contact fallbacks"]
 Gap["Gap Detector<br/>analyze_gaps"]
 Hybrid["Hybrid Pipeline<br/>run_hybrid_pipeline, astream_hybrid_pipeline, _background_llm_narrative"]
 DB["Database<br/>SQLAlchemy ORM<br/>narrative_status tracking"]
@@ -98,6 +98,7 @@ Routes --> Nginx
 - Streaming: SSE endpoint emits progressive stages with heartbeat pings.
 - Batch: Concurrent processing with automatic ranking by fit score.
 - **Status Tracking: Enhanced narrative endpoint with three-state status system (pending, ready, failed) and fallback mechanisms.**
+- **Contact Information: Simplified handling through parser service fallback methods (NER, email-based, relaxed header scan, filename-based) without LLM-based enrichment.**
 
 **Section sources**
 - [auth.py:19-40](file://app/backend/middleware/auth.py#L19-L40)
@@ -108,13 +109,13 @@ Routes --> Nginx
 - [analyze.py:649-758](file://app/backend/routes/analyze.py#L649-L758)
 
 ## Architecture Overview
-The analysis pipeline integrates file parsing, gap analysis, and hybrid scoring with optional LLM narrative. The hybrid pipeline supports both synchronous and streaming modes with enhanced status tracking for narrative generation.
+The analysis pipeline integrates file parsing, gap analysis, and hybrid scoring with optional LLM narrative. The hybrid pipeline supports both synchronous and streaming modes with enhanced status tracking for narrative generation. Contact information is now handled through enhanced fallback methods in the parser service.
 
 ```mermaid
 sequenceDiagram
 participant C as "Client"
 participant R as "Routes<br/>analyze.py"
-participant P as "Parser Service"
+participant P as "Parser Service<br/>enhanced contact fallbacks"
 participant G as "Gap Detector"
 participant H as "Hybrid Pipeline"
 participant S as "Subscription"
@@ -122,15 +123,15 @@ participant D as "Database"
 C->>R : POST /api/analyze (multipart/form-data)
 R->>S : Check usage limits
 S-->>R : Allowed/Forbidden
-R->>P : parse_resume(resume bytes, filename)
-P-->>R : Parsed resume data
+R->>P : parse_resume(resume bytes, filename)<br/>enhanced contact fallbacks
+P-->>R : Parsed resume data (improved contact info)
 R->>G : analyze_gaps(work_experience)
 G-->>R : Gap analysis
 R->>H : run_hybrid_pipeline(...)
 H-->>R : Python results + fallback narrative
 R->>D : Store ScreeningResult + Candidate
 D-->>R : Stored IDs
-R-->>C : AnalysisResponse JSON
+R-->>C : AnalysisResponse JSON (without LLM contact enrichment)
 C->>R : GET /api/analysis/{id}/narrative
 R->>D : Check narrative_status
 D-->>R : Status : pending/ready/failed
@@ -169,7 +170,7 @@ Request validation and limits:
 - Usage limit checked before processing; raises 429 if exceeded
 
 Processing steps:
-- Parse resume in thread pool
+- Parse resume in thread pool with enhanced contact fallbacks
 - Analyze gaps
 - Parse or cache job description analysis
 - Run hybrid pipeline
@@ -178,9 +179,11 @@ Processing steps:
 - Return result with identifiers
 
 Response schema (AnalysisResponse):
-- Core fields: fit_score, job_role, strengths, weaknesses, employment_gaps, education_analysis, risk_signals, final_recommendation, score_breakdown, matched_skills, missing_skills, risk_level, interview_questions, required_skills_count, work_experience, contact_info
+- Core fields: fit_score, job_role, strengths, weaknesses, employment_gaps, education_analysis, risk_signals, final_recommendation, score_breakdown, matched_skills, missing_skills, risk_level, interview_questions, required_skills_count, work_experience
 - Extended fields: jd_analysis, candidate_profile, skill_analysis, edu_timeline_analysis, explainability, recommendation_rationale, adjacent_skills, pipeline_errors, analysis_quality, narrative_pending, duplicate_candidate
 - Auxiliary identifiers: result_id, candidate_id, candidate_name
+
+**Updated** Removed contact_info field from AnalysisResponse as LLM-based contact enrichment system has been eliminated. Contact information is now handled through parser service fallback methods only.
 
 Error handling:
 - 400 for unsupported file types, oversized files, insufficient JD content
@@ -317,7 +320,6 @@ Action parameter behavior:
 - None/unrecognized: deduplicate and optionally return duplicate_candidate info
 
 Stored candidate profile includes:
-- Contact info
 - Skills, education, work experience
 - Gap analysis JSON
 - Current role/company and total years experience
@@ -337,6 +339,32 @@ Stored candidate profile includes:
 - [parser_service.py:20-128](file://app/backend/services/parser_service.py#L20-L128)
 - [hybrid_pipeline.py:467-560](file://app/backend/services/hybrid_pipeline.py#L467-L560)
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
+
+### Enhanced Contact Information Handling
+**Updated** Contact information is now handled through enhanced fallback methods in the parser service:
+
+- **Parser Service Fallback Methods:**
+  - spaCy NER extraction for diverse name formats
+  - Email-based name extraction as fallback
+  - Relaxed header scanning for name detection
+  - Filename-based extraction when other methods fail
+  - Automatic merging of LLM contact extraction results with regex results
+
+- **Contact Information Sources:**
+  - Name: Extracted from resume text using multiple fallback tiers
+  - Email: Extracted using regex patterns
+  - Phone: Extracted using regex patterns
+  - LinkedIn: Extracted using regex patterns
+
+- **Contact Information Storage:**
+  - Stored in Candidate table for future analysis
+  - Available for deduplication and profile updates
+  - Used for candidate name resolution in results
+
+**Section sources**
+- [parser_service.py:1080-1155](file://app/backend/services/parser_service.py#L1080-L1155)
+- [analyze.py:166-172](file://app/backend/routes/analyze.py#L166-L172)
+- [analyze.py:191-196](file://app/backend/routes/analyze.py#L191-L196)
 
 ### Usage Limits, Subscription Enforcement, and Rate Limiting
 Usage enforcement:
@@ -367,7 +395,7 @@ The analysis endpoints depend on several services and models.
 ```mermaid
 graph LR
 A["analyze.py"]
-P["parser_service.py"]
+P["parser_service.py<br/>enhanced contact fallbacks"]
 G["gap_detector.py"]
 H["hybrid_pipeline.py"]
 S["schemas.py"]
@@ -411,6 +439,7 @@ A --> N
 - Caching: JD parsing is cached per tenant to avoid repeated LLM calls.
 - Rate limiting: Nginx zones protect the API from overload.
 - **Status tracking: Database-level status tracking reduces polling overhead and improves user experience.**
+- **Enhanced contact fallbacks: Improved contact information extraction reduces dependency on LLM-based contact enrichment.**
 
 ## Troubleshooting Guide
 Common errors and resolutions:
@@ -421,6 +450,7 @@ Common errors and resolutions:
 - Authentication failures: Verify JWT Bearer token.
 - Streaming timeouts: Ensure SSE endpoint is proxied without buffering and with adequate timeouts.
 - **Narrative polling issues: Check that analysis_id belongs to the authenticated user's tenant. Verify narrative_status field values.**
+- **Contact information issues: Verify that enhanced fallback methods are working correctly. Check parser service contact extraction logs.**
 
 **Section sources**
 - [analyze.py:369-384](file://app/backend/routes/analyze.py#L369-L384)
@@ -429,4 +459,6 @@ Common errors and resolutions:
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 
 ## Conclusion
-The analysis endpoints provide robust, scalable resume screening with optional real-time streaming and batch processing. They enforce usage limits through a subscription system, support multiple file formats, and deliver comprehensive results with explainability and risk signals. The enhanced GET /api/analysis/{id}/narrative endpoint with three-state status tracking significantly improves user experience by providing clear feedback on narrative generation progress and fallback mechanisms. Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments.
+The analysis endpoints provide robust, scalable resume screening with optional real-time streaming and batch processing. They enforce usage limits through a subscription system, support multiple file formats, and deliver comprehensive results with explainability and risk signals. The enhanced GET /api/analysis/{id}/narrative endpoint with three-state status tracking significantly improves user experience by providing clear feedback on narrative generation progress and fallback mechanisms. 
+
+**Updated** The elimination of the LLM-based contact enrichment system simplifies the pipeline while maintaining contact information accuracy through enhanced fallback methods in the parser service. This change reduces complexity, improves performance, and maintains the quality of contact information extraction through multiple fallback tiers (NER, email-based, relaxed header scan, filename-based). Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments.

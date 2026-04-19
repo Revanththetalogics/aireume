@@ -10,18 +10,21 @@
 - [gap_detector.py](file://app/backend/services/gap_detector.py)
 - [analysis_service.py](file://app/backend/services/analysis_service.py)
 - [llm_service.py](file://app/backend/services/llm_service.py)
+- [llm_contact_extractor.py](file://app/backend/services/llm_contact_extractor.py)
+- [weight_mapper.py](file://app/backend/services/weight_mapper.py)
+- [weight_suggester.py](file://app/backend/services/weight_suggester.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [README.md](file://README.md)
+- [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- **Updated Model Migration**: Migrated from Qwen3-Coder 480B to Gemma4 31B cloud model across all services
-- **Enhanced JSON Parsing Error Handling**: Improved debugging capabilities with detailed error reporting for LLM response processing
-- **Updated Model Specifications**: Revised model configuration guidelines to reflect Gemma4 31B cloud model performance characteristics
-- **Enhanced Cloud Model Optimization**: Intelligent token limit scaling for cloud deployments with 3000-4000 token limits for verbose output
-- **Improved JSON Serialization**: Comprehensive datetime, date, and Decimal handling across all components
-- **Advanced Risk Assessment**: Sophisticated score rationales and structured risk analysis with detailed explanations
+- **Enhanced LLM Contact Extraction**: Upgraded to gemma4:31b-cloud model with conservative extraction principles, improved JSON validation, and enhanced logging capabilities
+- **Intelligent Scoring Weights Integration**: Implemented comprehensive weight mapping system supporting legacy and new schemas
+- **Improved Parser Service**: Enhanced DOCX extraction with multi-tier fallback handling and advanced text recovery
+- **Enhanced Streaming Endpoint**: Added SSE streaming with heartbeat pings and background LLM processing
+- **Advanced Weight Suggestion System**: Added LLM-based weight suggestion service with role-category detection
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -30,19 +33,23 @@
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Enhanced AI Pipeline Capabilities](#enhanced-ai-pipeline-capabilities)
-7. [Structured Risk Analysis](#structured-risk-analysis)
-8. [Model Configuration and Performance](#model-configuration-and-performance)
-9. [Enhanced JSON Serialization Capabilities](#enhanced-json-serialization-capabilities)
-10. [Dependency Analysis](#dependency-analysis)
-11. [Performance Considerations](#performance-considerations)
-12. [Troubleshooting Guide](#troubleshooting-guide)
-13. [Conclusion](#conclusion)
-14. [Appendices](#appendices)
+7. [Intelligent Scoring Weights System](#intelligent-scoring-weights-system)
+8. [Advanced Contact Extraction](#advanced-contact-extraction)
+9. [Enhanced Parser Service](#enhanced-parser-service)
+10. [Streaming Endpoint Integration](#streaming-endpoint-integration)
+11. [Structured Risk Analysis](#structured-risk-analysis)
+12. [Model Configuration and Performance](#model-configuration-and-performance)
+13. [Enhanced JSON Serialization Capabilities](#enhanced-json-serialization-capabilities)
+14. [Dependency Analysis](#dependency-analysis)
+15. [Performance Considerations](#performance-considerations)
+16. [Troubleshooting Guide](#troubleshooting-guide)
+17. [Conclusion](#conclusion)
+18. [Appendices](#appendices)
 
 ## Introduction
-This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis, the resume parsing service supporting PDF and DOCX formats, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
+This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis, the enhanced resume parsing service supporting PDF and DOCX formats with multi-tier extraction strategies, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
 
-**Updated** The analysis engine now features enhanced AI pipeline capabilities with sophisticated score rationales and comprehensive risk analysis. The system generates detailed explanations for each score dimension and provides structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The migration to Gemma4 31B cloud model has been implemented across all services with enhanced JSON parsing error handling and improved debugging capabilities for LLM response processing.
+**Updated** The analysis engine now features enhanced AI pipeline capabilities with sophisticated score rationales and comprehensive risk analysis. The system generates detailed explanations for each score dimension and provides structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The migration to gemma4:31b-cloud model has been implemented across all services with enhanced JSON parsing error handling and improved debugging capabilities for LLM response processing.
 
 ## Project Structure
 The backend is organized around FastAPI routes, SQLAlchemy models, and modular services. The analysis engine spans:
@@ -54,21 +61,25 @@ The backend is organized around FastAPI routes, SQLAlchemy models, and modular s
 ```mermaid
 graph TB
 subgraph "Routes"
-A["analyze.py<br/>JSON Serialization Utilities"]
+A["analyze.py<br/>JSON Serialization Utilities<br/>SSE Streaming Endpoints"]
 end
 subgraph "Services"
-B["parser_service.py"]
+B["parser_service.py<br/>Multi-tier Extraction Strategies"]
 C["gap_detector.py"]
 D["hybrid_pipeline.py"]
 E["agent_pipeline.py"]
 F["analysis_service.py"]
 G["llm_service.py"]
+H["llm_contact_extractor.py<br/>Enhanced LLM Contact Extraction"]
+I["weight_mapper.py<br/>Schema Conversion"]
+J["weight_suggester.py<br/>LLM Weight Suggestions"]
 end
 subgraph "Models"
-H["db_models.py"]
+K["db_models.py"]
 end
 subgraph "App"
-I["main.py"]
+L["main.py"]
+M["nginx.prod.conf<br/>Streaming Configuration"]
 end
 A --> B
 A --> C
@@ -77,14 +88,20 @@ A --> E
 A --> F
 A --> G
 A --> H
-I --> A
+A --> I
+A --> J
+A --> K
+L --> A
+M --> A
 ```
 
 **Diagram sources**
-- [analyze.py:48-56](file://app/backend/routes/analyze.py#L48-L56)
-- [agent_pipeline.py:39-45](file://app/backend/services/agent_pipeline.py#L39-L45)
-- [hybrid_pipeline.py:16](file://app/backend/services/hybrid_pipeline.py#L16)
-- [llm_service.py:1](file://app/backend/services/llm_service.py#L1)
+- [analyze.py:669-868](file://app/backend/routes/analyze.py#L669-L868)
+- [parser_service.py:343-492](file://app/backend/services/parser_service.py#L343-L492)
+- [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
+- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
+- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+- [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
 
 **Section sources**
 - [README.md:273-333](file://README.md#L273-L333)
@@ -93,11 +110,12 @@ I --> A
 ## Core Components
 - Hybrid Pipeline: Python-first deterministic scoring (skills, education, experience/timeline, domain/architecture) followed by a single LLM call for narrative synthesis and interview questions.
 - LangGraph Agent Pipeline: Multi-agent, multi-stage workflow with structured nodes for JD parsing, combined resume analysis, and scoring with explainability.
-- Resume Parser: Robust text extraction from PDF and DOCX, with fallbacks and normalization.
+- Enhanced Resume Parser: Robust text extraction from PDF and DOCX with multi-tier fallbacks, deduplication, and normalization.
 - Gap Detector: Mechanical date parsing and interval merging to compute objective timeline metrics.
 - Skills Registry: Dynamic, DB-backed registry with in-memory flashtext processor and hot reload capability.
 - LLM Integration: Ollama-backed ChatOllama clients with singletons, timeouts, and JSON parsing utilities.
-- Scoring and Risk: Weighted fit score computation, risk signals, and recommendation logic.
+- Intelligent Contact Extraction: LLM-powered contact information extraction with merging strategy for accuracy.
+- Scoring and Risk: Weighted fit score computation, risk signals, and recommendation logic with intelligent weight mapping.
 - Persistence: SQLAlchemy models for candidates, screening results, role templates, usage logs, and caches.
 - **Enhanced AI Pipeline**: Sophisticated score rationales and structured risk analysis with detailed explanations.
 - **AI-Enhanced Narratives**: Distinction system between LLM-generated and fallback narratives using `ai_enhanced` flag.
@@ -107,6 +125,9 @@ I --> A
 - [agent_pipeline.py:1-634](file://app/backend/services/agent_pipeline.py#L1-L634)
 - [parser_service.py:1-552](file://app/backend/services/parser_service.py#L1-L552)
 - [gap_detector.py:1-219](file://app/backend/services/gap_detector.py#L1-L219)
+- [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
+- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
+- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 - [db_models.py:97-250](file://app/backend/models/db_models.py#L97-L250)
 
 ## Architecture Overview
@@ -122,10 +143,13 @@ participant Route as "analyze.py"
 participant Parser as "parser_service.py"
 participant Gap as "gap_detector.py"
 participant Hybrid as "hybrid_pipeline.py"
+participant Contact as "llm_contact_extractor.py"
 participant LLM as "Ollama (ChatOllama)"
 Client->>Route : POST /api/analyze
 Route->>Parser : parse_resume(file)
 Parser-->>Route : parsed_data
+Route->>Contact : extract_contact_with_llm(raw_text)
+Contact-->>Route : contact_info
 Route->>Gap : analyze_gaps(work_experience)
 Gap-->>Route : gap_analysis
 Route->>Hybrid : run_hybrid_pipeline(...)
@@ -143,6 +167,7 @@ Route-->>Client : AnalysisResponse
 - [hybrid_pipeline.py:1262-1407](file://app/backend/services/hybrid_pipeline.py#L1262-L1407)
 - [parser_service.py:547-552](file://app/backend/services/parser_service.py#L547-L552)
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
+- [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 
 ## Detailed Component Analysis
 
@@ -158,7 +183,7 @@ The hybrid pipeline executes deterministic Python logic first, then a single LLM
 - Fit score computation with configurable weights and risk penalties
 - LLM narrative generation with robust JSON parsing and fallback
 - **Enhanced**: Score rationales for each dimension and structured risk summary
-- **Optimized**: Gemma4 31B cloud model with intelligent token limits for improved performance
+- **Optimized**: gemma4:31b-cloud model with intelligent token limits for improved performance
 
 ```mermaid
 flowchart TD
@@ -224,11 +249,12 @@ Agent-->>Client : assembled result
 **Section sources**
 - [agent_pipeline.py:1-634](file://app/backend/services/agent_pipeline.py#L1-L634)
 
-### Resume Parsing Service
-The parser supports:
-- PDF: PyMuPDF primary, pdfplumber fallback; scanned PDF guard
-- DOCX: paragraph and table extraction
-- DOC/RTF/HTML/ODT/TXT: best-effort text extraction with Unicode normalization
+### Enhanced Parser Service
+The enhanced parser supports:
+- PDF: PyMuPDF primary, pdfplumber fallback with table extraction; scanned PDF guard
+- DOCX: Multi-stage extraction with headers, textboxes, tables, paragraphs, and XML fallback
+- DOC/RTF/HTML/ODT/TXT: Best-effort extraction with Unicode normalization and deduplication
+- Advanced contact extraction with LLM-powered merging strategy
 - Resume parsing: work experience, skills, education, contact info with enrichment
 
 ```mermaid
@@ -239,7 +265,7 @@ C --> D{"Empty?"}
 D --> |Yes| E["pdfplumber fallback"]
 D --> |No| Z["Return text"]
 B --> |No| F{"DOCX?"}
-F --> |Yes| G["docx paragraphs + tables"]
+F --> |Yes| G["Multi-stage DOCX extraction:<br/>Headers → Textboxes → Tables → Paragraphs → XML Fallback"]
 F --> |No| H{"Other formats?"}
 H --> |Yes| I["Decode with encodings"]
 H --> |No| J["Raise unsupported format"]
@@ -250,8 +276,9 @@ L --> |No| J
 ```
 
 **Diagram sources**
-- [parser_service.py:142-191](file://app/backend/services/parser_service.py#L142-L191)
-- [parser_service.py:152-187](file://app/backend/services/parser_service.py#L152-L187)
+- [parser_service.py:240-313](file://app/backend/services/parser_service.py#L240-L313)
+- [parser_service.py:343-492](file://app/backend/services/parser_service.py#L343-L492)
+- [parser_service.py:542-737](file://app/backend/services/parser_service.py#L542-L737)
 
 **Section sources**
 - [parser_service.py:1-552](file://app/backend/services/parser_service.py#L1-L552)
@@ -474,6 +501,188 @@ Summary --> Output["risk_summary"]
 **Section sources**
 - [hybrid_pipeline.py:1528-1600](file://app/backend/services/hybrid_pipeline.py#L1528-L1600)
 
+## Intelligent Scoring Weights System
+
+**Updated** The analysis engine now features a comprehensive intelligent scoring weights system that supports multiple weight schemas and provides automatic conversion between legacy and new formats.
+
+### Weight Schema Support
+
+The system supports three distinct weight schemas:
+
+- **Legacy Schema (4 weights)**: skills, experience, stability, education
+- **Old Backend Schema (7 weights)**: skills, experience, architecture, education, timeline, domain, risk
+- **New Universal Schema (7 weights)**: core_competencies, experience, domain_fit, education, career_trajectory, role_excellence, risk
+
+### Weight Mapping and Conversion
+
+The weight mapper provides intelligent conversion between schemas:
+
+```mermaid
+flowchart TD
+Input["Input Weights"] --> Detect["detect_weight_schema()"]
+Detect --> Legacy{"Legacy Schema?"}
+Detect --> OldBackend{"Old Backend Schema?"}
+Detect --> New{"New Schema?"}
+Detect --> Unknown{"Unknown Schema?"}
+Legacy --> MapLegacy["map_legacy_to_new()"]
+MapLegacy --> Normalize["normalize_weights()"]
+OldBackend --> MapOld["map_old_backend_to_new()"]
+MapOld --> Normalize
+New --> Normalize
+Unknown --> Merge["merge_with_defaults()"]
+Merge --> Normalize
+Normalize --> Output["Converted Weights"]
+```
+
+**Diagram sources**
+- [weight_mapper.py:179-246](file://app/backend/services/weight_mapper.py#L179-L246)
+
+### Weight Suggestion System
+
+The LLM-based weight suggestion system analyzes job descriptions to provide optimal weight recommendations:
+
+- **Role Category Detection**: Automatically identifies role categories (technical, sales, hr, marketing, operations, leadership)
+- **Seniority Level Analysis**: Determines appropriate seniority levels for weight balancing
+- **Context-Aware Recommendations**: Provides role-specific weight distributions with confidence scores
+- **Adaptive Labels**: Generates role-specific labels for the role_excellence factor
+
+**Section sources**
+- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
+- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+
+## Advanced Contact Extraction
+
+**Updated** The analysis engine now features an intelligent contact extraction system that combines multiple extraction strategies for maximum accuracy with enhanced LLM contact extraction capabilities.
+
+### Multi-Strategy Contact Extraction
+
+The contact extraction system employs a tiered approach:
+
+1. **LLM-Powered Extraction**: Uses gemma4:31b-cloud model for complex name formats and international names
+2. **Regex-Based Extraction**: Traditional pattern matching for emails, phones, and LinkedIn URLs
+3. **Fallback Strategies**: NER, email-based, relaxed header scanning, and filename-based extraction
+
+```mermaid
+flowchart TD
+Start["Contact Extraction"] --> LLM["LLM Extraction<br/>(Most Accurate)"]
+LLM --> LLMSuccess{"LLM Success?"}
+LLMSuccess --> |Yes| Merge["merge_contact_info()"]
+LLMSuccess --> |No| Regex["Regex Extraction<br/>(Standard Formats)"]
+Regex --> Merge
+Merge --> Fallback["Fallback Strategies<br/>(NER → Email → Header → Filename)"]
+Fallback --> Complete["Complete Contact Info"]
+```
+
+**Diagram sources**
+- [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
+- [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
+
+### Enhanced LLM Contact Extraction Strategy
+
+The LLM extraction prioritizes accuracy over speed with conservative extraction principles:
+
+- **Header Focus**: Uses first 1000 characters containing contact information
+- **Structured JSON Output**: Forces LLM to return valid JSON with name, email, phone, linkedin fields
+- **Conservative Extraction Principles**: Strict validation rules to prevent false positives
+- **Enhanced Logging**: Comprehensive debug information for troubleshooting
+- **Improved JSON Validation**: Robust parsing with markdown code block support
+- **Edge Case Handling**: Handles international names, creative layouts, and non-standard formats
+- **Timeout Management**: 15-second timeout to prevent blocking
+
+**Section sources**
+- [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
+- [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
+
+## Enhanced Parser Service
+
+**Updated** The parser service now features advanced multi-tier extraction strategies specifically designed for DOCX files and improved text recovery mechanisms.
+
+### Multi-Tier DOCX Extraction Pipeline
+
+The enhanced DOCX extraction uses a five-stage pipeline:
+
+1. **Stage 1: Headers** - Extracts contact info from document headers
+2. **Stage 2: Textboxes/Shapes** - Uses docx2txt for complex layouts
+3. **Stage 3: Tables** - Extracts structured data from tables (common for contact info)
+4. **Stage 4: Paragraphs** - Standard paragraph extraction
+5. **Stage 5: XML Fallback** - Direct XML parsing for corrupted files
+
+```mermaid
+flowchart TD
+Start["DOCX Extraction"] --> Headers["Stage 1: Headers<br/>(Contact Info)"]
+Headers --> Textboxes["Stage 2: Textboxes<br/>(Complex Layouts)"]
+Textboxes --> Tables["Stage 3: Tables<br/>(Structured Data)"]
+Tables --> Paragraphs["Stage 4: Paragraphs<br/>(Standard Content)"]
+Paragraphs --> XML["Stage 5: XML Fallback<br/>(Corrupted Files)"]
+XML --> Dedup["Deduplication & Priority Sorting"]
+Dedup --> Output["Final Text Output"]
+```
+
+**Diagram sources**
+- [parser_service.py:343-492](file://app/backend/services/parser_service.py#L343-L492)
+
+### Advanced Text Recovery and Deduplication
+
+The parser implements sophisticated text recovery mechanisms:
+
+- **Duplicate Detection**: Uses normalized text comparison to eliminate repeated content
+- **Source Priority**: Prioritizes content from headers, textboxes, tables, then paragraphs
+- **Line-by-Line Processing**: Processes text in lines to maintain readability
+- **Fallback Chains**: Multiple fallback strategies for different failure modes
+
+**Section sources**
+- [parser_service.py:343-492](file://app/backend/services/parser_service.py#L343-L492)
+- [parser_service.py:542-737](file://app/backend/services/parser_service.py#L542-L737)
+
+## Streaming Endpoint Integration
+
+**Updated** The analysis engine now features enhanced SSE streaming with heartbeat pings and background LLM processing for improved user experience.
+
+### SSE Streaming Architecture
+
+The streaming endpoint provides real-time analysis updates:
+
+1. **Immediate Python Results**: Yields parsing stage with Python scores within 2 seconds
+2. **Background LLM Processing**: Continues LLM analysis while streaming
+3. **Heartbeat Pings**: Prevents timeouts with periodic SSE comments
+4. **Polling Support**: Provides analysis_id for frontend polling after initial streaming
+
+```mermaid
+sequenceDiagram
+participant Client as "Client"
+participant Route as "analyze_stream_endpoint"
+participant Hybrid as "astream_hybrid_pipeline"
+participant DB as "Database"
+Client->>Route : POST /api/analyze/stream
+Route->>Route : Validate & Create ScreeningResult
+Route->>Hybrid : Start streaming pipeline
+Hybrid->>Route : Yield {"stage" : "parsing", "result" : python_scores}
+Route->>Client : SSE : parsing event
+Route->>DB : Early save with Python scores
+Hybrid->>Hybrid : Background LLM processing
+Hybrid->>Route : Yield {"stage" : "complete", "result" : with analysis_id}
+Route->>Client : SSE : complete event
+Route->>DB : Final save with LLM results
+```
+
+**Diagram sources**
+- [analyze.py:669-868](file://app/backend/routes/analyze.py#L669-L868)
+- [hybrid_pipeline.py:2190-2284](file://app/backend/services/hybrid_pipeline.py#L2190-L2284)
+
+### Streaming Configuration
+
+The nginx configuration ensures proper streaming behavior:
+
+- **Buffering Disabled**: `proxy_buffering off` prevents SSE event buffering
+- **Timeout Extensions**: 600-second timeout for full LLM pipeline completion
+- **Connection Handling**: `add_header X-Accel-Buffering no` for immediate delivery
+- **Rate Limiting**: Separate limits for streaming vs regular API endpoints
+
+**Section sources**
+- [analyze.py:669-868](file://app/backend/routes/analyze.py#L669-L868)
+- [hybrid_pipeline.py:2190-2284](file://app/backend/services/hybrid_pipeline.py#L2190-L2284)
+- [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
+
 ## Structured Risk Analysis
 
 **Updated** The enhanced risk analysis system provides comprehensive risk assessment with structured summaries and detailed explanations.
@@ -524,7 +733,7 @@ Employment stability is evaluated based on:
 
 ## Model Configuration and Performance
 
-**Updated** The analysis engine uses optimized model configurations for enhanced performance and reliability, with intelligent migration to Gemma4 31B cloud model across all services.
+**Updated** The analysis engine uses optimized model configurations for enhanced performance and reliability, with intelligent migration to gemma4:31b-cloud model across all services.
 
 ### Model Specifications
 
@@ -533,8 +742,8 @@ The system utilizes gemma4:31b-cloud model with optimized settings:
 - **Model**: gemma4:31b-cloud (31 billion parameters) for all services
 - **Temperature**: 0.1 for deterministic responses
 - **Format**: JSON for structured output
-- **num_predict**: 3000-4000 tokens for cloud models (optimized for verbose output)
-- **num_ctx**: 8192 context window for cloud models, 2048 for local models
+- **num_predict**: 4096 tokens for cloud models (optimized for verbose output)
+- **num_ctx**: 16384 context window for cloud models, 2048 for local models
 - **keep_alive**: -1 for model persistence in RAM (local only)
 - **Request Timeout**: 150 seconds (150s + 30s buffer)
 
@@ -543,10 +752,10 @@ The system utilizes gemma4:31b-cloud model with optimized settings:
 **Enhanced** The system now includes intelligent model configuration based on deployment environment:
 
 - **Cloud Detection**: Automatically detects Ollama Cloud (ollama.com) vs local deployment
-- **Token Limits**: Cloud models receive 3000-4000 tokens for num_predict to handle verbose output from large models
-- **Context Windows**: Cloud models use 8192 context window for complex reasoning tasks
+- **Token Limits**: Cloud models receive 4096 tokens for num_predict to handle verbose output from large models
+- **Context Windows**: Cloud models use 16384 context window for complex reasoning tasks
 - **Authentication**: Automatic API key handling for Ollama Cloud with Authorization headers
-- **Performance**: Maintains 600-800 token limit for local models to optimize memory usage
+- **Performance**: Maintains 2048 token limit for local models to optimize memory usage
 
 ### Performance Characteristics
 
@@ -554,8 +763,8 @@ The system utilizes gemma4:31b-cloud model with optimized settings:
 - **Subsequent Requests**: 30-60 seconds typical
 - **Concurrent Limit**: 2 LLM calls per worker
 - **Memory Management**: Keep-alive sessions reduce cold-start latency
-- **Prompt Optimization**: Reduced num_predict (600-800) for local models minimizes KV cache allocation
-- **Cloud Optimization**: 3000-4000 token limit for cloud models handles verbose output from large models efficiently
+- **Prompt Optimization**: Reduced num_predict (2048) for local models minimizes KV cache allocation
+- **Cloud Optimization**: 4096 token limit for cloud models handles verbose output from large models efficiently
 
 ### Environment Configuration
 
@@ -645,13 +854,18 @@ Key dependencies and relationships:
 - Startup checks validate DB connectivity, skills registry, and Ollama availability
 - **Enhanced JSON serialization**: Unified serialization utilities across all components
 - **AI-Enhanced Narratives**: `ai_enhanced` flag distinguishes LLM vs fallback narratives
+- **Enhanced Contact Extraction**: LLM-powered contact extraction with merging strategy
+- **Weight Management**: Comprehensive weight mapping and suggestion system
 
 ```mermaid
 graph LR
-Route["routes/analyze.py<br/>JSON Utils"] --> Parser["services/parser_service.py"]
+Route["routes/analyze.py<br/>JSON Utils<br/>SSE Streaming"] --> Parser["services/parser_service.py"]
 Route --> Gap["services/gap_detector.py"]
 Route --> Hybrid["services/hybrid_pipeline.py"]
 Route --> Agent["services/agent_pipeline.py"]
+Route --> Contact["services/llm_contact_extractor.py"]
+Route --> WeightMapper["services/weight_mapper.py"]
+Route --> WeightSuggester["services/weight_suggester.py"]
 Hybrid --> Skills["skills registry"]
 Hybrid --> Ollama["Ollama (ChatOllama)"]
 Agent --> Ollama
@@ -659,6 +873,7 @@ Route --> Models["models/db_models.py"]
 Main["main.py"] --> Route
 Main --> Skills
 Main --> Ollama
+Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 ```
 
 **Diagram sources**
@@ -667,6 +882,7 @@ Main --> Ollama
 - [agent_pipeline.py:33-34](file://app/backend/services/agent_pipeline.py#L33-L34)
 - [db_models.py:97-147](file://app/backend/models/db_models.py#L97-L147)
 - [main.py:68-149](file://app/backend/main.py#L68-L149)
+- [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
 
 **Section sources**
 - [analyze.py:32-38](file://app/backend/routes/analyze.py#L32-L38)
@@ -676,17 +892,17 @@ Main --> Ollama
 ## Performance Considerations
 - Concurrency control: semaphore limits concurrent LLM calls to 2 per worker
 - Model hot-loading: keep-alive sessions and in-memory caches reduce cold-start latency
-- Prompt sizing: reduced num_predict (600-800) and num_ctx (2048) to minimize KV cache allocation for local models
+- Prompt sizing: reduced num_predict (2048) and num_ctx (2048) to minimize KV cache allocation for local models
 - Thread pool usage: blocking PDF parsing executed in asyncio.to_thread
 - Streaming: SSE heartbeat pings prevent timeouts for long-running LLM calls
 - Caching: JD cache shared across workers; skills registry hot-reloadable
 - Memory management: JSON parsing utilities and bounded snapshot sizes
 - **Enhanced AI Pipeline**: Optimized score rationale generation with minimal overhead
-- **Model Optimization**: Gemma4 31B cloud model selected for balanced performance and cost
+- **Model Optimization**: gemma4:31b-cloud model selected for balanced performance and cost
 - **KV Cache Savings**: ~800MB reduction in memory usage for local models compared to default 4096 context
 - **Cloud Optimization**: Intelligent token limit scaling for cloud models handling verbose output from large models
-
-[No sources needed since this section provides general guidance]
+- **Multi-Tier Extraction**: Advanced DOCX extraction reduces processing time through intelligent fallback chains
+- **Streaming Optimization**: Background LLM processing allows immediate response delivery
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -699,8 +915,11 @@ Common issues and resolutions:
 - **Datetime conversion issues**: Unified `_json_default` function ensures consistent datetime serialization across all components
 - **Model loading issues**: Use `/api/llm-status` endpoint to diagnose model readiness and hot status
 - **Performance degradation**: Monitor LLM timeouts and consider increasing LLM_NARRATIVE_TIMEOUT environment variable
-- **KV Cache issues**: Reduced context size (600-800 tokens) helps prevent memory pressure during LLM calls for local models
-- **Cloud Model Issues**: Ensure OLLAMA_API_KEY is set for Ollama Cloud deployments; verify Gemma4 31B+ model compatibility
+- **KV Cache issues**: Reduced context size (2048 tokens) helps prevent memory pressure during LLM calls for local models
+- **Cloud Model Issues**: Ensure OLLAMA_API_KEY is set for Ollama Cloud deployments; verify gemma4:31b-cloud model compatibility
+- **Streaming Issues**: Check nginx configuration for proper SSE streaming with `proxy_buffering off`
+- **Contact Extraction Failures**: LLM extraction falls back to regex and NER strategies automatically
+- **Weight Schema Conflicts**: Use weight mapper to convert between legacy and new schemas seamlessly
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -709,11 +928,11 @@ Common issues and resolutions:
 - [README.md:337-375](file://README.md#L337-L375)
 
 ## Conclusion
-The analysis engine blends efficient Python-first processing with a single, well-configured LLM call to deliver fast, deterministic scoring and rich narrative insights. The LangGraph agent pipeline enables scalable, multi-step workflows with structured nodes and robust fallbacks. The resume parsing service and gap detection provide reliable inputs, while the skills registry and scoring logic offer extensible, configurable evaluation criteria suitable for customization and growth.
+The analysis engine blends efficient Python-first processing with a single, well-configured LLM call to deliver fast, deterministic scoring and rich narrative insights. The LangGraph agent pipeline enables scalable, multi-step workflows with structured nodes and robust fallbacks. The enhanced resume parsing service and gap detection provide reliable inputs, while the skills registry and scoring logic offer extensible, configurable evaluation criteria suitable for customization and growth.
 
-**Updated** The enhanced AI pipeline capabilities now provide sophisticated score rationales and comprehensive risk analysis, generating detailed explanations for each score dimension and structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The system maintains backward compatibility while delivering significantly improved explainability and risk assessment capabilities. The AI-enhanced narrative distinction system ensures clear differentiation between LLM-generated and fallback content, improving transparency for users. The migration to Gemma4 31B cloud model across all services provides enhanced performance and reliability, with intelligent token limit scaling for both local and cloud deployments.
+**Updated** The enhanced AI pipeline capabilities now provide sophisticated score rationales and comprehensive risk analysis, generating detailed explanations for each score dimension and structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The system maintains backward compatibility while delivering significantly improved explainability and risk assessment capabilities. The AI-enhanced narrative distinction system ensures clear differentiation between LLM-generated and fallback content, improving transparency for users. The migration to gemma4:31b-cloud model across all services provides enhanced performance and reliability, with intelligent token limit scaling for both local and cloud deployments.
 
-[No sources needed since this section summarizes without analyzing specific files]
+The integration of intelligent contact extraction, multi-tier parsing strategies, and comprehensive weight management systems demonstrates the evolution toward a more robust and feature-rich analysis platform. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing and heartbeat mechanisms.
 
 ## Appendices
 
@@ -726,12 +945,17 @@ The analysis engine blends efficient Python-first processing with a single, well
 - **Enhanced AI Pipeline**: Leverage score rationales and risk summary structures for new evaluation criteria
 - **Model Configuration**: Adjust gemma4:31b-cloud parameters for specialized use cases
 - **AI-Enhanced Narratives**: Use `ai_enhanced` flag to indicate content origin
+- **Weight Management**: Utilize weight mapper for schema conversion and weight_suggester for role-specific recommendations
+- **Contact Enhancement**: Implement custom contact extraction strategies using LLM contact extractor framework
 
 **Section sources**
 - [hybrid_pipeline.py:953-1058](file://app/backend/services/hybrid_pipeline.py#L953-L1058)
 - [hybrid_pipeline.py:350-426](file://app/backend/services/hybrid_pipeline.py#L350-L426)
 - [agent_pipeline.py:327-365](file://app/backend/services/agent_pipeline.py#L327-L365)
 - [parser_service.py:319-371](file://app/backend/services/parser_service.py#L319-L371)
+- [llm_contact_extractor.py:133-164](file://app/backend/services/llm_contact_extractor.py#L133-L164)
+- [weight_mapper.py:212-246](file://app/backend/services/weight_mapper.py#L212-L246)
+- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 
 ### JSON Serialization Best Practices
 
@@ -744,6 +968,7 @@ The analysis engine blends efficient Python-first processing with a single, well
 5. **Monitor Performance**: Track serialization overhead for large datasets and optimize where necessary
 6. **Risk Assessment Integration**: When adding new risk signals, follow the structured risk summary format for consistency
 7. **AI-Enhanced Content**: Use `ai_enhanced` flag to distinguish between LLM-generated and fallback content
+8. **Streaming Compatibility**: Ensure all streamed data can be properly serialized for SSE transmission
 
 **Section sources**
 - [analyze.py:48-56](file://app/backend/routes/analyze.py#L48-L56)
@@ -760,11 +985,48 @@ The analysis engine blends efficient Python-first processing with a single, well
 4. **Timeout Configuration**: Adjust LLM_NARRATIVE_TIMEOUT based on deployment environment and model size
 5. **Concurrency Control**: Monitor semaphore limits to prevent resource exhaustion
 6. **Monitoring**: Use `/api/llm-status` endpoint for continuous model health monitoring
-7. **Context Optimization**: The reduced context size (600-800 tokens) provides ~800MB memory savings for local models
-8. **Cloud Token Limits**: Cloud models automatically receive 3000-4000 tokens for verbose output handling
+7. **Context Optimization**: The reduced context size (2048 tokens) provides ~800MB memory savings for local models
+8. **Cloud Token Limits**: Cloud models automatically receive 4096 tokens for verbose output handling
 9. **Authentication**: Set OLLAMA_API_KEY for secure cloud model access
 10. **KV Cache Management**: Monitor memory usage during LLM calls to prevent overflow, especially with cloud models
+11. **Streaming Optimization**: Configure nginx for proper SSE streaming with heartbeat mechanisms
 
 **Section sources**
 - [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
 - [main.py:266-331](file://app/backend/main.py#L266-L331)
+- [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
+
+### Contact Extraction Integration Guidelines
+
+**Updated** For implementing custom contact extraction strategies:
+
+1. **Use LLM Contact Extractor Framework**: Leverage the existing `extract_contact_with_llm()` function for structured JSON output
+2. **Implement Merging Strategy**: Use `merge_contact_info()` to combine LLM and regex results intelligently
+3. **Handle Edge Cases**: Account for international names, creative layouts, and non-standard formats
+4. **Set Appropriate Timeouts**: Balance accuracy with performance using timeout parameters
+5. **Fallback Chain**: Implement tiered extraction with LLM → Regex → NER → Filename strategies
+6. **Validation**: Ensure extracted contact information meets business requirements
+7. **Enhanced Logging**: Implement comprehensive logging for debugging and monitoring
+8. **Error Handling**: Graceful degradation when LLM extraction fails
+
+**Section sources**
+- [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
+- [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
+
+### Weight Management Best Practices
+
+**Updated** For effective weight management in the analysis engine:
+
+1. **Schema Detection**: Use `detect_weight_schema()` to automatically identify input weight format
+2. **Automatic Conversion**: Leverage `convert_to_new_schema()` for seamless schema transitions
+3. **Role-Specific Weights**: Utilize `suggest_weights_for_jd()` for context-aware weight recommendations
+4. **Default Handling**: Implement fallback weights using `get_default_weights_for_category()`
+5. **Normalization**: Always use `normalize_weights()` to ensure proper weight distribution
+6. **Adaptive Labels**: Generate role-specific labels with `get_weight_labels()`
+7. **Confidence Scoring**: Consider confidence levels when using LLM-suggested weights
+8. **Testing**: Validate weight conversions with comprehensive test suites
+
+**Section sources**
+- [weight_mapper.py:179-246](file://app/backend/services/weight_mapper.py#L179-L246)
+- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+- [weight_suggester.py:180-247](file://app/backend/services/weight_suggester.py#L180-L247)
