@@ -1005,6 +1005,11 @@ class ResumeParser:
             'cloud architect', 'solution architect', 'technical lead', 'team lead',
             'engineering manager', 'cto', 'cio', 'ceo', 'cfo', 'coo',
             'vice president', 'director of', 'head of', 'lead of',
+            # Section headers that are commonly mistaken for names
+            'key expertise', 'key skills', 'core competencies', 'top skills',
+            'technical experience', 'embedded experience', 'professional experience',
+            'work experience', 'career highlights', 'summary', 'objective',
+            'personal details', 'contact information', 'contact details',
         }
         segments = re.split(r'\s*[|•]\s*', line)
         for seg in segments:
