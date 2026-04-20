@@ -4,11 +4,11 @@ import { useDropzone } from 'react-dropzone'
 import { 
   Upload, FileText, X, Loader2, AlertCircle, CheckCircle, 
   Sparkles, ChevronRight, BookOpen, LayoutTemplate, Link2, 
-  FileUp, Type, Save, Clock
+  FileUp, Type, Save, Clock, Trophy, Eye, Download, CheckCircle2, ArrowLeft
 } from 'lucide-react'
 import { 
   analyzeResumeStream, 
-  analyzeBatchChunked, 
+  analyzeBatchStream, 
   extractJdFromUrl, 
   getTemplates, 
   createTemplate 
@@ -25,6 +25,25 @@ const DEFAULT_WEIGHTS = {
   career_trajectory: 0.10,
   role_excellence: 0.10,
   risk: -0.10,
+}
+
+function FitBadge({ score }) {
+  if (score == null)
+    return <span className="px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 bg-slate-50 text-slate-500 ring-slate-200">—</span>
+  let color = 'bg-red-50 text-red-700 ring-red-200'
+  if (score >= 72) color = 'bg-green-50 text-green-700 ring-green-200'
+  else if (score >= 45) color = 'bg-amber-50 text-amber-700 ring-amber-200'
+  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${color}`}>{score}</span>
+}
+
+function RecommendBadge({ rec }) {
+  const styles = {
+    Shortlist: 'bg-green-50 text-green-700 ring-green-200',
+    Consider:  'bg-amber-50 text-amber-700 ring-amber-200',
+    Reject:    'bg-red-50 text-red-700 ring-red-200',
+    Pending:   'bg-slate-50 text-slate-600 ring-slate-200',
+  }
+  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${styles[rec] || 'bg-slate-50 text-slate-600 ring-slate-200'}`}>{rec || '—'}</span>
 }
 
 export default function AnalyzePage() {
@@ -50,6 +69,12 @@ export default function AnalyzePage() {
   const [files, setFiles] = useState([])
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [error, setError] = useState('')
+
+  // Streaming analysis state for batch analysis
+  const [streamingResults, setStreamingResults] = useState([])
+  const [streamingFailed, setStreamingFailed] = useState([])
+  const [analysisProgress, setAnalysisProgress] = useState({ completed: 0, total: 0 })
+  const [analysisDone, setAnalysisDone] = useState(false)
 
   // UI State
   const [currentStep, setCurrentStep] = useState(1)
@@ -269,14 +294,41 @@ export default function AnalyzePage() {
         )
         navigate('/report', { state: { result } })
       } else {
-        // Batch analysis
-        await analyzeBatchChunked(
+        // Batch analysis with SSE streaming
+        setStreamingResults([])
+        setStreamingFailed([])
+        setAnalysisDone(false)
+        setAnalysisProgress({ completed: 0, total: 0 })
+
+        await analyzeBatchStream(
           files,
           jdMode === 'text' ? jdText : null,
           jdMode === 'file' ? jdFile : null,
-          weights
+          weights,
+          {
+            onResult: (index, total, filename, result, screeningResultId) => {
+              setIsAnalyzing(true)
+              setAnalysisProgress({ completed: index, total })
+              setStreamingResults(prev => {
+                const updated = [...prev, { filename, result, screeningResultId }]
+                return updated.sort((a, b) => (b.result?.fit_score || 0) - (a.result?.fit_score || 0))
+              })
+              if (screeningResultId) {
+                try { sessionStorage.setItem(`report_${screeningResultId}`, JSON.stringify(result)) } catch {}
+              }
+            },
+            onFailed: (index, total, filename, error) => {
+              setIsAnalyzing(true)
+              setAnalysisProgress(prev => ({ completed: prev.completed, total: total || prev.total }))
+              setStreamingFailed(prev => [...prev, { filename, error }])
+            },
+            onDone: (total, successful, failedCount) => {
+              setAnalysisDone(true)
+              setIsAnalyzing(false)
+              setAnalysisProgress({ completed: total, total })
+            }
+          }
         )
-        navigate('/candidates')
       }
 
       // Clear draft
@@ -302,6 +354,20 @@ export default function AnalyzePage() {
   const isStep3Complete = files.length > 0
 
   const remainingAnalyses = getRemainingAnalyses()
+
+  // Determine if results area should be visible
+  const showResults = isAnalyzing || analysisDone || streamingResults.length > 0 || streamingFailed.length > 0
+
+  // Reset for new batch
+  const handleNewBatch = () => {
+    setStreamingResults([])
+    setStreamingFailed([])
+    setAnalysisDone(false)
+    setIsAnalyzing(false)
+    setAnalysisProgress({ completed: 0, total: 0 })
+    setFiles([])
+    setCurrentStep(3)
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -582,7 +648,7 @@ export default function AnalyzePage() {
       )}
 
       {/* Step 3: Upload Resumes */}
-      {currentStep === 3 && (
+      {currentStep === 3 && !showResults && (
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8 card-animate">
           <h2 className="text-xl font-bold text-brand-900 mb-6">Step 3: Upload Resumes</h2>
 
@@ -665,7 +731,7 @@ export default function AnalyzePage() {
               disabled={!isStep3Complete || isAnalyzing}
               className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-2xl font-bold hover:shadow-brand-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-brand-sm"
             >
-              {isAnalyzing ? (
+              {isAnalyzing && files.length === 1 ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Analyzing...
@@ -678,6 +744,158 @@ export default function AnalyzePage() {
               )}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Step 4: Batch Analysis Results */}
+      {showResults && (
+        <div className="space-y-6 card-animate">
+          {/* Header with back button */}
+          <div className="flex items-center justify-between">
+            <button
+              onClick={handleNewBatch}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-xl transition-colors ring-1 ring-brand-200"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              New Batch
+            </button>
+            {analysisDone && (
+              <button
+                onClick={() => navigate('/candidates')}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition-colors shadow-brand-sm"
+              >
+                <Eye className="w-4 h-4" />
+                View All Candidates
+              </button>
+            )}
+          </div>
+
+          {/* Analysis Progress Section */}
+          {(isAnalyzing || analysisDone || streamingResults.length > 0) && (
+            <div className="p-4 bg-indigo-50 ring-1 ring-indigo-200 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-indigo-900">
+                  {analysisDone
+                    ? `Analysis Complete: ${streamingResults.length} successful${streamingFailed.length ? `, ${streamingFailed.length} failed` : ''}`
+                    : `Analyzing: ${analysisProgress.completed} of ${analysisProgress.total}...`
+                  }
+                </h3>
+                {!analysisDone && (
+                  <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
+                )}
+                {analysisDone && (
+                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+                )}
+              </div>
+              {!analysisDone && analysisProgress.total > 0 && (
+                <div className="w-full bg-indigo-100 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-indigo-500 h-full transition-all duration-500 ease-out"
+                    style={{ width: `${analysisProgress.total > 0 ? (analysisProgress.completed / analysisProgress.total) * 100 : 0}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Results header */}
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="text-xl font-extrabold text-brand-900 tracking-tight">Ranked Shortlist</h3>
+              <p className="text-sm text-slate-500 font-medium">
+                {streamingResults.length} successful{streamingFailed.length ? `, ${streamingFailed.length} failed` : ''} candidates analyzed
+              </p>
+            </div>
+          </div>
+
+          {/* Results Table */}
+          {streamingResults.length > 0 && (
+            <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-brand-50 border-b border-brand-100">
+                  <tr>
+                    <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Rank</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">File</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Score</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Recommendation</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Risk</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {streamingResults.map((item, idx) => {
+                    const r   = item.result
+                    const id  = item.screeningResultId
+                    const rank = idx + 1
+                    return (
+                      <tr key={id || idx} className="border-b border-brand-50 hover:bg-brand-50/40 transition-all duration-300">
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-1.5">
+                            {rank === 1 && <Trophy className="w-4 h-4 text-amber-500" />}
+                            <span className="font-extrabold text-brand-900">#{rank}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-brand-900 font-medium max-w-[200px] truncate">{item.filename}</td>
+                        <td className="px-4 py-3.5"><FitBadge score={r?.fit_score} /></td>
+                        <td className="px-4 py-3.5"><RecommendBadge rec={r?.final_recommendation} /></td>
+                        <td className="px-4 py-3.5">
+                          <span className={`text-xs font-bold ${
+                            !r?.risk_level       ? 'text-slate-400' :
+                            r.risk_level === 'Low'  ? 'text-green-700' :
+                            r.risk_level === 'High' ? 'text-red-700'   : 'text-amber-700'
+                          }`}>{r?.risk_level || '—'}</span>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <button
+                            onClick={() => navigate(`/report?id=${id}`)}
+                            className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            View Report
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Failed Resumes Section */}
+          {streamingFailed.length > 0 && (
+            <div className="bg-red-50/80 backdrop-blur-md rounded-3xl ring-1 ring-red-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-red-200 bg-red-100/50">
+                <div className="flex items-center gap-2.5">
+                  <AlertCircle className="w-5 h-5 text-red-600" />
+                  <h4 className="text-base font-bold text-red-800">
+                    Failed Resumes ({streamingFailed.length})
+                  </h4>
+                </div>
+                <p className="text-sm text-red-600 mt-1 ml-8">
+                  The following resumes could not be processed:
+                </p>
+              </div>
+              <div className="divide-y divide-red-100">
+                {streamingFailed.map((item, idx) => (
+                  <div key={idx} className="px-5 py-3.5 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                        <FileText className="w-4 h-4 text-red-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-red-900">{item.filename}</p>
+                        <p className="text-xs text-red-600 mt-0.5">{item.error || 'Unknown error'}</p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 ring-1 ring-red-200">
+                      Failed
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 import time
 from typing import AsyncGenerator, Dict, Any, List, Optional, Callable
@@ -1355,26 +1356,48 @@ No markdown, no code fences."""
     from langchain_core.messages import HumanMessage
     messages = [HumanMessage(content=prompt)]
     
-    # Wrap primary LLM call with httpx error handling
-    try:
-        response = await llm.ainvoke(messages)
-        raw = response.content if hasattr(response, "content") else str(response)
-        raw = raw.strip() if raw else ""
-    except httpx.HTTPStatusError as e:
-        status_code = e.response.status_code if e.response else 0
-        if status_code == 401:
-            raise RuntimeError("Ollama Cloud authentication failed (invalid API key)")
-        elif status_code == 429:
-            raise RuntimeError("Ollama Cloud rate limited — too many requests")
-        elif status_code >= 500:
-            raise RuntimeError(f"Ollama Cloud server error ({status_code})")
-        else:
-            raise RuntimeError(f"Ollama Cloud HTTP error ({status_code})")
-    except httpx.ConnectError:
-        _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        raise RuntimeError(f"Cannot connect to Ollama at {_base_url}")
-    except httpx.TimeoutException:
-        raise RuntimeError("Ollama request timed out")
+    # Retry configuration for 429 rate limit errors
+    max_retries = int(os.getenv("LLM_MAX_RETRIES", "3"))
+    base_delay = 2.0
+    
+    # Wrap primary LLM call with httpx error handling and 429 retry logic
+    raw = ""
+    for attempt in range(max_retries + 1):
+        try:
+            response = await llm.ainvoke(messages)
+            raw = response.content if hasattr(response, "content") else str(response)
+            raw = raw.strip() if raw else ""
+            break  # Success, exit retry loop
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code if e.response else 0
+            if status_code == 429 and attempt < max_retries:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 1.0)
+                log.warning(f"LLM rate limited (429), retry {attempt + 1}/{max_retries} after {delay:.1f}s")
+                await asyncio.sleep(delay)
+                continue
+            # Non-retryable errors or retries exhausted
+            if status_code == 401:
+                raise RuntimeError("Ollama Cloud authentication failed (invalid API key)")
+            elif status_code == 429:
+                raise RuntimeError("Ollama Cloud rate limited — too many requests (retries exhausted)")
+            elif status_code >= 500:
+                raise RuntimeError(f"Ollama Cloud server error ({status_code})")
+            else:
+                raise RuntimeError(f"Ollama Cloud HTTP error ({status_code})")
+        except httpx.ConnectError:
+            _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            raise RuntimeError(f"Cannot connect to Ollama at {_base_url}")
+        except httpx.TimeoutException:
+            raise RuntimeError("Ollama request timed out")
+        except Exception as e:
+            # Catch langchain ResponseError wrapping 429
+            err_msg = str(e).lower()
+            if ("429" in err_msg or "too many" in err_msg) and attempt < max_retries:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 1.0)
+                log.warning(f"LLM rate limited (ResponseError), retry {attempt + 1}/{max_retries} after {delay:.1f}s")
+                await asyncio.sleep(delay)
+                continue
+            raise  # Re-raise non-429 exceptions
 
     log.debug("LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
     log.info("LLM response received: %d characters, %d tokens (approx)", len(raw) if raw else 0, len(raw.split()) if raw else 0)
@@ -1418,24 +1441,42 @@ No markdown, no code fences."""
 
         retry_llm = ChatOllama(**_retry_kwargs)
         
-        # Wrap retry LLM call with httpx error handling
-        try:
-            retry_resp = await retry_llm.ainvoke(messages)
-            raw = retry_resp.content.strip() if retry_resp and retry_resp.content else ""
-        except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code if e.response else 0
-            if status_code == 401:
-                raise RuntimeError("Ollama Cloud authentication failed (invalid API key)")
-            elif status_code == 429:
-                raise RuntimeError("Ollama Cloud rate limited — too many requests")
-            elif status_code >= 500:
-                raise RuntimeError(f"Ollama Cloud server error ({status_code})")
-            else:
-                raise RuntimeError(f"Ollama Cloud HTTP error ({status_code})")
-        except httpx.ConnectError:
-            raise RuntimeError(f"Cannot connect to Ollama at {_base_url}")
-        except httpx.TimeoutException:
-            raise RuntimeError("Ollama request timed out")
+        # Wrap retry LLM call with httpx error handling and 429 retry logic
+        raw = ""
+        for attempt in range(max_retries + 1):
+            try:
+                retry_resp = await retry_llm.ainvoke(messages)
+                raw = retry_resp.content.strip() if retry_resp and retry_resp.content else ""
+                break  # Success, exit retry loop
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code if e.response else 0
+                if status_code == 429 and attempt < max_retries:
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1.0)
+                    log.warning(f"LLM rate limited (429), retry {attempt + 1}/{max_retries} after {delay:.1f}s")
+                    await asyncio.sleep(delay)
+                    continue
+                # Non-retryable errors or retries exhausted
+                if status_code == 401:
+                    raise RuntimeError("Ollama Cloud authentication failed (invalid API key)")
+                elif status_code == 429:
+                    raise RuntimeError("Ollama Cloud rate limited — too many requests (retries exhausted)")
+                elif status_code >= 500:
+                    raise RuntimeError(f"Ollama Cloud server error ({status_code})")
+                else:
+                    raise RuntimeError(f"Ollama Cloud HTTP error ({status_code})")
+            except httpx.ConnectError:
+                raise RuntimeError(f"Cannot connect to Ollama at {_base_url}")
+            except httpx.TimeoutException:
+                raise RuntimeError("Ollama request timed out")
+            except Exception as e:
+                # Catch langchain ResponseError wrapping 429
+                err_msg = str(e).lower()
+                if ("429" in err_msg or "too many" in err_msg) and attempt < max_retries:
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1.0)
+                    log.warning(f"LLM rate limited (ResponseError), retry {attempt + 1}/{max_retries} after {delay:.1f}s")
+                    await asyncio.sleep(delay)
+                    continue
+                raise  # Re-raise non-429 exceptions
         log.debug("Retry LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
 
         # Extract JSON from retry response

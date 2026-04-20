@@ -57,7 +57,7 @@ def get_ollama_semaphore(max_concurrent: int | None = None) -> asyncio.Semaphore
                 # Auto-detect: cloud vs local
                 base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
                 if base_url.startswith("https://") or "ollama.com" in base_url.lower():
-                    max_concurrent = 8  # Cloud can handle more concurrent requests
+                    max_concurrent = 4  # Cloud: conservative to avoid 429 rate limits
                 else:
                     max_concurrent = 1  # Local Ollama is single-threaded
         _ollama_semaphore = asyncio.Semaphore(max_concurrent)

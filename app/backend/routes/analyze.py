@@ -1458,10 +1458,11 @@ async def batch_analyze_stream_endpoint(
 
     # ── Tagged wrapper for asyncio.as_completed mapping ──────────────────────
     async def _process_and_tag(
-        content: bytes, filename: str, upload_id: str,
+        index: int, content: bytes, filename: str, upload_id: str,
         jd: str, weights: dict | None, db_session: Session,
     ) -> tuple[dict, bytes, str, str]:
         """Wrapper that returns result alongside file metadata."""
+        await asyncio.sleep(0.3 * index)  # Stagger to avoid LLM thundering herd
         result = await _process_with_semaphore(content, filename, jd, weights, db_session)
         return result, content, filename, upload_id
 
@@ -1486,8 +1487,8 @@ async def batch_analyze_stream_endpoint(
 
         # Create tagged tasks
         tasks = [
-            _process_and_tag(c, f, uid, job_description, parsed_weights, db)
-            for c, f, uid in file_data
+            _process_and_tag(idx, c, f, uid, job_description, parsed_weights, db)
+            for idx, (c, f, uid) in enumerate(file_data)
         ]
 
         # Process resumes as they complete
