@@ -2,6 +2,7 @@
 Candidate comparison endpoint — compare up to 5 screening results side-by-side.
 """
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -38,49 +39,103 @@ def compare_candidates(
 
     comparison = []
     for r in results:
-        analysis = json.loads(r.analysis_result)
-        parsed   = json.loads(r.parsed_data)
-        
+        def _safe_loads(data, field="data"):
+            try:
+                return json.loads(data) if data else {}
+            except (json.JSONDecodeError, TypeError):
+                logging.warning("Malformed JSON in %s for result id=%s", field, r.id)
+                return {}
+
+        analysis = _safe_loads(r.analysis_result, "analysis_result")
+        parsed   = _safe_loads(r.parsed_data, "parsed_data")
+
+        # Fetch Candidate record once for fallback lookups
+        candidate = None
+        if r.candidate_id:
+            candidate = db.get(Candidate, r.candidate_id)
+
         # Resolve candidate name from multiple sources
         candidate_name = (
             (analysis.get("candidate_name") or "").strip() or
             (parsed.get("contact_info", {}).get("name") or "").strip() or
             (parsed.get("candidate_profile", {}).get("name") or "").strip() or
-            None
+            (candidate.name if candidate and candidate.name else "")
         )
-        
-        # Fallback to Candidate table if available
-        if not candidate_name and r.candidate_id:
-            cand = db.get(Candidate, r.candidate_id)
-            if cand and cand.name:
-                candidate_name = cand.name
-        
+
         # Final fallback
         if not candidate_name:
             candidate_name = f"Result #{r.id}"
-        
+
+        # Determine effective data source: prefer analysis, fallback to parsed
+        # Check if analysis has essential fields; if not, use parsed_data as base
+        has_analysis_data = bool(
+            analysis.get("fit_score") is not None or
+            analysis.get("score_breakdown")
+        )
+
+        # Get work_experience from parsed for profile fallback
+        work_exp = parsed.get("work_experience", [])
+
+        # Fallback for score fields: use analysis if present, otherwise 0/empty defaults
+        fit_score = analysis.get("fit_score") if analysis.get("fit_score") is not None else 0
+        score_breakdown = analysis.get("score_breakdown") or {}
+
+        # Ensure score_breakdown has all expected keys with defaults
+        if not isinstance(score_breakdown, dict):
+            score_breakdown = {}
+        score_breakdown.setdefault("skill_match", 0)
+        score_breakdown.setdefault("experience_match", 0)
+        score_breakdown.setdefault("education", 0)
+        score_breakdown.setdefault("stability", 0)
+
+        # Fallback for candidate_profile fields from Candidate table
+        current_role = ""
+        current_company = ""
+        total_years_exp = 0
+
+        if analysis.get("candidate_profile"):
+            current_role = analysis["candidate_profile"].get("current_role", "")
+            current_company = analysis["candidate_profile"].get("current_company", "")
+            total_years_exp = analysis["candidate_profile"].get("total_effective_years", 0)
+
+        # If still missing, fallback to parsed_data work_experience or Candidate table
+        if not current_role:
+            current_role = work_exp[0].get("title", "") if work_exp else (candidate.current_role if candidate and candidate.current_role else "")
+        if not current_company:
+            current_company = work_exp[0].get("company", "") if work_exp else (candidate.current_company if candidate and candidate.current_company else "")
+        if not total_years_exp:
+            total_years_exp = candidate.total_years_exp if candidate and candidate.total_years_exp else 0
+
+        # Safe extraction of interview questions preview
+        interview_questions = analysis.get("interview_questions") or {}
+        if not isinstance(interview_questions, dict):
+            interview_questions = {}
+        technical_questions = interview_questions.get("technical", []) if isinstance(interview_questions.get("technical"), list) else []
+
         comparison.append({
             "id":                   r.id,
             "timestamp":            r.timestamp,
             "status":               r.status,
             "candidate_id":         r.candidate_id,
-            "fit_score":            analysis.get("fit_score", 0),
+            "fit_score":            fit_score,
             "final_recommendation": analysis.get("final_recommendation", ""),
             "risk_level":           analysis.get("risk_level", ""),
-            "matched_skills":       analysis.get("matched_skills", []),
-            "missing_skills":       analysis.get("missing_skills", []),
-            "score_breakdown":      analysis.get("score_breakdown", {}),
-            "strengths":            analysis.get("strengths", [])[:3],  # top 3 strengths
-            "weaknesses":           analysis.get("weaknesses", [])[:3],  # top 3 weaknesses
+            "matched_skills":       analysis.get("matched_skills", []) if has_analysis_data else (parsed.get("skills", []) or []),
+            "missing_skills":       analysis.get("missing_skills", []) if has_analysis_data else [],
+            "score_breakdown":      score_breakdown,
+            "strengths":            (analysis.get("strengths", []) if isinstance(analysis.get("strengths"), list) else [])[:3],
+            "weaknesses":           (analysis.get("weaknesses", []) if isinstance(analysis.get("weaknesses"), list) else [])[:3],
             "education_analysis":   analysis.get("education_analysis", ""),
             "candidate_name":       candidate_name,
             # Enhanced comparison fields
-            "employment_gaps":      len(analysis.get("employment_gaps", [])),  # gap count
-            "interview_questions_preview": (
-                analysis.get("interview_questions", {}).get("technical", [])[:2]
-            ),  # first 2 technical questions
+            "employment_gaps":      len(analysis.get("employment_gaps", [])) if isinstance(analysis.get("employment_gaps"), list) else 0,
+            "interview_questions_preview": technical_questions[:2],
             "analysis_quality":     analysis.get("analysis_quality", "medium"),
-            "adjacent_skills":      analysis.get("adjacent_skills", [])[:5],  # top 5
+            "adjacent_skills":      (analysis.get("adjacent_skills", []) if isinstance(analysis.get("adjacent_skills"), list) else [])[:5],
+            # Additional profile fields for richer comparison
+            "current_role":         current_role,
+            "current_company":      current_company,
+            "total_years_exp":      total_years_exp,
         })
 
     # Determine category winners

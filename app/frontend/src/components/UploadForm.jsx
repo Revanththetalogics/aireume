@@ -179,7 +179,11 @@ export default function UploadForm({
     accept: {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'application/msword': ['.doc']
+      'application/msword': ['.doc'],
+      'text/plain': ['.txt'],
+      'application/rtf': ['.rtf'],
+      'text/rtf': ['.rtf'],
+      'application/vnd.oasis.opendocument.text': ['.odt'],
     },
     maxFiles: 1,
     maxSize: 10 * 1024 * 1024
@@ -229,7 +233,7 @@ export default function UploadForm({
 
         {/* Resume Upload */}
         <div className="mb-6">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Resume (PDF or DOCX)</label>
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Resume (PDF, DOCX, DOC, TXT, RTF, ODT)</label>
           <div
             {...getRootProps()}
             className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 ${
@@ -265,7 +269,7 @@ export default function UploadForm({
                 <p className="text-slate-600 font-medium mb-1">
                   {isDragActive ? 'Drop the file here...' : 'Drag & drop your resume here'}
                 </p>
-                <p className="text-sm text-slate-400">or click to browse (PDF, DOCX up to 10MB)</p>
+                <p className="text-sm text-slate-400">or click to browse (PDF, DOCX, DOC, TXT, RTF, ODT up to 10MB)</p>
               </>
             )}
           </div>

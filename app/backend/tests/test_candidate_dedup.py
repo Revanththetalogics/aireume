@@ -37,7 +37,7 @@ SHORT_JD = "Python developer needed."  # well under 80 words
 
 def _make_file(name: str = "resume.pdf", content: bytes = b"") -> tuple:
     content = content or (
-        b"John Doe\nSoftware Engineer\njohn@test.com\n+1-555-0100\n\n"
+        b"%PDF-1.4 John Doe\nSoftware Engineer\njohn@test.com\n+1-555-0100\n\n"
         b"SKILLS\nPython, FastAPI, PostgreSQL\n\n"
         b"WORK EXPERIENCE\nSenior Engineer | TechCorp | Jan 2019 - Present\n\n"
         b"EDUCATION\nBSc Computer Science, MIT, 2018\n"
@@ -379,7 +379,7 @@ class TestAnalyzeEndpointDedup:
     def test_duplicate_candidate_flag_on_second_upload(self, auth_client):
         """Uploading same resume twice → second response contains duplicate_candidate."""
         resume_bytes = (
-            b"Jane Smith\nBackend Engineer\njane@corp.com\n+1-555-2222\n\n"
+            b"%PDF-1.4 Jane Smith\nBackend Engineer\njane@corp.com\n+1-555-2222\n\n"
             b"SKILLS\nPython, Django\n\n"
             b"EDUCATION\nBSc CS, MIT 2017\n"
         )
@@ -412,7 +412,7 @@ class TestAnalyzeEndpointDedup:
 
     def test_action_create_new_skips_dedup_response(self, auth_client):
         """action=create_new → duplicate_candidate should be None."""
-        resume_bytes = b"Eve Tester\nDev\neve@corp.com\n+1-555-3333\nPython\n"
+        resume_bytes = b"%PDF-1.4 Eve Tester\nDev\neve@corp.com\n+1-555-3333\nPython\n"
         p1, p2, p3 = _mock_analyze_patches()
 
         # First upload
@@ -485,7 +485,7 @@ class TestBatchJdGate:
             resp = auth_client.post(
                 "/api/analyze/batch",
                 data={"job_description": SHORT_JD},
-                files=[("resumes", ("r.pdf", io.BytesIO(b"dummy"), "application/pdf"))],
+                files=[("resumes", ("r.pdf", io.BytesIO(b"%PDF-1.4 dummy"), "application/pdf"))],
             )
         assert resp.status_code == 400
         assert "80 words" in resp.json()["detail"]
@@ -627,7 +627,7 @@ class TestEnrichedCandidateResponses:
     def test_list_candidates_pagination(self, auth_client):
         # Upload two distinct candidates
         for i in range(2):
-            content = f"Candidate {i}\nEngineer{i}@test.com\n+1-555-000{i}\nPython\n".encode()
+            content = f"%PDF-1.4 Candidate {i}\nEngineer{i}@test.com\n+1-555-000{i}\nPython\n".encode()
             p1, p2, p3 = _mock_analyze_patches()
             with p1, p2, p3:
                 auth_client.post(

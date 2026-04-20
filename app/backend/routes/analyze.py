@@ -46,13 +46,86 @@ from app.backend.routes.subscription import _ensure_monthly_reset, _get_plan_lim
 router = APIRouter(prefix="/api", tags=["analysis"])
 log    = logging.getLogger("aria.analysis")
 
-ALLOWED_EXTENSIONS = ('.pdf', '.docx', '.doc')
+ALLOWED_EXTENSIONS = ('.pdf', '.docx', '.doc', '.txt', '.rtf', '.odt')
 
 # Maximum JD size (50KB)
 MAX_JD_SIZE = 50 * 1024  # 50KB
 
 # Maximum scoring_weights size (4KB)
 MAX_SCORING_WEIGHTS_SIZE = 4 * 1024  # 4KB
+
+# ─── File content (magic bytes) validation ─────────────────────────────────────
+
+FILE_SIGNATURES = {
+    '.pdf':  [b'%PDF'],
+    '.docx': [b'PK\x03\x04'],          # ZIP-based format
+    '.doc':  [b'\xd0\xcf\x11\xe0'],   # OLE2 Compound Document
+    '.odt':  [b'PK\x03\x04'],           # ZIP-based format (like DOCX)
+    '.rtf':  [b'{\\rtf'],
+    '.txt':  None,                        # No signature check for plain text
+}
+
+
+def _validate_file_content(content: bytes, filename: str) -> None:
+    """Verify that file content matches its extension via magic-byte signatures.
+
+    Additional layers beyond the existing extension allowlist:
+      1. Magic-byte check — the first bytes of the file must match the
+         expected signature for the declared extension.
+      2. For .txt files — heuristic check that content is not binary.
+
+    Raises HTTPException(400) on validation failure.
+    """
+    ext = os.path.splitext(filename.lower())[1]
+    signatures = FILE_SIGNATURES.get(ext)
+
+    # Extension not in signature table — skip content check
+    if signatures is None and ext != '.txt':
+        return
+
+    # ── .txt: heuristic binary detection ────────────────────────────────────
+    if ext == '.txt':
+        if not content:
+            return  # empty file is acceptable for .txt
+        sample = content[:1000]
+        non_printable = sum(
+            1 for b in sample
+            if b < 0x20 and b not in (0x09, 0x0A, 0x0D)  # TAB, LF, CR
+        )
+        if len(sample) and non_printable / len(sample) > 0.30:
+            log.warning("File signature mismatch for %s: expected %s format", filename, ext)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file content: '{filename}' does not appear to be a valid {ext} file",
+            )
+        return
+
+    # ── Magic-byte check for binary formats ─────────────────────────────────
+    # Empty files or files shorter than the shortest signature automatically fail
+    if not content:
+        log.warning("File signature mismatch for %s: expected %s format", filename, ext)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file content: '{filename}' does not appear to be a valid {ext} file",
+        )
+
+    min_sig_len = min(len(s) for s in signatures)
+    if len(content) < min_sig_len:
+        log.warning("File signature mismatch for %s: expected %s format", filename, ext)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file content: '{filename}' does not appear to be a valid {ext} file",
+        )
+
+    for sig in signatures:
+        if content.startswith(sig):
+            return  # signature matches
+
+    log.warning("File signature mismatch for %s: expected %s format", filename, ext)
+    raise HTTPException(
+        status_code=400,
+        detail=f"Invalid file content: '{filename}' does not appear to be a valid {ext} file",
+    )
 
 # ─── Batch processing concurrency control ───────────────────────────────────────
 
@@ -159,8 +232,19 @@ def _store_candidate_profile(
     candidate.parsed_education   = json.dumps(parsed_data.get("education", []), default=_json_default)
     candidate.parsed_work_exp    = json.dumps(work_exp, default=_json_default)
     candidate.gap_analysis_json  = json.dumps(gap_analysis, default=_json_default)
-    candidate.current_role       = work_exp[0].get("title", "")    if work_exp else None
-    candidate.current_company    = work_exp[0].get("company", "")  if work_exp else None
+
+    # Truncate current_role and current_company to 255 chars to prevent DB truncation errors
+    _raw_role = work_exp[0].get("title", "") if work_exp else None
+    _raw_company = work_exp[0].get("company", "") if work_exp else None
+    if _raw_role and len(_raw_role) > 255:
+        log.warning("Truncating current_role from %d to 255 chars", len(_raw_role))
+        _raw_role = _raw_role[:255]
+    if _raw_company and len(_raw_company) > 255:
+        log.warning("Truncating current_company from %d to 255 chars", len(_raw_company))
+        _raw_company = _raw_company[:255]
+    candidate.current_role       = _raw_role
+    candidate.current_company    = _raw_company
+
     candidate.total_years_exp    = gap_analysis.get("total_years", 0)
     candidate.profile_quality    = profile_quality
     candidate.profile_updated_at = datetime.now(timezone.utc)
@@ -494,6 +578,9 @@ async def analyze_endpoint(
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Resume file too large (max 10MB)")
 
+    # Validate file content matches extension (magic bytes)
+    _validate_file_content(content, resume.filename)
+
     # Read and validate JD file if provided
     jd_bytes = jd_name = None
     if job_file and job_file.filename:
@@ -730,6 +817,9 @@ async def analyze_stream_endpoint(
     content = await resume.read()
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Resume file too large (max 10MB)")
+
+    # Validate file content matches extension (magic bytes)
+    _validate_file_content(content, resume.filename)
 
     # Read JD file if provided
     jd_bytes = jd_name = None
@@ -1058,6 +1148,19 @@ async def batch_analyze_chunked_endpoint(
 
         file_data.append((content, filename, upload_id))
 
+    # Pre-flight file content validation (magic bytes)
+    validated_file_data = []
+    for content, filename, upload_id in file_data:
+        try:
+            _validate_file_content(content, filename)
+            validated_file_data.append((content, filename, upload_id))
+        except HTTPException as e:
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"File validation failed: {e.detail}",
+            ))
+    file_data = validated_file_data
+
     valid_count = len(file_data)
 
     if valid_count == 0:
@@ -1122,31 +1225,38 @@ async def batch_analyze_chunked_endpoint(
             ))
             continue
 
-        parsed_data = raw.pop("_parsed_data", {})
-        gap_analysis = raw.pop("_gap_analysis", {})
-        file_hash = hashlib.md5(content).hexdigest()
+        try:
+            parsed_data = raw.pop("_parsed_data", {})
+            gap_analysis = raw.pop("_gap_analysis", {})
+            file_hash = hashlib.md5(content).hexdigest()
 
-        candidate_id, _ = _get_or_create_candidate(
-            db, parsed_data, current_user.tenant_id,
-            file_hash=file_hash,
-            gap_analysis=gap_analysis,
-            profile_quality=raw.get("analysis_quality", "medium"),
-        )
+            candidate_id, _ = _get_or_create_candidate(
+                db, parsed_data, current_user.tenant_id,
+                file_hash=file_hash,
+                gap_analysis=gap_analysis,
+                profile_quality=raw.get("analysis_quality", "medium"),
+            )
 
-        db_result = ScreeningResult(
-            tenant_id=current_user.tenant_id,
-            candidate_id=candidate_id,
-            resume_text=parsed_data.get("raw_text", ""),
-            jd_text=job_description,
-            parsed_data=json.dumps(parsed_data),
-            analysis_result=json.dumps(raw),
-        )
-        db.add(db_result)
-        db.flush()
-        raw["result_id"] = db_result.id
-        batch_results.append({"filename": filename, "result": raw})
-
-    db.commit()
+            db_result = ScreeningResult(
+                tenant_id=current_user.tenant_id,
+                candidate_id=candidate_id,
+                resume_text=parsed_data.get("raw_text", ""),
+                jd_text=job_description,
+                parsed_data=json.dumps(parsed_data),
+                analysis_result=json.dumps(raw),
+            )
+            db.add(db_result)
+            db.flush()
+            db.commit()
+            raw["result_id"] = db_result.id
+            batch_results.append({"filename": filename, "result": raw})
+        except Exception as e:
+            db.rollback()
+            log.error("Failed to save analysis for %s: %s", filename, e)
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"Database error: {str(e)}",
+            ))
 
     # Clean up assembled files after successful processing
     for _content, filename, upload_id in file_data:

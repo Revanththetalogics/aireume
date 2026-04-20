@@ -707,8 +707,18 @@ def parse_resume_rules(parsed_data: Dict[str, Any], gap_analysis: Dict[str, Any]
         inferred_y = _infer_total_years_from_resume_text(raw_text)
         if inferred_y > 0:
             total_years = inferred_y
-    current_role    = work_exp[0].get("title", "")    if work_exp else ""
-    current_company = work_exp[0].get("company", "")  if work_exp else ""
+
+    # Truncate current_role and current_company to 255 chars to prevent DB truncation errors
+    _raw_role = work_exp[0].get("title", "") if work_exp else ""
+    _raw_company = work_exp[0].get("company", "") if work_exp else ""
+    if _raw_role and len(_raw_role) > 255:
+        log.warning("Truncating current_role from %d to 255 chars", len(_raw_role))
+        _raw_role = _raw_role[:255]
+    if _raw_company and len(_raw_company) > 255:
+        log.warning("Truncating current_company from %d to 255 chars", len(_raw_company))
+        _raw_company = _raw_company[:255]
+    current_role    = _raw_role
+    current_company = _raw_company
 
     career_summary = _build_career_summary(current_role, current_company, total_years)
 

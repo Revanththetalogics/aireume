@@ -92,6 +92,10 @@ export default function BatchPage() {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/msword': ['.doc'],
+      'text/plain': ['.txt'],
+      'application/rtf': ['.rtf'],
+      'text/rtf': ['.rtf'],
+      'application/vnd.oasis.opendocument.text': ['.odt'],
     },
     maxFiles: maxBatchSize,
     // No maxSize limit - chunked upload handles large files
@@ -169,22 +173,6 @@ export default function BatchPage() {
   const handleLoadJd = (template) => {
     setJdText(template.jd_text)
     setShowJdPicker(false)
-    
-    // Load weights if available
-    if (template.scoring_weights) {
-      try {
-        const savedWeights = typeof template.scoring_weights === 'string' 
-          ? JSON.parse(template.scoring_weights) 
-          : template.scoring_weights
-        
-        // Only set weights if they're valid and not empty
-        if (savedWeights && Object.keys(savedWeights).length > 0) {
-          setWeights(savedWeights)
-        }
-      } catch (e) {
-        console.error('Failed to parse weights from template:', e)
-      }
-    }
   }
 
   const handleSaveJd = async () => {
@@ -235,7 +223,7 @@ export default function BatchPage() {
                   <Upload className="w-6 h-6 text-brand-500" />
                 </div>
                 <p className="text-slate-600 font-medium">{isDragActive ? 'Drop resumes here...' : 'Drag & drop multiple resumes'}</p>
-                <p className="text-sm text-slate-400 mt-1">PDF, DOCX — up to {maxBatchSize} files</p>
+                <p className="text-sm text-slate-400 mt-1">PDF, DOCX, DOC, TXT, RTF, ODT — up to {maxBatchSize} files</p>
               </div>
               {files.length > 0 && (
                 <div className="mt-3 space-y-1.5 max-h-40 overflow-y-auto">
@@ -411,7 +399,9 @@ export default function BatchPage() {
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h3 className="text-xl font-extrabold text-brand-900 tracking-tight">Ranked Shortlist</h3>
-                <p className="text-sm text-slate-500 font-medium">{results.total} candidates analyzed</p>
+                <p className="text-sm text-slate-500 font-medium">
+                  {results.results?.length || 0} successful{results.failed?.length ? `, ${results.failed.length} failed` : ''} out of {results.total} candidates analyzed
+                </p>
               </div>
               <div className="flex gap-2 flex-wrap">
                 <button
@@ -505,6 +495,41 @@ export default function BatchPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Failed Resumes Section */}
+            {results.failed?.length > 0 && (
+              <div className="bg-red-50/80 backdrop-blur-md rounded-3xl ring-1 ring-red-200 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-red-200 bg-red-100/50">
+                  <div className="flex items-center gap-2.5">
+                    <AlertTriangle className="w-5 h-5 text-red-600" />
+                    <h4 className="text-base font-bold text-red-800">
+                      Failed Uploads ({results.failed.length})
+                    </h4>
+                  </div>
+                  <p className="text-sm text-red-600 mt-1 ml-8">
+                    The following resumes could not be processed:
+                  </p>
+                </div>
+                <div className="divide-y divide-red-100">
+                  {results.failed.map((item, idx) => (
+                    <div key={idx} className="px-5 py-3.5 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                          <FileText className="w-4 h-4 text-red-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-red-900">{item.filename}</p>
+                          <p className="text-xs text-red-600 mt-0.5">{item.error || 'Unknown error'}</p>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 ring-1 ring-red-200">
+                        Failed
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

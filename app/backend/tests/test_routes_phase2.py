@@ -178,7 +178,7 @@ class TestSseStreamingHardening:
         # Create a JD that's over 50KB
         oversized_jd = "Python developer " * 5000  # ~75KB
 
-        resume_content = b"John Doe\nPython Developer\n5 years experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = {
             "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
         }
@@ -195,7 +195,7 @@ class TestSseStreamingHardening:
         # Create a JD that's over 50KB
         oversized_jd = "Python developer " * 5000  # ~75KB
 
-        resume_content = b"John Doe\nPython Developer\n5 years experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = {
             "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
         }
@@ -221,7 +221,7 @@ class TestSseStreamingHardening:
     def test_analyze_stream_includes_done_event(self, auth_client, mock_hybrid_pipeline):
         """Test that /analyze/stream always includes [DONE] event even on errors."""
         # Create a minimal valid resume
-        resume_content = b"John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
         files = {
             "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
         }
@@ -240,7 +240,7 @@ class TestSseStreamingHardening:
 
     def test_analyze_stream_done_event_with_valid_response(self, auth_client, mock_hybrid_pipeline):
         """Test that /analyze/stream includes [DONE] event with successful analysis."""
-        resume_content = b"John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
         files = {
             "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
         }
@@ -266,7 +266,7 @@ class TestSseStreamingHardening:
         # Create a valid JD under 50KB
         valid_jd = self._VALID_JD
 
-        resume_content = b"John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
         files = {
             "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
         }
@@ -301,7 +301,7 @@ class TestScoringWeightsSizeValidation:
         import json
         oversized_json = json.dumps(oversized_weights)
 
-        resume_content = b"John Doe\nPython Developer\n5 years experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = {
             "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
         }
@@ -321,7 +321,7 @@ class TestScoringWeightsSizeValidation:
         import json
         oversized_json = json.dumps(oversized_weights)
 
-        resume_content = b"John Doe\nPython Developer\n5 years experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = {
             "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
         }
@@ -341,7 +341,7 @@ class TestScoringWeightsSizeValidation:
         import json
         oversized_json = json.dumps(oversized_weights)
 
-        resume_content = b"John Doe\nPython Developer\n5 years experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = [
             ("resumes", ("test_resume.pdf", BytesIO(resume_content), "application/pdf")),
         ]
@@ -360,7 +360,7 @@ class TestScoringWeightsSizeValidation:
         valid_weights = {"skills": {"python": 0.5, "docker": 0.3, "aws": 0.2}}
         valid_weights_json = json.dumps(valid_weights)
 
-        resume_content = b"John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\njohn@example.com\n5 years Python experience"
         files = {
             "resume": ("test_resume.pdf", BytesIO(resume_content), "application/pdf")
         }
@@ -472,7 +472,7 @@ class TestBatchJdSizeValidation:
         # Create a JD that's over 50KB
         oversized_jd = "Python developer " * 5000  # ~75KB
 
-        resume_content = b"John Doe\nPython Developer\n5 years experience"
+        resume_content = b"%PDF-1.4 John Doe\nPython Developer\n5 years experience"
         files = [
             ("resumes", ("test_resume.pdf", BytesIO(resume_content), "application/pdf")),
         ]
