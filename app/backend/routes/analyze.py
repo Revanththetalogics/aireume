@@ -965,6 +965,217 @@ async def analyze_stream_endpoint(
     )
 
 
+# ─── Batch resume analysis (chunked upload) ─────────────────────────────────
+
+@router.post("/analyze/batch-chunked", response_model=BatchAnalysisResponse)
+async def batch_analyze_chunked_endpoint(
+    upload_ids: list[str] = Form(...),
+    filenames: list[str] = Form(...),
+    job_description: str = Form(None),
+    job_file: UploadFile = File(None),
+    scoring_weights: str = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Batch analysis for chunked uploads.
+
+    Accepts upload_ids from the chunked upload system instead of raw files.
+    Reads assembled files from the chunk storage directory and processes
+    them through the same analysis pipeline as /analyze/batch.
+    """
+    from app.backend.routes.upload import CHUNK_STORAGE_DIR
+
+    if not upload_ids:
+        raise HTTPException(status_code=400, detail="At least one upload_id required")
+
+    if len(upload_ids) != len(filenames):
+        raise HTTPException(
+            status_code=400,
+            detail=f"upload_ids ({len(upload_ids)}) and filenames ({len(filenames)}) must have the same length",
+        )
+
+    if len(upload_ids) > MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum batch size is {MAX_BATCH_SIZE} resumes",
+        )
+
+    # Read and validate JD file if provided (before usage check)
+    jd_bytes = jd_name = None
+    if job_file and job_file.filename:
+        jd_bytes = await job_file.read()
+        jd_name = job_file.filename
+
+    # Resolve and validate job description (before usage check)
+    job_description = _resolve_jd(job_description, jd_bytes, jd_name)
+    _check_jd_length(job_description)
+    _check_jd_size(job_description)
+
+    # Locate assembled files for each upload_id
+    assembled_dir = CHUNK_STORAGE_DIR / "assembled"
+    file_data = []
+    failed_items: list[BatchFailedItem] = []
+
+    for upload_id, filename in zip(upload_ids, filenames):
+        # Sanitise to prevent directory traversal
+        safe_uid = upload_id.replace("..", "").replace("/", "").replace("\\", "")
+        safe_fname = filename.replace("..", "").replace("/", "").replace("\\", "")
+        assembled_path = assembled_dir / f"{safe_uid}_{safe_fname}"
+
+        if not assembled_path.exists():
+            log.warning("Assembled file not found for upload_id=%s, filename=%s", upload_id, filename)
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"Upload {upload_id} not found or expired. Please re-upload.",
+            ))
+            continue
+
+        try:
+            content = assembled_path.read_bytes()
+        except Exception as e:
+            log.warning("Failed to read assembled file for upload_id=%s: %s", upload_id, e)
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"Failed to read assembled file: {str(e)}",
+            ))
+            continue
+
+        # Validate size and extension
+        if len(content) > 10 * 1024 * 1024:
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error="Resume file too large (max 10MB)",
+            ))
+            continue
+
+        if not filename.lower().endswith(ALLOWED_EXTENSIONS):
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"Only {ALLOWED_EXTENSIONS} files are allowed",
+            ))
+            continue
+
+        file_data.append((content, filename, upload_id))
+
+    valid_count = len(file_data)
+
+    if valid_count == 0:
+        if not failed_items:
+            raise HTTPException(status_code=400, detail="No valid resume files provided")
+        # All files failed - return empty results with failures
+        return BatchAnalysisResponse(
+            results=[],
+            failed=failed_items,
+            total=len(upload_ids),
+            successful=0,
+            failed_count=len(failed_items),
+        )
+
+    # Get tenant's plan for batch size limit
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    max_batch_size = MAX_BATCH_SIZE
+    if tenant and tenant.plan:
+        limits = _get_plan_limits(tenant.plan)
+        plan_batch_limit = limits.get("batch_size", MAX_BATCH_SIZE)
+        max_batch_size = min(max_batch_size, plan_batch_limit)
+
+    if valid_count > max_batch_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your plan allows maximum {max_batch_size} resumes per batch. Please upgrade to process more.",
+        )
+
+    # CHECK AND INCREMENT USAGE
+    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=message)
+
+    # Validate scoring_weights size
+    _check_scoring_weights_size(scoring_weights)
+
+    weights = None
+    if scoring_weights:
+        try:
+            weights = json.loads(scoring_weights)
+        except Exception as e:
+            log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
+
+    # Pre-parse JD once
+    _get_or_cache_jd(db, job_description)
+
+    # Process all resumes with semaphore-wrapped calls
+    tasks = [
+        _process_with_semaphore(content, filename, job_description, weights, db)
+        for content, filename, _ in file_data
+    ]
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # SEPARATE SUCCESSES FROM FAILURES
+    batch_results = []
+
+    for raw, (content, filename, upload_id) in zip(raw_results, file_data):
+        if isinstance(raw, Exception):
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=str(raw),
+            ))
+            continue
+
+        parsed_data = raw.pop("_parsed_data", {})
+        gap_analysis = raw.pop("_gap_analysis", {})
+        file_hash = hashlib.md5(content).hexdigest()
+
+        candidate_id, _ = _get_or_create_candidate(
+            db, parsed_data, current_user.tenant_id,
+            file_hash=file_hash,
+            gap_analysis=gap_analysis,
+            profile_quality=raw.get("analysis_quality", "medium"),
+        )
+
+        db_result = ScreeningResult(
+            tenant_id=current_user.tenant_id,
+            candidate_id=candidate_id,
+            resume_text=parsed_data.get("raw_text", ""),
+            jd_text=job_description,
+            parsed_data=json.dumps(parsed_data),
+            analysis_result=json.dumps(raw),
+        )
+        db.add(db_result)
+        db.flush()
+        raw["result_id"] = db_result.id
+        batch_results.append({"filename": filename, "result": raw})
+
+    db.commit()
+
+    # Clean up assembled files after successful processing
+    for _content, filename, upload_id in file_data:
+        try:
+            safe_uid = upload_id.replace("..", "").replace("/", "").replace("\\", "")
+            safe_fname = filename.replace("..", "").replace("/", "").replace("\\", "")
+            assembled_path = assembled_dir / f"{safe_uid}_{safe_fname}"
+            if assembled_path.exists():
+                assembled_path.unlink()
+                log.info("Cleaned up assembled file: %s", assembled_path)
+        except Exception as e:
+            log.warning("Non-critical: Failed to clean up assembled file for upload_id=%s: %s", upload_id, e)
+
+    # Sort by fit score
+    batch_results.sort(key=lambda x: x["result"].get("fit_score") or 0, reverse=True)
+    ranked = [
+        BatchAnalysisResult(rank=i + 1, filename=r["filename"], result=r["result"])
+        for i, r in enumerate(batch_results)
+    ]
+
+    return BatchAnalysisResponse(
+        results=ranked,
+        failed=failed_items,
+        total=len(upload_ids),
+        successful=len(ranked),
+        failed_count=len(failed_items),
+    )
+
+
 # ─── Batch resume analysis ────────────────────────────────────────────────────
 
 async def _process_with_semaphore(
