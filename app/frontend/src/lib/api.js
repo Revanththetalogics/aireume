@@ -338,7 +338,7 @@ export async function analyzeBatch(files, jobDescription, jobFile = null, scorin
 /**
  * Analyze batch of resumes using chunked upload for large files.
  * This bypasses CDN/proxy upload limits by splitting files into chunks.
- * 
+ *
  * @param {File[]} files - Array of resume files to analyze
  * @param {string} jobDescription - Job description text
  * @param {File|null} jobFile - Optional job description file
@@ -350,7 +350,7 @@ export async function analyzeBatch(files, jobDescription, jobFile = null, scorin
  */
 export async function analyzeBatchChunked(files, jobDescription, jobFile = null, scoringWeights = null, callbacks = {}) {
   const { uploadMultipleFiles } = await import('./uploadChunked')
-  
+
   // Upload all files using chunked upload
   const uploadResults = await uploadMultipleFiles(files, {
     onFileProgress: callbacks.onFileProgress || (() => {}),
@@ -358,37 +358,160 @@ export async function analyzeBatchChunked(files, jobDescription, jobFile = null,
     onFileComplete: callbacks.onFileComplete || (() => {}),
     onFileError: callbacks.onFileError || (() => {}),
   })
-  
+
   // Check if any uploads failed
   if (uploadResults.failed.length > 0) {
     throw new Error(`Failed to upload ${uploadResults.failed.length} file(s): ${uploadResults.failed.map(f => f.file).join(', ')}`)
   }
-  
+
   // Now call a new backend endpoint that processes the assembled files
   const formData = new FormData()
-  
+
   // Send upload IDs instead of files - backend will read from assembled directory
   uploadResults.successful.forEach(({ file: filename, result }) => {
     formData.append('upload_ids', result.upload_id)
     formData.append('filenames', filename)
   })
-  
+
   if (jobFile) {
     formData.append('job_file', jobFile)
   } else {
     formData.append('job_description', jobDescription)
   }
-  
+
   if (scoringWeights) {
     formData.append('scoring_weights', JSON.stringify(scoringWeights))
   }
-  
+
   const response = await api.post('/analyze/batch-chunked', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 600000, // 10 minutes - longer than Cloudflare's 100s timeout
   })
-  
+
   return response.data
+}
+
+/**
+ * Batch analyze resumes with progressive SSE streaming.
+ * Uploads files first (reusing uploadMultipleFiles), then opens SSE stream
+ * to /api/analyze/batch-stream for progressive results.
+ *
+ * @param {File[]} files - Array of resume files to analyze
+ * @param {string} jobDescription - Job description text
+ * @param {File|null} jdFile - Optional job description file
+ * @param {Object|null} scoringWeights - Optional custom scoring weights
+ * @param {Object} callbacks - Callbacks for upload and streaming events
+ * @param {Function} callbacks.onFileProgress - Called with (filename, progress) during upload
+ * @param {Function} callbacks.onOverallProgress - Called with overall upload progress
+ * @param {Function} callbacks.onFileComplete - Called when a file upload completes
+ * @param {Function} callbacks.onFileError - Called when a file upload fails
+ * @param {Function} callbacks.onResult - Called with (index, total, filename, result, screeningResultId) for each successful analysis
+ * @param {Function} callbacks.onFailed - Called with (index, total, filename, error) for each failed analysis
+ * @param {Function} callbacks.onDone - Called with (total, successful, failedCount) when complete
+ * @returns {Promise<void>}
+ */
+export async function analyzeBatchStream(files, jobDescription, jdFile = null, scoringWeights = null, callbacks = {}) {
+  const {
+    onFileProgress, onOverallProgress, onFileComplete, onFileError,  // upload callbacks
+    onResult,    // (index, total, filename, result, screeningResultId) => void
+    onFailed,    // (index, total, filename, error) => void
+    onDone,      // (total, successful, failedCount) => void
+  } = callbacks || {}
+
+  const { uploadMultipleFiles } = await import('./uploadChunked')
+
+  // Phase 1: Upload files (reuse existing)
+  const uploadResults = await uploadMultipleFiles(files, {
+    onFileProgress: onFileProgress || (() => {}),
+    onOverallProgress: onOverallProgress || (() => {}),
+    onFileComplete: onFileComplete || (() => {}),
+    onFileError: onFileError || (() => {}),
+  })
+
+  // Report upload failures
+  if (uploadResults.failed?.length) {
+    uploadResults.failed.forEach(({ file: filename, error }) => {
+      if (onFailed) onFailed(0, files.length, filename, `Upload failed: ${error}`)
+    })
+  }
+
+  if (!uploadResults.successful.length) {
+    throw new Error('No files uploaded successfully')
+  }
+
+  // Phase 2: Build FormData (same as analyzeBatchChunked)
+  const formData = new FormData()
+  uploadResults.successful.forEach(({ file: filename, result }) => {
+    formData.append('upload_ids', result.upload_id)
+    formData.append('filenames', filename)
+  })
+  if (jobDescription) formData.append('job_description', jobDescription)
+  if (jdFile) formData.append('job_file', jdFile)
+  if (scoringWeights) formData.append('scoring_weights', JSON.stringify(scoringWeights))
+
+  // Phase 3: Open SSE stream
+  const baseURL = import.meta.env.VITE_API_URL || '/api'
+
+  // Get CSRF token from cookie for the fetch call
+  const csrfToken = document.cookie
+    .split('; ')
+    .find(row => row.startsWith('csrf_token='))
+    ?.split('=')[1]
+
+  const headers = {}
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken
+  }
+
+  const response = await fetch(`${baseURL}/analyze/batch-stream`, {
+    method: 'POST',
+    body: formData,
+    headers,
+    credentials: 'include',  // Send httpOnly cookies
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || `Analysis failed: ${response.status}`)
+  }
+
+  // Phase 4: Parse SSE stream
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    // SSE lines are separated by \n\n
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() ?? ''   // last fragment (possibly incomplete)
+
+    for (const part of parts) {
+      const line = part.trim()
+      if (!line.startsWith('data: ')) continue
+      const data = line.slice(6).trim()
+
+      if (data === '[DONE]') return
+
+      try {
+        const evt = JSON.parse(data)
+
+        if (evt.event === 'result' && onResult) {
+          onResult(evt.index, evt.total, evt.filename, evt.result, evt.screening_result_id)
+        } else if (evt.event === 'failed' && onFailed) {
+          onFailed(evt.index, evt.total, evt.filename, evt.error)
+        } else if (evt.event === 'done' && onDone) {
+          onDone(evt.total, evt.successful, evt.failed_count)
+        }
+      } catch (e) {
+        console.warn('Failed to parse SSE event:', data, e)
+      }
+    }
+  }
 }
 
 // ─── History ──────────────────────────────────────────────────────────────────

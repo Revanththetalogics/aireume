@@ -144,6 +144,19 @@ class BatchAnalysisResponse(BaseModel):
     failed_count: int = 0
 
 
+class BatchStreamEvent(BaseModel):
+    """SSE event payload for the /api/analyze/batch-stream endpoint."""
+    event: str  # "result", "failed", "done"
+    index: int
+    total: int
+    filename: Optional[str] = None
+    result: Optional[dict] = None
+    screening_result_id: Optional[int] = None
+    error: Optional[str] = None
+    successful: Optional[int] = None
+    failed_count: Optional[int] = None
+
+
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
 class RegisterRequest(BaseModel):

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, X, Loader2, Trophy, AlertTriangle, Download, BookOpen, LayoutTemplate, BookmarkPlus, Check, Sparkles } from 'lucide-react'
-import { analyzeBatch, analyzeBatchChunked, exportCsv, exportExcel, getTemplates, createTemplate } from '../lib/api'
+import { analyzeBatchStream, exportCsv, exportExcel, getTemplates, createTemplate } from '../lib/api'
 import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
 
 function FitBadge({ score }) {
@@ -30,7 +30,6 @@ export default function BatchPage() {
   const [files, setFiles]         = useState([])
   const [jdText, setJdText]       = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [results, setResults]     = useState(location.state?.results || null)
   const [error, setError]         = useState('')
   const [selected, setSelected]   = useState([])
 
@@ -46,17 +45,17 @@ export default function BatchPage() {
   const { subscription, isFeatureAvailable, refreshAfterAnalysis } = useSubscription()
   const [usageCheck, setUsageCheck] = useState(null)
 
-  // Upload progress tracking for chunked uploads
+  // Upload progress tracking for chunked uploads (unchanged)
   const [uploadProgress, setUploadProgress] = useState({})
   const [overallProgress, setOverallProgress] = useState(null)
   const [isUploading, setIsUploading] = useState(false)
 
-  // Restore results from navigation state (when coming back from report page)
-  useEffect(() => {
-    if (location.state?.results) {
-      setResults(location.state.results)
-    }
-  }, [location.state])
+  // Streaming analysis state (replaces old results state)
+  const [streamingResults, setStreamingResults] = useState([])
+  const [streamingFailed, setStreamingFailed]   = useState([])
+  const [analysisProgress, setAnalysisProgress] = useState({ completed: 0, total: 0 })
+  const [isAnalyzing, setIsAnalyzing]           = useState(false)
+  const [analysisDone, setAnalysisDone]         = useState(false)
 
   useEffect(() => {
     getTemplates().then(setSavedJds).catch(() => {})
@@ -98,7 +97,6 @@ export default function BatchPage() {
       'application/vnd.oasis.opendocument.text': ['.odt'],
     },
     maxFiles: maxBatchSize,
-    // No maxSize limit - chunked upload handles large files
   })
 
   const removeFile = (idx) => setFiles(prev => prev.filter((_, i) => i !== idx))
@@ -118,16 +116,20 @@ export default function BatchPage() {
 
     setError('')
     setIsLoading(true)
-    setResults(null)
+    setStreamingResults([])
+    setStreamingFailed([])
+    setAnalysisDone(false)
+    setIsAnalyzing(false)
+    setAnalysisProgress({ completed: 0, total: 0 })
     setUploadProgress({})
     setOverallProgress(null)
-    
+    setSelected([])
+
     try {
-      // Always use chunked upload to bypass Cloudflare 100MB limit
-      // Cloudflare blocks at proxy level, so we can't rely on total size check
       setIsUploading(true)
-      
-      const data = await analyzeBatchChunked(files, jdText, null, null, {
+
+      await analyzeBatchStream(files, jdText, null, null, {
+        // Upload callbacks (keep existing pattern)
         onFileProgress: (filename, progress) => {
           setUploadProgress(prev => ({
             ...prev,
@@ -143,12 +145,37 @@ export default function BatchPage() {
         onFileError: (filename, error) => {
           console.error(`Upload failed for ${filename}:`, error)
         },
+
+        // Analysis streaming callbacks (NEW)
+        onResult: (index, total, filename, result, screeningResultId) => {
+          setIsUploading(false)
+          setIsAnalyzing(true)
+          setAnalysisProgress({ completed: index, total })
+          setStreamingResults(prev => {
+            const updated = [...prev, { filename, result, screeningResultId }]
+            // Sort by fit_score descending for live ranking
+            return updated.sort((a, b) => (b.result?.fit_score || 0) - (a.result?.fit_score || 0))
+          })
+          // Store in sessionStorage so /report?id= can find it
+          if (screeningResultId) {
+            try {
+              sessionStorage.setItem(`report_${screeningResultId}`, JSON.stringify(result))
+            } catch { /* ignore */ }
+          }
+        },
+        onFailed: (index, total, filename, error) => {
+          setIsUploading(false)
+          setIsAnalyzing(true)
+          setAnalysisProgress(prev => ({ completed: prev.completed, total: total || prev.total }))
+          setStreamingFailed(prev => [...prev, { filename, error }])
+        },
+        onDone: (total, successful, failedCount) => {
+          setAnalysisDone(true)
+          setIsAnalyzing(false)
+          setAnalysisProgress({ completed: total, total })
+        },
       })
-      
-      setIsUploading(false)
-      
-      setResults(data)
-      setSelected([])
+
       // Refresh subscription to show updated usage
       await refreshAfterAnalysis(files.length)
     } catch (err) {
@@ -166,8 +193,8 @@ export default function BatchPage() {
     }
   }
 
-  const toggleSelect = (id) => {
-    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  const toggleSelect = (screeningResultId) => {
+    setSelected(prev => prev.includes(screeningResultId) ? prev.filter(x => x !== screeningResultId) : [...prev, screeningResultId])
   }
 
   const handleLoadJd = (template) => {
@@ -190,7 +217,30 @@ export default function BatchPage() {
     }
   }
 
-  const allIds = results?.results?.map(r => r.result?.result_id).filter(Boolean) || []
+  const allIds = streamingResults.map(r => r.screeningResultId).filter(Boolean)
+
+  const handleNewBatch = () => {
+    setStreamingResults([])
+    setStreamingFailed([])
+    setAnalysisDone(false)
+    setIsAnalyzing(false)
+    setAnalysisProgress({ completed: 0, total: 0 })
+    setFiles([])
+    setSelected([])
+  }
+
+  const handleExportCsv = () => {
+    const ids = selected.length ? selected : allIds
+    exportCsv(ids)
+  }
+
+  const handleExportExcel = () => {
+    const ids = selected.length ? selected : allIds
+    exportExcel(ids)
+  }
+
+  // Determine if results area should be visible
+  const showResults = isAnalyzing || analysisDone || streamingResults.length > 0 || streamingFailed.length > 0
 
   return (
     <div>
@@ -205,7 +255,7 @@ export default function BatchPage() {
           </p>
         </div>
 
-        {!results && (
+        {!showResults && (
           <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 space-y-5 card-animate">
             {/* Multi-file dropzone */}
             <div>
@@ -284,7 +334,7 @@ export default function BatchPage() {
                             </button>
                           ))}
                           <div className="px-3 py-2 bg-brand-50/50 border-t border-brand-100">
-                            <Link to="/templates" className="text-xs text-brand-700 font-medium hover:text-brand-800 flex items-center gap-1">
+                            <Link to="/jd-library" className="text-xs text-brand-700 font-medium hover:text-brand-800 flex items-center gap-1">
                               <LayoutTemplate className="w-3 h-3" />
                               Manage all templates →
                             </Link>
@@ -387,44 +437,77 @@ export default function BatchPage() {
               className="w-full py-3.5 btn-brand text-white font-bold rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed shadow-brand flex items-center justify-center gap-2 text-sm"
             >
               {isLoading
-                ? <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing {files.length} resumes...</>
+                ? isUploading
+                  ? <><Loader2 className="w-5 h-5 animate-spin" /> Uploading {files.length} resumes...</>
+                  : isAnalyzing
+                    ? <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing {analysisProgress.completed} of {analysisProgress.total}...</>
+                    : <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing {files.length} resumes...</>
                 : `Analyze ${files.length || ''} Resumes`}
             </button>
           </div>
         )}
 
-        {/* Results */}
-        {results && (
+        {/* Streaming Results */}
+        {showResults && (
           <div className="space-y-4 card-animate">
+            {/* Analysis Progress Section */}
+            {(isAnalyzing || analysisDone || streamingResults.length > 0) && (
+              <div className="p-4 bg-indigo-50 ring-1 ring-indigo-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-indigo-900">
+                    {analysisDone
+                      ? `Analysis Complete: ${streamingResults.length} successful${streamingFailed.length ? `, ${streamingFailed.length} failed` : ''}`
+                      : `Analyzing: ${analysisProgress.completed} of ${analysisProgress.total}...`
+                    }
+                  </h3>
+                  {!analysisDone && (
+                    <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
+                  )}
+                </div>
+                {!analysisDone && analysisProgress.total > 0 && (
+                  <div className="w-full bg-indigo-100 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="bg-indigo-500 h-full transition-all duration-500 ease-out"
+                      style={{ width: `${analysisProgress.total > 0 ? (analysisProgress.completed / analysisProgress.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Results header with actions */}
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h3 className="text-xl font-extrabold text-brand-900 tracking-tight">Ranked Shortlist</h3>
                 <p className="text-sm text-slate-500 font-medium">
-                  {results.results?.length || 0} successful{results.failed?.length ? `, ${results.failed.length} failed` : ''} out of {results.total} candidates analyzed
+                  {streamingResults.length} successful{streamingFailed.length ? `, ${streamingFailed.length} failed` : ''} candidates analyzed
                 </p>
               </div>
               <div className="flex gap-2 flex-wrap">
                 <button
-                  onClick={() => { setResults(null); setFiles([]) }}
+                  onClick={handleNewBatch}
                   className="px-3 py-2 ring-1 ring-brand-200 text-sm font-semibold text-brand-700 rounded-xl hover:bg-brand-50 transition-colors"
                 >
                   New Batch
                 </button>
                 <button
-                  onClick={() => exportCsv(selected.length ? selected : allIds)}
-                  className="flex items-center gap-2 px-3 py-2 ring-1 ring-brand-200 text-sm font-semibold text-brand-700 rounded-xl hover:bg-brand-50 transition-colors"
+                  onClick={handleExportCsv}
+                  disabled={!analysisDone}
+                  className={`flex items-center gap-2 px-3 py-2 ring-1 ring-brand-200 text-sm font-semibold text-brand-700 rounded-xl hover:bg-brand-50 transition-colors ${!analysisDone ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <Download className="w-4 h-4" /> CSV
                 </button>
                 <button
-                  onClick={() => exportExcel(selected.length ? selected : allIds)}
-                  className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-xl hover:bg-green-700 transition-colors shadow-sm"
+                  onClick={handleExportExcel}
+                  disabled={!analysisDone}
+                  className={`flex items-center gap-2 px-3 py-2 bg-green-600 text-white text-sm font-bold rounded-xl hover:bg-green-700 transition-colors shadow-sm ${!analysisDone ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <Download className="w-4 h-4" /> Excel
                 </button>
               </div>
             </div>
 
+            {/* Results Table */}
             <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-brand-50 border-b border-brand-100">
@@ -446,44 +529,39 @@ export default function BatchPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {results.results.map((row) => {
-                    const r  = row.result
-                    const id = r.result_id
+                  {streamingResults.map((item, idx) => {
+                    const r   = item.result
+                    const id  = item.screeningResultId
+                    const rank = idx + 1
                     return (
-                      <tr key={row.rank} className="border-b border-brand-50 hover:bg-brand-50/40 transition-colors">
+                      <tr key={id || idx} className="border-b border-brand-50 hover:bg-brand-50/40 transition-all duration-300">
                         <td className="px-4 py-3.5">
                           <input
                             type="checkbox"
-                            checked={selected.includes(id)}
+                            checked={id ? selected.includes(id) : false}
                             onChange={() => id && toggleSelect(id)}
                             className="rounded"
                           />
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center gap-1.5">
-                            {row.rank === 1 && <Trophy className="w-4 h-4 text-amber-500" />}
-                            <span className="font-extrabold text-brand-900">#{row.rank}</span>
+                            {rank === 1 && <Trophy className="w-4 h-4 text-amber-500" />}
+                            <span className="font-extrabold text-brand-900">#{rank}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3.5 text-brand-900 font-medium max-w-[200px] truncate">{row.filename}</td>
-                        <td className="px-4 py-3.5"><FitBadge score={r.fit_score} /></td>
-                        <td className="px-4 py-3.5"><RecommendBadge rec={r.final_recommendation} /></td>
+                        <td className="px-4 py-3.5 text-brand-900 font-medium max-w-[200px] truncate">{item.filename}</td>
+                        <td className="px-4 py-3.5"><FitBadge score={r?.fit_score} /></td>
+                        <td className="px-4 py-3.5"><RecommendBadge rec={r?.final_recommendation} /></td>
                         <td className="px-4 py-3.5">
                           <span className={`text-xs font-bold ${
-                            !r.risk_level       ? 'text-slate-400' :
+                            !r?.risk_level       ? 'text-slate-400' :
                             r.risk_level === 'Low'  ? 'text-green-700' :
                             r.risk_level === 'High' ? 'text-red-700'   : 'text-amber-700'
-                          }`}>{r.risk_level || '—'}</span>
+                          }`}>{r?.risk_level || '—'}</span>
                         </td>
                         <td className="px-4 py-3.5">
                           <button
-                            onClick={() => navigate('/report', { 
-                              state: { 
-                                result: r,
-                                fromBatch: true,
-                                batchResults: results
-                              } 
-                            })}
+                            onClick={() => navigate(`/report?id=${id}`)}
                             className="text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
                           >
                             View Report
@@ -497,13 +575,13 @@ export default function BatchPage() {
             </div>
 
             {/* Failed Resumes Section */}
-            {results.failed?.length > 0 && (
+            {streamingFailed.length > 0 && (
               <div className="bg-red-50/80 backdrop-blur-md rounded-3xl ring-1 ring-red-200 shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b border-red-200 bg-red-100/50">
                   <div className="flex items-center gap-2.5">
                     <AlertTriangle className="w-5 h-5 text-red-600" />
                     <h4 className="text-base font-bold text-red-800">
-                      Failed Uploads ({results.failed.length})
+                      Failed Resumes ({streamingFailed.length})
                     </h4>
                   </div>
                   <p className="text-sm text-red-600 mt-1 ml-8">
@@ -511,7 +589,7 @@ export default function BatchPage() {
                   </p>
                 </div>
                 <div className="divide-y divide-red-100">
-                  {results.failed.map((item, idx) => (
+                  {streamingFailed.map((item, idx) => (
                     <div key={idx} className="px-5 py-3.5 flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-red-100 flex items-center justify-center shrink-0">

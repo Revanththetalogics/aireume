@@ -30,7 +30,7 @@ from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan
 from app.backend.models.schemas import (
     AnalysisResponse, BatchAnalysisResponse, BatchAnalysisResult,
-    BatchFailedItem,
+    BatchFailedItem, BatchStreamEvent,
     DuplicateCandidateInfo,
 )
 from app.backend.services.parser_service import parse_resume, extract_jd_text
@@ -1283,6 +1283,318 @@ async def batch_analyze_chunked_endpoint(
         total=len(upload_ids),
         successful=len(ranked),
         failed_count=len(failed_items),
+    )
+
+
+# ─── Batch resume analysis (SSE streaming) ───────────────────────────────────
+
+@router.post("/analyze/batch-stream")
+async def batch_analyze_stream_endpoint(
+    upload_ids: list[str] = Form(...),
+    filenames: list[str] = Form(...),
+    job_description: str = Form(None),
+    job_file: UploadFile = File(None),
+    scoring_weights: str = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    SSE streaming batch analysis for chunked uploads.
+
+    Processes resumes concurrently and streams each result as an SSE event
+    as soon as it completes, instead of waiting for all resumes to finish.
+
+    Emits:
+      data: {"event": "failed",  "index": N, ...}   — per pre-flight or runtime failure
+      data: {"event": "result", "index": N, ...}   — per successful resume
+      data: {"event": "done",   "total": N, ...}   — final summary
+      data: [DONE]
+    """
+    from app.backend.routes.upload import CHUNK_STORAGE_DIR
+
+    # ── Input validation ────────────────────────────────────────────────────
+    if not upload_ids:
+        raise HTTPException(status_code=400, detail="At least one upload_id required")
+
+    if len(upload_ids) != len(filenames):
+        raise HTTPException(
+            status_code=400,
+            detail=f"upload_ids ({len(upload_ids)}) and filenames ({len(filenames)}) must have the same length",
+        )
+
+    if len(upload_ids) > MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum batch size is {MAX_BATCH_SIZE} resumes",
+        )
+
+    # Read and validate JD file if provided (before usage check)
+    jd_bytes = jd_name = None
+    if job_file and job_file.filename:
+        jd_bytes = await job_file.read()
+        jd_name = job_file.filename
+
+    # Resolve and validate job description (before usage check)
+    job_description = _resolve_jd(job_description, jd_bytes, jd_name)
+    _check_jd_length(job_description)
+    _check_jd_size(job_description)
+
+    # Locate assembled files for each upload_id
+    assembled_dir = CHUNK_STORAGE_DIR / "assembled"
+    file_data = []
+    failed_items: list[BatchFailedItem] = []
+
+    for upload_id, filename in zip(upload_ids, filenames):
+        # Sanitise to prevent directory traversal
+        safe_uid = upload_id.replace("..", "").replace("/", "").replace("\\", "")
+        safe_fname = filename.replace("..", "").replace("/", "").replace("\\", "")
+        assembled_path = assembled_dir / f"{safe_uid}_{safe_fname}"
+
+        if not assembled_path.exists():
+            log.warning("Assembled file not found for upload_id=%s, filename=%s", upload_id, filename)
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"Upload {upload_id} not found or expired. Please re-upload.",
+            ))
+            continue
+
+        try:
+            content = assembled_path.read_bytes()
+        except Exception as e:
+            log.warning("Failed to read assembled file for upload_id=%s: %s", upload_id, e)
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"Failed to read assembled file: {str(e)}",
+            ))
+            continue
+
+        # Validate size and extension
+        if len(content) > 10 * 1024 * 1024:
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error="Resume file too large (max 10MB)",
+            ))
+            continue
+
+        if not filename.lower().endswith(ALLOWED_EXTENSIONS):
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"Only {ALLOWED_EXTENSIONS} files are allowed",
+            ))
+            continue
+
+        file_data.append((content, filename, upload_id))
+
+    # Pre-flight file content validation (magic bytes)
+    validated_file_data = []
+    for content, filename, upload_id in file_data:
+        try:
+            _validate_file_content(content, filename)
+            validated_file_data.append((content, filename, upload_id))
+        except HTTPException as e:
+            failed_items.append(BatchFailedItem(
+                filename=filename,
+                error=f"File validation failed: {e.detail}",
+            ))
+    file_data = validated_file_data
+
+    valid_count = len(file_data)
+
+    if valid_count == 0:
+        if not failed_items:
+            raise HTTPException(status_code=400, detail="No valid resume files provided")
+        # All files failed — stream failures then done
+        async def _empty_stream():
+            total = len(failed_items)
+            for i, fail in enumerate(failed_items):
+                evt = BatchStreamEvent(
+                    event="failed", index=i + 1, total=total,
+                    filename=fail.filename, error=fail.error,
+                )
+                yield f"data: {json.dumps(evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
+            done_evt = BatchStreamEvent(
+                event="done", index=0, total=total,
+                successful=0, failed_count=total,
+            )
+            yield f"data: {json.dumps(done_evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(
+            _empty_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
+    # Get tenant's plan for batch size limit
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    max_batch_size = MAX_BATCH_SIZE
+    if tenant and tenant.plan:
+        limits = _get_plan_limits(tenant.plan)
+        plan_batch_limit = limits.get("batch_size", MAX_BATCH_SIZE)
+        max_batch_size = min(max_batch_size, plan_batch_limit)
+
+    if valid_count > max_batch_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your plan allows maximum {max_batch_size} resumes per batch. Please upgrade to process more.",
+        )
+
+    # CHECK AND INCREMENT USAGE
+    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=message)
+
+    # Validate scoring_weights size
+    _check_scoring_weights_size(scoring_weights)
+
+    parsed_weights = None
+    if scoring_weights:
+        try:
+            parsed_weights = json.loads(scoring_weights)
+        except Exception as e:
+            log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
+
+    # Pre-parse JD once
+    _get_or_cache_jd(db, job_description)
+
+    # ── Tagged wrapper for asyncio.as_completed mapping ──────────────────────
+    async def _process_and_tag(
+        content: bytes, filename: str, upload_id: str,
+        jd: str, weights: dict | None, db_session: Session,
+    ) -> tuple[dict, bytes, str, str]:
+        """Wrapper that returns result alongside file metadata."""
+        result = await _process_with_semaphore(content, filename, jd, weights, db_session)
+        return result, content, filename, upload_id
+
+    total = len(file_data) + len(failed_items)
+
+    # ── SSE generator ────────────────────────────────────────────────────────
+    async def event_generator():
+        completed = 0
+        successful_count = 0
+        failed_count = len(failed_items)
+
+        # Emit pre-flight failures first
+        for i, fail in enumerate(failed_items):
+            evt = BatchStreamEvent(
+                event="failed",
+                index=i + 1,
+                total=total,
+                filename=fail.filename,
+                error=fail.error,
+            )
+            yield f"data: {json.dumps(evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
+
+        # Create tagged tasks
+        tasks = [
+            _process_and_tag(c, f, uid, job_description, parsed_weights, db)
+            for c, f, uid in file_data
+        ]
+
+        # Process resumes as they complete
+        for coro in asyncio.as_completed(tasks):
+            try:
+                raw, content, filename, upload_id = await coro
+            except Exception as e:
+                failed_count += 1
+                completed += 1
+                evt = BatchStreamEvent(
+                    event="failed",
+                    index=completed + failed_count,
+                    total=total,
+                    error=str(e),
+                )
+                yield f"data: {json.dumps(evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
+                continue
+
+            # Per-resume DB save (same pattern as batch-chunked)
+            try:
+                parsed_data = raw.pop("_parsed_data", {})
+                gap_analysis = raw.pop("_gap_analysis", {})
+                file_hash = hashlib.md5(content).hexdigest()
+
+                candidate_id, _ = _get_or_create_candidate(
+                    db, parsed_data, current_user.tenant_id,
+                    file_hash=file_hash,
+                    gap_analysis=gap_analysis,
+                    profile_quality=raw.get("analysis_quality", "medium"),
+                )
+
+                _store_candidate_profile(
+                    db.get(Candidate, candidate_id)
+                    or db.query(Candidate).filter(Candidate.id == candidate_id).first(),
+                    parsed_data, gap_analysis, file_hash,
+                    raw.get("analysis_quality", "medium"),
+                )
+
+                db_result = ScreeningResult(
+                    tenant_id=current_user.tenant_id,
+                    candidate_id=candidate_id,
+                    resume_text=parsed_data.get("raw_text", ""),
+                    jd_text=job_description,
+                    parsed_data=json.dumps(parsed_data, default=_json_default),
+                    analysis_result=json.dumps(raw, default=_json_default),
+                )
+                db.add(db_result)
+                db.flush()
+                db.commit()
+
+                screening_result_id = db_result.id
+            except Exception as e:
+                db.rollback()
+                log.error("Failed to save analysis for %s: %s", filename, e)
+                failed_count += 1
+                completed += 1
+                evt = BatchStreamEvent(
+                    event="failed",
+                    index=completed + failed_count,
+                    total=total,
+                    filename=filename,
+                    error=f"Database error: {str(e)}",
+                )
+                yield f"data: {json.dumps(evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
+                continue
+
+            completed += 1
+            successful_count += 1
+
+            # Emit result event
+            evt = BatchStreamEvent(
+                event="result",
+                index=completed,
+                total=total,
+                filename=filename,
+                result=raw,
+                screening_result_id=screening_result_id,
+            )
+            yield f"data: {json.dumps(evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
+
+        # Emit done event
+        done_evt = BatchStreamEvent(
+            event="done",
+            index=0,
+            total=total,
+            successful=successful_count,
+            failed_count=failed_count,
+        )
+        yield f"data: {json.dumps(done_evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
+        yield "data: [DONE]\n\n"
+
+        # Clean up assembled files after all processing
+        for _content, filename, upload_id in file_data:
+            try:
+                safe_uid = upload_id.replace("..", "").replace("/", "").replace("\\", "")
+                safe_fname = filename.replace("..", "").replace("/", "").replace("\\", "")
+                assembled_path = assembled_dir / f"{safe_uid}_{safe_fname}"
+                if assembled_path.exists():
+                    assembled_path.unlink()
+                    log.info("Cleaned up assembled file: %s", assembled_path)
+            except Exception as e:
+                log.warning("Non-critical: Failed to clean up assembled file for upload_id=%s: %s", upload_id, e)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
 
 
