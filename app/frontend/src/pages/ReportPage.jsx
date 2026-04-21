@@ -310,7 +310,7 @@ export default function ReportPage() {
             candidateId={result.candidate_id}
             onSaved={setCandidateName}
           />
-          {role && <p className="text-slate-500 text-xs mt-1 font-medium">{role}</p>}
+          {role && <p className="text-slate-500 text-xs mt-1 font-medium">{safeStr(role)}</p>}
           <div className="mt-2 border-t border-brand-50 pt-2">
             <p className="text-xs text-slate-400">Analyzed on</p>
             <p className="text-xs font-bold text-brand-900">{timestamp}</p>
@@ -449,7 +449,7 @@ export default function ReportPage() {
             <div className="flex items-start justify-between mb-3">
               <div>
                 <span className="text-xs font-bold text-brand-600 uppercase tracking-widest">Screening Report</span>
-                <h1 className="text-2xl font-extrabold text-brand-900 mt-1">{candidateName || 'Unknown Candidate'}</h1>
+                <h1 className="text-2xl font-extrabold text-brand-900 mt-1">{safeStr(candidateName) || 'Unknown Candidate'}</h1>
                 {role && <p className="text-base font-semibold text-slate-700 mt-1">Position: {safeStr(role)}</p>}
               </div>
               <div className="text-right text-sm">
@@ -481,7 +481,7 @@ export default function ReportPage() {
             <div className="flex items-start justify-between mb-3">
               <div>
                 <span className="text-xs font-bold text-brand-600 uppercase tracking-widest">Screening Report</span>
-                <h1 className="text-2xl font-extrabold text-brand-900 mt-1">{candidateName || 'Unknown Candidate'}</h1>
+                <h1 className="text-2xl font-extrabold text-brand-900 mt-1">{safeStr(candidateName) || 'Unknown Candidate'}</h1>
                 {role && <p className="text-base font-semibold text-slate-700 mt-1">Position: {safeStr(role)}</p>}
               </div>
               <div className="text-right text-sm">

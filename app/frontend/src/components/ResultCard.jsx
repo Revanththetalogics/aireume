@@ -655,7 +655,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                 risk_signals.map((risk, i) => (
                   <li key={i} className="text-sm text-amber-700 flex items-start gap-2">
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
-                    {typeof risk === 'string' ? risk : risk.description}
+                    {safeStr(typeof risk === 'string' ? risk : risk?.description)}
                   </li>
                 ))
               ) : <li className="text-sm text-amber-600 italic">No risk signals detected</li>}
