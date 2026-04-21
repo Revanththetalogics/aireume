@@ -8,6 +8,14 @@ import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
 import { getTemplates } from '../lib/api'
 
+/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
+function safeStr(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
 export default function DashboardNew() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -202,10 +210,10 @@ export default function DashboardNew() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-brand-900 truncate">
-                      {analysis.candidate_name || 'Candidate'}
+                      {safeStr(analysis.candidate_name) || 'Candidate'}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {analysis.role || 'Position'} • {analysis.date}
+                      {safeStr(analysis.role) || 'Position'} • {analysis.date}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

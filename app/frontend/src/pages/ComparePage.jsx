@@ -3,6 +3,14 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { GitCompare, Trophy, Check, Download, ChevronDown, ChevronUp, MessageCircle } from 'lucide-react'
 import { getHistory, compareResults, exportCsv } from '../lib/api'
 
+/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
+function safeStr(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
 function ScoreCell({ value, isWinner, color = 'brand' }) {
   const colors = {
     brand: 'text-brand-700 bg-brand-50 ring-brand-200',
@@ -139,7 +147,7 @@ export default function ComparePage() {
                       {selected.includes(r.id) && <Check className="w-3 h-3 text-white" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-brand-900">{r.candidate_name || `Result #${r.id}`}</p>
+                      <p className="text-sm font-semibold text-brand-900">{safeStr(r.candidate_name) || `Result #${r.id}`}</p>
                       <p className="text-xs text-slate-400 font-medium">
                         {r.job_role && <span>{r.job_role} · </span>}
                         {new Date(r.timestamp).toLocaleDateString()}
@@ -156,7 +164,7 @@ export default function ComparePage() {
                         r.final_recommendation === 'Shortlist' ? 'text-green-700' :
                         r.final_recommendation === 'Reject'    ? 'text-red-700'   :
                         r.final_recommendation === 'Pending'   ? 'text-slate-400' : 'text-amber-700'
-                      }`}>{r.final_recommendation}</span>
+                      }`}>{safeStr(r.final_recommendation)}</span>
                     </div>
                   </div>
                 ))}
@@ -193,7 +201,7 @@ export default function ComparePage() {
                     <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide w-36">Category</th>
                     {comparison.candidates.map(c => (
                       <th key={c.id} className="px-4 py-3.5 text-center text-xs font-bold text-brand-900">
-                        <div>{c.candidate_name}</div>
+                        <div>{safeStr(c.candidate_name)}</div>
                         {c.winners?.overall && (
                           <div className="flex items-center justify-center gap-1 text-amber-600 mt-0.5">
                             <Trophy className="w-3 h-3" /> Best Overall
@@ -287,7 +295,7 @@ export default function ComparePage() {
                           {c.strengths?.length > 0 ? c.strengths.map((s, i) => (
                             <li key={i} className="text-xs text-slate-700 flex items-start gap-1.5">
                               <span className="text-green-500 mt-0.5">•</span>
-                              {s}
+                              {safeStr(s)}
                             </li>
                           )) : (
                             <li className="text-xs text-slate-400 italic">No strengths listed</li>
@@ -303,7 +311,7 @@ export default function ComparePage() {
                           {c.weaknesses?.length > 0 ? c.weaknesses.map((w, i) => (
                             <li key={i} className="text-xs text-slate-700 flex items-start gap-1.5">
                               <span className="text-red-500 mt-0.5">•</span>
-                              {w}
+                              {safeStr(w)}
                             </li>
                           )) : (
                             <li className="text-xs text-slate-400 italic">No weaknesses listed</li>
@@ -327,7 +335,7 @@ export default function ComparePage() {
                         c.interview_questions_preview.map((q, i) => (
                           <div key={i} className="flex gap-2">
                             <span className="text-xs font-bold text-brand-500 shrink-0">Q{i + 1}:</span>
-                            <p className="text-xs text-slate-700">{q}</p>
+                            <p className="text-xs text-slate-700">{safeStr(q)}</p>
                           </div>
                         ))
                       ) : (
@@ -352,7 +360,7 @@ export default function ComparePage() {
                             key={i}
                             className="px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 rounded-full ring-1 ring-indigo-200"
                           >
-                            {skill}
+                            {safeStr(skill)}
                           </span>
                         ))
                       ) : (

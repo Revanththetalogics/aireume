@@ -3,6 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { Search, Users, ChevronRight, X } from 'lucide-react'
 import { getCandidates, getCandidate } from '../lib/api'
 
+/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
+function safeStr(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
 function ScoreBadge({ score }) {
   if (score == null) return <span className="text-slate-400 text-xs font-medium">—</span>
   let color = 'text-red-700 bg-red-50 ring-red-200'
@@ -32,8 +40,8 @@ function CandidateDetail({ candidateId, onClose }) {
       <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-2xl max-h-[90vh] flex flex-col card-animate">
         <div className="flex items-center justify-between p-5 border-b border-brand-50">
           <div>
-            <h3 className="font-extrabold text-brand-900 text-lg tracking-tight">{candidate.name || 'Unknown'}</h3>
-            <p className="text-sm text-slate-500">{candidate.email}</p>
+            <h3 className="font-extrabold text-brand-900 text-lg tracking-tight">{safeStr(candidate.name) || 'Unknown'}</h3>
+            <p className="text-sm text-slate-500">{safeStr(candidate.email)}</p>
           </div>
           <button
             onClick={onClose}
@@ -52,7 +60,7 @@ function CandidateDetail({ candidateId, onClose }) {
                   <span className={`text-xs font-bold ${
                     r.final_recommendation === 'Shortlist' ? 'text-green-700' :
                     r.final_recommendation === 'Reject'    ? 'text-red-700'   : 'text-amber-700'
-                  }`}>{r.final_recommendation}</span>
+                  }`}>{safeStr(r.final_recommendation)}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ring-1 ${
                     r.status === 'hired'    ? 'bg-green-100 text-green-700 ring-green-200' :
                     r.status === 'rejected' ? 'bg-red-100   text-red-700   ring-red-200'   : 'bg-slate-100 text-slate-600 ring-slate-200'

@@ -1,5 +1,13 @@
 import { ArrowRight, TrendingUp, TrendingDown, Minus, X } from 'lucide-react'
 
+/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
+function safeStr(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
 export default function ComparisonView({ 
   version1, 
   version2, 
@@ -104,7 +112,7 @@ export default function ComparisonView({
                       ? 'bg-yellow-100 text-yellow-700'
                       : 'bg-red-100 text-red-700'
                   }`}>
-                    {v1Result.final_recommendation}
+                    {safeStr(v1Result.final_recommendation)}
                   </span>
                 )}
               </div>
@@ -129,7 +137,7 @@ export default function ComparisonView({
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-xs font-semibold text-blue-800 mb-1">Reasoning</p>
                   <p className="text-xs text-blue-700 leading-relaxed">
-                    {version1.weight_reasoning}
+                    {safeStr(version1.weight_reasoning)}
                   </p>
                 </div>
               )}
@@ -167,7 +175,7 @@ export default function ComparisonView({
                       ? 'bg-yellow-100 text-yellow-700'
                       : 'bg-red-100 text-red-700'
                   }`}>
-                    {v2Result.final_recommendation}
+                    {safeStr(v2Result.final_recommendation)}
                   </span>
                 )}
               </div>
@@ -204,7 +212,7 @@ export default function ComparisonView({
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-xs font-semibold text-blue-800 mb-1">Reasoning</p>
                   <p className="text-xs text-blue-700 leading-relaxed">
-                    {version2.weight_reasoning}
+                    {safeStr(version2.weight_reasoning)}
                   </p>
                 </div>
               )}

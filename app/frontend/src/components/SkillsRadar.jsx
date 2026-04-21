@@ -1,5 +1,13 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
+/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
+function safeStr(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
 // ─── Skill categorisation ─────────────────────────────────────────────────────
 // Covers common tech + domain-specific skills the hybrid pipeline surfaces.
 
@@ -242,12 +250,12 @@ export default function SkillsRadar({ matchedSkills = [], missingSkills = [] }) 
               <div className="flex flex-wrap gap-1">
                 {has.map((s, i) => (
                   <span key={`h${i}`} className="px-2 py-0.5 bg-white/70 text-slate-700 text-xs rounded-lg font-semibold ring-1 ring-white/50">
-                    ✓ {s}
+                    ✓ {safeStr(s)}
                   </span>
                 ))}
                 {needs.map((s, i) => (
                   <span key={`n${i}`} className="px-2 py-0.5 bg-red-50 text-red-600 text-xs rounded-lg font-semibold ring-1 ring-red-100">
-                    ✗ {s}
+                    ✗ {safeStr(s)}
                   </span>
                 ))}
               </div>
