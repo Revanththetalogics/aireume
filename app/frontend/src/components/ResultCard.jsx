@@ -10,6 +10,14 @@ import { generateEmail, getNarrative } from '../lib/api'
 
 // ─── Small reusable components ────────────────────────────────────────────────
 
+/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
+function safeStr(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
 function ScoreBar({ label, value, color }) {
   const barColor = {
     green:  'bg-green-500',
@@ -413,7 +421,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
             {risk_level && !isPending && <RiskBadge level={risk_level} />}
             <span className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-bold ring-1 ${badgeColor}`}>
               <BadgeIcon className="w-4 h-4" />
-              {final_recommendation}
+              {safeStr(final_recommendation)}
             </span>
             <button
               onClick={() => setShowEmailModal(true)}
@@ -468,7 +476,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               </div>
               <div>
                 <h3 className="text-sm font-bold uppercase tracking-wide text-indigo-100 mb-1">Executive Summary</h3>
-                <p className="text-sm leading-relaxed text-white/95">{fit_summary}</p>
+                <p className="text-sm leading-relaxed text-white/95">{safeStr(fit_summary)}</p>
               </div>
             </div>
           </div>
@@ -494,13 +502,13 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               )}
             </div>
             {recommendation_rationale && (
-              <p className="text-xs text-slate-500 mt-3 italic">{recommendation_rationale}</p>
+              <p className="text-xs text-slate-500 mt-3 italic">{safeStr(recommendation_rationale)}</p>
             )}
             {risk_summary?.seniority_alignment && (
               <div className="mt-3 pt-3 border-t border-brand-100 flex items-center gap-2">
                 <Info className="w-3.5 h-3.5 text-brand-500" />
                 <span className="text-xs font-semibold text-brand-700">Seniority Alignment:</span>
-                <span className="text-xs text-slate-600">{risk_summary.seniority_alignment}</span>
+                <span className="text-xs text-slate-600">{safeStr(risk_summary.seniority_alignment)}</span>
               </div>
             )}
           </div>
@@ -518,9 +526,9 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                 <div className="flex flex-wrap gap-1.5">
                   {matched_skills.slice(0, 12).map((s, i) => (
                     <span key={i} className="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-lg font-semibold inline-flex items-center gap-1">
-                      {s}
-                      {skill_depth && skill_depth[s] && (
-                        <span className="text-[10px] text-green-600 font-medium">({skill_depth[s]}x)</span>
+                      {safeStr(s)}
+                      {skill_depth && skill_depth[safeStr(s)] && (
+                        <span className="text-[10px] text-green-600 font-medium">({safeStr(skill_depth[safeStr(s)])}x)</span>
                       )}
                     </span>
                   ))}
@@ -535,7 +543,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {missing_skills.slice(0, 10).map((s, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-lg font-semibold">{s}</span>
+                    <span key={i} className="px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-lg font-semibold">{safeStr(s)}</span>
                   ))}
                 </div>
               </div>
@@ -552,7 +560,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
             </div>
             <div className="flex flex-wrap gap-1.5">
               {adjacent_skills.slice(0, 10).map((s, i) => (
-                <span key={i} className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-lg font-semibold">{s}</span>
+                <span key={i} className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-lg font-semibold">{safeStr(s)}</span>
               ))}
             </div>
           </div>
@@ -580,11 +588,11 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                   <div
                     key={i}
                     className={`px-3 py-1.5 rounded-xl text-xs font-semibold ring-1 ${colorClass} cursor-help`}
-                    title={flag.detail || ''}
+                    title={safeStr(flag.detail) || ''}
                   >
-                    {flag.flag}
+                    {safeStr(flag.flag)}
                     {flag.severity && (
-                      <span className="ml-1.5 text-[10px] uppercase opacity-75">({flag.severity})</span>
+                      <span className="ml-1.5 text-[10px] uppercase opacity-75">({safeStr(flag.severity)})</span>
                     )}
                   </div>
                 )
@@ -609,7 +617,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               {mergedStrengths.length > 0 ? (
                 mergedStrengths.slice(0, 5).map((s, i) => (
                   <li key={i} className="text-sm text-green-700 flex items-start gap-2">
-                    <span className="text-green-500 mt-1 shrink-0">•</span>{s}
+                    <span className="text-green-500 mt-1 shrink-0">•</span>{safeStr(s)}
                   </li>
                 ))
               ) : <li className="text-sm text-green-600 italic">No specific strengths identified</li>}
@@ -630,7 +638,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               {mergedConcerns.length > 0 ? (
                 mergedConcerns.slice(0, 5).map((w, i) => (
                   <li key={i} className="text-sm text-red-700 flex items-start gap-2">
-                    <span className="text-red-500 mt-1 shrink-0">•</span>{w}
+                    <span className="text-red-500 mt-1 shrink-0">•</span>{safeStr(w)}
                   </li>
                 ))
               ) : <li className="text-sm text-red-600 italic">No significant concerns</li>}
@@ -679,7 +687,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                   <div className="p-3 bg-brand-50 rounded-xl ring-1 ring-brand-100">
                     <p className="text-sm font-semibold text-brand-800 mb-1">Overall</p>
                     <p className="text-sm text-slate-600 leading-relaxed">
-                      {source.overall_rationale || source.domain_rationale}
+                      {safeStr(source.overall_rationale || source.domain_rationale)}
                     </p>
                   </div>
                 )}
@@ -693,7 +701,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                   ].filter(f => source[f.key]).map(f => (
                     <div key={f.key} className="p-3 bg-slate-50 rounded-xl ring-1 ring-slate-100">
                       <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">{f.label}</p>
-                      <p className="text-xs text-slate-600 leading-relaxed">{source[f.key]}</p>
+                      <p className="text-xs text-slate-600 leading-relaxed">{safeStr(source[f.key])}</p>
                     </div>
                   ))}
                 </div>
@@ -721,23 +729,23 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                     ? 'bg-amber-100 text-amber-700 ring-amber-200'
                     : 'bg-red-100 text-red-700 ring-red-200'
                 }`}>
-                  {edu_timeline_analysis.field_alignment.replace('_', ' ')}
+                  {safeStr(edu_timeline_analysis.field_alignment).replace('_', ' ')}
                 </span>
               </div>
             )}
             <p className="text-sm text-slate-600 leading-relaxed">
-              {edu_timeline_analysis?.education_analysis || education_analysis || 'No education analysis available.'}
+              {safeStr(edu_timeline_analysis?.education_analysis || education_analysis) || 'No education analysis available.'}
             </p>
             {edu_timeline_analysis?.timeline_analysis && (
               <div className="mt-2 pt-2 border-t border-brand-50">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Timeline</p>
-                <p className="text-sm text-slate-600 leading-relaxed">{edu_timeline_analysis.timeline_analysis}</p>
+                <p className="text-sm text-slate-600 leading-relaxed">{safeStr(edu_timeline_analysis.timeline_analysis)}</p>
               </div>
             )}
             {edu_timeline_analysis?.gap_interpretation && (
               <div className="mt-2 pt-2 border-t border-brand-50">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Gap Context</p>
-                <p className="text-sm text-slate-600 leading-relaxed italic">{edu_timeline_analysis.gap_interpretation}</p>
+                <p className="text-sm text-slate-600 leading-relaxed italic">{safeStr(edu_timeline_analysis.gap_interpretation)}</p>
               </div>
             )}
           </div>
@@ -755,13 +763,13 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               {skill_analysis.domain_fit_comment && (
                 <div>
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Domain Fit</p>
-                  <p className="text-sm text-slate-600 leading-relaxed">{skill_analysis.domain_fit_comment}</p>
+                  <p className="text-sm text-slate-600 leading-relaxed">{safeStr(skill_analysis.domain_fit_comment)}</p>
                 </div>
               )}
               {skill_analysis.architecture_comment && (
                 <div className="pt-2 border-t border-teal-50">
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Architecture & System Design</p>
-                  <p className="text-sm text-slate-600 leading-relaxed">{skill_analysis.architecture_comment}</p>
+                  <p className="text-sm text-slate-600 leading-relaxed">{safeStr(skill_analysis.architecture_comment)}</p>
                 </div>
               )}
             </div>

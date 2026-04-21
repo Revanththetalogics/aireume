@@ -1,5 +1,13 @@
 import { AlertCircle, Briefcase } from 'lucide-react'
 
+/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
+function safeStr(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
 export default function Timeline({ workExperience, gaps }) {
   if (!workExperience || workExperience.length === 0) {
     return (
@@ -47,11 +55,11 @@ export default function Timeline({ workExperience, gaps }) {
                 <div className="flex-1 pb-4">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <h4 className="font-bold text-brand-900">
-                      {job.title || 'Unknown Title'}
+                      {safeStr(job.title || 'Unknown Title')}
                     </h4>
                     <span className="text-slate-400 text-sm">at</span>
                     <span className="font-semibold text-slate-700">
-                      {job.company || 'Unknown Company'}
+                      {safeStr(job.company || 'Unknown Company')}
                     </span>
                   </div>
 
@@ -70,14 +78,14 @@ export default function Timeline({ workExperience, gaps }) {
                       <div className="flex-1 h-px bg-amber-200" />
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-amber-700 bg-amber-50 ring-1 ring-amber-200 px-2.5 py-1 rounded-lg font-medium">
-                          Gap: {gaps[index].duration_months ?? gaps[index].gap_after_months ?? 0} months
+                          Gap: {safeStr(gaps[index].duration_months ?? gaps[index].gap_after_months ?? 0)} months
                         </span>
                         {gaps[index].severity && gaps[index].severity !== 'negligible' && (
                           <span className={`text-xs px-2 py-0.5 rounded-full font-bold ring-1 ${
                             gaps[index].severity === 'critical' ? 'bg-red-100 text-red-700 ring-red-200' :
                             gaps[index].severity === 'moderate' ? 'bg-amber-100 text-amber-700 ring-amber-200' :
                                                                   'bg-yellow-100 text-yellow-700 ring-yellow-200'
-                          }`}>{gaps[index].severity}</span>
+                          }`}>{safeStr(gaps[index].severity)}</span>
                         )}
                       </div>
                       <div className="flex-1 h-px bg-amber-200" />

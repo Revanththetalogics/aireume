@@ -10,6 +10,14 @@ import ResultCard from '../components/ResultCard'
 import Timeline from '../components/Timeline'
 import { labelTrainingExample, updateResultStatus, updateCandidateName, getNarrative } from '../lib/api'
 
+/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
+function safeStr(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
 function InlineNameEditor({ initialName, candidateId, onSaved }) {
   const [editing, setEditing]   = useState(false)
   const [value, setValue]       = useState(initialName || '')
@@ -353,7 +361,7 @@ export default function ReportPage() {
           {result.final_recommendation && (
             <div className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-50 ring-1 ring-brand-200 text-brand-700 text-xs font-bold">
               <CheckCircle className="w-3.5 h-3.5" />
-              {result.final_recommendation}
+              {safeStr(result.final_recommendation)}
             </div>
           )}
         </div>
@@ -442,7 +450,7 @@ export default function ReportPage() {
               <div>
                 <span className="text-xs font-bold text-brand-600 uppercase tracking-widest">Screening Report</span>
                 <h1 className="text-2xl font-extrabold text-brand-900 mt-1">{candidateName || 'Unknown Candidate'}</h1>
-                {role && <p className="text-base font-semibold text-slate-700 mt-1">Position: {role}</p>}
+                {role && <p className="text-base font-semibold text-slate-700 mt-1">Position: {safeStr(role)}</p>}
               </div>
               <div className="text-right text-sm">
                 <p className="text-slate-400">Analyzed on {timestamp}</p>
@@ -455,13 +463,13 @@ export default function ReportPage() {
                 {result?.contact_info?.email && (
                   <div>
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Email</span>
-                    <p className="text-sm text-slate-700 font-medium">{result.contact_info.email}</p>
+                    <p className="text-sm text-slate-700 font-medium">{safeStr(result.contact_info.email)}</p>
                   </div>
                 )}
                 {result?.contact_info?.phone && (
                   <div>
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Phone</span>
-                    <p className="text-sm text-slate-700 font-medium">{result.contact_info.phone}</p>
+                    <p className="text-sm text-slate-700 font-medium">{safeStr(result.contact_info.phone)}</p>
                   </div>
                 )}
               </div>
@@ -474,7 +482,7 @@ export default function ReportPage() {
               <div>
                 <span className="text-xs font-bold text-brand-600 uppercase tracking-widest">Screening Report</span>
                 <h1 className="text-2xl font-extrabold text-brand-900 mt-1">{candidateName || 'Unknown Candidate'}</h1>
-                {role && <p className="text-base font-semibold text-slate-700 mt-1">Position: {role}</p>}
+                {role && <p className="text-base font-semibold text-slate-700 mt-1">Position: {safeStr(role)}</p>}
               </div>
               <div className="text-right text-sm">
                 <p className="text-slate-400">Analyzed on {timestamp}</p>
@@ -487,13 +495,13 @@ export default function ReportPage() {
                 {result?.contact_info?.email && (
                   <div>
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Email</span>
-                    <p className="text-sm text-slate-700 font-medium">{result.contact_info.email}</p>
+                    <p className="text-sm text-slate-700 font-medium">{safeStr(result.contact_info.email)}</p>
                   </div>
                 )}
                 {result?.contact_info?.phone && (
                   <div>
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Phone</span>
-                    <p className="text-sm text-slate-700 font-medium">{result.contact_info.phone}</p>
+                    <p className="text-sm text-slate-700 font-medium">{safeStr(result.contact_info.phone)}</p>
                   </div>
                 )}
               </div>
