@@ -25,7 +25,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import update
 
-from app.backend.db.database import get_db
+from app.backend.db.database import get_db, SessionLocal
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan
 from app.backend.models.schemas import (
@@ -1456,6 +1456,9 @@ async def batch_analyze_stream_endpoint(
     # Pre-parse JD once
     _get_or_cache_jd(db, job_description)
 
+    # Extract tenant_id while session is still active
+    tenant_id = current_user.tenant_id
+
     # ── Tagged wrapper for asyncio.as_completed mapping ──────────────────────
     async def _process_and_tag(
         index: int, content: bytes, filename: str, upload_id: str,
@@ -1507,41 +1510,42 @@ async def batch_analyze_stream_endpoint(
                 yield f"data: {json.dumps(evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
                 continue
 
-            # Per-resume DB save (same pattern as batch-chunked)
+            # Per-resume DB save using a fresh session to avoid detached object issues
+            save_db = SessionLocal()
             try:
                 parsed_data = raw.pop("_parsed_data", {})
                 gap_analysis = raw.pop("_gap_analysis", {})
                 file_hash = hashlib.md5(content).hexdigest()
 
                 candidate_id, _ = _get_or_create_candidate(
-                    db, parsed_data, current_user.tenant_id,
+                    save_db, parsed_data, tenant_id,
                     file_hash=file_hash,
                     gap_analysis=gap_analysis,
                     profile_quality=raw.get("analysis_quality", "medium"),
                 )
 
-                _store_candidate_profile(
-                    db.get(Candidate, candidate_id)
-                    or db.query(Candidate).filter(Candidate.id == candidate_id).first(),
-                    parsed_data, gap_analysis, file_hash,
-                    raw.get("analysis_quality", "medium"),
-                )
+                cand = save_db.get(Candidate, candidate_id)
+                if cand:
+                    _store_candidate_profile(
+                        cand, parsed_data, gap_analysis, file_hash,
+                        raw.get("analysis_quality", "medium"),
+                    )
 
                 db_result = ScreeningResult(
-                    tenant_id=current_user.tenant_id,
+                    tenant_id=tenant_id,
                     candidate_id=candidate_id,
                     resume_text=parsed_data.get("raw_text", ""),
                     jd_text=job_description,
                     parsed_data=json.dumps(parsed_data, default=_json_default),
                     analysis_result=json.dumps(raw, default=_json_default),
                 )
-                db.add(db_result)
-                db.flush()
-                db.commit()
+                save_db.add(db_result)
+                save_db.commit()
+                save_db.refresh(db_result)
 
                 screening_result_id = db_result.id
             except Exception as e:
-                db.rollback()
+                save_db.rollback()
                 log.error("Failed to save analysis for %s: %s", filename, e)
                 failed_count += 1
                 completed += 1
@@ -1554,6 +1558,8 @@ async def batch_analyze_stream_endpoint(
                 )
                 yield f"data: {json.dumps(evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
                 continue
+            finally:
+                save_db.close()
 
             completed += 1
             successful_count += 1
