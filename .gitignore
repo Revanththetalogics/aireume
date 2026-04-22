@@ -38,3 +38,10 @@ htmlcov/
 
 # Temp files
 .commit-msg.txt
+
+# Test output
+pytest_summary.txt
+test_full_output.txt
+*_output*.txt
+*_results*.txt
+*_summary*.txt
