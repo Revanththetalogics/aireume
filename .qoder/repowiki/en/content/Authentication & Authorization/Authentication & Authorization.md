@@ -11,21 +11,24 @@
 - [AuthContext.jsx](file://app/frontend/src/contexts/AuthContext.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [ProtectedRoute.jsx](file://app/frontend/src/components/ProtectedRoute.jsx)
+- [PlatformAdminRoute.jsx](file://app/frontend/src/components/PlatformAdminRoute.jsx)
 - [LoginPage.jsx](file://app/frontend/src/pages/LoginPage.jsx)
 - [RegisterPage.jsx](file://app/frontend/src/pages/RegisterPage.jsx)
+- [admin.py](file://app/backend/routes/admin.py)
 - [team.py](file://app/backend/routes/team.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
+- [App.jsx](file://app/frontend/src/App.jsx)
+- [AdminDashboardPage.jsx](file://app/frontend/src/pages/AdminDashboardPage.jsx)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated JWT middleware to support dual authentication mechanisms (Authorization headers for API clients and httpOnly cookies for browser clients)
-- Added mandatory JWT_SECRET_KEY environment variable validation with production safety checks
-- Integrated CSRF protection middleware using double-submit cookie pattern
-- Enhanced auth routes to set httpOnly cookies and CSRF tokens for browser clients
-- Updated frontend authentication context and API client to handle cookie-based authentication
-- Added comprehensive CSRF protection for browser-based requests
+- Enhanced authentication system now includes platform administrator role detection with dedicated `is_platform_admin` field in User model
+- Added new `PlatformAdminRoute` component for frontend administration access control with cross-tenant privileges
+- Implemented `require_platform_admin` middleware function for backend platform-level admin enforcement
+- Updated admin routes to use platform admin requirements for cross-tenant operations
+- Enhanced tenant suspension handling to allow platform admins to bypass suspension restrictions
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -40,10 +43,10 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the authentication and authorization system for Resume AI by ThetaLogics. It covers dual authentication mechanisms (JWT tokens via Authorization headers for API clients and httpOnly cookies for browser clients), JWT token lifecycle, user registration and login flows, role-based access control (RBAC), multi-tenant isolation, password security, token refresh, session management, frontend authentication context and protected routes, API endpoint security posture, CORS configuration, and CSRF protection measures. It also provides implementation examples for custom authentication flows and permission checks, along with best practices, audit logging, and troubleshooting guidance.
+This document explains the authentication and authorization system for Resume AI by ThetaLogics. It covers dual authentication mechanisms (JWT tokens via Authorization headers for API clients and httpOnly cookies for browser clients), JWT token lifecycle, user registration and login flows, role-based access control (RBAC), multi-tenant isolation, password security, token refresh, session management, frontend authentication context and protected routes, API endpoint security posture, CORS configuration, and CSRF protection measures. The system now includes enhanced platform administrator role detection with cross-tenant privileges and comprehensive administrative access control.
 
 ## Project Structure
-The authentication system spans backend FastAPI routes and middleware, SQLAlchemy models, and a React frontend with an authentication context and protected routing. The system now supports dual authentication mechanisms with comprehensive CSRF protection.
+The authentication system spans backend FastAPI routes and middleware, SQLAlchemy models, and a React frontend with an authentication context and protected routing. The system now supports dual authentication mechanisms with comprehensive CSRF protection and enhanced platform administrator capabilities.
 
 ```mermaid
 graph TB
@@ -57,13 +60,16 @@ F["Schemas<br/>models/schemas.py"]
 G["Team Routes<br/>routes/team.py"]
 H["Subscription Routes<br/>routes/subscription.py"]
 I["Analyze Routes<br/>routes/analyze.py"]
+J["Admin Routes<br/>routes/admin.py"]
 end
 subgraph "Frontend"
 X["Auth Context<br/>contexts/AuthContext.jsx"]
 Y["HTTP Client<br/>lib/api.js"]
 Z["Protected Route<br/>components/ProtectedRoute.jsx"]
+AA["Platform Admin Route<br/>components/PlatformAdminRoute.jsx"]
 U["Login Page<br/>pages/LoginPage.jsx"]
 V["Register Page<br/>pages/RegisterPage.jsx"]
+AB["Admin Dashboard<br/>pages/AdminDashboardPage.jsx"]
 end
 A --> B
 A --> C
@@ -72,15 +78,19 @@ A --> F
 A --> G
 A --> H
 A --> I
+A --> J
 C --> E
 F --> E
 G --> E
 H --> E
 I --> E
+J --> E
 X --> Y
 Z --> X
+AA --> X
 U --> X
 V --> X
+AB --> AA
 ```
 
 **Diagram sources**
@@ -93,11 +103,15 @@ V --> X
 - [team.py:1-135](file://app/backend/routes/team.py#L1-L135)
 - [subscription.py:1-477](file://app/backend/routes/subscription.py#L1-L477)
 - [analyze.py:320-519](file://app/backend/routes/analyze.py#L320-L519)
+- [admin.py:1-800](file://app/backend/routes/admin.py#L1-L800)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [api.js:1-414](file://app/frontend/src/lib/api.js#L1-L414)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [LoginPage.jsx:1-121](file://app/frontend/src/pages/LoginPage.jsx#L1-L121)
 - [RegisterPage.jsx:1-143](file://app/frontend/src/pages/RegisterPage.jsx#L1-L143)
+- [App.jsx:68-71](file://app/frontend/src/App.jsx#L68-L71)
+- [AdminDashboardPage.jsx:1-800](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L800)
 
 **Section sources**
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
@@ -109,8 +123,11 @@ V --> X
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [api.js:1-414](file://app/frontend/src/lib/api.js#L1-L414)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [LoginPage.jsx:1-121](file://app/frontend/src/pages/LoginPage.jsx#L1-L121)
 - [RegisterPage.jsx:1-143](file://app/frontend/src/pages/RegisterPage.jsx#L1-L143)
+- [App.jsx:68-71](file://app/frontend/src/App.jsx#L68-L71)
+- [AdminDashboardPage.jsx:1-800](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L800)
 
 ## Core Components
 - **Dual Authentication Middleware**: Validates bearer tokens for API clients and httpOnly cookies for browser clients, with automatic fallback between authentication methods.
@@ -119,6 +136,7 @@ V --> X
 - **Mandatory JWT Secret Validation**: Requires JWT_SECRET_KEY environment variable in production with development fallback for local testing.
 - **Frontend Authentication Context**: Handles cookie-based authentication, automatic CSRF token injection, and seamless token refresh.
 - **Protected Routes**: Guards page navigation and displays a loader while validating session state.
+- **Platform Administrator Role**: New cross-tenant administrative capability with dedicated `is_platform_admin` field and `require_platform_admin` middleware.
 - **Multi-tenant Models**: Users belong to Tenants; routes enforce tenant isolation.
 - **Usage and Audit Logging**: Subscription usage checks and centralized usage logs for tenant-level auditing.
 
@@ -130,11 +148,12 @@ V --> X
 - [AuthContext.jsx:6-62](file://app/frontend/src/contexts/AuthContext.jsx#L6-L62)
 - [api.js:7,18-31](file://app/frontend/src/lib/api.js#L7,L18-L31)
 - [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
+- [PlatformAdminRoute.jsx:4-10](file://app/frontend/src/components/PlatformAdminRoute.jsx#L4-L10)
 - [db_models.py:31-93](file://app/backend/models/db_models.py#L31-L93)
 - [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
 
 ## Architecture Overview
-The system now implements a dual authentication architecture supporting both API clients and browser clients. JWT tokens are validated centrally with automatic fallback to httpOnly cookies for browser-based authentication. CSRF protection is integrated using the double-submit cookie pattern. The backend validates tokens centrally and injects the current user into route handlers, while frontend requests automatically manage cookies and CSRF tokens.
+The system now implements a dual authentication architecture supporting both API clients and browser clients. JWT tokens are validated centrally with automatic fallback to httpOnly cookies for browser-based authentication. CSRF protection is integrated using the double-submit cookie pattern. The backend validates tokens centrally and injects the current user into route handlers, while frontend requests automatically manage cookies and CSRF tokens. Enhanced platform administrator capabilities provide cross-tenant administrative access with dedicated route protection.
 
 ```mermaid
 sequenceDiagram
@@ -176,6 +195,7 @@ API-->>FE : {access_token, refresh_token} + httpOnly cookies
 - **Mandatory JWT Secret Validation**: JWT_SECRET_KEY is now required in production with a development fallback for local testing, enhancing security posture.
 - **Enhanced Token Validation**: Validates JWT algorithm and claims, loads active user from database, and supports both bearer tokens and cookie-based authentication.
 - **Admin Enforcement**: Maintains admin-only access restrictions with enhanced security checks.
+- **Platform Administrator Support**: Enhanced tenant suspension handling allows platform admins to bypass suspension restrictions.
 
 ```mermaid
 flowchart TD
@@ -190,19 +210,30 @@ Claims --> |No| InvalidToken["401 Invalid token"]
 Claims --> |Yes| LoadUser["Load user by ID and is_active=true"]
 LoadUser --> Found{"User exists?"}
 Found --> |No| NotFound["401 User not found"]
-Found --> |Yes| ReturnUser["Return User"]
+Found --> |Yes| CheckSuspension{"Tenant suspended?"}
+CheckSuspension --> |No| ReturnUser["Return User"]
+CheckSuspension --> |Yes| CheckPlatformAdmin{"Is platform admin?"}
+CheckPlatformAdmin --> |Yes| ReturnUser
+CheckPlatformAdmin --> |No| Suspended["403 Account suspended"]
 AdminCheck["require_admin"] --> Role{"user.role == 'admin'?"}
 Role --> |No| Forbidden["403 Admin access required"]
 Role --> |Yes| Allow["Proceed"]
+PlatformAdminCheck["require_platform_admin"] --> Platform{"user.is_platform_admin == True?"}
+Platform --> |No| Forbidden
+Platform --> |Yes| Allow
 ```
 
 **Diagram sources**
 - [auth.py:19-47](file://app/backend/middleware/auth.py#L19-L47)
 - [auth.py:31-37](file://app/backend/middleware/auth.py#L31-L37)
+- [auth.py:58-60](file://app/backend/middleware/auth.py#L58-L60)
+- [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
 
 **Section sources**
 - [auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
 - [auth.py:19-47](file://app/backend/middleware/auth.py#L19-L47)
+- [auth.py:58-60](file://app/backend/middleware/auth.py#L58-L60)
+- [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
 
 ### CSRF Protection Middleware
 - **Double-Submit Cookie Pattern**: Implements comprehensive CSRF protection using the double-submit cookie pattern for browser-based authentication.
@@ -276,6 +307,7 @@ API-->>FE : {access_token, refresh_token} + httpOnly cookies
 - **Enhanced Token Refresh**: Automatic refresh flow works seamlessly with cookie-based authentication, retrying original requests after successful refresh.
 - **Secure Token Storage**: No localStorage token handling for security - all tokens managed via httpOnly cookies.
 - **Protected Route Handling**: Maintains seamless protected route functionality with improved authentication state management.
+- **Platform Administrator Access**: PlatformAdminRoute component provides cross-tenant administrative access for platform-level admins.
 
 ```mermaid
 sequenceDiagram
@@ -311,8 +343,42 @@ API-->>App : Response
 - [api.js:7,18-31](file://app/frontend/src/lib/api.js#L7,L18-L31)
 - [api.js:33-51](file://app/frontend/src/lib/api.js#L33-L51)
 - [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
+- [PlatformAdminRoute.jsx:4-10](file://app/frontend/src/components/PlatformAdminRoute.jsx#L4-L10)
 - [LoginPage.jsx:15-27](file://app/frontend/src/pages/LoginPage.jsx#L15-L27)
 - [RegisterPage.jsx:16-32](file://app/frontend/src/pages/RegisterPage.jsx#L16-L32)
+
+### Platform Administrator Role and Cross-Tenant Access Control
+- **Platform Administrator Model**: User model now includes `is_platform_admin` boolean field for cross-tenant administrative privileges.
+- **PlatformAdminRoute Component**: Dedicated frontend component that checks `user.is_platform_admin` and redirects non-platform admins to home page.
+- **require_platform_admin Middleware**: Backend dependency that enforces platform-level admin access for cross-tenant operations.
+- **Admin Dashboard Access**: `/admin` route protected by PlatformAdminRoute, providing comprehensive tenant management capabilities.
+- **Enhanced Suspension Handling**: Platform admins can bypass tenant suspension restrictions, allowing emergency access to suspended accounts.
+
+```mermaid
+flowchart TD
+Start(["Platform Admin Access"]) --> CheckRoute{"Route requires platform admin?"}
+CheckRoute --> |Yes| CheckUser{"user.is_platform_admin?"}
+CheckUser --> |Yes| AllowAccess["Allow access to admin dashboard"]
+CheckUser --> |No| RedirectHome["Redirect to '/'"]
+CheckRoute --> |No| CheckTenant{"Tenant suspended?"}
+CheckTenant --> |No| AllowAccess
+CheckTenant --> |Yes| CheckPlatform{"Is platform admin?"}
+CheckPlatform --> |Yes| AllowAccess
+CheckPlatform --> |No| DenyAccess["403 Account suspended"]
+```
+
+**Diagram sources**
+- [PlatformAdminRoute.jsx:4-10](file://app/frontend/src/components/PlatformAdminRoute.jsx#L4-L10)
+- [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
+- [auth.py:58-60](file://app/backend/middleware/auth.py#L58-L60)
+
+**Section sources**
+- [db_models.py:75](file://app/backend/models/db_models.py#L75)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
+- [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
+- [auth.py:58-60](file://app/backend/middleware/auth.py#L58-L60)
+- [App.jsx:71](file://app/frontend/src/App.jsx#L71)
+- [AdminDashboardPage.jsx:1-800](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L800)
 
 ### Multi-Tenant Access Control and Permission Hierarchies
 - Tenant model stores multi-tenant metadata and subscription state.
@@ -320,6 +386,7 @@ API-->>App : Response
 - Team routes enforce tenant isolation and admin-only member management.
 - Subscription routes enforce tenant-scoped usage checks and admin-only plan management.
 - Analyze routes enforce tenant isolation and usage checks before processing.
+- Admin routes enforce platform-level access for cross-tenant operations.
 
 ```mermaid
 classDiagram
@@ -334,6 +401,8 @@ class Tenant {
 +int analyses_count_this_month
 +bigint storage_used_bytes
 +datetime usage_reset_at
++datetime suspended_at
++datetime suspended_reason
 }
 class User {
 +int id
@@ -342,6 +411,7 @@ class User {
 +string hashed_password
 +string role
 +bool is_active
++bool is_platform_admin
 }
 class TeamMember {
 +int id
@@ -358,6 +428,12 @@ class UsageLog {
 +text details
 +datetime created_at
 }
+class AdminDashboard {
++string overview
++string tenant_management
++string audit_logs
++string feature_flags
+}
 Tenant "1" --> "many" User : "users"
 Tenant "1" --> "many" TeamMember : "team_members"
 Tenant "1" --> "many" UsageLog : "usage_logs"
@@ -367,12 +443,14 @@ User "1" --> "many" UsageLog : "usage_logs"
 
 **Diagram sources**
 - [db_models.py:31-93](file://app/backend/models/db_models.py#L31-L93)
+- [admin.py:140-296](file://app/backend/routes/admin.py#L140-L296)
 
 **Section sources**
 - [db_models.py:31-93](file://app/backend/models/db_models.py#L31-L93)
 - [team.py:18-83](file://app/backend/routes/team.py#L18-L83)
 - [subscription.py:172-253](file://app/backend/routes/subscription.py#L172-L253)
 - [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
+- [admin.py:140-296](file://app/backend/routes/admin.py#L140-L296)
 
 ### Password Security Practices
 - Passwords are hashed using bcrypt via a CryptContext configured for bcrypt.
@@ -400,17 +478,40 @@ User "1" --> "many" UsageLog : "usage_logs"
 - **CSRF Protection**: Comprehensive CSRF protection implemented using double-submit cookie pattern for browser-based requests.
 - **Authentication Method Detection**: Automatic detection between API clients (Authorization header) and browser clients (httpOnly cookies).
 - **Security Hardening**: Enhanced security posture with mandatory JWT secret validation and secure cookie configurations.
+- **Platform Administrator Endpoints**: Admin routes require platform-level privileges for cross-tenant operations.
 
 **Section sources**
 - [main.py:181-198](file://app/backend/main.py#L181-L198)
 - [main.py:200-202](file://app/backend/main.py#L200-L202)
 - [auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
-- [auth.py:72-101](file://app/backend/routes/auth.py#L72-L101)
+- [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
+- [auth.py:78-91](file://app/backend/middleware/auth.py#L78-L91)
 
 ### Implementation Examples
 
-#### Example: Require Admin for Team Management
-- Use the admin dependency to guard team member operations.
+#### Example: Require Platform Admin for Cross-Tenant Operations
+- Use the require_platform_admin dependency to guard platform-level administrative operations.
+
+```mermaid
+sequenceDiagram
+participant FE as "Frontend"
+participant CSRF as "CSRF Middleware"
+participant API as "Admin Routes"
+participant MW as "RBAC Middleware"
+FE->>CSRF : GET /api/admin/tenants (with cookies)
+CSRF->>API : Pass through (browser auth)
+API->>MW : require_platform_admin()
+MW-->>API : Platform admin user
+API-->>FE : Tenant list (cross-tenant)
+```
+
+**Diagram sources**
+- [admin.py:140-209](file://app/backend/routes/admin.py#L140-L209)
+- [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
+- [csrf.py:33-57](file://app/backend/middleware/csrf.py#L33-L57)
+
+#### Example: Require Admin for Tenant-Level Operations
+- Use the require_admin dependency for tenant-scoped administrative operations.
 
 ```mermaid
 sequenceDiagram
@@ -421,13 +522,13 @@ participant MW as "RBAC Middleware"
 FE->>CSRF : POST /api/invites (with cookies)
 CSRF->>API : Pass through (browser auth)
 API->>MW : require_admin()
-MW-->>API : Admin user
+MW-->>API : Tenant admin user
 API-->>FE : Created member
 ```
 
 **Diagram sources**
 - [team.py:34-61](file://app/backend/routes/team.py#L34-L61)
-- [auth.py:59-62](file://app/backend/middleware/auth.py#L59-L62)
+- [auth.py:65-68](file://app/backend/middleware/auth.py#L65-L68)
 - [csrf.py:33-57](file://app/backend/middleware/csrf.py#L33-L57)
 
 #### Example: Tenant-Isolated Usage Checks
@@ -454,15 +555,18 @@ Record --> Proceed["Proceed with action"]
   - CSRF middleware provides cross-cutting security concerns.
   - Team and subscription routes depend on middleware for current user and admin enforcement.
   - Analyze routes depend on usage helpers and middleware for tenant isolation.
+  - Admin routes depend on require_platform_admin for cross-tenant operations.
 - **Frontend**:
   - AuthContext depends on HTTP client for API calls with cookie management.
   - ProtectedRoute depends on AuthContext for user state.
+  - PlatformAdminRoute depends on AuthContext for platform admin detection.
   - Pages trigger AuthContext actions for login/register with enhanced security.
 
 ```mermaid
 graph LR
 FE_Auth["AuthContext.jsx"] --> FE_API["api.js"]
 FE_Protected["ProtectedRoute.jsx"] --> FE_Auth
+FE_PlatformAdmin["PlatformAdminRoute.jsx"] --> FE_Auth
 FE_Login["LoginPage.jsx"] --> FE_Auth
 FE_Register["RegisterPage.jsx"] --> FE_Auth
 BE_Main["main.py"] --> BE_MW["middleware/auth.py"]
@@ -471,11 +575,13 @@ BE_Main --> BE_CSRF["middleware/csrf.py"]
 BE_Main --> BE_Team["routes/team.py"]
 BE_Main --> BE_Sub["routes/subscription.py"]
 BE_Main --> BE_Analyze["routes/analyze.py"]
+BE_Main --> BE_Admin["routes/admin.py"]
 BE_AuthRoutes --> BE_DB["models/db_models.py"]
 BE_CSRF --> BE_DB
 BE_Team --> BE_DB
 BE_Sub --> BE_DB
 BE_Analyze --> BE_DB
+BE_Admin --> BE_DB
 ```
 
 **Diagram sources**
@@ -486,10 +592,12 @@ BE_Analyze --> BE_DB
 - [team.py:1-135](file://app/backend/routes/team.py#L1-L135)
 - [subscription.py:1-477](file://app/backend/routes/subscription.py#L1-L477)
 - [analyze.py:320-519](file://app/backend/routes/analyze.py#L320-L519)
+- [admin.py:1-800](file://app/backend/routes/admin.py#L1-L800)
 - [db_models.py:31-93](file://app/backend/models/db_models.py#L31-L93)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [api.js:1-414](file://app/frontend/src/lib/api.js#L1-L414)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [LoginPage.jsx:1-121](file://app/frontend/src/pages/LoginPage.jsx#L1-L121)
 - [RegisterPage.jsx:1-143](file://app/frontend/src/pages/RegisterPage.jsx#L1-L143)
 
@@ -501,10 +609,12 @@ BE_Analyze --> BE_DB
 - [team.py:1-135](file://app/backend/routes/team.py#L1-L135)
 - [subscription.py:1-477](file://app/backend/routes/subscription.py#L1-L477)
 - [analyze.py:320-519](file://app/backend/routes/analyze.py#L320-L519)
+- [admin.py:1-800](file://app/backend/routes/admin.py#L1-L800)
 - [db_models.py:31-93](file://app/backend/models/db_models.py#L31-L93)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [api.js:1-414](file://app/frontend/src/lib/api.js#L1-L414)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [LoginPage.jsx:1-121](file://app/frontend/src/pages/LoginPage.jsx#L1-L121)
 - [RegisterPage.jsx:1-143](file://app/frontend/src/pages/RegisterPage.jsx#L1-L143)
 
@@ -515,6 +625,7 @@ BE_Analyze --> BE_DB
 - **Password Hashing**: Computationally intensive bcrypt hashing; tune cost appropriately.
 - **Frontend Retry Logic**: Refresh flow reduces user friction but may increase backend load under contention—consider rate-limiting refresh endpoints.
 - **Tenant Queries**: Leverage indexed tenant_id fields to minimize latency in multi-tenant operations.
+- **Platform Admin Checks**: Additional database query for platform admin verification adds minimal overhead but provides critical security benefits.
 
 ## Troubleshooting Guide
 - **401 Not authenticated**:
@@ -529,6 +640,9 @@ BE_Analyze --> BE_DB
 - **403 Admin access required**:
   - **Cause**: Non-admin user attempting admin-only operation.
   - **Fix**: Use an admin account or adjust permissions.
+- **403 Platform admin access required**:
+  - **Cause**: Non-platform admin user attempting cross-tenant administrative operation.
+  - **Fix**: Use a platform administrator account with `is_platform_admin` set to True.
 - **403 CSRF token missing or invalid**:
   - **Cause**: Missing or mismatched CSRF token in cookie vs X-CSRF-Token header.
   - **Fix**: Ensure CSRF token cookie is present and matches header; check browser cookie settings.
@@ -541,11 +655,16 @@ BE_Analyze --> BE_DB
 - **CORS errors**:
   - **Cause**: Origin not permitted or credentials mismatch.
   - **Fix**: Configure allowed origins and ensure credentials are enabled in development/staging.
+- **Admin dashboard access denied**:
+  - **Cause**: User lacks platform administrator privileges.
+  - **Fix**: Ensure user has `is_platform_admin` set to True in the database.
 
 **Section sources**
 - [auth.py:23-40](file://app/backend/middleware/auth.py#L23-L40)
 - [auth.py:101-103](file://app/backend/routes/auth.py#L101-L103)
 - [auth.py:121-127](file://app/backend/routes/auth.py#L121-L127)
+- [auth.py:65-68](file://app/backend/middleware/auth.py#L65-L68)
+- [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
 - [csrf.py:51-55](file://app/backend/middleware/csrf.py#L51-L55)
 - [team.py:66-82](file://app/backend/routes/team.py#L66-L82)
 - [subscription.py:270-272](file://app/backend/routes/subscription.py#L270-L272)
@@ -553,7 +672,7 @@ BE_Analyze --> BE_DB
 - [main.py:181-198](file://app/backend/main.py#L181-L198)
 
 ## Conclusion
-The system implements a robust, tenant-aware authentication and authorization framework with comprehensive dual authentication support. The enhanced architecture now supports both API clients (Authorization headers) and browser clients (httpOnly cookies) with integrated CSRF protection. Mandatory JWT_SECRET_KEY validation strengthens security in production environments. Frontend integration provides seamless cookie management, automatic CSRF token handling, and secure token refresh. Multi-tenant models and tenant-scoped routes ensure isolation. The comprehensive CSRF protection, secure cookie configurations, and dual authentication mechanisms provide enterprise-grade security for Resume AI by ThetaLogics.
+The system implements a robust, tenant-aware authentication and authorization framework with comprehensive dual authentication support and enhanced platform administrator capabilities. The enhanced architecture now supports both API clients (Authorization headers) and browser clients (httpOnly cookies) with integrated CSRF protection. Mandatory JWT_SECRET_KEY validation strengthens security in production environments. Frontend integration provides seamless cookie management, automatic CSRF token handling, and secure token refresh. Multi-tenant models and tenant-scoped routes ensure isolation. The new platform administrator role provides cross-tenant administrative access with dedicated route protection and enhanced suspension handling. The comprehensive CSRF protection, secure cookie configurations, and dual authentication mechanisms provide enterprise-grade security for Resume AI by ThetaLogics.
 
 ## Appendices
 
@@ -566,6 +685,7 @@ The system implements a robust, tenant-aware authentication and authorization fr
 - **Monitoring**: Monitor and alert on repeated 401 responses indicating potential token theft.
 - **Audit Logging**: Audit tenant usage and user actions for compliance and anomaly detection.
 - **CORS Hardening**: Harden CORS policy to specific origins in production environments.
+- **Platform Admin Security**: Restrict platform administrator privileges to trusted individuals only.
 
 ### Enhanced Security Features
 - **Dual Authentication Methods**: Seamless support for both API clients and browser clients.
@@ -573,12 +693,18 @@ The system implements a robust, tenant-aware authentication and authorization fr
 - **CSRF Protection**: Comprehensive CSRF protection using double-submit cookie pattern.
 - **Secure Cookie Management**: HttpOnly cookies with secure configurations and automatic CSRF token handling.
 - **Automatic Token Refresh**: Seamless refresh flow for both API and browser clients.
+- **Platform Administrator Role**: Cross-tenant administrative capabilities with dedicated route protection.
+- **Enhanced Suspension Handling**: Platform admins can bypass tenant suspension restrictions.
 
 ### Audit Logging and Account Management
 - Usage logs capture tenant and user actions with timestamps and details.
 - Admin endpoints allow resetting usage and changing plans for testing and support.
+- Platform admin audit trails track cross-tenant administrative actions.
+- Tenant suspension and reactivation operations are logged for compliance.
 
 **Section sources**
 - [db_models.py:79-93](file://app/backend/models/db_models.py#L79-L93)
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
 - [subscription.py:372-423](file://app/backend/routes/subscription.py#L372-L423)
+- [admin.py:299-361](file://app/backend/routes/admin.py#L299-L361)
+- [admin.py:491-558](file://app/backend/routes/admin.py#L491-L558)

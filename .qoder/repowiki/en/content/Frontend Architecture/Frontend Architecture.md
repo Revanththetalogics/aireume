@@ -8,6 +8,7 @@
 - [AppShell.jsx](file://app/frontend/src/components/AppShell.jsx)
 - [NavBar.jsx](file://app/frontend/src/components/NavBar.jsx)
 - [ProtectedRoute.jsx](file://app/frontend/src/components/ProtectedRoute.jsx)
+- [PlatformAdminRoute.jsx](file://app/frontend/src/components/PlatformAdminRoute.jsx)
 - [AuthContext.jsx](file://app/frontend/src/contexts/AuthContext.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [uploadChunked.js](file://app/frontend/src/lib/uploadChunked.js)
@@ -26,6 +27,7 @@
 - [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)
 - [CandidatesPage.jsx](file://app/frontend/src/pages/CandidatesPage.jsx)
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
+- [AdminDashboardPage.jsx](file://app/frontend/src/pages/AdminDashboardPage.jsx)
 - [useSubscription.jsx](file://app/frontend/src/hooks/useSubscription.jsx)
 - [package.json](file://app/frontend/package.json)
 - [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
@@ -34,12 +36,16 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive XSS protection architecture documentation with safeStr utility function implementation
-- Documented defensive programming approaches across core components (ResultCard, ComparisonView)
-- Updated security posture with universal string sanitization patterns
-- Enhanced error handling documentation with XSS prevention measures
-- Added comprehensive CSP and security headers coverage from nginx configuration
-- Documented DOMPurify dependency and its role in content sanitization
+- Added comprehensive Platform Admin Dashboard with tabbed navigation system
+- Implemented tenant management interfaces with filtering, sorting, and bulk actions
+- Added audit log viewer with date range filtering and action filtering
+- Integrated feature flag management with global toggles and per-tenant overrides
+- Implemented webhook configuration tools with delivery history tracking
+- Added metrics dashboards with usage trends and revenue analytics
+- Integrated billing configuration panels with provider management
+- Added notification settings with SMTP configuration and test email functionality
+- Enhanced routing with PlatformAdminRoute protection for admin-only access
+- Expanded API client with comprehensive admin endpoints
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -47,22 +53,23 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [XSS Protection Architecture](#xss-protection-architecture)
-7. [Security Headers and CSP](#security-headers-and-csp)
-8. [Dependency Analysis](#dependency-analysis)
-9. [Performance Considerations](#performance-considerations)
-10. [Testing Strategy](#testing-strategy)
-11. [Extensibility Guidelines](#extensibility-guidelines)
-12. [Accessibility and Responsive Design](#accessibility-and-responsive-design)
-13. [Error Handling and Resilience](#error-handling-and-resilience)
-14. [Troubleshooting Guide](#troubleshooting-guide)
-15. [Conclusion](#conclusion)
+6. [Platform Administration System](#platform-administration-system)
+7. [XSS Protection Architecture](#xss-protection-architecture)
+8. [Security Headers and CSP](#security-headers-and-csp)
+9. [Dependency Analysis](#dependency-analysis)
+10. [Performance Considerations](#performance-considerations)
+11. [Testing Strategy](#testing-strategy)
+12. [Extensibility Guidelines](#extensibility-guidelines)
+13. [Accessibility and Responsive Design](#accessibility-and-responsive-design)
+14. [Error Handling and Resilience](#error-handling-and-resilience)
+15. [Troubleshooting Guide](#troubleshooting-guide)
+16. [Conclusion](#conclusion)
 
 ## Introduction
-This document describes the frontend architecture for Resume AI by ThetaLogics. It covers the React 18 component model, routing, state management, component library, styling and responsiveness, API integration, authentication and subscription management, error handling and resilience patterns, XSS protection architecture, and extension guidelines. The system emphasizes a clean separation of concerns, composable UI components, robust integration with backend services via Axios interceptors and dedicated hooks, comprehensive error handling for graceful degradation, and universal string sanitization to prevent XSS vulnerabilities.
+This document describes the frontend architecture for Resume AI by ThetaLogics. It covers the React 18 component model, routing, state management, component library, styling and responsiveness, API integration, authentication and subscription management, error handling and resilience patterns, XSS protection architecture, platform administration capabilities, and extension guidelines. The system emphasizes a clean separation of concerns, composable UI components, robust integration with backend services via Axios interceptors and dedicated hooks, comprehensive error handling for graceful degradation, universal string sanitization to prevent XSS vulnerabilities, and comprehensive administrative interfaces for platform-wide tenant management.
 
 ## Project Structure
-The frontend is organized around a classic React 18 + Vite setup with modular components, pages, contexts, hooks, and a centralized API client. Routing is handled by React Router v7 with lazy-loaded pages and protected routes. Styling leverages TailwindCSS with a consistent design system and brand palette. The architecture now includes comprehensive error handling through React ErrorBoundary components, enhanced API retry mechanisms, and universal XSS protection through the safeStr utility function.
+The frontend is organized around a classic React 18 + Vite setup with modular components, pages, contexts, hooks, and a centralized API client. Routing is handled by React Router v7 with lazy-loaded pages and protected routes. Styling leverages TailwindCSS with a consistent design system and brand palette. The architecture now includes comprehensive error handling through React ErrorBoundary components, enhanced API retry mechanisms, universal XSS protection through the safeStr utility function, and a comprehensive platform administration system with tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 
 ```mermaid
 graph TB
@@ -74,6 +81,7 @@ end
 subgraph "Routing"
 R["React Router v7<br/>lazy routes"]
 PR["ProtectedRoute.jsx"]
+PAR["PlatformAdminRoute.jsx"]
 end
 subgraph "UI Shell"
 AS["AppShell.jsx"]
@@ -88,9 +96,9 @@ UWP["UniversalWeightsPanel.jsx"]
 WSP["WeightSuggestionPanel.jsx"]
 BP["BatchPage.jsx"]
 end
-subgraph "Streaming Components"
-SSE["SSE Streaming"]
-CR["Chunked Upload"]
+subgraph "Admin Dashboard System"
+ADP["AdminDashboardPage.jsx"]
+PAR["PlatformAdminRoute.jsx"]
 end
 subgraph "Pages"
 D["Dashboard.jsx"]
@@ -137,6 +145,8 @@ RP --> SG
 RP --> TL
 RC --> SR
 AS --> CP
+AS --> ADP
+ADP --> PAR
 A --> API
 A --> AC
 A --> USC
@@ -149,9 +159,10 @@ AS --> CSP
 
 **Diagram sources**
 - [main.jsx:1-23](file://app/frontend/src/main.jsx#L1-L23)
-- [App.jsx:1-87](file://app/frontend/src/App.jsx#L1-L87)
+- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
 - [NavBar.jsx](file://app/frontend/src/components/NavBar.jsx)
 - [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
@@ -159,6 +170,7 @@ AS --> CSP
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
+- [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [ReportPage.jsx:1-297](file://app/frontend/src/pages/ReportPage.jsx#L1-L297)
 - [CandidatesPage.jsx:1-204](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L204)
 - [UploadForm.jsx:1-484](file://app/frontend/src/components/UploadForm.jsx#L1-L484)
@@ -170,12 +182,12 @@ AS --> CSP
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
-- [api.js:1-824](file://app/frontend/src/lib/api.js#L1-L824)
+- [api.js:1-952](file://app/frontend/src/lib/api.js#L1-L952)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 **Section sources**
 - [main.jsx:1-23](file://app/frontend/src/main.jsx#L1-L23)
-- [App.jsx:1-87](file://app/frontend/src/App.jsx#L1-L87)
+- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [package.json:1-42](file://app/frontend/package.json#L1-L42)
 
@@ -183,6 +195,7 @@ AS --> CSP
 - **ErrorBoundary**: React ErrorBoundary component for graceful degradation with user-friendly error messages and retry options.
 - **AppShell**: Provides a consistent layout with navigation and scrollable content area.
 - **ProtectedRoute**: Guards routes requiring authentication.
+- **PlatformAdminRoute**: Guards routes requiring platform administrator privileges.
 - **DashboardNew**: Enhanced landing page serving as the new dashboard with analytics widgets, quick actions, and recent activity.
 - **AnalyzePage**: New 3-step analysis workflow with job description input, AI weight suggestions, and streaming resume upload.
 - **BatchPage**: Enhanced batch processing with chunked upload capabilities, real-time progress tracking, and ranked shortlist table.
@@ -196,16 +209,19 @@ AS --> CSP
 - **CandidatesPage**: List and search candidates with pagination and detail modal.
 - **ReportPage**: Single-result presentation with sharing, printing, labeling, and inline editing.
 - **ComparisonView**: Side-by-side analysis comparison with universal string sanitization.
+- **AdminDashboardPage**: Comprehensive platform administration interface with tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 - **AuthContext**: JWT lifecycle, login/register/logout, and tenant/user state.
 - **useSubscription**: Subscription and usage checks, optimistic updates, and plan features with improved error handling.
 - **uploadChunked**: Utility for handling large file uploads with chunking, retry logic, and progress tracking.
 - **Streaming Analysis**: SSE-based real-time updates for both single and batch analysis workflows.
 - **XSS Protection**: Universal string sanitization through safeStr utility function across all components.
+- **Platform Administration**: Complete administrative interface for tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
 - [AnalyzePage.jsx:1-904](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L904)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
@@ -219,13 +235,14 @@ AS --> CSP
 - [CandidatesPage.jsx:1-204](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L204)
 - [ReportPage.jsx:1-297](file://app/frontend/src/pages/ReportPage.jsx#L1-L297)
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
+- [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
-- [api.js:200-515](file://app/frontend/src/lib/api.js#L200-L515)
+- [api.js:823-952](file://app/frontend/src/lib/api.js#L823-L952)
 
 ## Architecture Overview
-The frontend follows a layered architecture with enhanced error handling, redesigned analysis flow, and comprehensive XSS protection:
+The frontend follows a layered architecture with enhanced error handling, redesigned analysis flow, comprehensive XSS protection, and comprehensive platform administration capabilities:
 - Entry point initializes React 18 StrictMode, Router, global error handlers, and ErrorBoundary wrapper.
 - App wraps routes with ErrorBoundary, AuthProvider, sets up lazy routes, and renders shell wrappers.
 - ErrorBoundary provides graceful degradation with user-friendly error messages and retry options.
@@ -233,6 +250,7 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - DashboardNew serves as the enhanced landing page with analytics and quick actions.
 - AnalyzePage orchestrates the new 3-step analysis workflow with AI-powered features and streaming updates.
 - BatchPage provides enhanced batch processing with real-time progress tracking and ranked shortlist.
+- AdminDashboardPage provides comprehensive platform administration with tabbed navigation and administrative tools.
 - Pages orchestrate UI components and API interactions with improved error handling and XSS protection.
 - API client centralizes HTTP requests, JWT injection, automatic refresh, and enhanced retry mechanisms.
 - Contexts and hooks manage authentication and subscription state with robust error handling.
@@ -240,6 +258,7 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - Streaming analysis provides real-time updates via SSE for both single and batch workflows.
 - **NEW**: XSS Protection Layer provides universal string sanitization through safeStr utility function.
 - **NEW**: Security Headers and CSP configuration protect against XSS and other web vulnerabilities.
+- **NEW**: Platform Administration System provides comprehensive tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 
 ```mermaid
 sequenceDiagram
@@ -247,10 +266,12 @@ participant U as "User"
 participant EB as "ErrorBoundary"
 participant R as "Router(App.jsx)"
 participant P as "ProtectedRoute"
+participant PAR as "PlatformAdminRoute"
 participant S as "AppShell"
 participant DN as "DashboardNew"
 participant AP as "AnalyzePage"
 participant BP as "BatchPage"
+participant ADP as "AdminDashboardPage"
 participant UWP as "UniversalWeightsPanel"
 participant WSP as "WeightSuggestionPanel"
 participant API as "api.js"
@@ -276,33 +297,36 @@ API->>SSE : Open SSE connection
 SSE-->>AP : Stream results
 AP->>SEC : Apply safeStr sanitization
 AP-->>U : Navigate to "/report" with sanitized data
-DN->>BP : Navigate to "/batch"
-BP->>UC : Handle chunked uploads
-BP->>API : analyzeBatchStream
-API->>SSE : Open SSE connection
-SSE-->>BP : Stream ranked results
-BP->>SEC : Apply safeStr sanitization
-BP-->>U : Display sanitized ranked shortlist
+S->>ADP : Navigate to "/admin"
+ADP->>PAR : Check platform admin
+alt Not platform admin
+PAR-->>U : Redirect to "/"
+else Platform admin
+PAR->>S : Render admin dashboard
+S-->>U : Admin interface with tabs
+end
 end
 ```
 
 **Diagram sources**
-- [App.jsx:1-87](file://app/frontend/src/App.jsx#L1-L87)
+- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
 - [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
 - [AnalyzePage.jsx:1-904](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L904)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
+- [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
-- [api.js:200-515](file://app/frontend/src/lib/api.js#L200-L515)
+- [api.js:823-952](file://app/frontend/src/lib/api.js#L823-L952)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 **Section sources**
-- [App.jsx:1-87](file://app/frontend/src/App.jsx#L1-L87)
+- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
-- [api.js:200-515](file://app/frontend/src/lib/api.js#L200-L515)
+- [api.js:823-952](file://app/frontend/src/lib/api.js#L823-L952)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 ## Detailed Component Analysis
@@ -566,7 +590,8 @@ Refresh --> Reload["Window reload"]
 ### Authentication and Routing
 - AuthContext manages user, tenant, and loading state. It loads persisted tokens via httpOnly cookies, logs in/out, and exposes helpers to child components.
 - ProtectedRoute enforces authentication for protected shells and shows a loader while resolving session state.
-- App.jsx defines lazy routes for all pages including the new DashboardNew and AnalyzePage, wrapping them in ErrorBoundary, ProtectedRoute, and SubscriptionProvider, then AppShell.
+- PlatformAdminRoute enforces platform administrator privileges for admin routes.
+- App.jsx defines lazy routes for all pages including the new DashboardNew, AnalyzePage, and AdminDashboardPage, wrapping them in ErrorBoundary, ProtectedRoute, and SubscriptionProvider, then AppShell.
 
 ```mermaid
 flowchart TD
@@ -577,17 +602,22 @@ Routes --> Guard["ProtectedRoute"]
 Guard --> Shell["SubscriptionProvider -> AppShell"]
 Shell --> Pages["Pages render"]
 Guard --> |No user| Redirect["Navigate to /login"]
+Routes --> Admin["PlatformAdminRoute"]
+Admin --> AdminShell["Admin Dashboard"]
+Admin --> |No platform admin| Redirect2["Navigate to /"]
 ```
 
 **Diagram sources**
-- [App.jsx:1-87](file://app/frontend/src/App.jsx#L1-L87)
+- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
-- [App.jsx:1-87](file://app/frontend/src/App.jsx#L1-L87)
+- [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
+- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
 
 ### Enhanced API Integration Layer
 - api.js creates an Axios instance with base URL from environment.
@@ -599,7 +629,8 @@ Guard --> |No user| Redirect["Navigate to /login"]
 - **NEW**: Streaming analysis endpoints (analyze/stream, analyze/batch-stream) with SSE support.
 - **NEW**: Chunked upload endpoints (/upload/chunk, /upload/finalize, /upload/cancel) integrated.
 - **NEW**: Real-time progress callbacks for upload and analysis operations.
-- Exposes domain-specific functions for analysis, batch, history, comparison, exports, templates, candidates, email generation, JD URL extraction, team actions, training, video, transcript, health, and subscription management.
+- **NEW**: Comprehensive admin endpoints for tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- Exposes domain-specific functions for analysis, batch, history, comparison, exports, templates, candidates, email generation, JD URL extraction, team actions, training, video, transcript, health, subscription management, and admin operations.
 
 ```mermaid
 sequenceDiagram
@@ -632,7 +663,7 @@ SSE-->>C : Stream events
 - [api.js:64-90](file://app/frontend/src/lib/api.js#L64-L90)
 
 **Section sources**
-- [api.js:1-824](file://app/frontend/src/lib/api.js#L1-L824)
+- [api.js:1-952](file://app/frontend/src/lib/api.js#L1-L952)
 
 ### UploadForm
 - Supports three job description modes: text, file, URL.
@@ -823,6 +854,157 @@ Return --> Widgets["UsageWidget / Dashboard"]
 **Section sources**
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
 
+## Platform Administration System
+
+### AdminDashboardPage Overview
+AdminDashboardPage provides a comprehensive platform administration interface with tabbed navigation and administrative tools for managing tenants, monitoring activities, configuring features, and overseeing system operations.
+
+```mermaid
+flowchart TD
+Start(["AdminDashboardPage"]) --> Tabs["Tab Navigation"]
+Tabs --> Overview["Overview Tab"]
+Tabs --> Tenants["Tenants Tab"]
+Tabs --> Audit["Audit Log Tab"]
+Tabs --> RateLimits["Rate Limits Tab"]
+Tabs --> Features["Feature Flags Tab"]
+Tabs --> Webhooks["Webhooks Tab"]
+Tabs --> Metrics["Metrics Tab"]
+Tabs --> Billing["Billing Tab"]
+Tabs --> Notifications["Notifications Tab"]
+Overview --> Stats["Summary Cards"]
+Tenants --> Table["Tenant Management Table"]
+Audit --> Logs["Audit Log Table"]
+Features --> Flags["Feature Flag Management"]
+Webhooks --> Config["Webhook Configuration"]
+Metrics --> Analytics["Analytics Dashboards"]
+Billing --> Providers["Provider Configuration"]
+Notifications --> SMTP["SMTP Configuration"]
+```
+
+**Diagram sources**
+- [AdminDashboardPage.jsx:59-69](file://app/frontend/src/pages/AdminDashboardPage.jsx#L59-L69)
+- [AdminDashboardPage.jsx:384-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L384-L1807)
+
+### Tabbed Navigation System
+The admin interface uses a sophisticated tabbed navigation system with 9 distinct tabs covering all administrative domains:
+
+- **Overview**: System-wide statistics and tenant distribution
+- **Tenants**: Tenant management with filtering, sorting, and bulk actions
+- **Audit Log**: Comprehensive audit trail with date range filtering
+- **Rate Limits**: Custom rate limit configuration (coming soon)
+- **Feature Flags**: Global feature flags and per-tenant overrides
+- **Webhooks**: Webhook configuration and delivery monitoring
+- **Metrics**: Usage analytics and revenue metrics
+- **Billing**: Payment provider configuration
+- **Notifications**: SMTP configuration and test emails
+
+**Section sources**
+- [AdminDashboardPage.jsx:59-69](file://app/frontend/src/pages/AdminDashboardPage.jsx#L59-L69)
+
+### Tenant Management Interface
+The tenant management system provides comprehensive tenant oversight with advanced filtering, sorting, and action capabilities:
+
+- **Advanced Filtering**: Search by name/slug, status filtering (active, suspended, trialing, cancelled)
+- **Sortable Columns**: Name, plan, status, analysis count, user count, creation date
+- **Bulk Actions**: Suspend/reactivate, change plan, view details
+- **Status Badges**: Color-coded status indicators
+- **Pagination**: Efficient handling of large tenant datasets
+- **Tenant Detail Modal**: Comprehensive tenant information with user listing
+- **Plan Management**: Change tenant plans with dropdown selector
+- **Suspension Management**: Suspend tenants with reason logging
+
+**Section sources**
+- [AdminDashboardPage.jsx:71-86](file://app/frontend/src/pages/AdminDashboardPage.jsx#L71-L86)
+- [AdminDashboardPage.jsx:88-100](file://app/frontend/src/pages/AdminDashboardPage.jsx#L88-L100)
+- [AdminDashboardPage.jsx:123-247](file://app/frontend/src/pages/AdminDashboardPage.jsx#L123-L247)
+- [AdminDashboardPage.jsx:249-321](file://app/frontend/src/pages/AdminDashboardPage.jsx#L249-L321)
+- [AdminDashboardPage.jsx:323-382](file://app/frontend/src/pages/AdminDashboardPage.jsx#L323-L382)
+
+### Audit Log Viewer
+The audit log system provides comprehensive activity tracking with advanced filtering capabilities:
+
+- **Action Filtering**: Filter by specific actions
+- **Date Range Filtering**: Custom date range selection
+- **Comprehensive Logging**: Time, actor, action, resource, details
+- **Pagination**: Efficient handling of large audit datasets
+- **JSON Details**: Structured audit details display
+
+**Section sources**
+- [AdminDashboardPage.jsx:400-405](file://app/frontend/src/pages/AdminDashboardPage.jsx#L400-L405)
+- [AdminDashboardPage.jsx:973-1088](file://app/frontend/src/pages/AdminDashboardPage.jsx#L973-L1088)
+
+### Feature Flag Management
+The feature flag system provides granular control over feature availability:
+
+- **Global Toggle**: Enable/disable features globally
+- **Per-Tenant Overrides**: Override global settings per tenant
+- **Real-time Updates**: Immediate effect of feature flag changes
+- **Tenant Selector**: Dropdown to select target tenant for overrides
+
+**Section sources**
+- [AdminDashboardPage.jsx:412-418](file://app/frontend/src/pages/AdminDashboardPage.jsx#L412-L418)
+- [AdminDashboardPage.jsx:1102-1240](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1102-L1240)
+
+### Webhook Configuration Tools
+The webhook system enables external service integration with comprehensive monitoring:
+
+- **Tenant Selection**: Configure webhooks per tenant
+- **Event Selection**: Choose specific events to trigger webhooks
+- **Delivery Monitoring**: View webhook delivery history and status
+- **Add/Delete Operations**: Manage webhook configurations
+- **Failure Tracking**: Monitor webhook failure counts
+
+**Section sources**
+- [AdminDashboardPage.jsx:420-430](file://app/frontend/src/pages/AdminDashboardPage.jsx#L420-L430)
+- [AdminDashboardPage.jsx:1242-1464](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1242-L1464)
+
+### Metrics Dashboards
+The metrics system provides comprehensive analytics and reporting:
+
+- **Summary Cards**: Total tenants, active users, analyses today, MRR
+- **Plan Distribution**: Visual representation of plan usage
+- **Usage Trends**: Daily analyses and signups over 30-day periods
+- **Real-time Data**: Current metrics and historical trends
+
+**Section sources**
+- [AdminDashboardPage.jsx:1466-1575](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1466-L1575)
+
+### Billing Configuration Panels
+The billing system provides payment provider management:
+
+- **Provider Selection**: Choose between Stripe, Razorpay, Manual
+- **API Key Management**: Secure API key configuration
+- **Provider-Specific Fields**: Conditional fields based on selected provider
+- **Configuration Status**: Visual indication of billing configuration
+
+**Section sources**
+- [AdminDashboardPage.jsx:1577-1681](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1577-L1681)
+
+### Notification Settings
+The notification system provides SMTP configuration and testing:
+
+- **SMTP Configuration**: Host, port, authentication settings
+- **From Address**: Default sender address configuration
+- **Test Email**: Send test emails to verify configuration
+- **Status Indication**: Visual status of notification configuration
+
+**Section sources**
+- [AdminDashboardPage.jsx:1683-1779](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1683-L1779)
+
+### Administrative API Integration
+The admin system integrates with comprehensive backend APIs:
+
+- **Tenant Management**: CRUD operations for tenants
+- **Audit Logging**: Query and filter audit logs
+- **Feature Flags**: Global and per-tenant flag management
+- **Webhooks**: Create, update, delete, and monitor webhooks
+- **Metrics**: System-wide analytics and reporting
+- **Billing**: Provider configuration and management
+- **Notifications**: SMTP configuration and testing
+
+**Section sources**
+- [api.js:823-952](file://app/frontend/src/lib/api.js#L823-L952)
+
 ## XSS Protection Architecture
 
 ### Universal String Sanitization Pattern
@@ -869,6 +1051,15 @@ All core components implement comprehensive XSS protection:
 - Weight reasoning explanations
 - Role category displays
 
+**AdminDashboardPage.jsx**: Implements safeStr for all administrative content:
+- Tenant names, slugs, and details
+- Audit log entries and actions
+- Feature flag keys and descriptions
+- Webhook URLs and events
+- Metric values and trends
+- Billing configuration details
+- Notification settings
+
 #### Defensive Programming Approaches
 The XSS protection architecture follows defensive programming principles:
 
@@ -906,12 +1097,14 @@ EmptyString --> Sanitized
 **Diagram sources**
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
 - [ComparisonView.jsx:3-9](file://app/frontend/src/components/ComparisonView.jsx#L3-L9)
+- [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
 
 **Section sources**
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
 - [ComparisonView.jsx:3-9](file://app/frontend/src/components/ComparisonView.jsx#L3-L9)
 - [ResultCard.jsx:423](file://app/frontend/src/components/ResultCard.jsx#L423)
 - [ComparisonView.jsx:114](file://app/frontend/src/components/ComparisonView.jsx#L114)
+- [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
 
 ## Security Headers and CSP
 
@@ -1008,6 +1201,7 @@ The security audit identified important CSP implementation gaps:
 - TailwindCSS for styling and responsive design.
 - **NEW**: DOMPurify for advanced HTML sanitization.
 - **NEW**: html2pdf.js for PDF generation with built-in sanitization.
+- **NEW**: Comprehensive admin dashboard with 9 tabbed interfaces.
 
 ```mermaid
 graph LR
@@ -1038,6 +1232,9 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Parallel processing: Concurrent chunk uploads maximize throughput while maintaining reliability.
 - **NEW**: XSS protection: safeStr utility provides efficient string sanitization with minimal performance impact.
 - **NEW**: Security headers: Nginx configuration provides optimal security with minimal performance overhead.
+- **NEW**: Admin dashboard optimization: Tab-based navigation reduces memory footprint for large datasets.
+- **NEW**: Pagination: Efficient handling of large tenant and audit datasets.
+- **NEW**: Conditional loading: Admin features load only when needed.
 - Image/icon assets: lucide-react icons are tree-shaken; keep only used icons.
 - **Enhanced**: Error boundaries prevent cascading failures and improve perceived performance.
 - **Enhanced**: Retry mechanisms with exponential backoff reduce user frustration from transient failures.
@@ -1055,6 +1252,13 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: DOMPurify integration testing with HTML sanitization scenarios.
 - **NEW**: Streaming analysis testing with mock SSE events and real-time updates.
 - **NEW**: Ranked shortlist testing with progressive data updates and sorting algorithms.
+- **NEW**: Admin dashboard testing with tab navigation, filtering, and bulk operations.
+- **NEW**: Tenant management testing with search, sorting, and action scenarios.
+- **NEW**: Feature flag testing with global and per-tenant override scenarios.
+- **NEW**: Webhook configuration testing with delivery monitoring and failure tracking.
+- **NEW**: Metrics dashboard testing with data visualization and trend analysis.
+- **NEW**: Billing configuration testing with provider setup and validation.
+- **NEW**: Notification testing with SMTP configuration and test email scenarios.
 
 **Section sources**
 - [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
@@ -1074,13 +1278,16 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **Enhanced**: Implement ErrorBoundary for critical components that require graceful degradation.
 - **Enhanced**: Use uploadChunked utility for any new file upload functionality requiring large file support.
 - **NEW**: Implement safeStr utility for all new components that render dynamic content.
-- **NEW**: Follow XSS protection patterns established in ResultCard and ComparisonView components.
+- **NEW**: Follow XSS protection patterns established in ResultCard, ComparisonView, and AdminDashboardPage components.
 - **NEW**: Ensure all user inputs and API responses are sanitized through safeStr function.
 - **NEW**: Implement comprehensive security headers and CSP policies for production deployments.
 - **NEW**: Test XSS protection thoroughly with malicious input scenarios and sanitization validation.
 - **NEW**: Use DOMPurify for advanced HTML sanitization when needed for rich content rendering.
 - **NEW**: Design components to handle progressive data updates and live sorting with XSS protection.
 - **NEW**: Validate security headers compliance and CSP policy effectiveness in production environments.
+- **NEW**: Extend AdminDashboardPage with additional administrative tabs and features as needed.
+- **NEW**: Implement comprehensive error handling for admin operations with user-friendly feedback.
+- **NEW**: Add pagination and filtering capabilities for large administrative datasets.
 
 ## Accessibility and Responsive Design
 - Accessible semantics: Buttons, inputs, and modals use appropriate roles and labels; focus management in dialogs.
@@ -1097,6 +1304,12 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: DOMPurify integration ensures sanitized content remains accessible to assistive technologies.
 - **NEW**: Streaming updates provide real-time feedback without disrupting user workflow.
 - **NEW**: Live tables maintain accessibility standards during progressive data updates with proper ARIA attributes.
+- **NEW**: Admin dashboard provides accessible tab navigation with keyboard support.
+- **NEW**: Tenant management tables include proper sorting indicators and screen reader announcements.
+- **NEW**: Audit log tables provide accessible filtering and pagination controls.
+- **NEW**: Feature flag management includes accessible toggle switches and status indicators.
+- **NEW**: Webhook configuration forms provide clear error messaging and validation feedback.
+- **NEW**: Metrics dashboards include accessible chart components and data tables.
 
 ## Error Handling and Resilience
 
@@ -1136,6 +1349,13 @@ The application implements comprehensive error handling at multiple levels:
 - **JSON Safety**: Complex objects are safely serialized before rendering
 - **Performance Monitoring**: Minimal overhead from sanitization operations
 
+#### Admin Dashboard Error Handling
+- **Tab-Specific Errors**: Separate error handling for each administrative tab
+- **Loading States**: Progress indicators for long-running admin operations
+- **Bulk Operation Errors**: Graceful handling of multi-tenant operations
+- **Modal Error States**: Error handling within administrative modals
+- **Pagination Errors**: Error recovery for large dataset operations
+
 ```mermaid
 flowchart TD
 Error["Error Occurs"] --> Level{"Error Level"}
@@ -1145,6 +1365,7 @@ Level --> |Component| ComponentError["Component Error State"]
 Level --> |Upload| UploadError["Chunked Upload Error"]
 Level --> |Streaming| StreamError["Streaming Analysis Error"]
 Level --> |XSS| XSSProtection["XSS Protection"]
+Level --> |Admin| AdminError["Admin Dashboard Error"]
 AppBoundary --> UserMsg["User-Friendly Message"]
 UserMsg --> Retry["Retry Options"]
 Retry --> Manual["Manual Retry"]
@@ -1165,6 +1386,9 @@ StreamError --> Recover["Recover from Failure"]
 StreamError --> Continue["Continue Streaming"]
 XSSProtection --> Sanitize["Apply safeStr Sanitization"]
 XSSProtection --> SafeOutput["Safe Output Rendering"]
+AdminError --> TabError["Handle Tab-Specific Error"]
+AdminError --> ModalError["Handle Modal Error"]
+AdminError --> BulkError["Handle Bulk Operation Error"]
 ```
 
 **Diagram sources**
@@ -1173,6 +1397,7 @@ XSSProtection --> SafeOutput["Safe Output Rendering"]
 - [uploadChunked.js:130-165](file://app/frontend/src/lib/uploadChunked.js#L130-L165)
 - [api.js:413-515](file://app/frontend/src/lib/api.js#L413-L515)
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
+- [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
@@ -1180,6 +1405,7 @@ XSSProtection --> SafeOutput["Safe Output Rendering"]
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 - [api.js:413-515](file://app/frontend/src/lib/api.js#L413-L515)
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
+- [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
 
 ## Troubleshooting Guide
 - Authentication issues: Verify tokens in localStorage; AuthContext clears tokens on 401; check interceptor retry flow.
@@ -1199,6 +1425,13 @@ XSSProtection --> SafeOutput["Safe Output Rendering"]
 - **NEW**: Ranked shortlist issues: Verify sorting algorithm and real-time update callbacks.
 - **NEW**: Progress indicator problems: Check upload progress callbacks and overall progress calculations.
 - **NEW**: Malicious input detection: Test XSS protection with various attack vectors and sanitization scenarios.
+- **NEW**: Admin dashboard failures: Check tab-specific error handling and loading states.
+- **NEW**: Tenant management issues: Verify filtering, sorting, and bulk operation functionality.
+- **NEW**: Feature flag management problems: Check global toggle and per-tenant override functionality.
+- **NEW**: Webhook configuration errors: Verify webhook creation, deletion, and delivery monitoring.
+- **NEW**: Metrics dashboard issues: Check data loading and visualization components.
+- **NEW**: Billing configuration problems: Verify provider setup and API key validation.
+- **NEW**: Notification configuration failures: Test SMTP settings and email sending functionality.
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
@@ -1213,6 +1446,7 @@ XSSProtection --> SafeOutput["Safe Output Rendering"]
 - [api.js:413-515](file://app/frontend/src/lib/api.js#L413-L515)
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
 - [ComparisonView.jsx:3-9](file://app/frontend/src/components/ComparisonView.jsx#L3-L9)
+- [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
 
 ## Conclusion
 The Resume AI frontend is a modular, scalable React 18 application with clear separation between routing, state, UI components, and API integration. It leverages modern tooling, robust authentication and subscription management, comprehensive error handling through ErrorBoundary components, and enhanced API retry mechanisms with exponential backoff. The architecture now provides graceful degradation, improved resilience against transient failures, and a cohesive design system to deliver a responsive, accessible, and performant user experience even under adverse conditions.
@@ -1220,3 +1454,7 @@ The Resume AI frontend is a modular, scalable React 18 application with clear se
 The major enhancements include comprehensive streaming analysis capabilities with real-time updates, ranked shortlist tables with live sorting, enhanced progress indicators for upload and analysis phases, chunked upload system for large file support, and redesigned analysis workflow with 3-step process. These improvements represent significant advances in user experience and system reliability, providing users with immediate feedback and transparent progress tracking throughout the analysis process.
 
 **NEW**: The addition of comprehensive XSS protection architecture through the safeStr utility function provides universal string sanitization across all components, preventing XSS vulnerabilities through defensive programming approaches. Combined with security headers, CSP policies, and DOMPurify integration, the frontend now offers enterprise-grade security while maintaining excellent performance and user experience.
+
+**NEW**: The implementation of a comprehensive Platform Admin Dashboard provides enterprise-grade administrative capabilities with tenant management, audit logging, feature flag management, webhook configuration, metrics dashboards, billing configuration, and notification settings. This represents a significant expansion of the platform's capabilities and demonstrates the scalability and extensibility of the frontend architecture.
+
+The architecture successfully balances modern development practices with enterprise requirements, providing a solid foundation for continued growth and feature expansion while maintaining high standards for security, performance, and user experience.

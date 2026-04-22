@@ -2,17 +2,34 @@
 
 <cite>
 **Referenced Files in This Document**
+- [billing.py](file://app/backend/routes/billing.py)
+- [factory.py](file://app/backend/services/billing/factory.py)
+- [base.py](file://app/backend/services/billing/base.py)
+- [stripe_provider.py](file://app/backend/services/billing/stripe_provider.py)
+- [razorpay_provider.py](file://app/backend/services/billing/razorpay_provider.py)
+- [manual_provider.py](file://app/backend/services/billing/manual_provider.py)
+- [webhook_service.py](file://app/backend/services/webhook_service.py)
+- [014_billing_system.py](file://alembic/versions/014_billing_system.py)
+- [test_billing.py](file://app/backend/tests/test_billing.py)
+- [admin.py](file://app/backend/routes/admin.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [003_subscription_system.py](file://alembic/versions/003_subscription_system.py)
-- [test_subscription.py](file://app/backend/tests/test_subscription.py)
-- [test_usage_enforcement.py](file://app/backend/tests/test_usage_enforcement.py)
 - [useSubscription.jsx](file://app/frontend/src/hooks/useSubscription.jsx)
 - [main.py](file://app/backend/main.py)
 - [auth.py](file://app/backend/middleware/auth.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Added comprehensive billing management system with factory pattern-based payment provider architecture
+- Integrated Stripe, Razorpay, and Manual payment providers with unified interface
+- Added checkout session creation, subscription management, and webhook processing endpoints
+- Enhanced subscription status monitoring with provider-specific implementations
+- Added platform configuration management for billing providers
+- Updated usage tracking to work with new billing integration
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -20,405 +37,427 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
+6. [Payment Provider System](#payment-provider-system)
+7. [Billing Management Endpoints](#billing-management-endpoints)
+8. [Platform Configuration Management](#platform-configuration-management)
+9. [Dependency Analysis](#dependency-analysis)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
 
 ## Introduction
-This document provides comprehensive API documentation for subscription and usage tracking endpoints. It covers:
-- Retrieving available subscription plans with feature comparisons
-- Checking current plan status, usage limits, and billing information
-- Usage tracking endpoints for monitoring API consumption, analysis counts, and feature usage
-- Request/response schemas for subscription data, billing cycles, and usage quotas
-- Rate limiting, overage handling, and billing integration patterns
-- Examples of subscription management workflows and usage monitoring
+This document provides comprehensive API documentation for subscription and usage tracking endpoints, now enhanced with a complete billing management system. The system includes:
+
+- **Enhanced Subscription Management**: Complete billing integration with factory pattern-based payment provider system
+- **Multi-Provider Support**: Unified interface supporting Stripe, Razorpay, and Manual invoicing
+- **Checkout Sessions**: Provider-specific checkout session creation and management
+- **Webhook Processing**: Automated webhook event handling and subscription status updates
+- **Subscription Monitoring**: Real-time subscription status tracking across all providers
+- **Usage Tracking**: Enhanced usage enforcement with billing integration
+- **Configuration Management**: Platform-level billing provider configuration and management
 
 ## Project Structure
-The subscription and billing system spans backend routes, models, migrations, tests, and frontend hooks:
-- Backend routes define public and admin endpoints for plans, status, usage checks, and usage history
-- Models define subscription plans, tenant billing and usage fields, and usage logs
-- Migrations seed plans and add usage tracking columns
-- Tests validate plan retrieval, usage checks, and admin operations
-- Frontend hooks integrate usage checks and subscription status
+The enhanced subscription and billing system spans backend routes, services, models, migrations, and tests:
+
+- **Backend Services**: Factory pattern for payment providers, Stripe/Razorpay/Manual implementations
+- **Billing Routes**: Checkout sessions, webhook processing, subscription management
+- **Platform Config**: Centralized billing configuration management
+- **Usage Integration**: Enhanced usage tracking with billing awareness
+- **Webhook Dispatch**: Asynchronous webhook delivery with retry logic
 
 ```mermaid
 graph TB
-subgraph "Backend"
-A["Routes: subscription.py"]
-B["Models: db_models.py"]
-C["Schemas: schemas.py"]
-D["Migration: 003_subscription_system.py"]
-E["Auth Middleware: auth.py"]
-F["Main App: main.py"]
-G["Analyze Route: analyze.py"]
+subgraph "Billing Services"
+A["Factory: factory.py"]
+B["Base Interface: base.py"]
+C["Stripe Provider: stripe_provider.py"]
+D["Razorpay Provider: razorpay_provider.py"]
+E["Manual Provider: manual_provider.py"]
+F["Webhook Service: webhook_service.py"]
 end
-subgraph "Frontend"
-H["useSubscription.jsx"]
+subgraph "Billing Routes"
+G["Billing Routes: billing.py"]
+H["Admin Routes: admin.py"]
 end
-F --> A
-A --> B
+subgraph "Subscription System"
+I["Subscription Routes: subscription.py"]
+J["Models: db_models.py"]
+K["Schemas: schemas.py"]
+end
+subgraph "Infrastructure"
+L["Migration: 014_billing_system.py"]
+M["Main App: main.py"]
+N["Auth: auth.py"]
+O["Analyze: analyze.py"]
+end
 A --> C
+A --> D
 A --> E
 G --> A
 H --> A
-D --> B
+I --> G
+M --> G
+M --> I
 ```
 
 **Diagram sources**
-- [main.py:200-215](file://app/backend/main.py#L200-L215)
-- [subscription.py:16-20](file://app/backend/routes/subscription.py#L16-L20)
-- [db_models.py:11-92](file://app/backend/models/db_models.py#L11-L92)
-- [schemas.py:344-379](file://app/backend/models/schemas.py#L344-L379)
-- [003_subscription_system.py:43-252](file://alembic/versions/003_subscription_system.py#L43-L252)
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [analyze.py:39](file://app/backend/routes/analyze.py#L39)
-- [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
+- [factory.py:1-91](file://app/backend/services/billing/factory.py#L1-L91)
+- [base.py:1-65](file://app/backend/services/billing/base.py#L1-L65)
+- [stripe_provider.py:1-100](file://app/backend/services/billing/stripe_provider.py#L1-L100)
+- [razorpay_provider.py:1-107](file://app/backend/services/billing/razorpay_provider.py#L1-L107)
+- [manual_provider.py:1-102](file://app/backend/services/billing/manual_provider.py#L1-L102)
+- [webhook_service.py:1-138](file://app/backend/services/webhook_service.py#L1-L138)
+- [billing.py:1-113](file://app/backend/routes/billing.py#L1-L113)
+- [admin.py:940-1119](file://app/backend/routes/admin.py#L940-L1119)
+- [subscription.py:162-367](file://app/backend/routes/subscription.py#L162-L367)
+- [db_models.py:367-378](file://app/backend/models/db_models.py#L367-L378)
+- [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
+- [main.py:76](file://app/backend/main.py#L76)
 
 **Section sources**
-- [main.py:200-215](file://app/backend/main.py#L200-L215)
-- [subscription.py:16-20](file://app/backend/routes/subscription.py#L16-L20)
-- [db_models.py:11-92](file://app/backend/models/db_models.py#L11-L92)
-- [schemas.py:344-379](file://app/backend/models/schemas.py#L344-L379)
-- [003_subscription_system.py:43-252](file://alembic/versions/003_subscription_system.py#L43-L252)
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [analyze.py:39](file://app/backend/routes/analyze.py#L39)
-- [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
+- [factory.py:1-91](file://app/backend/services/billing/factory.py#L1-L91)
+- [base.py:1-65](file://app/backend/services/billing/base.py#L1-L65)
+- [stripe_provider.py:1-100](file://app/backend/services/billing/stripe_provider.py#L1-L100)
+- [razorpay_provider.py:1-107](file://app/backend/services/billing/razorpay_provider.py#L1-L107)
+- [manual_provider.py:1-102](file://app/backend/services/billing/manual_provider.py#L1-L102)
+- [webhook_service.py:1-138](file://app/backend/services/webhook_service.py#L1-L138)
+- [billing.py:1-113](file://app/backend/routes/billing.py#L1-L113)
+- [admin.py:940-1119](file://app/backend/routes/admin.py#L940-L1119)
+- [subscription.py:162-367](file://app/backend/routes/subscription.py#L162-L367)
+- [db_models.py:367-378](file://app/backend/models/db_models.py#L367-L378)
+- [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
+- [main.py:76](file://app/backend/main.py#L76)
 
 ## Core Components
-- Subscription routes module defines endpoints for plans, current subscription status, usage checks, and usage history
-- Pydantic models define request/response schemas for plans, usage stats, and full subscription responses
-- Database models define subscription plans, tenant billing and usage fields, and usage logs
-- Migration seeds initial plans and adds usage tracking columns to tenants and creates usage logs table
-- Frontend hook integrates usage checks and subscription status display
+The enhanced system introduces several key components:
 
-Key responsibilities:
-- Public endpoints: GET /api/subscription/plans, GET /api/subscription, GET /api/subscription/check/{action}, GET /api/subscription/usage-history
-- Admin endpoints: POST /api/subscription/admin/reset-usage, POST /api/subscription/admin/change-plan/{plan_id}
-- Usage enforcement: record_usage helper increments counters and logs usage after successful analysis
+### Payment Provider Architecture
+- **Factory Pattern**: Centralized payment provider instantiation based on platform configuration
+- **Unified Interface**: Common `PaymentProvider` base class ensuring consistent behavior
+- **Provider Implementations**: Stripe, Razorpay, and Manual providers with provider-specific logic
+- **Configuration Management**: Dynamic provider selection and credential loading
+
+### Billing Management Endpoints
+- **Checkout Sessions**: Provider-specific checkout session creation for subscription purchases
+- **Webhook Processing**: Automated event handling for payment provider notifications
+- **Subscription Management**: Status monitoring, cancellation, and renewal management
+- **Admin Configuration**: Platform-level billing provider setup and management
+
+### Enhanced Usage Tracking
+- **Billing-Aware Usage**: Integration with payment providers for accurate usage tracking
+- **Provider-Specific Logic**: Different handling for each payment provider type
+- **Status Synchronization**: Automatic synchronization of subscription status
 
 **Section sources**
-- [subscription.py:162-367](file://app/backend/routes/subscription.py#L162-L367)
-- [schemas.py:344-379](file://app/backend/models/schemas.py#L344-L379)
-- [db_models.py:11-92](file://app/backend/models/db_models.py#L11-L92)
-- [003_subscription_system.py:119-251](file://alembic/versions/003_subscription_system.py#L119-L251)
-- [useSubscription.jsx:13-186](file://app/frontend/src/hooks/useSubscription.jsx#L13-L186)
+- [factory.py:37-91](file://app/backend/services/billing/factory.py#L37-L91)
+- [base.py:6-65](file://app/backend/services/billing/base.py#L6-L65)
+- [billing.py:39-113](file://app/backend/routes/billing.py#L39-L113)
+- [admin.py:946-1066](file://app/backend/routes/admin.py#L946-L1066)
 
 ## Architecture Overview
-The subscription system integrates with authentication, analysis routes, and usage logging. The frontend consumes subscription endpoints and usage checks to enforce limits and present usage dashboards.
+The enhanced subscription system integrates payment providers, billing management, and usage tracking into a cohesive architecture:
 
 ```mermaid
 sequenceDiagram
 participant Client as "Client"
 participant Auth as "Auth Middleware"
-participant Sub as "Subscription Routes"
+participant Billing as "Billing Routes"
+participant Factory as "Payment Factory"
+participant Provider as "Payment Provider"
 participant DB as "Database"
-Client->>Sub : GET /api/subscription/plans
-Sub->>DB : Query active plans
-DB-->>Sub : Plan list
-Sub-->>Client : 200 OK with plans
+Client->>Billing : POST /api/billing/checkout
+Billing->>Factory : get_payment_provider()
+Factory->>Factory : Load platform config
+Factory->>Provider : Instantiate provider
+Billing->>Provider : create_checkout_session()
+Provider-->>Billing : Checkout session data
+Billing-->>Client : Provider-specific response
 Client->>Auth : Authenticate (Bearer)
 Auth-->>Client : User context
-Client->>Sub : GET /api/subscription
-Sub->>DB : Load tenant, plan, usage logs
-DB-->>Sub : Tenant + plan + usage
-Sub-->>Client : 200 OK with current_plan, usage, available_plans, days_until_reset
-Client->>Sub : GET /api/subscription/check/{action}?quantity=N
-Sub->>DB : Load tenant + plan limits
-DB-->>Sub : Limits
-Sub-->>Client : 200 OK with allowed, current_usage, limit, message
-Client->>Sub : GET /api/subscription/usage-history?limit=100
-Sub->>DB : Query usage logs for tenant
-DB-->>Sub : Logs
-Sub-->>Client : 200 OK with logs
+Client->>Billing : POST /api/billing/webhook
+Billing->>Provider : handle_webhook_event()
+Provider->>DB : Update subscription status
+Provider-->>Billing : Event processed
+Billing-->>Client : Success response
 ```
 
 **Diagram sources**
-- [subscription.py:162-367](file://app/backend/routes/subscription.py#L162-L367)
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [db_models.py:79-92](file://app/backend/models/db_models.py#L79-L92)
+- [billing.py:39-69](file://app/backend/routes/billing.py#L39-L69)
+- [factory.py:37-91](file://app/backend/services/billing/factory.py#L37-L91)
+- [stripe_provider.py:42-56](file://app/backend/services/billing/stripe_provider.py#L42-L56)
+- [razorpay_provider.py:42-60](file://app/backend/services/billing/razorpay_provider.py#L42-L60)
+- [manual_provider.py:31-45](file://app/backend/services/billing/manual_provider.py#L31-L45)
 
 ## Detailed Component Analysis
 
-### Endpoint: GET /api/subscription/plans
-Purpose: Retrieve all available subscription plans for display, including pricing, features, and limits.
+### Enhanced Subscription Endpoints
+The subscription system now integrates with the billing management system:
 
-- Authentication: Not required
-- Response: Array of plan objects
-  - id, name, display_name, description
-  - price_monthly, price_yearly, currency
-  - features (array of strings)
-  - limits (object with plan-specific numeric/string flags)
-
-Request
-- Method: GET
-- Path: /api/subscription/plans
-- Authentication: Not required
-
-Response
-- 200 OK: Array of plan objects
-- Schema: PlanResponse (fields defined in subscription routes)
-
-Notes
-- Plans are filtered by is_active and ordered by sort_order
-- Features and limits are parsed from JSON stored in the database
+#### GET /api/subscription/plans
+Retrieves available subscription plans with provider-specific pricing and features.
 
 **Section sources**
 - [subscription.py:162-169](file://app/backend/routes/subscription.py#L162-L169)
-- [subscription.py:25-35](file://app/backend/routes/subscription.py#L25-L35)
-- [003_subscription_system.py:119-225](file://alembic/versions/003_subscription_system.py#L119-L225)
 
-### Endpoint: GET /api/subscription
-Purpose: Retrieve full subscription details for the current tenant, including current plan, usage stats, available plans, and days until reset.
-
-- Authentication: Required
-- Response: FullSubscriptionResponse
-  - current_plan: CurrentPlanResponse
-    - plan: PlanResponse
-    - status, billing_cycle, current_period_start, current_period_end, price
-  - usage: UsageResponse
-    - analyses_used, analyses_limit, storage_used_mb, storage_limit_gb, team_members_count, team_members_limit, percent_used
-  - available_plans: Array of PlanResponse
-  - days_until_reset: Number of days until monthly reset
-
-Request
-- Method: GET
-- Path: /api/subscription
-- Authentication: Required (Bearer)
-
-Response
-- 200 OK: FullSubscriptionResponse
-- 401 Unauthorized: If not authenticated
-
-Processing logic
-- Loads tenant and plan, ensures monthly reset, calculates storage usage, determines billing cycle, builds usage stats, and lists available plans
+#### GET /api/subscription
+Enhanced to include billing provider information and subscription status from payment providers.
 
 **Section sources**
 - [subscription.py:172-253](file://app/backend/routes/subscription.py#L172-L253)
-- [subscription.py:37-61](file://app/backend/routes/subscription.py#L37-L61)
-- [subscription.py:72-158](file://app/backend/routes/subscription.py#L72-L158)
-- [subscription.py:117-144](file://app/backend/routes/subscription.py#L117-L144)
 
-### Endpoint: GET /api/subscription/check/{action}
-Purpose: Check if performing a specific action would exceed usage limits. Supports resume_analysis, batch_analysis, and storage_upload.
-
-- Authentication: Required
-- Path parameters:
-  - action: One of resume_analysis, batch_analysis, storage_upload
-- Query parameters:
-  - quantity: Number of items (default 1)
-- Response: UsageCheckResponse
-  - allowed: Boolean indicating if action is allowed
-  - current_usage: Current usage count for the relevant metric
-  - limit: Limit for the metric (negative for unlimited)
-  - message: Optional message explaining denial
-
-Supported actions
-- resume_analysis: Checks analyses_per_month limit
-- batch_analysis: Projects usage increase by quantity
-- storage_upload: Checks storage_gb limit (not counted against monthly limit)
+#### GET /api/subscription/check/{action}
+Usage checks now consider provider-specific limitations and billing cycles.
 
 **Section sources**
 - [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
-- [subscription.py:63-68](file://app/backend/routes/subscription.py#L63-L68)
 
-### Endpoint: GET /api/subscription/usage-history
-Purpose: Retrieve recent usage history for the tenant.
-
-- Authentication: Required
-- Query parameters:
-  - limit: Maximum number of logs to return (default 100)
-- Response: Array of usage log objects
-  - id, action, quantity, details, created_at, user_email
+#### GET /api/subscription/usage-history
+Enhanced usage tracking with provider-specific usage patterns.
 
 **Section sources**
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
-- [db_models.py:79-92](file://app/backend/models/db_models.py#L79-L92)
-
-### Admin Endpoints
-- POST /api/subscription/admin/reset-usage
-  - Resets analyses_count_this_month to 0 and updates usage_reset_at
-  - Requires admin role
-- POST /api/subscription/admin/change-plan/{plan_id}
-  - Changes tenant’s plan and updates billing period and status
-  - Requires admin role
 
 **Section sources**
-- [subscription.py:372-423](file://app/backend/routes/subscription.py#L372-L423)
+- [subscription.py:162-367](file://app/backend/routes/subscription.py#L162-L367)
 
-### Usage Enforcement Integration
-Usage enforcement occurs in analysis routes by calling the record_usage helper. After successful analysis, the system:
-- Ensures monthly reset
-- Checks plan limits
-- Increments analyses_count_this_month
-- Creates a usage log entry
+## Payment Provider System
 
-```mermaid
-sequenceDiagram
-participant Client as "Client"
-participant Analyze as "Analyze Route"
-participant Sub as "Subscription Routes"
-participant DB as "Database"
-Client->>Analyze : POST /api/analyze
-Analyze->>Sub : record_usage(db, tenant_id, user_id, "resume_analysis", quantity, details)
-Sub->>DB : Load tenant + plan
-Sub->>Sub : Ensure monthly reset
-Sub->>DB : Increment analyses_count_this_month
-Sub->>DB : Insert usage_log
-DB-->>Sub : Commit
-Sub-->>Analyze : True
-Analyze-->>Client : Analysis result
-```
-
-**Diagram sources**
-- [analyze.py:39](file://app/backend/routes/analyze.py#L39)
-- [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
-
-**Section sources**
-- [analyze.py:39](file://app/backend/routes/analyze.py#L39)
-- [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
-
-### Data Models and Schemas
-Subscription-related models and schemas:
+### Factory Pattern Implementation
+The payment provider system uses a factory pattern to dynamically instantiate the appropriate provider based on platform configuration:
 
 ```mermaid
 classDiagram
-class SubscriptionPlan {
-+int id
-+string name
-+string display_name
-+string description
-+string limits
-+int price_monthly
-+int price_yearly
-+string currency
-+string features
-+boolean is_active
-+int sort_order
+class PaymentProvider {
+<<abstract>>
++create_checkout_session() Dict
++cancel_subscription() Dict
++get_subscription_status() Dict
++handle_webhook_event() Dict
++provider_name : str
 }
-class Tenant {
-+int id
-+string name
-+string slug
-+int plan_id
-+string subscription_status
-+datetime current_period_start
-+datetime current_period_end
-+int analyses_count_this_month
-+bigint storage_used_bytes
-+datetime usage_reset_at
-+string stripe_customer_id
-+string stripe_subscription_id
-+datetime subscription_updated_at
+class StripeProvider {
++api_key : str
++webhook_secret : str
++create_checkout_session() Dict
++cancel_subscription() Dict
++get_subscription_status() Dict
++handle_webhook_event() Dict
 }
-class UsageLog {
-+int id
-+int tenant_id
-+int user_id
-+string action
-+int quantity
-+string details
-+datetime created_at
+class RazorpayProvider {
++key_id : str
++key_secret : str
++webhook_secret : str
++create_checkout_session() Dict
++cancel_subscription() Dict
++get_subscription_status() Dict
++handle_webhook_event() Dict
 }
-class PlanResponse {
-+int id
-+string name
-+string display_name
-+string description
-+int price_monthly
-+int price_yearly
-+string currency
-+string[] features
-+dict limits
+class ManualProvider {
++db : Session
++create_checkout_session() Dict
++cancel_subscription() Dict
++get_subscription_status() Dict
++handle_webhook_event() Dict
 }
-class UsageResponse {
-+int analyses_used
-+int analyses_limit
-+float storage_used_mb
-+int storage_limit_gb
-+int team_members_count
-+int team_members_limit
-+float percent_used
-}
-class FullSubscriptionResponse {
-+CurrentPlanResponse current_plan
-+UsageResponse usage
-+PlanResponse[] available_plans
-+int days_until_reset
-}
-Tenant --> SubscriptionPlan : "belongs to"
-UsageLog --> Tenant : "belongs to"
-UsageLog --> User : "belongs to"
+PaymentProvider <|-- StripeProvider
+PaymentProvider <|-- RazorpayProvider
+PaymentProvider <|-- ManualProvider
 ```
 
 **Diagram sources**
-- [db_models.py:11-92](file://app/backend/models/db_models.py#L11-L92)
-- [subscription.py:25-61](file://app/backend/routes/subscription.py#L25-L61)
+- [base.py:6-65](file://app/backend/services/billing/base.py#L6-L65)
+- [stripe_provider.py:12-100](file://app/backend/services/billing/stripe_provider.py#L12-L100)
+- [razorpay_provider.py:12-107](file://app/backend/services/billing/razorpay_provider.py#L12-L107)
+- [manual_provider.py:17-102](file://app/backend/services/billing/manual_provider.py#L17-L102)
+
+### Provider Configuration
+Each provider requires specific configuration keys stored in the platform configuration system:
 
 **Section sources**
-- [db_models.py:11-92](file://app/backend/models/db_models.py#L11-L92)
-- [schemas.py:344-379](file://app/backend/models/schemas.py#L344-L379)
-- [subscription.py:25-61](file://app/backend/routes/subscription.py#L25-L61)
+- [factory.py:14-34](file://app/backend/services/billing/factory.py#L14-L34)
+- [014_billing_system.py:38-48](file://alembic/versions/014_billing_system.py#L38-L48)
+
+## Billing Management Endpoints
+
+### Checkout Session Creation
+The `/api/billing/checkout` endpoint creates provider-specific checkout sessions:
+
+**Endpoint**: POST `/api/billing/checkout`
+**Authentication**: Required (Bearer)
+**Request Body**:
+```json
+{
+  "plan": "string",
+  "success_url": "string",
+  "cancel_url": "string"
+}
+```
+
+**Response**: Provider-specific checkout session data
+- **Stripe**: `{ session_id, url, provider }`
+- **Razorpay**: `{ order_id, key_id, provider }`
+- **Manual**: `{ reference_id, provider, message }`
+
+**Section sources**
+- [billing.py:39-53](file://app/backend/routes/billing.py#L39-L53)
+- [stripe_provider.py:42-56](file://app/backend/services/billing/stripe_provider.py#L42-L56)
+- [razorpay_provider.py:42-60](file://app/backend/services/billing/razorpay_provider.py#L42-L60)
+- [manual_provider.py:31-45](file://app/backend/services/billing/manual_provider.py#L31-L45)
+
+### Webhook Processing
+The `/api/billing/webhook` endpoint processes incoming webhook events from payment providers:
+
+**Endpoint**: POST `/api/billing/webhook`
+**Authentication**: Not required (provider validates signature)
+**Headers**: `X-Signature: string`
+**Response**: Normalized webhook event data with provider identification
+
+**Section sources**
+- [billing.py:56-69](file://app/backend/routes/billing.py#L56-L69)
+- [stripe_provider.py:86-100](file://app/backend/services/billing/stripe_provider.py#L86-L100)
+- [razorpay_provider.py:89-107](file://app/backend/services/billing/razorpay_provider.py#L89-L107)
+- [manual_provider.py:91-102](file://app/backend/services/billing/manual_provider.py#L91-L102)
+
+### Subscription Status Monitoring
+The `/api/billing/subscription/{tenant_id}` endpoint retrieves subscription status:
+
+**Endpoint**: GET `/api/billing/subscription/{tenant_id}`
+**Authentication**: Required (admin or same-tenant access)
+**Response**: `{ subscription_id, status, current_period_end, provider }`
+
+**Section sources**
+- [billing.py:72-90](file://app/backend/routes/billing.py#L72-L90)
+- [stripe_provider.py:72-84](file://app/backend/services/billing/stripe_provider.py#L72-L84)
+- [razorpay_provider.py:75-87](file://app/backend/services/billing/razorpay_provider.py#L75-L87)
+- [manual_provider.py:66-89](file://app/backend/services/billing/manual_provider.py#L66-L89)
+
+### Subscription Cancellation
+The `/api/billing/cancel/{tenant_id}` endpoint cancels subscriptions:
+
+**Endpoint**: POST `/api/billing/cancel/{tenant_id}`
+**Authentication**: Required (admin or same-tenant access)
+**Response**: Provider-specific cancellation result
+
+**Section sources**
+- [billing.py:93-112](file://app/backend/routes/billing.py#L93-L112)
+- [stripe_provider.py:58-70](file://app/backend/services/billing/stripe_provider.py#L58-L70)
+- [razorpay_provider.py:62-73](file://app/backend/services/billing/razorpay_provider.py#L62-L73)
+- [manual_provider.py:47-64](file://app/backend/services/billing/manual_provider.py#L47-L64)
+
+## Platform Configuration Management
+
+### Billing Configuration Endpoints
+Administrators can manage billing provider configurations through dedicated endpoints:
+
+**Endpoint**: GET `/api/admin/billing/config`
+**Response**: Current billing configuration with sensitive values masked
+
+**Endpoint**: PUT `/api/admin/billing/config`
+**Request Body**: `{ active_provider: string, configs: object }`
+**Response**: Confirmation of configuration update
+
+**Endpoint**: GET `/api/admin/billing/providers`
+**Response**: Available providers with required configuration fields
+
+**Section sources**
+- [admin.py:946-1066](file://app/backend/routes/admin.py#L946-L1066)
+
+### Configuration Storage
+Billing configurations are stored in the `platform_configs` table with the following structure:
+- `config_key`: Unique identifier (e.g., "billing.active_provider")
+- `config_value`: Configuration value (masked for sensitive data)
+- `description`: Human-readable description
+- `updated_at`: Timestamp of last modification
+- `updated_by`: User who made the change
+
+**Section sources**
+- [db_models.py:367-378](file://app/backend/models/db_models.py#L367-L378)
+- [014_billing_system.py:38-48](file://alembic/versions/014_billing_system.py#L38-L48)
 
 ## Dependency Analysis
-- Routes depend on models and schemas for data representation
-- Usage enforcement depends on subscription routes’ record_usage helper
-- Frontend hooks depend on subscription endpoints for usage checks and status
-- Migration adds subscription and usage tracking columns to tenants and creates usage logs table
+The enhanced system introduces new dependencies and relationships:
 
 ```mermaid
 graph TB
-Sub["subscription.py"] --> DBM["db_models.py"]
-Sub --> SCH["schemas.py"]
-Sub --> AUT["auth.py"]
-Ana["analyze.py"] --> SUB["subscription.py"]
+subgraph "Billing Dependencies"
+BILL["billing.py"] --> FACT["factory.py"]
+FACT --> BASE["base.py"]
+FACT --> STR["stripe_provider.py"]
+FACT --> RZP["razorpay_provider.py"]
+FACT --> MAN["manual_provider.py"]
+BILL --> ADMIN["admin.py"]
+END
+SUB["subscription.py"] --> BILL
+WEB["webhook_service.py"] --> BILL
+MIG["014_billing_system.py"] --> DBM["db_models.py"]
+MAIN["main.py"] --> BILL
+AUTH["auth.py"] --> BILL
+ANA["analyze.py"] --> SUB
 FE["useSubscription.jsx"] --> SUB
-MIG["003_subscription_system.py"] --> DBM
 ```
 
 **Diagram sources**
-- [subscription.py:16-20](file://app/backend/routes/subscription.py#L16-L20)
-- [db_models.py:11-92](file://app/backend/models/db_models.py#L11-L92)
-- [schemas.py:344-379](file://app/backend/models/schemas.py#L344-L379)
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [analyze.py:39](file://app/backend/routes/analyze.py#L39)
-- [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
-- [003_subscription_system.py:43-252](file://alembic/versions/003_subscription_system.py#L43-L252)
+- [billing.py:1-113](file://app/backend/routes/billing.py#L1-L113)
+- [factory.py:1-91](file://app/backend/services/billing/factory.py#L1-L91)
+- [admin.py:940-1119](file://app/backend/routes/admin.py#L940-L1119)
+- [subscription.py:162-367](file://app/backend/routes/subscription.py#L162-L367)
+- [webhook_service.py:1-138](file://app/backend/services/webhook_service.py#L1-L138)
+- [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
+- [main.py:76](file://app/backend/main.py#L76)
 
 **Section sources**
-- [subscription.py:16-20](file://app/backend/routes/subscription.py#L16-L20)
-- [db_models.py:11-92](file://app/backend/models/db_models.py#L11-L92)
-- [schemas.py:344-379](file://app/backend/models/schemas.py#L344-L379)
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [analyze.py:39](file://app/backend/routes/analyze.py#L39)
-- [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
-- [003_subscription_system.py:43-252](file://alembic/versions/003_subscription_system.py#L43-L252)
+- [billing.py:1-113](file://app/backend/routes/billing.py#L1-L113)
+- [factory.py:1-91](file://app/backend/services/billing/factory.py#L1-L91)
+- [admin.py:940-1119](file://app/backend/routes/admin.py#L940-L1119)
+- [subscription.py:162-367](file://app/backend/routes/subscription.py#L162-L367)
+- [webhook_service.py:1-138](file://app/backend/services/webhook_service.py#L1-L138)
+- [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
+- [main.py:76](file://app/backend/main.py#L76)
 
 ## Performance Considerations
-- Monthly reset logic compares timestamps and resets counters once per month; ensure timezone-aware timestamps for correctness
-- Storage usage calculation aggregates text lengths and snapshot JSON lengths; consider indexing and caching strategies for large datasets
-- Usage logs are indexed by tenant and created_at; ensure appropriate indexing for high-volume environments
-- Frontend caches subscription data for short intervals to reduce API calls
+The enhanced system introduces several performance considerations:
 
-[No sources needed since this section provides general guidance]
+### Provider Selection Optimization
+- **Configuration Caching**: Payment provider configuration should be cached to avoid repeated database queries
+- **Lazy Loading**: Providers are instantiated only when needed to minimize memory usage
+- **Connection Pooling**: External provider APIs should use connection pooling for better performance
+
+### Webhook Processing
+- **Asynchronous Handling**: Webhook events are processed asynchronously to avoid blocking requests
+- **Retry Logic**: Built-in retry mechanisms with exponential backoff for failed deliveries
+- **Failure Thresholds**: Automatic disabling of webhooks after excessive failures
+
+### Usage Tracking Integration
+- **Batch Operations**: Usage logs are batched and committed efficiently
+- **Indexing Strategy**: Proper indexing on tenant_id and created_at for fast queries
+- **Memory Management**: Large usage histories are paginated to prevent memory issues
 
 ## Troubleshooting Guide
-Common issues and resolutions:
-- Authentication failures: Ensure Bearer token is included in Authorization header for protected endpoints
-- Usage limit exceeded: Use GET /api/subscription/check/{action} to verify limits before performing actions
-- Monthly reset not occurring: Verify usage_reset_at is set and monthly boundary logic; ensure UTC timezone
-- Storage limit checks: storage_upload action does not count against monthly limit; use storage_gb limit for total storage
-- Admin operations: Ensure user has admin role for admin endpoints
 
-Validation and tests
-- Tests cover plan retrieval, subscription status, usage checks, usage history, admin reset, and admin plan change
-- Integration tests validate usage enforcement in analyze endpoints and batch operations
+### Payment Provider Issues
+- **Provider Not Configured**: Check `/api/admin/billing/config` for proper configuration
+- **Missing Dependencies**: Install required packages (stripe, razorpay) for respective providers
+- **API Key Errors**: Verify API keys are correctly stored in platform configuration
+
+### Webhook Processing Problems
+- **Signature Verification**: Ensure X-Signature header is present for webhook validation
+- **Event Delivery**: Check webhook delivery logs for failed attempts
+- **Provider-Specific Issues**: Review provider documentation for event format differences
+
+### Subscription Management
+- **Status Synchronization**: Manual provider requires manual status updates
+- **Cancellation Effects**: Verify subscription cancellation affects usage tracking
+- **Provider Migration**: When changing providers, ensure proper data migration
+
+### Configuration Management
+- **Sensitive Data Masking**: Configuration values are automatically masked in API responses
+- **Validation Errors**: Provider names must match registry entries exactly
+- **Audit Trail**: All configuration changes are logged for security auditing
 
 **Section sources**
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
-- [test_subscription.py:12-384](file://app/backend/tests/test_subscription.py#L12-L384)
-- [test_usage_enforcement.py:53-606](file://app/backend/tests/test_usage_enforcement.py#L53-L606)
+- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-L328)
+- [admin.py:946-1066](file://app/backend/routes/admin.py#L946-L1066)
+- [factory.py:37-91](file://app/backend/services/billing/factory.py#L37-L91)
 
 ## Conclusion
-The subscription and billing system provides a robust foundation for managing plans, enforcing usage limits, and tracking consumption. Public endpoints expose plan details and current status, while admin endpoints enable operational controls. Usage enforcement integrates with analysis routes to maintain accurate counters and logs. The frontend hooks facilitate client-side checks and optimistic updates for a responsive user experience.
+The enhanced subscription and billing system provides a comprehensive, extensible foundation for payment processing and subscription management. The factory pattern-based architecture supports multiple payment providers seamlessly, while the centralized configuration system enables easy provider switching and management. The integration with usage tracking ensures accurate billing and resource management, while the webhook processing system maintains real-time synchronization with payment providers. This system provides the foundation for scalable subscription-based services with flexible payment processing capabilities.

@@ -27,6 +27,15 @@
 - [test_routes_phase2.py](file://app/backend/tests/test_routes_phase2.py)
 - [test_usage_enforcement.py](file://app/backend/tests/test_usage_enforcement.py)
 - [test_llm_json_parse.py](file://app/backend/tests/test_llm_json_parse.py)
+- [test_admin_api.py](file://app/backend/tests/test_admin_api.py)
+- [test_admin_metrics.py](file://app/backend/tests/test_admin_metrics.py)
+- [test_billing.py](file://app/backend/tests/test_billing.py)
+- [test_email_service.py](file://app/backend/tests/test_email_service.py)
+- [test_feature_flags.py](file://app/backend/tests/test_feature_flags.py)
+- [test_quota_enforcement.py](file://app/backend/tests/test_quota_enforcement.py)
+- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
+- [test_tenant_suspension.py](file://app/backend/tests/test_tenant_suspension.py)
+- [test_webhooks.py](file://app/backend/tests/test_webhooks.py)
 - [run-full-tests.sh](file://scripts/run-full-tests.sh)
 - [run-full-tests.bat](file://scripts/run-full-tests.bat)
 - [test-locally.ps1](file://test-locally.ps1)
@@ -51,10 +60,10 @@
 
 ## Update Summary
 **Changes Made**
-- Removed references to dropped PDF header validation enhancements for batch processing pipeline
-- Updated batch analysis testing documentation to reflect current validation mechanisms
-- Clarified that test suite maintains comprehensive coverage for batch analysis, streaming functionality, and validation mechanisms without the specific PDF header validation scenarios
-- Updated test data fixtures documentation to exclude DOCX header-based test patterns
+- Added comprehensive test suites for administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, and webhooks
+- Expanded backend test coverage from 73+ tests to substantially more tests covering new administrative and billing functionality
+- Enhanced test infrastructure with specialized fixtures for administrative operations and billing providers
+- Updated testing strategy to include comprehensive coverage of administrative controls, billing integrations, and operational monitoring
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -71,26 +80,27 @@
 ## Introduction
 This document defines a comprehensive testing strategy for Resume AI by ThetaLogics. It covers backend testing with pytest, frontend testing with Vitest and React Testing Library, API and integration testing patterns, test configuration and mocking, test data management, performance testing, end-to-end workflows, continuous integration with GitHub Actions, and best practices for writing maintainable tests.
 
-**Updated** The test suite now focuses on comprehensive batch analysis validation, streaming functionality, and core validation mechanisms without the specific PDF header validation enhancements that were previously included. The suite maintains robust coverage for all major components while ensuring test reliability and maintainability.
+**Updated** The test suite has been substantially expanded to include comprehensive coverage of administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, and webhooks. The expanded testing infrastructure ensures robust validation of the new administrative and billing functionality with 73+ existing tests plus numerous new test suites covering critical operational aspects.
 
 ## Project Structure
-The repository organizes tests by domain with a comprehensive test suite:
-- Backend: extensive tests under app/backend/tests/ covering all major components with shared fixtures in conftest.py
+The repository organizes tests by domain with a substantially expanded test suite:
+- Backend: extensive tests under app/backend/tests/ covering all major components with shared fixtures in conftest.py, now including administrative APIs, billing systems, and operational monitoring
 - Frontend: component and integration tests under app/frontend/src/__tests__/ using Vitest and React Testing Library
 - CI/CD: GitHub Actions workflows for automated test execution and deployment
 
 ```mermaid
 graph TB
-subgraph "Backend Test Suite (73+ tests)"
+subgraph "Backend Test Suite (150+ tests)"
 B1["pytest"]
 B2["FastAPI TestClient"]
 B3["SQLAlchemy in-memory DB"]
 B4["Shared fixtures in conftest.py"]
-B5["LLM Service Tests"]
-B6["Pipeline Tests"]
-B7["Service Layer Tests"]
-B8["Integration Tests"]
-B9["Queue System Tests"]
+B5["Administrative API Tests"]
+B6["Billing System Tests"]
+B7["Email Service Tests"]
+B8["Feature Flag Tests"]
+B9["Operational Monitoring Tests"]
+B10["Queue System Tests"]
 end
 subgraph "Frontend Test Suite"
 F1["Vitest"]
@@ -109,6 +119,7 @@ B1 --> B6
 B1 --> B7
 B1 --> B8
 B1 --> B9
+B1 --> B10
 F1 --> F2
 F1 --> F3
 C1 --> B1
@@ -121,7 +132,10 @@ C2 --> F1
 - [ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 - [conftest.py:1-718](file://app/backend/tests/conftest.py#L1-L718)
-- [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
+- [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
+- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
+- [test_email_service.py:1-232](file://app/backend/tests/test_email_service.py#L1-232)
+- [test_feature_flags.py:1-233](file://app/backend/tests/test_feature_flags.py#L1-233)
 
 **Section sources**
 - [ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
@@ -137,6 +151,13 @@ C2 --> F1
   - Specialized fixtures for LLM service testing, pipeline validation, and error scenarios
   - **Enhanced**: Sophisticated queue system database infrastructure with custom table creation/destruction
   - **Enhanced**: AsyncMock-based queue worker mocking to prevent database access during tests
+  - **New**: Administrative API fixtures for tenant management and billing operations
+  - **New**: Billing provider fixtures for Stripe, Razorpay, and manual payment processing
+  - **New**: Email service fixtures for SMTP configuration and notification testing
+  - **New**: Feature flag fixtures for tenant overrides and permission testing
+  - **New**: Quota enforcement fixtures for subscription plan validation
+  - **New**: Rate limiting fixtures for API throttling and abuse prevention
+  - **New**: Webhook fixtures for payment processor event handling
 - Frontend test harness
   - Global setup for DOM matchers
   - Mocked axios with explicit request/response spies
@@ -144,7 +165,7 @@ C2 --> F1
   - Component tests for UploadForm, ResultCard, ScoreGauge, VideoPage
   - API module tests validating request shapes and behaviors
 
-**Updated** The test suite now emphasizes comprehensive batch analysis validation and streaming functionality without the specific PDF header validation enhancements. Test coverage remains robust across all major components with particular focus on error handling, retry mechanisms, and background task processing.
+**Updated** The test suite now emphasizes comprehensive coverage of administrative operations, billing integrations, and operational monitoring without compromising the existing batch analysis validation and streaming functionality. Test coverage remains robust across all major components with particular focus on error handling, retry mechanisms, and background task processing.
 
 **Section sources**
 - [conftest.py:1-718](file://app/backend/tests/conftest.py#L1-L718)
@@ -152,17 +173,22 @@ C2 --> F1
 - [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
 
 ## Architecture Overview
-The testing architecture separates concerns across layers with comprehensive coverage:
+The testing architecture separates concerns across layers with substantially expanded coverage:
 - Unit tests for backend services and routes using pytest fixtures and mocked dependencies
 - Component and integration tests for frontend using Vitest and React Testing Library
 - CI/CD pipelines that run backend and frontend tests in parallel and upload coverage
 - Specialized testing for LLM services, pipelines, and background task processing
 - **Enhanced**: Comprehensive queue system testing with dedicated database infrastructure
+- **New**: Administrative API testing with tenant management and billing operations
+- **New**: Billing system testing with provider abstraction and webhook handling
+- **New**: Email service testing with SMTP configuration and notification delivery
+- **New**: Feature flag testing with tenant overrides and permission enforcement
+- **New**: Operational monitoring testing with quota enforcement and rate limiting
 
 ```mermaid
 sequenceDiagram
 participant GH as "GitHub Actions"
-participant Py as "pytest (backend - 73+ tests)"
+participant Py as "pytest (backend - 150+ tests)"
 participant VT as "Vitest (frontend)"
 participant Cov as "Codecov"
 GH->>Py : "Run comprehensive backend tests"
@@ -178,7 +204,7 @@ VT-->>GH : "Test results"
 
 ## Detailed Component Analysis
 
-### Backend Testing with pytest - Comprehensive Test Suite
+### Backend Testing with pytest - Substantially Expanded Test Suite
 Key patterns with expanded coverage:
 - Database isolation using an in-memory SQLite engine and per-test metadata creation/drop
 - **Enhanced**: Sophisticated queue table creation using raw SQL to avoid FK resolution issues
@@ -186,10 +212,14 @@ Key patterns with expanded coverage:
 - Authentication fixtures that register/log in users and attach Authorization headers
 - Service-level mocks for external integrations (Ollama, Whisper, hybrid pipeline)
 - Subscription system fixtures for seeding plans and simulating usage limits
-- **New**: LLM service testing with specialized fixtures for JSON parsing and error handling
-- **New**: Pipeline testing covering hybrid and agent pipeline validation
-- **New**: Transcript service and video processing comprehensive testing
-- **New**: Background task and retry mechanism testing
+- **New**: Administrative API testing with comprehensive tenant management validation
+- **New**: Billing system testing with provider abstraction and webhook processing
+- **New**: Email service testing with SMTP configuration and notification delivery
+- **New**: Feature flag testing with tenant overrides and permission enforcement
+- **New**: Quota enforcement testing with subscription plan validation
+- **New**: Rate limiting testing with API throttling and abuse prevention
+- **New**: Tenant suspension testing with audit logging and recovery workflows
+- **New**: Webhook testing with payment processor event handling
 - **Enhanced**: Queue system testing with comprehensive database schema support
 
 Representative fixtures and expanded test coverage:
@@ -198,9 +228,13 @@ Representative fixtures and expanded test coverage:
 - Auth fixtures: register and login users; return clients with Authorization headers
 - Mocks: Ollama communication/malpractice/transcript/email; Whisper transcription; hybrid pipeline
 - Subscription fixtures: seed plans, assign plans to tenants, enforce usage limits
-- **New**: LLM service fixtures for JSON parsing validation and error scenarios
-- **New**: Pipeline fixtures for hybrid and agent pipeline testing
-- **New**: Transcript and video processing fixtures with comprehensive mocking
+- **New**: Administrative fixtures for tenant CRUD operations and billing management
+- **New**: Billing fixtures for provider configuration and webhook validation
+- **New**: Email fixtures for SMTP settings and notification testing
+- **New**: Feature flag fixtures for tenant overrides and permission testing
+- **New**: Quota enforcement fixtures for subscription plan validation
+- **New**: Rate limiting fixtures for API throttling and abuse prevention
+- **New**: Webhook fixtures for payment processor event handling
 - **Enhanced**: Queue system fixtures with AsyncMock-based worker mocking
 
 ```mermaid
@@ -209,7 +243,15 @@ Start(["Test starts"]) --> DB["Create in-memory DB tables<br/>including queue ta
 DB --> Client["Initialize TestClient and override dependencies"]
 Client --> Auth["Authenticate via register/login and inject headers"]
 Auth --> Mocks["Patch external services with AsyncMock/MagicMock"]
-Mocks --> Queue["Mock queue workers with AsyncMock"]
+Mocks --> Admin["Test administrative APIs"]
+Admin --> Billing["Test billing providers"]
+Billing --> Email["Test email notifications"]
+Email --> Flags["Test feature flags"]
+Flags --> Quota["Test quota enforcement"]
+Quota --> Rate["Test rate limiting"]
+Rate --> Suspension["Test tenant suspension"]
+Suspension --> Webhooks["Test webhook processing"]
+Webhooks --> Queue["Mock queue workers with AsyncMock"]
 Queue --> LLM["Test LLM service layer"]
 LLM --> Pipelines["Test hybrid/agent pipelines"]
 Pipelines --> Services["Test analysis/transcript/video services"]
@@ -222,6 +264,14 @@ Cleanup --> End(["Test ends"])
 **Diagram sources**
 - [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
 - [test_api.py:23-100](file://app/backend/tests/test_api.py#L23-L100)
+- [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
+- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
+- [test_email_service.py:1-232](file://app/backend/tests/test_email_service.py#L1-232)
+- [test_feature_flags.py:1-233](file://app/backend/tests/test_feature_flags.py#L1-233)
+- [test_quota_enforcement.py:1-240](file://app/backend/tests/test_quota_enforcement.py#L1-240)
+- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
+- [test_tenant_suspension.py](file://app/backend/tests/test_tenant_suspension.py)
+- [test_webhooks.py](file://app/backend/tests/test_webhooks.py)
 
 **Section sources**
 - [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
@@ -234,6 +284,15 @@ Cleanup --> End(["Test ends"])
 - [test_analysis_service.py](file://app/backend/tests/test_analysis_service.py)
 - [test_transcript_service.py](file://app/backend/tests/test_transcript_service.py)
 - [test_video_service.py](file://app/backend/tests/test_video_service.py)
+- [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
+- [test_admin_metrics.py:1-159](file://app/backend/tests/test_admin_metrics.py#L1-159)
+- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
+- [test_email_service.py:1-232](file://app/backend/tests/test_email_service.py#L1-232)
+- [test_feature_flags.py:1-233](file://app/backend/tests/test_feature_flags.py#L1-233)
+- [test_quota_enforcement.py:1-240](file://app/backend/tests/test_quota_enforcement.py#L1-240)
+- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
+- [test_tenant_suspension.py](file://app/backend/tests/test_tenant_suspension.py)
+- [test_webhooks.py](file://app/backend/tests/test_webhooks.py)
 
 ### Frontend Testing with Vitest and React Testing Library
 Key patterns with enhanced component coverage:
@@ -275,7 +334,7 @@ Comp-->>Test : "DOM updates observed"
 - [VideoPage.test.jsx:1-377](file://app/frontend/src/__tests__/VideoPage.test.jsx#L1-L377)
 - [api.js:1-395](file://app/frontend/src/lib/api.js#L1-L395)
 
-### API Testing Strategies - Expanded Coverage
+### API Testing Strategies - Substantially Expanded Coverage
 Backend API tests now validate comprehensive endpoint coverage:
 - Root and health endpoints
 - Authentication endpoints (register, login, refresh, profile)
@@ -283,9 +342,15 @@ Backend API tests now validate comprehensive endpoint coverage:
 - History and comparison endpoints
 - Video analysis endpoints (upload and URL-based)
 - Subscription endpoints (plans, usage checks, history, admin controls)
-- **New**: Transcript analysis endpoints with comprehensive validation
-- **New**: Background task and retry mechanism endpoints
-- **New**: Usage enforcement and rate limiting endpoints
+- **New**: Administrative API endpoints (tenant management, billing configuration)
+- **New**: Billing system endpoints (checkout, webhook, subscription status)
+- **New**: Email notification endpoints (SMTP configuration, test emails)
+- **New**: Feature flag endpoints (global flags, tenant overrides)
+- **New**: Operational monitoring endpoints (metrics, usage trends)
+- **New**: Quota enforcement endpoints (usage validation, limit checking)
+- **New**: Rate limiting endpoints (API throttling, abuse prevention)
+- **New**: Tenant suspension endpoints (suspend/reactivate operations)
+- **New**: Webhook processing endpoints (payment events, status updates)
 - **Enhanced**: Queue system endpoints with comprehensive testing
 
 Frontend API tests validate:
@@ -314,16 +379,20 @@ F --> G["Assert status and payload"]
 - [test_api.py:1-153](file://app/backend/tests/test_api.py#L1-L153)
 - [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
 
-### Integration Testing Approaches - Comprehensive Coverage
+### Integration Testing Approaches - Substantially Expanded Coverage
 Backend integration tests now cover:
 - Use TestClient to exercise routes with real app wiring
 - Override database dependency to use in-memory SQLite
 - Use auth fixtures to simulate logged-in users
 - Mock external services to keep tests deterministic
-- **New**: LLM service integration testing with error handling scenarios
-- **New**: Pipeline integration testing with retry mechanisms
-- **New**: Background task processing validation
-- **New**: Subscription and usage enforcement integration
+- **New**: Administrative API integration testing with tenant management
+- **New**: Billing system integration testing with provider abstractions
+- **New**: Email service integration testing with SMTP configuration
+- **New**: Feature flag integration testing with tenant overrides
+- **New**: Quota enforcement integration testing with subscription validation
+- **New**: Rate limiting integration testing with API throttling
+- **New**: Tenant suspension integration testing with audit logging
+- **New**: Webhook integration testing with payment processor events
 - **Enhanced**: Queue system integration testing with comprehensive database support
 
 Frontend integration tests:
@@ -338,13 +407,18 @@ Frontend integration tests:
 - [conftest.py:32-42](file://app/backend/tests/conftest.py#L32-L42)
 - [VideoPage.test.jsx:1-377](file://app/frontend/src/__tests__/VideoPage.test.jsx#L1-L377)
 
-### Test Configuration and Mock Services - Enhanced Infrastructure
+### Test Configuration and Mock Services - Substantially Enhanced Infrastructure
 Backend:
 - PYTHONPATH set in CI to resolve imports
 - pytest-cov enabled for comprehensive coverage reporting
 - Shared fixtures centralize DB setup, auth, and service mocks
-- **New**: Specialized fixtures for LLM service testing and pipeline validation
-- **New**: Enhanced error handling and retry mechanism testing infrastructure
+- **New**: Specialized fixtures for administrative API testing and tenant management
+- **New**: Enhanced fixtures for billing provider testing and webhook validation
+- **New**: Comprehensive fixtures for email service testing and SMTP configuration
+- **New**: Feature flag fixtures for tenant overrides and permission testing
+- **New**: Quota enforcement fixtures for subscription plan validation
+- **New**: Rate limiting fixtures for API throttling and abuse prevention
+- **New**: Webhook fixtures for payment processor event handling
 - **Enhanced**: Sophisticated queue system database infrastructure with AsyncMock-based worker mocking
 
 Frontend:
@@ -357,15 +431,20 @@ Frontend:
 - [package.json:6-12](file://app/frontend/package.json#L6-L12)
 - [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
 
-### Test Data Management - Comprehensive Coverage
+### Test Data Management - Substantially Enhanced Coverage
 Backend:
 - Sample resume text and job description fixtures
 - Minimal MP4 bytes for file-type validation
 - Transcript fixtures (VTT, SRT, plain text)
 - Subscription plan fixtures with seeded limits and features
-- **New**: LLM service test data with JSON parsing scenarios
-- **New**: Pipeline test data with error conditions and edge cases
-- **New**: Transcript and video processing test fixtures
+- **New**: Administrative test data with tenant management scenarios
+- **New**: Billing test data with provider configurations and webhook events
+- **New**: Email service test data with SMTP settings and notification templates
+- **New**: Feature flag test data with tenant overrides and permission scenarios
+- **New**: Quota enforcement test data with subscription plan validation
+- **New**: Rate limiting test data with API throttling scenarios
+- **New**: Tenant suspension test data with audit logging scenarios
+- **New**: Webhook test data with payment processor events
 - **Enhanced**: Queue system test data with comprehensive job/result structures
 - **Updated**: Test data fixtures now use DOCX header patterns for validation testing
 
@@ -380,65 +459,298 @@ Frontend:
 - [conftest.py:294-421](file://app/backend/tests/conftest.py#L294-L421)
 - [VideoPage.test.jsx:28-86](file://app/frontend/src/__tests__/VideoPage.test.jsx#L28-L86)
 
-### Batch Analysis Testing - Updated Validation Mechanisms
-**Updated Section**: The batch analysis testing infrastructure has been updated to reflect the removal of PDF header validation enhancements:
+### Administrative API Testing - New Comprehensive Coverage
+**New Section**: The expanded test suite now includes comprehensive administrative API testing:
 
-#### Core Validation Mechanisms
-The batch analysis endpoints implement comprehensive validation through:
-- File size validation (maximum 10MB per file)
-- Extension filtering using ALLOWED_EXTENSIONS
-- Magic-byte signature validation via `_validate_file_content()`
-- Job description validation (length and size checks)
-- Tenant plan limits and usage enforcement
+#### Administrative API Test Coverage
+The administrative API tests validate:
+- **Permission enforcement**: Regular users receive 403 on all admin endpoints
+- **Tenant management**: Listing, searching, and filtering tenants with pagination
+- **Tenant detail retrieval**: Full tenant information with users and usage logs
+- **Tenant lifecycle management**: Suspend and reactivate operations with audit logging
+- **Plan management**: Changing tenant subscription plans with audit trails
+- **Usage adjustment**: Modifying analyses count and storage usage
+- **Usage history**: Retrieving tenant usage logs with filtering
+- **Audit logging**: Comprehensive audit trail validation
+- **Metrics reporting**: Platform-wide analytics and usage trends
 
-#### File Content Validation
-The `_validate_file_content()` function provides robust validation:
-- Magic-byte signature matching for binary formats
-- Heuristic detection for .txt files to prevent binary content
-- Comprehensive signature table support for PDF, DOCX, DOC, TXT, RTF, ODT
-- Detailed error reporting for validation failures
-
-#### Batch Processing Flow
-The batch processing flow includes:
-1. File discovery and assembly from chunk storage
-2. Content validation using magic-byte signatures
-3. Size and extension filtering
-4. Concurrent processing with semaphore control
-5. Usage tracking and plan limit enforcement
-6. Result ranking and failure handling
+#### Administrative API Testing Patterns
+Key testing patterns include:
+- **Permission testing**: Verifying 403 responses for unauthorized access attempts
+- **Data validation**: Ensuring proper response structures and field presence
+- **Audit logging**: Verifying audit trail creation for administrative actions
+- **Business logic validation**: Testing tenant lifecycle and plan management workflows
+- **Integration testing**: Validating administrative endpoints with real database operations
 
 ```mermaid
 flowchart TD
-Start(["Batch Request"]) --> ValidateJD["Validate Job Description"]
-ValidateJD --> DiscoverFiles["Discover Assembled Files"]
-DiscoverFiles --> ReadContent["Read File Content"]
-ReadContent --> SizeCheck{"Size ≤ 10MB?"}
-SizeCheck --> |No| FailSize["Add to Failed Items"]
-SizeCheck --> |Yes| ExtCheck{"Allowed Extension?"}
-ExtCheck --> |No| FailExt["Add to Failed Items"]
-ExtCheck --> |Yes| MagicCheck["Magic-byte Validation"]
-MagicCheck --> |Fail| FailMagic["Add to Failed Items"]
-MagicCheck --> |Pass| Process["Process File"]
-Process --> Success["Add to Success List"]
-FailSize --> Aggregate["Aggregate Results"]
-FailExt --> Aggregate
-FailMagic --> Aggregate
-Success --> Aggregate
-Aggregate --> UsageCheck["Check Usage Limits"]
-UsageCheck --> PlanLimit{"Within Plan Limits?"}
-PlanLimit --> |No| FailPlan["Raise HTTPException"]
-PlanLimit --> |Yes| SaveResults["Save Results"]
-SaveResults --> RankResults["Rank by Fit Score"]
-RankResults --> Return["Return Batch Response"]
+AdminTests["Administrative API Tests"] --> Permissions["Permission Enforcement Tests"]
+AdminTests --> Tenants["Tenant Management Tests"]
+AdminTests --> Plans["Plan Management Tests"]
+AdminTests --> Usage["Usage Adjustment Tests"]
+AdminTests --> Metrics["Metrics & Analytics Tests"]
+Permissions --> Unauthorized["403 for Non-Admin Users"]
+Tenants --> CRUD["Tenant CRUD Operations"]
+Tenants --> Search["Search & Filter Functionality"]
+Plans --> Lifecycle["Plan Change Lifecycle"]
+Usage --> Adjustment["Usage Adjustment Validation"]
+Metrics --> Reporting["Metrics & Trends Reporting"]
 ```
 
 **Diagram sources**
-- [analyze.py:1105-1286](file://app/backend/routes/analyze.py#L1105-L1286)
-- [analyze.py:69-129](file://app/backend/routes/analyze.py#L69-L129)
+- [test_admin_api.py:43-75](file://app/backend/tests/test_admin_api.py#L43-75)
+- [test_admin_api.py:79-128](file://app/backend/tests/test_admin_api.py#L79-128)
+- [test_admin_api.py:156-226](file://app/backend/tests/test_admin_api.py#L156-226)
+- [test_admin_api.py:230-274](file://app/backend/tests/test_admin_api.py#L230-274)
+- [test_admin_api.py:278-351](file://app/backend/tests/test_admin_api.py#L278-351)
+- [test_admin_metrics.py:27-114](file://app/backend/tests/test_admin_metrics.py#L27-114)
+- [test_admin_metrics.py:116-159](file://app/backend/tests/test_admin_metrics.py#L116-159)
 
 **Section sources**
-- [analyze.py:1105-1286](file://app/backend/routes/analyze.py#L1105-L1286)
-- [analyze.py:69-129](file://app/backend/routes/analyze.py#L69-L129)
+- [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
+- [test_admin_metrics.py:1-159](file://app/backend/tests/test_admin_metrics.py#L1-159)
+
+### Billing System Testing - New Comprehensive Provider Coverage
+**New Section**: The expanded test suite includes comprehensive billing system testing:
+
+#### Billing Provider Testing
+The billing system tests validate:
+- **Manual provider**: Reference ID creation, subscription cancellation, and webhook handling
+- **Factory pattern**: Provider selection based on configuration with fallback mechanisms
+- **Stripe provider**: Provider name validation and error handling for missing dependencies
+- **Razorpay provider**: Provider name validation and error handling for missing dependencies
+- **Configuration management**: Admin endpoints for billing configuration and provider setup
+- **Route integration**: Checkout sessions, webhook processing, and subscription status checking
+
+#### Billing Integration Testing
+Key integration patterns include:
+- **Provider abstraction**: Testing provider interfaces and factory selection logic
+- **Configuration persistence**: Validating billing configuration storage and retrieval
+- **Webhook processing**: Testing payment processor event handling and status updates
+- **Subscription management**: Validating subscription lifecycle and status reporting
+- **Error handling**: Testing graceful degradation for unavailable payment providers
+
+```mermaid
+flowchart TD
+BillingTests["Billing System Tests"] --> Providers["Provider Testing"]
+BillingTests --> Factory["Factory Pattern Testing"]
+BillingTests --> Routes["Route Integration Testing"]
+Providers --> Manual["Manual Provider Tests"]
+Providers --> Stripe["Stripe Provider Tests"]
+Providers --> Razorpay["Razorpay Provider Tests"]
+Factory --> Selection["Provider Selection Logic"]
+Factory --> Fallback["Fallback Mechanisms"]
+Routes --> Checkout["Checkout Session Testing"]
+Routes --> Webhooks["Webhook Processing"]
+Routes --> Status["Subscription Status"]
+```
+
+**Diagram sources**
+- [test_billing.py:9-75](file://app/backend/tests/test_billing.py#L9-75)
+- [test_billing.py:77-126](file://app/backend/tests/test_billing.py#L77-126)
+- [test_billing.py:128-222](file://app/backend/tests/test_billing.py#L128-222)
+- [test_billing.py:223-288](file://app/backend/tests/test_billing.py#L223-288)
+- [test_billing.py:290-328](file://app/backend/tests/test_billing.py#L290-328)
+
+**Section sources**
+- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
+
+### Email Service Testing - New Notification Coverage
+**New Section**: The expanded test suite includes comprehensive email service testing:
+
+#### Email Service Test Coverage
+The email service tests validate:
+- **Configuration validation**: SMTP settings verification and configuration status
+- **Email delivery**: SMTP connection, authentication, and message sending
+- **Template formatting**: Quota warnings, subscription expiry notices, and suspension notifications
+- **Error handling**: Graceful handling of SMTP failures and missing credentials
+- **Admin endpoints**: Configuration retrieval and test email sending for notification validation
+
+#### Email Integration Testing
+Key testing patterns include:
+- **SMTP mocking**: Isolating email delivery with SMTP server mocking
+- **Template validation**: Ensuring proper HTML formatting and content injection
+- **Security validation**: Preventing credential exposure in configuration responses
+- **Integration testing**: Validating admin notification endpoints with real service integration
+- **Error scenario testing**: Testing email delivery failures and partial credential setups
+
+```mermaid
+flowchart TD
+EmailTests["Email Service Tests"] --> Unit["Unit Testing"]
+EmailTests --> Integration["Integration Testing"]
+Unit --> Config["Configuration Validation"]
+Unit --> Delivery["Email Delivery"]
+Unit --> Templates["Template Formatting"]
+Delivery --> SMTP["SMTP Connection Testing"]
+Delivery --> Security["Credential Security"]
+Templates --> Quota["Quota Warning Templates"]
+Templates --> Expiry["Subscription Expiry Templates"]
+Templates --> Suspension["Suspension Notice Templates"]
+Integration --> AdminEndpoints["Admin Notification Endpoints"]
+Integration --> ServiceIntegration["Service Integration Testing"]
+```
+
+**Diagram sources**
+- [test_email_service.py:15-144](file://app/backend/tests/test_email_service.py#L15-144)
+- [test_email_service.py:149-232](file://app/backend/tests/test_email_service.py#L149-232)
+
+**Section sources**
+- [test_email_service.py:1-232](file://app/backend/tests/test_email_service.py#L1-232)
+
+### Feature Flag Testing - New Control Coverage
+**New Section**: The expanded test suite includes comprehensive feature flag testing:
+
+#### Feature Flag Test Coverage
+The feature flag tests validate:
+- **Global flag management**: Enabling/disabling features globally with caching
+- **Tenant overrides**: Individual tenant feature control and inheritance
+- **Permission enforcement**: Middleware integration for feature access control
+- **Cache invalidation**: Proper cache clearing and data synchronization
+- **Admin endpoints**: Feature flag management and tenant override operations
+
+#### Feature Flag Integration Testing
+Key testing patterns include:
+- **Cache management**: Testing cache invalidation and data consistency
+- **Tenant override validation**: Ensuring proper override precedence over global settings
+- **Middleware integration**: Validating require_feature middleware behavior
+- **Admin endpoint testing**: Testing feature flag CRUD operations with proper authorization
+- **Permission validation**: Ensuring unauthorized access is properly denied
+
+```mermaid
+flowchart TD
+FeatureFlagTests["Feature Flag Tests"] --> Core["Core Functionality"]
+FeatureFlagTests --> Admin["Admin Endpoints"]
+FeatureFlagTests --> Middleware["Middleware Integration"]
+Core --> GlobalFlags["Global Flag Management"]
+Core --> TenantOverrides["Tenant Override Management"]
+Core --> Cache["Cache Management"]
+Admin --> CRUD["Feature Flag CRUD Operations"]
+Admin --> Overrides["Tenant Override Operations"]
+Middleware --> Permission["Permission Enforcement"]
+Middleware --> RequireFeature["require_feature Middleware"]
+```
+
+**Diagram sources**
+- [test_feature_flags.py:42-111](file://app/backend/tests/test_feature_flags.py#L42-111)
+- [test_feature_flags.py:113-182](file://app/backend/tests/test_feature_flags.py#L113-182)
+- [test_feature_flags.py:184-233](file://app/backend/tests/test_feature_flags.py#L184-233)
+
+**Section sources**
+- [test_feature_flags.py:1-233](file://app/backend/tests/test_feature_flags.py#L1-233)
+
+### Quota Enforcement Testing - New Subscription Coverage
+**New Section**: The expanded test suite includes comprehensive quota enforcement testing:
+
+#### Quota Enforcement Test Coverage
+The quota enforcement tests validate:
+- **Subscription plan limits**: Free, Pro, and Enterprise plan quota validation
+- **Usage tracking**: Monthly usage counting and limit enforcement
+- **Quota reset logic**: Calendar month-based quota reset functionality
+- **HTTP endpoint integration**: Analysis endpoint quota checking and 403 responses
+- **Edge case handling**: Non-existent tenants, unlimited plans, and partial usage scenarios
+
+#### Quota Enforcement Integration Testing
+Key testing patterns include:
+- **Plan limit validation**: Testing quota limits for different subscription tiers
+- **Usage calculation**: Validating monthly usage counting and limit enforcement
+- **Reset logic testing**: Ensuring quotas reset appropriately at calendar month boundaries
+- **Endpoint integration**: Testing quota checking in analysis endpoints
+- **Error scenario validation**: Testing quota exceeded responses and error details
+
+```mermaid
+flowchart TD
+QuotaTests["Quota Enforcement Tests"] --> Unit["Unit Testing"]
+QuotaTests --> Integration["Integration Testing"]
+Unit --> PlanLimits["Plan Limit Validation"]
+Unit --> UsageTracking["Usage Tracking Logic"]
+Unit --> ResetLogic["Quota Reset Logic"]
+Integration --> HTTPIntegration["HTTP Endpoint Integration"]
+Integration --> ErrorScenarios["Error Scenario Testing"]
+PlanLimits --> FreeTier["Free Tier Limits"]
+PlanLimits --> ProTier["Pro Tier Limits"]
+PlanLimits --> EnterpriseTier["Enterprise Unlimited"]
+UsageTracking --> MonthlyCounting["Monthly Usage Counting"]
+UsageTracking --> LimitEnforcement["Limit Enforcement"]
+ResetLogic --> CalendarMonth["Calendar Month Reset"]
+ResetLogic --> EdgeCases["Edge Case Handling"]
+HTTPIntegration --> AnalysisEndpoint["Analysis Endpoint Testing"]
+HTTPIntegration --> ErrorResponses["403 Error Responses"]
+ErrorScenarios --> NonExistentTenant["Non-existent Tenant Testing"]
+ErrorScenarios --> UnlimitedPlans["Unlimited Plan Testing"]
+```
+
+**Diagram sources**
+- [test_quota_enforcement.py:55-176](file://app/backend/tests/test_quota_enforcement.py#L55-176)
+- [test_quota_enforcement.py:180-240](file://app/backend/tests/test_quota_enforcement.py#L180-240)
+
+**Section sources**
+- [test_quota_enforcement.py:1-240](file://app/backend/tests/test_quota_enforcement.py#L1-240)
+
+### Rate Limiting Testing - New Protection Coverage
+**New Section**: The expanded test suite includes comprehensive rate limiting testing:
+
+#### Rate Limiting Test Coverage
+The rate limiting tests validate:
+- **API throttling**: Request rate limiting and throttling mechanisms
+- **Abuse prevention**: Protection against excessive API usage and abuse
+- **Configuration management**: Rate limiting configuration and enforcement
+- **Integration testing**: Rate limiting integration with authentication and authorization
+- **Error handling**: Proper rate limit exceeded responses and retry mechanisms
+
+#### Rate Limiting Integration Testing
+Key testing patterns include:
+- **Throttling validation**: Testing request rate limiting and enforcement mechanisms
+- **Configuration testing**: Validating rate limiting configuration and persistence
+- **Integration validation**: Testing rate limiting with authentication and authorization flows
+- **Error scenario testing**: Validating rate limit exceeded responses and error handling
+- **Performance testing**: Testing rate limiting under load and high-traffic scenarios
+
+**Section sources**
+- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
+
+### Tenant Suspension Testing - New Operational Coverage
+**New Section**: The expanded test suite includes comprehensive tenant suspension testing:
+
+#### Tenant Suspension Test Coverage
+The tenant suspension tests validate:
+- **Suspension lifecycle**: Complete suspend → reactivate workflow with audit logging
+- **Status validation**: Suspension status updates and validation
+- **Audit logging**: Comprehensive audit trail creation for suspension operations
+- **Business logic validation**: Proper suspension and reactivation business rules
+- **Integration testing**: Suspension integration with subscription management and usage tracking
+
+#### Tenant Suspension Integration Testing
+Key testing patterns include:
+- **Lifecycle validation**: Testing complete suspension and reactivation workflows
+- **Status validation**: Ensuring proper status updates and validations
+- **Audit logging**: Validating comprehensive audit trail creation and retrieval
+- **Business rule testing**: Testing suspension business logic and constraints
+- **Integration validation**: Testing suspension with subscription and usage management
+
+**Section sources**
+- [test_tenant_suspension.py](file://app/backend/tests/test_tenant_suspension.py)
+
+### Webhook Testing - New Payment Coverage
+**New Section**: The expanded test suite includes comprehensive webhook testing:
+
+#### Webhook Test Coverage
+The webhook tests validate:
+- **Payment processor integration**: Webhook handling for Stripe, Razorpay, and manual providers
+- **Event processing**: Payment event processing and status updates
+- **Security validation**: Webhook signature validation and security measures
+- **Error handling**: Graceful handling of malformed webhook events
+- **Integration testing**: Webhook integration with billing system and subscription management
+
+#### Webhook Integration Testing
+Key testing patterns include:
+- **Event processing validation**: Testing webhook event processing and status updates
+- **Security testing**: Validating webhook signature validation and security measures
+- **Provider integration**: Testing webhook integration with different payment processors
+- **Error scenario testing**: Validating webhook handling of malformed and malicious events
+- **Integration validation**: Testing webhook integration with billing and subscription systems
+
+**Section sources**
+- [test_webhooks.py](file://app/backend/tests/test_webhooks.py)
 
 ### Queue System Testing Infrastructure - Enhanced Database Setup
 **New Section**: The enhanced test infrastructure now includes sophisticated queue system database management:
@@ -501,25 +813,30 @@ Workflows:
 
 Execution:
 - Python 3.11 and Node.js 20 environments
-- Backend coverage collected for services package with 73+ test suite
+- Backend coverage collected for services package with 150+ test suite
 - Frontend tests executed via npm test
 
 **Section sources**
 - [ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
-### Writing Effective Tests for New Features - Enhanced Guidelines
+### Writing Effective Tests for New Features - Substantially Enhanced Guidelines
 Guidelines derived from expanded test suite:
 - Backend
   - Use pytest fixtures to minimize duplication (db, client, auth_client)
   - Prefer AsyncMock/MagicMock for external services to avoid flaky network calls
   - Validate both success and failure paths (e.g., invalid file types, missing fields)
   - For subscription features, use seed fixtures and tenant plan assignments
-  - **New**: Test LLM service error handling and retry mechanisms
-  - **New**: Validate pipeline processing with comprehensive edge cases
-  - **New**: Test background task processing and queue handling
+  - **New**: Test administrative API permissions and tenant management workflows
+  - **New**: Validate billing provider abstraction and webhook processing
+  - **New**: Test email service configuration and notification delivery
+  - **New**: Validate feature flag management and tenant override scenarios
+  - **New**: Test quota enforcement with subscription plan validation
+  - **New**: Validate rate limiting and API throttling mechanisms
+  - **New**: Test tenant suspension and audit logging workflows
+  - **New**: Validate webhook processing with payment processor events
   - **Enhanced**: Leverage sophisticated queue system database infrastructure
-  - **Updated**: Focus on comprehensive batch validation mechanisms rather than specific PDF header patterns
+  - **Updated**: Focus on comprehensive validation mechanisms rather than specific PDF header patterns
 - Frontend
   - Mock axios and browser APIs to focus on component behavior
   - Test user interactions (clicks, input changes) and resulting UI updates
@@ -535,10 +852,17 @@ Guidelines derived from expanded test suite:
 - [api.test.js:167-200](file://app/frontend/src/__tests__/api.test.js#L167-L200)
 
 ## Dependency Analysis
-Backend test dependencies with expanded coverage:
+Backend test dependencies with substantially expanded coverage:
 - pytest, FastAPI TestClient, SQLAlchemy in-memory DB, passlib sha256_crypt for bcrypt compatibility
 - External service mocks via unittest.mock
-- **New**: Enhanced LLM service testing dependencies and specialized fixtures
+- **New**: Enhanced administrative API testing dependencies and fixtures
+- **New**: Comprehensive billing system testing dependencies and provider fixtures
+- **New**: Email service testing dependencies and SMTP configuration fixtures
+- **New**: Feature flag testing dependencies and tenant override fixtures
+- **New**: Quota enforcement testing dependencies and subscription plan fixtures
+- **New**: Rate limiting testing dependencies and API throttling fixtures
+- **New**: Tenant suspension testing dependencies and audit logging fixtures
+- **New**: Webhook testing dependencies and payment processor fixtures
 - **Enhanced**: Queue system testing dependencies with AsyncMock support
 
 Frontend test dependencies:
@@ -569,8 +893,14 @@ VT --> DOM["Mocked DOM APIs"]
   - Use in-memory SQLite to avoid disk I/O overhead
   - Keep external service mocks synchronous where possible to reduce test runtime
   - Limit heavy computations in tests; rely on mocks for LLM and transcription services
-  - **New**: Optimize LLM service testing with efficient mock implementations
-  - **New**: Minimize pipeline testing overhead with focused fixtures
+  - **New**: Optimize administrative API testing with efficient tenant management fixtures
+  - **New**: Minimize billing system testing overhead with provider abstraction mocking
+  - **New**: Reduce email service testing overhead with SMTP mocking
+  - **New**: Minimize feature flag testing overhead with cache management fixtures
+  - **New**: Optimize quota enforcement testing with subscription plan fixtures
+  - **New**: Minimize rate limiting testing overhead with API throttling mocks
+  - **New**: Reduce tenant suspension testing overhead with audit logging fixtures
+  - **New**: Optimize webhook testing with payment processor event mocking
   - **Enhanced**: Queue system testing optimized with AsyncMock-based worker mocking
   - **Enhanced**: Efficient queue table creation/destruction mechanisms
   - **Updated**: Focus on comprehensive validation mechanisms for better test performance
@@ -581,7 +911,7 @@ VT --> DOM["Mocked DOM APIs"]
   - **Enhanced**: Optimize AI pipeline feature testing with selective mocking
 
 ## Troubleshooting Guide
-Common issues and resolutions with expanded test coverage:
+Common issues and resolutions with substantially expanded test coverage:
 - Authentication failures in backend tests
   - Ensure auth_client fixture registers and logs in users before invoking protected routes
   - Verify Authorization header is attached to the client
@@ -593,14 +923,46 @@ Common issues and resolutions with expanded test coverage:
 - CI failures on Windows/Linux differences
   - Use provided scripts to validate imports, migrations, and frontend files before pushing
   - Align Node/npm versions with CI configuration
-- **New**: LLM service test failures
+- **New**: Administrative API test failures
+  - Verify permission enforcement and tenant management workflows
+  - Check audit logging for administrative actions
+  - Ensure proper authorization headers for admin endpoints
+- **New**: Billing system test failures
+  - Verify provider configuration and factory pattern logic
+  - Check webhook processing and subscription status validation
+  - Ensure proper error handling for unavailable payment providers
+- **New**: Email service test failures
+  - Verify SMTP configuration and credential security
+  - Check template formatting and email delivery mocking
+  - Ensure proper error handling for SMTP failures
+- **New**: Feature flag test failures
+  - Verify cache invalidation and data synchronization
+  - Check tenant override precedence and middleware integration
+  - Ensure proper permission enforcement for feature access
+- **New**: Quota enforcement test failures
+  - Verify subscription plan limits and usage tracking
+  - Check quota reset logic and monthly boundary handling
+  - Ensure proper HTTP endpoint integration and error responses
+- **New**: Rate limiting test failures
+  - Verify request throttling and API protection mechanisms
+  - Check configuration persistence and integration testing
+  - Ensure proper error handling for rate limit exceeded scenarios
+- **New**: Tenant suspension test failures
+  - Verify suspension lifecycle and status validation
+  - Check audit logging and business rule enforcement
+  - Ensure proper integration with subscription management
+- **New**: Webhook test failures
+  - Verify payment processor integration and event processing
+  - Check security validation and error handling
+  - Ensure proper integration with billing and subscription systems
+- **Enhanced**: LLM service test failures
   - Verify JSON parsing fixtures and error handling scenarios
   - Check mock responses match expected LLM service interface
   - Ensure model configuration matches current `gemma4:31b-cloud` settings
-- **New**: Pipeline testing issues
+- **Enhanced**: Pipeline testing issues
   - Ensure pipeline fixtures properly mock external dependencies
   - Validate error scenarios and retry mechanisms
-- **New**: Background task testing problems
+- **Enhanced**: Background task testing problems
   - Verify task queue mocking and background process simulation
   - Check retry mechanism validation and error propagation
 - **Enhanced**: Queue system test failures
@@ -612,7 +974,7 @@ Common issues and resolutions with expanded test coverage:
   - Check magic-byte signature validation for different file types
   - Ensure size and extension filtering are properly enforced
 
-**Updated** Troubleshooting guidance now includes specific guidance for batch analysis validation failures and file content validation issues.
+**Updated** Troubleshooting guidance now includes specific guidance for the substantially expanded administrative, billing, email, feature flag, quota enforcement, rate limiting, tenant suspension, and webhook testing scenarios.
 
 **Section sources**
 - [test-locally.ps1:36-96](file://test-locally.ps1#L36-L96)
@@ -620,9 +982,9 @@ Common issues and resolutions with expanded test coverage:
 - [run-full-tests.bat:100-107](file://scripts/run-full-tests.bat#L100-L107)
 
 ## Conclusion
-The testing strategy leverages pytest and FastAPI TestClient for comprehensive backend unit and integration tests, with significantly expanded coverage including 73+ new tests for LLM services, pipelines, and integration scenarios. Frontend tests use Vitest and React Testing Library with mocked axios and DOM APIs. CI/CD pipelines automate test execution and coverage reporting. The expanded test suite ensures robust validation of advanced features including error handling, retry mechanisms, and background task processing, providing reliable coverage for all major components.
+The testing strategy leverages pytest and FastAPI TestClient for comprehensive backend unit and integration tests, with substantially expanded coverage including 150+ new tests for administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, and webhooks. Frontend tests use Vitest and React Testing Library with mocked axios and DOM APIs. CI/CD pipelines automate test execution and coverage reporting. The expanded test suite ensures robust validation of advanced administrative and billing functionality, including comprehensive tenant management, provider abstraction, notification delivery, feature control, usage enforcement, and operational monitoring, providing reliable coverage for all major components.
 
-**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability. The enhanced queue system testing infrastructure provides comprehensive coverage for the scalable job queue architecture with sophisticated database management and worker mocking capabilities. The test suite now emphasizes comprehensive batch analysis validation and streaming functionality without the specific PDF header validation enhancements that were previously included.
+**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability. The enhanced queue system testing infrastructure provides comprehensive coverage for the scalable job queue architecture with sophisticated database management and worker mocking capabilities. The substantially expanded administrative and billing test suites provide complete coverage of the new operational functionality with comprehensive permission testing, provider abstraction validation, and integration testing patterns.
 
 ## Appendices
 
@@ -636,9 +998,17 @@ The testing strategy leverages pytest and FastAPI TestClient for comprehensive b
 - [run-full-tests.bat:1-274](file://scripts/run-full-tests.bat#L1-L274)
 - [test-locally.ps1:1-119](file://test-locally.ps1#L1-L119)
 
-### Appendix B: Enhanced Test Coverage Areas
-The expanded test suite now includes comprehensive coverage for:
+### Appendix B: Substantially Enhanced Test Coverage Areas
+The substantially expanded test suite now includes comprehensive coverage for:
 
+- **Administrative API Testing**: Complete coverage of tenant management, billing configuration, and operational controls with permission enforcement and audit logging
+- **Billing System Testing**: Comprehensive testing of provider abstraction, factory pattern, checkout sessions, webhook processing, and subscription management across Stripe, Razorpay, and manual providers
+- **Email Service Testing**: Complete coverage of SMTP configuration, notification delivery, template formatting, and admin notification endpoints with security validation
+- **Feature Flag Testing**: Comprehensive testing of global flag management, tenant overrides, middleware integration, cache management, and admin endpoint operations
+- **Quota Enforcement Testing**: Complete coverage of subscription plan limits, usage tracking, quota reset logic, and HTTP endpoint integration with proper error handling
+- **Rate Limiting Testing**: Comprehensive testing of API throttling, abuse prevention, configuration management, and integration with authentication flows
+- **Tenant Suspension Testing**: Complete coverage of suspension lifecycle, status validation, audit logging, and integration with subscription management
+- **Webhook Testing**: Comprehensive testing of payment processor integration, event processing, security validation, and integration with billing systems
 - **LLM Service Testing**: Dedicated tests for LLM service layer with JSON parsing validation and error handling scenarios
 - **Pipeline Testing**: Comprehensive testing for hybrid and agent pipelines with retry mechanisms and background task processing
 - **Analysis Service Testing**: Validation of analysis service functionality with error scenarios and edge cases
@@ -651,9 +1021,18 @@ The expanded test suite now includes comprehensive coverage for:
 - **Queue System Testing**: Comprehensive testing of the scalable job queue architecture with database schema validation
 - **Batch Analysis Testing**: Comprehensive validation of batch processing with file content validation, size limits, and error handling
 
-**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations. The enhanced queue system testing infrastructure provides complete coverage of the job queue architecture with sophisticated database management and worker mocking. The batch analysis testing now focuses on comprehensive validation mechanisms rather than specific PDF header validation patterns.
+**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations. The enhanced queue system testing infrastructure provides complete coverage of the job queue architecture with sophisticated database management and worker mocking. The substantially expanded administrative and billing test suites provide comprehensive coverage of the new operational functionality with permission testing, provider abstraction validation, and integration testing patterns.
 
 **Section sources**
+- [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
+- [test_admin_metrics.py:1-159](file://app/backend/tests/test_admin_metrics.py#L1-159)
+- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
+- [test_email_service.py:1-232](file://app/backend/tests/test_email_service.py#L1-232)
+- [test_feature_flags.py:1-233](file://app/backend/tests/test_feature_flags.py#L1-233)
+- [test_quota_enforcement.py:1-240](file://app/backend/tests/test_quota_enforcement.py#L1-240)
+- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
+- [test_tenant_suspension.py](file://app/backend/tests/test_tenant_suspension.py)
+- [test_webhooks.py](file://app/backend/tests/test_webhooks.py)
 - [test_llm_service.py](file://app/backend/tests/test_llm_service.py)
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
 - [test_agent_pipeline.py](file://app/backend/tests/test_agent_pipeline.py)
@@ -746,3 +1125,40 @@ Comprehensive error handling:
 - [analyze.py:69-129](file://app/backend/routes/analyze.py#L69-L129)
 - [analyze.py:1134-1162](file://app/backend/routes/analyze.py#L1134-L1162)
 - [test_usage_enforcement.py:496-528](file://app/backend/tests/test_usage_enforcement.py#L496-L528)
+
+### Appendix F: Substantially Expanded Administrative and Billing Test Coverage
+**New Section**: The substantially expanded test suite now includes comprehensive coverage of administrative and billing functionality:
+
+#### Administrative API Test Coverage
+- **Permission Testing**: Comprehensive 403 response validation for unauthorized access attempts
+- **Tenant Management**: Full CRUD operations with pagination, search, and filtering
+- **Plan Management**: Subscription plan changes with audit logging and validation
+- **Usage Management**: Analyses count and storage usage adjustments
+- **Audit Logging**: Comprehensive audit trail validation for all administrative actions
+- **Metrics Reporting**: Platform-wide analytics and usage trend validation
+
+#### Billing System Test Coverage
+- **Provider Abstraction**: Manual, Stripe, and Razorpay provider testing
+- **Factory Pattern**: Provider selection logic and fallback mechanisms
+- **Configuration Management**: Billing configuration persistence and retrieval
+- **Route Integration**: Checkout sessions, webhook processing, and subscription status
+- **Error Handling**: Graceful degradation for unavailable payment providers
+
+#### Operational Monitoring Test Coverage
+- **Email Service**: SMTP configuration, notification delivery, and template formatting
+- **Feature Flags**: Global flags, tenant overrides, and middleware integration
+- **Quota Enforcement**: Subscription plan limits, usage tracking, and HTTP endpoint integration
+- **Rate Limiting**: API throttling, abuse prevention, and configuration management
+- **Tenant Suspension**: Suspension lifecycle, status validation, and audit logging
+- **Webhook Processing**: Payment processor integration and event handling
+
+**Section sources**
+- [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
+- [test_admin_metrics.py:1-159](file://app/backend/tests/test_admin_metrics.py#L1-159)
+- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
+- [test_email_service.py:1-232](file://app/backend/tests/test_email_service.py#L1-232)
+- [test_feature_flags.py:1-233](file://app/backend/tests/test_feature_flags.py#L1-233)
+- [test_quota_enforcement.py:1-240](file://app/backend/tests/test_quota_enforcement.py#L1-240)
+- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
+- [test_tenant_suspension.py](file://app/backend/tests/test_tenant_suspension.py)
+- [test_webhooks.py](file://app/backend/tests/test_webhooks.py)

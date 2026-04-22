@@ -1,0 +1,147 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.9, pytest-8.3.4, pluggy-1.6.0
+rootdir: C:\Users\DELL\Projects\Resume AI by ThetaLogics
+plugins: anyio-4.12.0, langsmith-0.7.17, asyncio-0.25.3, cov-6.0.0, respx-0.22.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collected 716 items
+
+app\backend\tests\test_admin_api.py ...........................          [  3%]
+app\backend\tests\test_admin_metrics.py ......                           [  4%]
+app\backend\tests\test_agent_pipeline.py ............................... [  8%]
+..................                                                       [ 11%]
+app\backend\tests\test_analysis_service.py ....                          [ 12%]
+app\backend\tests\test_api.py .......................                    [ 15%]
+app\backend\tests\test_audit_service.py ......                           [ 16%]
+app\backend\tests\test_auth.py ....................                      [ 18%]
+app\backend\tests\test_billing.py ..........................             [ 22%]
+app\backend\tests\test_candidate_dedup.py .............................. [ 26%]
+.......                                                                  [ 27%]
+app\backend\tests\test_email_service.py ................                 [ 29%]
+app\backend\tests\test_feature_flags.py ............                     [ 31%]
+app\backend\tests\test_gap_detector.py ................................. [ 36%]
+...............                                                          [ 38%]
+app\backend\tests\test_hybrid_pipeline.py .............................. [ 42%]
+.................................................                        [ 49%]
+app\backend\tests\test_llm_json_parse.py ..                              [ 49%]
+app\backend\tests\test_llm_service.py .......................            [ 52%]
+app\backend\tests\test_parser_service.py ............................... [ 57%]
+..                                                                       [ 57%]
+app\backend\tests\test_phase1_regression.py ..............               [ 59%]
+app\backend\tests\test_quota_enforcement.py ..........                   [ 60%]
+app\backend\tests\test_rate_limiting.py ..FF.                            [ 61%]
+app\backend\tests\test_routes_phase1.py ............................     [ 65%]
+app\backend\tests\test_routes_phase2.py ................................ [ 69%]
+......                                                                   [ 70%]
+app\backend\tests\test_subscription.py ........................          [ 74%]
+app\backend\tests\test_tenant_suspension.py .....                        [ 74%]
+app\backend\tests\test_transcript_api.py ............................... [ 79%]
+.                                                                        [ 79%]
+app\backend\tests\test_transcript_service.py ........................... [ 82%]
+......                                                                   [ 83%]
+app\backend\tests\test_usage_enforcement.py .........................    [ 87%]
+app\backend\tests\test_video_downloader.py ............................. [ 91%]
+..                                                                       [ 91%]
+app\backend\tests\test_video_routes.py ...............                   [ 93%]
+app\backend\tests\test_video_service.py ............................     [ 97%]
+app\backend\tests\test_webhooks.py .................                     [100%]
+
+================================== FAILURES ===================================
+__________________________ test_rate_limit_exceeded ___________________________
+app\backend\tests\test_rate_limiting.py:60: in test_rate_limit_exceeded
+    assert resp.status_code == 429
+E   assert 200 == 429
+E    +  where 200 = <Response [200 OK]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+\n\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557\n\u2551   ARIA \u2014 Resume Intelligence v2.0.0  \xb7  ThetaLogics    \u2551\n\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563\n\u2551 \u2713  Database           connected  (connected)           \u2551\n\u2551 \u2713  Skills registry    676 skills loaded                \u2551\n\u2551 \u2713  Ollama             reachable  (http://localhost     \u2551\n\u2551 \u2717  Model (pulled)     qwen3.5:4b  NOT FOUND            \u2551\n\u2551 \u2717  Model (hot/RAM)    cold \u2014 will load on first re     \u2551\n\u2551 \u2713  Environment        development                      \u2551\n\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563\n\u2551   Status : DEGRADED \u2014 check items marked FAIL          \u2551\n\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d\n
+---------------------------- Captured stderr setup ----------------------------
+2026-04-23 00:28:00 INFO [aria.hybrid] [seed_if_empty] Skills upsert complete (495 definitions)
+2026-04-23 00:28:00 INFO [aria.hybrid] [load] SkillsRegistry loaded 676 skills
+2026-04-23 00:28:01 INFO [httpx] [_send_single_request] HTTP Request: GET http://localhost:11434/api/tags "HTTP/1.1 200 OK"
+2026-04-23 00:28:01 INFO [httpx] [_send_single_request] HTTP Request: GET http://localhost:11434/api/ps "HTTP/1.1 200 OK"
+2026-04-23 00:28:01 INFO [app.backend.services.llm_service] [start] Ollama health sentinel started (interval=60s)
+2026-04-23 00:28:01 INFO [aria.startup] [lifespan] Queue worker started successfully
+2026-04-23 00:28:02 INFO [httpx] [_send_single_request] HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+2026-04-23 00:28:03 INFO [httpx] [_send_single_request] HTTP Request: POST http://testserver/api/auth/login "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     aria.hybrid:hybrid_pipeline.py:466 Skills upsert complete (495 definitions)
+INFO     aria.hybrid:hybrid_pipeline.py:496 SkillsRegistry loaded 676 skills
+INFO     httpx:_client.py:1740 HTTP Request: GET http://localhost:11434/api/tags "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1740 HTTP Request: GET http://localhost:11434/api/ps "HTTP/1.1 200 OK"
+INFO     app.backend.services.llm_service:llm_service.py:90 Ollama health sentinel started (interval=60s)
+INFO     aria.startup:main.py:280 Queue worker started successfully
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/login "HTTP/1.1 200 OK"
+---------------------------- Captured stderr call -----------------------------
+2026-04-23 00:28:03 INFO [httpx] [_send_single_request] HTTP Request: GET http://testserver/api/candidates "HTTP/1.1 200 OK"
+2026-04-23 00:28:03 INFO [httpx] [_send_single_request] HTTP Request: GET http://testserver/api/candidates "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/candidates "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/candidates "HTTP/1.1 200 OK"
+-------------------------- Captured stderr teardown ---------------------------
+2026-04-23 00:28:04 INFO [app.backend.services.llm_service] [stop] Ollama health sentinel stopped
+2026-04-23 00:28:04 INFO [aria.startup] [lifespan] Queue worker stopped
+---------------------------- Captured log teardown ----------------------------
+INFO     app.backend.services.llm_service:llm_service.py:102 Ollama health sentinel stopped
+INFO     aria.startup:main.py:297 Queue worker stopped
+_______________________ test_429_has_retry_after_header _______________________
+app\backend\tests\test_rate_limiting.py:75: in test_429_has_retry_after_header
+    assert resp.status_code == 429
+E   assert 200 == 429
+E    +  where 200 = <Response [200 OK]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+\n\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557\n\u2551   ARIA \u2014 Resume Intelligence v2.0.0  \xb7  ThetaLogics    \u2551\n\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563\n\u2551 \u2713  Database           connected  (connected)           \u2551\n\u2551 \u2713  Skills registry    676 skills loaded                \u2551\n\u2551 \u2713  Ollama             reachable  (http://localhost     \u2551\n\u2551 \u2717  Model (pulled)     qwen3.5:4b  NOT FOUND            \u2551\n\u2551 \u2717  Model (hot/RAM)    cold \u2014 will load on first re     \u2551\n\u2551 \u2713  Environment        development                      \u2551\n\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563\n\u2551   Status : DEGRADED \u2014 check items marked FAIL          \u2551\n\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d\n
+---------------------------- Captured stderr setup ----------------------------
+2026-04-23 00:28:04 INFO [aria.hybrid] [seed_if_empty] Skills upsert complete (495 definitions)
+2026-04-23 00:28:04 INFO [aria.hybrid] [load] SkillsRegistry loaded 676 skills
+2026-04-23 00:28:05 INFO [httpx] [_send_single_request] HTTP Request: GET http://localhost:11434/api/tags "HTTP/1.1 200 OK"
+2026-04-23 00:28:05 INFO [httpx] [_send_single_request] HTTP Request: GET http://localhost:11434/api/ps "HTTP/1.1 200 OK"
+2026-04-23 00:28:05 INFO [app.backend.services.llm_service] [start] Ollama health sentinel started (interval=60s)
+2026-04-23 00:28:05 INFO [aria.startup] [lifespan] Queue worker started successfully
+2026-04-23 00:28:06 INFO [httpx] [_send_single_request] HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+2026-04-23 00:28:07 INFO [httpx] [_send_single_request] HTTP Request: POST http://testserver/api/auth/login "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     aria.hybrid:hybrid_pipeline.py:466 Skills upsert complete (495 definitions)
+INFO     aria.hybrid:hybrid_pipeline.py:496 SkillsRegistry loaded 676 skills
+INFO     httpx:_client.py:1740 HTTP Request: GET http://localhost:11434/api/tags "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1740 HTTP Request: GET http://localhost:11434/api/ps "HTTP/1.1 200 OK"
+INFO     app.backend.services.llm_service:llm_service.py:90 Ollama health sentinel started (interval=60s)
+INFO     aria.startup:main.py:280 Queue worker started successfully
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/login "HTTP/1.1 200 OK"
+---------------------------- Captured stderr call -----------------------------
+2026-04-23 00:28:07 INFO [httpx] [_send_single_request] HTTP Request: GET http://testserver/api/candidates "HTTP/1.1 200 OK"
+2026-04-23 00:28:07 INFO [httpx] [_send_single_request] HTTP Request: GET http://testserver/api/candidates "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/candidates "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/candidates "HTTP/1.1 200 OK"
+-------------------------- Captured stderr teardown ---------------------------
+2026-04-23 00:28:07 INFO [app.backend.services.llm_service] [stop] Ollama health sentinel stopped
+2026-04-23 00:28:07 INFO [aria.startup] [lifespan] Queue worker stopped
+---------------------------- Captured log teardown ----------------------------
+INFO     app.backend.services.llm_service:llm_service.py:102 Ollama health sentinel stopped
+INFO     aria.startup:main.py:297 Queue worker stopped
+============================== warnings summary ===============================
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+  C:\Users\DELL\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.10/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+app\backend\services\queue_manager.py:43
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\services\queue_manager.py:43: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED app/backend/tests/test_rate_limiting.py::test_rate_limit_exceeded - as...
+FAILED app/backend/tests/test_rate_limiting.py::test_429_has_retry_after_header
+=========== 2 failed, 714 passed, 8 warnings in 1252.93s (0:20:52) ============
+
+C:\Users\DELL\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py:207: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))

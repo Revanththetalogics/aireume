@@ -193,6 +193,17 @@ def db():
         _drop_all_tables()
 
 
+@pytest.fixture(autouse=True)
+def _clear_rate_limit_buckets():
+    """Clear rate-limit buckets before every test to prevent 429s in CI."""
+    from app.backend.middleware.rate_limit import RateLimitMiddleware
+    middleware = RateLimitMiddleware._instance
+    if middleware is not None:
+        middleware.buckets.clear()
+        middleware.config_cache.clear()
+    yield
+
+
 @pytest.fixture(scope="function")
 def client():
     # Create all tables including queue tables
