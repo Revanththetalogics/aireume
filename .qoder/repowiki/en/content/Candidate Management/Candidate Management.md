@@ -28,13 +28,13 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced API response unification: The candidates route now consolidates data structures to eliminate inconsistencies between candidates endpoint and analysis results
-- Unified approach uses analysis_result as the authoritative data source with consolidated candidate information structure
-- Implemented field-level merge strategy that preserves critical analysis fields during narrative integration
-- Improved fallback mechanism for enriched analysis data with robust error handling
-- Fixed bug where candidate profiles appeared empty by properly utilizing merged analysis data when available
-- Strengthened data integrity protection for fit_score, final_recommendation, and other core analysis fields
-- Enhanced background LLM narrative processing with improved merge fallback handling
+- Enhanced candidate comparison functionality with comprehensive JSON parsing safety checks
+- Redesigned comparison algorithm prioritizing analysis data with multiple fallback sources
+- Improved data reliability and fallback mechanisms for robust comparison operations
+- Added enhanced comparison fields including employment_gaps, interview_questions_preview, and analysis_quality
+- Implemented comprehensive error handling for malformed JSON data
+- Enhanced candidate name resolution with priority-based fallback sources
+- Added winner determination logic for multiple comparison categories
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -51,7 +51,7 @@
 ## Introduction
 This document describes the candidate management system for Resume AI by ThetaLogics. It covers how candidate profiles are stored, how resumes are parsed and analyzed, how deduplication works across resumes and analysis results, and how search, filtering, history, and analysis results are managed. It also documents integration between parsing services and candidate data storage, bulk operations, export capabilities, and data portability features. Finally, it outlines strategies for extending candidate metadata and customizing parsing workflows, along with privacy and lifecycle considerations.
 
-**Updated** Enhanced with API response unification that consolidates data structures and eliminates inconsistencies between candidates endpoint and analysis results, using analysis_result as the authoritative data source.
+**Updated** Enhanced with comprehensive JSON parsing safety checks, redesigned comparison algorithm with priority-based data sources, and improved fallback mechanisms for robust candidate comparison operations.
 
 ## Project Structure
 The candidate management system spans models, services, and routes:
@@ -135,7 +135,7 @@ RCM --> SR
 - Deduplication logic identifies duplicates across email, file hash, and name+phone.
 - Routes expose endpoints for single and batch analysis, candidate listing/detail, history, export, comparison, and weight suggestions.
 
-**Updated** Enhanced with API response unification that ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source.
+**Updated** Enhanced with comprehensive JSON parsing safety checks, redesigned comparison algorithm with priority-based data sources, and improved fallback mechanisms for robust candidate comparison operations.
 
 **Section sources**
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
@@ -389,36 +389,44 @@ Route-->>Route : attach candidate_id/result_id
 - [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
 - [analysis_service.py:6-121](file://app/backend/services/analysis_service.py#L6-L121)
 
-### API Response Unification and Enhanced Field-Level Merge Strategy
-**Critical Update**: Implemented API response unification that consolidates data structures and eliminates inconsistencies between candidates endpoint and analysis results.
+### Enhanced Candidate Comparison Algorithm with JSON Safety Checks
+**Critical Update**: Implemented comprehensive JSON parsing safety checks and redesigned comparison algorithm with priority-based data sources.
 
-- **Unified Data Source**: Both candidates endpoint and analysis results now use analysis_result as the authoritative data source.
-- **Consistent Structure**: The candidates route builds results with "EXACT same structure as analysis result" ensuring uniform data presentation.
-- **Core Analysis Fields Preservation**: fit_score, final_recommendation, and other critical analysis fields are protected from narrative overwrites.
-- **Selective Narrative Enhancement**: Only narrative-specific fields (strengths, weaknesses, concerns, recommendation_rationale, explainability) are merged from narrative data.
-- **Field Priority Logic**: Core analysis fields take precedence over narrative data to maintain data integrity.
-- **Background Task Integration**: Narrative data is merged into analysis_result during background LLM narrative generation.
+- **JSON Safety**: Implements `_safe_loads()` function with comprehensive error handling for malformed JSON data.
+- **Priority-Based Data Sources**: Analysis data takes precedence over parsed data with robust fallback mechanisms.
+- **Enhanced Comparison Fields**: Includes employment_gaps, interview_questions_preview, analysis_quality, and adjacent_skills.
+- **Winner Determination**: Calculates winners across multiple categories (overall, skills, experience, education, stability).
+- **Candidate Name Resolution**: Priority-based resolution from analysis_result, parsed_data, or Candidate table.
+- **Score Breakdown Defaults**: Ensures score_breakdown has all expected keys with sensible defaults.
 
 ```mermaid
 flowchart TD
-StartMerge(["API Response Unification"]) --> UnifiedStructure["Build EXACT same structure as analysis result"]
-UnifiedStructure --> CoreFields["Extract Core Analysis Fields"]
-CoreFields --> CheckNarrative{"Narrative Data Available?"}
-CheckNarrative --> |No| ReturnCore["Return Core Analysis Only"]
-CheckNarrative --> |Yes| ExtractNarrative["Extract Narrative Fields"]
-ExtractNarrative --> MergeStrategy["Apply Field-Level Merge Strategy"]
-MergeStrategy --> PreserveCore["Preserve Core Analysis Fields"]
-PreserveCore --> OverrideNarrative["Override with Narrative for Specific Fields"]
-OverrideNarrative --> FinalResult["Return Merged Result"]
+StartCompare(["compare_candidates()"]) --> ValidateIDs["Validate candidate_ids (2-5)"]
+ValidateIDs --> QueryDB["Query ScreeningResults with tenant filter"]
+QueryDB --> CheckResults{"Enough results found?"}
+CheckResults --> |No| Error["HTTP 404 Not enough results"]
+CheckResults --> |Yes| Iterate["Iterate through results"]
+Iterate --> SafeLoad["Safe JSON loads with error handling"]
+SafeLoad --> NameResolution["Priority-based candidate name resolution"]
+NameResolution --> DataSourceCheck["Check analysis data completeness"]
+DataSourceCheck --> HasAnalysis{"Has essential analysis fields?"}
+HasAnalysis --> |Yes| UseAnalysis["Use analysis data as primary source"]
+HasAnalysis --> |No| UseParsed["Use parsed_data as fallback"]
+UseAnalysis --> ProfileFallback["Resolve candidate_profile from analysis or Candidate"]
+UseParsed --> ProfileFallback
+ProfileFallback --> InterviewPreview["Extract interview questions preview"]
+InterviewPreview --> AppendResult["Append to comparison array"]
+AppendResult --> NextResult{"More results?"}
+NextResult --> |Yes| Iterate
+NextResult --> |No| CalculateWinners["Calculate winners across categories"]
+CalculateWinners --> ReturnResults["Return comparison results"]
 ```
 
 **Diagram sources**
-- [candidates.py:182-195](file://app/backend/routes/candidates.py#L182-L195)
-- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
+- [compare.py:17-158](file://app/backend/routes/compare.py#L17-L158)
 
 **Section sources**
-- [candidates.py:182-195](file://app/backend/routes/candidates.py#L182-L195)
-- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
+- [compare.py:17-158](file://app/backend/routes/compare.py#L17-L158)
 
 ### Deduplication Strategies
 - Three-layer deduplication:
@@ -642,6 +650,7 @@ LS --> AS["analysis_service.py"]
 - **Updated**: Intelligent scoring weights system includes caching and normalization for efficient computation.
 - **Updated**: API response unification optimizes data processing by ensuring consistent structures across all endpoints.
 - **Updated**: Field-level merge strategy optimizes data processing by avoiding unnecessary field overwrites.
+- **Updated**: JSON safety checks prevent performance degradation from malformed data.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -653,6 +662,7 @@ Common issues and resolutions:
 - **Updated**: Intelligent scoring weights conversion errors: Automatic fallback to default weights; verify input format.
 - **Updated**: API response unification issues: Ensure analysis_result structure consistency across all endpoints.
 - **Updated**: Field-level merge failures: Core analysis fields remain intact; check narrative data format; verify critical field preservation.
+- **Updated**: JSON parsing errors: Malformed JSON automatically handled with safe fallbacks; check data integrity in analysis_result and parsed_data fields.
 
 **Section sources**
 - [parser_service.py:175-181](file://app/backend/services/parser_service.py#L175-L181)
@@ -660,9 +670,10 @@ Common issues and resolutions:
 - [analyze.py:364-370](file://app/backend/routes/analyze.py#L364-L370)
 - [llm_contact_extractor.py:120-130](file://app/backend/services/llm_contact_extractor.py#L120-L130)
 - [weight_mapper.py:212-246](file://app/backend/services/weight_mapper.py#L212-L246)
+- [compare.py:42-47](file://app/backend/routes/compare.py#L42-L47)
 
 ## Conclusion
-The candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and auditability. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. Extensibility is provided through model additions, parser customization, skills registry updates, intelligent weight management, configurable field-level merge logic, and consistent API response structures. Privacy and lifecycle management should be considered for production deployments with enhanced attention to AI-generated metadata, data integrity protection, and unified API response structures.
+The candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and auditability. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. The redesigned candidate comparison algorithm with comprehensive JSON safety checks provides robust comparison operations with priority-based data sources and multiple fallback mechanisms. Extensibility is provided through model additions, parser customization, skills registry updates, intelligent weight management, configurable field-level merge logic, and consistent API response structures. Privacy and lifecycle management should be considered for production deployments with enhanced attention to AI-generated metadata, data integrity protection, and unified API response structures.
 
 ## Appendices
 
@@ -677,7 +688,7 @@ The candidate management system integrates robust parsing, deduplication, intell
 - POST /api/candidates/{id}/analyze-jd: Re-analyze existing candidate against a new JD.
 - GET /api/export/csv: Export screening results to CSV.
 - GET /api/export/excel: Export screening results to Excel.
-- POST /api/compare: Compare up to 5 screening results.
+- POST /api/compare: Compare up to 5 screening results with enhanced safety checks.
 
 **Section sources**
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
@@ -700,34 +711,34 @@ The candidate management system integrates robust parsing, deduplication, intell
 - [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
 - [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
 
-### API Response Unification Details
-**Unified Data Structure Benefits**:
-- Consistent field naming and structure across all endpoints
-- Elimination of endpoint-specific variations in data presentation
-- Simplified frontend integration with predictable data shapes
-- Enhanced debugging and monitoring capabilities
-- Improved cache consistency and performance
+### Enhanced Candidate Comparison Algorithm Details
+**JSON Safety and Reliability**:
+- `_safe_loads()` function with comprehensive error handling for malformed JSON data
+- Logging warnings for malformed JSON with result ID context
+- Graceful fallback to empty dictionaries for corrupted JSON data
+- Tenant-scoped filtering prevents unauthorized data access
 
-**Critical Analysis Fields Preserved**:
-- fit_score: Core scoring metric (0-100)
-- final_recommendation: Candidate recommendation (Shortlist/Consider/Reject/Pending)
-- analysis_quality: Quality assessment of analysis
-- recommendation: Alternative recommendation field
-- risk_level: Risk assessment level
+**Priority-Based Data Sources**:
+- Analysis data takes precedence over parsed data for accuracy
+- Essential fields check determines data source priority
+- Candidate table serves as final fallback for missing information
+- Score breakdown defaults ensure consistent comparison metrics
 
-**Narrative Fields That Can Override**:
-- ai_enhanced: AI enhancement status flag
-- fit_summary: Summary of candidate fit
-- strengths: Candidate strengths
-- concerns: Candidate concerns
-- weaknesses: Candidate weaknesses
-- recommendation_rationale: Reasoning for recommendation
-- explainability: Detailed explainability data
-- interview_questions: Interview question recommendations
+**Enhanced Comparison Fields**:
+- `employment_gaps`: Count of employment gaps from analysis
+- `interview_questions_preview`: Technical questions preview (first 2 items)
+- `analysis_quality`: Quality assessment of analysis (high/medium/low)
+- `adjacent_skills`: Adjacent skills for role fit analysis
+- `winners`: Category winners for overall, skills, experience, education, stability
 
-**Updated** Enhanced with API response unification that ensures consistent data structures across all endpoints and improved fallback mechanism that ensures candidate profiles never appear empty by properly utilizing merged analysis data when available, with robust error handling for merge failures.
+**Winner Determination Logic**:
+- Calculates maximum scores across all categories
+- Marks candidates as winners when achieving maximum values
+- Provides clear visual indicators in comparison interface
+- Handles edge cases where multiple candidates tie for winners
+
+**Updated** Enhanced with comprehensive JSON parsing safety checks, priority-based data source selection, and improved fallback mechanisms for robust candidate comparison operations with tenant isolation and error handling.
 
 **Section sources**
-- [candidates.py:182-195](file://app/backend/routes/candidates.py#L182-L195)
-- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
-- [llm_service.py:263-284](file://app/backend/services/llm_service.py#L263-L284)
+- [compare.py:17-158](file://app/backend/routes/compare.py#L17-L158)
+- [schemas.py:284-286](file://app/backend/models/schemas.py#L284-L286)

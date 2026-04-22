@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Users, LayoutTemplate, UserCircle, LogOut, ChevronDown, GitCompare, Users2, Video, MessageSquareText, Settings, LayoutDashboard } from 'lucide-react'
+import { Sparkles, Users, LayoutTemplate, UserCircle, LogOut, ChevronDown, GitCompare, Users2, Video, MessageSquareText, Settings, LayoutDashboard, Shield } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { to: '/video',       label: 'Video',      icon: Video },
   { to: '/transcript',  label: 'Transcript', icon: MessageSquareText },
   { to: '/team',        label: 'Team',       icon: Users2 },
+  { to: '/admin',       label: 'Admin',      icon: Shield },
 ]
 
 export default function NavBar() {
@@ -42,6 +43,7 @@ export default function NavBar() {
         <nav className="hidden md:flex items-center gap-0.5">
           {NAV_LINKS.map(({ to, label, icon: Icon }) => {
             const active = location.pathname === to
+            if (to === '/admin' && !user?.is_platform_admin) return null
             return (
               <Link
                 key={to}

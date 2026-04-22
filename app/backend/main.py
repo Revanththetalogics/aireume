@@ -56,6 +56,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 from app.backend.db.database import engine, Base, SessionLocal
 from app.backend.middleware.csrf import CSRFMiddleware
+from app.backend.middleware.rate_limit import RateLimitMiddleware
 from app.backend.routes import analyze
 from app.backend.routes import auth
 from app.backend.routes import compare
@@ -70,7 +71,9 @@ from app.backend.routes import video
 from app.backend.routes import transcript
 from app.backend.routes import subscription
 from app.backend.routes import queue_api
+from app.backend.routes import admin
 from app.backend.routes import upload
+from app.backend.routes import billing
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -334,6 +337,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ─── Rate Limiting ────────────────────────────────────────────────────────────
+
+app.add_middleware(RateLimitMiddleware)
+
 # ─── Request Correlation ID ───────────────────────────────────────────────────
 
 app.add_middleware(RequestIdMiddleware)
@@ -358,7 +365,9 @@ app.include_router(video.router)
 app.include_router(transcript.router)
 app.include_router(subscription.router)
 app.include_router(queue_api.router)
+app.include_router(admin.router)
 app.include_router(upload.router)
+app.include_router(billing.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

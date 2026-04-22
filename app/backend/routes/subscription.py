@@ -426,7 +426,14 @@ def admin_change_plan(
     tenant.current_period_end = datetime.now(timezone.utc).replace(year=datetime.now(timezone.utc).year + 1)
     tenant.subscription_updated_at = datetime.now(timezone.utc)
     db.commit()
-    
+
+    # Webhook dispatch — never let webhook failure affect plan change
+    try:
+        from app.backend.services.webhook_service import dispatch_event_background
+        dispatch_event_background(None, tenant.id, "subscription.changed", {"old_plan": old_plan_name, "new_plan": new_plan.name})
+    except Exception:
+        pass
+
     return {
         "message": "Plan changed successfully",
         "previous_plan": old_plan_name,

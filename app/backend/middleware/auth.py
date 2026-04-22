@@ -5,7 +5,7 @@ import os
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.backend.db.database import get_db
 from app.backend.models.db_models import User
@@ -50,9 +50,15 @@ def get_current_user(
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    user = db.query(User).filter(User.id == int(user_id), User.is_active == True).first()
+    user = db.query(User).options(joinedload(User.tenant)).filter(User.id == int(user_id), User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    # Check tenant suspension
+    if user.tenant and getattr(user.tenant, 'suspended_at', None) is not None:
+        if not getattr(user, 'is_platform_admin', False):
+            raise HTTPException(status_code=403, detail="Account suspended. Contact support.")
+
     return user
 
 
@@ -60,3 +66,26 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+
+def require_platform_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Require platform-level admin access (cross-tenant privilege)."""
+    if not getattr(current_user, 'is_platform_admin', False):
+        raise HTTPException(status_code=403, detail="Platform admin access required")
+    return current_user
+
+
+def require_feature(feature_key: str):
+    """Dependency that checks if a feature is enabled for the current user's tenant."""
+    def dependency(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        from app.backend.services.feature_flag_service import is_feature_enabled
+        if not is_feature_enabled(db, current_user.tenant_id, feature_key):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Feature '{feature_key}' is not available on your plan"
+            )
+        return current_user
+    return dependency

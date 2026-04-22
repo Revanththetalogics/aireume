@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { SubscriptionProvider } from './hooks/useSubscription'
 import ProtectedRoute from './components/ProtectedRoute'
+import PlatformAdminRoute from './components/PlatformAdminRoute'
 import AppShell from './components/AppShell'
 import ErrorBoundary from './components/ErrorBoundary'
 
@@ -24,6 +25,7 @@ const TeamPage       = lazy(() => import('./pages/TeamPage'))
 const TranscriptPage = lazy(() => import('./pages/TranscriptPage'))
 const VideoPage    = lazy(() => import('./pages/VideoPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
 
 function PageLoader() {
   return (
@@ -66,7 +68,8 @@ function App() {
           <Route path="/transcript" element={<Shell><TranscriptPage /></Shell>} />
           <Route path="/video"      element={<Shell><VideoPage /></Shell>} />
           <Route path="/settings"   element={<Shell><SettingsPage /></Shell>} />
-          
+          <Route path="/admin" element={<PlatformAdminRoute><Shell><AdminDashboardPage /></Shell></PlatformAdminRoute>} />
+
           {/* Backward compatibility redirects */}
           <Route path="/batch"      element={<Navigate to="/analyze" replace />} />
           <Route path="/templates"  element={<Navigate to="/jd-library" replace />} />

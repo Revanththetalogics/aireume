@@ -820,4 +820,132 @@ export function getUserFriendlyError(error) {
   return errorMap[status] || detail || "An unexpected error occurred."
 }
 
+// ─── Platform Admin API ─────────────────────────────────────
+
+export async function getAdminTenants(params = {}) {
+  const response = await api.get('/admin/tenants', { params })
+  return response.data
+}
+
+export async function getAdminTenantDetail(tenantId) {
+  const response = await api.get(`/admin/tenants/${tenantId}`)
+  return response.data
+}
+
+export async function suspendTenant(tenantId, reason) {
+  const response = await api.post(`/admin/tenants/${tenantId}/suspend`, { reason })
+  return response.data
+}
+
+export async function reactivateTenant(tenantId) {
+  const response = await api.post(`/admin/tenants/${tenantId}/reactivate`)
+  return response.data
+}
+
+export async function adminChangeTenantPlan(tenantId, planId) {
+  const response = await api.post(`/admin/tenants/${tenantId}/change-plan`, { plan_id: planId })
+  return response.data
+}
+
+export async function adminAdjustUsage(tenantId, data) {
+  const response = await api.post(`/admin/tenants/${tenantId}/adjust-usage`, data)
+  return response.data
+}
+
+export async function getAdminTenantUsageHistory(tenantId, limit = 100) {
+  const response = await api.get(`/admin/tenants/${tenantId}/usage-history`, { params: { limit } })
+  return response.data
+}
+
+export async function getAdminAuditLogs(params = {}) {
+  const response = await api.get('/admin/audit-logs', { params })
+  return response.data
+}
+
+// ─── Platform Admin API — Phase 2 ──────────────────────────
+
+export async function getAdminFeatureFlags() {
+  const response = await api.get('/admin/feature-flags')
+  return response.data
+}
+
+export async function toggleFeatureFlag(flagId, enabledGlobally) {
+  const response = await api.put(`/admin/feature-flags/${flagId}`, { enabled_globally: enabledGlobally })
+  return response.data
+}
+
+export async function getTenantFeatureOverrides(tenantId) {
+  const response = await api.get(`/admin/tenants/${tenantId}/features`)
+  return response.data
+}
+
+export async function setTenantFeatureOverride(tenantId, flagId, enabled) {
+  const response = await api.put(`/admin/tenants/${tenantId}/features/${flagId}`, { enabled })
+  return response.data
+}
+
+export async function deleteTenantFeatureOverride(tenantId, flagId) {
+  const response = await api.delete(`/admin/tenants/${tenantId}/features/${flagId}`)
+  return response.data
+}
+
+export async function getTenantWebhooks(tenantId) {
+  const response = await api.get(`/admin/tenants/${tenantId}/webhooks`)
+  return response.data
+}
+
+export async function createTenantWebhook(tenantId, data) {
+  const response = await api.post(`/admin/tenants/${tenantId}/webhooks`, data)
+  return response.data
+}
+
+export async function deleteTenantWebhook(tenantId, webhookId) {
+  const response = await api.delete(`/admin/tenants/${tenantId}/webhooks/${webhookId}`)
+  return response.data
+}
+
+export async function getWebhookDeliveries(tenantId, webhookId, limit = 50) {
+  const response = await api.get(`/admin/tenants/${tenantId}/webhooks/${webhookId}/deliveries`, { params: { limit } })
+  return response.data
+}
+
+export async function getAdminMetricsOverview() {
+  const response = await api.get('/admin/metrics/overview')
+  return response.data
+}
+
+export async function getAdminUsageTrends(days = 30) {
+  const response = await api.get('/admin/metrics/usage-trends', { params: { days } })
+  return response.data
+}
+
+// ─── Billing Admin API ──────────────────────────────────────────
+
+export async function getBillingConfig() {
+  const response = await api.get('/admin/billing/config')
+  return response.data
+}
+
+export async function updateBillingConfig(data) {
+  const response = await api.put('/admin/billing/config', data)
+  return response.data
+}
+
+export async function getBillingProviders() {
+  const response = await api.get('/admin/billing/providers')
+  return response.data
+}
+
+// ─── Notification Admin API ──────────────────────────────────────
+
+export async function getNotificationConfig() {
+  const response = await api.get('/admin/notifications/config')
+  return response.data
+}
+
+export async function sendTestEmail(email) {
+  const response = await api.post('/admin/notifications/test', { email })
+  return response.data
+}
+
 export default api

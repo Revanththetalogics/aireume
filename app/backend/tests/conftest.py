@@ -251,6 +251,45 @@ def auth_client_with_token(client):
     return client, token
 
 
+@pytest.fixture(scope="function")
+def platform_admin_client(client, db):
+    """
+    Returns a TestClient configured with a platform admin JWT Bearer token.
+    Registers a user, logs in, then sets is_platform_admin=True directly in DB.
+    """
+    from app.backend.models.db_models import User
+
+    register_payload = {
+        "company_name": "PlatformAdminCorp",
+        "email": "platformadmin@test.com",
+        "password": "PlatformAdmin123!",
+        "full_name": "Platform Admin",
+    }
+    reg_resp = client.post("/api/auth/register", json=register_payload)
+    assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+
+    login_resp = client.post("/api/auth/login", json={
+        "email": "platformadmin@test.com",
+        "password": "PlatformAdmin123!",
+    })
+    assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
+    token = login_resp.json()["access_token"]
+
+    # Set is_platform_admin=True directly on the user
+    user = db.query(User).filter(User.email == "platformadmin@test.com").first()
+    user.is_platform_admin = True
+    db.commit()
+
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
+
+
+@pytest.fixture(scope="function")
+def platform_admin_client_with_plans(platform_admin_client, seed_subscription_plans):
+    """Platform admin client with subscription plans seeded."""
+    return platform_admin_client
+
+
 # ─── Mock Ollama ──────────────────────────────────────────────────────────────
 
 @pytest.fixture

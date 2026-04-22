@@ -16,15 +16,15 @@
 - [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
 - [video_service.py](file://app/backend/services/video_service.py)
 - [candidates.py](file://app/backend/routes/candidates.py)
+- [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- **Enhanced LLM Integration**: Improved background processing capabilities with systematic narrative merging using python_result as base when database persistence fails
-- **Fallback Mechanisms**: Added comprehensive fallback handling for cases where analysis_result becomes empty or missing critical fields
-- **Enhanced Error Handling**: Strengthened error handling for streaming operations with improved timeout management and graceful degradation
-- **Data Persistence Enhancement**: Implemented robust fallback mechanisms ensuring complete report data remains available even when LLM processing fails or times out
-- **Background Processing Improvements**: Enhanced background task management with improved status tracking and database persistence
+- **Enhanced Candidate Profile Data Handling**: Implemented truncation of current role and company information to 255 characters to prevent database constraint violations
+- **Warning Log Generation**: Added warning logs when truncation occurs during candidate profile processing
+- **Database Constraint Prevention**: Enhanced data validation to prevent truncation errors in PostgreSQL database operations
+- **Dual Implementation**: Applied truncation logic in both hybrid pipeline service and analyze route for comprehensive coverage
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -46,7 +46,7 @@ The Hybrid Pipeline represents a sophisticated resume analysis system that combi
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
-**Updated** The system now features enhanced data persistence capabilities with the new `_merge_llm_into_result` function that ensures complete report data remains available even when LLM processing fails or times out. The background LLM narrative task now merges LLM-generated narrative data with existing analysis results, preventing incomplete reports from displaying as 'PENDING' state in candidate history views. Enhanced fallback mechanisms provide comprehensive error handling for cases where analysis_result becomes empty or missing critical fields.
+**Updated** The system now features enhanced candidate profile data handling with automatic truncation of current role and company information to prevent database constraint violations. When role titles or company names exceed 255 characters, the system automatically truncates them and generates warning logs to alert administrators of potential data loss. This enhancement ensures database integrity while maintaining complete analysis functionality.
 
 ## System Architecture
 
@@ -77,6 +77,7 @@ DB[(PostgreSQL Database)]
 AR[Analysis Result Storage]
 NR[Narrative Result Storage]
 STATUS[Status Tracking]
+TRUNC[Data Truncation]
 END
 subgraph "Deployment Layer"
 Cloud[Cloud Deployment]
@@ -100,6 +101,7 @@ Agent --> DB
 DB --> AR
 DB --> NR
 DB --> STATUS
+DB --> TRUNC
 CH --> API
 NP --> API
 STREAM --> API
@@ -126,6 +128,7 @@ The architecture implements several key design principles:
 - **Data Persistence Enhancement**: Complete report data persistence through LLM result merging
 - **Streaming Error Handling**: Robust error handling for streaming operations with graceful degradation
 - **Fallback Mechanisms**: Comprehensive fallback handling for empty analysis results and missing critical fields
+- **Data Truncation Protection**: Automatic truncation of candidate profile data to prevent database constraint violations
 
 ## Core Components
 
@@ -228,6 +231,7 @@ participant LLM as "LLM Phase"
 participant Background as "Background Task"
 participant Merge as "Merge Function"
 participant Fallback as "Fallback Handler"
+participant Truncate as "Data Truncation"
 Client->>Route : POST /api/analyze
 Route->>Hybrid : run_hybrid_pipeline()
 Hybrid->>Python : Phase 1 Processing
@@ -237,6 +241,8 @@ Python->>Python : match_skills_rules()
 Python->>Python : score_education_rules()
 Python->>Python : score_experience_rules()
 Python->>Python : domain_architecture_rules()
+Python->>Truncate : Check Role/Company Length
+Truncate-->>Python : Truncated Data
 Python->>Python : compute_fit_score()
 Python-->>Hybrid : Python Scores
 Hybrid->>Background : Start LLM Task
@@ -279,7 +285,7 @@ The first phase executes entirely in Python, providing immediate results with co
 - **Domain Fit**: Assesses technical domain alignment
 - **Architecture Assessment**: Evaluates system design and leadership experience
 
-**Enhanced Data Persistence**: The Python phase now focuses on core functionality with streamlined error handling, ensuring reliable operation without complex fallback mechanisms. The results are immediately available to the client while background processing continues.
+**Enhanced Data Truncation Protection**: The Python phase now includes automatic truncation of current role and company information to 255 characters to prevent database constraint violations. When truncation occurs, warning logs are generated to alert administrators of potential data loss. This ensures database integrity while maintaining complete analysis functionality.
 
 ### Phase 2: LLM Processing (40+ seconds)
 
@@ -309,6 +315,7 @@ The second phase generates comprehensive narratives and recommendations:
 - **Complete Report Persistence**: Merged LLM data ensures full reports remain available in candidate history
 - **Fallback Mechanism**: Systematic narrative merging using python_result as base when database persistence fails
 - **Streaming Error Handling**: Robust error handling for streaming operations with graceful degradation
+- **Data Truncation Protection**: Automatic truncation of candidate profile data to prevent database constraint violations
 
 ### Environment-Aware Configuration
 
@@ -479,6 +486,8 @@ Analysis --> DB[Database Persistence]
 
 **Enhanced Fallback Mechanisms**: When analysis_result becomes empty or missing critical fields, the system automatically uses python_result as the base for narrative merge, ensuring complete report data remains available.
 
+**Enhanced Data Truncation Protection**: The system now includes automatic truncation of candidate profile data to prevent database constraint violations. Both the hybrid pipeline service and analyze route implement the same truncation logic to ensure comprehensive protection.
+
 **Polling Interface:**
 - Frontend polls `/api/analysis/{id}/narrative` for updates
 - Real-time status reporting for ongoing processing
@@ -554,6 +563,8 @@ The polling system implements intelligent retry mechanisms with adaptive timing:
 - **Recovery Mechanisms**: Automatic fixes for common JSON extraction issues
 
 **Enhanced Fallback Mechanisms**: The system now includes comprehensive fallback handling for empty analysis results and missing critical fields, ensuring complete report data remains available.
+
+**Enhanced Data Truncation Protection**: The system now includes automatic truncation of candidate profile data to prevent database constraint violations. When truncation occurs, warning logs are generated to alert administrators of potential data loss.
 
 **Section sources**
 - [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
@@ -644,6 +655,8 @@ The SSE streaming implementation provides real-time feedback:
 
 **Enhanced Fallback Mechanisms**: The streaming interface now includes comprehensive fallback handling for empty analysis results and missing critical fields.
 
+**Enhanced Data Truncation Protection**: The API now includes automatic truncation of candidate profile data to prevent database constraint violations. When truncation occurs, warning logs are generated to alert administrators of potential data loss.
+
 **Section sources**
 - [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
 - [analyze.py:1118-1168](file://app/backend/routes/analyze.py#L1118-L1168)
@@ -670,6 +683,8 @@ The testing suite covers all aspects of the hybrid pipeline with extensive unit 
 - **Data Merging**: Tests `_merge_llm_into_result` function for proper LLM result integration
 - **Fallback Mechanisms**: Tests handling of empty analysis results and missing critical fields
 - **Streaming Operations**: Validates enhanced error handling for streaming scenarios
+- **Data Truncation**: Tests automatic truncation of candidate profile data to 255 characters
+- **Warning Logs**: Validates generation of warning logs when truncation occurs
 
 ### Enhanced Mock-Based Testing
 
@@ -703,6 +718,12 @@ The test suite extensively uses mocking to isolate components and simulate vario
 - **Timeout Handling**: Tests improved timeout management and graceful degradation
 - **Connection Resilience**: Validates handling of connection drops and network issues
 - **Progressive Disclosure**: Tests immediate feedback during processing with fallback mechanisms
+
+**Enhanced Data Truncation Tests:**
+- **Truncation Validation**: Tests automatic truncation of candidate profile data exceeding 255 characters
+- **Warning Log Generation**: Validates generation of warning logs when truncation occurs
+- **Database Constraint Prevention**: Tests prevention of database constraint violations
+- **Dual Implementation Testing**: Validates truncation logic in both hybrid pipeline service and analyze route
 
 ## Performance Considerations
 
@@ -771,6 +792,7 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Connection Pooling**: Optimized database connections for concurrent operations
 - **Background Processing**: Non-blocking LLM processing ensures responsive user experience
 - **Fallback Mechanism Performance**: Systematic narrative merging using python_result as base minimizes performance impact
+- **Data Truncation Performance**: Automatic truncation adds minimal overhead while preventing database errors
 
 ## Troubleshooting Guide
 
@@ -829,6 +851,18 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Causes**: Network instability, LLM timeouts, resource constraints
 - **Solutions**: Check timeout configurations, validate network connectivity, monitor resource usage
 
+**Enhanced Data Truncation Issues:**
+- **Symptoms**: Warning logs about truncation, potential data loss
+- **Causes**: Role titles or company names exceeding 255 characters
+- **Solutions**: Monitor warning logs, consider data normalization, validate input sources
+- **Prevention**: Implement data validation before processing to reduce truncation occurrences
+
+**Enhanced Database Constraint Issues:**
+- **Symptoms**: Database errors when storing candidate profile data
+- **Causes**: Exceeding column length limits (255 characters for current_role and current_company)
+- **Solutions**: Verify database schema, check truncation implementation, monitor constraint violations
+- **Monitoring**: Watch for database constraint violation errors in logs
+
 ### Enhanced Diagnostic Tools
 
 **Health Monitoring:**
@@ -885,6 +919,18 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Progressive Disclosure Validation**: Ensuring immediate feedback during processing
 - **Fallback Mechanism Monitoring**: Validating graceful degradation in streaming scenarios
 
+**Enhanced Data Truncation Diagnostics:**
+- **Truncation Warning Logs**: Monitoring automatic truncation of candidate profile data
+- **Data Loss Prevention**: Ensuring database constraint violations are prevented
+- **Dual Implementation Validation**: Verifying truncation logic in both hybrid pipeline service and analyze route
+- **Performance Impact Monitoring**: Tracking minimal overhead of truncation operations
+
+**Enhanced Database Constraint Diagnostics:**
+- **Constraint Violation Monitoring**: Tracking database constraint violation errors
+- **Schema Validation**: Ensuring database schema matches truncation requirements
+- **Data Integrity Validation**: Verifying candidate profile data integrity after truncation
+- **Migration Validation**: Ensuring database migrations properly implement 255-character limits
+
 **Section sources**
 - [hybrid_pipeline.py:135-147](file://app/backend/services/hybrid_pipeline.py#L135-L147)
 - [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
@@ -893,7 +939,7 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 
 The Hybrid Pipeline represents a mature, production-ready solution that successfully balances computational efficiency with intelligent analysis. By leveraging the strengths of both Python-based rule engines and LLM-powered natural language processing, the system delivers both immediate actionable insights and comprehensive qualitative analysis.
 
-**Updated** The recent architectural enhancements significantly improve the system's reliability and data persistence capabilities. The introduction of the `_merge_llm_into_result` function ensures that LLM-generated narrative data is seamlessly integrated with existing analysis results, creating complete reports that persist in the database even when LLM processing fails or times out. This enhancement prevents incomplete reports from displaying as 'PENDING' state in candidate history views, providing recruiters with comprehensive analysis data regardless of LLM processing outcomes.
+**Updated** The recent architectural enhancements significantly improve the system's reliability and data integrity through comprehensive candidate profile data handling. The implementation of automatic truncation for current role and company information to 255 characters prevents database constraint violations while generating warning logs to alert administrators of potential data loss. This dual-implementation approach ensures data integrity across both the hybrid pipeline service and analyze route, providing robust protection against database errors.
 
 **Enhanced Reliability Features:**
 - **Simplified Python Phase**: Reduced complexity while maintaining core functionality
@@ -907,6 +953,9 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Enhanced Data Merging**: Seamless integration of LLM results with existing analysis data
 - **Enhanced Fallback Mechanisms**: Comprehensive fallback handling for empty analysis results and missing critical fields
 - **Streaming Error Handling**: Robust error handling for streaming operations with graceful degradation
+- **Data Truncation Protection**: Automatic truncation of candidate profile data to prevent database constraint violations
+- **Warning Log Generation**: Alerting administrators when truncation occurs to prevent data loss
+- **Dual Implementation Coverage**: Truncation logic implemented in both hybrid pipeline service and analyze route
 
 **Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results
@@ -924,6 +973,8 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Enhanced model configuration** ensuring optimal performance with Gemma4 31B cloud model
 - **Complete data persistence** guaranteeing reports remain accessible even with LLM failures
 - **Enhanced streaming capabilities** providing robust error handling for real-time operations
+- **Data integrity protection** through automatic truncation preventing database constraint violations
+- **Administrative oversight** through warning logs when data truncation occurs
 
 The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes. The comprehensive status tracking and polling architecture ensure reliable operation in production environments while maintaining responsive user experiences.
 
@@ -939,6 +990,8 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Data Integrity**: Complete report persistence ensures candidate history displays full analysis data
 - **Enhanced Fallback Mechanisms**: Systematic narrative merging ensures complete report availability
 - **Streaming Reliability**: Robust error handling maintains system stability during real-time operations
+- **Data Truncation Protection**: Automatic prevention of database constraint violations
+- **Administrative Awareness**: Warning logs alert administrators to potential data loss
 
 **Enhanced Data Persistence Benefits:**
 - **Reliable Report Availability**: Complete analysis data remains accessible even when LLM processing fails
@@ -947,12 +1000,21 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Backward Compatibility**: Works with both old and new LLM result formats
 - **Error Resilience**: Database write failures don't compromise report completeness
 - **Fallback Mechanism Effectiveness**: Systematic narrative merging using python_result as base ensures complete reports
+- **Data Truncation Effectiveness**: Automatic truncation prevents database constraint violations
 
 **Enhanced Streaming Benefits:**
 - **Robust Timeout Handling**: Improved timeout management and graceful degradation
 - **Connection Resilience**: Better handling of connection drops and network issues
 - **Progressive Feedback**: Immediate feedback during processing with fallback mechanisms
 - **System Stability**: Enhanced error handling maintains system reliability during real-time operations
+
+**Enhanced Data Truncation Benefits:**
+- **Database Integrity**: Prevention of constraint violations through automatic 255-character truncation
+- **Administrative Oversight**: Warning logs alert administrators when data truncation occurs
+- **Data Loss Prevention**: Early detection of potential data loss scenarios
+- **System Reliability**: Reduced database errors through proactive data validation
+- **Dual Implementation**: Protection across both hybrid pipeline service and analyze route
+- **Minimal Performance Impact**: Automatic truncation adds negligible overhead to processing time
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -962,9 +1024,11 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced Reliability**: Fewer failure points in the system architecture
 - **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
 - **Future Extensibility**: Clean foundation for adding new features without architectural debt
-- **Data Integrity**: Robust mechanisms ensure complete report data persistence
-- **User Experience**: Seamless operation even when LLM processing encounters issues
+- **Data Integrity Enhancement**: Robust mechanisms ensure complete report data persistence
+- **User Experience Improvement**: Seamless operation even when LLM processing encounters issues
 - **Streaming Excellence**: Enhanced error handling provides reliable real-time operations
+- **Administrative Transparency**: Warning logs provide visibility into data truncation events
+- **Database Protection**: Automatic prevention of constraint violations through truncation logic
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -977,6 +1041,22 @@ The system's architecture represents a mature balance between functionality and 
 - **Complete Report Integrity**: Merged LLM data guarantees candidate history displays full analysis information
 - **Error Resilience**: Database write failures don't compromise the availability of complete reports
 - **Fallback Mechanism Reliability**: Systematic narrative merging ensures complete report availability even with database failures
+- **Data Truncation Reliability**: Automatic truncation prevents database constraint violations consistently
+
+**Enhanced Streaming Error Handling Benefits:**
+- **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
+- **Graceful Degradation**: Automatic fallback to Python scoring maintains system functionality
+- **Connection Resilience**: Better handling of network issues and connection drops
+- **Progressive Feedback**: Immediate user feedback during processing with fallback mechanisms
+- **System Reliability**: Enhanced error handling maintains stable operation during real-time streaming
+
+**Enhanced Data Truncation Benefits:**
+- **Systematic Data Protection**: Automatic truncation of candidate profile data prevents database constraint violations
+- **Administrative Awareness**: Warning logs alert administrators when truncation occurs to prevent unexpected data loss
+- **Dual Implementation Coverage**: Protection implemented in both hybrid pipeline service and analyze route ensures comprehensive coverage
+- **Minimal Performance Impact**: Automatic truncation adds negligible overhead while providing significant database protection benefits
+- **Data Integrity Assurance**: Prevention of database errors through proactive data validation
+- **Early Problem Detection**: Warning logs help identify potential data quality issues before they cause system failures
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -988,6 +1068,8 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Future Extensibility**: Clean foundation for adding new features without architectural debt
 - **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
 - **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
+- **Data Integrity Enhancement**: Automatic truncation prevents database constraint violations
+- **Administrative Transparency**: Warning logs provide visibility into data truncation events
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -1006,5 +1088,39 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Connection Resilience**: Better handling of network issues and connection drops
 - **Progressive Feedback**: Immediate user feedback during processing with fallback mechanisms
 - **System Reliability**: Enhanced error handling maintains stable operation during real-time streaming
+
+**Enhanced Data Truncation Benefits:**
+- **Database Integrity Protection**: Automatic 255-character truncation prevents constraint violations in PostgreSQL database
+- **Administrative Oversight**: Warning logs alert administrators when truncation occurs to prevent unexpected data loss
+- **Dual Implementation Coverage**: Protection implemented in both hybrid pipeline service and analyze route ensures comprehensive coverage
+- **Minimal Performance Impact**: Automatic truncation adds negligible overhead while providing significant database protection
+- **Data Quality Assurance**: Prevention of database errors through proactive data validation
+- **Early Problem Detection**: Warning logs help identify potential data quality issues before they cause system failures
+
+The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+
+**Enhanced Data Merging Benefits:**
+- **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
+- **Improved Reliability**: Multiple parsing strategies and automatic recovery mechanisms reduce failure rates
+- **Better Debugging**: Comprehensive logging provides detailed insights into JSON extraction challenges
+- **Enhanced User Experience**: Automatic fixes for common LLM mistakes improve overall system reliability
+- **Production Stability**: Robust error handling ensures consistent performance in production environments
+- **Complete Report Integrity**: Merged LLM data guarantees candidate history displays full analysis information
+- **Error Resilience**: Database write failures don't compromise the availability of complete reports
+- **Fallback Mechanism Reliability**: Systematic narrative merging ensures complete report availability even with database failures
+- **Data Truncation Reliability**: Automatic truncation prevents database constraint violations consistently
+
+The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+
+**Simplified Architecture Benefits:**
+- **Reduced Complexity**: Streamlined error handling and weight schema conversion logic
+- **Improved Maintainability**: Easier to understand and modify core functionality
+- **Enhanced Reliability**: Fewer failure points in the system architecture
+- **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
+- **Future Extensibility**: Clean foundation for adding new features without architectural debt
+- **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
+- **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
+- **Data Integrity Enhancement**: Automatic truncation prevents database constraint violations
+- **Administrative Transparency**: Warning logs provide visibility into data truncation events
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.

@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, DateTime, Text, Boolean,
-    ForeignKey, Float, func, BigInteger
+    ForeignKey, Float, func, BigInteger, UniqueConstraint
 )
 from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
@@ -50,6 +50,9 @@ class Tenant(Base):
     stripe_customer_id      = Column(String(255), nullable=True)
     stripe_subscription_id  = Column(String(255), nullable=True)
     subscription_updated_at = Column(DateTime(timezone=True), nullable=True)
+    suspended_at    = Column(DateTime(timezone=True), nullable=True)
+    suspended_reason = Column(Text, nullable=True)
+    metadata_json   = Column(Text, nullable=False, default="{}")
 
     plan         = relationship("SubscriptionPlan", back_populates="tenants")
     users        = relationship("User", back_populates="tenant")
@@ -69,6 +72,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role            = Column(String(50), nullable=False, default="recruiter")  # admin / recruiter / viewer
     is_active       = Column(Boolean, default=True)
+    is_platform_admin = Column(Boolean, nullable=False, default=False)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant       = relationship("Tenant", back_populates="users")
@@ -268,3 +272,106 @@ class RevokedToken(Base):
     jti         = Column(String(64), unique=True, index=True, nullable=False)  # JWT ID (UUID)
     revoked_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     expires_at  = Column(DateTime(timezone=True), nullable=False)  # When token would have expired
+
+
+class AuditLog(Base):
+    """Platform admin audit trail."""
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_email = Column(String(255), nullable=False)
+    action = Column(String(100), nullable=False, index=True)
+    resource_type = Column(String(50), nullable=False)
+    resource_id = Column(Integer, nullable=True)
+    details = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+class FeatureFlag(Base):
+    """Global feature flags for the platform."""
+    __tablename__ = "feature_flags"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    display_name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    enabled_globally = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    overrides = relationship("TenantFeatureOverride", back_populates="feature_flag")
+
+class TenantFeatureOverride(Base):
+    """Per-tenant feature flag overrides."""
+    __tablename__ = "tenant_feature_overrides"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    feature_flag_id = Column(Integer, ForeignKey("feature_flags.id", ondelete="CASCADE"), nullable=False)
+    enabled = Column(Boolean, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    feature_flag = relationship("FeatureFlag", back_populates="overrides")
+
+    __table_args__ = (UniqueConstraint('tenant_id', 'feature_flag_id', name='uq_tenant_feature'),)
+
+class RateLimitConfig(Base):
+    """Per-tenant rate limiting configuration."""
+    __tablename__ = "rate_limit_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), unique=True, nullable=False)
+    requests_per_minute = Column(Integer, nullable=False, default=60)
+    llm_concurrent_max = Column(Integer, nullable=False, default=2)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class Webhook(Base):
+    """Tenant webhook configuration for event notifications."""
+    __tablename__ = "webhooks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    url = Column(String(500), nullable=False)
+    secret = Column(String(255), nullable=False)
+    events = Column(Text, nullable=False, default="[]")  # JSON array of event names
+    is_active = Column(Boolean, nullable=False, default=True)
+    failure_count = Column(Integer, nullable=False, default=0)
+    last_triggered_at = Column(DateTime(timezone=True), nullable=True)
+    last_failure_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    deliveries = relationship("WebhookDelivery", back_populates="webhook", cascade="all, delete-orphan")
+
+
+class WebhookDelivery(Base):
+    """Record of a webhook delivery attempt."""
+    __tablename__ = "webhook_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    webhook_id = Column(Integer, ForeignKey("webhooks.id", ondelete="CASCADE"), nullable=False, index=True)
+    event = Column(String(100), nullable=False)
+    payload = Column(Text, nullable=True)  # JSON
+    response_status = Column(Integer, nullable=True)
+    response_body = Column(Text, nullable=True)
+    success = Column(Boolean, nullable=False, default=False)
+    attempt = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    webhook = relationship("Webhook", back_populates="deliveries")
+
+
+class PlatformConfig(Base):
+    """Platform-level key-value configuration for billing provider settings."""
+    __tablename__ = "platform_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    config_key = Column(String(255), unique=True, nullable=False, index=True)
+    config_value = Column(Text, nullable=False)
+    description = Column(String(500), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+    updated_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+

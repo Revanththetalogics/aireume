@@ -42,6 +42,7 @@ from app.backend.services.hybrid_pipeline import (
     shutdown_background_tasks,
 )
 from app.backend.routes.subscription import _ensure_monthly_reset, _get_plan_limits, record_usage
+from app.backend.services.billing.quota import check_quota
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 log    = logging.getLogger("aria.analysis")
@@ -568,6 +569,19 @@ async def analyze_endpoint(
     LLM narrative is generated in background and can be polled via
     GET /api/analysis/{id}/narrative.
     """
+    # ─── HARD QUOTA CHECK (before any work) ───────────────────────────────────
+    quota = check_quota(current_user.tenant_id, db)
+    if not quota["allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "detail": "Monthly analysis quota exceeded",
+                "used": quota["used"],
+                "limit": quota["limit"],
+                "plan": quota["plan"],
+            },
+        )
+
     # ─── VALIDATE FILES FIRST (before incrementing usage) ─────────────────────
     # Validate file extension
     if not resume.filename.lower().endswith(ALLOWED_EXTENSIONS):
@@ -778,6 +792,14 @@ async def analyze_endpoint(
         "quality":     result.get("analysis_quality"),
         "total_ms":    int((time.time() - t_start) * 1000),
     }, default=_json_default))
+
+    # Webhook dispatch — never let webhook failure affect analysis
+    try:
+        from app.backend.services.webhook_service import dispatch_event_background
+        dispatch_event_background(None, current_user.tenant_id, "analysis.completed", {"result_id": db_result.id})
+    except Exception:
+        pass
+
     return result
 
 
@@ -808,6 +830,19 @@ async def analyze_stream_endpoint(
       data: {"stage": "complete", "result": {...result with analysis_id...}}
       data: [DONE]
     """
+    # ─── HARD QUOTA CHECK (before any work) ───────────────────────────────────
+    quota = check_quota(current_user.tenant_id, db)
+    if not quota["allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "detail": "Monthly analysis quota exceeded",
+                "used": quota["used"],
+                "limit": quota["limit"],
+                "plan": quota["plan"],
+            },
+        )
+
     # ─── VALIDATE FILES FIRST (before incrementing usage) ─────────────────────
     # Validate file extension
     if not resume.filename.lower().endswith(ALLOWED_EXTENSIONS):
@@ -1032,6 +1067,13 @@ async def analyze_stream_endpoint(
             "total_ms":    int((time.time() - t_start) * 1000),
         }, default=_json_default))
 
+        # Webhook dispatch — never let webhook failure affect analysis
+        try:
+            from app.backend.services.webhook_service import dispatch_event_background
+            dispatch_event_background(None, tenant_id, "analysis.completed", {"result_id": screening_result_id})
+        except Exception:
+            pass
+
         # Yield final complete with result_id for polling
         complete_payload = {"stage": "complete", "result": final_result}
         yield f"data: {json.dumps(complete_payload, default=_json_default)}\n\n"
@@ -1074,6 +1116,19 @@ async def batch_analyze_chunked_endpoint(
     Reads assembled files from the chunk storage directory and processes
     them through the same analysis pipeline as /analyze/batch.
     """
+    # ─── HARD QUOTA CHECK (before any work) ───────────────────────────────────
+    quota = check_quota(current_user.tenant_id, db)
+    if not quota["allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "detail": "Monthly analysis quota exceeded",
+                "used": quota["used"],
+                "limit": quota["limit"],
+                "plan": quota["plan"],
+            },
+        )
+
     from app.backend.routes.upload import CHUNK_STORAGE_DIR
 
     if not upload_ids:
@@ -1310,6 +1365,19 @@ async def batch_analyze_stream_endpoint(
       data: {"event": "done",   "total": N, ...}   — final summary
       data: [DONE]
     """
+    # ─── HARD QUOTA CHECK (before any work) ───────────────────────────────────
+    quota = check_quota(current_user.tenant_id, db)
+    if not quota["allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "detail": "Monthly analysis quota exceeded",
+                "used": quota["used"],
+                "limit": quota["limit"],
+                "plan": quota["plan"],
+            },
+        )
+
     from app.backend.routes.upload import CHUNK_STORAGE_DIR
 
     # ── Input validation ────────────────────────────────────────────────────
@@ -1628,6 +1696,19 @@ async def batch_analyze_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # ─── HARD QUOTA CHECK (before any work) ───────────────────────────────────
+    quota = check_quota(current_user.tenant_id, db)
+    if not quota["allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "detail": "Monthly analysis quota exceeded",
+                "used": quota["used"],
+                "limit": quota["limit"],
+                "plan": quota["plan"],
+            },
+        )
+
     if not resumes:
         raise HTTPException(status_code=400, detail="At least one resume required")
     

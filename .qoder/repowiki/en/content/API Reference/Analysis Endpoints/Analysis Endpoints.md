@@ -22,12 +22,12 @@
 
 ## Update Summary
 **Changes Made**
-- Added documentation for the new `/analyze/suggest-weights` endpoint that provides AI-powered weight suggestions based on job descriptions
-- Documented comprehensive error handling, fallback mechanisms, and validation for the weight suggestion system
-- Updated streaming analysis endpoint documentation to reflect bug fix that improves data persistence reliability during resume parsing workflows
-- Added comprehensive coverage of early database save mechanism for client disconnection scenarios
-- Enhanced streaming endpoint reliability section with specific implementation details
-- Updated troubleshooting guide to include client disconnection handling
+- Enhanced SSE streaming endpoint with comprehensive data persistence reliability through early database save mechanisms
+- Added scoring weights validation with 4KB size limits across all analysis endpoints
+- Improved batch processing with enhanced job description validation and error handling
+- Updated file validation system documentation with comprehensive magic-byte signature verification for .txt, .rtf, and .odt formats
+- Expanded supported file formats documentation with binary detection algorithms and multi-layered validation
+- Updated streaming analysis endpoint documentation to reflect enhanced data persistence reliability
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -92,7 +92,7 @@ Routes --> Nginx
 - [nginx.prod.conf:50-95](file://app/nginx/nginx.prod.conf#L50-L95)
 
 **Section sources**
-- [analyze.py:1-1256](file://app/backend/routes/analyze.py#L1-L1256)
+- [analyze.py:1-1577](file://app/backend/routes/analyze.py#L1-L1577)
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-L307)
 - [parser_service.py:1-552](file://app/backend/services/parser_service.py#L1-L552)
 - [gap_detector.py:1-219](file://app/backend/services/gap_detector.py#L1-L219)
@@ -104,7 +104,7 @@ Routes --> Nginx
 ## Core Components
 - Authentication: JWT bearer token required for all analysis endpoints.
 - Usage enforcement: Monthly analysis limits per tenant plan, enforced before processing.
-- File validation: Allowed resume formats (.pdf, .docx, .doc) with size limits; job description file size limit.
+- **Enhanced File Validation: Multi-layered validation system with magic-byte signature verification for .txt, .rtf, and .odt formats; comprehensive file content validation beyond simple extension checking; expanded supported file formats with binary detection algorithms; multi-layered validation preventing format spoofing attacks.**
 - Deduplication: Three-layer deduplication by email, file hash, and name+phone; action parameter controls behavior.
 - Streaming: SSE endpoint emits progressive stages with heartbeat pings and enhanced data persistence reliability.
 - Batch: Concurrent processing with automatic ranking by fit score.
@@ -179,18 +179,33 @@ Single resume analysis returning a JSON response.
   - resume: file (required)
   - job_description: string (optional)
   - job_file: file (optional)
-  - scoring_weights: string (JSON) (optional)
+  - scoring_weights: string (JSON) (optional) - **NEW: 4KB size limit enforced**
   - action: string (optional) — one of use_existing, update_profile, create_new
 - Response: AnalysisResponse
 
+**Enhanced File Validation System:**
+The endpoint now includes comprehensive file validation beyond simple extension checking:
+
+- **Magic-byte Signature Verification**: All binary formats (.pdf, .docx, .doc, .odt, .rtf) are validated using magic-byte signatures
+- **Multi-layered Validation**: Extension allowlist combined with content-based verification prevents format spoofing attacks
+- **Specialized .txt Validation**: Heuristic detection to ensure .txt files contain readable text (not binary data)
+- **Binary Detection Algorithms**: ZIP-based signatures for DOCX/ODT, OLE2 compound document signatures for DOC, PDF markers, RTF control sequences
+- **Spoofing Attack Prevention**: Maliciously renamed files with incorrect extensions are detected and rejected
+
+**Enhanced Scoring Weights Validation:**
+- **Size Limit Enforcement**: 4KB maximum size for scoring_weights JSON
+- **JSON Parsing Validation**: Invalid JSON triggers graceful fallback to default weights
+- **Automatic Size Checking**: Applied before processing resumes to prevent oversized payloads
+
 Request validation and limits:
-- Allowed resume extensions: .pdf, .docx, .doc
+- Allowed resume extensions: .pdf, .docx, .doc, .txt, .rtf, .odt
 - Resume file size limit: 10 MB
 - Job description file size limit: 5 MB
 - Job description text or file required; minimum word count enforced
 - Usage limit checked before processing; raises 429 if exceeded
 
 Processing steps:
+- Validate file content using _validate_file_content function with magic-byte signatures
 - Parse resume in thread pool with enhanced contact fallbacks
 - Analyze gaps
 - Parse or cache job description analysis
@@ -207,13 +222,16 @@ Response schema (AnalysisResponse):
 **Updated** Removed contact_info field from AnalysisResponse as LLM-based contact enrichment system has been eliminated. Contact information is now handled through parser service fallback methods only.
 
 Error handling:
-- 400 for unsupported file types, oversized files, insufficient JD content
+- 400 for unsupported file types, oversized files, insufficient JD content, or file validation failures
+- **400 for oversized scoring_weights JSON (>4KB)**
 - 401/403 for authentication/authorization failures
 - 429 for usage limit exceeded
 - 5xx for internal errors during parsing or pipeline execution
 
 **Section sources**
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
+- [analyze.py:69-128](file://app/backend/routes/analyze.py#L69-L128)
+- [analyze.py:59-66](file://app/backend/routes/analyze.py#L59-L66)
 - [schemas.py:89-125](file://app/backend/models/schemas.py#L89-L125)
 - [auth.py:19-40](file://app/backend/middleware/auth.py#L19-L40)
 - [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
@@ -235,6 +253,18 @@ The streaming endpoint now includes sophisticated client disconnection handling 
 - **Client Disconnection Detection:** The system continuously checks for client disconnection between analysis stages using `await request.is_disconnected()`
 - **Conditional Save Logic:** Results are only saved when they contain the full Python scoring data (specifically during "parsing" and "complete" stages)
 - **Guaranteed Completion:** The system ensures database persistence regardless of client connectivity issues
+- **Resource Cleanup:** The system guarantees "[DONE]" event delivery even in error conditions
+
+**Enhanced File Validation Integration:**
+The streaming endpoint also benefits from the enhanced file validation system:
+- Magic-byte signature verification for all binary formats before processing begins
+- Specialized .txt validation to prevent binary file spoofing
+- Comprehensive error handling for invalid file content
+
+**Enhanced Scoring Weights Validation:**
+- **Size Limit Enforcement**: 4KB maximum size for scoring_weights JSON
+- **JSON Parsing Validation**: Invalid JSON triggers graceful fallback to default weights
+- **Automatic Size Checking**: Applied before processing resumes to prevent oversized payloads
 
 Streaming stages:
 - Stage "parsing": Python-only scores and partial analysis (within 2s)
@@ -259,6 +289,7 @@ Frontend consumption example:
 **Section sources**
 - [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
 - [analyze.py:775-833](file://app/backend/routes/analyze.py#L775-L833)
+- [analyze.py:786-1055](file://app/backend/routes/analyze.py#L786-L1055)
 - [hybrid_pipeline.py:1410-1498](file://app/backend/services/hybrid_pipeline.py#L1410-L1498)
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [api.js:96-141](file://app/frontend/src/lib/api.js#L96-L141)
@@ -274,11 +305,24 @@ Concurrent batch processing of multiple resumes with automatic ranking.
   - resumes: list of files (required)
   - job_description: string (optional)
   - job_file: file (optional)
-  - scoring_weights: string (JSON) (optional)
+  - scoring_weights: string (JSON) (optional) - **NEW: 4KB size limit enforced**
 - Response: BatchAnalysisResponse
+
+**Enhanced File Validation in Batch Processing:**
+Batch processing now includes comprehensive file validation:
+- Pre-flight validation using _validate_file_content for all files before processing
+- Magic-byte signature verification for binary formats (.pdf, .docx, .doc, .odt, .rtf)
+- Specialized .txt validation to detect binary files masquerading as text
+- Error collection for individual files that fail validation
+
+**Enhanced Scoring Weights Validation:**
+- **Size Limit Enforcement**: 4KB maximum size for scoring_weights JSON
+- **JSON Parsing Validation**: Invalid JSON triggers graceful fallback to default weights
+- **Automatic Size Checking**: Applied before processing resumes to prevent oversized payloads
 
 Processing:
 - Validates allowed extensions and size limits
+- **Pre-validates all files using enhanced _validate_file_content function**
 - Checks usage limits for the batch size
 - Pre-parses and caches job description analysis
 - Processes resumes concurrently using asyncio.gather
@@ -296,6 +340,7 @@ BatchAnalysisResult:
 
 **Section sources**
 - [analyze.py:649-758](file://app/backend/routes/analyze.py#L649-L758)
+- [analyze.py:1151-1162](file://app/backend/routes/analyze.py#L1151-L1162)
 - [schemas.py:127-136](file://app/backend/models/schemas.py#L127-L136)
 - [subscription.py:670-681](file://app/backend/routes/subscription.py#L670-L681)
 
@@ -395,6 +440,87 @@ The endpoint uses an LLM to analyze job descriptions and provide intelligent wei
 - [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
 - [007_narrative_status.py:1-65](file://alembic/versions/007_narrative_status.py#L1-L65)
 - [test_api.py:277-381](file://app/backend/tests/test_api.py#L277-L381)
+
+### Enhanced File Validation System
+**New** Comprehensive file validation system that prevents format spoofing attacks and ensures file integrity.
+
+**Core Validation Function:**
+The `_validate_file_content` function provides multi-layered validation:
+
+```python
+def _validate_file_content(content: bytes, filename: str) -> None:
+    """Verify that file content matches its extension via magic-byte signatures.
+    
+    Additional layers beyond the existing extension allowlist:
+      1. Magic-byte check — the first bytes of the file must match the
+         expected signature for the declared extension.
+      2. For .txt files — heuristic check that content is not binary.
+    
+    Raises HTTPException(400) on validation failure.
+    """
+```
+
+**Magic-byte Signatures:**
+The `FILE_SIGNATURES` dictionary defines expected file signatures:
+
+```python
+FILE_SIGNATURES = {
+    '.pdf':  [b'%PDF'],
+    '.docx': [b'PK\x03\x04'],          # ZIP-based format
+    '.doc':  [b'\xd0\xcf\x11\xe0'],   # OLE2 Compound Document
+    '.odt':  [b'PK\x03\x04'],           # ZIP-based format (like DOCX)
+    '.rtf':  [b'{\\rtf'],
+    '.txt':  None,                        # No signature check for plain text
+}
+```
+
+**Validation Process:**
+1. **Extension Check**: Verify file extension is in ALLOWED_EXTENSIONS
+2. **Magic-byte Verification**: For binary formats, check file signature matches expected bytes
+3. **Specialized .txt Validation**: Heuristic detection to ensure content readability
+4. **Empty File Handling**: Graceful handling of empty files
+5. **Minimum Length Check**: Ensure file meets minimum signature length requirements
+
+**Spoofing Attack Prevention:**
+- **Format Spoofing**: Files renamed with incorrect extensions are detected
+- **Binary File Masquerading**: Binary files disguised as text (.txt) are rejected
+- **Signature Mismatch**: Files with incorrect magic bytes are flagged
+- **Length Validation**: Files shorter than minimum signature length are rejected
+
+**Supported Formats:**
+- **Binary Formats**: PDF, DOCX, DOC, ODT, RTF (validated via magic bytes)
+- **Text Formats**: TXT, HTML, Markdown (validated via content analysis)
+- **Fallback Processing**: All formats processed through unified extraction pipeline
+
+**Section sources**
+- [analyze.py:69-128](file://app/backend/routes/analyze.py#L69-L128)
+- [analyze.py:49](file://app/backend/routes/analyze.py#L49)
+- [analyze.py:59-66](file://app/backend/routes/analyze.py#L59-L66)
+
+### Enhanced Scoring Weights Validation
+**New** Comprehensive scoring weights validation system that ensures data integrity and prevents oversized payloads.
+
+**Size Limit Enforcement:**
+- **4KB Maximum Size**: All scoring_weights JSON payloads are validated against 4KB limit
+- **Consistent Across Endpoints**: Applied to /api/analyze, /api/analyze/stream, and /api/analyze/batch
+- **Early Validation**: Size checks occur before file processing to prevent unnecessary computation
+
+**JSON Parsing Validation:**
+- **Graceful Fallback**: Invalid JSON automatically falls back to default weights
+- **Error Logging**: Failed JSON parsing is logged for debugging
+- **Backward Compatibility**: Existing analyses continue working without modification
+
+**Validation Process:**
+1. **Size Check**: Validate payload size ≤ 4KB before processing
+2. **JSON Parsing**: Attempt to parse scoring_weights as JSON
+3. **Fallback Handling**: On parse failure, use default weights and log warning
+4. **Weight Normalization**: Ensure weights sum to 1.0 (excluding negative risk penalty)
+
+**Section sources**
+- [analyze.py:389-396](file://app/backend/routes/analyze.py#L389-L396)
+- [analyze.py:602-611](file://app/backend/routes/analyze.py#L602-L611)
+- [analyze.py:1197-1206](file://app/backend/routes/analyze.py#L1197-L1206)
+- [analyze.py:1364-1373](file://app/backend/routes/analyze.py#L1364-L1373)
 
 ### Deduplication and Candidate Profile Storage
 Three-layer deduplication:
@@ -507,7 +633,7 @@ A --> N
 ```
 
 **Diagram sources**
-- [analyze.py:1-1256](file://app/backend/routes/analyze.py#L1-L1256)
+- [analyze.py:1-1577](file://app/backend/routes/analyze.py#L1-L1577)
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-L307)
 - [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-L360)
 - [parser_service.py:1-552](file://app/backend/services/parser_service.py#L1-L552)
@@ -520,7 +646,7 @@ A --> N
 - [nginx.prod.conf:50-95](file://app/nginx/nginx.prod.conf#L50-L95)
 
 **Section sources**
-- [analyze.py:1-1256](file://app/backend/routes/analyze.py#L1-L1256)
+- [analyze.py:1-1577](file://app/backend/routes/analyze.py#L1-L1577)
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-L307)
 - [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-L360)
 - [schemas.py:1-379](file://app/backend/models/schemas.py#L1-L379)
@@ -535,29 +661,46 @@ A --> N
 - Concurrency: Batch endpoint uses asyncio.gather for concurrent processing.
 - Caching: JD parsing is cached per tenant to avoid repeated LLM calls.
 - Rate limiting: Nginx zones protect the API from overload.
+- **Enhanced File Validation Performance**: Magic-byte signature verification adds minimal overhead while providing robust security against format spoofing attacks.
+- **Enhanced Scoring Weights Validation**: 4KB size limits prevent oversized payloads and reduce processing overhead.
 - **Weight Suggestion Performance:** AI-powered weight suggestions use efficient LLM calls with JSON formatting and automatic fallback mechanisms.
-- **Status tracking: Database-level status tracking reduces polling overhead and improves user experience.**
-- **Enhanced contact fallbacks: Improved contact information extraction reduces dependency on LLM-based contact enrichment.**
-- **Enhanced Streaming Reliability: Early database save mechanism prevents data loss during client disconnections and ensures complete analysis results are always persisted.**
+- **Status tracking:** Database-level status tracking reduces polling overhead and improves user experience.
+- **Enhanced contact fallbacks:** Improved contact information extraction reduces dependency on LLM-based contact enrichment.
+- **Enhanced Streaming Reliability:** Early database save mechanism prevents data loss during client disconnections and ensures complete analysis results are always persisted.
 
 ## Troubleshooting Guide
 Common errors and resolutions:
-- Unsupported resume format: Ensure .pdf, .docx, or .doc. See ALLOWED_EXTENSIONS.
+- Unsupported resume format: Ensure .pdf, .docx, .doc, .txt, .rtf, or .odt. See ALLOWED_EXTENSIONS.
 - Resume too large: Maximum 10 MB. See size checks.
 - Job description missing or too short: Provide text or file; minimum 50 characters for weight suggestions.
+- **Oversized scoring_weights:** Ensure JSON is ≤4KB. See scoring weights validation.
 - Usage limit exceeded: Upgrade plan or wait until next reset. Check /api/subscription.
 - Authentication failures: Verify JWT Bearer token.
 - Streaming timeouts: Ensure SSE endpoint is proxied without buffering and with adequate timeouts.
-- **Client disconnection issues: The enhanced streaming endpoint now automatically saves Python results when clients disconnect, preventing data loss.**
-- **Narrative polling issues: Check that analysis_id belongs to the authenticated user's tenant. Verify narrative_status field values.**
-- **Contact information issues: Verify that enhanced fallback methods are working correctly. Check parser service contact extraction logs.**
-- **Weight suggestion failures: The system automatically falls back to default weights when AI analysis fails. Check LLM availability and configuration.**
+- **Client disconnection issues:** The enhanced streaming endpoint now automatically saves Python results when clients disconnect, preventing data loss.
+- **Narrative polling issues:** Check that analysis_id belongs to the authenticated user's tenant. Verify narrative_status field values.
+- **Contact information issues:** Verify that enhanced fallback methods are working correctly. Check parser service contact extraction logs.
+- **Weight suggestion failures:** The system automatically falls back to default weights when AI analysis fails. Check LLM availability and configuration.
+- **File validation failures:** The enhanced validation system may reject files with incorrect magic bytes or binary content masquerading as text. Check file signatures and content encoding.
+
+**Enhanced File Validation Troubleshooting:**
+- **Magic-byte signature mismatches:** Files may have incorrect extensions or corrupted content
+- **Binary .txt files:** Files with non-printable characters exceeding 30% threshold are rejected
+- **Empty files:** Valid for .txt but rejected for binary formats
+- **Short files:** Files shorter than minimum signature length are rejected
+- **Format spoofing attempts:** Maliciously renamed files with incorrect extensions are detected
 
 **Enhanced Streaming Troubleshooting:**
 - **Early Database Save Failures:** Monitor logs for "Failed to save early DB results" warnings and ensure database connectivity
 - **Client Disconnection Detection:** The system continuously monitors for disconnections during both parsing and streaming phases
 - **Guaranteed Completion Events:** The system ensures "[DONE]" event delivery even in error conditions
 - **Resource Cleanup:** Background tasks are properly cancelled and cleaned up when clients disconnect
+
+**Enhanced Scoring Weights Troubleshooting:**
+- **Oversized Payloads:** Ensure JSON is ≤4KB before sending to any analysis endpoint
+- **Invalid JSON Format:** Verify proper JSON syntax and structure
+- **Parsing Failures:** The system automatically falls back to default weights when JSON parsing fails
+- **Weight Normalization Issues:** System automatically normalizes weights to ensure they sum to 1.0
 
 **Weight Suggestion Troubleshooting:**
 - **LLM Unavailable:** System automatically falls back to default weights with reduced confidence
@@ -575,12 +718,14 @@ Common errors and resolutions:
 - [test_routes_phase2.py:221-262](file://app/backend/tests/test_routes_phase2.py#L221-L262)
 
 ## Conclusion
-The analysis endpoints provide robust, scalable resume screening with optional real-time streaming and batch processing. They enforce usage limits through a subscription system, support multiple file formats, and deliver comprehensive results with explainability and risk signals. The enhanced GET /api/analysis/{id}/narrative endpoint with three-state status tracking significantly improves user experience by providing clear feedback on narrative generation progress and fallback mechanisms. 
+The analysis endpoints provide robust, scalable resume screening with optional real-time streaming and batch processing. They enforce usage limits through a subscription system, support multiple file formats with comprehensive validation, and deliver comprehensive results with explainability and risk signals. The enhanced GET /api/analysis/{id}/narrative endpoint with three-state status tracking significantly improves user experience by providing clear feedback on narrative generation progress and fallback mechanisms.
 
-**Updated** The elimination of the LLM-based contact enrichment system simplifies the pipeline while maintaining contact information accuracy through enhanced fallback methods in the parser service. This change reduces complexity, improves performance, and maintains the quality of contact information extraction through multiple fallback tiers (NER, email-based, relaxed header scan, filename-based).
+**Enhanced File Validation Security:** The new comprehensive file validation system provides robust protection against format spoofing attacks and malicious file uploads. Magic-byte signature verification, specialized .txt validation, and multi-layered validation ensure file integrity while maintaining broad format support. This security enhancement protects the system from attacks where files are renamed with incorrect extensions or contain binary content masquerading as legitimate formats.
 
 **Enhanced Streaming Reliability:** The recent bug fix significantly improves data persistence reliability during resume parsing workflows by implementing an early database save mechanism. When clients disconnect during streaming analysis, the system automatically captures and persists Python results to prevent data loss, ensuring complete analysis results are always available for retrieval and polling. This enhancement provides robust protection against network interruptions and client-side disconnections while maintaining the streaming experience for connected clients.
 
+**Enhanced Scoring Weights Validation:** The new 4KB size limit and comprehensive JSON validation system ensures data integrity and prevents oversized payloads across all analysis endpoints. This validation system provides consistent behavior across /api/analyze, /api/analyze/stream, and /api/analyze/batch while maintaining backward compatibility with existing weight formats.
+
 **New Weight Suggestion System:** The addition of the AI-powered weight suggestion endpoint provides intelligent scoring recommendations based on job descriptions. The system includes comprehensive validation, fallback mechanisms, and automatic weight normalization to ensure reliable and consistent weight recommendations across different role types and requirements.
 
-Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments with enhanced data integrity guarantees and intelligent weight recommendation capabilities.
+Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments with enhanced data integrity guarantees, intelligent weight recommendation capabilities, comprehensive file validation security measures, and robust streaming reliability features.

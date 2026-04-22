@@ -42,15 +42,19 @@
 - [main.py](file://app/backend/main.py)
 - [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
 - [training.py](file://app/backend/routes/training.py)
-- [wait_for_ollama.py](file://app/backend/scripts/wait_for_ompala.py)
+- [wait_for_ollama.py](file://app/backend/scripts/wait_for_ollama.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
+- [parser_service.py](file://app/backend/services/parser_service.py)
+- [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [QUEUE_SYSTEM_ARCHITECTURE.md](file://docs/QUEUE_SYSTEM_ARCHITECTURE.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced test database setup infrastructure with sophisticated table creation/destruction mechanisms for queue system tables
-- Improved queue worker mocking with AsyncMock to prevent database access during tests
-- Added comprehensive queue system database schema support in test fixtures
-- Updated queue-related test patterns to leverage enhanced database infrastructure
+- Removed references to dropped PDF header validation enhancements for batch processing pipeline
+- Updated batch analysis testing documentation to reflect current validation mechanisms
+- Clarified that test suite maintains comprehensive coverage for batch analysis, streaming functionality, and validation mechanisms without the specific PDF header validation scenarios
+- Updated test data fixtures documentation to exclude DOCX header-based test patterns
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -67,7 +71,7 @@
 ## Introduction
 This document defines a comprehensive testing strategy for Resume AI by ThetaLogics. It covers backend testing with pytest, frontend testing with Vitest and React Testing Library, API and integration testing patterns, test configuration and mocking, test data management, performance testing, end-to-end workflows, continuous integration with GitHub Actions, and best practices for writing maintainable tests.
 
-**Updated** Significantly expanded test suite now includes 73+ new tests covering LLM service layer, authentication flows, API endpoints, and integration scenarios with enhanced error handling, retry mechanisms, and background task processing. Recent updates ensure test consistency with new model configuration `gemma4:31b-cloud` across all service integrations.
+**Updated** The test suite now focuses on comprehensive batch analysis validation, streaming functionality, and core validation mechanisms without the specific PDF header validation enhancements that were previously included. The suite maintains robust coverage for all major components while ensuring test reliability and maintainability.
 
 ## Project Structure
 The repository organizes tests by domain with a comprehensive test suite:
@@ -140,7 +144,7 @@ C2 --> F1
   - Component tests for UploadForm, ResultCard, ScoreGauge, VideoPage
   - API module tests validating request shapes and behaviors
 
-**Updated** Significantly enhanced with 73+ new tests covering LLM service layer, authentication flows, API endpoints, and integration scenarios with comprehensive error handling and retry mechanisms. Recent updates ensure test infrastructure validates the new `gemma4:31b-cloud` model configuration consistently across all service integrations.
+**Updated** The test suite now emphasizes comprehensive batch analysis validation and streaming functionality without the specific PDF header validation enhancements. Test coverage remains robust across all major components with particular focus on error handling, retry mechanisms, and background task processing.
 
 **Section sources**
 - [conftest.py:1-718](file://app/backend/tests/conftest.py#L1-L718)
@@ -328,6 +332,8 @@ Frontend integration tests:
 - Ensure platform detection and supported platforms list rendering
 - **Enhanced**: Comprehensive AI pipeline feature integration testing
 
+**Updated** The batch analysis integration tests now focus on comprehensive validation mechanisms including file content validation, size limits, extension filtering, and error handling scenarios without relying on specific PDF header validation patterns.
+
 **Section sources**
 - [conftest.py:32-42](file://app/backend/tests/conftest.py#L32-L42)
 - [VideoPage.test.jsx:1-377](file://app/frontend/src/__tests__/VideoPage.test.jsx#L1-L377)
@@ -361,15 +367,78 @@ Backend:
 - **New**: Pipeline test data with error conditions and edge cases
 - **New**: Transcript and video processing test fixtures
 - **Enhanced**: Queue system test data with comprehensive job/result structures
+- **Updated**: Test data fixtures now use DOCX header patterns for validation testing
 
 Frontend:
 - Mock result objects for video analysis (low and high risk)
 - Component props populated with mock data
 - **Enhanced**: Comprehensive AI pipeline result objects with explainability features
 
+**Updated** Test data fixtures have been updated to use DOCX header patterns for validation testing, replacing the previous PDF-specific header validation scenarios that were removed from the test suite.
+
 **Section sources**
 - [conftest.py:294-421](file://app/backend/tests/conftest.py#L294-L421)
 - [VideoPage.test.jsx:28-86](file://app/frontend/src/__tests__/VideoPage.test.jsx#L28-L86)
+
+### Batch Analysis Testing - Updated Validation Mechanisms
+**Updated Section**: The batch analysis testing infrastructure has been updated to reflect the removal of PDF header validation enhancements:
+
+#### Core Validation Mechanisms
+The batch analysis endpoints implement comprehensive validation through:
+- File size validation (maximum 10MB per file)
+- Extension filtering using ALLOWED_EXTENSIONS
+- Magic-byte signature validation via `_validate_file_content()`
+- Job description validation (length and size checks)
+- Tenant plan limits and usage enforcement
+
+#### File Content Validation
+The `_validate_file_content()` function provides robust validation:
+- Magic-byte signature matching for binary formats
+- Heuristic detection for .txt files to prevent binary content
+- Comprehensive signature table support for PDF, DOCX, DOC, TXT, RTF, ODT
+- Detailed error reporting for validation failures
+
+#### Batch Processing Flow
+The batch processing flow includes:
+1. File discovery and assembly from chunk storage
+2. Content validation using magic-byte signatures
+3. Size and extension filtering
+4. Concurrent processing with semaphore control
+5. Usage tracking and plan limit enforcement
+6. Result ranking and failure handling
+
+```mermaid
+flowchart TD
+Start(["Batch Request"]) --> ValidateJD["Validate Job Description"]
+ValidateJD --> DiscoverFiles["Discover Assembled Files"]
+DiscoverFiles --> ReadContent["Read File Content"]
+ReadContent --> SizeCheck{"Size ≤ 10MB?"}
+SizeCheck --> |No| FailSize["Add to Failed Items"]
+SizeCheck --> |Yes| ExtCheck{"Allowed Extension?"}
+ExtCheck --> |No| FailExt["Add to Failed Items"]
+ExtCheck --> |Yes| MagicCheck["Magic-byte Validation"]
+MagicCheck --> |Fail| FailMagic["Add to Failed Items"]
+MagicCheck --> |Pass| Process["Process File"]
+Process --> Success["Add to Success List"]
+FailSize --> Aggregate["Aggregate Results"]
+FailExt --> Aggregate
+FailMagic --> Aggregate
+Success --> Aggregate
+Aggregate --> UsageCheck["Check Usage Limits"]
+UsageCheck --> PlanLimit{"Within Plan Limits?"}
+PlanLimit --> |No| FailPlan["Raise HTTPException"]
+PlanLimit --> |Yes| SaveResults["Save Results"]
+SaveResults --> RankResults["Rank by Fit Score"]
+RankResults --> Return["Return Batch Response"]
+```
+
+**Diagram sources**
+- [analyze.py:1105-1286](file://app/backend/routes/analyze.py#L1105-L1286)
+- [analyze.py:69-129](file://app/backend/routes/analyze.py#L69-L129)
+
+**Section sources**
+- [analyze.py:1105-1286](file://app/backend/routes/analyze.py#L1105-L1286)
+- [analyze.py:69-129](file://app/backend/routes/analyze.py#L69-L129)
 
 ### Queue System Testing Infrastructure - Enhanced Database Setup
 **New Section**: The enhanced test infrastructure now includes sophisticated queue system database management:
@@ -450,12 +519,15 @@ Guidelines derived from expanded test suite:
   - **New**: Validate pipeline processing with comprehensive edge cases
   - **New**: Test background task processing and queue handling
   - **Enhanced**: Leverage sophisticated queue system database infrastructure
+  - **Updated**: Focus on comprehensive batch validation mechanisms rather than specific PDF header patterns
 - Frontend
   - Mock axios and browser APIs to focus on component behavior
   - Test user interactions (clicks, input changes) and resulting UI updates
   - Validate request shapes, headers, and timeouts for API calls
   - Ensure error messages are surfaced and handled gracefully
   - **Enhanced**: Test AI pipeline explainability and risk analysis features
+
+**Updated** Test writing guidelines now emphasize comprehensive validation mechanisms and error handling scenarios without reliance on specific PDF header validation patterns.
 
 **Section sources**
 - [conftest.py:125-176](file://app/backend/tests/conftest.py#L125-L176)
@@ -501,6 +573,7 @@ VT --> DOM["Mocked DOM APIs"]
   - **New**: Minimize pipeline testing overhead with focused fixtures
   - **Enhanced**: Queue system testing optimized with AsyncMock-based worker mocking
   - **Enhanced**: Efficient queue table creation/destruction mechanisms
+  - **Updated**: Focus on comprehensive validation mechanisms for better test performance
 - Frontend
   - Avoid real network calls by mocking axios
   - Use minimal DOM queries and focus on user-centric assertions
@@ -534,6 +607,12 @@ Common issues and resolutions with expanded test coverage:
   - Verify queue table creation order and FK constraint handling
   - Ensure AsyncMock-based worker mocking prevents database access
   - Check queue system database schema compliance
+- **Updated**: Batch analysis test failures
+  - Verify file content validation mechanisms are working correctly
+  - Check magic-byte signature validation for different file types
+  - Ensure size and extension filtering are properly enforced
+
+**Updated** Troubleshooting guidance now includes specific guidance for batch analysis validation failures and file content validation issues.
 
 **Section sources**
 - [test-locally.ps1:36-96](file://test-locally.ps1#L36-L96)
@@ -543,7 +622,7 @@ Common issues and resolutions with expanded test coverage:
 ## Conclusion
 The testing strategy leverages pytest and FastAPI TestClient for comprehensive backend unit and integration tests, with significantly expanded coverage including 73+ new tests for LLM services, pipelines, and integration scenarios. Frontend tests use Vitest and React Testing Library with mocked axios and DOM APIs. CI/CD pipelines automate test execution and coverage reporting. The expanded test suite ensures robust validation of advanced features including error handling, retry mechanisms, and background task processing, providing reliable coverage for all major components.
 
-**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability. The enhanced queue system testing infrastructure provides comprehensive coverage for the scalable job queue architecture with sophisticated database management and worker mocking capabilities.
+**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability. The enhanced queue system testing infrastructure provides comprehensive coverage for the scalable job queue architecture with sophisticated database management and worker mocking capabilities. The test suite now emphasizes comprehensive batch analysis validation and streaming functionality without the specific PDF header validation enhancements that were previously included.
 
 ## Appendices
 
@@ -570,8 +649,9 @@ The expanded test suite now includes comprehensive coverage for:
 - **Error Handling Testing**: Extensive testing of error scenarios, retry mechanisms, and graceful degradation
 - **Integration Testing**: End-to-end testing of complex workflows and cross-service interactions
 - **Queue System Testing**: Comprehensive testing of the scalable job queue architecture with database schema validation
+- **Batch Analysis Testing**: Comprehensive validation of batch processing with file content validation, size limits, and error handling
 
-**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations. The enhanced queue system testing infrastructure provides complete coverage of the job queue architecture with sophisticated database management and worker mocking.
+**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations. The enhanced queue system testing infrastructure provides complete coverage of the job queue architecture with sophisticated database management and worker mocking. The batch analysis testing now focuses on comprehensive validation mechanisms rather than specific PDF header validation patterns.
 
 **Section sources**
 - [test_llm_service.py](file://app/backend/tests/test_llm_service.py)
@@ -617,8 +697,8 @@ These changes ensure that all service integrations consistently use the `gemma4:
 The test infrastructure validates the complete queue system schema:
 - **analysis_jobs**: UUID primary key, proper indexing, foreign key constraints
 - **analysis_results**: Immutable storage with validation triggers
-- **analysis_artifacts**: Intermediate data storage with deduplication support
-- **job_metrics**: Performance tracking with comprehensive metrics
+- **analysis_artifacts**: intermediate data storage with deduplication support
+- **job_metrics**: performance tracking with comprehensive metrics
 
 #### Queue Worker Mocking Compliance
 Queue workers are properly mocked to prevent database access:
@@ -637,3 +717,32 @@ Queue system test data maintains referential integrity:
 - [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
 - [queue_manager.py:46-183](file://app/backend/services/queue_manager.py#L46-L183)
 - [008_analysis_queue_system.py:29-236](file://alembic/versions/008_analysis_queue_system.py#L29-L236)
+
+### Appendix E: Batch Analysis Validation Mechanisms
+**Updated Section**: The batch analysis validation infrastructure provides comprehensive file validation:
+
+#### File Signature Validation
+The `_validate_file_content()` function implements robust signature validation:
+- Magic-byte signature matching for PDF, DOCX, DOC, TXT, RTF, ODT formats
+- Heuristic detection for .txt files to prevent binary content
+- Comprehensive signature table support with detailed error reporting
+- Early validation to prevent unnecessary processing
+
+#### Size and Extension Filtering
+Additional validation layers:
+- Maximum file size enforcement (10MB limit)
+- Allowed extensions filtering using ALLOWED_EXTENSIONS
+- Directory traversal prevention in file paths
+- Proper sanitization of upload IDs and filenames
+
+#### Error Handling and Reporting
+Comprehensive error handling:
+- Detailed HTTPException messages for validation failures
+- Logging of validation issues for debugging
+- Graceful failure handling with proper cleanup
+- Aggregation of failed items with descriptive error messages
+
+**Section sources**
+- [analyze.py:69-129](file://app/backend/routes/analyze.py#L69-L129)
+- [analyze.py:1134-1162](file://app/backend/routes/analyze.py#L1134-L1162)
+- [test_usage_enforcement.py:496-528](file://app/backend/tests/test_usage_enforcement.py#L496-L528)

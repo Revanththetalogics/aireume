@@ -16,15 +16,16 @@
 - [db_models.py](file://app/backend/models/db_models.py)
 - [README.md](file://README.md)
 - [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
+- [queue_manager.py](file://app/backend/services/queue_manager.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- **Enhanced LLM Contact Extraction**: Upgraded to gemma4:31b-cloud model with conservative extraction principles, improved JSON validation, and enhanced logging capabilities
-- **Intelligent Scoring Weights Integration**: Implemented comprehensive weight mapping system supporting legacy and new schemas
-- **Improved Parser Service**: Enhanced DOCX extraction with multi-tier fallback handling and advanced text recovery
-- **Enhanced Streaming Endpoint**: Added SSE streaming with heartbeat pings and background LLM processing
-- **Advanced Weight Suggestion System**: Added LLM-based weight suggestion service with role-category detection
+- **Enhanced LLM Error Handling**: Implemented comprehensive error handling with exponential backoff retry mechanisms for external LLM services
+- **Improved Resource Management**: Added robust semaphore-based concurrency control and health monitoring for Ollama integration
+- **Enhanced Retry Logic**: Integrated exponential backoff retry system for rate limiting (429) and connection errors
+- **Background Task Management**: Added graceful shutdown handling for background LLM processing tasks
+- **Queue System Integration**: Enhanced queue manager with automatic retry mechanisms and exponential backoff
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -40,16 +41,18 @@
 11. [Structured Risk Analysis](#structured-risk-analysis)
 12. [Model Configuration and Performance](#model-configuration-and-performance)
 13. [Enhanced JSON Serialization Capabilities](#enhanced-json-serialization-capabilities)
-14. [Dependency Analysis](#dependency-analysis)
-15. [Performance Considerations](#performance-considerations)
-16. [Troubleshooting Guide](#troubleshooting-guide)
-17. [Conclusion](#conclusion)
-18. [Appendices](#appendices)
+14. [Enhanced Error Handling and Retry Systems](#enhanced-error-handling-and-retry-systems)
+15. [Resource Management and Concurrency Control](#resource-management-and-concurrency-control)
+16. [Dependency Analysis](#dependency-analysis)
+17. [Performance Considerations](#performance-considerations)
+18. [Troubleshooting Guide](#troubleshooting-guide)
+19. [Conclusion](#conclusion)
+20. [Appendices](#appendices)
 
 ## Introduction
 This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis, the enhanced resume parsing service supporting PDF and DOCX formats with multi-tier extraction strategies, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
 
-**Updated** The analysis engine now features enhanced AI pipeline capabilities with sophisticated score rationales and comprehensive risk analysis. The system generates detailed explanations for each score dimension and provides structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The migration to gemma4:31b-cloud model has been implemented across all services with enhanced JSON parsing error handling and improved debugging capabilities for LLM response processing.
+**Updated** The analysis engine now features enhanced error handling and retry mechanisms with comprehensive exponential backoff support for external LLM services. The system includes robust resource management through semaphore-based concurrency control, health monitoring for Ollama integration, and graceful background task handling. These improvements provide significantly enhanced reliability and fault tolerance for production deployments.
 
 ## Project Structure
 The backend is organized around FastAPI routes, SQLAlchemy models, and modular services. The analysis engine spans:
@@ -57,6 +60,7 @@ The backend is organized around FastAPI routes, SQLAlchemy models, and modular s
 - Services implementing parsing, gap detection, hybrid scoring, and LLM integration
 - Models defining persistence for candidates, screening results, and caches
 - Startup and health checks coordinating environment readiness
+- Queue management system with automatic retry mechanisms
 
 ```mermaid
 graph TB
@@ -66,20 +70,21 @@ end
 subgraph "Services"
 B["parser_service.py<br/>Multi-tier Extraction Strategies"]
 C["gap_detector.py"]
-D["hybrid_pipeline.py"]
+D["hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Exponential Backoff"]
 E["agent_pipeline.py"]
 F["analysis_service.py"]
-G["llm_service.py"]
+G["llm_service.py<br/>Semaphore Control<br/>Health Monitoring"]
 H["llm_contact_extractor.py<br/>Enhanced LLM Contact Extraction"]
 I["weight_mapper.py<br/>Schema Conversion"]
 J["weight_suggester.py<br/>LLM Weight Suggestions"]
+K["queue_manager.py<br/>Automatic Retry<br/>Exponential Backoff"]
 end
 subgraph "Models"
-K["db_models.py"]
+L["db_models.py"]
 end
 subgraph "App"
-L["main.py"]
-M["nginx.prod.conf<br/>Streaming Configuration"]
+M["main.py<br/>Background Task Management"]
+N["nginx.prod.conf<br/>Streaming Configuration"]
 end
 A --> B
 A --> C
@@ -91,8 +96,10 @@ A --> H
 A --> I
 A --> J
 A --> K
-L --> A
+A --> L
 M --> A
+M --> G
+N --> A
 ```
 
 **Diagram sources**
@@ -101,6 +108,7 @@ M --> A
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 - [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+- [queue_manager.py:1-200](file://app/backend/services/queue_manager.py#L1-200)
 - [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
 
 **Section sources**
@@ -108,33 +116,38 @@ M --> A
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
 
 ## Core Components
-- Hybrid Pipeline: Python-first deterministic scoring (skills, education, experience/timeline, domain/architecture) followed by a single LLM call for narrative synthesis and interview questions.
+- Hybrid Pipeline: Python-first deterministic scoring (skills, education, experience/timeline, domain/architecture) followed by a single LLM call for narrative synthesis and interview questions with enhanced error handling and retry mechanisms.
 - LangGraph Agent Pipeline: Multi-agent, multi-stage workflow with structured nodes for JD parsing, combined resume analysis, and scoring with explainability.
 - Enhanced Resume Parser: Robust text extraction from PDF and DOCX with multi-tier fallbacks, deduplication, and normalization.
 - Gap Detector: Mechanical date parsing and interval merging to compute objective timeline metrics.
 - Skills Registry: Dynamic, DB-backed registry with in-memory flashtext processor and hot reload capability.
-- LLM Integration: Ollama-backed ChatOllama clients with singletons, timeouts, and JSON parsing utilities.
+- LLM Integration: Ollama-backed ChatOllama clients with singletons, timeouts, JSON parsing utilities, and comprehensive error handling.
 - Intelligent Contact Extraction: LLM-powered contact information extraction with merging strategy for accuracy.
 - Scoring and Risk: Weighted fit score computation, risk signals, and recommendation logic with intelligent weight mapping.
 - Persistence: SQLAlchemy models for candidates, screening results, role templates, usage logs, and caches.
 - **Enhanced AI Pipeline**: Sophisticated score rationales and structured risk analysis with detailed explanations.
 - **AI-Enhanced Narratives**: Distinction system between LLM-generated and fallback narratives using `ai_enhanced` flag.
+- **Enhanced Error Handling**: Comprehensive retry mechanisms with exponential backoff for rate limiting and connection failures.
+- **Resource Management**: Semaphore-based concurrency control and health monitoring for external LLM services.
 
 **Section sources**
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
 - [agent_pipeline.py:1-634](file://app/backend/services/agent_pipeline.py#L1-L634)
 - [parser_service.py:1-552](file://app/backend/services/parser_service.py#L1-L552)
 - [gap_detector.py:1-219](file://app/backend/services/gap_detector.py#L1-L219)
+- [llm_service.py:1-332](file://app/backend/services/llm_service.py#L1-L332)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 - [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 - [db_models.py:97-250](file://app/backend/models/db_models.py#L97-L250)
+- [queue_manager.py:1-200](file://app/backend/services/queue_manager.py#L1-L200)
 
 ## Architecture Overview
-The system uses a hybrid approach:
+The system uses a hybrid approach with enhanced error handling:
 - Phase 1 (Python, ~1–2s): parse_jd_rules → parse_resume_rules → match_skills_rules → score_education/experience/domain → compute_fit_score → generate score rationales and risk summary
-- Phase 2 (LLM, ~40s): explain_with_llm (generates strengths, weaknesses, rationale, interview questions)
+- Phase 2 (LLM, ~40s): explain_with_llm (generates strengths, weaknesses, rationale, interview questions) with exponential backoff retry for rate limiting
 - Fallback: deterministic narrative when LLM is unavailable or times out
+- Background Processing: LLM narrative generated as background task with graceful shutdown handling
 
 ```mermaid
 sequenceDiagram
@@ -144,7 +157,7 @@ participant Parser as "parser_service.py"
 participant Gap as "gap_detector.py"
 participant Hybrid as "hybrid_pipeline.py"
 participant Contact as "llm_contact_extractor.py"
-participant LLM as "Ollama (ChatOllama)"
+participant LLM as "Ollama (ChatOllama)<br/>Enhanced Error Handling"
 Client->>Route : POST /api/analyze
 Route->>Parser : parse_resume(file)
 Parser-->>Route : parsed_data
@@ -156,8 +169,8 @@ Route->>Hybrid : run_hybrid_pipeline(...)
 Hybrid->>Hybrid : _run_python_phase(...)
 Hybrid->>Hybrid : _build_score_rationales()
 Hybrid->>Hybrid : _build_risk_summary()
-Hybrid->>LLM : explain_with_llm(context)
-LLM-->>Hybrid : narrative JSON
+Hybrid->>LLM : explain_with_llm(context)<br/>Exponential Backoff Retry
+LLM-->>Hybrid : narrative JSON (with retry logic)
 Hybrid-->>Route : merged result
 Route-->>Client : AnalysisResponse
 ```
@@ -172,7 +185,7 @@ Route-->>Client : AnalysisResponse
 ## Detailed Component Analysis
 
 ### Hybrid Pipeline
-The hybrid pipeline executes deterministic Python logic first, then a single LLM call for narrative. It includes:
+The hybrid pipeline executes deterministic Python logic first, then a single LLM call for narrative with enhanced error handling. It includes:
 - Skills registry with canonical skills, aliases, and domain mapping
 - JD parsing rules extracting role, domain, seniority, required/nice-to-have skills, and responsibilities
 - Resume profile builder combining parser output and gap analysis
@@ -181,9 +194,10 @@ The hybrid pipeline executes deterministic Python logic first, then a single LLM
 - Experience and timeline scoring with gap severity deductions
 - Domain and architecture scoring based on keyword hits
 - Fit score computation with configurable weights and risk penalties
-- LLM narrative generation with robust JSON parsing and fallback
+- LLM narrative generation with robust JSON parsing, fallback, and comprehensive error handling
 - **Enhanced**: Score rationales for each dimension and structured risk summary
 - **Optimized**: gemma4:31b-cloud model with intelligent token limits for improved performance
+- **Robust**: Exponential backoff retry mechanisms for rate limiting and connection failures
 
 ```mermaid
 flowchart TD
@@ -197,7 +211,7 @@ DomainArch --> ComputeFit["compute_fit_score(scores, weights)"]
 ComputeFit --> Rationales["_build_score_rationales()"]
 Rationales --> RiskSummary["_build_risk_summary()"]
 RiskSummary --> LLMCall{"LLM available?"}
-LLMCall --> |Yes| LLMNarrative["explain_with_llm(context)"]
+LLMCall --> |Yes| LLMNarrative["explain_with_llm(context)<br/>Exponential Backoff Retry"]
 LLMCall --> |No| Fallback["fallback_narrative()"]
 LLMNarrative --> Merge["merge_llm_into_result()"]
 Fallback --> Merge
@@ -358,11 +372,14 @@ Integration points:
 - JSON parsing utilities tolerant of fenced code blocks and partial JSON
 - Fallback responses on errors and timeouts
 - Health and diagnostics endpoints for model readiness
+- **Enhanced**: Semaphore-based concurrency control with auto-detection for cloud vs local
+- **Robust**: Comprehensive error handling with exponential backoff for rate limiting
 
 ```mermaid
 sequenceDiagram
 participant Service as "llm_service.py"
 participant Ollama as "Ollama API"
+Service->>Service : get_ollama_semaphore()<br/>Auto-detect cloud/local
 Service->>Ollama : POST /api/generate (JSON format)
 Ollama-->>Service : response JSON
 Service->>Service : _parse_json_response()
@@ -569,7 +586,7 @@ LLM --> LLMSuccess{"LLM Success?"}
 LLMSuccess --> |Yes| Merge["merge_contact_info()"]
 LLMSuccess --> |No| Regex["Regex Extraction<br/>(Standard Formats)"]
 Regex --> Merge
-Merge --> Fallback["Fallback Strategies<br/>(NER → Email → Header → Filename)"]
+Merge --> Fallback["Fallback Strategies<br/(NER → Email → Header → Filename)"]
 Fallback --> Complete["Complete Contact Info"]
 ```
 
@@ -776,6 +793,8 @@ Key environment variables:
 - **LLM_NARRATIVE_TIMEOUT**: 150 seconds default
 - **OLLAMA_API_KEY**: Required for Ollama Cloud authentication
 - **OLLAMA_HOST**: docker host for containerized deployments
+- **OLLAMA_MAX_CONCURRENT**: Maximum concurrent LLM requests (auto-detected)
+- **LLM_MAX_RETRIES**: Maximum retry attempts for LLM calls (default: 3)
 
 **Section sources**
 - [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
@@ -845,6 +864,143 @@ The system includes robust error handling:
 - [hybrid_pipeline.py:16](file://app/backend/services/hybrid_pipeline.py#L16)
 - [llm_service.py:1](file://app/backend/services/llm_service.py#L1)
 
+## Enhanced Error Handling and Retry Systems
+
+**Updated** The analysis engine now features comprehensive error handling and retry mechanisms with exponential backoff support for enhanced reliability and fault tolerance.
+
+### Exponential Backoff Retry Mechanism
+
+The hybrid pipeline implements sophisticated retry logic for LLM calls:
+
+- **Rate Limiting (429)**: Automatic exponential backoff with base delay of 2 seconds
+- **Connection Errors**: Retry with progressive delays for network connectivity issues
+- **Timeout Handling**: Graceful degradation with fallback mechanisms
+- **Authentication Failures**: Clear error messaging for invalid API keys
+- **Server Errors**: Retry logic for temporary server failures (5xx)
+
+```mermaid
+flowchart TD
+Start["LLM Call Attempt"] --> Call["Call LLM API"]
+Call --> Success{"HTTP Status 200?"}
+Success --> |Yes| Parse["Parse Response"]
+Success --> |No| CheckError{"Error Type?"}
+CheckError --> |429 Rate Limited| Backoff["Exponential Backoff<br/>Delay = 2^attempt + random(0,1)"]
+Backoff --> Retry{"Retries < Max?"}
+Retry --> |Yes| Call
+Retry --> |No| RaiseError["Raise RuntimeError"]
+CheckError --> |401 Unauthorized| AuthError["Authentication Failed"]
+CheckError --> |408/408 Timeout| TimeoutError["Request Timeout"]
+CheckError --> |500+ Server Error| ServerError["Server Error"]
+AuthError --> RaiseError
+TimeoutError --> RaiseError
+ServerError --> RaiseError
+Parse --> End["Return Result"]
+```
+
+**Diagram sources**
+- [hybrid_pipeline.py:1369-1400](file://app/backend/services/hybrid_pipeline.py#L1369-L1400)
+
+### Retry Configuration
+
+- **Maximum Retries**: Configurable via `LLM_MAX_RETRIES` environment variable (default: 3)
+- **Base Delay**: 2.0 seconds for exponential backoff calculation
+- **Randomization**: ±1 second jitter to prevent thundering herd effects
+- **Progressive Delays**: 2s, 6s, 14s, 30s, 62s (exponential with jitter)
+- **Fallback Mechanism**: Higher temperature (0.3) retry for edge cases with empty responses
+
+### Queue System Retry Integration
+
+The queue manager provides complementary retry mechanisms:
+
+- **Automatic Retry**: Configurable exponential backoff delays (1min, 5min, 15min)
+- **Max Retries**: Configurable retry limits per job
+- **Stale Job Recovery**: Automatic recovery of abandoned jobs
+- **Heartbeat Monitoring**: Worker health monitoring and recovery
+- **Failure Metrics**: Comprehensive error tracking and reporting
+
+```mermaid
+flowchart TD
+Job["Analysis Job"] --> Process["Process Job"]
+Process --> Success{"Processing Success?"}
+Success --> |Yes| Complete["Mark Complete"]
+Success --> |No| CheckRetry{"Retry Count < Max?"}
+CheckRetry --> |Yes| Backoff["Exponential Backoff<br/>1min → 5min → 15min"]
+Backoff --> Retry["Retry Job"]
+CheckRetry --> |No| Fail["Mark Failed"]
+Retry --> Process
+Fail --> End["Job Failed"]
+Complete --> End
+```
+
+**Diagram sources**
+- [queue_manager.py:456-478](file://app/backend/services/queue_manager.py#L456-L478)
+
+**Section sources**
+- [hybrid_pipeline.py:1359-1500](file://app/backend/services/hybrid_pipeline.py#L1359-L1500)
+- [queue_manager.py:206-208](file://app/backend/services/queue_manager.py#L206-L208)
+- [queue_manager.py:456-478](file://app/backend/services/queue_manager.py#L456-L478)
+
+## Resource Management and Concurrency Control
+
+**Updated** The analysis engine implements comprehensive resource management and concurrency control to ensure optimal performance and reliability under various load conditions.
+
+### Semaphore-Based Concurrency Control
+
+The LLM service implements intelligent semaphore-based concurrency control:
+
+- **Auto-Detection**: Automatically detects Ollama Cloud vs local deployment
+- **Cloud Configuration**: Default 4 concurrent requests to avoid rate limits
+- **Local Configuration**: Single-threaded access for local Ollama instances
+- **Environment Override**: `OLLAMA_MAX_CONCURRENT` allows manual configuration
+- **Shared Instance**: Singleton semaphore prevents resource contention across services
+
+```mermaid
+flowchart TD
+Start["LLM Request"] --> GetSem["get_ollama_semaphore()"]
+GetSem --> Check{"Semaphore Available?"}
+Check --> |Yes| Acquire["Acquire Semaphore"]
+Check --> |No| Wait["Wait for Available Slot"]
+Acquire --> Call["Call LLM API"]
+Wait --> Acquire
+Call --> Release["Release Semaphore"]
+Release --> End["Return Result"]
+```
+
+**Diagram sources**
+- [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
+
+### Health Monitoring and Sentinel System
+
+The Ollama health sentinel provides continuous monitoring:
+
+- **Background Loop**: Periodic health probes every `probe_interval` seconds
+- **Model State Tracking**: Tracks COLD, WARMING, HOT, ERROR states
+- **Cloud Detection**: Automatic detection of Ollama Cloud vs local instances
+- **Latency Measurement**: Tracks last probe latency for performance monitoring
+- **Graceful Degradation**: Continues operation even if health monitoring fails
+
+### Background Task Management
+
+Enhanced background task handling for graceful shutdown:
+
+- **Task Registration**: Background tasks registered for tracking
+- **Graceful Shutdown**: Tasks cancelled and awaited during application shutdown
+- **Timeout Handling**: 5-second timeout for background task completion
+- **Exception Safety**: All background tasks awaited with exception handling
+
+### Memory and Resource Optimization
+
+- **Model Hot-Loading**: Keep-alive sessions reduce cold-start latency
+- **Context Window Optimization**: Reduced context size (2048 tokens) for local models
+- **KV Cache Management**: Memory-efficient handling of large model contexts
+- **Resource Cleanup**: Proper cleanup of semaphores and background tasks
+
+**Section sources**
+- [llm_service.py:35-66](file://app/backend/services/llm_service.py#L35-L66)
+- [llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
+- [hybrid_pipeline.py:34-50](file://app/backend/services/hybrid_pipeline.py#L34-L50)
+- [main.py:260-297](file://app/backend/main.py#L260-L297)
+
 ## Dependency Analysis
 Key dependencies and relationships:
 - Routes depend on parser, gap detector, hybrid pipeline, and models
@@ -856,22 +1012,25 @@ Key dependencies and relationships:
 - **AI-Enhanced Narratives**: `ai_enhanced` flag distinguishes LLM vs fallback narratives
 - **Enhanced Contact Extraction**: LLM-powered contact extraction with merging strategy
 - **Weight Management**: Comprehensive weight mapping and suggestion system
+- **Enhanced Error Handling**: Exponential backoff retry mechanisms for LLM services
+- **Resource Management**: Semaphore-based concurrency control and health monitoring
+- **Queue Integration**: Automatic retry mechanisms with exponential backoff
 
 ```mermaid
 graph LR
 Route["routes/analyze.py<br/>JSON Utils<br/>SSE Streaming"] --> Parser["services/parser_service.py"]
 Route --> Gap["services/gap_detector.py"]
-Route --> Hybrid["services/hybrid_pipeline.py"]
+Route --> Hybrid["services/hybrid_pipeline.py<br/>Enhanced Error Handling"]
 Route --> Agent["services/agent_pipeline.py"]
 Route --> Contact["services/llm_contact_extractor.py"]
 Route --> WeightMapper["services/weight_mapper.py"]
 Route --> WeightSuggester["services/weight_suggester.py"]
+Route --> QueueManager["services/queue_manager.py<br/>Automatic Retry"]
 Hybrid --> Skills["skills registry"]
-Hybrid --> Ollama["Ollama (ChatOllama)"]
+Hybrid --> Ollama["Ollama (ChatOllama)<br/>Enhanced Error Handling"]
 Agent --> Ollama
 Route --> Models["models/db_models.py"]
-Main["main.py"] --> Route
-Main --> Skills
+Main["main.py<br/>Background Task Management"] --> Route
 Main --> Ollama
 Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 ```
@@ -903,6 +1062,9 @@ Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 - **Cloud Optimization**: Intelligent token limit scaling for cloud models handling verbose output from large models
 - **Multi-Tier Extraction**: Advanced DOCX extraction reduces processing time through intelligent fallback chains
 - **Streaming Optimization**: Background LLM processing allows immediate response delivery
+- **Error Handling**: Exponential backoff retry mechanisms improve system reliability under stress
+- **Resource Management**: Semaphore-based concurrency control prevents resource exhaustion
+- **Health Monitoring**: Continuous Ollama health checks enable proactive issue detection
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -920,6 +1082,11 @@ Common issues and resolutions:
 - **Streaming Issues**: Check nginx configuration for proper SSE streaming with `proxy_buffering off`
 - **Contact Extraction Failures**: LLM extraction falls back to regex and NER strategies automatically
 - **Weight Schema Conflicts**: Use weight mapper to convert between legacy and new schemas seamlessly
+- **Rate Limiting Errors**: Exponential backoff retry mechanism automatically handles 429 responses
+- **Connection Timeouts**: Enhanced retry logic with progressive delays for network connectivity issues
+- **Authentication Failures**: Clear error messaging for invalid OLLAMA_API_KEY configuration
+- **Queue Processing Issues**: Automatic retry mechanisms with exponential backoff for failed jobs
+- **Background Task Cleanup**: Graceful shutdown handles background LLM processing tasks
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -932,7 +1099,7 @@ The analysis engine blends efficient Python-first processing with a single, well
 
 **Updated** The enhanced AI pipeline capabilities now provide sophisticated score rationales and comprehensive risk analysis, generating detailed explanations for each score dimension and structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The system maintains backward compatibility while delivering significantly improved explainability and risk assessment capabilities. The AI-enhanced narrative distinction system ensures clear differentiation between LLM-generated and fallback content, improving transparency for users. The migration to gemma4:31b-cloud model across all services provides enhanced performance and reliability, with intelligent token limit scaling for both local and cloud deployments.
 
-The integration of intelligent contact extraction, multi-tier parsing strategies, and comprehensive weight management systems demonstrates the evolution toward a more robust and feature-rich analysis platform. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing and heartbeat mechanisms.
+The integration of comprehensive error handling with exponential backoff retry mechanisms, enhanced resource management through semaphore-based concurrency control, and health monitoring systems demonstrates the evolution toward a more robust and fault-tolerant analysis platform. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing and heartbeat mechanisms. The queue system integration adds automatic retry capabilities with exponential backoff, ensuring resilient job processing even under adverse conditions.
 
 ## Appendices
 
@@ -947,6 +1114,8 @@ The integration of intelligent contact extraction, multi-tier parsing strategies
 - **AI-Enhanced Narratives**: Use `ai_enhanced` flag to indicate content origin
 - **Weight Management**: Utilize weight mapper for schema conversion and weight_suggester for role-specific recommendations
 - **Contact Enhancement**: Implement custom contact extraction strategies using LLM contact extractor framework
+- **Error Handling**: Implement exponential backoff retry mechanisms for custom LLM integrations
+- **Resource Management**: Add semaphore-based concurrency control for external service integrations
 
 **Section sources**
 - [hybrid_pipeline.py:953-1058](file://app/backend/services/hybrid_pipeline.py#L953-L1058)
@@ -969,6 +1138,7 @@ The integration of intelligent contact extraction, multi-tier parsing strategies
 6. **Risk Assessment Integration**: When adding new risk signals, follow the structured risk summary format for consistency
 7. **AI-Enhanced Content**: Use `ai_enhanced` flag to distinguish between LLM-generated and fallback content
 8. **Streaming Compatibility**: Ensure all streamed data can be properly serialized for SSE transmission
+9. **Error Handling**: Implement comprehensive error handling for serialization failures
 
 **Section sources**
 - [analyze.py:48-56](file://app/backend/routes/analyze.py#L48-L56)
@@ -990,6 +1160,8 @@ The integration of intelligent contact extraction, multi-tier parsing strategies
 9. **Authentication**: Set OLLAMA_API_KEY for secure cloud model access
 10. **KV Cache Management**: Monitor memory usage during LLM calls to prevent overflow, especially with cloud models
 11. **Streaming Optimization**: Configure nginx for proper SSE streaming with heartbeat mechanisms
+12. **Error Handling**: Configure LLM_MAX_RETRIES environment variable for optimal retry behavior
+13. **Resource Management**: Set OLLAMA_MAX_CONCURRENT for appropriate concurrency levels
 
 **Section sources**
 - [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
@@ -1008,6 +1180,7 @@ The integration of intelligent contact extraction, multi-tier parsing strategies
 6. **Validation**: Ensure extracted contact information meets business requirements
 7. **Enhanced Logging**: Implement comprehensive logging for debugging and monitoring
 8. **Error Handling**: Graceful degradation when LLM extraction fails
+9. **Retry Mechanisms**: Implement exponential backoff for rate-limited LLM calls
 
 **Section sources**
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
@@ -1025,8 +1198,29 @@ The integration of intelligent contact extraction, multi-tier parsing strategies
 6. **Adaptive Labels**: Generate role-specific labels with `get_weight_labels()`
 7. **Confidence Scoring**: Consider confidence levels when using LLM-suggested weights
 8. **Testing**: Validate weight conversions with comprehensive test suites
+9. **Error Handling**: Implement retry mechanisms for weight suggestion failures
 
 **Section sources**
 - [weight_mapper.py:179-246](file://app/backend/services/weight_mapper.py#L179-L246)
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 - [weight_suggester.py:180-247](file://app/backend/services/weight_suggester.py#L180-L247)
+
+### Error Handling and Retry Integration Guidelines
+
+**Updated** For implementing robust error handling in custom extensions:
+
+1. **Exponential Backoff**: Implement base delay of 2 seconds with exponential growth (2^n + random jitter)
+2. **Retry Configuration**: Allow configurable maximum retry attempts via environment variables
+3. **Error Categorization**: Distinguish between rate limiting (429), authentication (401), and server errors (5xx)
+4. **Fallback Mechanisms**: Provide graceful degradation for critical failures
+5. **Logging**: Implement comprehensive logging for error tracking and debugging
+6. **Timeout Handling**: Set appropriate timeouts to prevent resource exhaustion
+7. **Resource Management**: Use semaphores to prevent resource contention during retries
+8. **Health Monitoring**: Implement health checks for external service dependencies
+9. **Queue Integration**: Leverage queue manager retry mechanisms for persistent job processing
+10. **Background Task Management**: Ensure proper cleanup of background tasks during error scenarios
+
+**Section sources**
+- [hybrid_pipeline.py:1359-1500](file://app/backend/services/hybrid_pipeline.py#L1359-L1500)
+- [queue_manager.py:456-478](file://app/backend/services/queue_manager.py#L456-L478)
+- [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
