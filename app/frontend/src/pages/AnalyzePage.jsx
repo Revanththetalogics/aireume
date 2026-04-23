@@ -27,6 +27,58 @@ const DEFAULT_WEIGHTS = {
   risk: -0.10,
 }
 
+// ── IndexedDB helpers for JD file caching ──
+const JD_DB_NAME = 'aria_jd_cache'
+const JD_STORE_NAME = 'jd_files'
+const JD_DB_VERSION = 1
+
+function openJdDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(JD_DB_NAME, JD_DB_VERSION)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result)
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result
+      if (!db.objectStoreNames.contains(JD_STORE_NAME)) {
+        db.createObjectStore(JD_STORE_NAME)
+      }
+    }
+  })
+}
+
+async function storeJdFile(file) {
+  const db = await openJdDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(JD_STORE_NAME, 'readwrite')
+    const store = tx.objectStore(JD_STORE_NAME)
+    const req = store.put(file, 'jd_file')
+    req.onsuccess = () => resolve()
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function getJdFile() {
+  const db = await openJdDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(JD_STORE_NAME, 'readonly')
+    const store = tx.objectStore(JD_STORE_NAME)
+    const req = store.get('jd_file')
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function clearJdFile() {
+  const db = await openJdDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(JD_STORE_NAME, 'readwrite')
+    const store = tx.objectStore(JD_STORE_NAME)
+    const req = store.delete('jd_file')
+    req.onsuccess = () => resolve()
+    req.onerror = () => reject(req.error)
+  })
+}
+
 function FitBadge({ score }) {
   if (score == null)
     return <span className="px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 bg-slate-50 text-slate-500 ring-slate-200">—</span>
@@ -138,7 +190,26 @@ export default function AnalyzePage() {
     }
   }, [location.state])
 
-  // Auto-skip to upload when returning with complete JD context
+  // Load file JD from IndexedDB and auto-skip when returning from ReportPage
+  useEffect(() => {
+    if (location.state?.jd_mode === 'file') {
+      getJdFile().then(file => {
+        if (file) {
+          setJdFile(file)
+          setJdMode('file')
+          if (location.state.weights) {
+            setWeights(location.state.weights)
+          }
+          if (location.state.role_category) {
+            setRoleCategory(location.state.role_category)
+          }
+          setCurrentStep(3)
+        }
+      }).catch(() => {})
+    }
+  }, [location.state])
+
+  // Auto-skip to upload when returning with text JD context
   useEffect(() => {
     if (location.state?.jd_text && location.state?.weights) {
       setCurrentStep(3)
@@ -281,8 +352,20 @@ export default function AnalyzePage() {
       sessionStorage.setItem('aria_active_jd', JSON.stringify({
         jd_text: jdText,
         weights,
-        role_category: roleCategory
+        role_category: roleCategory,
+        jd_mode: 'text'
       }))
+      clearJdFile().catch(() => {})
+    } else if (jdMode === 'file' && jdFile) {
+      try {
+        await storeJdFile(jdFile)
+        sessionStorage.setItem('aria_active_jd', JSON.stringify({
+          weights,
+          role_category: roleCategory,
+          jd_mode: 'file',
+          file_name: jdFile.name
+        }))
+      } catch { /* ignore */ }
     }
 
     setIsAnalyzing(true)
