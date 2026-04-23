@@ -1408,10 +1408,14 @@ No markdown, no code fences."""
         raw = json_match.group(0)
         log.debug("Extracted JSON object: %d characters", len(raw))
 
-    # Handle empty or whitespace-only response - retry with higher temperature as fallback
-    # This is now a safety net for edge cases since primary call no longer uses format="json"
-    if not raw or not str(raw).strip():
-        log.warning("LLM returned empty response, retrying with higher temperature as fallback...")
+    # Handle empty, whitespace-only, or ultra-short response - retry with higher temperature as fallback
+    # Ultra-short responses (e.g. "{" from Ollama Cloud) are not valid JSON narratives
+    # A valid narrative JSON is always 100+ chars; threshold of 20 catches degenerate outputs
+    if not raw or len(str(raw).strip()) < 20:
+        if raw and len(str(raw).strip()) < 20:
+            log.warning(f"LLM response too short ({len(str(raw).strip())} chars), treating as empty for retry")
+        else:
+            log.warning("LLM returned empty response, retrying with higher temperature as fallback...")
         from langchain_ollama import ChatOllama
         _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
@@ -1485,8 +1489,8 @@ No markdown, no code fences."""
             if json_match:
                 raw = json_match.group(0)
 
-    if not raw or not str(raw).strip():
-        log.warning("LLM returned empty response after retry")
+    if not raw or len(str(raw).strip()) < 20:
+        log.warning("LLM returned empty or too-short response after retry")
         raise ValueError("LLM returned empty response")
 
     data = _parse_llm_json_response(raw)

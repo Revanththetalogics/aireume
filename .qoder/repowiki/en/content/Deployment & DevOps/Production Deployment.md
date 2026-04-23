@@ -8,7 +8,7 @@
 - [Dockerfile (frontend)](file://app/frontend/Dockerfile)
 - [Dockerfile (nginx)](file://nginx/Dockerfile)
 - [docker-entrypoint.sh](file://app/backend/scripts/docker-entrypoint.sh)
-- [wait_for_ollama.py](file://app/backend/scripts/wait_for_ollama.py)
+- [wait_for_ollama.py](file://app/backend/scripts/wait_for_owlama.py)
 - [main.py](file://app/backend/main.py)
 - [database.py](file://app/backend/db/database.py)
 - [auth.py](file://app/backend/middleware/auth.py)
@@ -20,19 +20,19 @@
 - [requirements.txt](file://requirements.txt)
 - [llm_service.py](file://app/backend/services/llm_service.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [012_admin_foundation.py](file://alembic/versions/012_admin_foundation.py)
+- [013_webhooks_and_notifications.py](file://alembic/versions/013_webhooks_and_notifications.py)
+- [014_billing_system.py](file://alembic/versions/014_billing_system.py)
+- [db_models.py](file://app/backend/models/db_models.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced Docker configuration with increased Uvicorn workers from 4 to 6 for improved concurrency
-- Adjusted resource limits from 3CPUs/4GB to 4CPUs/6GB for backend service
-- Increased Ollama resource allocation from 2CPUs/6GB to 8CPUs/8GB for better LLM performance
-- Optimized PostgreSQL resource allocation to 2CPUs/6GB for database stability
-- Enhanced Ollama model warmup mechanism with dedicated warmup container using single-run approach
-- Implemented persistent model loading with OLLAMA_KEEP_ALIVE=-1 for continuous availability
-- Increased LLM_NARRATIVE_TIMEOUT from 120s to 180s for better concurrent request handling
-- Removed continuous keep-alive loop from warmup container in favor of persistent model approach
-- Improved model warmup reliability with dedicated warmup service
+- Enhanced PostgreSQL migration system with improved compatibility for feature flag seeding and webhook delivery tables
+- Added comprehensive database schema support for webhooks, webhook deliveries, and billing configurations
+- Implemented idempotent migration patterns ensuring consistent behavior across database systems
+- Expanded feature flag infrastructure with tenant-specific override capabilities
+- Introduced billing system configuration tables for payment provider settings
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -250,12 +250,32 @@ Entrypoint->>Uvicorn : "Start server with 6 workers"
 - Alembic migrations executed at startup for PostgreSQL deployments
 - Environment variables for credentials and database name
 
+**Updated**: Enhanced PostgreSQL migration system with improved compatibility for feature flag seeding and webhook delivery tables
+
+The migration system now includes comprehensive database schema support through recent additions:
+
+#### Feature Flag Infrastructure
+- **Admin Foundation Migration (012)**: Establishes core feature flag tables including `feature_flags`, `tenant_feature_overrides`, and audit logging
+- **Webhook System Migration (013)**: Adds `webhooks` and `webhook_deliveries` tables with proper foreign key relationships and indexing
+- **Billing System Migration (014)**: Introduces `platform_configs` table for payment provider settings
+
+#### PostgreSQL Compatibility Improvements
+- **Idempotent Operations**: All migrations use `_table_exists()` and `_index_names()` checks to ensure safe repeated execution
+- **Consistent Indexing**: Standardized index creation patterns across all migration scripts
+- **Foreign Key Constraints**: Proper CASCADE deletion handling for dependent records
+- **Timezone Support**: Consistent use of `DateTime(timezone=True)` for temporal data
+- **JSON Data Handling**: Appropriate TEXT column types for JSON payload storage
+
 ```mermaid
 flowchart TD
 Start(["Container Start"]) --> CheckURL["Check DATABASE_URL scheme"]
 CheckURL --> |PostgreSQL| RunMigrations["Run Alembic upgrade head"]
 CheckURL --> |Other| SkipMigrations["Skip migrations"]
-RunMigrations --> Ready(["Services start normally"])
+RunMigrations --> CheckSchema["Verify feature flag tables"]
+CheckSchema --> |Missing| CreateTables["Create webhooks, feature flags, billing tables"]
+CheckSchema --> |Present| ValidateIndexes["Validate indexes exist"]
+CreateTables --> Ready(["Services start normally"])
+ValidateIndexes --> Ready
 SkipMigrations --> Ready
 ```
 
@@ -269,6 +289,9 @@ SkipMigrations --> Ready
 - [docker-entrypoint.sh:4-14](file://app/backend/scripts/docker-entrypoint.sh#L4-L14)
 - [env.py:14-20](file://alembic/env.py#L14-L20)
 - [alembic.ini:84-87](file://alembic.ini#L84-L87)
+- [012_admin_foundation.py:90-109](file://alembic/versions/012_admin_foundation.py#L90-L109)
+- [013_webhooks_and_notifications.py:36-114](file://alembic/versions/013_webhooks_and_notifications.py#L36-L114)
+- [014_billing_system.py:33-56](file://alembic/versions/014_billing_system.py#L33-L56)
 
 ### Enhanced Ollama and Model Warm-Up
 - **Updated**: Ollama configured with thread and parallelism settings for throughput
@@ -355,6 +378,11 @@ Common operational issues and remedies:
   - **Updated**: Verify backend has sufficient resources with 4CPUs/6GB allocation
   - Check: Uvicorn workers count is set to 6 in `docker-compose.prod.yml` line 82
   - Monitor: Backend CPU utilization and worker thread saturation
+- **Database migration failures**
+  - **Updated**: Verify PostgreSQL migration compatibility with recent changes
+  - Check: Feature flag tables (`feature_flags`, `tenant_feature_overrides`) exist and are indexed
+  - Verify: Webhook tables (`webhooks`, `webhook_deliveries`) have proper foreign key constraints
+  - Monitor: Alembic migration logs for idempotent operation errors
 - Ollama not responding
   - Inspect container logs and ensure the model is pulled and warmed
 - Database locked errors
@@ -374,7 +402,7 @@ Common operational issues and remedies:
 - [docker-compose.prod.yml:96-97](file://docker-compose.prod.yml#L96-L97)
 
 ## Conclusion
-This production deployment leverages Docker Compose to orchestrate a resilient stack with Nginx as the reverse proxy, Alembic-managed PostgreSQL migrations, and Ollama for AI inference. The configuration emphasizes health checks, dynamic DNS resolution, streaming support, and automated image updates via Watchtower. **Critical security enhancements** include mandatory JWT_SECRET_KEY enforcement in production environments. **Enhanced**: The Ollama model warmup mechanism now uses a dedicated single-run container with persistent loading via OLLAMA_KEEP_ALIVE=-1, eliminating continuous keep-alive loops. **Updated**: LLM_NARRATIVE_TIMEOUT has been increased to 180s to better handle concurrent requests and improve system stability under load conditions. **Updated**: Backend service now operates with 6 Uvicorn workers and 4CPUs/6GB resource allocation for optimal performance. For production hardening, integrate external load balancing, SSL termination, and centralized monitoring/alerting.
+This production deployment leverages Docker Compose to orchestrate a resilient stack with Nginx as the reverse proxy, Alembic-managed PostgreSQL migrations, and Ollama for AI inference. The configuration emphasizes health checks, dynamic DNS resolution, streaming support, and automated image updates via Watchtower. **Critical security enhancements** include mandatory JWT_SECRET_KEY enforcement in production environments. **Enhanced**: The Ollama model warmup mechanism now uses a dedicated single-run container with persistent loading via OLLAMA_KEEP_ALIVE=-1, eliminating continuous keep-alive loops. **Updated**: LLM_NARRATIVE_TIMEOUT has been increased to 180s to better handle concurrent requests and improve system stability under load conditions. **Updated**: Backend service now operates with 6 Uvicorn workers and 4CPUs/6GB resource allocation for optimal performance. **Enhanced**: The PostgreSQL migration system now includes comprehensive compatibility improvements for feature flag seeding, webhook delivery tables, and billing configurations, ensuring consistent behavior across database systems. For production hardening, integrate external load balancing, SSL termination, and centralized monitoring/alerting.
 
 ## Appendices
 
@@ -450,11 +478,19 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - Migration scripts under alembic/versions
 - Safe rollouts
   - Prefer zero-downtime migrations and maintain backups before updates
+- **Updated**: PostgreSQL compatibility improvements
+  - Idempotent operations ensure safe repeated execution
+  - Consistent indexing patterns across all migration scripts
+  - Foreign key constraints with proper CASCADE handling
+  - Timezone-aware datetime columns for temporal data consistency
 
 **Section sources**
 - [docker-entrypoint.sh:4-14](file://app/backend/scripts/docker-entrypoint.sh#L4-L14)
 - [env.py:14-20](file://alembic/env.py#L14-L20)
 - [alembic.ini:84-87](file://alembic.ini#L84-L87)
+- [012_admin_foundation.py:24-34](file://alembic/versions/012_admin_foundation.py#L24-L34)
+- [013_webhooks_and_notifications.py:24-34](file://alembic/versions/013_webhooks_and_notifications.py#L24-L34)
+- [014_billing_system.py:21-31](file://alembic/versions/014_billing_system.py#L21-L31)
 
 ### G. Backup and Disaster Recovery
 - Backups
@@ -464,6 +500,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - **Include**: Verify JWT_SECRET_KEY consistency during recovery
   - **Updated**: Ensure Ollama memory allocation is properly restored during recovery
   - **Enhanced**: Verify persistent model loading continues to work after recovery
+  - **Updated**: Validate PostgreSQL migration compatibility with restored database schema
 
 **Section sources**
 - [docker-compose.prod.yml:26-27](file://docker-compose.prod.yml#L26-L27)
@@ -495,6 +532,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - **Verify**: LLM_NARRATIVE_TIMEOUT=180 for concurrent request handling
   - **Verify**: Backend has 6 Uvicorn workers configured
   - **Verify**: Backend resource allocation is 4CPUs/6GB
+  - **Updated**: Verify PostgreSQL migration compatibility with feature flag and webhook tables
 - Deploy
   - Pull latest images and restart services
 - Post-deploy
@@ -503,6 +541,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - **Test**: Authentication endpoints with JWT_SECRET_KEY
   - **Monitor**: Ollama memory usage under load conditions
   - **Verify**: Ollama-warmup service completes successfully and model remains loaded
+  - **Updated**: Test database connectivity with new migration tables
 
 **Section sources**
 - [cd.yml:97-101](file://.github/workflows/cd.yml#L97-L101)
@@ -515,6 +554,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - Use Watchtower or redeploy previous image tags
 - Database rollback
   - Use Alembic downgrade to the prior migration if reversible
+  - **Updated**: Consider rolling back to migration 012 if webhook functionality is problematic
 - **Include**: JWT_SECRET_KEY rollback considerations for authentication continuity
 - **Updated**: Consider reverting Ollama memory allocation if stability issues arise
 - **Enhanced**: If persistent model loading fails, revert to continuous warmup approach
@@ -531,6 +571,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - **Monitor**: Ollama memory usage patterns
   - **Verify**: Persistent model loading continues to work correctly
   - **Monitor**: Backend worker utilization and performance
+  - **Updated**: Validate PostgreSQL migration compatibility after updates
 - Monthly
   - Rotate JWT_SECRET_KEY and update repository secrets
   - Validate database and Ollama volume snapshots
@@ -539,6 +580,7 @@ This production deployment leverages Docker Compose to orchestrate a resilient s
   - **Review**: Ollama memory allocation effectiveness under production load
   - **Review**: LLM_NARRATIVE_TIMEOUT effectiveness for concurrent request handling
   - **Review**: Backend worker configuration effectiveness and resource utilization
+  - **Updated**: Review PostgreSQL migration system performance and compatibility
 
 **Section sources**
 - [docker-compose.prod.yml:213-221](file://docker-compose.prod.yml#L213-L221)

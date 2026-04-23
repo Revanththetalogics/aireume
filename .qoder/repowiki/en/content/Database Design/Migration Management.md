@@ -13,12 +13,17 @@
 - [alembic/versions/009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
 - [alembic/versions/010_add_jd_text_to_screening_result.py](file://alembic/versions/010_add_jd_text_to_screening_result.py)
 - [alembic/versions/011_narrative_tracking_enhancement.py](file://alembic/versions/011_narrative_tracking_enhancement.py)
+- [alembic/versions/012_admin_foundation.py](file://alembic/versions/012_admin_foundation.py)
+- [alembic/versions/013_webhooks_and_notifications.py](file://alembic/versions/013_webhooks_and_notifications.py)
+- [alembic/versions/014_billing_system.py](file://alembic/versions/014_billing_system.py)
 - [alembic/env.py](file://alembic/env.py)
 - [alembic.ini](file://alembic.ini)
 - [app/backend/db/database.py](file://app/backend/db/database.py)
 - [app/backend/models/db_models.py](file://app/backend/models/db_models.py)
 - [app/backend/routes/analyze.py](file://app/backend/routes/analyze.py)
 - [app/backend/services/hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [app/backend/services/webhook_service.py](file://app/backend/services/webhook_service.py)
+- [app/backend/tests/test_webhooks.py](file://app/backend/tests/test_webhooks.py)
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 - [.github/workflows/cd.yml](file://.github/workflows/cd.yml)
 - [docker-compose.yml](file://docker-compose.yml)
@@ -27,13 +32,13 @@
 
 ## Update Summary
 **Changes Made**
-- Updated migration chain to include versions 008 through 011 with comprehensive enhancements
-- Added intelligent scoring weights system with role category detection and version management
-- Enhanced ScreeningResult table with role_category, weight_reasoning, and suggested_weights_json columns
-- Introduced narrative tracking enhancements with narrative_generated_at timestamp
-- Added JD text storage and advanced indexing for improved performance
+- Updated migration chain to include versions 008 through 014 with comprehensive enhancements
+- Added webhooks and notifications system with webhook delivery tracking
+- Enhanced feature flag system with PostgreSQL-compatible boolean literals
+- Expanded admin foundation with audit logs, rate limiting, and tenant overrides
+- Integrated billing system with platform configuration management
 - Updated migration workflow to support the expanded feature set
-- Enhanced service layer integration with intelligent scoring and background processing
+- Enhanced service layer integration with webhook dispatching and notification management
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -48,10 +53,10 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the database migration system for Resume AI by ThetaLogics, powered by Alembic. It covers the complete migration version history from 001 through 011, detailing schema evolution and feature additions. The system now includes comprehensive intelligent scoring with role category detection, advanced narrative tracking with timestamps, JD text storage for RAG learning, enhanced performance indexing, and improved version management for screening results. It also documents the migration workflow (revision creation, execution, and rollback), database initialization, seed data insertion, and production deployment strategies. Best practices, testing procedures, rollback scenarios, and troubleshooting guidance are included to ensure safe and reliable migrations in development and production environments.
+This document explains the database migration system for Resume AI by ThetaLogics, powered by Alembic. It covers the complete migration version history from 001 through 014, detailing schema evolution and feature additions. The system now includes comprehensive intelligent scoring with role category detection, advanced narrative tracking with timestamps, JD text storage for RAG learning, enhanced performance indexing, webhook and notification systems, administrative foundations, billing configuration management, and improved version management for screening results. It also documents the migration workflow (revision creation, execution, and rollback), database initialization, seed data insertion, and production deployment strategies. Best practices, testing procedures, rollback scenarios, and troubleshooting guidance are included to ensure safe and reliable migrations in development and production environments.
 
 ## Project Structure
-The migration system is organized under the alembic directory with dedicated revision files for each version. The Alembic environment integrates with the application's SQLAlchemy models and database configuration. The current migration chain consists of eleven versions, each building upon previous changes. CI/CD pipelines automate testing and deployment, while Docker Compose configurations define local and production runtime environments.
+The migration system is organized under the alembic directory with dedicated revision files for each version. The Alembic environment integrates with the application's SQLAlchemy models and database configuration. The current migration chain consists of fourteen versions, each building upon previous changes. CI/CD pipelines automate testing and deployment, while Docker Compose configurations define local and production runtime environments.
 
 ```mermaid
 graph TB
@@ -68,8 +73,11 @@ K --> L["Version 008<br/>008_analysis_queue_system.py"]
 L --> M["Version 009<br/>009_intelligent_scoring_weights.py"]
 M --> N["Version 010<br/>010_add_jd_text_to_screening_result.py"]
 N --> O["Version 011<br/>011_narrative_tracking_enhancement.py"]
-P["CI Workflow<br/>.github/workflows/ci.yml"] --> Q["CD Workflow<br/>.github/workflows/cd.yml"]
-R["Local Dev Compose<br/>docker-compose.yml"] --> S["Production Compose<br/>docker-compose.prod.yml"]
+O --> P["Version 012<br/>012_admin_foundation.py"]
+P --> Q["Version 013<br/>013_webhooks_and_notifications.py"]
+Q --> R["Version 014<br/>014_billing_system.py"]
+S["CI Workflow<br/>.github/workflows/ci.yml"] --> T["CD Workflow<br/>.github/workflows/cd.yml"]
+U["Local Dev Compose<br/>docker-compose.yml"] --> V["Production Compose<br/>docker-compose.prod.yml"]
 ```
 
 **Diagram sources**
@@ -88,6 +96,9 @@ R["Local Dev Compose<br/>docker-compose.yml"] --> S["Production Compose<br/>dock
 - [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 - [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
 - [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
+- [alembic/versions/012_admin_foundation.py:1-161](file://alembic/versions/012_admin_foundation.py#L1-L161)
+- [alembic/versions/013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
+- [alembic/versions/014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 - [docker-compose.yml:1-102](file://docker-compose.yml#L1-L102)
@@ -109,6 +120,9 @@ R["Local Dev Compose<br/>docker-compose.yml"] --> S["Production Compose<br/>dock
 - [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 - [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
 - [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
+- [alembic/versions/012_admin_foundation.py:1-161](file://alembic/versions/012_admin_foundation.py#L1-L161)
+- [alembic/versions/013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
+- [alembic/versions/014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 - [docker-compose.yml:1-102](file://docker-compose.yml#L1-L102)
@@ -133,6 +147,9 @@ R["Local Dev Compose<br/>docker-compose.yml"] --> S["Production Compose<br/>dock
   - 009: Intelligent scoring weights system with role category detection and version management.
   - 010: Add JD text storage and advanced indexing for RAG learning.
   - 011: Narrative tracking enhancements with generated timestamps and backfill logic.
+  - 012: Admin foundation with platform admin fields, audit logs, feature flags, and rate limits.
+  - 013: Webhooks and notifications system with PostgreSQL-compatible boolean literals.
+  - 014: Billing system with platform configuration management.
 
 **Section sources**
 - [alembic.ini:1-148](file://alembic.ini#L1-L148)
@@ -150,9 +167,12 @@ R["Local Dev Compose<br/>docker-compose.yml"] --> S["Production Compose<br/>dock
 - [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 - [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
 - [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
+- [alembic/versions/012_admin_foundation.py:1-161](file://alembic/versions/012_admin_foundation.py#L1-L161)
+- [alembic/versions/013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
+- [alembic/versions/014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 
 ## Architecture Overview
-The migration system integrates Alembic with the application's SQLAlchemy models and database configuration. Migrations are executed against the configured DATABASE_URL, and the environment script ensures Alembic targets the correct metadata and connection. The system now supports JWT token revocation, enhanced performance monitoring through strategic indexing, comprehensive status tracking for LLM narrative generation, intelligent scoring with role category detection, and advanced background processing capabilities.
+The migration system integrates Alembic with the application's SQLAlchemy models and database configuration. Migrations are executed against the configured DATABASE_URL, and the environment script ensures Alembic targets the correct metadata and connection. The system now supports JWT token revocation, enhanced performance monitoring through strategic indexing, comprehensive status tracking for LLM narrative generation, intelligent scoring with role category detection, advanced background processing capabilities, webhook and notification systems, administrative foundations, and billing configuration management.
 
 ```mermaid
 sequenceDiagram
@@ -161,7 +181,7 @@ participant Env as "alembic/env.py"
 participant DB as "DATABASE_URL"
 participant Meta as "SQLAlchemy Base.metadata"
 participant Models as "db_models.py"
-participant Versions as "001..011"
+participant Versions as "001..014"
 CLI->>Env : "alembic upgrade/downgrade"
 Env->>DB : "resolve connection"
 Env->>Meta : "configure target_metadata"
@@ -185,6 +205,9 @@ Versions-->>CLI : "migration status"
 - [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 - [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
 - [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
+- [alembic/versions/012_admin_foundation.py:1-161](file://alembic/versions/012_admin_foundation.py#L1-L161)
+- [alembic/versions/013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
+- [alembic/versions/014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 
 ## Detailed Component Analysis
 
@@ -403,7 +426,7 @@ Backfill --> End
   - Adds version_number integer column for tracking result versions.
   - Adds role_category string column for role classification (technical, sales, hr, etc.).
   - Adds weight_reasoning text column for storing AI-generated weight explanations.
-  - Adds suggested_weights_json text column for storing suggested scoring weights.
+  - adds suggested_weights_json text column for storing suggested scoring weights.
   - Creates indexes on is_active and version_number for efficient querying.
   - Applies defaults to existing records (is_active=True, version_number=1).
 - Status states:
@@ -506,6 +529,51 @@ PendingCheck --> End(["Done"])
 **Section sources**
 - [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
 
+### Version 012: Admin foundation
+- Purpose: Establishes administrative foundation with platform admin capabilities, audit logging, feature flags, and rate limiting.
+- Key changes:
+  - Adds is_platform_admin boolean column to users table with PostgreSQL-compatible default.
+  - Adds tenant suspension and metadata tracking columns.
+  - Creates audit_logs table with comprehensive indexing.
+  - Creates feature_flags table with global enablement tracking.
+  - Creates tenant_feature_overrides table for per-tenant feature control.
+  - Creates rate_limit_configs table for usage throttling.
+- Idempotency: Safe when tables/columns already exist; ensures proper defaults and indexes.
+- Downgrade: Drops tables and columns in reverse order with proper cascade handling.
+
+**Section sources**
+- [alembic/versions/012_admin_foundation.py:1-161](file://alembic/versions/012_admin_foundation.py#L1-L161)
+
+### Version 013: Webhooks and notifications
+- Purpose: Implements webhook system for external event notifications and enhances feature flag seeding with PostgreSQL compatibility.
+- Key changes:
+  - Creates webhooks table with tenant association, URL, secret, and event filtering.
+  - Creates webhook_deliveries table for tracking webhook delivery attempts.
+  - Seeds default feature flags with PostgreSQL-compatible boolean literals (`true` instead of numeric `1`).
+  - Implements comprehensive webhook delivery tracking with retry logic and auto-disabling.
+- PostgreSQL Compatibility Fix:
+  - Changed boolean literal from numeric `'1'` to PostgreSQL-compatible `sa.true()` for better cross-database support.
+  - Ensures consistent behavior across MySQL, PostgreSQL, and SQLite databases.
+- Idempotency: Safe when tables already exist; seeds feature flags only if missing.
+- Downgrade: Drops tables and indexes in reverse order with proper cascade handling.
+
+**Updated** Added PostgreSQL compatibility fix in feature flag seeding where boolean literals use SQLAlchemy's `sa.true()` instead of numeric `'1'` for better cross-database support.
+
+**Section sources**
+- [alembic/versions/013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
+
+### Version 014: Billing system
+- Purpose: Implements billing configuration management with platform-wide settings storage.
+- Key changes:
+  - Creates platform_configs table for storing billing provider configurations.
+  - Implements unique constraint on config_key for configuration isolation.
+  - Adds audit trail with updated_by foreign key to track configuration changes.
+- Idempotency: Safe when table already exists; ensures proper indexes.
+- Downgrade: Drops indexes and table in reverse order.
+
+**Section sources**
+- [alembic/versions/014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
+
 ### Environment and Configuration
 - alembic/env.py:
   - Loads application models to register them with Alembic metadata.
@@ -541,7 +609,7 @@ Models["db_models.py"] --> Env
   - DATABASE_URL from app/backend/db/database.py.
   - alembic.ini for configuration and logging.
 - Migrations depend on:
-  - Correct ordering (001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011).
+  - Correct ordering (001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014).
   - Idempotent operations to handle partial runs or legacy setups.
   - Fixed dependency chain ensuring proper migration sequencing.
 - CI/CD:
@@ -562,7 +630,10 @@ K --> L["008_analysis_queue_system.py"]
 L --> M["009_intelligent_scoring_weights.py"]
 M --> N["010_add_jd_text_to_screening_result.py"]
 N --> O["011_narrative_tracking_enhancement.py"]
-P[".github/workflows/ci.yml"] --> Q[".github/workflows/cd.yml"]
+O --> P["012_admin_foundation.py"]
+P --> Q["013_webhooks_and_notifications.py"]
+Q --> R["014_billing_system.py"]
+S[".github/workflows/ci.yml"] --> T[".github/workflows/cd.yml"]
 ```
 
 **Diagram sources**
@@ -581,6 +652,9 @@ P[".github/workflows/ci.yml"] --> Q[".github/workflows/cd.yml"]
 - [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 - [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
 - [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
+- [alembic/versions/012_admin_foundation.py:1-161](file://alembic/versions/012_admin_foundation.py#L1-L161)
+- [alembic/versions/013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
+- [alembic/versions/014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
@@ -599,6 +673,9 @@ P[".github/workflows/ci.yml"] --> Q[".github/workflows/cd.yml"]
 - [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 - [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
 - [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
+- [alembic/versions/012_admin_foundation.py:1-161](file://alembic/versions/012_admin_foundation.py#L1-L161)
+- [alembic/versions/013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
+- [alembic/versions/014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
@@ -611,19 +688,23 @@ P[".github/workflows/ci.yml"] --> Q[".github/workflows/cd.yml"]
 - Advanced indexing on role_category and composite indexes optimize calibration and filtering queries.
 - Background processing queues ensure non-blocking user experience during heavy computations.
 - Narrative tracking enhancements provide precise timing and status management for LLM operations.
+- Webhook delivery tracking enables comprehensive monitoring of external integrations.
+- Feature flag management supports gradual feature rollout with cross-database compatibility.
+- Administrative foundations provide comprehensive audit trails and operational visibility.
+- Billing configuration management centralizes payment provider settings for consistent access.
 - Production deployments rely on Docker Compose and Watchtower for automated updates; ensure migrations are run before deploying new backend images to avoid downtime.
 
-**Updated** Enhanced with new performance optimizations from versions 008-011, including intelligent scoring with role category detection, advanced indexing, background processing, and comprehensive narrative tracking.
+**Updated** Enhanced with new performance optimizations from versions 008-014, including intelligent scoring with role category detection, advanced indexing, background processing, comprehensive narrative tracking, webhook and notification systems, administrative foundations, and billing configuration management.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
 - Database URL mismatch:
   - Verify DATABASE_URL in env.py and application configuration.
 - Migration conflicts:
-  - Ensure migrations are applied in order (001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011).
+  - Ensure migrations are applied in order (001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014).
   - Use downgrade to revert problematic versions before retrying.
 - Multiple heads error:
-  - Verify correct down_revision chain (010 → 011).
+  - Verify correct down_revision chain (013 → 014).
   - Check that each migration properly references its parent revision.
 - Idempotency failures:
   - Confirm that idempotent checks (existence checks) are functioning as intended.
@@ -638,11 +719,25 @@ Common issues and resolutions:
 - Analysis queue problems:
   - Verify that analysis_queue table exists with proper indexes.
   - Check queue worker processes are running and processing tasks.
+- Webhook system issues:
+  - Verify that webhooks and webhook_deliveries tables exist with proper indexes.
+  - Check webhook delivery tracking for proper status updates and retry logic.
+  - Ensure PostgreSQL-compatible boolean literals are used in feature flag seeding.
+- Feature flag management issues:
+  - Verify that feature_flags and tenant_feature_overrides tables exist.
+  - Check that feature flag seeding uses PostgreSQL-compatible boolean literals.
+  - Monitor feature flag cache invalidation and tenant overrides.
+- Administrative foundation problems:
+  - Verify that audit_logs, rate_limit_configs tables exist with proper indexes.
+  - Check platform admin permissions and tenant suspension functionality.
+- Billing configuration issues:
+  - Verify that platform_configs table exists with proper indexes.
+  - Check configuration key uniqueness and updated_by audit trail.
 - CI/CD pipeline failures:
   - Review CI workflow logs for backend test failures.
   - For CD, confirm Docker images are built and pushed, and Watchtower is running in production.
 
-**Updated** Added troubleshooting guidance for the expanded migration chain, intelligent scoring system, advanced indexing, background processing, and comprehensive narrative tracking enhancements.
+**Updated** Added troubleshooting guidance for the expanded migration chain, intelligent scoring system, advanced indexing, background processing, comprehensive narrative tracking, webhook and notification systems, administrative foundations, and billing configuration management.
 
 **Section sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
@@ -657,13 +752,16 @@ Common issues and resolutions:
 - [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 - [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
 - [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
+- [alembic/versions/012_admin_foundation.py:1-161](file://alembic/versions/012_admin_foundation.py#L1-L161)
+- [alembic/versions/013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
+- [alembic/versions/014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [.github/workflows/cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
 ## Conclusion
-The Resume AI migration system uses Alembic to evolve the schema safely and predictably. Versions 001 through 011 introduce candidate enrichment, parser snapshots, subscription/usage systems, JWT token revocation, performance optimizations, comprehensive status tracking for LLM narrative generation, intelligent scoring with role category detection, advanced indexing, background processing queues, and narrative tracking enhancements. The environment and configuration integrate tightly with the application's models and database URL. Recent improvements include fixing the multiple heads error through proper dependency chaining, implementing comprehensive performance indexing, adding robust status tracking infrastructure, and introducing intelligent scoring capabilities. CI/CD pipelines support automated testing and deployment, while idempotent migrations and careful downgrade procedures help maintain safety across environments.
+The Resume AI migration system uses Alembic to evolve the schema safely and predictably. Versions 001 through 014 introduce candidate enrichment, parser snapshots, subscription/usage systems, JWT token revocation, performance optimizations, comprehensive status tracking for LLM narrative generation, intelligent scoring with role category detection, advanced indexing, background processing queues, webhook and notification systems, administrative foundations, and billing configuration management. The environment and configuration integrate tightly with the application's models and database URL. Recent improvements include fixing the multiple heads error through proper dependency chaining, implementing comprehensive performance indexing, adding robust status tracking infrastructure, introducing intelligent scoring capabilities, establishing administrative foundations, implementing webhook and notification systems, and enhancing feature flag management with PostgreSQL compatibility. CI/CD pipelines support automated testing and deployment, while idempotent migrations and careful downgrade procedures help maintain safety across environments.
 
-**Updated** Enhanced with the latest migration chain supporting JWT token revocation, intelligent scoring with role category detection, advanced indexing, background processing, and comprehensive narrative tracking enhancements.
+**Updated** Enhanced with the latest migration chain supporting JWT token revocation, intelligent scoring with role category detection, advanced indexing, background processing, comprehensive narrative tracking, webhook and notification systems, administrative foundations, and billing configuration management.
 
 ## Appendices
 
@@ -688,11 +786,13 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
   - Alembic env.py loads models and DATABASE_URL; migrations target Base.metadata.
 - Seed data:
   - Version 003 seeds subscription plans and links existing tenants to the Pro plan.
+  - Version 013 seeds default feature flags with PostgreSQL-compatible boolean literals.
   - New migrations maintain idempotent seeding patterns.
 
 **Section sources**
 - [alembic/env.py:1-51](file://alembic/env.py#L1-L51)
 - [alembic/versions/003_subscription_system.py:119-251](file://alembic/versions/003_subscription_system.py#L119-L251)
+- [alembic/versions/013_webhooks_and_notifications.py:90-113](file://alembic/versions/013_webhooks_and_notifications.py#L90-L113)
 
 ### Production Deployment Strategies
 - Local development:
@@ -713,8 +813,11 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
   - Guard operations with existence checks for tables, columns, and indexes.
 - Backward compatibility:
   - Use nullable columns and defaults when extending existing tables.
+  - Ensure PostgreSQL-compatible boolean literals in feature flag seeding.
 - Testing:
   - Run backend tests in CI to catch migration-related regressions.
+  - Test webhook delivery tracking and retry logic thoroughly.
+  - Verify cross-database compatibility for boolean literals and data types.
 - Rollback scenarios:
   - Maintain downgrade paths for all changes; test downgrades in staging.
 - Performance optimization:
@@ -729,6 +832,22 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
   - Implement proper error handling and fallback mechanisms.
   - Test backfill logic for existing records during migration.
   - Monitor narrative_generated_at timestamps for accurate completion tracking.
+- Webhook system:
+  - Implement comprehensive delivery tracking with retry logic.
+  - Ensure proper webhook filtering and event matching.
+  - Test auto-disabling after consecutive failures.
+  - Verify cross-database compatibility for boolean literals.
+- Feature flag management:
+  - Ensure proper feature flag seeding with PostgreSQL-compatible boolean literals.
+  - Implement tenant override functionality for per-tenant feature control.
+  - Test cache invalidation and global state toggling.
+- Administrative foundations:
+  - Ensure comprehensive audit logging for all administrative actions.
+  - Implement proper rate limiting configuration management.
+  - Test platform admin permissions and tenant suspension functionality.
+- Billing configuration:
+  - Ensure proper configuration key uniqueness and audit trail.
+  - Test billing provider configuration management across databases.
 
 **Section sources**
 - [alembic/versions/001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
@@ -742,6 +861,9 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
 - [alembic/versions/009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 - [alembic/versions/010_add_jd_text_to_screening_result.py:1-69](file://alembic/versions/010_add_jd_text_to_screening_result.py#L1-L69)
 - [alembic/versions/011_narrative_tracking_enhancement.py:1-57](file://alembic/versions/011_narrative_tracking_enhancement.py#L1-L57)
+- [alembic/versions/012_admin_foundation.py:1-161](file://alembic/versions/012_admin_foundation.py#L1-L161)
+- [alembic/versions/013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
+- [alembic/versions/014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 
 ### Intelligent Scoring System Implementation Details
@@ -827,3 +949,57 @@ The Resume AI migration system uses Alembic to evolve the schema safely and pred
 - [alembic/versions/011_narrative_tracking_enhancement.py:20-51](file://alembic/versions/011_narrative_tracking_enhancement.py#L20-L51)
 - [app/backend/services/hybrid_pipeline.py:1900-2038](file://app/backend/services/hybrid_pipeline.py#L1900-L2038)
 - [app/backend/routes/analyze.py:1130-1169](file://app/backend/routes/analyze.py#L1130-L1169)
+
+### Webhook and Notification System Implementation Details
+- Webhook delivery tracking:
+  - Comprehensive webhook delivery logging with retry attempts
+  - Auto-disabling mechanism after consecutive failures
+  - HMAC signature verification for security
+  - Event filtering with wildcard support
+- Delivery monitoring:
+  - Success/failure tracking with response codes
+  - Attempt counting and retry delay management
+  - Last triggered and last failure timestamps
+- PostgreSQL compatibility:
+  - Boolean literals use SQLAlchemy's `sa.true()` for cross-database support
+  - Consistent behavior across MySQL, PostgreSQL, and SQLite
+  - Proper handling of boolean data types in feature flag seeding
+- Service integration:
+  - Asynchronous webhook dispatching with retry logic
+  - Admin endpoint protection for webhook management
+  - Comprehensive testing coverage for webhook functionality
+
+**Section sources**
+- [alembic/versions/013_webhooks_and_notifications.py:36-113](file://alembic/versions/013_webhooks_and_notifications.py#L36-L113)
+- [app/backend/services/webhook_service.py:72-113](file://app/backend/services/webhook_service.py#L72-L113)
+- [app/backend/tests/test_webhooks.py:1-345](file://app/backend/tests/test_webhooks.py#L1-L345)
+
+### Administrative Foundation Implementation Details
+- Platform admin capabilities:
+  - is_platform_admin boolean column with PostgreSQL-compatible default
+  - Tenant suspension and metadata tracking for operational control
+  - Comprehensive audit logging for all administrative actions
+- Feature flag management:
+  - Global feature flag control with tenant overrides
+  - Cache invalidation for real-time configuration updates
+  - Per-tenant feature override functionality
+- Rate limiting:
+  - Configurable request limits per tenant
+  - LLM concurrency control for resource management
+  - Audit trail for configuration changes
+
+**Section sources**
+- [alembic/versions/012_admin_foundation.py:42-161](file://alembic/versions/012_admin_foundation.py#L42-L161)
+
+### Billing Configuration Management Implementation Details
+- Platform configuration storage:
+  - Centralized billing provider configuration management
+  - Unique configuration key constraints for isolation
+  - Audit trail with updated_by foreign key tracking
+- Integration points:
+  - Billing provider settings access across the application
+  - Configuration validation and error handling
+  - Real-time configuration updates without service restart
+
+**Section sources**
+- [alembic/versions/014_billing_system.py:33-67](file://alembic/versions/014_billing_system.py#L33-L67)
