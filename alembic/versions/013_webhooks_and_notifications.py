@@ -107,7 +107,7 @@ def upgrade() -> None:
             conn.execute(
                 text(
                     "INSERT INTO feature_flags (key, display_name, enabled_globally) "
-                    "VALUES (:key, :display, 1)"
+                    "VALUES (:key, :display, true)"
                 ),
                 {"key": key, "display": display},
             )

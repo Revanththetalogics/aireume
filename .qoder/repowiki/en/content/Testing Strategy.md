@@ -5,65 +5,25 @@
 - [ci.yml](file://.github/workflows/ci.yml)
 - [cd.yml](file://.github/workflows/cd.yml)
 - [conftest.py](file://app/backend/tests/conftest.py)
-- [queue_manager.py](file://app/backend/services/queue_manager.py)
-- [queue_api.py](file://app/backend/routes/queue_api.py)
-- [008_analysis_queue_system.py](file://alembic/versions/008_analysis_queue_system.py)
-- [test_api.py](file://app/backend/tests/test_api.py)
-- [test_auth.py](file://app/backend/tests/test_auth.py)
-- [test_subscription.py](file://app/backend/tests/test_subscription.py)
-- [test_llm_service.py](file://app/backend/tests/test_llm_service.py)
-- [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
-- [test_agent_pipeline.py](file://app/backend/tests/test_agent_pipeline.py)
-- [test_analysis_service.py](file://app/backend/tests/test_analysis_service.py)
-- [test_transcript_service.py](file://app/backend/tests/test_transcript_service.py)
-- [test_transcript_api.py](file://app/backend/tests/test_transcript_api.py)
-- [test_video_service.py](file://app/backend/tests/test_video_service.py)
-- [test_video_routes.py](file://app/backend/tests/test_video_routes.py)
-- [test_video_downloader.py](file://app/backend/tests/test_video_downloader.py)
-- [test_parser_service.py](file://app/backend/tests/test_parser_service.py)
-- [test_gap_detector.py](file://app/backend/tests/test_gap_detector.py)
-- [test_candidate_dedup.py](file://app/backend/tests/test_candidate_dedup.py)
-- [test_routes_phase1.py](file://app/backend/tests/test_routes_phase1.py)
-- [test_routes_phase2.py](file://app/backend/tests/test_routes_phase2.py)
-- [test_usage_enforcement.py](file://app/backend/tests/test_usage_enforcement.py)
-- [test_llm_json_parse.py](file://app/backend/tests/test_llm_json_parse.py)
-- [test_admin_api.py](file://app/backend/tests/test_admin_api.py)
-- [test_admin_metrics.py](file://app/backend/tests/test_admin_metrics.py)
-- [test_billing.py](file://app/backend/tests/test_billing.py)
-- [test_email_service.py](file://app/backend/tests/test_email_service.py)
-- [test_feature_flags.py](file://app/backend/tests/test_feature_flags.py)
-- [test_quota_enforcement.py](file://app/backend/tests/test_quota_enforcement.py)
-- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
-- [test_tenant_suspension.py](file://app/backend/tests/test_tenant_suspension.py)
-- [test_webhooks.py](file://app/backend/tests/test_webhooks.py)
-- [run-full-tests.sh](file://scripts/run-full-tests.sh)
-- [run-full-tests.bat](file://scripts/run-full-tests.bat)
-- [test-locally.ps1](file://test-locally.ps1)
-- [setup.js](file://app/frontend/src/__tests__/setup.js)
-- [api.test.js](file://app/frontend/src/__tests__/api.test.js)
-- [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
-- [ResultCard.test.jsx](file://app/frontend/src/__tests__/ResultCard.test.jsx)
-- [ScoreGauge.test.jsx](file://app/frontend/src/__tests__/ScoreGauge.test.jsx)
-- [VideoPage.test.jsx](file://app/frontend/src/__tests__/VideoPage.test.jsx)
-- [api.js](file://app/frontend/src/lib/api.js)
-- [package.json](file://app/frontend/package.json)
-- [llm_service.py](file://app/backend/services/llm_service.py)
-- [main.py](file://app/backend/main.py)
-- [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
-- [training.py](file://app/backend/routes/training.py)
-- [wait_for_ollama.py](file://app/backend/scripts/wait_for_ollama.py)
+- [rate_limit.py](file://app/backend/middleware/rate_limit.py)
+- [subscription.py](file://app/backend/routes/subscription.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
-- [parser_service.py](file://app/backend/services/parser_service.py)
-- [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
-- [QUEUE_SYSTEM_ARCHITECTURE.md](file://docs/QUEUE_SYSTEM_ARCHITECTURE.md)
+- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
+- [test_subscription.py](file://app/backend/tests/test_subscription.py)
+- [test_quota_enforcement.py](file://app/backend/tests/test_quota_enforcement.py)
+- [test_usage_enforcement.py](file://app/backend/tests/test_usage_enforcement.py)
+- [run-full-tests.sh](file://scripts/run-full-tests.sh)
+- [test-locally.ps1](file://test-locally.ps1)
+- [.gitignore](file://.gitignore)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive test suites for administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, and webhooks
-- Expanded backend test coverage from 73+ tests to substantially more tests covering new administrative and billing functionality
-- Enhanced test infrastructure with specialized fixtures for administrative operations and billing providers
-- Updated testing strategy to include comprehensive coverage of administrative controls, billing integrations, and operational monitoring
+- Enhanced rate limiter reset mechanism with improved CI stability through comprehensive test infrastructure cleanup
+- Added systematic cleanup of temporary test output files and refined .gitignore patterns to exclude test artifacts
+- Implemented automatic rate limit bucket clearing in test fixtures to prevent 429 errors in CI environments
+- Strengthened monthly usage reset functionality with comprehensive test coverage for subscription system
+- Improved CI/CD stability through better test artifact management and cleaner test execution environments
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -80,27 +40,27 @@
 ## Introduction
 This document defines a comprehensive testing strategy for Resume AI by ThetaLogics. It covers backend testing with pytest, frontend testing with Vitest and React Testing Library, API and integration testing patterns, test configuration and mocking, test data management, performance testing, end-to-end workflows, continuous integration with GitHub Actions, and best practices for writing maintainable tests.
 
-**Updated** The test suite has been substantially expanded to include comprehensive coverage of administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, and webhooks. The expanded testing infrastructure ensures robust validation of the new administrative and billing functionality with 73+ existing tests plus numerous new test suites covering critical operational aspects.
+**Updated** The test suite has been substantially enhanced with improved rate limiter reset mechanisms, comprehensive CI stability improvements, and systematic cleanup of temporary test artifacts. The enhanced infrastructure ensures reliable test execution in CI environments while maintaining comprehensive coverage of administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, and webhooks.
 
 ## Project Structure
-The repository organizes tests by domain with a substantially expanded test suite:
-- Backend: extensive tests under app/backend/tests/ covering all major components with shared fixtures in conftest.py, now including administrative APIs, billing systems, and operational monitoring
+The repository organizes tests by domain with enhanced infrastructure:
+- Backend: extensive tests under app/backend/tests/ covering all major components with shared fixtures in conftest.py, now including sophisticated rate limiter reset mechanisms and comprehensive CI stability improvements
 - Frontend: component and integration tests under app/frontend/src/__tests__/ using Vitest and React Testing Library
-- CI/CD: GitHub Actions workflows for automated test execution and deployment
+- CI/CD: GitHub Actions workflows for automated test execution and deployment with improved stability
 
 ```mermaid
 graph TB
-subgraph "Backend Test Suite (150+ tests)"
+subgraph "Backend Test Suite (Enhanced Infrastructure)"
 B1["pytest"]
 B2["FastAPI TestClient"]
 B3["SQLAlchemy in-memory DB"]
 B4["Shared fixtures in conftest.py"]
-B5["Administrative API Tests"]
-B6["Billing System Tests"]
-B7["Email Service Tests"]
-B8["Feature Flag Tests"]
-B9["Operational Monitoring Tests"]
-B10["Queue System Tests"]
+B5["Rate Limiter Reset Mechanism"]
+B6["Monthly Usage Reset System"]
+B7["CI Stability Improvements"]
+B8["Test Artifact Cleanup"]
+B9["Queue System Tests"]
+B10["Administrative API Tests"]
 end
 subgraph "Frontend Test Suite"
 F1["Vitest"]
@@ -110,6 +70,7 @@ end
 subgraph "CI/CD"
 C1[".github/workflows/ci.yml"]
 C2[".github/workflows/cd.yml"]
+C3[".gitignore (Enhanced Patterns)"]
 end
 B1 --> B2
 B1 --> B3
@@ -126,23 +87,23 @@ C1 --> B1
 C1 --> F1
 C2 --> B1
 C2 --> F1
+C3 --> B8
 ```
 
 **Diagram sources**
 - [ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
-- [conftest.py:1-718](file://app/backend/tests/conftest.py#L1-L718)
-- [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
-- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
-- [test_email_service.py:1-232](file://app/backend/tests/test_email_service.py#L1-232)
-- [test_feature_flags.py:1-233](file://app/backend/tests/test_feature_flags.py#L1-233)
+- [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
+- [rate_limit.py:196-204](file://app/backend/middleware/rate_limit.py#L196-L204)
+- [subscription.py:85-97](file://app/backend/routes/subscription.py#L85-L97)
 
 **Section sources**
 - [ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
+- [.gitignore:42-47](file://.gitignore#L42-L47)
 
 ## Core Components
-- Backend test harness with comprehensive fixture system
+- Backend test harness with enhanced fixture system and rate limiter reset mechanisms
   - Shared fixtures for database, HTTP client, authentication, and service mocks
   - In-memory SQLite database with per-test lifecycle and sophisticated queue table management
   - Authentication fixtures that register and log in users, injecting Authorization headers
@@ -151,12 +112,15 @@ C2 --> F1
   - Specialized fixtures for LLM service testing, pipeline validation, and error scenarios
   - **Enhanced**: Sophisticated queue system database infrastructure with custom table creation/destruction
   - **Enhanced**: AsyncMock-based queue worker mocking to prevent database access during tests
+  - **Enhanced**: Automatic rate limiter bucket clearing in test fixtures to prevent CI 429 errors
+  - **Enhanced**: Comprehensive monthly usage reset testing with edge case validation
   - **New**: Administrative API fixtures for tenant management and billing operations
   - **New**: Billing provider fixtures for Stripe, Razorpay, and manual payment processing
   - **New**: Email service fixtures for SMTP configuration and notification testing
   - **New**: Feature flag fixtures for tenant overrides and permission testing
   - **New**: Quota enforcement fixtures for subscription plan validation
   - **New**: Rate limiting fixtures for API throttling and abuse prevention
+  - **New**: Tenant suspension fixtures for audit logging and recovery workflows
   - **New**: Webhook fixtures for payment processor event handling
 - Frontend test harness
   - Global setup for DOM matchers
@@ -165,20 +129,24 @@ C2 --> F1
   - Component tests for UploadForm, ResultCard, ScoreGauge, VideoPage
   - API module tests validating request shapes and behaviors
 
-**Updated** The test suite now emphasizes comprehensive coverage of administrative operations, billing integrations, and operational monitoring without compromising the existing batch analysis validation and streaming functionality. Test coverage remains robust across all major components with particular focus on error handling, retry mechanisms, and background task processing.
+**Updated** The test suite now emphasizes comprehensive coverage of administrative operations, billing integrations, and operational monitoring with enhanced CI stability through systematic rate limiter reset mechanisms and test artifact cleanup. The expanded testing infrastructure ensures robust validation of the new administrative and billing functionality with 73+ existing tests plus numerous new test suites covering critical operational aspects.
 
 **Section sources**
-- [conftest.py:1-718](file://app/backend/tests/conftest.py#L1-L718)
-- [setup.js:1-2](file://app/frontend/src/__tests__/setup.js#L1-L2)
-- [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
+- [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
+- [rate_limit.py:16-144](file://app/backend/middleware/rate_limit.py#L16-L144)
+- [subscription.py:85-97](file://app/backend/routes/subscription.py#L85-L97)
+- [test_rate_limiting.py:1-85](file://app/backend/tests/test_rate_limiting.py#L1-L85)
+- [test_subscription.py:312-355](file://app/backend/tests/test_subscription.py#L312-L355)
 
 ## Architecture Overview
-The testing architecture separates concerns across layers with substantially expanded coverage:
+The testing architecture separates concerns across layers with enhanced CI stability:
 - Unit tests for backend services and routes using pytest fixtures and mocked dependencies
 - Component and integration tests for frontend using Vitest and React Testing Library
 - CI/CD pipelines that run backend and frontend tests in parallel and upload coverage
 - Specialized testing for LLM services, pipelines, and background task processing
 - **Enhanced**: Comprehensive queue system testing with dedicated database infrastructure
+- **Enhanced**: Automatic rate limiter reset mechanisms to prevent CI instability
+- **Enhanced**: Systematic test artifact cleanup for improved CI reliability
 - **New**: Administrative API testing with tenant management and billing operations
 - **New**: Billing system testing with provider abstraction and webhook handling
 - **New**: Email service testing with SMTP configuration and notification delivery
@@ -188,12 +156,14 @@ The testing architecture separates concerns across layers with substantially exp
 ```mermaid
 sequenceDiagram
 participant GH as "GitHub Actions"
-participant Py as "pytest (backend - 150+ tests)"
+participant Py as "pytest (backend - enhanced stability)"
 participant VT as "Vitest (frontend)"
-participant Cov as "Codecov"
-GH->>Py : "Run comprehensive backend tests"
+participant Clean as "Artifact Cleanup"
+participant RL as "Rate Limiter Reset"
+GH->>Clean : "Setup test environment"
+Clean->>RL : "Initialize rate limiter buckets"
+RL->>Py : "Run comprehensive backend tests"
 Py-->>GH : "Coverage XML"
-GH->>Cov : "Upload coverage"
 GH->>VT : "Run frontend tests"
 VT-->>GH : "Test results"
 ```
@@ -201,17 +171,20 @@ VT-->>GH : "Test results"
 **Diagram sources**
 - [ci.yml:27-37](file://.github/workflows/ci.yml#L27-L37)
 - [cd.yml:30-48](file://.github/workflows/cd.yml#L30-L48)
+- [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
 
 ## Detailed Component Analysis
 
-### Backend Testing with pytest - Substantially Expanded Test Suite
-Key patterns with expanded coverage:
+### Backend Testing with pytest - Enhanced Infrastructure
+Key patterns with enhanced CI stability:
 - Database isolation using an in-memory SQLite engine and per-test metadata creation/drop
 - **Enhanced**: Sophisticated queue table creation using raw SQL to avoid FK resolution issues
 - HTTP client testing with FastAPI TestClient and dependency overrides
 - Authentication fixtures that register/log in users and attach Authorization headers
 - Service-level mocks for external integrations (Ollama, Whisper, hybrid pipeline)
 - Subscription system fixtures for seeding plans and simulating usage limits
+- **Enhanced**: Automatic rate limiter bucket clearing using autouse fixtures to prevent CI 429 errors
+- **Enhanced**: Comprehensive monthly usage reset testing with edge case validation
 - **New**: Administrative API testing with comprehensive tenant management validation
 - **New**: Billing system testing with provider abstraction and webhook processing
 - **New**: Email service testing with SMTP configuration and notification delivery
@@ -222,24 +195,29 @@ Key patterns with expanded coverage:
 - **New**: Webhook testing with payment processor event handling
 - **Enhanced**: Queue system testing with comprehensive database schema support
 
-Representative fixtures and expanded test coverage:
+Representative fixtures and enhanced test coverage:
 - Database fixture: creates and tears down tables per test with queue system support
 - HTTP client fixture: initializes app routes and cleans up after each test
 - Auth fixtures: register and login users; return clients with Authorization headers
 - Mocks: Ollama communication/malpractice/transcript/email; Whisper transcription; hybrid pipeline
 - Subscription fixtures: seed plans, assign plans to tenants, enforce usage limits
+- **Enhanced**: Rate limiter reset fixture: automatically clears token buckets before each test
+- **Enhanced**: Monthly usage reset fixture: validates automatic quota reset functionality
 - **New**: Administrative fixtures for tenant CRUD operations and billing management
 - **New**: Billing fixtures for provider configuration and webhook validation
 - **New**: Email fixtures for SMTP settings and notification testing
 - **New**: Feature flag fixtures for tenant overrides and permission testing
 - **New**: Quota enforcement fixtures for subscription plan validation
 - **New**: Rate limiting fixtures for API throttling and abuse prevention
+- **New**: Tenant suspension fixtures for audit logging and recovery workflows
 - **New**: Webhook fixtures for payment processor event handling
 - **Enhanced**: Queue system fixtures with AsyncMock-based worker mocking
 
 ```mermaid
 flowchart TD
-Start(["Test starts"]) --> DB["Create in-memory DB tables<br/>including queue tables"]
+Start(["Test starts"]) --> Cleanup["Cleanup test artifacts<br/>and temporary files"]
+Cleanup --> RLClear["Clear rate limiter buckets<br/>to prevent CI 429 errors"]
+RLClear --> DB["Create in-memory DB tables<br/>including queue tables"]
 DB --> Client["Initialize TestClient and override dependencies"]
 Client --> Auth["Authenticate via register/login and inject headers"]
 Auth --> Mocks["Patch external services with AsyncMock/MagicMock"]
@@ -257,42 +235,23 @@ LLM --> Pipelines["Test hybrid/agent pipelines"]
 Pipelines --> Services["Test analysis/transcript/video services"]
 Services --> RouteCall["Invoke route under test"]
 RouteCall --> Asserts["Assert response status and payload"]
-Asserts --> Cleanup["Drop queue tables then main tables<br/>and close sessions"]
-Cleanup --> End(["Test ends"])
+Asserts --> Cleanup2["Drop queue tables then main tables<br/>and close sessions"]
+Cleanup2 --> End(["Test ends"])
 ```
 
 **Diagram sources**
 - [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
-- [test_api.py:23-100](file://app/backend/tests/test_api.py#L23-L100)
-- [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
-- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
-- [test_email_service.py:1-232](file://app/backend/tests/test_email_service.py#L1-232)
-- [test_feature_flags.py:1-233](file://app/backend/tests/test_feature_flags.py#L1-233)
-- [test_quota_enforcement.py:1-240](file://app/backend/tests/test_quota_enforcement.py#L1-240)
-- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
-- [test_tenant_suspension.py](file://app/backend/tests/test_tenant_suspension.py)
-- [test_webhooks.py](file://app/backend/tests/test_webhooks.py)
+- [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
+- [rate_limit.py:100-121](file://app/backend/middleware/rate_limit.py#L100-L121)
+- [subscription.py:85-97](file://app/backend/routes/subscription.py#L85-L97)
 
 **Section sources**
 - [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
-- [test_api.py:23-100](file://app/backend/tests/test_api.py#L23-L100)
-- [test_auth.py:15-95](file://app/backend/tests/test_auth.py#L15-L95)
-- [test_subscription.py:12-132](file://app/backend/tests/test_subscription.py#L12-L132)
-- [test_llm_service.py](file://app/backend/tests/test_llm_service.py)
-- [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
-- [test_agent_pipeline.py](file://app/backend/tests/test_agent_pipeline.py)
-- [test_analysis_service.py](file://app/backend/tests/test_analysis_service.py)
-- [test_transcript_service.py](file://app/backend/tests/test_transcript_service.py)
-- [test_video_service.py](file://app/backend/tests/test_video_service.py)
-- [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
-- [test_admin_metrics.py:1-159](file://app/backend/tests/test_admin_metrics.py#L1-159)
-- [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
-- [test_email_service.py:1-232](file://app/backend/tests/test_email_service.py#L1-232)
-- [test_feature_flags.py:1-233](file://app/backend/tests/test_feature_flags.py#L1-233)
-- [test_quota_enforcement.py:1-240](file://app/backend/tests/test_quota_enforcement.py#L1-240)
-- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
-- [test_tenant_suspension.py](file://app/backend/tests/test_tenant_suspension.py)
-- [test_webhooks.py](file://app/backend/tests/test_webhooks.py)
+- [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
+- [rate_limit.py:16-144](file://app/backend/middleware/rate_limit.py#L16-L144)
+- [subscription.py:85-97](file://app/backend/routes/subscription.py#L85-L97)
+- [test_rate_limiting.py:1-85](file://app/backend/tests/test_rate_limiting.py#L1-L85)
+- [test_subscription.py:312-355](file://app/backend/tests/test_subscription.py#L312-L355)
 
 ### Frontend Testing with Vitest and React Testing Library
 Key patterns with enhanced component coverage:
@@ -328,13 +287,8 @@ Comp-->>Test : "DOM updates observed"
 **Section sources**
 - [setup.js:1-2](file://app/frontend/src/__tests__/setup.js#L1-L2)
 - [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
-- [UploadForm.test.jsx:1-60](file://app/frontend/src/__tests__/UploadForm.test.jsx#L1-L60)
-- [ResultCard.test.jsx:1-133](file://app/frontend/src/__tests__/ResultCard.test.jsx#L1-L133)
-- [ScoreGauge.test.jsx:1-26](file://app/frontend/src/__tests__/ScoreGauge.test.jsx#L1-L26)
-- [VideoPage.test.jsx:1-377](file://app/frontend/src/__tests__/VideoPage.test.jsx#L1-L377)
-- [api.js:1-395](file://app/frontend/src/lib/api.js#L1-L395)
 
-### API Testing Strategies - Substantially Expanded Coverage
+### API Testing Strategies - Enhanced Coverage
 Backend API tests now validate comprehensive endpoint coverage:
 - Root and health endpoints
 - Authentication endpoints (register, login, refresh, profile)
@@ -342,6 +296,8 @@ Backend API tests now validate comprehensive endpoint coverage:
 - History and comparison endpoints
 - Video analysis endpoints (upload and URL-based)
 - Subscription endpoints (plans, usage checks, history, admin controls)
+- **Enhanced**: Rate limiter reset endpoints for administrative control
+- **Enhanced**: Monthly usage reset validation for quota management
 - **New**: Administrative API endpoints (tenant management, billing configuration)
 - **New**: Billing system endpoints (checkout, webhook, subscription status)
 - **New**: Email notification endpoints (SMTP configuration, test emails)
@@ -379,12 +335,14 @@ F --> G["Assert status and payload"]
 - [test_api.py:1-153](file://app/backend/tests/test_api.py#L1-L153)
 - [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
 
-### Integration Testing Approaches - Substantially Expanded Coverage
+### Integration Testing Approaches - Enhanced Stability
 Backend integration tests now cover:
 - Use TestClient to exercise routes with real app wiring
 - Override database dependency to use in-memory SQLite
 - Use auth fixtures to simulate logged-in users
 - Mock external services to keep tests deterministic
+- **Enhanced**: Automatic rate limiter bucket clearing to prevent CI instability
+- **Enhanced**: Comprehensive monthly usage reset validation with edge cases
 - **New**: Administrative API integration testing with tenant management
 - **New**: Billing system integration testing with provider abstractions
 - **New**: Email service integration testing with SMTP configuration
@@ -407,11 +365,13 @@ Frontend integration tests:
 - [conftest.py:32-42](file://app/backend/tests/conftest.py#L32-L42)
 - [VideoPage.test.jsx:1-377](file://app/frontend/src/__tests__/VideoPage.test.jsx#L1-L377)
 
-### Test Configuration and Mock Services - Substantially Enhanced Infrastructure
+### Test Configuration and Mock Services - Enhanced Infrastructure
 Backend:
 - PYTHONPATH set in CI to resolve imports
 - pytest-cov enabled for comprehensive coverage reporting
 - Shared fixtures centralize DB setup, auth, and service mocks
+- **Enhanced**: Automatic rate limiter bucket clearing using autouse fixtures
+- **Enhanced**: Comprehensive monthly usage reset validation infrastructure
 - **New**: Specialized fixtures for administrative API testing and tenant management
 - **New**: Enhanced fixtures for billing provider testing and webhook validation
 - **New**: Comprehensive fixtures for email service testing and SMTP configuration
@@ -431,12 +391,14 @@ Frontend:
 - [package.json:6-12](file://app/frontend/package.json#L6-L12)
 - [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
 
-### Test Data Management - Substantially Enhanced Coverage
+### Test Data Management - Enhanced Coverage
 Backend:
 - Sample resume text and job description fixtures
 - Minimal MP4 bytes for file-type validation
 - Transcript fixtures (VTT, SRT, plain text)
 - Subscription plan fixtures with seeded limits and features
+- **Enhanced**: Automatic rate limiter reset validation with edge case scenarios
+- **Enhanced**: Comprehensive monthly usage reset testing with historical data
 - **New**: Administrative test data with tenant management scenarios
 - **New**: Billing test data with provider configurations and webhook events
 - **New**: Email service test data with SMTP settings and notification templates
@@ -458,6 +420,141 @@ Frontend:
 **Section sources**
 - [conftest.py:294-421](file://app/backend/tests/conftest.py#L294-L421)
 - [VideoPage.test.jsx:28-86](file://app/frontend/src/__tests__/VideoPage.test.jsx#L28-L86)
+
+### Enhanced Rate Limiter Reset Mechanism - New Critical Infrastructure
+**New Section**: The enhanced test infrastructure now includes sophisticated rate limiter reset mechanisms for improved CI stability:
+
+#### Automatic Rate Limiter Bucket Clearing
+The `_clear_rate_limit_buckets()` autouse fixture ensures CI stability by:
+- Automatically clearing token buckets before every test execution
+- Preventing 429 rate limit errors in CI environments
+- Maintaining consistent test state across test runs
+- Using RateLimitMiddleware singleton instance for cleanup
+
+#### Rate Limiter Configuration Caching
+The RateLimitMiddleware implements intelligent caching:
+- Config cache TTL of 60 seconds to balance freshness and performance
+- Thread-safe bucket management with lock-based synchronization
+- Dynamic RPM (requests per minute) configuration per tenant
+- Whitelist paths that bypass rate limiting (health, auth, docs)
+
+#### Token Bucket Algorithm Implementation
+The rate limiter uses a sophisticated token bucket algorithm:
+- Time-based token refill calculation
+- Configurable refill rates per tenant
+- Proper token consumption and deficit calculation
+- Retry-After header generation for rate limit exceeded responses
+
+```mermaid
+flowchart TD
+Start(["Test Fixture Setup"]) --> Check["Check RateLimitMiddleware instance"]
+Check --> Exists{"Instance exists?"}
+Exists --> |Yes| Clear["Clear buckets and config cache"]
+Exists --> |No| Skip["Skip cleanup"]
+Clear --> Continue["Continue with test"]
+Skip --> Continue
+Continue --> TestRun["Execute test"]
+TestRun --> End(["Test Complete"])
+```
+
+**Diagram sources**
+- [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
+- [rate_limit.py:31-36](file://app/backend/middleware/rate_limit.py#L31-L36)
+- [rate_limit.py:100-121](file://app/backend/middleware/rate_limit.py#L100-L121)
+
+**Section sources**
+- [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
+- [rate_limit.py:16-144](file://app/backend/middleware/rate_limit.py#L16-L144)
+- [test_rate_limiting.py:1-85](file://app/backend/tests/test_rate_limiting.py#L1-L85)
+
+### Enhanced Monthly Usage Reset System - New Critical Infrastructure
+**New Section**: The enhanced test infrastructure now includes comprehensive monthly usage reset validation:
+
+#### Automatic Monthly Reset Logic
+The `_ensure_monthly_reset()` function provides robust quota management:
+- Detects month-over-month usage counter resets
+- Handles edge cases for year transitions
+- Maintains UTC timezone consistency
+- Preserves usage reset timestamps for audit trails
+
+#### Comprehensive Test Coverage
+The monthly reset system includes extensive validation:
+- New month detection with proper timestamp comparison
+- Same month preservation with unchanged counters
+- Historical data validation across calendar boundaries
+- Integration with analysis route usage tracking
+
+```mermaid
+flowchart TD
+Start(["Usage Check"]) --> GetTenant["Get tenant from DB"]
+GetTenant --> CheckReset["Check usage_reset_at timestamp"]
+CheckReset --> MonthChanged{"Month changed?"}
+MonthChanged --> |Yes| ResetCounters["Reset analyses_count_this_month = 0"]
+MonthChanged --> |No| PreserveCounters["Preserve existing counters"]
+ResetCounters --> UpdateTimestamp["Update usage_reset_at to current month"]
+PreserveCounters --> Continue["Continue with usage check"]
+UpdateTimestamp --> Continue
+Continue --> End(["Complete"])
+```
+
+**Diagram sources**
+- [subscription.py:85-97](file://app/backend/routes/subscription.py#L85-L97)
+- [test_subscription.py:312-355](file://app/backend/tests/test_subscription.py#L312-L355)
+
+**Section sources**
+- [subscription.py:85-97](file://app/backend/routes/subscription.py#L85-L97)
+- [test_subscription.py:312-355](file://app/backend/tests/test_subscription.py#L312-L355)
+
+### Enhanced CI Stability and Test Artifact Management - New Infrastructure
+**New Section**: The enhanced test infrastructure now includes systematic cleanup of temporary test artifacts:
+
+#### Comprehensive Test Artifact Cleanup
+The .gitignore patterns now exclude test artifacts:
+- `.coverage` - Coverage reports
+- `htmlcov/` - HTML coverage reports
+- `.pytest_cache/` - Pytest cache directories
+- `pytest_summary.txt` - Test summary files
+- `test_full_output.txt` - Full test output logs
+- `*_output*.txt` - Various output files
+- `*_results*.txt` - Test results files
+- `*_summary*.txt` - Test summary files
+
+#### Enhanced Test Runner Scripts
+The test runner scripts now include systematic cleanup:
+- Temporary test output logging with rotation
+- Error handling with detailed output capture
+- Cross-platform compatibility with PowerShell and Bash
+- Comprehensive validation of test environment prerequisites
+
+#### CI/CD Stability Improvements
+GitHub Actions workflows now benefit from:
+- Cleaner test execution environments
+- Reduced test flakiness through artifact isolation
+- Better resource management in CI containers
+- Improved test reliability across different runners
+
+```mermaid
+flowchart TD
+Start(["Test Execution"]) --> Setup["Setup test environment"]
+Setup --> RunTests["Execute tests with cleanup"]
+RunTests --> CleanupArtifacts["Cleanup test artifacts<br/>and temporary files"]
+CleanupArtifacts --> Validate["Validate cleanup success"]
+Validate --> Success{"Cleanup successful?"}
+Success --> |Yes| Complete["Complete test run"]
+Success --> |No| Error["Handle cleanup error"]
+Error --> Complete
+Complete --> End(["Test complete"])
+```
+
+**Diagram sources**
+- [.gitignore:42-47](file://.gitignore#L42-L47)
+- [run-full-tests.sh:31-42](file://scripts/run-full-tests.sh#L31-L42)
+- [test-locally.ps1:54-59](file://test-locally.ps1#L54-L59)
+
+**Section sources**
+- [.gitignore:42-47](file://.gitignore#L42-L47)
+- [run-full-tests.sh:1-256](file://scripts/run-full-tests.sh#L1-L256)
+- [test-locally.ps1:1-119](file://test-locally.ps1#L1-L119)
 
 ### Administrative API Testing - New Comprehensive Coverage
 **New Section**: The expanded test suite now includes comprehensive administrative API testing:
@@ -815,18 +912,21 @@ Execution:
 - Python 3.11 and Node.js 20 environments
 - Backend coverage collected for services package with 150+ test suite
 - Frontend tests executed via npm test
+- **Enhanced**: Improved CI stability through systematic rate limiter reset and artifact cleanup
 
 **Section sources**
 - [ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 - [cd.yml:1-101](file://.github/workflows/cd.yml#L1-L101)
 
-### Writing Effective Tests for New Features - Substantially Enhanced Guidelines
-Guidelines derived from expanded test suite:
+### Writing Effective Tests for New Features - Enhanced Guidelines
+Guidelines derived from enhanced test suite:
 - Backend
   - Use pytest fixtures to minimize duplication (db, client, auth_client)
   - Prefer AsyncMock/MagicMock for external services to avoid flaky network calls
   - Validate both success and failure paths (e.g., invalid file types, missing fields)
   - For subscription features, use seed fixtures and tenant plan assignments
+  - **Enhanced**: Leverage automatic rate limiter bucket clearing for CI stability
+  - **Enhanced**: Test monthly usage reset logic with edge case scenarios
   - **New**: Test administrative API permissions and tenant management workflows
   - **New**: Validate billing provider abstraction and webhook processing
   - **New**: Test email service configuration and notification delivery
@@ -836,7 +936,8 @@ Guidelines derived from expanded test suite:
   - **New**: Test tenant suspension and audit logging workflows
   - **New**: Validate webhook processing with payment processor events
   - **Enhanced**: Leverage sophisticated queue system database infrastructure
-  - **Updated**: Focus on comprehensive validation mechanisms rather than specific PDF header patterns
+  - **Enhanced**: Focus on comprehensive validation mechanisms rather than specific PDF header patterns
+  - **Enhanced**: Implement systematic cleanup of test artifacts for CI reliability
 - Frontend
   - Mock axios and browser APIs to focus on component behavior
   - Test user interactions (clicks, input changes) and resulting UI updates
@@ -844,7 +945,7 @@ Guidelines derived from expanded test suite:
   - Ensure error messages are surfaced and handled gracefully
   - **Enhanced**: Test AI pipeline explainability and risk analysis features
 
-**Updated** Test writing guidelines now emphasize comprehensive validation mechanisms and error handling scenarios without reliance on specific PDF header validation patterns.
+**Updated** Test writing guidelines now emphasize comprehensive validation mechanisms, CI stability through rate limiter reset, and systematic artifact cleanup without reliance on specific PDF header validation patterns.
 
 **Section sources**
 - [conftest.py:125-176](file://app/backend/tests/conftest.py#L125-L176)
@@ -852,9 +953,11 @@ Guidelines derived from expanded test suite:
 - [api.test.js:167-200](file://app/frontend/src/__tests__/api.test.js#L167-L200)
 
 ## Dependency Analysis
-Backend test dependencies with substantially expanded coverage:
+Backend test dependencies with enhanced coverage:
 - pytest, FastAPI TestClient, SQLAlchemy in-memory DB, passlib sha256_crypt for bcrypt compatibility
 - External service mocks via unittest.mock
+- **Enhanced**: Automatic rate limiter bucket clearing for CI stability
+- **Enhanced**: Comprehensive monthly usage reset testing infrastructure
 - **New**: Enhanced administrative API testing dependencies and fixtures
 - **New**: Comprehensive billing system testing dependencies and provider fixtures
 - **New**: Email service testing dependencies and SMTP configuration fixtures
@@ -875,14 +978,17 @@ Py["pytest"] --> FA["FastAPI TestClient"]
 Py --> SA["SQLAlchemy in-memory DB"]
 Py --> UM["unittest.mock"]
 Py --> AM["AsyncMock"]
+Py --> RL["Rate Limiter Reset"]
 VT["Vitest"] --> RTL["React Testing Library"]
 VT --> AX["Mocked axios"]
 VT --> DOM["Mocked DOM APIs"]
+RL --> AC["Automatic Cleanup"]
 ```
 
 **Diagram sources**
 - [conftest.py:1-12](file://app/backend/tests/conftest.py#L1-L12)
 - [package.json:23-38](file://app/frontend/package.json#L23-L38)
+- [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
 
 **Section sources**
 - [conftest.py:1-12](file://app/backend/tests/conftest.py#L1-L12)
@@ -893,6 +999,8 @@ VT --> DOM["Mocked DOM APIs"]
   - Use in-memory SQLite to avoid disk I/O overhead
   - Keep external service mocks synchronous where possible to reduce test runtime
   - Limit heavy computations in tests; rely on mocks for LLM and transcription services
+  - **Enhanced**: Optimize rate limiter reset performance with efficient bucket clearing
+  - **Enhanced**: Minimize monthly usage reset overhead with timestamp-based comparisons
   - **New**: Optimize administrative API testing with efficient tenant management fixtures
   - **New**: Minimize billing system testing overhead with provider abstraction mocking
   - **New**: Reduce email service testing overhead with SMTP mocking
@@ -903,6 +1011,7 @@ VT --> DOM["Mocked DOM APIs"]
   - **New**: Optimize webhook testing with payment processor event mocking
   - **Enhanced**: Queue system testing optimized with AsyncMock-based worker mocking
   - **Enhanced**: Efficient queue table creation/destruction mechanisms
+  - **Enhanced**: Automatic cleanup reduces test execution time through artifact management
   - **Updated**: Focus on comprehensive validation mechanisms for better test performance
 - Frontend
   - Avoid real network calls by mocking axios
@@ -911,7 +1020,7 @@ VT --> DOM["Mocked DOM APIs"]
   - **Enhanced**: Optimize AI pipeline feature testing with selective mocking
 
 ## Troubleshooting Guide
-Common issues and resolutions with substantially expanded test coverage:
+Common issues and resolutions with enhanced test coverage:
 - Authentication failures in backend tests
   - Ensure auth_client fixture registers and logs in users before invoking protected routes
   - Verify Authorization header is attached to the client
@@ -923,6 +1032,20 @@ Common issues and resolutions with substantially expanded test coverage:
 - CI failures on Windows/Linux differences
   - Use provided scripts to validate imports, migrations, and frontend files before pushing
   - Align Node/npm versions with CI configuration
+  - **Enhanced**: Verify rate limiter bucket cleanup in CI environments
+  - **Enhanced**: Check test artifact cleanup completion in CI logs
+- **New**: Rate limiter 429 errors in CI
+  - Verify automatic rate limiter bucket clearing fixture is active
+  - Check RateLimitMiddleware singleton instance availability
+  - Ensure proper cleanup timing in test fixtures
+- **New**: Monthly usage reset failures
+  - Verify timestamp comparison logic in _ensure_monthly_reset
+  - Check UTC timezone handling in reset calculations
+  - Validate edge case handling for year transitions
+- **New**: Test artifact pollution in CI
+  - Verify .gitignore patterns include test artifact exclusions
+  - Check cleanup script execution in test runners
+  - Monitor temporary file handling in test processes
 - **New**: Administrative API test failures
   - Verify permission enforcement and tenant management workflows
   - Check audit logging for administrative actions
@@ -969,12 +1092,16 @@ Common issues and resolutions with substantially expanded test coverage:
   - Verify queue table creation order and FK constraint handling
   - Ensure AsyncMock-based worker mocking prevents database access
   - Check queue system database schema compliance
+- **Enhanced**: Test artifact cleanup failures
+  - Verify cleanup script execution in CI environments
+  - Check file permission handling for artifact deletion
+  - Ensure proper cleanup timing in test teardown
 - **Updated**: Batch analysis test failures
   - Verify file content validation mechanisms are working correctly
   - Check magic-byte signature validation for different file types
   - Ensure size and extension filtering are properly enforced
 
-**Updated** Troubleshooting guidance now includes specific guidance for the substantially expanded administrative, billing, email, feature flag, quota enforcement, rate limiting, tenant suspension, and webhook testing scenarios.
+**Updated** Troubleshooting guidance now includes specific guidance for the enhanced rate limiter reset mechanisms, monthly usage reset functionality, and systematic test artifact cleanup processes.
 
 **Section sources**
 - [test-locally.ps1:36-96](file://test-locally.ps1#L36-L96)
@@ -982,23 +1109,22 @@ Common issues and resolutions with substantially expanded test coverage:
 - [run-full-tests.bat:100-107](file://scripts/run-full-tests.bat#L100-L107)
 
 ## Conclusion
-The testing strategy leverages pytest and FastAPI TestClient for comprehensive backend unit and integration tests, with substantially expanded coverage including 150+ new tests for administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, and webhooks. Frontend tests use Vitest and React Testing Library with mocked axios and DOM APIs. CI/CD pipelines automate test execution and coverage reporting. The expanded test suite ensures robust validation of advanced administrative and billing functionality, including comprehensive tenant management, provider abstraction, notification delivery, feature control, usage enforcement, and operational monitoring, providing reliable coverage for all major components.
+The testing strategy leverages pytest and FastAPI TestClient for comprehensive backend unit and integration tests, with substantially expanded coverage including 150+ new tests for administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, and webhooks. Frontend tests use Vitest and React Testing Library with mocked axios and DOM APIs. CI/CD pipelines automate test execution and coverage reporting with enhanced stability through systematic rate limiter reset mechanisms and test artifact cleanup. The expanded test suite ensures robust validation of advanced administrative and billing functionality, including comprehensive tenant management, provider abstraction, notification delivery, feature control, usage enforcement, and operational monitoring, providing reliable coverage for all major components.
 
-**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability. The enhanced queue system testing infrastructure provides comprehensive coverage for the scalable job queue architecture with sophisticated database management and worker mocking capabilities. The substantially expanded administrative and billing test suites provide complete coverage of the new operational functionality with comprehensive permission testing, provider abstraction validation, and integration testing patterns.
+**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability. The enhanced queue system testing infrastructure provides comprehensive coverage for the scalable job queue architecture with sophisticated database management and worker mocking capabilities. The substantially expanded administrative and billing test suites provide complete coverage of the new operational functionality with comprehensive permission testing, provider abstraction validation, and integration testing patterns. The enhanced rate limiter reset mechanisms and systematic artifact cleanup ensure improved CI stability and test reliability across all environments.
 
 ## Appendices
 
 ### Appendix A: Local Test Execution Scripts
 - run-full-tests.sh: Validates Python syntax, imports, migrations, database models, route registration, and frontend files; useful for pre-commit checks
-- run-full-tests.bat: Windows counterpart to run-full-tests.sh
 - test-locally.ps1: Runs backend and frontend tests locally with colored output and summarized results
+- **Enhanced**: Improved error handling and cross-platform compatibility
 
 **Section sources**
 - [run-full-tests.sh:1-256](file://scripts/run-full-tests.sh#L1-L256)
-- [run-full-tests.bat:1-274](file://scripts/run-full-tests.bat#L1-L274)
 - [test-locally.ps1:1-119](file://test-locally.ps1#L1-L119)
 
-### Appendix B: Substantially Enhanced Test Coverage Areas
+### Appendix B: Enhanced Test Coverage Areas
 The substantially expanded test suite now includes comprehensive coverage for:
 
 - **Administrative API Testing**: Complete coverage of tenant management, billing configuration, and operational controls with permission enforcement and audit logging
@@ -1020,8 +1146,11 @@ The substantially expanded test suite now includes comprehensive coverage for:
 - **Integration Testing**: End-to-end testing of complex workflows and cross-service interactions
 - **Queue System Testing**: Comprehensive testing of the scalable job queue architecture with database schema validation
 - **Batch Analysis Testing**: Comprehensive validation of batch processing with file content validation, size limits, and error handling
+- **Rate Limiter Reset Testing**: Enhanced testing of automatic rate limiter bucket clearing and CI stability mechanisms
+- **Monthly Usage Reset Testing**: Comprehensive testing of automatic quota reset functionality with edge case validation
+- **Test Artifact Cleanup Testing**: Systematic validation of temporary file cleanup and CI stability improvements
 
-**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations. The enhanced queue system testing infrastructure provides complete coverage of the job queue architecture with sophisticated database management and worker mocking. The substantially expanded administrative and billing test suites provide comprehensive coverage of the new operational functionality with permission testing, provider abstraction validation, and integration testing patterns.
+**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations. The enhanced queue system testing infrastructure provides complete coverage of the job queue architecture with sophisticated database management and worker mocking. The substantially expanded administrative and billing test suites provide comprehensive coverage of the new operational functionality with permission testing, provider abstraction validation, and integration testing patterns. The enhanced rate limiter reset mechanisms and systematic artifact cleanup ensure improved CI stability and test reliability.
 
 **Section sources**
 - [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
@@ -1069,64 +1198,100 @@ These changes ensure that all service integrations consistently use the `gemma4:
 - [wait_for_ollama.py:51-52](file://app/backend/scripts/wait_for_ollama.py#L51-L52)
 - [main.py:157](file://app/backend/main.py#L157)
 
-### Appendix D: Queue System Database Schema Compliance
-**New Section**: The enhanced test infrastructure ensures complete compliance with the queue system database schema:
+### Appendix D: Enhanced Rate Limiter Infrastructure
+**New Section**: The enhanced test infrastructure now includes sophisticated rate limiter reset mechanisms:
 
-#### Database Schema Validation
-The test infrastructure validates the complete queue system schema:
-- **analysis_jobs**: UUID primary key, proper indexing, foreign key constraints
-- **analysis_results**: Immutable storage with validation triggers
-- **analysis_artifacts**: intermediate data storage with deduplication support
-- **job_metrics**: performance tracking with comprehensive metrics
+#### Automatic Rate Limiter Bucket Management
+The enhanced rate limiter system provides:
+- **Autouse fixture integration**: Automatic bucket clearing before every test execution
+- **Thread-safe operation**: Lock-based synchronization for concurrent test access
+- **Config cache optimization**: 60-second TTL for rate limit configuration caching
+- **Whitelist path handling**: Automatic bypass for health, auth, and documentation endpoints
+- **Retry-After header generation**: Proper rate limit exceeded response formatting
 
-#### Queue Worker Mocking Compliance
-Queue workers are properly mocked to prevent database access:
-- `start_queue_worker` AsyncMock prevents actual queue processing
-- `stop_queue_worker` AsyncMock ensures clean shutdown simulation
-- No database connections are established during queue-related tests
+#### CI Stability Enhancements
+The rate limiter reset mechanism ensures:
+- **Consistent test execution**: Prevention of 429 rate limit errors in CI environments
+- **Clean test state**: Fresh token buckets for each test run
+- **Reliable test results**: Elimination of rate limit interference in test outcomes
+- **Cross-platform compatibility**: Consistent behavior across different operating systems
 
-#### Test Data Integrity
-Queue system test data maintains referential integrity:
-- Proper UUID generation for all queue entities
-- Consistent hash-based deduplication logic
-- Valid job status transitions and timestamps
-- Comprehensive error handling scenarios
-
-**Section sources**
-- [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
-- [queue_manager.py:46-183](file://app/backend/services/queue_manager.py#L46-L183)
-- [008_analysis_queue_system.py:29-236](file://alembic/versions/008_analysis_queue_system.py#L29-L236)
-
-### Appendix E: Batch Analysis Validation Mechanisms
-**Updated Section**: The batch analysis validation infrastructure provides comprehensive file validation:
-
-#### File Signature Validation
-The `_validate_file_content()` function implements robust signature validation:
-- Magic-byte signature matching for PDF, DOCX, DOC, TXT, RTF, ODT formats
-- Heuristic detection for .txt files to prevent binary content
-- Comprehensive signature table support with detailed error reporting
-- Early validation to prevent unnecessary processing
-
-#### Size and Extension Filtering
-Additional validation layers:
-- Maximum file size enforcement (10MB limit)
-- Allowed extensions filtering using ALLOWED_EXTENSIONS
-- Directory traversal prevention in file paths
-- Proper sanitization of upload IDs and filenames
-
-#### Error Handling and Reporting
-Comprehensive error handling:
-- Detailed HTTPException messages for validation failures
-- Logging of validation issues for debugging
-- Graceful failure handling with proper cleanup
-- Aggregation of failed items with descriptive error messages
+#### Test Coverage Validation
+The rate limiter testing includes:
+- **Whitelisted path validation**: Ensuring non-rate-limited access for essential endpoints
+- **Normal request handling**: Verification of normal request processing under limits
+- **Rate limit exceeded scenarios**: Testing 429 responses with proper Retry-After headers
+- **Unauthenticated request handling**: Validation of auth middleware interaction
+- **Bucket state management**: Testing token bucket refill and consumption logic
 
 **Section sources**
-- [analyze.py:69-129](file://app/backend/routes/analyze.py#L69-L129)
-- [analyze.py:1134-1162](file://app/backend/routes/analyze.py#L1134-L1162)
-- [test_usage_enforcement.py:496-528](file://app/backend/tests/test_usage_enforcement.py#L496-L528)
+- [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
+- [rate_limit.py:16-144](file://app/backend/middleware/rate_limit.py#L16-L144)
+- [test_rate_limiting.py:1-85](file://app/backend/tests/test_rate_limiting.py#L1-L85)
 
-### Appendix F: Substantially Expanded Administrative and Billing Test Coverage
+### Appendix E: Enhanced Monthly Usage Reset Infrastructure
+**New Section**: The enhanced test infrastructure now includes comprehensive monthly usage reset validation:
+
+#### Automatic Reset Logic Implementation
+The enhanced monthly reset system provides:
+- **UTC timezone consistency**: Proper handling of time zone conversions
+- **Edge case handling**: Year transition logic for December to January resets
+- **Timestamp preservation**: Maintenance of usage_reset_at for audit trails
+- **Integration with analysis routes**: Automatic reset during usage tracking
+- **Database transaction safety**: Proper commit handling for reset operations
+
+#### Comprehensive Test Coverage
+The monthly reset testing includes:
+- **New month detection**: Validation of month boundary detection logic
+- **Same month preservation**: Testing of unchanged counter behavior
+- **Historical data validation**: Edge case handling for reset scenarios
+- **Integration testing**: Validation of reset logic in analysis route context
+- **Error scenario testing**: Testing of reset failures and edge cases
+
+#### Usage Tracking Integration
+The reset system integrates with:
+- **Analysis route usage tracking**: Automatic reset before usage increments
+- **Subscription check endpoints**: Reset validation for usage checking
+- **Admin reset functionality**: Manual reset capability for testing scenarios
+- **Usage history reporting**: Audit trail maintenance for reset operations
+
+**Section sources**
+- [subscription.py:85-97](file://app/backend/routes/subscription.py#L85-L97)
+- [test_subscription.py:312-355](file://app/backend/tests/test_subscription.py#L312-L355)
+- [analyze.py:490-525](file://app/backend/routes/analyze.py#L490-L525)
+
+### Appendix F: Enhanced Test Artifact Cleanup Infrastructure
+**New Section**: The enhanced test infrastructure now includes systematic cleanup of temporary test artifacts:
+
+#### Comprehensive Artifact Exclusion Patterns
+The enhanced .gitignore patterns now include:
+- **Coverage reports**: `.coverage`, `htmlcov/`
+- **Pytest cache**: `.pytest_cache/`
+- **Test output files**: `pytest_summary.txt`, `test_full_output.txt`
+- **Generic output patterns**: `*_output*.txt`, `*_results*.txt`, `*_summary*.txt`
+- **Temporary files**: `.commit-msg.txt`
+
+#### Enhanced Test Runner Cleanup
+The enhanced test runners provide:
+- **Temporary file logging**: Structured output capture with rotation
+- **Cross-platform compatibility**: PowerShell and Bash script support
+- **Error handling**: Detailed error output capture and reporting
+- **Environment validation**: Prerequisite checking and validation
+- **Resource cleanup**: Proper cleanup of test artifacts and temporary files
+
+#### CI/CD Stability Improvements
+The enhanced cleanup infrastructure ensures:
+- **Clean test environments**: Isolation of test artifacts from source code
+- **Improved CI reliability**: Reduced test flakiness through artifact isolation
+- **Better resource management**: Efficient cleanup of temporary files and logs
+- **Cross-platform consistency**: Uniform cleanup behavior across different environments
+
+**Section sources**
+- [.gitignore:42-47](file://.gitignore#L42-L47)
+- [run-full-tests.sh:31-42](file://scripts/run-full-tests.sh#L31-L42)
+- [test-locally.ps1:54-59](file://test-locally.ps1#L54-L59)
+
+### Appendix G: Enhanced Administrative and Billing Test Coverage
 **New Section**: The substantially expanded test suite now includes comprehensive coverage of administrative and billing functionality:
 
 #### Administrative API Test Coverage
