@@ -125,7 +125,7 @@ export default function AnalyzePage() {
     }
   }, [])
 
-  // Load JD from location state (from JD Library)
+  // Load JD from location state (from JD Library or ReportPage)
   useEffect(() => {
     if (location.state?.jd_text) {
       setJdText(location.state.jd_text)
@@ -135,6 +135,13 @@ export default function AnalyzePage() {
       if (location.state.role_category) {
         setRoleCategory(location.state.role_category)
       }
+    }
+  }, [location.state])
+
+  // Auto-skip to upload when returning with complete JD context
+  useEffect(() => {
+    if (location.state?.jd_text && location.state?.weights) {
+      setCurrentStep(3)
     }
   }, [location.state])
 
@@ -268,6 +275,16 @@ export default function AnalyzePage() {
     }
 
     setError('')
+
+    // Persist JD context so ReportPage can offer "Analyze Another"
+    if (jdMode === 'text' && jdText) {
+      sessionStorage.setItem('aria_active_jd', JSON.stringify({
+        jd_text: jdText,
+        weights,
+        role_category: roleCategory
+      }))
+    }
+
     setIsAnalyzing(true)
 
     try {

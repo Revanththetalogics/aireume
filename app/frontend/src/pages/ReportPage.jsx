@@ -2,7 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState, useRef } from 'react'
 import {
   ArrowLeft, Share2, Download, CheckCircle, Check,
-  ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon,
+  ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon, Upload,
 } from 'lucide-react'
 import html2pdf from 'html2pdf.js'
 import ScoreGauge from '../components/ScoreGauge'
@@ -97,6 +97,7 @@ export default function ReportPage() {
   const [labelLoading, setLabelLoading] = useState(false)
   const [labelDone, setLabelDone]       = useState(false)
   const [narrativePolling, setNarrativePolling] = useState(false)
+  const [jdContext, setJdContext] = useState(null)
 
   /** Resolve name from all possible result paths — returns null if unknown */
   const resolveName = (r) =>
@@ -107,6 +108,16 @@ export default function ReportPage() {
 
   // Initialize candidate name from result
   const [candidateName, setCandidateName] = useState(resolveName(location.state?.result))
+
+  // Load active JD context from sessionStorage
+  useEffect(() => {
+    const raw = sessionStorage.getItem('aria_active_jd')
+    if (raw) {
+      try {
+        setJdContext(JSON.parse(raw))
+      } catch { /* ignore */ }
+    }
+  }, [])
 
   useEffect(() => {
     if (result) {
@@ -404,6 +415,27 @@ export default function ReportPage() {
                 </button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Analyze Another Resume */}
+        {jdContext && (
+          <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4">
+            <p className="text-xs font-bold text-brand-900 mb-0.5">Same Job, New Candidate?</p>
+            <p className="text-xs text-slate-400 mb-3">Analyze another resume using the same JD and weights.</p>
+            <button
+              onClick={() => navigate('/analyze', { 
+                state: { 
+                  jd_text: jdContext.jd_text,
+                  weights: jdContext.weights,
+                  role_category: jdContext.role_category
+                } 
+              })}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-brand-50 ring-1 ring-brand-200 text-brand-700 text-xs font-bold hover:bg-brand-100 transition-colors"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Analyze Another Resume
+            </button>
           </div>
         )}
       </aside>
