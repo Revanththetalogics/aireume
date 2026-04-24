@@ -20,11 +20,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced cloud model processing capabilities with increased token limits (2048 tokens) and expanded context window (8192 tokens) for cloud deployments
-- Maintained 512 tokens and 2048 context for local models to ensure optimal performance
-- Added enhanced logging for num_predict values to track cloud vs local model usage
-- Improved fallback mechanisms with proper context window handling for both cloud and local deployments
-- Updated model configuration to support both cloud and local environments seamlessly
+- Enhanced error handling capabilities now include comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters)
+- Implemented retry mechanism with higher temperature for edge cases where LLM returns empty or too-short responses
+- Added robust fallback system that prevents processing of blank LLM outputs
+- Improved LLM response validation with enhanced logging and error reporting
+- Updated timeout management with +30 second buffer for proper cancellation handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -38,10 +38,11 @@
 9. [Background Worker Pattern](#background-worker-pattern)
 10. [Enhanced Explainability Features](#enhanced-explainability-features)
 11. [Security and Input Sanitization](#security-and-input-sanitization)
-12. [Dependency Analysis](#dependency-analysis)
-13. [Performance Considerations](#performance-considerations)
-14. [Troubleshooting Guide](#troubleshooting-guide)
-15. [Conclusion](#conclusion)
+12. [Enhanced Error Handling and Response Validation](#enhanced-error-handling-and-response-validation)
+13. [Dependency Analysis](#dependency-analysis)
+14. [Performance Considerations](#performance-considerations)
+15. [Troubleshooting Guide](#troubleshooting-guide)
+16. [Conclusion](#conclusion)
 
 ## Introduction
 This document explains the hybrid pipeline architecture designed to optimize recruitment analysis performance by combining Python-first deterministic processing with asynchronous LLM processing and narrative polling. The system delivers:
@@ -59,6 +60,7 @@ This document explains the hybrid pipeline architecture designed to optimize rec
 - **Extended Polling Architecture**: Frontend polling with 10-minute timeout (60 attempts at 10-second intervals) for CPU-based LLM inference scenarios
 - **Enhanced Cloud Processing**: Optimized token limits and context windows for cloud deployments with 2048 tokens and 8192 context
 - **Local Model Optimization**: Maintained 512 tokens and 2048 context for local deployments to ensure optimal performance
+- **Enhanced Error Handling**: Comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters)
 
 ## Project Structure
 The hybrid pipeline spans services, routes, models, and tests with enhanced background processing and timeout management:
@@ -74,7 +76,7 @@ subgraph "Routes"
 A["analyze.py<br/>Endpoints<br/>+Narrative Polling<br/>+Background Tasks"]
 end
 subgraph "Services"
-B["hybrid_pipeline.py<br/>Hybrid Pipeline<br/>+Background Workers<br/>+Enhanced Explainability<br/>+Score Rationales<br/>+Timeout Management<br/>+Cloud Model Optimization"]
+B["hybrid_pipeline.py<br/>Hybrid Pipeline<br/>+Background Workers<br/>+Enhanced Explainability<br/>+Score Rationales<br/>+Timeout Management<br/>+Cloud Model Optimization<br/>+Enhanced Error Handling"]
 C["parser_service.py<br/>Resume Parser"]
 D["gap_detector.py<br/>Timeline Analyzer"]
 E["llm_service.py<br/>External LLM<br/>+qwen3.5:4b Model<br/>+Empty Response Validation"]
@@ -139,7 +141,7 @@ K --> L
 - Skills Registry: Maintains 180+ canonical skills and aliases, with fuzzy matching and domain mapping
 - Parser Service: Extracts structured resume data from multiple formats
 - Gap Detector: Computes employment timeline, gaps, overlaps, and total experience
-- Hybrid Pipeline: Executes Python phase (rules) then asynchronous LLM call for narrative with comprehensive input sanitization, timeout management, and enhanced explainability
+- Hybrid Pipeline: Executes Python phase (rules) then asynchronous LLM call for narrative with comprehensive input sanitization, timeout management, enhanced explainability, and robust error handling
 - LLM Service: Calls external LLM with JSON schema enforcement, fallbacks, and timeout-aware HTTP requests using qwen3.5:4b model
 - Agent Pipeline: Alternative multi-agent LangGraph pipeline (not used by current routes)
 - Routes: Orchestrate parsing, gap analysis, pipeline execution, persistence, and streaming with heartbeat pings and background task management
@@ -156,7 +158,7 @@ K --> L
 - [ResultCard.jsx:475-572](file://app/frontend/src/components/ResultCard.jsx#L475-L572)
 
 ## Architecture Overview
-The hybrid pipeline follows a two-phase design with enhanced timeout management, advanced explainability, and modern model configuration:
+The hybrid pipeline follows a two-phase design with enhanced timeout management, advanced explainability, modern model configuration, and comprehensive error handling:
 - Phase 1 (Python, ~1–2s): parse job description and resume, match skills, score education/experience/domain, compute fit score, build score rationales, risk summary, and skill depth
 - Asynchronous Phase 2: background LLM processing generates strengths, concerns, executive summaries, rationale, and interview questions with configurable timeout
 - Concurrency control: semaphore limits concurrent LLM calls with proper cancellation handling
@@ -169,6 +171,7 @@ The hybrid pipeline follows a two-phase design with enhanced timeout management,
 - **Extended Polling**: Frontend polling architecture with 10-minute timeout for CPU-based LLM inference scenarios
 - **Enhanced Cloud Processing**: Optimized token limits and context windows for cloud deployments with 2048 tokens and 8192 context
 - **Local Model Optimization**: Maintained 512 tokens and 2048 context for local deployments to ensure optimal performance
+- **Enhanced Error Handling**: Comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters) with retry mechanism
 
 ```mermaid
 sequenceDiagram
@@ -374,6 +377,8 @@ Output --> End(["Enriched Python result with explainability"])
 - **Enhanced**: Comprehensive prompt including score rationales, risk flags, and seniority alignment
 - **Enhanced**: Automatic task registration and lifecycle management with asyncio.wait_for() protection
 - **Enhanced**: Empty response validation to prevent processing of blank LLM outputs
+- **Enhanced**: Comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters)
+- **Enhanced**: Retry mechanism with higher temperature for edge cases where LLM returns empty or too-short responses
 - **Enhanced**: Cloud model optimization with 2048 tokens and 8192 context window
 - **Enhanced**: Local model optimization with 512 tokens and 2048 context window
 
@@ -390,6 +395,9 @@ LLM->>Model : ainvoke(HumanMessage)
 Model-->>LLM : response with concerns + executive summary
 LLM->>LLM : _parse_llm_json_response() + empty response validation
 alt Success
+LLM-->>BGTask : strengths/concerns/executive_summary/questions
+else Empty/Too-Short Response
+LLM->>LLM : Retry with higher temperature
 LLM-->>BGTask : strengths/concerns/executive_summary/questions
 else Timeout/Failure
 LLM-->>BGTask : _build_fallback_narrative()
@@ -410,7 +418,8 @@ DB-->>BGTask : Confirmation
 - Model configuration: temperature=0.1, JSON format, constrained context and prediction sizes
 - **Enhanced**: Model updated to qwen3.5:4b for improved performance and reliability
 - **Enhanced**: Environment-driven timeouts with +30 second buffer for proper cancellation
-- **Enhanced**: Empty response validation prevents processing of blank LLM outputs
+- **Enhanced**: Comprehensive empty response validation prevents processing of blank LLM outputs
+- **Enhanced**: Retry mechanism with higher temperature for edge cases where LLM returns empty or too-short responses
 - **Enhanced**: Cloud model optimization with 2048 tokens and 8192 context window
 - **Enhanced**: Local model optimization with 512 tokens and 2048 context window
 - **Enhanced**: Logging for num_predict values to track cloud vs local model usage
@@ -593,15 +602,15 @@ while True:
 The explain_with_llm function now includes comprehensive empty response validation:
 
 ```python
-# Handle empty or whitespace-only response
-if not raw or not str(raw).strip():
-    log.warning("LLM returned empty response")
-    raise ValueError("LLM returned empty response")
-
-data = _parse_llm_json_response(raw)
-if data is None:
-    log.warning("LLM JSON extraction failed. Raw (500 chars): %s", raw[:500] if raw else "<empty>")
-    raise ValueError("LLM returned non-JSON response")
+# Handle empty, whitespace-only, or ultra-short response - retry with higher temperature as fallback
+# Ultra-short responses (e.g. "{" from Ollama Cloud) are not valid JSON narratives
+# A valid narrative JSON is always 100+ chars; threshold of 20 catches degenerate outputs
+if not raw or len(str(raw).strip()) < 20:
+    if raw and len(str(raw).strip()) < 20:
+        log.warning(f"LLM response too short ({len(str(raw).strip())} chars), treating as empty for retry")
+    else:
+        log.warning("LLM returned empty response, retrying with higher temperature as fallback...")
+    # ... retry logic with higher temperature ...
 ```
 
 #### Timeout Configuration Options
@@ -888,6 +897,92 @@ The sanitization system protects against common prompt injection techniques:
 - [hybrid_pipeline.py:1198-1203](file://app/backend/services/hybrid_pipeline.py#L1198-L1203)
 - [hybrid_pipeline.py:1317-1318](file://app/backend/services/hybrid_pipeline.py#L1317-L1318)
 
+## Enhanced Error Handling and Response Validation
+
+### Comprehensive Response Validation
+The hybrid pipeline now implements comprehensive validation for LLM responses to ensure robust error handling:
+
+#### Empty Response Detection
+The system detects and handles various forms of empty or invalid responses:
+
+```python
+# Handle empty, whitespace-only, or ultra-short response - retry with higher temperature as fallback
+# Ultra-short responses (e.g. "{" from Ollama Cloud) are not valid JSON narratives
+# A valid narrative JSON is always 100+ chars; threshold of 20 catches degenerate outputs
+if not raw or len(str(raw).strip()) < 20:
+    if raw and len(str(raw).strip()) < 20:
+        log.warning(f"LLM response too short ({len(str(raw).strip())} chars), treating as empty for retry")
+    else:
+        log.warning("LLM returned empty response, retrying with higher temperature as fallback...")
+```
+
+#### Retry Mechanism for Edge Cases
+When empty or ultra-short responses are detected, the system automatically retries with enhanced parameters:
+
+```python
+# Retry LLM without JSON format constraint for empty responses
+retry_kwargs = {
+    "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+    "base_url": _base_url,
+    "temperature": 0.3,  # Higher temperature for better response quality
+    "num_predict": _num_predict_retry,
+    "num_ctx": 16384 if _is_cloud_retry else 2048,
+    "request_timeout": _llm_timeout + 30,
+}
+```
+
+#### Validation Thresholds
+The system uses specific thresholds to determine response validity:
+
+- **Empty Response**: No content or only whitespace
+- **Whitespace-Only Response**: Content consisting solely of spaces, tabs, or newlines
+- **Ultra-Short Response**: Response length less than 20 characters
+- **Valid JSON Response**: Response containing at least 100 characters of valid JSON
+
+#### Enhanced Error Reporting
+Comprehensive logging and error reporting for debugging and monitoring:
+
+```python
+if not raw or len(str(raw).strip()) < 20:
+    log.warning("LLM returned empty or too-short response after retry")
+    raise ValueError("LLM returned empty response")
+```
+
+#### Fallback Generation
+When all validation attempts fail, the system generates a deterministic fallback narrative:
+
+```python
+def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic narrative when LLM is unavailable or timed out."""
+    # ... fallback logic ...
+    return {
+        "ai_enhanced": False,
+        "fit_summary": fit_summary,
+        "strengths": strengths,
+        "concerns": concerns,
+        "weaknesses": concerns,
+        "recommendation_rationale": "Automated narrative unavailable — manual review recommended.",
+        "explainability": explainability,
+        "interview_questions": {
+            "technical_questions": tech_q,
+            "behavioral_questions": behavioral_q,
+            "culture_fit_questions": culture_q,
+        },
+    }
+```
+
+#### Benefits of Enhanced Error Handling
+- **Robustness**: System continues to operate even when LLM responses are invalid
+- **Reliability**: Deterministic fallback ensures users always receive meaningful results
+- **Debugging**: Comprehensive logging helps identify and resolve LLM issues
+- **User Experience**: Graceful degradation prevents system failures from impacting users
+- **Data Integrity**: Prevents processing of malformed or incomplete responses
+
+**Section sources**
+- [hybrid_pipeline.py:1410-1418](file://app/backend/services/hybrid_pipeline.py#L1410-L1418)
+- [hybrid_pipeline.py:1492-1494](file://app/backend/services/hybrid_pipeline.py#L1492-L1494)
+- [hybrid_pipeline.py:1528-1609](file://app/backend/services/hybrid_pipeline.py#L1528-L1609)
+
 ## Dependency Analysis
 The hybrid pipeline integrates several services and models with enhanced background processing and timeout management:
 
@@ -940,11 +1035,12 @@ I --> J["Database"]
 - **Database Efficiency**: Persistent storage eliminates repeated LLM processing for the same analysis
 - **Frontend Responsiveness**: Extended polling architecture (10 minutes) provides real-time updates without blocking user interactions
 - **Timeout Protection**: asyncio.wait_for() prevents blocking during long inference tasks
-- **Empty Response Handling**: Prevents processing of blank LLM outputs, improving system reliability
+- **Enhanced Error Handling**: Comprehensive validation prevents processing of blank LLM outputs, improving system reliability
 - **Cloud Optimization**: 2048 tokens and 8192 context window enable comprehensive cloud model processing
 - **Local Optimization**: 512 tokens and 2048 context window ensure optimal local model performance
 - **Enhanced Logging**: num_predict values logged for better monitoring and debugging
 - **Environment Detection**: Automatic cloud vs local model switching reduces configuration complexity
+- **Retry Mechanism**: Intelligent retry system with higher temperature for edge cases improves success rates
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -962,7 +1058,8 @@ Common issues and resolutions:
 - **Background Task Issues**: Check task registration and lifecycle management if background processing fails
 - **Database Connectivity**: Verify database connection for persistent storage of LLM narratives
 - **Extended Polling Issues**: Frontend handles polling errors silently; check network connectivity and API endpoints
-- **Empty Response Errors**: Check LLM output validation and ensure explain_with_llm returns valid JSON
+- **Enhanced Error Handling**: Check LLM response validation logs for empty or ultra-short responses
+- **Retry Mechanism**: Verify retry logic is functioning correctly for edge cases
 - **Memory Leaks**: Background tasks are properly cleaned up during application shutdown
 - **Timeout Protection**: Ensure asyncio.wait_for() is properly configured with LLM_NARRATIVE_TIMEOUT
 - **Cloud Model Issues**: Verify OLLAMA_API_KEY is set for cloud deployments; check num_predict logging
@@ -1000,7 +1097,7 @@ The hybrid pipeline achieves optimal performance by leveraging Python-first dete
 
 **Task Lifecycle Management**: The comprehensive background task management system ensures proper resource utilization, graceful shutdown handling, and error isolation, contributing to overall system reliability and maintainability. All tasks use asyncio.wait_for() for proper timeout handling, preventing system blocking during long inference operations.
 
-**Empty Response Validation**: The implementation of comprehensive empty response validation in explain_with_llm() prevents processing of blank LLM outputs, improving system reliability and preventing downstream errors in the analysis pipeline.
+**Enhanced Error Handling**: The implementation of comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters) with intelligent retry mechanisms provides robust error handling and improves system reliability. The retry mechanism with higher temperature for edge cases significantly improves the success rate of LLM responses.
 
 **Enhanced Cloud Processing**: The implementation of optimized token limits and context windows for cloud deployments (2048 tokens, 8192 context) enables comprehensive processing of large models while maintaining performance. Local deployments continue with optimized settings (512 tokens, 2048 context) for efficient operation.
 
@@ -1009,3 +1106,5 @@ The hybrid pipeline achieves optimal performance by leveraging Python-first dete
 **Enhanced Logging**: The addition of num_predict value logging provides better monitoring and debugging capabilities, enabling administrators to track model usage patterns and optimize performance across cloud and local deployments.
 
 **Fallback Mechanisms**: The enhanced fallback system with proper context window handling ensures reliable operation across both cloud and local environments, with appropriate token limits and context windows for each deployment type.
+
+**Retry System**: The intelligent retry mechanism with higher temperature for edge cases provides improved success rates and better user experience when dealing with challenging LLM responses.

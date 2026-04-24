@@ -21,10 +21,11 @@
 
 ## Update Summary
 **Changes Made**
-- **Enhanced Candidate Profile Data Handling**: Implemented truncation of current role and company information to 255 characters to prevent database constraint violations
-- **Warning Log Generation**: Added warning logs when truncation occurs during candidate profile processing
-- **Database Constraint Prevention**: Enhanced data validation to prevent truncation errors in PostgreSQL database operations
-- **Dual Implementation**: Applied truncation logic in both hybrid pipeline service and analyze route for comprehensive coverage
+- **Enhanced Rule-Based Parsing**: Improved skill extraction algorithms with enhanced substring matching and fuzzy matching capabilities
+- **Circuit Breaker Integration**: Hybrid pipeline now serves as a fallback mechanism for the circuit breaker functionality in the agent pipeline
+- **Enhanced Fallback Mechanisms**: Comprehensive fallback handling for hallucination detection and LLM failures
+- **Improved Skill Matching**: Enhanced bidirectional substring matching with better precision to prevent false positives
+- **System Reliability**: Robust error handling and fallback mechanisms ensure system stability under degraded conditions
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -46,7 +47,7 @@ The Hybrid Pipeline represents a sophisticated resume analysis system that combi
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
-**Updated** The system now features enhanced candidate profile data handling with automatic truncation of current role and company information to prevent database constraint violations. When role titles or company names exceed 255 characters, the system automatically truncates them and generates warning logs to alert administrators of potential data loss. This enhancement ensures database integrity while maintaining complete analysis functionality.
+**Updated** The system now features enhanced rule-based parsing capabilities with improved skill extraction algorithms. The hybrid pipeline serves as a critical fallback mechanism for the circuit breaker functionality in the agent pipeline, providing robust error handling and hallucination detection. When LLM hallucinations exceed the configured threshold, the agent pipeline automatically switches to rule-based parsing using the hybrid pipeline's proven algorithms.
 
 ## System Architecture
 
@@ -71,6 +72,8 @@ subgraph "Analysis Layer"
 Skills[Skills Registry]
 LLM[LLM Services]
 Cache[JD Cache]
+CB[Circuit Breaker]
+RuleBased[Rule-Based Fallback]
 END
 subgraph "Data Layer"
 DB[(PostgreSQL Database)]
@@ -92,6 +95,8 @@ API --> STREAM
 Hybrid --> Skills
 Hybrid --> LLM
 Agent --> LLM
+Agent --> CB
+Agent --> RuleBased
 Hybrid --> Cache
 Agent --> Cache
 Parser --> DB
@@ -107,6 +112,8 @@ NP --> API
 STREAM --> API
 Cloud --> LLM
 Local --> LLM
+CB -.-> Agent
+RuleBased -.-> Agent
 ```
 
 **Diagram sources**
@@ -129,6 +136,8 @@ The architecture implements several key design principles:
 - **Streaming Error Handling**: Robust error handling for streaming operations with graceful degradation
 - **Fallback Mechanisms**: Comprehensive fallback handling for empty analysis results and missing critical fields
 - **Data Truncation Protection**: Automatic truncation of candidate profile data to prevent database constraint violations
+- **Circuit Breaker Integration**: Hybrid pipeline serves as fallback for hallucination detection in agent pipeline
+- **Enhanced Rule-Based Parsing**: Improved skill extraction with bidirectional substring matching and fuzzy logic
 
 ## Core Components
 
@@ -232,6 +241,9 @@ participant Background as "Background Task"
 participant Merge as "Merge Function"
 participant Fallback as "Fallback Handler"
 participant Truncate as "Data Truncation"
+participant CB as "Circuit Breaker"
+participant RuleBased as "Rule-Based Fallback"
+participant UltraShort as "Ultra-Short Detection"
 Client->>Route : POST /api/analyze
 Route->>Hybrid : run_hybrid_pipeline()
 Hybrid->>Python : Phase 1 Processing
@@ -247,19 +259,25 @@ Python->>Python : compute_fit_score()
 Python-->>Hybrid : Python Scores
 Hybrid->>Background : Start LLM Task
 Background->>LLM : explain_with_llm()
-LLM-->>Background : LLM Results
+LLM->>UltraShort : Validate Response Length
+UltraShort-->>LLM : Ultra-Short Response Detected
+UltraShort->>LLM : Retry with Higher Temperature (0.3)
+LLM-->>Background : Valid LLM Results
 Background->>Merge : _merge_llm_into_result()
 Merge-->>Background : Merged Analysis
 Background->>Route : Update DB with Merged Result
 Route-->>Client : Immediate Python Results
 Note over Client,Background : Frontend polls /api/analysis/{id}/narrative
 Note over Background,Fallback : Enhanced fallback mechanisms for empty analysis results
+Note over Agent,CB : Circuit breaker monitors hallucination rate
+Note over Agent,RuleBased : When threshold exceeded, use hybrid pipeline rules
 ```
 
 **Diagram sources**
 - [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
 - [hybrid_pipeline.py:2052-2144](file://app/backend/services/hybrid_pipeline.py#L2052-L2144)
 - [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
+- [agent_pipeline.py:350-420](file://app/backend/services/agent_pipeline.py#L350-L420)
 
 ### Phase 1: Python Processing (1-2 seconds)
 
@@ -272,14 +290,20 @@ The first phase executes entirely in Python, providing immediate results with co
 - **Seniority Assessment**: Determines junior, mid, senior, or lead based on title and experience
 - **Skill Separation**: Distinguishes required skills from nice-to-have skills
 
+**Enhanced Skill Matching Engine:**
+- **Bidirectional Substring Matching**: Improved algorithm prevents false positives like "Java" matching "JavaScript"
+- **Fuzzy Matching**: Enhanced rapidfuzz integration with 88% threshold for approximate string matching
+- **Alias Expansion**: Comprehensive alias handling with proper normalization
+- **Raw Text Scanning**: Additional skill extraction from resume text using flashtext processor
+
 **Candidate Profile Building:**
 - **Contact Information Extraction**: Name, email, phone, LinkedIn from resume
 - **Work Experience Parsing**: Extracts job titles, companies, dates, and descriptions
 - **Education Analysis**: Degree, field, institution, graduation year
 - **Skill Identification**: Extracts technical skills using skills registry
 
-**Matching and Scoring:**
-- **Skill Matching**: Advanced matching with alias expansion and fuzzy matching
+**Enhanced Matching and Scoring:**
+- **Skill Matching**: Advanced matching with alias expansion and bidirectional substring matching
 - **Education Scoring**: Evaluates educational relevance and quality
 - **Experience Scoring**: Analyzes career progression and gap impact
 - **Domain Fit**: Assesses technical domain alignment
@@ -306,7 +330,22 @@ The second phase generates comprehensive narratives and recommendations:
 
 **Enhanced Error Handling**: The streaming operations now feature improved timeout management and graceful degradation. The system handles LLM timeouts and errors more robustly, providing fallback narratives and maintaining system stability.
 
-**Updated** Enhanced with comprehensive status tracking and adaptive polling architecture:
+**Enhanced Ultra-Short Response Detection**: The system now includes comprehensive ultra-short response detection to prevent malformed JSON parsing errors. When LLM responses are empty, whitespace-only, or ultra-short (< 20 characters), the system automatically retries with higher temperature (0.3) to generate valid JSON narratives. This enhancement ensures robust error handling and prevents system crashes from degenerate LLM outputs.
+
+**Enhanced JSON Extraction and Validation**: The system implements multiple validation layers:
+- **Length Validation**: Responses must be at least 20 characters long
+- **Content Validation**: Checks for whitespace-only responses
+- **JSON Extraction**: Automatic detection and extraction of balanced JSON objects
+- **Retry Logic**: Higher temperature (0.3) for edge cases where LLM returns degenerate outputs
+- **Diagnostic Logging**: Comprehensive logging for troubleshooting malformed responses
+
+**Enhanced Fallback Mechanisms**: The system now includes comprehensive fallback handling for empty analysis results and missing critical fields. When this occurs, the system uses python_result as the base for narrative merge, ensuring complete report data remains available.
+
+**Enhanced Error Handling**: The streaming operations now feature improved timeout management and graceful degradation. The system handles LLM timeouts and errors more robustly, providing fallback narratives and maintaining system stability.
+
+**Enhanced Data Truncation Protection**: The system now includes automatic truncation of candidate profile data to prevent database constraint violations. Both the hybrid pipeline service and analyze route implement the same truncation logic to ensure comprehensive protection.
+
+**Enhanced Status Tracking**: The system now includes comprehensive status tracking and adaptive polling architecture:
 - **Four-State Status Tracking**: pending → processing → ready/failure states with proper transitions
 - **Adaptive Polling**: Intelligent polling with exponential backoff (2s for first 30s, then 5s)
 - **Background Task Management**: Robust task lifecycle with graceful shutdown and error recovery
@@ -400,8 +439,13 @@ Score --> Output[Final Skill Set]
 The matching algorithm handles:
 - **Exact matches**: Direct skill name matches
 - **Alias expansion**: Recognizes variations like "js" for "javascript"
-- **Substring matching**: Handles partial matches like "react" for "react native"
+- **Enhanced substring matching**: Bidirectional matching with improved precision to prevent false positives
 - **Fuzzy matching**: Uses rapidfuzz library for approximate string matching with 88% threshold
+
+**Enhanced Bidirectional Substring Matching**: The system now implements improved bidirectional substring matching that prevents common false positives:
+- "Java" will not match "JavaScript" 
+- "SQL" will not match "SQLAlchemy"
+- Proper normalization ensures accurate matching while maintaining flexibility
 
 ## Background Processing
 
@@ -419,7 +463,9 @@ Ready --> [*]
 Failed --> [*]
 state Processing {
 [*] --> LLM_Call
-LLM_Call --> Merge_Data
+LLM_Call --> Ultra_Short_Check
+Ultra_Short_Check --> Retry_Higher_Temp
+Retry_Higher_Temp --> Merge_Data
 Merge_Data --> DB_Write
 DB_Write --> [*]
 }
@@ -487,6 +533,8 @@ Analysis --> DB[Database Persistence]
 **Enhanced Fallback Mechanisms**: When analysis_result becomes empty or missing critical fields, the system automatically uses python_result as the base for narrative merge, ensuring complete report data remains available.
 
 **Enhanced Data Truncation Protection**: The system now includes automatic truncation of candidate profile data to prevent database constraint violations. Both the hybrid pipeline service and analyze route implement the same truncation logic to ensure comprehensive protection.
+
+**Enhanced Ultra-Short Response Detection**: The system now includes comprehensive ultra-short response detection to prevent malformed JSON parsing errors. When LLM responses are empty, whitespace-only, or ultra-short (< 20 characters), the system automatically retries with higher temperature (0.3) to generate valid JSON narratives. This enhancement ensures robust error handling and prevents system crashes from degenerate LLM outputs.
 
 **Polling Interface:**
 - Frontend polls `/api/analysis/{id}/narrative` for updates
@@ -565,6 +613,8 @@ The polling system implements intelligent retry mechanisms with adaptive timing:
 **Enhanced Fallback Mechanisms**: The system now includes comprehensive fallback handling for empty analysis results and missing critical fields, ensuring complete report data remains available.
 
 **Enhanced Data Truncation Protection**: The system now includes automatic truncation of candidate profile data to prevent database constraint violations. When truncation occurs, warning logs are generated to alert administrators of potential data loss.
+
+**Enhanced Ultra-Short Response Detection**: The system now includes comprehensive ultra-short response detection to prevent malformed JSON parsing errors. When LLM responses are empty, whitespace-only, or ultra-short (< 20 characters), the system automatically retries with higher temperature (0.3) to generate valid JSON narratives. This enhancement ensures robust error handling and prevents system crashes from degenerate LLM outputs.
 
 **Section sources**
 - [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
@@ -657,6 +707,8 @@ The SSE streaming implementation provides real-time feedback:
 
 **Enhanced Data Truncation Protection**: The API now includes automatic truncation of candidate profile data to prevent database constraint violations. When truncation occurs, warning logs are generated to alert administrators of potential data loss.
 
+**Enhanced Ultra-Short Response Detection**: The API now includes comprehensive ultra-short response detection to prevent malformed JSON parsing errors. When LLM responses are empty, whitespace-only, or ultra-short (< 20 characters), the system automatically retries with higher temperature (0.3) to generate valid JSON narratives. This enhancement ensures robust error handling and prevents system crashes from degenerate LLM outputs.
+
 **Section sources**
 - [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
 - [analyze.py:1118-1168](file://app/backend/routes/analyze.py#L1118-L1168)
@@ -675,7 +727,7 @@ The testing suite covers all aspects of the hybrid pipeline with extensive unit 
 
 **Key Test Areas:**
 - **JD Parsing**: Validates role title extraction, experience requirements, and domain classification
-- **Skill Matching**: Tests alias expansion, fuzzy matching, and scoring algorithms
+- **Enhanced Skill Matching**: Tests bidirectional substring matching and fuzzy matching algorithms
 - **Gap Analysis**: Verifies date parsing, interval merging, and gap severity classification
 - **Background Processing**: Validates LLM fallback mechanisms and database integration
 - **Status Tracking**: Tests four-state status transitions and polling functionality
@@ -685,6 +737,8 @@ The testing suite covers all aspects of the hybrid pipeline with extensive unit 
 - **Streaming Operations**: Validates enhanced error handling for streaming scenarios
 - **Data Truncation**: Tests automatic truncation of candidate profile data to 255 characters
 - **Warning Logs**: Validates generation of warning logs when truncation occurs
+- **Ultra-Short Response Detection**: Tests validation of LLM response length and automatic retry logic
+- **Circuit Breaker Integration**: Tests fallback mechanism when hallucination threshold is exceeded
 
 ### Enhanced Mock-Based Testing
 
@@ -724,6 +778,18 @@ The test suite extensively uses mocking to isolate components and simulate vario
 - **Warning Log Generation**: Validates generation of warning logs when truncation occurs
 - **Database Constraint Prevention**: Tests prevention of database constraint violations
 - **Dual Implementation Testing**: Validates truncation logic in both hybrid pipeline service and analyze route
+
+**Enhanced Ultra-Short Response Detection Tests:**
+- **Response Length Validation**: Tests validation of LLM response length (< 20 characters)
+- **Retry Logic Testing**: Validates automatic retry with higher temperature (0.3) for edge cases
+- **Malformed Response Handling**: Tests robust handling of degenerate LLM outputs
+- **Diagnostic Logging**: Validates comprehensive logging for troubleshooting malformed responses
+
+**Enhanced Circuit Breaker Tests:**
+- **Hallucination Rate Monitoring**: Tests counting mechanism for hallucination detection
+- **Threshold Validation**: Tests fallback trigger when hallucination count exceeds threshold
+- **Rule-Based Fallback**: Validates automatic switch to hybrid pipeline rule-based parsing
+- **Counter Reset**: Tests hourly reset of hallucination counter
 
 ## Performance Considerations
 
@@ -794,6 +860,18 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Fallback Mechanism Performance**: Systematic narrative merging using python_result as base minimizes performance impact
 - **Data Truncation Performance**: Automatic truncation adds minimal overhead while preventing database errors
 
+**Enhanced Ultra-Short Response Detection Performance:**
+- **Minimal Overhead**: Ultra-short response detection adds negligible processing time
+- **Intelligent Retry Logic**: Higher temperature (0.3) retry mechanism optimized for edge cases
+- **Automatic Recovery**: Seamless handling of malformed LLM outputs without user intervention
+- **Diagnostic Efficiency**: Comprehensive logging provides detailed insights with minimal performance impact
+
+**Enhanced Circuit Breaker Performance:**
+- **Minimal Overhead**: Hallucination detection adds negligible processing time
+- **Intelligent Fallback**: Automatic switch to rule-based parsing when threshold exceeded
+- **Counter Management**: Efficient hourly reset mechanism prevents memory leaks
+- **Performance Impact**: Minimal impact on overall pipeline performance
+
 ## Troubleshooting Guide
 
 ### Common Issues and Solutions
@@ -863,6 +941,20 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Solutions**: Verify database schema, check truncation implementation, monitor constraint violations
 - **Monitoring**: Watch for database constraint violation errors in logs
 
+**Enhanced Ultra-Short Response Detection Issues:**
+- **Symptoms**: Frequent LLM retries, degraded performance
+- **Causes**: LLM consistently returning ultra-short responses (< 20 characters)
+- **Solutions**: Monitor retry logs, validate LLM configuration, check for malformed response patterns
+- **Prevention**: Implement additional validation layers to catch malformed responses early
+- **Monitoring**: Watch for "LLM response too short" warnings in logs
+
+**Enhanced Circuit Breaker Issues:**
+- **Symptoms**: Frequent fallback to rule-based parsing, reduced LLM usage
+- **Causes**: High hallucination rate exceeding threshold
+- **Solutions**: Monitor hallucination counter, validate LLM configuration, check for hallucination patterns
+- **Prevention**: Implement additional validation layers to reduce hallucinations
+- **Monitoring**: Watch for hallucination counter increments and fallback triggers
+
 ### Enhanced Diagnostic Tools
 
 **Health Monitoring:**
@@ -931,6 +1023,19 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 - **Data Integrity Validation**: Verifying candidate profile data integrity after truncation
 - **Migration Validation**: Ensuring database migrations properly implement 255-character limits
 
+**Enhanced Ultra-Short Response Detection Diagnostics:**
+- **Response Length Monitoring**: Tracking LLM response lengths and validation results
+- **Retry Mechanism Logs**: Detailed logging of ultra-short response detection and retry attempts
+- **Higher Temperature Validation**: Monitoring effectiveness of higher temperature (0.3) retry mechanism
+- **Malformed Response Patterns**: Identifying and logging patterns of malformed LLM outputs
+- **Diagnostic Efficiency Metrics**: Tracking performance impact and success rates of ultra-short response detection
+
+**Enhanced Circuit Breaker Diagnostics:**
+- **Hallucination Counter Monitoring**: Tracking hallucination detection and fallback triggers
+- **Threshold Validation Logs**: Monitoring hallucination rate and threshold crossing
+- **Rule-Based Fallback Validation**: Ensuring seamless switch to hybrid pipeline parsing
+- **Counter Reset Diagnostics**: Validating hourly reset mechanism for hallucination counter
+
 **Section sources**
 - [hybrid_pipeline.py:135-147](file://app/backend/services/hybrid_pipeline.py#L135-L147)
 - [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
@@ -939,7 +1044,13 @@ The hybrid pipeline implements multiple optimization techniques to achieve sub-s
 
 The Hybrid Pipeline represents a mature, production-ready solution that successfully balances computational efficiency with intelligent analysis. By leveraging the strengths of both Python-based rule engines and LLM-powered natural language processing, the system delivers both immediate actionable insights and comprehensive qualitative analysis.
 
-**Updated** The recent architectural enhancements significantly improve the system's reliability and data integrity through comprehensive candidate profile data handling. The implementation of automatic truncation for current role and company information to 255 characters prevents database constraint violations while generating warning logs to alert administrators of potential data loss. This dual-implementation approach ensures data integrity across both the hybrid pipeline service and analyze route, providing robust protection against database errors.
+**Updated** The recent architectural enhancements significantly improve the system's reliability and data integrity through comprehensive candidate profile data handling and enhanced LLM response validation. The implementation of automatic truncation for current role and company information to 255 characters prevents database constraint violations while generating warning logs to alert administrators of potential data loss. This dual-implementation approach ensures data integrity across both the hybrid pipeline service and analyze route, providing robust protection against database errors.
+
+**Enhanced Circuit Breaker Integration**: The hybrid pipeline now serves as a critical fallback mechanism for the circuit breaker functionality in the agent pipeline. When hallucination rates exceed the configured threshold, the agent pipeline automatically switches to rule-based parsing using the hybrid pipeline's proven algorithms, ensuring system stability and accuracy.
+
+**Enhanced Rule-Based Parsing**: The system now features improved skill extraction algorithms with enhanced bidirectional substring matching that prevents false positives like "Java" matching "JavaScript". The fuzzy matching capabilities with 88% threshold provide robust error tolerance while maintaining precision.
+
+**Enhanced Ultra-Short Response Detection**: The system now includes comprehensive ultra-short response detection to prevent malformed JSON parsing errors and improve system reliability. When LLM responses are empty, whitespace-only, or ultra-short (< 20 characters), the system automatically retries with higher temperature (0.3) to generate valid JSON narratives. This enhancement ensures robust error handling and prevents system crashes from degenerate LLM outputs.
 
 **Enhanced Reliability Features:**
 - **Simplified Python Phase**: Reduced complexity while maintaining core functionality
@@ -956,6 +1067,9 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Data Truncation Protection**: Automatic truncation of candidate profile data to prevent database constraint violations
 - **Warning Log Generation**: Alerting administrators when truncation occurs to prevent data loss
 - **Dual Implementation Coverage**: Truncation logic implemented in both hybrid pipeline service and analyze route
+- **Circuit Breaker Integration**: Hybrid pipeline serves as fallback for hallucination detection
+- **Enhanced Rule-Based Parsing**: Improved skill extraction with bidirectional substring matching
+- **Ultra-Short Response Detection**: Automated validation to prevent malformed JSON parsing errors
 
 **Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results
@@ -975,6 +1089,9 @@ The Hybrid Pipeline represents a mature, production-ready solution that successf
 - **Enhanced streaming capabilities** providing robust error handling for real-time operations
 - **Data integrity protection** through automatic truncation preventing database constraint violations
 - **Administrative oversight** through warning logs when data truncation occurs
+- **Ultra-Short Response Protection** preventing malformed JSON parsing errors and system crashes
+- **Circuit Breaker Reliability** ensuring system stability under hallucination conditions
+- **Enhanced Rule-Based Parsing** providing accurate skill matching without LLM dependencies
 
 The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes. The comprehensive status tracking and polling architecture ensure reliable operation in production environments while maintaining responsive user experiences.
 
@@ -990,8 +1107,10 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Data Integrity**: Complete report persistence ensures candidate history displays full analysis data
 - **Enhanced Fallback Mechanisms**: Systematic narrative merging ensures complete report availability
 - **Streaming Reliability**: Robust error handling maintains system stability during real-time operations
-- **Data Truncation Protection**: Automatic prevention of database constraint violations
+- **Data Truncation Protection**: Automatic prevention of database constraint violations through truncation logic
 - **Administrative Awareness**: Warning logs alert administrators to potential data loss
+- **Ultra-Short Response Protection**: Automated validation prevents malformed JSON parsing errors
+- **Circuit Breaker Effectiveness**: Seamless fallback ensures system stability under hallucination conditions
 
 **Enhanced Data Persistence Benefits:**
 - **Reliable Report Availability**: Complete analysis data remains accessible even when LLM processing fails
@@ -1000,21 +1119,37 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Backward Compatibility**: Works with both old and new LLM result formats
 - **Error Resilience**: Database write failures don't compromise report completeness
 - **Fallback Mechanism Effectiveness**: Systematic narrative merging using python_result as base ensures complete reports
-- **Data Truncation Effectiveness**: Automatic truncation prevents database constraint violations
+- **Data Truncation Effectiveness**: Automatic truncation prevents database constraint violations consistently
 
 **Enhanced Streaming Benefits:**
 - **Robust Timeout Handling**: Improved timeout management and graceful degradation
 - **Connection Resilience**: Better handling of connection drops and network issues
-- **Progressive Feedback**: Immediate feedback during processing with fallback mechanisms
-- **System Stability**: Enhanced error handling maintains system reliability during real-time operations
+- **Progressive Feedback**: Immediate user feedback during processing with fallback mechanisms
+- **System Stability**: Enhanced error handling maintains stable operation during real-time streaming
 
 **Enhanced Data Truncation Benefits:**
 - **Database Integrity**: Prevention of constraint violations through automatic 255-character truncation
-- **Administrative Oversight**: Warning logs alert administrators when data truncation occurs
-- **Data Loss Prevention**: Early detection of potential data loss scenarios
-- **System Reliability**: Reduced database errors through proactive data validation
-- **Dual Implementation**: Protection across both hybrid pipeline service and analyze route
+- **Administrative Oversight**: Warning logs alert administrators when truncation occurs to prevent unexpected data loss
+- **Dual Implementation**: Protection implemented in both hybrid pipeline service and analyze route ensures comprehensive coverage
 - **Minimal Performance Impact**: Automatic truncation adds negligible overhead to processing time
+- **Data Integrity Assurance**: Prevention of database errors through proactive data validation
+- **Early Problem Detection**: Warning logs help identify potential data quality issues before they cause system failures
+
+**Enhanced Ultra-Short Response Detection Benefits:**
+- **System Stability**: Prevention of malformed JSON parsing errors and system crashes
+- **Robust Error Handling**: Automatic retry mechanism with higher temperature (0.3) for edge cases
+- **Performance Optimization**: Minimal overhead while providing comprehensive response validation
+- **Diagnostic Efficiency**: Comprehensive logging enables rapid troubleshooting of malformed responses
+- **User Experience**: Seamless handling of LLM failures without user intervention
+- **Data Quality Assurance**: Ensures only valid JSON narratives are processed and stored
+
+**Enhanced Circuit Breaker Benefits:**
+- **System Stability**: Prevention of hallucination propagation through automatic fallback
+- **Accuracy Preservation**: Ensures analysis results remain accurate under degraded LLM conditions
+- **Performance Impact**: Minimal overhead while providing critical system stability
+- **Diagnostic Efficiency**: Comprehensive monitoring enables rapid identification of hallucination patterns
+- **User Experience**: Seamless fallback without user intervention
+- **Data Quality Assurance**: Ensures only validated results are used for candidate evaluation
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -1029,8 +1164,9 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Streaming Excellence**: Enhanced error handling provides reliable real-time operations
 - **Administrative Transparency**: Warning logs provide visibility into data truncation events
 - **Database Protection**: Automatic prevention of constraint violations through truncation logic
-
-The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+- **Ultra-Short Response Protection**: Comprehensive validation prevents malformed JSON parsing errors
+- **Circuit Breaker Enhancement**: Critical fallback mechanism ensures system stability
+- **Enhanced Rule-Based Parsing**: Improved skill extraction algorithms provide accurate results
 
 **Enhanced Data Merging Benefits:**
 - **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
@@ -1042,6 +1178,8 @@ The system's architecture represents a mature balance between functionality and 
 - **Error Resilience**: Database write failures don't compromise the availability of complete reports
 - **Fallback Mechanism Reliability**: Systematic narrative merging ensures complete report availability even with database failures
 - **Data Truncation Reliability**: Automatic truncation prevents database constraint violations consistently
+- **Ultra-Short Response Reliability**: Automated validation prevents malformed JSON parsing errors consistently
+- **Circuit Breaker Reliability**: Seamless fallback ensures system stability under hallucination conditions
 
 **Enhanced Streaming Error Handling Benefits:**
 - **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
@@ -1055,21 +1193,24 @@ The system's architecture represents a mature balance between functionality and 
 - **Administrative Awareness**: Warning logs alert administrators when truncation occurs to prevent unexpected data loss
 - **Dual Implementation Coverage**: Protection implemented in both hybrid pipeline service and analyze route ensures comprehensive coverage
 - **Minimal Performance Impact**: Automatic truncation adds negligible overhead while providing significant database protection benefits
-- **Data Integrity Assurance**: Prevention of database errors through proactive data validation
+- **Data Quality Assurance**: Prevention of database errors through proactive data validation
 - **Early Problem Detection**: Warning logs help identify potential data quality issues before they cause system failures
 
-The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+**Enhanced Ultra-Short Response Detection Benefits:**
+- **Systematic Error Prevention**: Automated validation prevents malformed JSON parsing errors and system crashes
+- **Robust Error Recovery**: Intelligent retry mechanism with higher temperature (0.3) handles edge cases effectively
+- **Performance Optimization**: Minimal overhead while providing comprehensive response validation and recovery
+- **Diagnostic Efficiency**: Comprehensive logging enables rapid troubleshooting and performance monitoring
+- **User Experience Enhancement**: Seamless handling of LLM failures improves overall system reliability
+- **Data Quality Assurance**: Ensures only valid JSON narratives are processed, merged, and stored
 
-**Simplified Architecture Benefits:**
-- **Reduced Complexity**: Streamlined error handling and weight schema conversion logic
-- **Improved Maintainability**: Easier to understand and modify core functionality
-- **Enhanced Reliability**: Fewer failure points in the system architecture
-- **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
-- **Future Extensibility**: Clean foundation for adding new features without architectural debt
-- **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
-- **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
-- **Data Integrity Enhancement**: Automatic truncation prevents database constraint violations
-- **Administrative Transparency**: Warning logs provide visibility into data truncation events
+**Enhanced Circuit Breaker Benefits:**
+- **Systematic Stability**: Automatic fallback prevents hallucination propagation and maintains system accuracy
+- **Robust Error Recovery**: Seamless switch to rule-based parsing ensures continued system functionality
+- **Performance Optimization**: Minimal overhead while providing critical system stability
+- **Diagnostic Efficiency**: Comprehensive monitoring enables rapid identification and resolution of hallucination patterns
+- **User Experience Enhancement**: Transparent fallback without user intervention
+- **Data Quality Assurance**: Ensures only validated results are used for candidate evaluation
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -1079,8 +1220,6 @@ The system's architecture represents a mature balance between functionality and 
 - **Error Resilience**: Database write failures and merge function errors don't compromise report completeness
 - **User Experience**: Recruiters always receive complete analysis data, preventing confusion from 'PENDING' state displays
 - **Data Integrity**: Maintains the integrity of analysis history even when LLM processing encounters issues
-
-The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
 **Enhanced Streaming Error Handling Benefits:**
 - **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
@@ -1097,7 +1236,36 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Data Quality Assurance**: Prevention of database errors through proactive data validation
 - **Early Problem Detection**: Warning logs help identify potential data quality issues before they cause system failures
 
+**Enhanced Ultra-Short Response Detection Benefits:**
+- **Systematic Error Prevention**: Automated validation prevents malformed JSON parsing errors and system crashes
+- **Robust Error Recovery**: Intelligent retry mechanism with higher temperature (0.3) handles edge cases effectively
+- **Performance Optimization**: Minimal overhead while providing comprehensive response validation and recovery
+- **Diagnostic Efficiency**: Comprehensive logging enables rapid troubleshooting and performance monitoring
+- **User Experience Enhancement**: Seamless handling of LLM failures improves overall system reliability
+- **Data Quality Assurance**: Ensures only valid JSON narratives are processed, merged, and stored
+
+**Enhanced Circuit Breaker Benefits:**
+- **Systematic Stability**: Automatic fallback prevents hallucination propagation and maintains system accuracy
+- **Robust Error Recovery**: Seamless switch to rule-based parsing ensures continued system functionality
+- **Performance Optimization**: Minimal overhead while providing critical system stability
+- **Diagnostic Efficiency**: Comprehensive monitoring enables rapid identification and resolution of hallucination patterns
+- **User Experience Enhancement**: Transparent fallback without user intervention
+- **Data Quality Assurance**: Ensures only validated results are used for candidate evaluation
+
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+
+**Enhanced Architecture Benefits:**
+- **Reduced Complexity**: Streamlined error handling and weight schema conversion logic
+- **Improved Maintainability**: Easier to understand and modify core functionality
+- **Enhanced Reliability**: Fewer failure points in the system architecture
+- **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
+- **Future Extensibility**: Clean foundation for adding new features without architectural debt
+- **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
+- **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
+- **Data Integrity Enhancement**: Automatic truncation prevents database constraint violations
+- **Administrative Transparency**: Warning logs provide visibility into data truncation events
+- **Ultra-Short Response Protection**: Comprehensive validation prevents malformed JSON parsing errors
+- **Circuit Breaker Integration**: Critical fallback mechanism ensures system stability
 
 **Enhanced Data Merging Benefits:**
 - **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
@@ -1109,10 +1277,43 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Error Resilience**: Database write failures don't compromise the availability of complete reports
 - **Fallback Mechanism Reliability**: Systematic narrative merging ensures complete report availability even with database failures
 - **Data Truncation Reliability**: Automatic truncation prevents database constraint violations consistently
+- **Ultra-Short Response Reliability**: Automated validation prevents malformed JSON parsing errors consistently
+- **Circuit Breaker Reliability**: Seamless fallback ensures system stability under hallucination conditions
+
+**Enhanced Streaming Error Handling Benefits:**
+- **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
+- **Graceful Degradation**: Automatic fallback to Python scoring maintains system functionality
+- **Connection Resilience**: Better handling of network issues and connection drops
+- **Progressive Feedback**: Immediate user feedback during processing with fallback mechanisms
+- **System Reliability**: Enhanced error handling maintains stable operation during real-time streaming
+
+**Enhanced Data Truncation Benefits:**
+- **Database Integrity Protection**: Automatic 255-character truncation prevents constraint violations in PostgreSQL database
+- **Administrative Oversight**: Warning logs alert administrators when truncation occurs to prevent unexpected data loss
+- **Dual Implementation Coverage**: Protection implemented in both hybrid pipeline service and analyze route ensures comprehensive coverage
+- **Minimal Performance Impact**: Automatic truncation adds negligible overhead while providing significant database protection
+- **Data Quality Assurance**: Prevention of database errors through proactive data validation
+- **Early Problem Detection**: Warning logs help identify potential data quality issues before they cause system failures
+
+**Enhanced Ultra-Short Response Detection Benefits:**
+- **Systematic Error Prevention**: Automated validation prevents malformed JSON parsing errors and system crashes
+- **Robust Error Recovery**: Intelligent retry mechanism with higher temperature (0.3) handles edge cases effectively
+- **Performance Optimization**: Minimal overhead while providing comprehensive response validation and recovery
+- **Diagnostic Efficiency**: Comprehensive logging enables rapid troubleshooting and performance monitoring
+- **User Experience Enhancement**: Seamless handling of LLM failures improves overall system reliability
+- **Data Quality Assurance**: Ensures only valid JSON narratives are processed, merged, and stored
+
+**Enhanced Circuit Breaker Benefits:**
+- **Systematic Stability**: Automatic fallback prevents hallucination propagation and maintains system accuracy
+- **Robust Error Recovery**: Seamless switch to rule-based parsing ensures continued system functionality
+- **Performance Optimization**: Minimal overhead while providing critical system stability
+- **Diagnostic Efficiency**: Comprehensive monitoring enables rapid identification and resolution of hallucination patterns
+- **User Experience Enhancement**: Transparent fallback without user intervention
+- **Data Quality Assurance**: Ensures only validated results are used for candidate evaluation
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
-**Simplified Architecture Benefits:**
+**Enhanced Architecture Benefits:**
 - **Reduced Complexity**: Streamlined error handling and weight schema conversion logic
 - **Improved Maintainability**: Easier to understand and modify core functionality
 - **Enhanced Reliability**: Fewer failure points in the system architecture
@@ -1122,5 +1323,35 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
 - **Data Integrity Enhancement**: Automatic truncation prevents database constraint violations
 - **Administrative Transparency**: Warning logs provide visibility into data truncation events
+- **Ultra-Short Response Protection**: Comprehensive validation prevents malformed JSON parsing errors
+- **Circuit Breaker Integration**: Critical fallback mechanism ensures system stability
+
+**Enhanced Data Merging Benefits:**
+- **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
+- **Improved Reliability**: Multiple parsing strategies and automatic recovery mechanisms reduce failure rates
+- **Better Debugging**: Comprehensive logging provides detailed insights into JSON extraction challenges
+- **Enhanced User Experience**: Automatic fixes for common LLM mistakes improve overall system reliability
+- **Production Stability**: Robust error handling ensures consistent performance in production environments
+- **Complete Report Integrity**: Merged LLM data guarantees candidate history displays full analysis information
+- **Error Resilience**: Database write failures don't compromise the availability of complete reports
+- **Fallback Mechanism Reliability**: Systematic narrative merging ensures complete report availability even with database failures
+- **Data Truncation Reliability**: Automatic truncation prevents database constraint violations consistently
+- **Ultra-Short Response Reliability**: Automated validation prevents malformed JSON parsing errors consistently
+- **Circuit Breaker Reliability**: Seamless fallback ensures system stability under hallucination conditions
+
+The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+
+**Enhanced Architecture Benefits:**
+- **Reduced Complexity**: Streamlined error handling and weight schema conversion logic
+- **Improved Maintainability**: Easier to understand and modify core functionality
+- **Enhanced Reliability**: Fewer failure points in the system architecture
+- **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
+- **Future Extensibility**: Clean foundation for adding new features without architectural debt
+- **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
+- **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
+- **Data Integrity Enhancement**: Automatic truncation prevents database constraint violations
+- **Administrative Transparency**: Warning logs provide visibility into data truncation events
+- **Ultra-Short Response Protection**: Comprehensive validation prevents malformed JSON parsing errors
+- **Circuit Breaker Integration**: Critical fallback mechanism ensures system stability
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.

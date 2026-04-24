@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, String, DateTime, Text, Boolean,
+    Column, Integer, String, DateTime, Text, Boolean, LargeBinary,
     ForeignKey, Float, func, BigInteger, UniqueConstraint
 )
 from datetime import datetime, timezone
@@ -111,6 +111,8 @@ class Candidate(Base):
 
     # ── Enriched profile (stored once, re-used for every JD re-analysis) ──────
     resume_file_hash   = Column(String(64),  nullable=True, index=True)  # MD5(file bytes)
+    resume_filename    = Column(String(255), nullable=True)              # Original filename
+    resume_file_data   = Column(LargeBinary, nullable=True)              # Original file bytes (BYTEA)
     raw_resume_text    = Column(Text,        nullable=True)
     parsed_skills      = Column(Text,        nullable=True)   # JSON array
     parsed_education   = Column(Text,        nullable=True)   # JSON array

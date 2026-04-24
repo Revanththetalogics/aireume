@@ -36,16 +36,13 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive Platform Admin Dashboard with tabbed navigation system
-- Implemented tenant management interfaces with filtering, sorting, and bulk actions
-- Added audit log viewer with date range filtering and action filtering
-- Integrated feature flag management with global toggles and per-tenant overrides
-- Implemented webhook configuration tools with delivery history tracking
-- Added metrics dashboards with usage trends and revenue analytics
-- Integrated billing configuration panels with provider management
-- Added notification settings with SMTP configuration and test email functionality
-- Enhanced routing with PlatformAdminRoute protection for admin-only access
-- Expanded API client with comprehensive admin endpoints
+- Enhanced AnalyzePage with auto-skip functionality for improved workflow efficiency
+- **NEW**: Implemented dual job context persistence system with IndexedDB integration for file-mode JD caching alongside sessionStorage for text-mode JDs
+- **NEW**: Added intelligent auto-skip functionality that detects existing job context and jumps directly to Step 3
+- **NEW**: Enhanced job description context persistence using both sessionStorage (for text-mode JDs) and IndexedDB (for file-mode JDs) to provide seamless "Analyze Another Resume" experience
+- **NEW**: Added intelligent routing that detects existing job context and optimizes user journey
+- **NEW**: Improved batch analysis workflow with persistent job context for repeated analysis scenarios
+- **NEW**: Added comprehensive IndexedDB helper functions for JD file caching with transaction management and error handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -166,12 +163,12 @@ AS --> CSP
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
 - [NavBar.jsx](file://app/frontend/src/components/NavBar.jsx)
 - [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
-- [AnalyzePage.jsx:1-904](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L904)
+- [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
-- [ReportPage.jsx:1-297](file://app/frontend/src/pages/ReportPage.jsx#L1-L297)
+- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
 - [CandidatesPage.jsx:1-204](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L204)
 - [UploadForm.jsx:1-484](file://app/frontend/src/components/UploadForm.jsx#L1-L484)
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
@@ -197,7 +194,7 @@ AS --> CSP
 - **ProtectedRoute**: Guards routes requiring authentication.
 - **PlatformAdminRoute**: Guards routes requiring platform administrator privileges.
 - **DashboardNew**: Enhanced landing page serving as the new dashboard with analytics widgets, quick actions, and recent activity.
-- **AnalyzePage**: New 3-step analysis workflow with job description input, AI weight suggestions, and streaming resume upload.
+- **AnalyzePage**: New 3-step analysis workflow with job description input, AI weight suggestions, streaming resume upload, **enhanced with auto-skip functionality and dual job context persistence**.
 - **BatchPage**: Enhanced batch processing with chunked upload capabilities, real-time progress tracking, and ranked shortlist table.
 - **UniversalWeightsPanel**: Comprehensive scoring weights configuration with adaptive labels and validation.
 - **WeightSuggestionPanel**: AI-powered weight recommendations based on job description analysis.
@@ -207,7 +204,7 @@ AS --> CSP
 - **ScoreGauge**: Visual fit score with thresholds and pending state.
 - **Timeline**: Employment history visualization with gaps and severity indicators.
 - **CandidatesPage**: List and search candidates with pagination and detail modal.
-- **ReportPage**: Single-result presentation with sharing, printing, labeling, and inline editing.
+- **ReportPage**: Single-result presentation with sharing, printing, labeling, inline editing, and **dual job context persistence for "Analyze Another Resume" workflow**.
 - **ComparisonView**: Side-by-side analysis comparison with universal string sanitization.
 - **AdminDashboardPage**: Comprehensive platform administration interface with tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 - **AuthContext**: JWT lifecycle, login/register/logout, and tenant/user state.
@@ -223,7 +220,7 @@ AS --> CSP
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
-- [AnalyzePage.jsx:1-904](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L904)
+- [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
@@ -233,7 +230,7 @@ AS --> CSP
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
 - [Timeline.jsx:1-115](file://app/frontend/src/components/Timeline.jsx#L1-L115)
 - [CandidatesPage.jsx:1-204](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L204)
-- [ReportPage.jsx:1-297](file://app/frontend/src/pages/ReportPage.jsx#L1-L297)
+- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
@@ -248,7 +245,7 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - ErrorBoundary provides graceful degradation with user-friendly error messages and retry options.
 - AppShell hosts NavBar and page content with security headers.
 - DashboardNew serves as the enhanced landing page with analytics and quick actions.
-- AnalyzePage orchestrates the new 3-step analysis workflow with AI-powered features and streaming updates.
+- AnalyzePage orchestrates the new 3-step analysis workflow with AI-powered features, streaming updates, and **intelligent auto-skip functionality**.
 - BatchPage provides enhanced batch processing with real-time progress tracking and ranked shortlist.
 - AdminDashboardPage provides comprehensive platform administration with tabbed navigation and administrative tools.
 - Pages orchestrate UI components and API interactions with improved error handling and XSS protection.
@@ -259,6 +256,7 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - **NEW**: XSS Protection Layer provides universal string sanitization through safeStr utility function.
 - **NEW**: Security Headers and CSP configuration protect against XSS and other web vulnerabilities.
 - **NEW**: Platform Administration System provides comprehensive tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- **NEW**: Dual Job Context Persistence System provides seamless workflow continuity using both sessionStorage (for text-mode JDs) and IndexedDB (for file-mode JDs).
 
 ```mermaid
 sequenceDiagram
@@ -270,6 +268,7 @@ participant PAR as "PlatformAdminRoute"
 participant S as "AppShell"
 participant DN as "DashboardNew"
 participant AP as "AnalyzePage"
+participant RP as "ReportPage"
 participant BP as "BatchPage"
 participant ADP as "AdminDashboardPage"
 participant UWP as "UniversalWeightsPanel"
@@ -278,6 +277,7 @@ participant API as "api.js"
 participant UC as "uploadChunked.js"
 participant SSE as "SSE Streaming"
 participant SEC as "XSS Protection"
+participant IDB as "IndexedDB"
 participant BE as "Backend"
 U->>R : Navigate to "/"
 R->>EB : Wrap routes
@@ -296,7 +296,12 @@ AP->>API : analyzeResumeStream
 API->>SSE : Open SSE connection
 SSE-->>AP : Stream results
 AP->>SEC : Apply safeStr sanitization
-AP-->>U : Navigate to "/report" with sanitized data
+AP->>IDB : Store JD file (if file-mode)
+AP->>RP : Navigate to "/report" with sanitized data
+AP->>SEC : Apply XSS Protection
+AP->>SEC : Persist job context to sessionStorage
+RP->>SEC : Load job context from sessionStorage
+RP->>AP : "Analyze Another Resume" with pre-filled context
 S->>ADP : Navigate to "/admin"
 ADP->>PAR : Check platform admin
 alt Not platform admin
@@ -315,7 +320,8 @@ end
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
 - [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
-- [AnalyzePage.jsx:1-904](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L904)
+- [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
+- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
@@ -357,8 +363,8 @@ JdLibrary --> Analyze["Click to /analyze"]
 **Section sources**
 - [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
 
-### New 3-Step Analysis Workflow
-AnalyzePage implements a comprehensive three-step analysis process:
+### Enhanced 3-Step Analysis Workflow
+AnalyzePage implements a comprehensive three-step analysis process with **intelligent auto-skip functionality**:
 - Step 1: Job Description input with text, file upload, and URL extraction modes
 - Step 2: Scoring weights configuration with UniversalWeightsPanel and AI suggestions
 - Step 3: Resume upload with drag-and-drop and batch processing
@@ -366,23 +372,25 @@ AnalyzePage implements a comprehensive three-step analysis process:
 - AI-powered weight suggestions with confidence indicators
 - Adaptive role-based weight labels and tooltips
 - Real-time validation with weight total tracking
+- **NEW**: Intelligent auto-skip functionality that detects existing job context and jumps directly to Step 3
+- **NEW**: Dual job description context persistence system using both sessionStorage (for text-mode JDs) and IndexedDB (for file-mode JDs) for seamless "Analyze Another Resume" workflow
+- **NEW**: Intelligent job context detection logic that automatically loads file-mode JDs from IndexedDB when returning from ReportPage
 - **NEW**: Streaming analysis with real-time progress updates and ranked results
 - **NEW**: XSS protection through safeStr sanitization across all rendered content
 
 ```mermaid
 flowchart TD
-Start(["AnalyzePage"]) --> Step1["Step 1: Job Description"]
+Start(["AnalyzePage"]) --> DetectContext{"Detect Job Context?"}
+DetectContext --> |Yes| AutoSkip["Auto-skip to Step 3"]
+DetectContext --> |No| Step1["Step 1: Job Description"]
 Step1 --> Step2["Step 2: Scoring Weights"]
 Step2 --> Step3["Step 3: Upload Resumes"]
-Step1 --> Validate1{"JD Valid?"}
-Validate1 --> |No| Error1["Show error"]
-Validate1 --> |Yes| Step2
-Step2 --> Validate2{"Weights Valid?"}
-Validate2 --> |No| Error2["Show validation"]
-Validate2 --> |Yes| Step3
-Step3 --> Validate3{"Files Selected?"}
-Validate3 --> |No| Error3["Show error"]
-Validate3 --> |Yes| Analyze["Run Streaming Analysis"]
+AutoSkip --> PersistContext["Persist Job Context"]
+PersistContext --> IndexedDB{"JD Mode?"}
+IndexedDB --> |Text| SessionStorage["sessionStorage.setItem('aria_active_jd')"]
+IndexedDB --> |File| IndexedDBStore["storeJdFile(file)"]
+IndexedDBStore --> Analyze["Run Streaming Analysis"]
+SessionStorage --> Analyze
 Analyze --> Single{"Single or Batch?"}
 Single --> |Single| Stream["SSE Streaming"]
 Stream --> SEC["Apply XSS Protection"]
@@ -393,10 +401,65 @@ SEC2 --> Candidates["Navigate to /candidates"]
 ```
 
 **Diagram sources**
-- [AnalyzePage.jsx:1-904](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L904)
+- [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
+- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
+- [AnalyzePage.jsx:303-331](file://app/frontend/src/pages/AnalyzePage.jsx#L303-L331)
+- [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
+- [AnalyzePage.jsx:194-210](file://app/frontend/src/pages/AnalyzePage.jsx#L194-L210)
 
 **Section sources**
-- [AnalyzePage.jsx:1-904](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L904)
+- [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
+
+### Enhanced Dual Job Context Persistence System
+The job description context persistence system provides seamless workflow continuity using a dual storage strategy:
+- **Job Context Detection**: AnalyzePage automatically detects existing job context via location.state
+- **Auto-skip Logic**: When job context is detected, the workflow jumps directly to Step 3 (Upload Resumes)
+- **Dual Storage Strategy**: 
+  - **sessionStorage**: Used for text-mode JDs with full context (jd_text, weights, role_category)
+  - **IndexedDB**: Used for file-mode JDs with file caching for seamless workflow continuity
+- **Intelligent File Mode Handling**: When returning from ReportPage with file-mode JD, AnalyzePage automatically loads the cached file from IndexedDB
+- **Cross-page Communication**: ReportPage retrieves job context from sessionStorage to enable "Analyze Another Resume"
+- **State Preservation**: All analysis parameters are preserved for consistent user experience
+- **Memory Management**: Context is cleared appropriately when analysis completes
+- **IndexedDB Helper Functions**: Comprehensive IndexedDB operations with transaction management and error handling
+
+```mermaid
+flowchart TD
+AnalyzeStart["AnalyzePage Mount"] --> CheckState{"location.state.jd_text?"}
+CheckState --> |Yes| AutoSkip["setCurrentStep(3)"]
+CheckState --> |No| NormalFlow["Normal Step-by-step"]
+AutoSkip --> DetectMode{"JD Mode?"}
+DetectMode --> |Text| TextMode["Use sessionStorage"]
+DetectMode --> |File| FileMode["Use IndexedDB"]
+TextMode --> PersistText["sessionStorage.setItem('aria_active_jd')"]
+FileMode --> LoadFile["getJdFile() from IndexedDB"]
+LoadFile --> HasFile{"File Found?"}
+HasFile --> |Yes| AutoSkipFile["setCurrentStep(3)"]
+HasFile --> |No| NormalFlow
+PersistText --> Navigate["Navigate to /report"]
+AutoSkipFile --> Navigate
+Navigate --> ReportPage["ReportPage Mount"]
+ReportPage --> LoadContext["sessionStorage.getItem('aria_active_jd')"]
+LoadContext --> ShowButton["Show 'Analyze Another Resume' Button"]
+ShowButton --> UserClick["User Clicks Button"]
+UserClick --> NavigateAnalyze["Navigate to /analyze with state"]
+```
+
+**Diagram sources**
+- [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
+- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
+- [AnalyzePage.jsx:194-210](file://app/frontend/src/pages/AnalyzePage.jsx#L194-L210)
+- [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
+- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
+- [ReportPage.jsx:420-440](file://app/frontend/src/pages/ReportPage.jsx#L420-L440)
+
+**Section sources**
+- [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
+- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
+- [AnalyzePage.jsx:194-210](file://app/frontend/src/pages/AnalyzePage.jsx#L194-L210)
+- [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
+- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
+- [ReportPage.jsx:420-440](file://app/frontend/src/pages/ReportPage.jsx#L420-L440)
 
 ### Enhanced Batch Processing with Streaming
 BatchPage integrates chunked upload capabilities and real-time streaming:
@@ -810,6 +873,8 @@ Detail --> |No| Idle["Idle"]
 
 ### ReportPage
 - Presents a single result with sidebar actions (share, download PDF), inline candidate name editor, label training buttons, and full ResultCard plus Timeline.
+- **Enhanced**: Job context persistence system with sessionStorage integration for seamless "Analyze Another Resume" workflow.
+- **NEW**: Intelligent job context detection and utilization for improved user experience.
 
 ```mermaid
 sequenceDiagram
@@ -821,16 +886,18 @@ RP->>RC : Render with result
 RP->>TL : Render with work_experience + gaps
 RP->>API : labelTrainingExample(result_id, outcome)
 RP->>API : updateResultStatus(result_id, outcome)
+RP->>RP : Load job context from sessionStorage
+RP->>RP : Show "Analyze Another Resume" button
 ```
 
 **Diagram sources**
-- [ReportPage.jsx:1-297](file://app/frontend/src/pages/ReportPage.jsx#L1-L297)
+- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [Timeline.jsx:1-115](file://app/frontend/src/components/Timeline.jsx#L1-L115)
 - [api.js:625-628](file://app/frontend/src/lib/api.js#L625-L628)
 
 **Section sources**
-- [ReportPage.jsx:1-297](file://app/frontend/src/pages/ReportPage.jsx#L1-L297)
+- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
 
 ### Subscription Management Hooks
 - useSubscription provides cached subscription data, available plans, usage stats, feature checks, and optimistic refresh after analysis.
@@ -1048,7 +1115,7 @@ All core components implement comprehensive XSS protection:
 
 **VersionHistory.jsx**: Implements safeStr for version comparison:
 - Recommendation badges and status indicators
-- Weight reasoning explanations
+- weight reasoning explanations
 - Role category displays
 
 **AdminDashboardPage.jsx**: Implements safeStr for all administrative content:
@@ -1059,6 +1126,18 @@ All core components implement comprehensive XSS protection:
 - Metric values and trends
 - Billing configuration details
 - Notification settings
+
+**AnalyzePage.jsx**: Implements safeStr for analysis workflow content:
+- Job description context and weights
+- Step indicators and progress information
+- Error messages and validation feedback
+- File upload information and status
+
+**ReportPage.jsx**: Implements safeStr for report content:
+- Candidate names and contact information
+- Job role and analysis metadata
+- Recommendation badges and status indicators
+- Narrative content and AI enhancements
 
 #### Defensive Programming Approaches
 The XSS protection architecture follows defensive programming principles:
@@ -1098,6 +1177,8 @@ EmptyString --> Sanitized
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
 - [ComparisonView.jsx:3-9](file://app/frontend/src/components/ComparisonView.jsx#L3-L9)
 - [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
+- [AnalyzePage.jsx:13-19](file://app/frontend/src/pages/AnalyzePage.jsx#L13-L19)
+- [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
 
 **Section sources**
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
@@ -1105,6 +1186,8 @@ EmptyString --> Sanitized
 - [ResultCard.jsx:423](file://app/frontend/src/components/ResultCard.jsx#L423)
 - [ComparisonView.jsx:114](file://app/frontend/src/components/ComparisonView.jsx#L114)
 - [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
+- [AnalyzePage.jsx:13-19](file://app/frontend/src/pages/AnalyzePage.jsx#L13-L19)
+- [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
 
 ## Security Headers and CSP
 
@@ -1202,6 +1285,7 @@ The security audit identified important CSP implementation gaps:
 - **NEW**: DOMPurify for advanced HTML sanitization.
 - **NEW**: html2pdf.js for PDF generation with built-in sanitization.
 - **NEW**: Comprehensive admin dashboard with 9 tabbed interfaces.
+- **NEW**: IndexedDB for file-mode job description caching.
 
 ```mermaid
 graph LR
@@ -1235,6 +1319,10 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Admin dashboard optimization: Tab-based navigation reduces memory footprint for large datasets.
 - **NEW**: Pagination: Efficient handling of large tenant and audit datasets.
 - **NEW**: Conditional loading: Admin features load only when needed.
+- **NEW**: Auto-skip functionality: Reduces workflow steps when job context is detected.
+- **NEW**: Session storage optimization: Efficient job context persistence without localStorage overhead.
+- **NEW**: IndexedDB optimization: Efficient file-mode JD caching with transaction management and error handling.
+- **NEW**: Dual storage strategy: Balances sessionStorage performance with IndexedDB reliability for file-mode JDs.
 - Image/icon assets: lucide-react icons are tree-shaken; keep only used icons.
 - **Enhanced**: Error boundaries prevent cascading failures and improve perceived performance.
 - **Enhanced**: Retry mechanisms with exponential backoff reduce user frustration from transient failures.
@@ -1259,6 +1347,11 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Metrics dashboard testing with data visualization and trend analysis.
 - **NEW**: Billing configuration testing with provider setup and validation.
 - **NEW**: Notification testing with SMTP configuration and test email scenarios.
+- **NEW**: Auto-skip functionality testing with job context detection and workflow optimization.
+- **NEW**: Job context persistence testing with sessionStorage and cross-page communication validation.
+- **NEW**: IndexedDB integration testing with file-mode JD caching and retrieval scenarios.
+- **NEW**: Dual storage strategy testing with both sessionStorage and IndexedDB operations.
+- **NEW**: Intelligent job context detection testing with automatic file-mode JD loading.
 
 **Section sources**
 - [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
@@ -1288,6 +1381,11 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Extend AdminDashboardPage with additional administrative tabs and features as needed.
 - **NEW**: Implement comprehensive error handling for admin operations with user-friendly feedback.
 - **NEW**: Add pagination and filtering capabilities for large administrative datasets.
+- **NEW**: Implement intelligent auto-skip functionality for workflow optimization.
+- **NEW**: Add job context persistence using sessionStorage for text-mode JDs and IndexedDB for file-mode JDs.
+- **NEW**: Design components to handle dual storage strategy with automatic context detection and utilization patterns.
+- **NEW**: Implement IndexedDB helper functions for file caching with transaction management and error handling.
+- **NEW**: Add intelligent job context detection logic for seamless workflow continuity across browser sessions.
 
 ## Accessibility and Responsive Design
 - Accessible semantics: Buttons, inputs, and modals use appropriate roles and labels; focus management in dialogs.
@@ -1310,6 +1408,9 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Feature flag management includes accessible toggle switches and status indicators.
 - **NEW**: Webhook configuration forms provide clear error messaging and validation feedback.
 - **NEW**: Metrics dashboards include accessible chart components and data tables.
+- **NEW**: Auto-skip functionality provides accessible workflow optimization for experienced users.
+- **NEW**: Job context persistence maintains accessibility across page navigation and state restoration.
+- **NEW**: Dual storage strategy maintains accessibility with automatic context detection and seamless workflow.
 
 ## Error Handling and Resilience
 
@@ -1356,6 +1457,20 @@ The application implements comprehensive error handling at multiple levels:
 - **Modal Error States**: Error handling within administrative modals
 - **Pagination Errors**: Error recovery for large dataset operations
 
+#### Auto-skip and Job Context Error Handling
+- **Context Detection**: Robust job context detection with fallback to normal workflow
+- **Session Storage Errors**: Graceful handling of sessionStorage failures
+- **IndexedDB Errors**: Graceful handling of IndexedDB failures with fallback to sessionStorage
+- **Cross-page Communication**: Error recovery for job context persistence failures
+- **Workflow Continuity**: Maintains user experience even when context persistence fails
+
+#### Dual Storage Strategy Error Handling
+- **Storage Priority**: IndexedDB takes precedence for file-mode JDs, sessionStorage for text-mode
+- **Fallback Mechanisms**: Automatic fallback when primary storage fails
+- **Transaction Management**: Proper IndexedDB transaction handling with error recovery
+- **Memory Management**: Efficient cleanup of temporary storage when analysis completes
+- **Context Synchronization**: Ensures consistency between sessionStorage and IndexedDB
+
 ```mermaid
 flowchart TD
 Error["Error Occurs"] --> Level{"Error Level"}
@@ -1366,6 +1481,9 @@ Level --> |Upload| UploadError["Chunked Upload Error"]
 Level --> |Streaming| StreamError["Streaming Analysis Error"]
 Level --> |XSS| XSSProtection["XSS Protection"]
 Level --> |Admin| AdminError["Admin Dashboard Error"]
+Level --> |AutoSkip| AutoSkipError["Auto-skip Logic Error"]
+Level --> |JobContext| JobContextError["Job Context Error"]
+Level --> |DualStorage| DualStorageError["Dual Storage Error"]
 AppBoundary --> UserMsg["User-Friendly Message"]
 UserMsg --> Retry["Retry Options"]
 Retry --> Manual["Manual Retry"]
@@ -1389,6 +1507,10 @@ XSSProtection --> SafeOutput["Safe Output Rendering"]
 AdminError --> TabError["Handle Tab-Specific Error"]
 AdminError --> ModalError["Handle Modal Error"]
 AdminError --> BulkError["Handle Bulk Operation Error"]
+AutoSkipError --> Fallback["Fallback to Normal Workflow"]
+JobContextError --> Fallback
+DualStorageError --> Fallback["Fallback to Alternative Storage"]
+Fallback --> NormalFlow["Normal Step-by-step"]
 ```
 
 **Diagram sources**
@@ -1398,6 +1520,9 @@ AdminError --> BulkError["Handle Bulk Operation Error"]
 - [api.js:413-515](file://app/frontend/src/lib/api.js#L413-L515)
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
 - [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
+- [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
+- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
+- [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
@@ -1406,6 +1531,9 @@ AdminError --> BulkError["Handle Bulk Operation Error"]
 - [api.js:413-515](file://app/frontend/src/lib/api.js#L413-L515)
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
 - [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
+- [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
+- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
+- [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
 
 ## Troubleshooting Guide
 - Authentication issues: Verify tokens in localStorage; AuthContext clears tokens on 401; check interceptor retry flow.
@@ -1432,6 +1560,13 @@ AdminError --> BulkError["Handle Bulk Operation Error"]
 - **NEW**: Metrics dashboard issues: Check data loading and visualization components.
 - **NEW**: Billing configuration problems: Verify provider setup and API key validation.
 - **NEW**: Notification configuration failures: Test SMTP settings and email sending functionality.
+- **NEW**: Auto-skip functionality issues: Verify job context detection and workflow optimization.
+- **NEW**: Job context persistence problems: Check sessionStorage availability and cross-page communication.
+- **NEW**: "Analyze Another Resume" workflow failures: Verify job context loading and navigation state.
+- **NEW**: IndexedDB integration problems: Check IndexedDB availability and transaction handling.
+- **NEW**: Dual storage strategy failures: Verify automatic context detection and fallback mechanisms.
+- **NEW**: File-mode JD caching issues: Check IndexedDB file storage and retrieval operations.
+- **NEW**: Intelligent job context detection failures: Verify automatic file-mode JD loading from IndexedDB.
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
@@ -1447,14 +1582,21 @@ AdminError --> BulkError["Handle Bulk Operation Error"]
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
 - [ComparisonView.jsx:3-9](file://app/frontend/src/components/ComparisonView.jsx#L3-L9)
 - [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
+- [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
+- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
+- [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
 
 ## Conclusion
 The Resume AI frontend is a modular, scalable React 18 application with clear separation between routing, state, UI components, and API integration. It leverages modern tooling, robust authentication and subscription management, comprehensive error handling through ErrorBoundary components, and enhanced API retry mechanisms with exponential backoff. The architecture now provides graceful degradation, improved resilience against transient failures, and a cohesive design system to deliver a responsive, accessible, and performant user experience even under adverse conditions.
 
 The major enhancements include comprehensive streaming analysis capabilities with real-time updates, ranked shortlist tables with live sorting, enhanced progress indicators for upload and analysis phases, chunked upload system for large file support, and redesigned analysis workflow with 3-step process. These improvements represent significant advances in user experience and system reliability, providing users with immediate feedback and transparent progress tracking throughout the analysis process.
 
-**NEW**: The addition of comprehensive XSS protection architecture through the safeStr utility function provides universal string sanitization across all components, preventing XSS vulnerabilities through defensive programming approaches. Combined with security headers, CSP policies, and DOMPurify integration, the frontend now offers enterprise-grade security while maintaining excellent performance and user experience.
+**NEW**: The addition of intelligent auto-skip functionality and dual job context persistence creates a seamless "Analyze Another Resume" workflow that significantly improves productivity for users analyzing multiple candidates with the same job requirements. This enhancement demonstrates the system's ability to optimize user experience through intelligent workflow detection and state preservation.
+
+**NEW**: The implementation of comprehensive XSS protection architecture through the safeStr utility function provides universal string sanitization across all components, preventing XSS vulnerabilities through defensive programming approaches. Combined with security headers, CSP policies, and DOMPurify integration, the frontend now offers enterprise-grade security while maintaining excellent performance and user experience.
 
 **NEW**: The implementation of a comprehensive Platform Admin Dashboard provides enterprise-grade administrative capabilities with tenant management, audit logging, feature flag management, webhook configuration, metrics dashboards, billing configuration, and notification settings. This represents a significant expansion of the platform's capabilities and demonstrates the scalability and extensibility of the frontend architecture.
+
+**NEW**: The implementation of a dual job context persistence system with IndexedDB integration represents a significant advancement in workflow continuity and user experience. By combining sessionStorage for text-mode JDs with IndexedDB for file-mode JDs, the system provides seamless "Analyze Another Resume" functionality that maintains user context across browser sessions while optimizing performance and reliability.
 
 The architecture successfully balances modern development practices with enterprise requirements, providing a solid foundation for continued growth and feature expansion while maintaining high standards for security, performance, and user experience.

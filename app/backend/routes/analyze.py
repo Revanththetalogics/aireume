@@ -223,10 +223,16 @@ def _store_candidate_profile(
     gap_analysis: dict,
     file_hash: str,
     profile_quality: str,
+    file_content: bytes | None = None,
+    filename: str | None = None,
 ) -> None:
     """Write parsed profile data into the Candidate row."""
     work_exp = parsed_data.get("work_experience", [])
     candidate.resume_file_hash   = file_hash
+    if filename:
+        candidate.resume_filename = filename
+    if file_content:
+        candidate.resume_file_data = file_content
     candidate.raw_resume_text    = parsed_data.get("raw_text", "")[:100000]  # cap at 100k chars
     candidate.parser_snapshot_json = _parser_snapshot_json(parsed_data)
     candidate.parsed_skills      = json.dumps(parsed_data.get("skills", []), default=_json_default)
@@ -265,6 +271,8 @@ def _get_or_create_candidate(
     gap_analysis: dict | None = None,
     profile_quality: str = "medium",
     action: str | None = None,
+    file_content: bytes | None = None,
+    filename: str | None = None,
 ) -> tuple[int, bool]:
     """
     3-layer deduplication. Returns (candidate_id, is_duplicate).
@@ -308,7 +316,7 @@ def _get_or_create_candidate(
     if existing is not None:
         # Update profile when explicitly requested
         if action == "update_profile" and gap_analysis is not None:
-            _store_candidate_profile(existing, parsed_data, gap_analysis, file_hash or "", profile_quality)
+            _store_candidate_profile(existing, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename)
         return existing.id, True
 
     # Create new candidate
@@ -322,7 +330,7 @@ def _get_or_create_candidate(
     db.flush()  # get the new id
 
     if gap_analysis is not None:
-        _store_candidate_profile(candidate, parsed_data, gap_analysis, file_hash or "", profile_quality)
+        _store_candidate_profile(candidate, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename)
 
     return candidate.id, False
 
@@ -725,6 +733,8 @@ async def analyze_endpoint(
         gap_analysis=gap_analysis,
         profile_quality="medium",  # Will be updated
         action=action,
+        file_content=content,
+        filename=resume.filename,
     )
 
     db_result = ScreeningResult(
@@ -761,6 +771,8 @@ async def analyze_endpoint(
         gap_analysis,
         file_hash,
         result.get("analysis_quality", "medium"),
+        file_content=content,
+        filename=resume.filename,
     )
     db.commit()
 
@@ -909,6 +921,8 @@ async def analyze_stream_endpoint(
         gap_analysis=gap_analysis,
         profile_quality="medium",  # Will be updated after pipeline
         action=action,
+        file_content=content,
+        filename=resume.filename,
     )
     
     # Create placeholder result to get the ID
@@ -1044,7 +1058,7 @@ async def analyze_stream_endpoint(
                     # Also update candidate profile
                     cand = save_db.query(Candidate).filter(Candidate.id == candidate_id).first()
                     if cand:
-                        _store_candidate_profile(cand, parsed_data, gap_analysis, file_hash, final_result.get("analysis_quality", "medium"))
+                        _store_candidate_profile(cand, parsed_data, gap_analysis, file_hash, final_result.get("analysis_quality", "medium"), content, resume.filename)
                     save_db.commit()
                     log.info("Final DB save completed for screening_result_id=%s (fit_score=%s)", screening_result_id, final_result.get("fit_score"))
                 else:
@@ -1290,6 +1304,8 @@ async def batch_analyze_chunked_endpoint(
                 file_hash=file_hash,
                 gap_analysis=gap_analysis,
                 profile_quality=raw.get("analysis_quality", "medium"),
+                file_content=content,
+                filename=filename,
             )
 
             db_result = ScreeningResult(
@@ -1590,6 +1606,8 @@ async def batch_analyze_stream_endpoint(
                     file_hash=file_hash,
                     gap_analysis=gap_analysis,
                     profile_quality=raw.get("analysis_quality", "medium"),
+                    file_content=content,
+                    filename=filename,
                 )
 
                 cand = save_db.get(Candidate, candidate_id)
@@ -1597,6 +1615,8 @@ async def batch_analyze_stream_endpoint(
                     _store_candidate_profile(
                         cand, parsed_data, gap_analysis, file_hash,
                         raw.get("analysis_quality", "medium"),
+                        file_content=content,
+                        filename=filename,
                     )
 
                 db_result = ScreeningResult(

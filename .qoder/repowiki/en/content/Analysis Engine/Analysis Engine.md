@@ -17,15 +17,20 @@
 - [README.md](file://README.md)
 - [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
 - [queue_manager.py](file://app/backend/services/queue_manager.py)
+- [pii_redaction_service.py](file://app/backend/services/pii_redaction_service.py)
+- [transcript_service.py](file://app/backend/services/transcript_service.py)
+- [evidence_validation_service.py](file://app/backend/services/evidence_validation_service.py)
+- [adverse_action_service.py](file://app/backend/services/adverse_action_service.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- **Enhanced LLM Error Handling**: Implemented comprehensive error handling with exponential backoff retry mechanisms for external LLM services
-- **Improved Resource Management**: Added robust semaphore-based concurrency control and health monitoring for Ollama integration
-- **Enhanced Retry Logic**: Integrated exponential backoff retry system for rate limiting (429) and connection errors
-- **Background Task Management**: Added graceful shutdown handling for background LLM processing tasks
-- **Queue System Integration**: Enhanced queue manager with automatic retry mechanisms and exponential backoff
+- Enhanced with comprehensive anti-hallucination guardrails including cache versioning, circuit breaker monitoring, deterministic behavior, and bias mitigation rules
+- Added new PII redaction capabilities with enterprise-grade Presidio integration and regex fallback
+- Improved validation mechanisms with evidence validation service for transcript analysis
+- Implemented deterministic behavior through prompt injection sanitization and input validation
+- Added circuit breaker monitoring for hallucination detection in JD parsing
+- Enhanced JSON parsing with robust extraction from LLM responses
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -43,16 +48,19 @@
 13. [Enhanced JSON Serialization Capabilities](#enhanced-json-serialization-capabilities)
 14. [Enhanced Error Handling and Retry Systems](#enhanced-error-handling-and-retry-systems)
 15. [Resource Management and Concurrency Control](#resource-management-and-concurrency-control)
-16. [Dependency Analysis](#dependency-analysis)
-17. [Performance Considerations](#performance-considerations)
-18. [Troubleshooting Guide](#troubleshooting-guide)
-19. [Conclusion](#conclusion)
-20. [Appendices](#appendices)
+16. [Anti-Hallucination Guardrails](#anti-hallucination-guardrails)
+17. [PII Redaction and Bias Mitigation](#pii-redaction-and-bias-mitigation)
+18. [Evidence Validation and Deterministic Behavior](#evidence-validation-and-deterministic-behavior)
+19. [Dependency Analysis](#dependency-analysis)
+20. [Performance Considerations](#performance-considerations)
+21. [Troubleshooting Guide](#troubleshooting-guide)
+22. [Conclusion](#conclusion)
+23. [Appendices](#appendices)
 
 ## Introduction
 This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis, the enhanced resume parsing service supporting PDF and DOCX formats with multi-tier extraction strategies, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
 
-**Updated** The analysis engine now features enhanced error handling and retry mechanisms with comprehensive exponential backoff support for external LLM services. The system includes robust resource management through semaphore-based concurrency control, health monitoring for Ollama integration, and graceful background task handling. These improvements provide significantly enhanced reliability and fault tolerance for production deployments.
+**Updated** The analysis engine now features comprehensive anti-hallucination guardrails including cache versioning, circuit breaker monitoring, deterministic behavior, and bias mitigation rules. The system includes enhanced PII redaction capabilities with enterprise-grade Presidio integration and improved validation mechanisms to ensure reliable, unbiased analysis results.
 
 ## Project Structure
 The backend is organized around FastAPI routes, SQLAlchemy models, and modular services. The analysis engine spans:
@@ -61,6 +69,9 @@ The backend is organized around FastAPI routes, SQLAlchemy models, and modular s
 - Models defining persistence for candidates, screening results, and caches
 - Startup and health checks coordinating environment readiness
 - Queue management system with automatic retry mechanisms
+- Anti-hallucination guardrails and bias mitigation systems
+- PII redaction service with enterprise-grade capabilities
+- Evidence validation service for transcript analysis
 
 ```mermaid
 graph TB
@@ -70,21 +81,25 @@ end
 subgraph "Services"
 B["parser_service.py<br/>Multi-tier Extraction Strategies"]
 C["gap_detector.py"]
-D["hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Exponential Backoff"]
-E["agent_pipeline.py"]
+D["hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Exponential Backoff<br/>Guardrails"]
+E["agent_pipeline.py<br/>Anti-Hallucination Guardrails"]
 F["analysis_service.py"]
 G["llm_service.py<br/>Semaphore Control<br/>Health Monitoring"]
 H["llm_contact_extractor.py<br/>Enhanced LLM Contact Extraction"]
 I["weight_mapper.py<br/>Schema Conversion"]
 J["weight_suggester.py<br/>LLM Weight Suggestions"]
 K["queue_manager.py<br/>Automatic Retry<br/>Exponential Backoff"]
+L["pii_redaction_service.py<br/>Enterprise PII Redaction"]
+M["transcript_service.py<br/>Evidence Validation"]
+N["evidence_validation_service.py<br/>Bias Mitigation"]
+O["adverse_action_service.py<br/>Bias Documentation"]
 end
 subgraph "Models"
-L["db_models.py"]
+P["db_models.py"]
 end
 subgraph "App"
-M["main.py<br/>Background Task Management"]
-N["nginx.prod.conf<br/>Streaming Configuration"]
+Q["main.py<br/>Background Task Management<br/>Health Monitoring"]
+R["nginx.prod.conf<br/>Streaming Configuration"]
 end
 A --> B
 A --> C
@@ -97,9 +112,13 @@ A --> I
 A --> J
 A --> K
 A --> L
-M --> A
-M --> G
-N --> A
+A --> M
+A --> N
+A --> O
+A --> P
+Q --> A
+Q --> G
+R --> A
 ```
 
 **Diagram sources**
@@ -110,18 +129,22 @@ N --> A
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 - [queue_manager.py:1-200](file://app/backend/services/queue_manager.py#L1-200)
 - [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
+- [pii_redaction_service.py:1-233](file://app/backend/services/pii_redaction_service.py#L1-L233)
+- [transcript_service.py:330-374](file://app/backend/services/transcript_service.py#L330-L374)
+- [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
+- [adverse_action_service.py:71-102](file://app/backend/services/adverse_action_service.py#L71-L102)
 
 **Section sources**
 - [README.md:273-333](file://README.md#L273-L333)
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
 
 ## Core Components
-- Hybrid Pipeline: Python-first deterministic scoring (skills, education, experience/timeline, domain/architecture) followed by a single LLM call for narrative synthesis and interview questions with enhanced error handling and retry mechanisms.
-- LangGraph Agent Pipeline: Multi-agent, multi-stage workflow with structured nodes for JD parsing, combined resume analysis, and scoring with explainability.
+- Hybrid Pipeline: Python-first deterministic scoring (skills, education, experience/timeline, domain/architecture) followed by a single LLM call for narrative synthesis and interview questions with enhanced error handling, anti-hallucination guardrails, and deterministic behavior.
+- LangGraph Agent Pipeline: Multi-agent, multi-stage workflow with structured nodes for JD parsing, combined resume analysis, and scoring with explainability and circuit breaker monitoring.
 - Enhanced Resume Parser: Robust text extraction from PDF and DOCX with multi-tier fallbacks, deduplication, and normalization.
 - Gap Detector: Mechanical date parsing and interval merging to compute objective timeline metrics.
 - Skills Registry: Dynamic, DB-backed registry with in-memory flashtext processor and hot reload capability.
-- LLM Integration: Ollama-backed ChatOllama clients with singletons, timeouts, JSON parsing utilities, and comprehensive error handling.
+- LLM Integration: Ollama-backed ChatOllama clients with singletons, timeouts, JSON parsing utilities, comprehensive error handling, and health monitoring.
 - Intelligent Contact Extraction: LLM-powered contact information extraction with merging strategy for accuracy.
 - Scoring and Risk: Weighted fit score computation, risk signals, and recommendation logic with intelligent weight mapping.
 - Persistence: SQLAlchemy models for candidates, screening results, role templates, usage logs, and caches.
@@ -129,6 +152,9 @@ N --> A
 - **AI-Enhanced Narratives**: Distinction system between LLM-generated and fallback narratives using `ai_enhanced` flag.
 - **Enhanced Error Handling**: Comprehensive retry mechanisms with exponential backoff for rate limiting and connection failures.
 - **Resource Management**: Semaphore-based concurrency control and health monitoring for external LLM services.
+- **Anti-Hallucination Guardrails**: Cache versioning, circuit breaker monitoring, and deterministic behavior enforcement.
+- **PII Redaction**: Enterprise-grade PII detection and anonymization with regex fallback capabilities.
+- **Evidence Validation**: Comprehensive validation of LLM claims against transcript evidence to prevent hallucinations.
 
 **Section sources**
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
@@ -141,13 +167,17 @@ N --> A
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 - [db_models.py:97-250](file://app/backend/models/db_models.py#L97-L250)
 - [queue_manager.py:1-200](file://app/backend/services/queue_manager.py#L1-L200)
+- [pii_redaction_service.py:1-233](file://app/backend/services/pii_redaction_service.py#L1-L233)
+- [transcript_service.py:330-374](file://app/backend/services/transcript_service.py#L330-L374)
+- [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
 
 ## Architecture Overview
-The system uses a hybrid approach with enhanced error handling:
+The system uses a hybrid approach with enhanced error handling and comprehensive guardrails:
 - Phase 1 (Python, ~1–2s): parse_jd_rules → parse_resume_rules → match_skills_rules → score_education/experience/domain → compute_fit_score → generate score rationales and risk summary
-- Phase 2 (LLM, ~40s): explain_with_llm (generates strengths, weaknesses, rationale, interview questions) with exponential backoff retry for rate limiting
+- Phase 2 (LLM, ~40s): explain_with_llm (generates strengths, weaknesses, rationale, interview questions) with exponential backoff retry for rate limiting and anti-hallucination guardrails
 - Fallback: deterministic narrative when LLM is unavailable or times out
 - Background Processing: LLM narrative generated as background task with graceful shutdown handling
+- Bias Mitigation: PII redaction and evidence validation throughout the pipeline
 
 ```mermaid
 sequenceDiagram
@@ -157,7 +187,8 @@ participant Parser as "parser_service.py"
 participant Gap as "gap_detector.py"
 participant Hybrid as "hybrid_pipeline.py"
 participant Contact as "llm_contact_extractor.py"
-participant LLM as "Ollama (ChatOllama)<br/>Enhanced Error Handling"
+participant PII as "pii_redaction_service.py"
+participant LLM as "Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails"
 Client->>Route : POST /api/analyze
 Route->>Parser : parse_resume(file)
 Parser-->>Route : parsed_data
@@ -169,8 +200,10 @@ Route->>Hybrid : run_hybrid_pipeline(...)
 Hybrid->>Hybrid : _run_python_phase(...)
 Hybrid->>Hybrid : _build_score_rationales()
 Hybrid->>Hybrid : _build_risk_summary()
-Hybrid->>LLM : explain_with_llm(context)<br/>Exponential Backoff Retry
-LLM-->>Hybrid : narrative JSON (with retry logic)
+Hybrid->>PII : redact_pii(resume_text)
+PII-->>Hybrid : redacted_text
+Hybrid->>LLM : explain_with_llm(context)<br/>Exponential Backoff Retry<br/>Guardrails
+LLM-->>Hybrid : narrative JSON (with guardrails)
 Hybrid-->>Route : merged result
 Route-->>Client : AnalysisResponse
 ```
@@ -181,11 +214,12 @@ Route-->>Client : AnalysisResponse
 - [parser_service.py:547-552](file://app/backend/services/parser_service.py#L547-L552)
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
+- [pii_redaction_service.py:53-66](file://app/backend/services/pii_redaction_service.py#L53-L66)
 
 ## Detailed Component Analysis
 
 ### Hybrid Pipeline
-The hybrid pipeline executes deterministic Python logic first, then a single LLM call for narrative with enhanced error handling. It includes:
+The hybrid pipeline executes deterministic Python logic first, then a single LLM call for narrative with enhanced error handling and anti-hallucination guardrails. It includes:
 - Skills registry with canonical skills, aliases, and domain mapping
 - JD parsing rules extracting role, domain, seniority, required/nice-to-have skills, and responsibilities
 - Resume profile builder combining parser output and gap analysis
@@ -198,6 +232,7 @@ The hybrid pipeline executes deterministic Python logic first, then a single LLM
 - **Enhanced**: Score rationales for each dimension and structured risk summary
 - **Optimized**: gemma4:31b-cloud model with intelligent token limits for improved performance
 - **Robust**: Exponential backoff retry mechanisms for rate limiting and connection failures
+- **Guardrails**: Prompt injection sanitization, cache versioning, and deterministic behavior enforcement
 
 ```mermaid
 flowchart TD
@@ -210,8 +245,9 @@ ExpTimeline --> DomainArch["domain_architecture_rules(raw_text, jd_domain, curre
 DomainArch --> ComputeFit["compute_fit_score(scores, weights)"]
 ComputeFit --> Rationales["_build_score_rationales()"]
 Rationales --> RiskSummary["_build_risk_summary()"]
-RiskSummary --> LLMCall{"LLM available?"}
-LLMCall --> |Yes| LLMNarrative["explain_with_llm(context)<br/>Exponential Backoff Retry"]
+RiskSummary --> PII["PII Redaction"]
+PII --> LLMCall{"LLM available?"}
+LLMCall --> |Yes| LLMNarrative["explain_with_llm(context)<br/>Exponential Backoff Retry<br/>Guardrails"]
 LLMCall --> |No| Fallback["fallback_narrative()"]
 LLMNarrative --> Merge["merge_llm_into_result()"]
 Fallback --> Merge
@@ -221,22 +257,24 @@ Merge --> End(["End"])
 **Diagram sources**
 - [hybrid_pipeline.py:1262-1407](file://app/backend/services/hybrid_pipeline.py#L1262-L1407)
 - [hybrid_pipeline.py:1074-1256](file://app/backend/services/hybrid_pipeline.py#L1074-L1256)
+- [pii_redaction_service.py:53-66](file://app/backend/services/pii_redaction_service.py#L53-L66)
 
 **Section sources**
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
 
 ### LangGraph Agent Pipeline
-The LangGraph-based agent pipeline defines a 3-stage workflow:
-- Stage 1 (parallel): jd_parser
+The LangGraph-based agent pipeline defines a 3-stage workflow with comprehensive anti-hallucination guardrails:
+- Stage 1 (parallel): jd_parser with cache versioning and circuit breaker monitoring
 - Stage 2 (parallel): resume_analyser (combines skill/domain/edu/timeline)
 - Stage 3 (parallel): scorer (combined scoring and interview questions)
 
 It uses:
 - Two LLM singletons (fast and reasoning) with keep-alive sessions
 - JSON parsing helper with fallback extraction
-- In-memory JD cache keyed by MD5 of first 2000 characters
+- In-memory JD cache keyed by MD5 of first 2000 characters with prompt versioning
 - Streamable nodes emitting SSE events
 - Fallback per node returning typed-null defaults on failures
+- **Guardrails**: Cache versioning, circuit breaker monitoring, and bias mitigation rules
 
 ```mermaid
 sequenceDiagram
@@ -374,6 +412,7 @@ Integration points:
 - Health and diagnostics endpoints for model readiness
 - **Enhanced**: Semaphore-based concurrency control with auto-detection for cloud vs local
 - **Robust**: Comprehensive error handling with exponential backoff for rate limiting
+- **Guardrails**: Prompt injection sanitization and deterministic behavior enforcement
 
 ```mermaid
 sequenceDiagram
@@ -1001,11 +1040,255 @@ Enhanced background task handling for graceful shutdown:
 - [hybrid_pipeline.py:34-50](file://app/backend/services/hybrid_pipeline.py#L34-L50)
 - [main.py:260-297](file://app/backend/main.py#L260-L297)
 
+## Anti-Hallucination Guardrails
+
+**Updated** The analysis engine now implements comprehensive anti-hallucination guardrails to ensure reliable and unbiased analysis results.
+
+### Cache Versioning System
+
+The system implements cache versioning to prevent hallucinations from stale cache entries:
+
+- **Prompt Hashing**: Each prompt is hashed with MD5 to create cache keys
+- **Version Tracking**: Cache keys include prompt version for automatic invalidation
+- **Automatic Cache Busting**: Changing prompts invalidates old cache entries
+- **Consistent Caching**: Ensures fresh analysis results when prompts are updated
+
+```mermaid
+flowchart TD
+Prompt["JD Parser Prompt"] --> Hash["MD5 Hash (First 2000 chars)"]
+Hash --> Version["Prompt Version (MD5 of full prompt)"]
+Version --> CacheKey["Cache Key: md5(jd_text:prompt_version)"]
+CacheKey --> CacheLookup["Cache Lookup"]
+CacheLookup --> Hit{"Cache Hit?"}
+Hit --> |Yes| Return["Return Cached Result"]
+Hit --> |No| Process["Process with Guardrails"]
+Process --> Validate["Validate Output"]
+Validate --> Update["Update Cache"]
+Update --> Return
+```
+
+**Diagram sources**
+- [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
+- [agent_pipeline.py:366](file://app/backend/services/agent_pipeline.py#L366)
+
+### Circuit Breaker Monitoring
+
+The system implements circuit breaker monitoring to detect and prevent hallucinations:
+
+- **Hallucination Counter**: Tracks hallucination occurrences per hour
+- **Threshold Detection**: 5 hallucinations per hour triggers circuit breaker
+- **Automatic Fallback**: High hallucination rates switch to rule-based parsing
+- **Reset Mechanism**: Hourly reset of hallucination counters
+
+```mermaid
+flowchart TD
+Start["JD Parser Node"] --> CheckCounter["Check Hallucination Counter"]
+CheckCounter --> Reset{"Hour Passed?"}
+Reset --> |Yes| ResetCounter["Reset Counter & Last Reset"]
+ResetCounter --> CheckCounter
+Reset --> |No| Proceed["Proceed with LLM Parsing"]
+Proceed --> ParseLLM["Parse with LLM"]
+ParseLLM --> Validate["Validate Output"]
+Validate --> CheckHallucination{"Hallucinations Detected?"}
+CheckHallucination --> |Yes| Increment["Increment Counter"]
+Increment --> Threshold{"Counter >= 5?"}
+Threshold --> |Yes| Fallback["Switch to Rule-Based Parser"]
+Threshold --> |No| Cache["Cache Valid Result"]
+CheckHallucination --> |No| Cache
+Fallback --> Cache
+Cache --> End["Return Result"]
+```
+
+**Diagram sources**
+- [agent_pipeline.py:352-354](file://app/backend/services/agent_pipeline.py#L352-L354)
+- [agent_pipeline.py:370-397](file://app/backend/services/agent_pipeline.py#L370-L397)
+
+### Deterministic Behavior Enforcement
+
+The system enforces deterministic behavior through multiple safeguards:
+
+- **Prompt Injection Sanitization**: Filters known injection patterns from inputs
+- **Input Length Limits**: Prevents oversized inputs that could cause hallucinations
+- **Output Validation**: Sanitizes LLM outputs to prevent malicious content
+- **Consistent Formatting**: Standardizes output formats across all components
+
+```mermaid
+flowchart TD
+Input["User Input"] --> Sanitize["Sanitize Input<br/>(Injection Patterns + Length Limits)"]
+Sanitize --> Wrap["Wrap with Delimiters"]
+Wrap --> LLM["LLM Processing"]
+LLM --> Validate["Validate Output<br/>(Bias Rules + Format)"]
+Validate --> Output["Deterministic Output"]
+```
+
+**Diagram sources**
+- [hybrid_pipeline.py:52-80](file://app/backend/services/hybrid_pipeline.py#L52-L80)
+- [agent_pipeline.py:414-421](file://app/backend/services/agent_pipeline.py#L414-L421)
+
+### Bias Mitigation Rules
+
+The system implements explicit bias mitigation rules in LLM prompts:
+
+- **Parental/Medical Leave**: Do NOT penalize for employment gaps due to parenting, medical leave, or education
+- **Age/Seniority Assumptions**: Do NOT assume seniority from age or years alone
+- **Education Scoring**: Score education based on RELEVANCE to role, not institutional prestige
+- **Skill Validation**: matched_skills must ONLY include genuinely present skills
+- **Missing Skills**: missing_skills must ONLY include genuinely absent required skills
+- **No Invented Skills**: Do NOT invent skills not in resume or required skills list
+
+**Section sources**
+- [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
+- [agent_pipeline.py:352-354](file://app/backend/services/agent_pipeline.py#L352-L354)
+- [agent_pipeline.py:414-421](file://app/backend/services/agent_pipeline.py#L414-L421)
+- [hybrid_pipeline.py:52-80](file://app/backend/services/hybrid_pipeline.py#L52-L80)
+
+## PII Redaction and Bias Mitigation
+
+**Updated** The analysis engine now features comprehensive PII redaction capabilities with enterprise-grade Presidio integration and improved validation mechanisms.
+
+### Enterprise-Grade PII Redaction Service
+
+The PII redaction service provides comprehensive protection against bias in analysis:
+
+- **Presidio Integration**: Enterprise-grade PII detection using Microsoft Presidio
+- **Multiple Entity Types**: Detects PERSON, EMAIL_ADDRESS, PHONE_NUMBER, LOCATION, ORG, URL, US_SSN, CREDIT_CARD
+- **Regex Fallback**: Automatic fallback to regex patterns when Presidio is unavailable
+- **Audit Trail**: Comprehensive redaction mapping and confidence scoring
+- **Validation Metrics**: Content preservation ratios and placeholder counts
+
+```mermaid
+flowchart TD
+Input["Raw Text"] --> PresidioCheck{"Presidio Available?"}
+PresidioCheck --> |Yes| Presidio["Presidio Analysis<br/>(Entities: PERSON, EMAIL, PHONE, LOCATION, ORG, URL, SSN, CC)"]
+PresidioCheck --> |No| Regex["Regex Fallback<br/>(Pattern Matching)"]
+Presidio --> RedactionMap["Build Redaction Map<br/>(Entity Type → Values)"]
+Regex --> RedactionMap
+RedactionMap --> Confidence["Calculate Confidence Scores"]
+Confidence --> Result["Redaction Result<br/>(Text + Audit Trail)"]
+```
+
+**Diagram sources**
+- [pii_redaction_service.py:34-66](file://app/backend/services/pii_redaction_service.py#L34-L66)
+- [pii_redaction_service.py:68-101](file://app/backend/services/pii_redaction_service.py#L68-L101)
+
+### PII Redaction Implementation
+
+The service implements multiple detection strategies:
+
+- **Presidio Detection**: Uses AnalyzerEngine for enterprise-grade PII detection
+- **Regex Patterns**: Comprehensive pattern matching for fallback scenarios
+- **University Detection**: Specialized patterns for educational institutions
+- **Company Detection**: Patterns for corporate entities ending with Inc, LLC, Corp
+- **Validation**: Content preservation validation and quality metrics
+
+```mermaid
+flowchart TD
+Text["Input Text"] --> Presidio["AnalyzerEngine<br/>(Presidio Available?)"]
+Presidio --> |Available| Entities["Identify Entities<br/>(PERSON, EMAIL, PHONE, LOCATION, ORG, URL, SSN, CC)"]
+Presidio --> |Unavailable| Regex["Regex Detection<br/>(Pattern Matching)"]
+Entities --> Redaction["Replace with Placeholders<br/>(CANDIDATE, EMAIL, PHONE, LOCATION, ORGANIZATION, URL)"]
+Regex --> Redaction
+Redaction --> Audit["Build Audit Trail<br/>(Entity Type → Values)"]
+Audit --> Validate["Validate Redaction<br/>(Preservation Ratio, Quality)"]
+Validate --> Output["Redaction Result"]
+```
+
+**Diagram sources**
+- [pii_redaction_service.py:68-101](file://app/backend/services/pii_redaction_service.py#L68-L101)
+- [pii_redaction_service.py:171-196](file://app/backend/services/pii_redaction_service.py#L171-L196)
+
+### Bias Mitigation Integration
+
+PII redaction is integrated throughout the analysis pipeline:
+
+- **Resume Processing**: Automatic PII redaction before skill analysis
+- **Transcript Analysis**: Redaction applied to video transcript evaluations
+- **Evidence Validation**: Bias mitigation documentation in adverse action reports
+- **Quality Metrics**: Preservation ratios and validation scores tracked
+
+**Section sources**
+- [pii_redaction_service.py:1-233](file://app/backend/services/pii_redaction_service.py#L1-L233)
+- [transcript_service.py:358-369](file://app/backend/services/transcript_service.py#L358-L369)
+- [adverse_action_service.py:92-102](file://app/backend/services/adverse_action_service.py#L92-L102)
+
+## Evidence Validation and Deterministic Behavior
+
+**Updated** The analysis engine now features comprehensive evidence validation service that ensures all LLM claims are supported by actual evidence from transcripts, preventing hallucinations and ensuring source-of-truth analysis.
+
+### Evidence Validation Service
+
+The evidence validation service provides comprehensive claim verification:
+
+- **Multiple Matching Strategies**: Exact substring, fuzzy matching, and paraphrase detection
+- **Claim Types**: Validates JD alignment, strengths, red flags, and improvement areas
+- **Quality Metrics**: Verifiable claims, hallucinated claims, fuzzy matches, and unsupported claims
+- **Confidence Scoring**: Evidence quality score calculation and validation details
+
+```mermaid
+flowchart TD
+Analysis["LLM Analysis Result"] --> Claims["Extract Claims<br/>(JD Alignment, Strengths, Red Flags, Improvement Areas)"]
+Claims --> Transcript["Normalized Transcript"]
+Transcript --> Validate["Validate Each Claim<br/>(Exact → Fuzzy → Paraphrase)"]
+Validate --> Evidence["Evidence Validation<br/>(Is Valid, Confidence, Match Type)"]
+Evidence --> Report["Generate Validation Report<br/>(Total, Verified, Hallucinated, Fuzzy, Unsupported)"]
+Report --> Quality["Calculate Evidence Quality Score<br/>(Verified/Total × 100)"]
+Quality --> Output["Validation Report"]
+```
+
+**Diagram sources**
+- [evidence_validation_service.py:56-70](file://app/backend/services/evidence_validation_service.py#L56-L70)
+- [evidence_validation_service.py:171-221](file://app/backend/services/evidence_validation_service.py#L171-L221)
+
+### Validation Strategies
+
+The service implements tiered validation approaches:
+
+- **Exact Substring Match**: Direct text matching for strong evidence
+- **Fuzzy Matching**: Similarity-based matching for paraphrased content
+- **Paraphrase Detection**: Semantic similarity for conceptually equivalent statements
+- **Missing Evidence**: Identifies claims without supporting evidence
+- **Quality Scoring**: Confidence scores and match type categorization
+
+```mermaid
+flowchart TD
+Claim["Individual Claim"] --> Strategy["Select Validation Strategy"]
+Strategy --> Exact["Exact Substring Match"]
+Strategy --> Fuzzy["Fuzzy Matching<br/>(Similarity ≥ 0.75)"]
+Strategy --> Paraphrase["Paraphrase Detection<br/>(Semantic Similarity)"]
+Strategy --> Missing["Missing Evidence<br/>(No Supporting Text)"]
+Exact --> Valid["Valid Claim"]
+Fuzzy --> Valid
+Paraphrase --> Valid
+Missing --> Invalid["Invalid Claim"]
+Valid --> Evidence["Evidence Found"]
+Invalid --> Unsupported["Unsupported Claim"]
+Evidence --> Quality["Calculate Confidence"]
+Unsupported --> Quality
+Quality --> Report["Validation Report"]
+```
+
+**Diagram sources**
+- [evidence_validation_service.py:23-35](file://app/backend/services/evidence_validation_service.py#L23-L35)
+- [evidence_validation_service.py:223-239](file://app/backend/services/evidence_validation_service.py#L223-L239)
+
+### Deterministic Behavior Integration
+
+Evidence validation ensures deterministic behavior by:
+
+- **Source Verification**: All claims must have verifiable evidence in transcripts
+- **Bias Prevention**: Eliminates hallucinated claims that could introduce bias
+- **Quality Assurance**: Provides measurable quality metrics for analysis reliability
+- **Audit Trail**: Comprehensive validation details for compliance and transparency
+
+**Section sources**
+- [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
+- [transcript_service.py:330-374](file://app/backend/services/transcript_service.py#L330-L374)
+
 ## Dependency Analysis
 Key dependencies and relationships:
 - Routes depend on parser, gap detector, hybrid pipeline, and models
-- Hybrid pipeline depends on skills registry and Ollama
-- Agent pipeline depends on LangGraph and ChatOllama
+- Hybrid pipeline depends on skills registry and Ollama with guardrails
+- Agent pipeline depends on LangGraph and ChatOllama with anti-hallucination guardrails
 - Models define relationships among tenants, users, candidates, and screening results
 - Startup checks validate DB connectivity, skills registry, and Ollama availability
 - **Enhanced JSON serialization**: Unified serialization utilities across all components
@@ -1015,22 +1298,29 @@ Key dependencies and relationships:
 - **Enhanced Error Handling**: Exponential backoff retry mechanisms for LLM services
 - **Resource Management**: Semaphore-based concurrency control and health monitoring
 - **Queue Integration**: Automatic retry mechanisms with exponential backoff
+- **Anti-Hallucination Guardrails**: Cache versioning, circuit breaker monitoring, and deterministic behavior
+- **PII Redaction**: Enterprise-grade PII detection and anonymization service
+- **Evidence Validation**: Comprehensive validation of LLM claims against transcript evidence
 
 ```mermaid
 graph LR
 Route["routes/analyze.py<br/>JSON Utils<br/>SSE Streaming"] --> Parser["services/parser_service.py"]
 Route --> Gap["services/gap_detector.py"]
-Route --> Hybrid["services/hybrid_pipeline.py<br/>Enhanced Error Handling"]
-Route --> Agent["services/agent_pipeline.py"]
+Route --> Hybrid["services/hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Guardrails"]
+Route --> Agent["services/agent_pipeline.py<br/>Anti-Hallucination Guardrails"]
 Route --> Contact["services/llm_contact_extractor.py"]
 Route --> WeightMapper["services/weight_mapper.py"]
 Route --> WeightSuggester["services/weight_suggester.py"]
 Route --> QueueManager["services/queue_manager.py<br/>Automatic Retry"]
+Route --> PII["services/pii_redaction_service.py<br/>Enterprise PII Redaction"]
+Route --> Transcript["services/transcript_service.py<br/>Evidence Validation"]
+Route --> Evidence["services/evidence_validation_service.py<br/>Bias Mitigation"]
+Route --> Adverse["services/adverse_action_service.py<br/>Bias Documentation"]
 Hybrid --> Skills["skills registry"]
-Hybrid --> Ollama["Ollama (ChatOllama)<br/>Enhanced Error Handling"]
+Hybrid --> Ollama["Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails"]
 Agent --> Ollama
 Route --> Models["models/db_models.py"]
-Main["main.py<br/>Background Task Management"] --> Route
+Main["main.py<br/>Background Task Management<br/>Health Monitoring"] --> Route
 Main --> Ollama
 Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 ```
@@ -1042,6 +1332,10 @@ Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 - [db_models.py:97-147](file://app/backend/models/db_models.py#L97-L147)
 - [main.py:68-149](file://app/backend/main.py#L68-L149)
 - [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
+- [pii_redaction_service.py:1-233](file://app/backend/services/pii_redaction_service.py#L1-L233)
+- [transcript_service.py:330-374](file://app/backend/services/transcript_service.py#L330-L374)
+- [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
+- [adverse_action_service.py:71-102](file://app/backend/services/adverse_action_service.py#L71-L102)
 
 **Section sources**
 - [analyze.py:32-38](file://app/backend/routes/analyze.py#L32-L38)
@@ -1065,6 +1359,9 @@ Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 - **Error Handling**: Exponential backoff retry mechanisms improve system reliability under stress
 - **Resource Management**: Semaphore-based concurrency control prevents resource exhaustion
 - **Health Monitoring**: Continuous Ollama health checks enable proactive issue detection
+- **Anti-Hallucination Guardrails**: Cache versioning and circuit breaker monitoring prevent hallucinations
+- **PII Redaction**: Enterprise-grade detection with fallback ensures comprehensive bias mitigation
+- **Evidence Validation**: Comprehensive claim verification prevents hallucinations and ensures reliability
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -1087,6 +1384,10 @@ Common issues and resolutions:
 - **Authentication Failures**: Clear error messaging for invalid OLLAMA_API_KEY configuration
 - **Queue Processing Issues**: Automatic retry mechanisms with exponential backoff for failed jobs
 - **Background Task Cleanup**: Graceful shutdown handles background LLM processing tasks
+- **Anti-Hallucination Issues**: Monitor hallucination counter and cache versioning for prompt updates
+- **PII Redaction Failures**: Presidio fallback to regex patterns; check enterprise dependencies installation
+- **Evidence Validation Errors**: Comprehensive logging for validation failures and quality metrics
+- **Bias Mitigation Concerns**: Review PII redaction count and bias documentation in adverse action reports
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -1099,7 +1400,7 @@ The analysis engine blends efficient Python-first processing with a single, well
 
 **Updated** The enhanced AI pipeline capabilities now provide sophisticated score rationales and comprehensive risk analysis, generating detailed explanations for each score dimension and structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The system maintains backward compatibility while delivering significantly improved explainability and risk assessment capabilities. The AI-enhanced narrative distinction system ensures clear differentiation between LLM-generated and fallback content, improving transparency for users. The migration to gemma4:31b-cloud model across all services provides enhanced performance and reliability, with intelligent token limit scaling for both local and cloud deployments.
 
-The integration of comprehensive error handling with exponential backoff retry mechanisms, enhanced resource management through semaphore-based concurrency control, and health monitoring systems demonstrates the evolution toward a more robust and fault-tolerant analysis platform. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing and heartbeat mechanisms. The queue system integration adds automatic retry capabilities with exponential backoff, ensuring resilient job processing even under adverse conditions.
+The integration of comprehensive anti-hallucination guardrails including cache versioning, circuit breaker monitoring, deterministic behavior enforcement, and bias mitigation rules demonstrates the evolution toward a more robust, reliable, and fair analysis platform. The enhanced PII redaction capabilities with enterprise-grade Presidio integration and improved validation mechanisms ensure unbiased analysis results. The evidence validation service prevents hallucinations by ensuring all LLM claims are supported by actual transcript evidence. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing and heartbeat mechanisms. The queue system integration adds automatic retry capabilities with exponential backoff, ensuring resilient job processing even under adverse conditions.
 
 ## Appendices
 
@@ -1107,7 +1408,7 @@ The integration of comprehensive error handling with exponential backoff retry m
 - Add new scoring dimensions: extend score_* functions and compute_fit_score weights
 - Introduce custom risk signals: append to risk_signals computation
 - Extend skills registry: add canonical skills and aliases; hot-reload via rebuild
-- Customize LLM prompts: adjust explain_with_llm and agent pipeline prompts
+- Customize LLM prompts: adjust explain_with_llm and agent pipeline prompts with bias mitigation rules
 - Add new resume sections: extend parser_service extraction logic
 - **Enhanced AI Pipeline**: Leverage score rationales and risk summary structures for new evaluation criteria
 - **Model Configuration**: Adjust gemma4:31b-cloud parameters for specialized use cases
@@ -1116,6 +1417,9 @@ The integration of comprehensive error handling with exponential backoff retry m
 - **Contact Enhancement**: Implement custom contact extraction strategies using LLM contact extractor framework
 - **Error Handling**: Implement exponential backoff retry mechanisms for custom LLM integrations
 - **Resource Management**: Add semaphore-based concurrency control for external service integrations
+- **Anti-Hallucination Guardrails**: Implement cache versioning and circuit breaker monitoring for custom components
+- **PII Redaction**: Integrate enterprise-grade PII detection with regex fallback capabilities
+- **Evidence Validation**: Add comprehensive claim validation for custom analysis components
 
 **Section sources**
 - [hybrid_pipeline.py:953-1058](file://app/backend/services/hybrid_pipeline.py#L953-L1058)
@@ -1125,6 +1429,7 @@ The integration of comprehensive error handling with exponential backoff retry m
 - [llm_contact_extractor.py:133-164](file://app/backend/services/llm_contact_extractor.py#L133-L164)
 - [weight_mapper.py:212-246](file://app/backend/services/weight_mapper.py#L212-L246)
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+- [agent_pipeline.py:414-421](file://app/backend/services/agent_pipeline.py#L414-L421)
 
 ### JSON Serialization Best Practices
 
@@ -1139,6 +1444,7 @@ The integration of comprehensive error handling with exponential backoff retry m
 7. **AI-Enhanced Content**: Use `ai_enhanced` flag to distinguish between LLM-generated and fallback content
 8. **Streaming Compatibility**: Ensure all streamed data can be properly serialized for SSE transmission
 9. **Error Handling**: Implement comprehensive error handling for serialization failures
+10. **Guardrail Integration**: Ensure new components respect anti-hallucination guardrails and bias mitigation rules
 
 **Section sources**
 - [analyze.py:48-56](file://app/backend/routes/analyze.py#L48-L56)
@@ -1162,6 +1468,7 @@ The integration of comprehensive error handling with exponential backoff retry m
 11. **Streaming Optimization**: Configure nginx for proper SSE streaming with heartbeat mechanisms
 12. **Error Handling**: Configure LLM_MAX_RETRIES environment variable for optimal retry behavior
 13. **Resource Management**: Set OLLAMA_MAX_CONCURRENT for appropriate concurrency levels
+14. **Guardrail Configuration**: Ensure cache versioning and circuit breaker thresholds are appropriately tuned
 
 **Section sources**
 - [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
@@ -1181,6 +1488,7 @@ The integration of comprehensive error handling with exponential backoff retry m
 7. **Enhanced Logging**: Implement comprehensive logging for debugging and monitoring
 8. **Error Handling**: Graceful degradation when LLM extraction fails
 9. **Retry Mechanisms**: Implement exponential backoff for rate-limited LLM calls
+10. **Bias Mitigation**: Ensure contact extraction doesn't introduce PII bias in analysis
 
 **Section sources**
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
@@ -1199,6 +1507,7 @@ The integration of comprehensive error handling with exponential backoff retry m
 7. **Confidence Scoring**: Consider confidence levels when using LLM-suggested weights
 8. **Testing**: Validate weight conversions with comprehensive test suites
 9. **Error Handling**: Implement retry mechanisms for weight suggestion failures
+10. **Bias Mitigation**: Ensure weight schemes don't introduce systematic bias in evaluation
 
 **Section sources**
 - [weight_mapper.py:179-246](file://app/backend/services/weight_mapper.py#L179-L246)
@@ -1219,8 +1528,71 @@ The integration of comprehensive error handling with exponential backoff retry m
 8. **Health Monitoring**: Implement health checks for external service dependencies
 9. **Queue Integration**: Leverage queue manager retry mechanisms for persistent job processing
 10. **Background Task Management**: Ensure proper cleanup of background tasks during error scenarios
+11. **Guardrail Integration**: Implement cache versioning and circuit breaker monitoring for custom components
+12. **PII Redaction**: Ensure error handling doesn't compromise PII protection measures
 
 **Section sources**
 - [hybrid_pipeline.py:1359-1500](file://app/backend/services/hybrid_pipeline.py#L1359-L1500)
 - [queue_manager.py:456-478](file://app/backend/services/queue_manager.py#L456-L478)
 - [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
+
+### Anti-Hallucination Guardrail Implementation Guidelines
+
+**Updated** For implementing anti-hallucination guardrails in custom components:
+
+1. **Cache Versioning**: Implement prompt hashing with MD5 for automatic cache invalidation
+2. **Circuit Breaker**: Monitor hallucination occurrence rates and implement fallback mechanisms
+3. **Deterministic Behavior**: Sanitize inputs, enforce length limits, and validate outputs
+4. **Bias Mitigation**: Implement explicit bias rules in prompts and validation logic
+5. **Output Validation**: Use structured schemas and validation rules for all outputs
+6. **Threshold Tuning**: Calibrate hallucination detection thresholds based on domain requirements
+7. **Logging and Monitoring**: Track hallucination incidents and guardrail effectiveness
+8. **Fallback Strategies**: Implement rule-based fallbacks when guardrails trigger
+9. **Continuous Improvement**: Regularly update guardrails based on hallucination patterns
+10. **Compliance**: Ensure guardrails meet regulatory requirements for fair evaluation
+
+**Section sources**
+- [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
+- [agent_pipeline.py:352-354](file://app/backend/services/agent_pipeline.py#L352-L354)
+- [agent_pipeline.py:414-421](file://app/backend/services/agent_pipeline.py#L414-L421)
+- [hybrid_pipeline.py:52-80](file://app/backend/services/hybrid_pipeline.py#L52-L80)
+
+### PII Redaction Integration Guidelines
+
+**Updated** For implementing PII redaction in custom analysis components:
+
+1. **Presidio Integration**: Use AnalyzerEngine and AnonymizerEngine for enterprise-grade detection
+2. **Regex Fallback**: Implement comprehensive pattern matching for fallback scenarios
+3. **Entity Coverage**: Support all major PII types: PERSON, EMAIL, PHONE, LOCATION, ORG, URL, SSN, CC
+4. **Audit Trail**: Maintain comprehensive redaction mapping and confidence scoring
+5. **Validation Metrics**: Track preservation ratios and quality indicators
+6. **Performance Optimization**: Balance accuracy with processing speed requirements
+7. **Error Handling**: Graceful degradation when enterprise dependencies are unavailable
+8. **Bias Mitigation**: Ensure redaction doesn't remove critical evaluation information
+9. **Compliance**: Meet regulatory requirements for PII protection and data privacy
+10. **Monitoring**: Track redaction effectiveness and identify potential privacy risks
+
+**Section sources**
+- [pii_redaction_service.py:34-66](file://app/backend/services/pii_redaction_service.py#L34-L66)
+- [pii_redaction_service.py:68-101](file://app/backend/services/pii_redaction_service.py#L68-L101)
+- [pii_redaction_service.py:171-196](file://app/backend/services/pii_redaction_service.py#L171-L196)
+
+### Evidence Validation Integration Guidelines
+
+**Updated** For implementing evidence validation in custom analysis components:
+
+1. **Multi-Strategy Validation**: Implement exact substring, fuzzy matching, and paraphrase detection
+2. **Claim Type Support**: Validate JD alignment, strengths, red flags, and improvement areas
+3. **Quality Metrics**: Track verifiable claims, hallucinated claims, fuzzy matches, and unsupported claims
+4. **Confidence Scoring**: Calculate evidence quality scores and maintain validation details
+5. **Performance Optimization**: Balance validation accuracy with processing speed requirements
+6. **Error Handling**: Graceful degradation when validation fails or evidence is insufficient
+7. **Bias Prevention**: Ensure validation doesn't introduce systematic bias in evaluation
+8. **Audit Trail**: Maintain comprehensive validation records for compliance and transparency
+9. **Threshold Tuning**: Calibrate validation thresholds based on domain requirements and quality targets
+10. **Continuous Improvement**: Regularly update validation strategies based on performance metrics
+
+**Section sources**
+- [evidence_validation_service.py:56-70](file://app/backend/services/evidence_validation_service.py#L56-L70)
+- [evidence_validation_service.py:171-221](file://app/backend/services/evidence_validation_service.py#L171-L221)
+- [evidence_validation_service.py:223-239](file://app/backend/services/evidence_validation_service.py#L223-L239)

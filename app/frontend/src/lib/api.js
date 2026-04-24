@@ -553,6 +553,21 @@ function _ts() {
   return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
 }
 
+// ─── Resume File Download / View ─────────────────────────────────────────────
+
+export async function downloadCandidateResume(candidateId, filename) {
+  const res = await api.get(`/candidates/${candidateId}/resume`, { responseType: 'blob' })
+  _triggerDownload(res.data, filename, res.headers['content-type'] || 'application/octet-stream')
+}
+
+export async function viewCandidateResume(candidateId) {
+  const res = await api.get(`/candidates/${candidateId}/resume`, { responseType: 'blob' })
+  const type = res.headers['content-type'] || 'application/octet-stream'
+  const url = URL.createObjectURL(new Blob([res.data], { type }))
+  window.open(url, '_blank')
+  setTimeout(() => URL.revokeObjectURL(url), 30000)
+}
+
 // ─── Templates ───────────────────────────────────────────────────────────────
 
 export async function getTemplates() {

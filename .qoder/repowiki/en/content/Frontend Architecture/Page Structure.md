@@ -17,7 +17,16 @@
 - [SettingsPage.jsx](file://app/frontend/src/pages/SettingsPage.jsx)
 - [LoginPage.jsx](file://app/frontend/src/pages/LoginPage.jsx)
 - [RegisterPage.jsx](file://app/frontend/src/pages/RegisterPage.jsx)
+- [AnalyzePage.jsx](file://app/frontend/src/pages/AnalyzePage.jsx)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Enhanced AnalyzePage documentation to include IndexedDB-based file-mode JD caching functionality
+- Added comprehensive IndexedDB helper functions documentation (openJdDB, storeJdFile, getJdFile, clearJdFile)
+- Updated AnalyzePage section to cover automatic loading of cached JD files when users return to analyze page with file mode enabled
+- Enhanced session storage integration documentation to include IndexedDB fallback mechanisms
+- Updated troubleshooting guide to include IndexedDB error handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,7 +41,7 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document describes the page structure and behavior of Resume AI’s React frontend. It explains the purpose, layout, data flows, state management integration, navigation, route protection, loading/error handling, and responsive design for each page. It also provides guidelines for adding new pages and extending existing ones.
+This document describes the page structure and behavior of Resume AI's React frontend. It explains the purpose, layout, data flows, state management integration, navigation, route protection, loading/error handling, and responsive design for each page. It also provides guidelines for adding new pages and extending existing ones.
 
 ## Project Structure
 The frontend is organized around a routing shell with protected routes and a shared layout. Pages are grouped under src/pages and are lazily loaded via React Suspense. Authentication and subscription state are provided globally.
@@ -62,6 +71,7 @@ O["VideoPage"]
 P["SettingsPage"]
 Q["LoginPage"]
 R["RegisterPage"]
+S["AnalyzePage"]
 end
 A --> B
 B --> C
@@ -80,6 +90,7 @@ F --> O
 F --> P
 B --> Q
 B --> R
+B --> S
 ```
 
 **Diagram sources**
@@ -187,14 +198,14 @@ D->>RP : Navigate with state
 - Layout:
   - Search form with pagination.
   - Candidates table with best score and recommendation badges.
-  - Detail modal for a candidate’s application history.
+  - Detail modal for a candidate's application history.
 - Data fetching:
   - getCandidates with search, page, and page_size.
   - getCandidate for detail modal.
 - State management:
   - Tracks search term, page, loading, and selected candidate.
 - Navigation:
-  - Click “View” on a row or history item navigates to ReportPage.
+  - Click "View" on a row or history item navigates to ReportPage.
 - Loading/Error:
   - Spinner while loading; empty state with call-to-action.
 - Animations:
@@ -222,37 +233,46 @@ View --> End(["Navigate to ReportPage"])
 ### ReportPage
 - Purpose: Present a detailed screening report with score visualization, narrative, and actions.
 - Layout:
-  - Left sidebar: back button, candidate name editor, score gauge, training label controls.
+  - Left sidebar: back button, candidate name editor, score gauge, training label controls, **Analyze Another Resume** feature.
   - Right panel: sticky action bar (share/download), scrollable content (ResultCard, Timeline).
 - Data fetching:
   - Resolves result from location.state or sessionStorage via report id.
   - updateCandidateName, labelTrainingExample, updateResultStatus for inline edits and labeling.
+  - Loads active JD context from sessionStorage for "Analyze Another Resume" feature.
 - State management:
-  - Tracks copied state, label status/loading/done, and resolves candidate name.
+  - Tracks copied state, label status/loading/done, resolves candidate name, and JD context.
 - Navigation:
   - Back to Dashboard; view individual results from Compare or Candidates.
+  - Navigate to AnalyzePage with pre-filled JD context when "Analyze Another Resume" is clicked.
 - Loading/Error:
   - Redirects to Dashboard if no result found.
 - Print:
   - Dedicated print header and styles.
+
+**Updated** Enhanced with IndexedDB-based file-mode JD caching support for seamless cross-session JD file persistence
 
 ```mermaid
 sequenceDiagram
 participant U as "User"
 participant RP as "ReportPage"
 participant API as "API"
+participant AP as "AnalyzePage"
 U->>RP : Open report (state or id)
 RP->>RP : Resolve result
+RP->>RP : Load JD context from sessionStorage
 RP->>API : Update candidate name (optional)
 RP->>API : Label training example + status
-RP-->>U : Render report + actions
+U->>RP : Click "Analyze Another Resume"
+RP->>AP : Navigate with pre-filled JD context
 ```
 
 **Diagram sources**
 - [ReportPage.jsx:82-151](file://app/frontend/src/pages/ReportPage.jsx#L82-L151)
+- [ReportPage.jsx:421-440](file://app/frontend/src/pages/ReportPage.jsx#L421-L440)
+- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
 
 **Section sources**
-- [ReportPage.jsx:1-297](file://app/frontend/src/pages/ReportPage.jsx#L1-L297)
+- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
 
 ### ComparePage
 - Purpose: Compare up to five candidate results side-by-side.
@@ -489,6 +509,37 @@ Tab --> Security["Manage account/security"]
 **Section sources**
 - [SettingsPage.jsx:1-596](file://app/frontend/src/pages/SettingsPage.jsx#L1-L596)
 
+### AnalyzePage
+- Purpose: Complete 3-step analysis workflow with job description, scoring weights, and resume upload.
+- Layout:
+  - Step 1: Job Description (text, file, or URL extraction).
+  - Step 2: Scoring Weights with AI suggestions.
+  - Step 3: Resume upload with drag-and-drop.
+  - Results area with streaming progress and batch analysis.
+- Data fetching:
+  - analyzeResumeStream for single analysis.
+  - analyzeBatchStream for batch analysis with streaming callbacks.
+  - createTemplate for saving job descriptions.
+- State management:
+  - Tracks current step, JD context, weights, files, streaming results.
+- Navigation:
+  - Progress through steps; navigate to ReportPage on completion.
+  - Store JD context in sessionStorage for "Analyze Another Resume" feature.
+- Loading/Error:
+  - Spinner during analysis; validation errors surfaced.
+- Session Storage:
+  - Stores active JD context for cross-page continuity.
+- IndexedDB Integration:
+  - **Enhanced** with IndexedDB-based file-mode JD caching for persistent storage across browser sessions.
+  - **New** IndexedDB helper functions: openJdDB, storeJdFile, getJdFile, clearJdFile.
+  - **New** Automatic loading of cached JD files when users return to analyze page with file mode enabled.
+  - **New** Seamless fallback between sessionStorage and IndexedDB for JD context persistence.
+
+**Updated** Enhanced with IndexedDB-based file-mode JD caching functionality for persistent storage across browser sessions
+
+**Section sources**
+- [AnalyzePage.jsx:1-1004](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L1004)
+
 ### LoginPage and RegisterPage
 - Purpose: Authentication entry points.
 - Layout:
@@ -513,6 +564,12 @@ Tab --> Security["Manage account/security"]
   - Each page imports and calls specific API functions (e.g., Dashboard uses analyzeResumeStream; BatchPage uses analyzeBatch).
 - Cross-Page Navigation
   - Pages navigate among themselves using react-router-dom and state passing (e.g., Dashboard to ReportPage, CandidatesPage to ReportPage).
+- Session Storage Integration
+  - AnalyzePage stores JD context in sessionStorage for cross-page continuity.
+  - ReportPage retrieves JD context from sessionStorage to enable "Analyze Another Resume" feature.
+- IndexedDB Integration
+  - **New** AnalyzePage uses IndexedDB for persistent JD file caching across browser sessions.
+  - **New** Seamless fallback between sessionStorage and IndexedDB for JD context persistence.
 
 ```mermaid
 graph LR
@@ -529,6 +586,10 @@ AS --> Team["TeamPage.jsx"]
 AS --> Trans["TranscriptPage.jsx"]
 AS --> Vid["VideoPage.jsx"]
 AS --> Set["SettingsPage.jsx"]
+AS --> Ana["AnalyzePage.jsx"]
+Ana -.->|"Session Storage"| Rep
+Rep -.->|"Session Storage"| Ana
+Ana -.->|"IndexedDB Cache"| Ana
 ```
 
 **Diagram sources**
@@ -544,10 +605,17 @@ AS --> Set["SettingsPage.jsx"]
 - Conditional rendering: Pages hide heavy panels (e.g., progress) until needed.
 - Pagination: Candidates and Batch results use pagination to limit DOM size.
 - Usage checks: BatchPage validates usage before starting analysis to avoid unnecessary requests.
+- Session Storage Optimization: ReportPage efficiently loads JD context from sessionStorage without blocking UI.
+- IndexedDB Performance:
+  - **New** IndexedDB operations are asynchronous and non-blocking, preventing UI freezes.
+  - **New** Database initialization occurs only when needed, minimizing startup overhead.
+  - **New** File caching uses efficient object store operations for minimal memory footprint.
 - Recommendations:
   - Defer non-critical data fetching (e.g., templates/history) until needed.
   - Use virtualized lists for very large datasets.
   - Debounce search inputs where applicable.
+  - Implement proper error handling for sessionStorage and IndexedDB operations.
+  - Consider IndexedDB quota management for large file caching scenarios.
 
 ## Troubleshooting Guide
 - Authentication issues
@@ -556,19 +624,33 @@ AS --> Set["SettingsPage.jsx"]
   - Pages surface error messages from API responses; retry or check service connectivity.
 - Missing data
   - ReportPage redirects to Dashboard if no result found; ensure state/session storage is present.
+  - "Analyze Another Resume" feature requires valid JD context in sessionStorage.
 - Usage limits
   - BatchPage and SettingsPage display remaining analyses and prompts to upgrade.
 - Video analysis
   - VideoPage uses XHR with progress; abort on reset and handle network errors gracefully.
+- Session Storage Issues
+  - ReportPage gracefully handles invalid or corrupted sessionStorage data.
+  - AnalyzePage ensures proper JSON parsing before storing JD context.
+- IndexedDB Issues:
+  - **New** IndexedDB operations are wrapped in try-catch blocks to prevent application crashes.
+  - **New** Database initialization errors are handled gracefully with fallback to sessionStorage.
+  - **New** File caching operations fail silently to maintain application stability.
+  - **New** Users with IndexedDB disabled or quota exceeded automatically fall back to sessionStorage.
+- Cross-Browser Compatibility:
+  - **New** IndexedDB is supported in all modern browsers; fallback mechanisms ensure consistent behavior.
+  - **New** File mode JD caching works across different browser sessions and tabs.
 
 **Section sources**
 - [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
 - [ReportPage.jsx:99-118](file://app/frontend/src/pages/ReportPage.jsx#L99-L118)
+- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
+- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
 - [BatchPage.jsx:89-121](file://app/frontend/src/pages/BatchPage.jsx#L89-L121)
 - [VideoPage.jsx:542-610](file://app/frontend/src/pages/VideoPage.jsx#L542-L610)
 
 ## Conclusion
-The Resume AI frontend organizes pages around a clean routing and protection layer, with shared providers and layout. Each page encapsulates its data fetching, state, and navigation, while leveraging common components and responsive patterns. The architecture supports scalability and maintainability, with clear separation of concerns and predictable data flows.
+The Resume AI frontend organizes pages around a clean routing and protection layer, with shared providers and layout. Each page encapsulates its data fetching, state, and navigation, while leveraging common components and responsive patterns. The architecture supports scalability and maintainability, with clear separation of concerns and predictable data flows. Recent enhancements include improved session storage integration for seamless user workflows and cross-page continuity, along with the addition of IndexedDB-based file-mode JD caching functionality for persistent storage across browser sessions.
 
 ## Appendices
 
@@ -596,5 +678,29 @@ The Resume AI frontend organizes pages around a clean routing and protection lay
 - Add UI sections and integrate with shared components.
 - Respect route protection and provider chain.
 - Keep loading/error states explicit and user-friendly.
+- Implement proper session storage integration when enabling cross-page features.
+- Consider IndexedDB integration for persistent data storage when appropriate.
 
-[No sources needed since this section provides general guidance]
+### Session Storage Integration Patterns
+- Store context data in sessionStorage with structured keys (e.g., `aria_active_jd`, `report_${id}`).
+- Implement proper JSON parsing with error handling.
+- Provide graceful fallbacks when sessionStorage data is unavailable or corrupted.
+- Use sessionStorage for temporary context that enhances user workflow continuity.
+
+**Section sources**
+- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
+- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
+- [ReportPage.jsx:133-142](file://app/frontend/src/pages/ReportPage.jsx#L133-L142)
+- [ReportPage.jsx:224-231](file://app/frontend/src/pages/ReportPage.jsx#L224-L231)
+
+### IndexedDB Integration Patterns
+- **New** Use IndexedDB for persistent storage of large files and complex data structures.
+- **New** Implement helper functions (openJdDB, storeJdFile, getJdFile, clearJdFile) for consistent database operations.
+- **New** Provide graceful fallback mechanisms when IndexedDB is unavailable or fails.
+- **New** Use asynchronous operations to prevent UI blocking and maintain application responsiveness.
+- **New** Implement proper error handling and logging for database operations.
+
+**Section sources**
+- [AnalyzePage.jsx:30-80](file://app/frontend/src/pages/AnalyzePage.jsx#L30-L80)
+- [AnalyzePage.jsx:193-210](file://app/frontend/src/pages/AnalyzePage.jsx#L193-L210)
+- [AnalyzePage.jsx:359-369](file://app/frontend/src/pages/AnalyzePage.jsx#L359-L369)

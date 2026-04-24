@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, date, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
@@ -498,3 +499,60 @@ async def analyze_existing_candidate(
     result["candidate_id"]   = candidate_id
     result["candidate_name"] = candidate.name
     return result
+
+
+@router.get("/{candidate_id}/resume")
+def download_candidate_resume(
+    candidate_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Download or view the original uploaded resume file.
+    PDFs are served inline for browser preview; DOCX/DOC/ODT force download.
+    """
+    candidate = db.query(Candidate).filter(
+        Candidate.id == candidate_id,
+        Candidate.tenant_id == current_user.tenant_id,
+    ).first()
+
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    if not candidate.resume_file_data:
+        raise HTTPException(
+            status_code=404,
+            detail="Resume file not stored for this candidate. Re-upload to enable download.",
+        )
+
+    filename = candidate.resume_filename or f"resume_{candidate_id}"
+    lower_name = filename.lower()
+
+    # Determine MIME type
+    if lower_name.endswith(".pdf"):
+        media_type = "application/pdf"
+        disposition = "inline"  # Open in browser
+    elif lower_name.endswith(".docx"):
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        disposition = f'attachment; filename="{filename}"'
+    elif lower_name.endswith(".doc"):
+        media_type = "application/msword"
+        disposition = f'attachment; filename="{filename}"'
+    elif lower_name.endswith(".odt"):
+        media_type = "application/vnd.oasis.opendocument.text"
+        disposition = f'attachment; filename="{filename}"'
+    elif lower_name.endswith(".txt"):
+        media_type = "text/plain"
+        disposition = f'attachment; filename="{filename}"'
+    elif lower_name.endswith(".rtf"):
+        media_type = "application/rtf"
+        disposition = f'attachment; filename="{filename}"'
+    else:
+        media_type = "application/octet-stream"
+        disposition = f'attachment; filename="{filename}"'
+
+    return Response(
+        content=candidate.resume_file_data,
+        media_type=media_type,
+        headers={"Content-Disposition": disposition},
+    )

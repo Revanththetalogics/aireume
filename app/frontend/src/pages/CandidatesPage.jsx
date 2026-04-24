@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, ChevronRight, X } from 'lucide-react'
-import { getCandidates, getCandidate } from '../lib/api'
+import { Search, Users, ChevronRight, X, FileText, Eye } from 'lucide-react'
+import { getCandidates, getCandidate, viewCandidateResume, downloadCandidateResume } from '../lib/api'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -43,12 +43,34 @@ function CandidateDetail({ candidateId, onClose }) {
             <h3 className="font-extrabold text-brand-900 text-lg tracking-tight">{safeStr(candidate.name) || 'Unknown'}</h3>
             <p className="text-sm text-slate-500">{safeStr(candidate.email)}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors text-slate-400 hover:text-brand-600"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {candidate.id && (
+              <>
+                <button
+                  onClick={() => viewCandidateResume(candidate.id).catch(() => alert('Resume not available'))}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50 transition-colors"
+                  title="View original resume"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  View
+                </button>
+                <button
+                  onClick={() => downloadCandidateResume(candidate.id, candidate.name ? `${candidate.name}_resume.pdf` : `resume_${candidate.id}.pdf`).catch(() => alert('Resume not available'))}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50 transition-colors"
+                  title="Download original resume"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Download
+                </button>
+              </>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors text-slate-400 hover:text-brand-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
         <div className="overflow-y-auto p-5 space-y-3">
           <p className="text-sm font-semibold text-slate-500">{candidate.history?.length || 0} applications tracked</p>

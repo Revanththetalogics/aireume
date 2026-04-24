@@ -2,13 +2,13 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState, useRef } from 'react'
 import {
   ArrowLeft, Share2, Download, CheckCircle, Check,
-  ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon, Upload,
+  ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon, Upload, Eye, FileText,
 } from 'lucide-react'
 import html2pdf from 'html2pdf.js'
 import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
 import Timeline from '../components/Timeline'
-import { labelTrainingExample, updateResultStatus, updateCandidateName, getNarrative } from '../lib/api'
+import { labelTrainingExample, updateResultStatus, updateCandidateName, getNarrative, viewCandidateResume, downloadCandidateResume } from '../lib/api'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -98,6 +98,7 @@ export default function ReportPage() {
   const [labelDone, setLabelDone]       = useState(false)
   const [narrativePolling, setNarrativePolling] = useState(false)
   const [jdContext, setJdContext] = useState(null)
+  const [resumeActionLoading, setResumeActionLoading] = useState(false)
 
   /** Resolve name from all possible result paths — returns null if unknown */
   const resolveName = (r) =>
@@ -444,6 +445,36 @@ export default function ReportPage() {
         {/* Sticky action bar */}
         <div className="bg-white/80 backdrop-blur-xl border-b border-brand-100/60 shrink-0 z-10 print:hidden">
           <div className="px-6 h-14 flex items-center justify-end gap-2">
+            {result?.candidate_id && (
+              <>
+                <button
+                  onClick={async () => {
+                    setResumeActionLoading(true)
+                    try { await viewCandidateResume(result.candidate_id) } catch (e) { alert('Resume not available') }
+                    finally { setResumeActionLoading(false) }
+                  }}
+                  disabled={resumeActionLoading}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl ring-1 ring-brand-200 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition-colors disabled:opacity-50"
+                  title="View original resume"
+                >
+                  <Eye className="w-4 h-4" />
+                  View Resume
+                </button>
+                <button
+                  onClick={async () => {
+                    setResumeActionLoading(true)
+                    try { await downloadCandidateResume(result.candidate_id, result?.candidate_name ? `${result.candidate_name}_resume.pdf` : `resume_${result.candidate_id}.pdf`) } catch (e) { alert('Resume not available') }
+                    finally { setResumeActionLoading(false) }
+                  }}
+                  disabled={resumeActionLoading}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl ring-1 ring-brand-200 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition-colors disabled:opacity-50"
+                  title="Download original resume"
+                >
+                  <FileText className="w-4 h-4" />
+                  Download Resume
+                </button>
+              </>
+            )}
             <button
               onClick={handleShare}
               className="flex items-center gap-2 px-4 py-2 rounded-xl ring-1 ring-brand-200 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition-colors"
