@@ -111,6 +111,7 @@ def get_fast_llm() -> ChatOllama:
             "model": OLLAMA_FAST_MODEL,
             "base_url": OLLAMA_BASE_URL,
             "temperature": 0.0,
+            "seed": 42,
             "format": "json",
             "num_predict": _num_predict,
             "num_ctx": _num_ctx,
@@ -145,6 +146,7 @@ def get_reasoning_llm() -> ChatOllama:
             "model": OLLAMA_REASONING_MODEL,
             "base_url": OLLAMA_BASE_URL,
             "temperature": 0.0,
+            "seed": 42,
             "format": "json",
             "num_predict": _num_predict,
             "num_ctx": _num_ctx,
@@ -203,12 +205,134 @@ def _parse_json(content: str, fallback: dict) -> dict:
     return fallback
 
 
+def _validate_skills_against_jd(skills: List[str], jd_text: str) -> List[str]:
+    """Filter out skills not found in the original JD text (hallucination guard)."""
+    if not skills or not jd_text:
+        return []
+
+    jd_lower = jd_text.lower()
+    validated = []
+
+    for skill in skills:
+        if not skill or not isinstance(skill, str):
+            continue
+
+        skill_lower = skill.lower()
+
+        # Direct substring match
+        if skill_lower in jd_lower:
+            validated.append(skill)
+            continue
+
+        # Check aliases from the skill registry
+        try:
+            from app.backend.services.hybrid_pipeline import SKILL_ALIASES
+            aliases = SKILL_ALIASES.get(skill_lower, [])
+            if any(alias.lower() in jd_lower for alias in aliases):
+                validated.append(skill)
+                continue
+        except Exception:
+            pass
+
+        # Multi-word skill: check if any significant word (3+ chars) matches
+        words = [w for w in skill_lower.split() if len(w) > 2]
+        if words and any(word in jd_lower for word in words):
+            validated.append(skill)
+            continue
+
+    return validated
+
+
+def _sanitize_jd_output(data: dict, original_jd_text: str) -> dict:
+    """Post-process and sanitize JD parser output to remove hallucinations."""
+    fallback = {
+        "role_title": "", "domain": "other", "seniority": "mid",
+        "required_skills": [], "required_years": 0,
+        "nice_to_have_skills": [], "key_responsibilities": [],
+    }
+
+    if not isinstance(data, dict):
+        return fallback
+
+    # Ensure all expected keys exist
+    for key, default in fallback.items():
+        if key not in data or data[key] is None:
+            data[key] = default
+
+    # Validate skills against original JD text (hallucination guard)
+    data["required_skills"] = _validate_skills_against_jd(
+        data.get("required_skills", []), original_jd_text
+    )
+    data["nice_to_have_skills"] = _validate_skills_against_jd(
+        data.get("nice_to_have_skills", []), original_jd_text
+    )
+
+    # Normalize seniority
+    valid_seniority = {"junior", "mid", "senior", "lead", "principal"}
+    if data.get("seniority") not in valid_seniority:
+        years = data.get("required_years", 0)
+        if years >= 8:
+            data["seniority"] = "senior"
+        elif years >= 3:
+            data["seniority"] = "mid"
+        else:
+            data["seniority"] = "junior"
+
+    # Normalize domain
+    valid_domains = {
+        "backend", "frontend", "fullstack", "data_science", "ml_ai",
+        "devops", "embedded", "mobile", "design", "management", "other"
+    }
+    if data.get("domain") not in valid_domains:
+        data["domain"] = "other"
+
+    # Clamp required_years
+    try:
+        data["required_years"] = max(0, min(50, int(data.get("required_years", 0))))
+    except (ValueError, TypeError):
+        data["required_years"] = 0
+
+    # Ensure key_responsibilities is a list of strings
+    responsibilities = data.get("key_responsibilities", [])
+    if isinstance(responsibilities, list):
+        data["key_responsibilities"] = [
+            str(r) for r in responsibilities if r is not None
+        ]
+    else:
+        data["key_responsibilities"] = []
+
+    return data
+
+
 # ─── Stage 1: JD Parser ────────────────────────────────────────────────────────
 
 _JD_PARSER_PROMPT = """\
-Extract job requirements. Output ONLY valid JSON. No markdown.
+You are a strict, literal job requirement extractor. Your job is to TRANSCRIBE, not interpret.
 
-JOB DESCRIPTION:
+SYSTEM RULES:
+1. ONLY extract information explicitly stated in the JD text.
+2. Do NOT infer, guess, or assume skills not explicitly named.
+3. Do NOT add programming languages or tools unless the JD explicitly lists them.
+4. "Associate Director" is a SENIOR title — do NOT misread "Associate" as junior.
+5. If no specific technical skills are listed, output an empty required_skills array.
+6. Extract required_years from explicit statements (e.g., "5+ years" → 5, "minimum 3 years" → 3).
+7. Output ONLY valid JSON. No markdown, no explanations, no comments.
+
+FEW-SHOT EXAMPLES:
+
+Correct extraction:
+JD: "We need a Senior Python Engineer with 5+ years of experience in Django and AWS."
+Output: {{"role_title": "Senior Python Engineer", "domain": "backend", "seniority": "senior", "required_skills": ["Python", "Django", "AWS"], "required_years": 5, "nice_to_have_skills": [], "key_responsibilities": []}}
+
+Correct extraction (advisory role):
+JD: "Associate Director – Technical Pre-Sales. 10+ years in enterprise SaaS. Strong communication skills required."
+Output: {{"role_title": "Associate Director – Technical Pre-Sales", "domain": "management", "seniority": "senior", "required_skills": ["communication"], "required_years": 10, "nice_to_have_skills": [], "key_responsibilities": []}}
+
+INCORRECT (Hallucination — do NOT do this):
+JD: "Technical advisor for enterprise SaaS."
+Output: {{"required_skills": ["golang", "kubernetes"]}} ← WRONG — these are NOT in the text
+
+CURRENT JD:
 {jd_text}
 
 OUTPUT SCHEMA:
@@ -229,7 +353,8 @@ async def jd_parser_node(state: PipelineState) -> dict:
         "required_skills": [], "required_years": 0,
         "nice_to_have_skills": [], "key_responsibilities": [],
     }
-    jd_text = state["raw_jd_text"][:2000]
+    # Guardrail: increased truncation to capture full requirements section
+    jd_text = state["raw_jd_text"][:5000]
     cache_key = hashlib.md5(jd_text.encode()).hexdigest()
     if cache_key in _jd_cache:
         return {"jd_analysis": _jd_cache[cache_key]}
@@ -237,7 +362,9 @@ async def jd_parser_node(state: PipelineState) -> dict:
         llm    = get_fast_llm()
         prompt = _JD_PARSER_PROMPT.format(jd_text=jd_text)
         resp   = await llm.ainvoke(prompt)
-        result = _parse_json(resp.content, fallback)
+        raw_result = _parse_json(resp.content, fallback)
+        # Guardrail: sanitize output — remove hallucinated skills, normalize enums
+        result = _sanitize_jd_output(raw_result, state["raw_jd_text"])
         _jd_cache[cache_key] = result
         return {"jd_analysis": result}
     except Exception as exc:
@@ -252,6 +379,14 @@ _RESUME_ANALYSER_PROMPT = """\
 Parse the candidate resume and assess fit against job requirements in one pass.
 Use canonical skill names (e.g. "Machine Learning" not "ML").
 Output ONLY valid JSON. No markdown.
+
+BIAS MITIGATION RULES:
+1. Do NOT penalize candidates for employment gaps due to parenting, medical leave, or education.
+2. Do NOT assume seniority from age or years alone — evaluate actual scope of work.
+3. Score education based on RELEVANCE to the role, not prestige of institution.
+4. matched_skills must ONLY include skills genuinely present in the resume from the REQUIRED SKILLS list.
+5. missing_skills must ONLY include skills from the REQUIRED SKILLS list genuinely absent in the resume.
+6. Do NOT invent skills that are not in either the resume or the required skills list.
 
 JOB: role={role_title} domain={domain} seniority={seniority}
 REQUIRED SKILLS: {required_skills}
