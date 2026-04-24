@@ -19,6 +19,47 @@ LLM_FALLBACK_TOTAL = Counter(
     "Total number of LLM fallbacks triggered"
 )
 
+# Guardrail Tier 1+2+4 metrics
+GUARDRAIL_HALLUCINATION_TOTAL = Counter(
+    "aria_guardrail_hallucination_total",
+    "Total hallucinations detected and blocked",
+    ["node"]
+)
+
+GUARDRAIL_INJECTION_BLOCKED_TOTAL = Counter(
+    "aria_guardrail_injection_blocked_total",
+    "Total prompt injection attempts blocked"
+)
+
+GUARDRAIL_SCHEMA_VALIDATION_FAILED_TOTAL = Counter(
+    "aria_guardrail_schema_validation_failed_total",
+    "Total schema validation failures",
+    ["node"]
+)
+
+GUARDRAIL_INCONSISTENCY_FIXED_TOTAL = Counter(
+    "aria_guardrail_inconsistency_fixed_total",
+    "Total cross-node inconsistencies auto-fixed"
+)
+
+GUARDRAIL_HITL_FLAG_TOTAL = Counter(
+    "aria_guardrail_hitl_flag_total",
+    "Total HITL flags generated",
+    ["severity"]
+)
+
+GUARDRAIL_CIRCUIT_BREAKER_TOTAL = Counter(
+    "aria_guardrail_circuit_breaker_total",
+    "Total circuit breaker activations",
+    ["node"]
+)
+
+GUARDRAIL_TOKEN_BUDGET_EXCEEDED_TOTAL = Counter(
+    "aria_guardrail_token_budget_exceeded_total",
+    "Total token budget exceedances",
+    ["tenant_id"]
+)
+
 # Custom metrics for resume parsing
 RESUME_PARSE_DURATION = Histogram(
     "aria_resume_parse_duration_seconds",

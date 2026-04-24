@@ -19,22 +19,23 @@
 - [candidates.py](file://app/backend/routes/candidates.py)
 - [export.py](file://app/backend/routes/export.py)
 - [compare.py](file://app/backend/routes/compare.py)
+- [upload.py](file://app/backend/routes/upload.py)
 - [002_parser_snapshot_json.py](file://alembic/versions/002_parser_snapshot_json.py)
 - [008_analysis_queue_system.py](file://alembic/versions/008_analysis_queue_system.py)
 - [009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
+- [015_add_resume_file_storage.py](file://alembic/versions/015_add_resume_file_storage.py)
 - [test_candidate_dedup.py](file://app/backend/tests/test_candidate_dedup.py)
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced candidate comparison functionality with comprehensive JSON parsing safety checks
-- Redesigned comparison algorithm prioritizing analysis data with multiple fallback sources
-- Improved data reliability and fallback mechanisms for robust comparison operations
-- Added enhanced comparison fields including employment_gaps, interview_questions_preview, and analysis_quality
-- Implemented comprehensive error handling for malformed JSON data
-- Enhanced candidate name resolution with priority-based fallback sources
-- Added winner determination logic for multiple comparison categories
+- Enhanced candidate management with comprehensive resume file storage and retrieval capabilities
+- Added support for storing original resume files in database with resume_file_data column
+- Implemented download/view functionality for original uploaded resumes
+- Integrated resume access into candidate workflows with tenant isolation
+- Added chunked upload system for large file handling beyond Cloudflare limits
+- Enhanced candidate profile storage with resume filename tracking
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -51,7 +52,7 @@
 ## Introduction
 This document describes the candidate management system for Resume AI by ThetaLogics. It covers how candidate profiles are stored, how resumes are parsed and analyzed, how deduplication works across resumes and analysis results, and how search, filtering, history, and analysis results are managed. It also documents integration between parsing services and candidate data storage, bulk operations, export capabilities, and data portability features. Finally, it outlines strategies for extending candidate metadata and customizing parsing workflows, along with privacy and lifecycle considerations.
 
-**Updated** Enhanced with comprehensive JSON parsing safety checks, redesigned comparison algorithm with priority-based data sources, and improved fallback mechanisms for robust candidate comparison operations.
+**Updated** Enhanced with comprehensive resume file storage and retrieval capabilities, including original file byte storage, download/view functionality, and integration with the analysis workflow.
 
 ## Project Structure
 The candidate management system spans models, services, and routes:
@@ -83,6 +84,7 @@ RA["analyze.py"]
 RC["candidates.py"]
 RE["export.py"]
 RCM["compare.py"]
+RU["upload.py"]
 end
 RA --> PS
 RA --> LS
@@ -100,6 +102,7 @@ RC --> C
 RC --> SR
 RE --> SR
 RCM --> SR
+RU --> C
 ```
 
 **Diagram sources**
@@ -117,6 +120,7 @@ RCM --> SR
 - [candidates.py:26-189](file://app/backend/routes/candidates.py#L26-L189)
 - [export.py:20-104](file://app/backend/routes/export.py#L20-L104)
 - [compare.py:16-77](file://app/backend/routes/compare.py#L16-L77)
+- [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
 
 **Section sources**
 - [README.md:201-229](file://README.md#L201-L229)
@@ -134,8 +138,11 @@ RCM --> SR
 - Consensus analyzer processes multiple analysis results with field-level merge strategy preserving critical fields.
 - Deduplication logic identifies duplicates across email, file hash, and name+phone.
 - Routes expose endpoints for single and batch analysis, candidate listing/detail, history, export, comparison, and weight suggestions.
+- **Updated**: Resume file storage system with LargeBinary column for original file bytes and filename tracking.
+- **Updated**: Chunked upload system for handling large files beyond Cloudflare limits.
+- **Updated**: Download/view functionality for accessing original uploaded resumes.
 
-**Updated** Enhanced with comprehensive JSON parsing safety checks, redesigned comparison algorithm with priority-based data sources, and improved fallback mechanisms for robust candidate comparison operations.
+**Updated** Enhanced with comprehensive resume file storage and retrieval capabilities, including original file byte storage, download/view functionality, and integration with the analysis workflow.
 
 **Section sources**
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
@@ -148,9 +155,10 @@ RCM --> SR
 - [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
 - [consensus_analyzer.py:278-316](file://app/backend/services/consensus_analyzer.py#L278-L316)
 - [analyze.py:147-214](file://app/backend/routes/analyze.py#L147-L214)
+- [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
 
 ## Architecture Overview
-The system integrates parsing, gap detection, hybrid scoring, intelligent weight management, and persistence. Deduplication ensures candidate identity is preserved across uploads and re-analyses. Profiles are stored for fast re-analysis and auditability with enhanced contact extraction capabilities and field-level data integrity. The unified API response approach ensures consistent data structures across all endpoints.
+The system integrates parsing, gap detection, hybrid scoring, intelligent weight management, and persistence. Deduplication ensures candidate identity is preserved across uploads and re-analyses. Profiles are stored for fast re-analysis and auditability with enhanced contact extraction capabilities and field-level data integrity. The unified API response approach ensures consistent data structures across all endpoints. **Updated**: The architecture now includes comprehensive resume file storage with LargeBinary column for original file bytes and filename tracking.
 
 ```mermaid
 sequenceDiagram
@@ -175,7 +183,7 @@ Route->>Pipe : run_hybrid_pipeline(parsed_data, gap_analysis, jd, weights)
 Pipe->>LLM : analyze_with_llm()
 LLM-->>Pipe : validated_analysis_result
 Pipe-->>Route : analysis_result + fit_score
-Route->>DB : _get_or_create_candidate()
+Route->>DB : _get_or_create_candidate(file_content, filename)
 DB-->>Route : candidate_id, is_dup
 Route->>DB : persist ScreeningResult (with weights metadata)
 DB-->>Route : result_id
@@ -199,6 +207,8 @@ Route-->>Client : analysis_result + candidate_id/result_id
   - Enriched profile fields: raw_resume_text, parsed_skills, parsed_education, parsed_work_exp, gap_analysis_json.
   - parser_snapshot_json: full parser output snapshot for auditability and re-analysis.
   - resume_file_hash: MD5 of file bytes for deduplication.
+  - **Updated**: resume_filename: Original filename of uploaded resume.
+  - **Updated**: resume_file_data: LargeBinary column storing original file bytes.
   - profile_updated_at and profile_quality for freshness and quality tracking.
 - Stored on first analysis or when explicitly updating profile.
 
@@ -211,6 +221,8 @@ string name
 string email
 string phone
 string resume_file_hash
+string resume_filename
+largebinary resume_file_data
 text raw_resume_text
 text parsed_skills
 text parsed_education
@@ -228,11 +240,13 @@ text parser_snapshot_json
 **Diagram sources**
 - [db_models.py:97-126](file://app/backend/models/db_models.py#L97-L126)
 - [002_parser_snapshot_json.py:21-33](file://alembic/versions/002_parser_snapshot_json.py#L21-L33)
+- [015_add_resume_file_storage.py:7-9](file://alembic/versions/015_add_resume_file_storage.py#L7-L9)
 
 **Section sources**
 - [db_models.py:97-126](file://app/backend/models/db_models.py#L97-L126)
 - [analyze.py:118-145](file://app/backend/routes/analyze.py#L118-L145)
 - [002_parser_snapshot_json.py:1-33](file://alembic/versions/002_parser_snapshot_json.py#L1-L33)
+- [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 
 ### Enhanced Resume Parsing and Extraction Workflows
 - ResumeParser supports PDF, DOCX, DOC, TXT, RTF, HTML, ODT, and plain text with enhanced multi-stage extraction pipeline.
@@ -428,6 +442,67 @@ CalculateWinners --> ReturnResults["Return comparison results"]
 **Section sources**
 - [compare.py:17-158](file://app/backend/routes/compare.py#L17-L158)
 
+### Enhanced Resume File Storage and Retrieval System
+**New Feature**: Comprehensive resume file storage and retrieval system with tenant isolation and security.
+
+- **Database Storage**: Candidate model now includes resume_file_data (LargeBinary) and resume_filename (String) columns for storing original uploaded files.
+- **File Hashing**: resume_file_hash column enables deduplication across identical resumes regardless of filename.
+- **Tenant Isolation**: All resume operations respect tenant boundaries for security and data separation.
+- **Download/View Functionality**: REST API endpoint `/api/candidates/{candidate_id}/resume` provides secure access to original files.
+- **Format Support**: Supports PDF, DOCX, DOC, ODT, TXT, and RTF formats with appropriate MIME type handling.
+- **Security Measures**: File access requires authentication and authorization; unauthorized access attempts are blocked.
+- **Storage Optimization**: LargeBinary storage enables direct file retrieval without external file system dependencies.
+
+```mermaid
+sequenceDiagram
+participant Client as "Client"
+participant Route as "candidates.py"
+participant DB as "DB"
+participant Candidate as "Candidate"
+Client->>Route : GET /api/candidates/{candidate_id}/resume
+Route->>DB : Query Candidate with tenant filter
+DB-->>Route : Candidate record
+Route->>Route : Validate file exists and belongs to tenant
+Route->>Client : Response with file bytes + appropriate headers
+```
+
+**Diagram sources**
+- [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
+- [db_models.py:112-116](file://app/backend/models/db_models.py#L112-L116)
+
+**Section sources**
+- [db_models.py:112-116](file://app/backend/models/db_models.py#L112-L116)
+- [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
+- [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
+
+### Chunked Upload System for Large Files
+**New Feature**: Robust chunked upload system designed to handle files exceeding Cloudflare limits.
+
+- **Cloudflare Compliance**: Solves 100MB upload limit by splitting files into manageable chunks.
+- **Temporary Storage**: Chunks are stored in `/tmp/aria_chunks/{upload_id}/` with automatic cleanup after 24 hours.
+- **Integrity Verification**: MD5 hash verification ensures file integrity during assembly.
+- **Parallel Processing**: Up to 3 chunks processed concurrently for optimal performance.
+- **Metadata Tracking**: Upload metadata stored with user and tenant information for audit trails.
+- **Cleanup Automation**: Automatic cleanup of orphaned chunks prevents storage bloat.
+- **Error Recovery**: Comprehensive error handling with detailed failure messages for troubleshooting.
+
+```mermaid
+flowchart TD
+StartUpload["Client initiates upload"] --> SplitChunks["Split file into chunks"]
+SplitChunks --> UploadLoop["Upload chunks sequentially"]
+UploadLoop --> VerifyChunks["Verify all chunks received"]
+VerifyChunks --> AssembleFile["Assemble chunks into complete file"]
+AssembleFile --> VerifyIntegrity["Verify MD5 hash"]
+VerifyIntegrity --> Success["Return assembled file path"]
+```
+
+**Diagram sources**
+- [upload.py:99-205](file://app/backend/routes/upload.py#L99-L205)
+- [upload.py:207-324](file://app/backend/routes/upload.py#L207-L324)
+
+**Section sources**
+- [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
+
 ### Deduplication Strategies
 - Three-layer deduplication:
   1) Email match within tenant.
@@ -438,6 +513,8 @@ CalculateWinners --> ReturnResults["Return comparison results"]
   - create_new: always create new candidate.
   - update_profile: update stored profile.
   - use_existing: skip re-analysis and reuse stored profile.
+
+**Updated** Enhanced with resume file hash deduplication that identifies identical resumes across different filenames.
 
 ```mermaid
 flowchart TD
@@ -514,6 +591,7 @@ CandRoute-->>Client : detail + history with unified structure
 - **Updated**: Weight metadata is stored with screening results for future comparisons and analysis.
 - **Updated**: API response unification ensures consistent data structure across all integration points.
 - **Updated**: Field-level merge strategy ensures data integrity during narrative integration.
+- **Updated**: Resume file storage integrates seamlessly with the analysis workflow, storing original file bytes and filename.
 
 **Updated** Integrated intelligent scoring weights system into the parsing and storage workflow with enhanced field-level data protection and API response unification.
 
@@ -560,6 +638,7 @@ Export-->>Client : CSV stream with unified structure
 - **Updated**: Enhanced with intelligent scoring weights metadata for comprehensive data portability.
 - **Updated**: API response unification ensures consistent data structure for portable results.
 - **Updated**: Field-level merge strategy ensures portable data maintains critical analysis field integrity.
+- **Updated**: Resume file storage enables complete data portability with original file bytes.
 
 **Updated** Enhanced parser snapshot with intelligent scoring weights metadata for improved portability and data integrity with API response unification.
 
@@ -575,6 +654,7 @@ Export-->>Client : CSV stream with unified structure
 - **Updated**: Customize weight schemas by extending weight mapper and suggester services.
 - **Updated**: Extend field-level merge strategy by adding new critical fields to preservation logic.
 - **Updated**: API response unification allows for consistent extension of data structures across all endpoints.
+- **Updated**: Resume file storage system provides foundation for additional file-related metadata extensions.
 
 **Updated** Enhanced with LLM contact extraction integration, customizable weight schemas, extensible field-level merge strategy, and API response unification for consistent data structure extensions.
 
@@ -592,12 +672,15 @@ Export-->>Client : CSV stream with unified structure
 - **Updated**: Intelligent scoring weights metadata requires careful privacy consideration for sensitive role-based data.
 - **Updated**: API response unification ensures consistent privacy considerations across all endpoints.
 - **Updated**: Field-level merge strategy ensures critical analysis fields maintain integrity during narrative processing.
+- **Updated**: Resume file storage introduces new privacy considerations for sensitive personal documents.
 - Recommendations:
   - Add tenant-aware soft-delete and anonymization.
   - Implement data export/deletion APIs aligned with privacy regulations.
   - Add encryption-at-rest for sensitive fields if required.
   - Consider GDPR-compliant handling of AI-generated weight suggestions.
   - Monitor field-level merge operations for data integrity compliance.
+  - Implement file access logging for audit trails.
+  - Consider implementing file retention policies and automated cleanup.
 
 **Updated** Enhanced privacy considerations for intelligent scoring weights metadata and AI-generated suggestions, with API response unification and field-level data integrity protection.
 
@@ -622,8 +705,7 @@ RA --> DBM["models/db_models.py"]
 RC["routes/candidates.py"] --> DBM
 RE["routes/export.py"] --> DBM
 RCM["routes/compare.py"] --> DBM
-LS["llm_service.py"] --> HP
-LS --> AS["analysis_service.py"]
+RU["routes/upload.py"] --> DBM
 ```
 
 **Diagram sources**
@@ -651,6 +733,8 @@ LS --> AS["analysis_service.py"]
 - **Updated**: API response unification optimizes data processing by ensuring consistent structures across all endpoints.
 - **Updated**: Field-level merge strategy optimizes data processing by avoiding unnecessary field overwrites.
 - **Updated**: JSON safety checks prevent performance degradation from malformed data.
+- **Updated**: Resume file storage requires careful consideration of memory usage for large files.
+- **Updated**: Chunked upload system optimizes network performance for large file transfers.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -663,6 +747,9 @@ Common issues and resolutions:
 - **Updated**: API response unification issues: Ensure analysis_result structure consistency across all endpoints.
 - **Updated**: Field-level merge failures: Core analysis fields remain intact; check narrative data format; verify critical field preservation.
 - **Updated**: JSON parsing errors: Malformed JSON automatically handled with safe fallbacks; check data integrity in analysis_result and parsed_data fields.
+- **Updated**: Resume file storage issues: LargeBinary column may cause memory pressure; consider file size limits and cleanup policies.
+- **Updated**: Chunked upload failures: Check chunk storage directory permissions and cleanup processes; verify MD5 hash integrity.
+- **Updated**: Resume download errors: Ensure candidate has associated file data; verify tenant isolation and authentication.
 
 **Section sources**
 - [parser_service.py:175-181](file://app/backend/services/parser_service.py#L175-L181)
@@ -671,9 +758,10 @@ Common issues and resolutions:
 - [llm_contact_extractor.py:120-130](file://app/backend/services/llm_contact_extractor.py#L120-L130)
 - [weight_mapper.py:212-246](file://app/backend/services/weight_mapper.py#L212-L246)
 - [compare.py:42-47](file://app/backend/routes/compare.py#L42-L47)
+- [upload.py:85-97](file://app/backend/routes/upload.py#L85-L97)
 
 ## Conclusion
-The candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and auditability. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. The redesigned candidate comparison algorithm with comprehensive JSON safety checks provides robust comparison operations with priority-based data sources and multiple fallback mechanisms. Extensibility is provided through model additions, parser customization, skills registry updates, intelligent weight management, configurable field-level merge logic, and consistent API response structures. Privacy and lifecycle management should be considered for production deployments with enhanced attention to AI-generated metadata, data integrity protection, and unified API response structures.
+The candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and auditability. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. The redesigned candidate comparison algorithm with comprehensive JSON safety checks provides robust comparison operations with priority-based data sources and multiple fallback mechanisms. Extensibility is provided through model additions, parser customization, skills registry updates, intelligent weight management, configurable field-level merge logic, and consistent API response structures. Privacy and lifecycle management should be considered for production deployments with enhanced attention to AI-generated metadata, data integrity protection, and unified API response structures. **Updated**: The system now includes comprehensive resume file storage and retrieval capabilities, enabling complete data portability and secure access to original uploaded files with tenant isolation and security measures.
 
 ## Appendices
 
@@ -689,6 +777,9 @@ The candidate management system integrates robust parsing, deduplication, intell
 - GET /api/export/csv: Export screening results to CSV.
 - GET /api/export/excel: Export screening results to Excel.
 - POST /api/compare: Compare up to 5 screening results with enhanced safety checks.
+- **Updated**: GET /api/candidates/{candidate_id}/resume: Download or view original uploaded resume file.
+- **Updated**: POST /api/upload/chunk: Upload resume file in chunks for large file handling.
+- **Updated**: POST /api/upload/finalize: Finalize chunked upload and assemble complete file.
 
 **Section sources**
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
@@ -698,6 +789,9 @@ The candidate management system integrates robust parsing, deduplication, intell
 - [candidates.py:26-189](file://app/backend/routes/candidates.py#L26-L189)
 - [export.py:55-104](file://app/backend/routes/export.py#L55-L104)
 - [compare.py:16-77](file://app/backend/routes/compare.py#L16-L77)
+- [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
+- [upload.py:99-205](file://app/backend/routes/upload.py#L99-L205)
+- [upload.py:207-324](file://app/backend/routes/upload.py#L207-L324)
 
 ### Intelligent Scoring Weights Schema
 - **Legacy 4-weight**: skills, experience, stability, education
@@ -742,3 +836,32 @@ The candidate management system integrates robust parsing, deduplication, intell
 **Section sources**
 - [compare.py:17-158](file://app/backend/routes/compare.py#L17-L158)
 - [schemas.py:284-286](file://app/backend/models/schemas.py#L284-L286)
+
+### Resume File Storage Implementation Details
+**Database Schema**:
+- resume_filename: String column (255 characters) storing original filename
+- resume_file_data: LargeBinary column storing complete file bytes
+- resume_file_hash: String column (64 characters) for MD5 file hash
+
+**Storage Architecture**:
+- Direct LargeBinary storage eliminates external file system dependencies
+- Tenant isolation ensures data privacy and security
+- Automatic deduplication via file hash comparison
+- Efficient retrieval through dedicated API endpoint
+
+**Security Measures**:
+- Tenant-scoped queries prevent unauthorized access
+- Authentication required for all file access operations
+- MIME type validation prevents malicious file execution
+- Content-Disposition headers control file download behavior
+
+**API Integration**:
+- Seamless integration with existing analysis workflow
+- Optional file storage based on analysis requirements
+- Backward compatibility with existing candidate records
+- Efficient chunked upload system for large file handling
+
+**Section sources**
+- [db_models.py:112-116](file://app/backend/models/db_models.py#L112-L116)
+- [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
+- [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)

@@ -36,13 +36,12 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced AnalyzePage with auto-skip functionality for improved workflow efficiency
-- **NEW**: Implemented dual job context persistence system with IndexedDB integration for file-mode JD caching alongside sessionStorage for text-mode JDs
-- **NEW**: Added intelligent auto-skip functionality that detects existing job context and jumps directly to Step 3
-- **NEW**: Enhanced job description context persistence using both sessionStorage (for text-mode JDs) and IndexedDB (for file-mode JDs) to provide seamless "Analyze Another Resume" experience
-- **NEW**: Added intelligent routing that detects existing job context and optimizes user journey
-- **NEW**: Improved batch analysis workflow with persistent job context for repeated analysis scenarios
-- **NEW**: Added comprehensive IndexedDB helper functions for JD file caching with transaction management and error handling
+- Enhanced CandidatesPage.jsx with resume access buttons (View/Download) in candidate detail modal
+- Enhanced ReportPage.jsx with resume access buttons (View/Download) in sticky action bar
+- Added comprehensive resume file handling with proper MIME type detection and user experience improvements
+- Implemented proper filename generation with candidate name fallback
+- Added loading states and error handling for resume access operations
+- Integrated backend resume file endpoints with proper content-type handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -168,8 +167,8 @@ AS --> CSP
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
-- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
-- [CandidatesPage.jsx:1-204](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L204)
+- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
+- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
 - [UploadForm.jsx:1-484](file://app/frontend/src/components/UploadForm.jsx#L1-L484)
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
@@ -179,7 +178,7 @@ AS --> CSP
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
-- [api.js:1-952](file://app/frontend/src/lib/api.js#L1-L952)
+- [api.js:1-967](file://app/frontend/src/lib/api.js#L1-L967)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 **Section sources**
@@ -203,8 +202,8 @@ AS --> CSP
 - **ResultCard**: Comprehensive analysis results with collapsible sections, explainability, skills radar, interview kit, email generation, and XSS protection.
 - **ScoreGauge**: Visual fit score with thresholds and pending state.
 - **Timeline**: Employment history visualization with gaps and severity indicators.
-- **CandidatesPage**: List and search candidates with pagination and detail modal.
-- **ReportPage**: Single-result presentation with sharing, printing, labeling, inline editing, and **dual job context persistence for "Analyze Another Resume" workflow**.
+- **CandidatesPage**: List and search candidates with pagination and detail modal, **enhanced with resume access buttons (View/Download)**.
+- **ReportPage**: Single-result presentation with sharing, printing, labeling, inline editing, and **dual job context persistence for "Analyze Another Resume" workflow**, **enhanced with resume access buttons**.
 - **ComparisonView**: Side-by-side analysis comparison with universal string sanitization.
 - **AdminDashboardPage**: Comprehensive platform administration interface with tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 - **AuthContext**: JWT lifecycle, login/register/logout, and tenant/user state.
@@ -213,6 +212,7 @@ AS --> CSP
 - **Streaming Analysis**: SSE-based real-time updates for both single and batch analysis workflows.
 - **XSS Protection**: Universal string sanitization through safeStr utility function across all components.
 - **Platform Administration**: Complete administrative interface for tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- **Resume Access System**: **NEW**: Comprehensive resume file handling with proper MIME type detection, filename generation, and user experience improvements.
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
@@ -229,14 +229,14 @@ AS --> CSP
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
 - [Timeline.jsx:1-115](file://app/frontend/src/components/Timeline.jsx#L1-L115)
-- [CandidatesPage.jsx:1-204](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L204)
-- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
+- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
-- [api.js:823-952](file://app/frontend/src/lib/api.js#L823-L952)
+- [api.js:556-569](file://app/frontend/src/lib/api.js#L556-L569)
 
 ## Architecture Overview
 The frontend follows a layered architecture with enhanced error handling, redesigned analysis flow, comprehensive XSS protection, and comprehensive platform administration capabilities:
@@ -257,6 +257,7 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - **NEW**: Security Headers and CSP configuration protect against XSS and other web vulnerabilities.
 - **NEW**: Platform Administration System provides comprehensive tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 - **NEW**: Dual Job Context Persistence System provides seamless workflow continuity using both sessionStorage (for text-mode JDs) and IndexedDB (for file-mode JDs).
+- **NEW**: Resume Access System provides comprehensive resume file handling with proper MIME type detection, filename generation, and user experience improvements.
 
 ```mermaid
 sequenceDiagram
@@ -269,6 +270,7 @@ participant S as "AppShell"
 participant DN as "DashboardNew"
 participant AP as "AnalyzePage"
 participant RP as "ReportPage"
+participant CP as "CandidatesPage"
 participant BP as "BatchPage"
 participant ADP as "AdminDashboardPage"
 participant UWP as "UniversalWeightsPanel"
@@ -302,12 +304,21 @@ AP->>SEC : Apply XSS Protection
 AP->>SEC : Persist job context to sessionStorage
 RP->>SEC : Load job context from sessionStorage
 RP->>AP : "Analyze Another Resume" with pre-filled context
-S->>ADP : Navigate to "/admin"
-ADP->>PAR : Check platform admin
-alt Not platform admin
-PAR-->>U : Redirect to "/"
-else Platform admin
-PAR->>S : Render admin dashboard
+RP->>API : viewCandidateResume / downloadCandidateResume
+API->>BE : Serve resume file with proper MIME type
+BE-->>RP : Return blob with content-type
+RP->>SEC : Apply XSS Protection
+RP->>S : Show resume in new tab or download
+S->>CP : Navigate to "/candidates"
+CP->>API : getCandidates / getCandidate
+API->>BE : Fetch candidate data
+BE-->>CP : Return candidate with resume info
+CP->>SEC : Apply XSS Protection
+CP->>API : viewCandidateResume / downloadCandidateResume
+API->>BE : Serve resume file with proper MIME type
+BE-->>CP : Return blob with content-type
+CP->>SEC : Apply XSS Protection
+CP->>S : Show resume in new tab or download
 S-->>U : Admin interface with tabs
 end
 end
@@ -321,21 +332,146 @@ end
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
 - [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
 - [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
-- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
+- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
+- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
-- [api.js:823-952](file://app/frontend/src/lib/api.js#L823-L952)
+- [api.js:556-569](file://app/frontend/src/lib/api.js#L556-L569)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 **Section sources**
 - [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
-- [api.js:823-952](file://app/frontend/src/lib/api.js#L823-L952)
+- [api.js:556-569](file://app/frontend/src/lib/api.js#L556-L569)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 ## Detailed Component Analysis
+
+### Enhanced CandidatesPage with Resume Access Buttons
+**Updated** The CandidatesPage now includes comprehensive resume access functionality with View/Download buttons in the candidate detail modal.
+
+- **Candidate Detail Modal**: Enhanced with resume access buttons for each candidate
+- **View Resume Button**: Opens resume in new browser tab using proper MIME type handling
+- **Download Resume Button**: Downloads resume with appropriate filename generation
+- **Loading States**: Proper loading indicators during resume access operations
+- **Error Handling**: Graceful error handling with user-friendly alerts
+- **Filename Generation**: Smart filename generation using candidate name or ID fallback
+- **Icon Integration**: Uses Eye icon for view and FileText icon for download actions
+
+```mermaid
+flowchart TD
+Start(["CandidatesPage"]) --> Modal["Candidate Detail Modal"]
+Modal --> ViewBtn["View Resume Button"]
+Modal --> DownloadBtn["Download Resume Button"]
+ViewBtn --> ViewAPI["viewCandidateResume()"]
+DownloadBtn --> DownloadAPI["downloadCandidateResume()"]
+ViewAPI --> BlobURL["Create Object URL"]
+BlobURL --> NewTab["Open in New Tab"]
+DownloadAPI --> BlobURL2["Create Object URL"]
+BlobURL2 --> DownloadFile["Trigger Download"]
+NewTab --> Cleanup["Cleanup Object URL"]
+DownloadFile --> Cleanup2["Cleanup Object URL"]
+Cleanup --> End["Operation Complete"]
+Cleanup2 --> End
+```
+
+**Diagram sources**
+- [CandidatesPage.jsx:49-66](file://app/frontend/src/pages/CandidatesPage.jsx#L49-L66)
+- [api.js:563-569](file://app/frontend/src/lib/api.js#L563-L569)
+
+**Section sources**
+- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+
+### Enhanced ReportPage with Resume Access Buttons
+**Updated** The ReportPage now includes comprehensive resume access functionality with View/Download buttons in the sticky action bar.
+
+- **Sticky Action Bar**: Contains resume access buttons alongside other actions
+- **View Resume Button**: Opens resume in new browser tab with proper MIME type handling
+- **Download Resume Button**: Downloads resume with intelligent filename generation
+- **Loading States**: Disabled state during resume access operations
+- **Error Handling**: Graceful error handling with user-friendly alerts
+- **Filename Generation**: Uses candidate name for filename when available, falls back to ID
+- **Icon Integration**: Uses Eye icon for view and FileText icon for download actions
+
+```mermaid
+flowchart TD
+Start(["ReportPage"]) --> ActionBar["Sticky Action Bar"]
+ActionBar --> ViewBtn["View Resume Button"]
+ActionBar --> DownloadBtn["Download Resume Button"]
+ActionBar --> OtherBtns["Other Actions"]
+ViewBtn --> ViewAPI["viewCandidateResume()"]
+DownloadBtn --> DownloadAPI["downloadCandidateResume()"]
+ViewAPI --> BlobURL["Create Object URL"]
+BlobURL --> NewTab["Open in New Tab"]
+DownloadAPI --> BlobURL2["Create Object URL"]
+BlobURL2 --> DownloadFile["Trigger Download"]
+NewTab --> Cleanup["Cleanup Object URL"]
+DownloadFile --> Cleanup2["Cleanup Object URL"]
+Cleanup --> End["Operation Complete"]
+Cleanup2 --> End
+```
+
+**Diagram sources**
+- [ReportPage.jsx:450-477](file://app/frontend/src/pages/ReportPage.jsx#L450-L477)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+
+**Section sources**
+- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+
+### Resume Access System Architecture
+**New** The resume access system provides comprehensive file handling with proper MIME type detection and user experience improvements.
+
+#### Backend Implementation
+The backend implements intelligent MIME type detection and content-disposition handling:
+
+- **PDF Files**: Served inline for browser preview
+- **DOCX/DOC/ODT Files**: Force download with proper filename
+- **TXT/RTF Files**: Force download with proper filename
+- **Fallback**: Generic binary stream with attachment
+- **Filename Handling**: Uses stored filename or generates fallback
+
+#### Frontend Implementation
+The frontend provides robust resume access with proper error handling:
+
+- **viewCandidateResume()**: Opens resume in new tab using Blob URL
+- **downloadCandidateResume()**: Downloads resume with proper filename and MIME type
+- **Error Handling**: Graceful error handling with user feedback
+- **Loading States**: Disabled states during operations
+- **Cleanup**: Automatic URL cleanup after 30 seconds
+
+```mermaid
+sequenceDiagram
+participant Client as "Client"
+participant API as "API Layer"
+participant Backend as "Backend"
+participant Browser as "Browser"
+Client->>API : viewCandidateResume(candidateId)
+API->>Backend : GET /candidates/{id}/resume
+Backend->>Backend : Detect MIME type
+Backend->>Backend : Set Content-Disposition
+Backend-->>API : Return Blob with headers
+API->>API : Extract content-type
+API->>Browser : Create Object URL
+Browser-->>Client : Open in new tab
+Client->>API : downloadCandidateResume(candidateId, filename)
+API->>Backend : GET /candidates/{id}/resume
+Backend-->>API : Return Blob with headers
+API->>API : Extract content-type
+API->>Browser : Create Object URL
+Browser-->>Client : Trigger download
+```
+
+**Diagram sources**
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
+
+**Section sources**
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 
 ### Enhanced DashboardNew Landing Page
 DashboardNew serves as the new primary landing page replacing the legacy Dashboard:
@@ -693,6 +829,7 @@ Admin --> |No platform admin| Redirect2["Navigate to /"]
 - **NEW**: Chunked upload endpoints (/upload/chunk, /upload/finalize, /upload/cancel) integrated.
 - **NEW**: Real-time progress callbacks for upload and analysis operations.
 - **NEW**: Comprehensive admin endpoints for tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- **NEW**: Resume access endpoints (/candidates/{id}/resume) with proper MIME type handling.
 - Exposes domain-specific functions for analysis, batch, history, comparison, exports, templates, candidates, email generation, JD URL extraction, team actions, training, video, transcript, health, subscription management, and admin operations.
 
 ```mermaid
@@ -726,7 +863,7 @@ SSE-->>C : Stream events
 - [api.js:64-90](file://app/frontend/src/lib/api.js#L64-L90)
 
 **Section sources**
-- [api.js:1-952](file://app/frontend/src/lib/api.js#L1-L952)
+- [api.js:1-967](file://app/frontend/src/lib/api.js#L1-L967)
 
 ### UploadForm
 - Supports three job description modes: text, file, URL.
@@ -850,9 +987,14 @@ D->>RP : Navigate("/report", {state : result})
 **Section sources**
 - [Dashboard.jsx:1-330](file://app/frontend/src/pages/Dashboard.jsx#L1-L330)
 
-### CandidatesPage
+### Enhanced CandidatesPage
+**Updated** CandidatesPage now includes comprehensive resume access functionality with View/Download buttons in the candidate detail modal.
+
 - Lists candidates with search, pagination, and detail modal showing history and quick navigation to reports.
 - **Enhanced**: Real-time updates for streaming analysis results.
+- **Enhanced**: Resume access buttons (View/Download) with proper MIME type handling.
+- **Enhanced**: Filename generation with candidate name fallback.
+- **Enhanced**: Loading states and error handling for resume operations.
 - **NEW**: XSS protection through safeStr sanitization for all dynamic content.
 
 ```mermaid
@@ -861,19 +1003,31 @@ Start(["CandidatesPage"]) --> Fetch["getCandidates({search, page, page_size})"]
 Fetch --> Render["Render table + pagination"]
 Render --> Detail{"Open detail?"}
 Detail --> |Yes| Modal["CandidateDetail modal"]
+Modal --> ViewBtn["View Resume Button"]
+Modal --> DownloadBtn["Download Resume Button"]
+ViewBtn --> ViewAPI["viewCandidateResume()"]
+DownloadBtn --> DownloadAPI["downloadCandidateResume()"]
+ViewAPI --> SEC["Apply XSS Protection"]
+DownloadAPI --> SEC
+SEC --> Browser["Open/Download in Browser"]
 Detail --> |No| Idle["Idle"]
 ```
 
 **Diagram sources**
-- [CandidatesPage.jsx:1-204](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L204)
-- [api.js:579-582](file://app/frontend/src/lib/api.js#L579-L582)
+- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 
 **Section sources**
-- [CandidatesPage.jsx:1-204](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L204)
+- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
 
-### ReportPage
+### Enhanced ReportPage
+**Updated** ReportPage now includes comprehensive resume access functionality with View/Download buttons in the sticky action bar.
+
 - Presents a single result with sidebar actions (share, download PDF), inline candidate name editor, label training buttons, and full ResultCard plus Timeline.
 - **Enhanced**: Job context persistence system with sessionStorage integration for seamless "Analyze Another Resume" workflow.
+- **Enhanced**: Resume access buttons (View/Download) with proper MIME type handling.
+- **Enhanced**: Filename generation with candidate name fallback.
+- **Enhanced**: Loading states and error handling for resume operations.
 - **NEW**: Intelligent job context detection and utilization for improved user experience.
 
 ```mermaid
@@ -886,18 +1040,24 @@ RP->>RC : Render with result
 RP->>TL : Render with work_experience + gaps
 RP->>API : labelTrainingExample(result_id, outcome)
 RP->>API : updateResultStatus(result_id, outcome)
-RP->>RP : Load job context from sessionStorage
+RP->>API : viewCandidateResume / downloadCandidateResume
+API-->>RP : Return blob with content-type
+RP->>SEC : Apply XSS Protection
+RP->>Browser : Open/Download resume
+RP->>API : updateCandidateName (if edited)
+RP->>API : Load job context from sessionStorage
 RP->>RP : Show "Analyze Another Resume" button
 ```
 
 **Diagram sources**
-- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
+- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [Timeline.jsx:1-115](file://app/frontend/src/components/Timeline.jsx#L1-L115)
 - [api.js:625-628](file://app/frontend/src/lib/api.js#L625-L628)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 
 **Section sources**
-- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
+- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
 
 ### Subscription Management Hooks
 - useSubscription provides cached subscription data, available plans, usage stats, feature checks, and optimistic refresh after analysis.
@@ -1070,7 +1230,7 @@ The admin system integrates with comprehensive backend APIs:
 - **Notifications**: SMTP configuration and testing
 
 **Section sources**
-- [api.js:823-952](file://app/frontend/src/lib/api.js#L823-L952)
+- [api.js:823-967](file://app/frontend/src/lib/api.js#L823-L967)
 
 ## XSS Protection Architecture
 
@@ -1138,6 +1298,17 @@ All core components implement comprehensive XSS protection:
 - Job role and analysis metadata
 - Recommendation badges and status indicators
 - Narrative content and AI enhancements
+- **NEW**: Resume access buttons with proper XSS protection
+
+**CandidatesPage.jsx**: Implements safeStr for candidate content:
+- Candidate names, emails, and scores
+- Application history and status
+- Resume access buttons with proper XSS protection
+
+**Resume Access System**: Implements safeStr for filename generation:
+- Candidate names for resume filenames
+- Fallback IDs for resume filenames
+- XSS protection for dynamic content
 
 #### Defensive Programming Approaches
 The XSS protection architecture follows defensive programming principles:
@@ -1179,6 +1350,7 @@ EmptyString --> Sanitized
 - [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
 - [AnalyzePage.jsx:13-19](file://app/frontend/src/pages/AnalyzePage.jsx#L13-L19)
 - [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
+- [CandidatesPage.jsx:6-12](file://app/frontend/src/pages/CandidatesPage.jsx#L6-L12)
 
 **Section sources**
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
@@ -1188,6 +1360,7 @@ EmptyString --> Sanitized
 - [AdminDashboardPage.jsx:13-19](file://app/frontend/src/pages/AdminDashboardPage.jsx#L13-L19)
 - [AnalyzePage.jsx:13-19](file://app/frontend/src/pages/AnalyzePage.jsx#L13-L19)
 - [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
+- [CandidatesPage.jsx:6-12](file://app/frontend/src/pages/CandidatesPage.jsx#L6-L12)
 
 ## Security Headers and CSP
 
@@ -1286,6 +1459,7 @@ The security audit identified important CSP implementation gaps:
 - **NEW**: html2pdf.js for PDF generation with built-in sanitization.
 - **NEW**: Comprehensive admin dashboard with 9 tabbed interfaces.
 - **NEW**: IndexedDB for file-mode job description caching.
+- **NEW**: Resume access system with proper MIME type handling.
 
 ```mermaid
 graph LR
@@ -1323,6 +1497,9 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Session storage optimization: Efficient job context persistence without localStorage overhead.
 - **NEW**: IndexedDB optimization: Efficient file-mode JD caching with transaction management and error handling.
 - **NEW**: Dual storage strategy: Balances sessionStorage performance with IndexedDB reliability for file-mode JDs.
+- **NEW**: Resume access optimization: Blob URL creation and cleanup prevents memory leaks.
+- **NEW**: MIME type detection: Efficient file type handling reduces unnecessary processing.
+- **NEW**: Filename generation: Smart fallback prevents errors and improves user experience.
 - Image/icon assets: lucide-react icons are tree-shaken; keep only used icons.
 - **Enhanced**: Error boundaries prevent cascading failures and improve perceived performance.
 - **Enhanced**: Retry mechanisms with exponential backoff reduce user frustration from transient failures.
@@ -1352,6 +1529,9 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: IndexedDB integration testing with file-mode JD caching and retrieval scenarios.
 - **NEW**: Dual storage strategy testing with both sessionStorage and IndexedDB operations.
 - **NEW**: Intelligent job context detection testing with automatic file-mode JD loading.
+- **NEW**: Resume access testing with proper MIME type handling and filename generation.
+- **NEW**: View/download functionality testing with browser compatibility and error scenarios.
+- **NEW**: Blob URL creation and cleanup testing to prevent memory leaks.
 
 **Section sources**
 - [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
@@ -1386,6 +1566,11 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Design components to handle dual storage strategy with automatic context detection and utilization patterns.
 - **NEW**: Implement IndexedDB helper functions for file caching with transaction management and error handling.
 - **NEW**: Add intelligent job context detection logic for seamless workflow continuity across browser sessions.
+- **NEW**: Implement comprehensive resume access functionality with proper MIME type handling.
+- **NEW**: Add filename generation with smart fallback strategies.
+- **NEW**: Implement proper error handling for resume access operations.
+- **NEW**: Add loading states and user feedback for resume operations.
+- **NEW**: Test resume access functionality across different browsers and file types.
 
 ## Accessibility and Responsive Design
 - Accessible semantics: Buttons, inputs, and modals use appropriate roles and labels; focus management in dialogs.
@@ -1411,6 +1596,8 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Auto-skip functionality provides accessible workflow optimization for experienced users.
 - **NEW**: Job context persistence maintains accessibility across page navigation and state restoration.
 - **NEW**: Dual storage strategy maintains accessibility with automatic context detection and seamless workflow.
+- **NEW**: Resume access buttons maintain accessibility with proper ARIA labels and keyboard navigation.
+- **NEW**: Filename generation maintains accessibility with meaningful fallbacks for screen readers.
 
 ## Error Handling and Resilience
 
@@ -1471,6 +1658,14 @@ The application implements comprehensive error handling at multiple levels:
 - **Memory Management**: Efficient cleanup of temporary storage when analysis completes
 - **Context Synchronization**: Ensures consistency between sessionStorage and IndexedDB
 
+#### Resume Access Error Handling
+- **Blob URL Creation**: Proper error handling for Blob URL creation and cleanup
+- **MIME Type Detection**: Graceful fallback when MIME type detection fails
+- **Filename Generation**: Smart fallback strategies prevent errors
+- **Loading States**: Disabled states during operations prevent race conditions
+- **Browser Compatibility**: Graceful fallback for unsupported browsers
+- **Memory Management**: Automatic URL cleanup prevents memory leaks
+
 ```mermaid
 flowchart TD
 Error["Error Occurs"] --> Level{"Error Level"}
@@ -1484,6 +1679,7 @@ Level --> |Admin| AdminError["Admin Dashboard Error"]
 Level --> |AutoSkip| AutoSkipError["Auto-skip Logic Error"]
 Level --> |JobContext| JobContextError["Job Context Error"]
 Level --> |DualStorage| DualStorageError["Dual Storage Error"]
+Level --> |ResumeAccess| ResumeAccessError["Resume Access Error"]
 AppBoundary --> UserMsg["User-Friendly Message"]
 UserMsg --> Retry["Retry Options"]
 Retry --> Manual["Manual Retry"]
@@ -1510,6 +1706,7 @@ AdminError --> BulkError["Handle Bulk Operation Error"]
 AutoSkipError --> Fallback["Fallback to Normal Workflow"]
 JobContextError --> Fallback
 DualStorageError --> Fallback["Fallback to Alternative Storage"]
+ResumeAccessError --> Fallback["Fallback to Alternative Method"]
 Fallback --> NormalFlow["Normal Step-by-step"]
 ```
 
@@ -1523,6 +1720,7 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
@@ -1534,6 +1732,7 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 
 ## Troubleshooting Guide
 - Authentication issues: Verify tokens in localStorage; AuthContext clears tokens on 401; check interceptor retry flow.
@@ -1567,6 +1766,11 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - **NEW**: Dual storage strategy failures: Verify automatic context detection and fallback mechanisms.
 - **NEW**: File-mode JD caching issues: Check IndexedDB file storage and retrieval operations.
 - **NEW**: Intelligent job context detection failures: Verify automatic file-mode JD loading from IndexedDB.
+- **NEW**: Resume access failures: Verify MIME type detection and filename generation.
+- **NEW**: View/Download button issues: Check browser compatibility and Blob URL creation.
+- **NEW**: Blob URL cleanup problems: Verify automatic cleanup prevents memory leaks.
+- **NEW**: Filename generation errors: Test fallback strategies and XSS protection.
+- **NEW**: Loading state issues: Verify disabled states during resume operations.
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
@@ -1585,6 +1789,7 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 
 ## Conclusion
 The Resume AI frontend is a modular, scalable React 18 application with clear separation between routing, state, UI components, and API integration. It leverages modern tooling, robust authentication and subscription management, comprehensive error handling through ErrorBoundary components, and enhanced API retry mechanisms with exponential backoff. The architecture now provides graceful degradation, improved resilience against transient failures, and a cohesive design system to deliver a responsive, accessible, and performant user experience even under adverse conditions.
@@ -1598,5 +1803,7 @@ The major enhancements include comprehensive streaming analysis capabilities wit
 **NEW**: The implementation of a comprehensive Platform Admin Dashboard provides enterprise-grade administrative capabilities with tenant management, audit logging, feature flag management, webhook configuration, metrics dashboards, billing configuration, and notification settings. This represents a significant expansion of the platform's capabilities and demonstrates the scalability and extensibility of the frontend architecture.
 
 **NEW**: The implementation of a dual job context persistence system with IndexedDB integration represents a significant advancement in workflow continuity and user experience. By combining sessionStorage for text-mode JDs with IndexedDB for file-mode JDs, the system provides seamless "Analyze Another Resume" functionality that maintains user context across browser sessions while optimizing performance and reliability.
+
+**NEW**: The implementation of a comprehensive resume access system with proper MIME type detection, filename generation, and user experience improvements represents a significant enhancement to the candidate management workflow. The system now provides seamless resume viewing and downloading capabilities with proper browser integration, intelligent filename fallbacks, and robust error handling.
 
 The architecture successfully balances modern development practices with enterprise requirements, providing a solid foundation for continued growth and feature expansion while maintaining high standards for security, performance, and user experience.

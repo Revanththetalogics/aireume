@@ -25,11 +25,9 @@
 
 ## Update Summary
 **Changes Made**
-- Added new chunked upload endpoints for handling large file uploads
-- Added new queue API endpoints for job management and monitoring
-- Enhanced analysis endpoints with LLM narrative enrichment
-- Added intelligent scoring weight management system with AI suggestions
-- Updated analysis endpoints to support both streaming and queued processing modes
+- Added documentation for new resume download endpoint (/api/candidates/{candidate_id}/resume) with support for multiple file formats (PDF, DOCX, DOC, ODT, TXT, RTF)
+- Updated API functions documentation to include downloadCandidateResume and viewCandidateResume
+- Enhanced candidate management endpoints with resume file storage and retrieval capabilities
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -175,6 +173,10 @@ R_QUEUE --> WM
   - Asynchronous job processing with priority queuing
   - Real-time job status monitoring
   - Administrative job operations (retry, cancel)
+- Resume File Management
+  - Storage of original uploaded resume files
+  - Support for multiple file formats (PDF, DOCX, DOC, ODT, TXT, RTF)
+  - Inline preview for PDFs, forced download for other formats
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -185,6 +187,7 @@ R_QUEUE --> WM
 - [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
 - [weight_suggester.py:23-307](file://app/backend/services/weight_suggester.py#L23-307)
 - [queue_api.py:34-464](file://app/backend/routes/queue_api.py#L34-L464)
+- [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 
 ## Architecture Overview
 The API follows a layered architecture:
@@ -193,6 +196,7 @@ The API follows a layered architecture:
 - Services orchestrate analysis, LLM interactions, and intelligent scoring
 - Database models persist state, usage metrics, and job queues
 - Queue system manages asynchronous job processing with priority scheduling
+- File storage system handles resume file management with multiple format support
 
 ```mermaid
 sequenceDiagram
@@ -202,6 +206,7 @@ participant U as "User"
 participant T as "Tenant"
 participant S as "Subscription Router"
 participant Q as "Queue Manager"
+participant F as "File Storage"
 C->>A : POST /api/auth/register
 A->>U : Create admin user
 A->>T : Create tenant
@@ -212,12 +217,15 @@ S-->>C : FullSubscriptionResponse
 C->>Q : POST /api/queue/submit
 Q->>Q : Enqueue job with priority
 Q-->>C : Job queued successfully
+C->>F : GET /api/candidates/{id}/resume
+F->>C : Resume file (PDF inline, others forced download)
 ```
 
 **Diagram sources**
 - [auth.py:57-96](file://app/backend/routes/auth.py#L57-L96)
 - [subscription.py:172-253](file://app/backend/routes/subscription.py#L172-L253)
 - [queue_api.py:38-76](file://app/backend/routes/queue_api.py#L38-L76)
+- [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 
 ## Detailed Component Analysis
 
@@ -380,12 +388,18 @@ Priority system:
   - Body: AnalyzeJdRequest (job_description, scoring_weights)
   - Response: AnalysisResponse (re-run scoring against stored profile)
   - Behavior: Uses DB JD cache; avoids full parse; faster than full re-upload
+- GET /api/candidates/{candidate_id}/resume
+  - Response: Binary file stream (PDF inline preview, others forced download)
+  - Behavior: Returns original uploaded resume file with appropriate MIME type and Content-Disposition header
+
+**Updated** Added new resume download endpoint that serves the original uploaded resume file with format-specific behavior
 
 **Section sources**
-- [candidates.py:26-80](file://app/backend/routes/candidates.py#L26-L80)
-- [candidates.py:83-99](file://app/backend/routes/candidates.py#L83-L99)
-- [candidates.py:102-189](file://app/backend/routes/candidates.py#L102-L189)
-- [candidates.py:192-302](file://app/backend/routes/candidates.py#L192-L302)
+- [candidates.py:40-114](file://app/backend/routes/candidates.py#L40-L114)
+- [candidates.py:117-134](file://app/backend/routes/candidates.py#L117-L134)
+- [candidates.py:136-348](file://app/backend/routes/candidates.py#L136-L348)
+- [candidates.py:351-501](file://app/backend/routes/candidates.py#L351-L501)
+- [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 - [schemas.py:22-26](file://app/backend/models/schemas.py#L22-L26)
 
 ### Template Management Endpoints
@@ -500,6 +514,21 @@ Limits and billing:
 - [training.py:137-152](file://app/backend/routes/training.py#L137-L152)
 - [schemas.py:281-292](file://app/backend/models/schemas.py#L281-L292)
 
+### Resume File Management Endpoints
+- GET /api/candidates/{candidate_id}/resume
+  - Response: Binary file stream with appropriate MIME type and Content-Disposition header
+  - Behavior: Returns original uploaded resume file
+  - Format-specific behavior:
+    - PDF: inline preview in browser
+    - DOCX/DOC/ODT/TXT/RTF: forced download with appropriate filename
+  - Security: Requires authenticated access and tenant scoping
+
+**New** Added comprehensive resume file management with multiple format support and format-specific delivery behavior
+
+**Section sources**
+- [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
+- [db_models.py:112-133](file://app/backend/models/db_models.py#L112-L133)
+
 ### Additional Diagnostics
 - GET /
   - Response: { message, version, docs }
@@ -521,6 +550,8 @@ Key dependencies and relationships:
 - Queue API depends on queue manager for job orchestration
 - Upload routes handle chunked file processing with temporary storage
 - Weight management system provides intelligent scoring with AI suggestions
+- Candidate routes now include resume file storage and retrieval functionality
+- File storage system handles binary resume data with format detection
 
 ```mermaid
 graph LR
@@ -552,6 +583,7 @@ ANALYZE --> WS["Weight Suggester"]
 ANALYZE --> WM["Weight Mapper"]
 UPLOAD --> WS
 QUEUE --> WM
+CAND --> RESUME["Resume File Storage"]
 ```
 
 **Diagram sources**
@@ -584,6 +616,7 @@ QUEUE --> WM
 - Job queue system provides scalable asynchronous processing with priority scheduling
 - Intelligent weight system optimizes scoring accuracy with AI-powered suggestions
 - Frontend client sets reasonable timeouts for long-running operations
+- Resume file storage uses efficient binary storage with format-specific delivery optimization
 
 ## Troubleshooting Guide
 Common errors and resolutions:
@@ -597,13 +630,13 @@ Common errors and resolutions:
   - Cause: Invalid file type, oversized file, insufficient JD length, invalid JSON, chunk validation errors
   - Resolution: Validate inputs and file constraints
 - 404 Not Found
-  - Cause: Resource not found (user, candidate, template, result, job)
+  - Cause: Resource not found (user, candidate, template, result, job, resume file)
   - Resolution: Verify IDs and tenant scoping
 - 429 Too Many Requests
   - Cause: Monthly analysis limit exceeded
   - Resolution: Upgrade plan or wait for reset
 - 500 Internal Server Error
-  - Cause: Pipeline or LLM failures, queue processing errors
+  - Cause: Pipeline or LLM failures, queue processing errors, file storage failures
   - Resolution: Retry or check /health and /api/llm-status
 - 503 Service Unavailable
   - Cause: Queue system overloaded, LLM service unavailable
@@ -617,9 +650,10 @@ Common errors and resolutions:
 - [email_gen.py:77-96](file://app/backend/routes/email_gen.py#L77-L96)
 - [upload.py:128-156](file://app/backend/routes/upload.py#L128-L156)
 - [queue_api.py:323-344](file://app/backend/routes/queue_api.py#L323-L344)
+- [candidates.py:519-526](file://app/backend/routes/candidates.py#L519-L526)
 
 ## Conclusion
-This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. Clients should implement token refresh, handle streaming events, respect rate limits, and utilize the queue system for optimal performance. Administrators can manage plans, usage, and queue operations via dedicated endpoints.
+This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. The new resume file management system provides comprehensive support for multiple file formats with format-specific delivery behavior. Clients should implement token refresh, handle streaming events, respect rate limits, utilize the queue system for optimal performance, and leverage the resume file management for seamless candidate file handling. Administrators can manage plans, usage, and queue operations via dedicated endpoints.
 
 ## Appendices
 
@@ -663,6 +697,22 @@ This API provides a robust foundation for AI-powered resume screening with stron
 **Section sources**
 - [queue_api.py:34-464](file://app/backend/routes/queue_api.py#L34-L464)
 
+### Resume File Management System
+- Supported formats: PDF, DOCX, DOC, ODT, TXT, RTF
+- Format-specific delivery behavior:
+  - PDF: inline preview in browser
+  - Other formats: forced download with appropriate filename
+- Binary storage using LargeBinary column type
+- Filename preservation and format detection
+- MIME type determination based on file extension
+- Content-Disposition header for proper browser behavior
+
+**New** Comprehensive resume file management system with multiple format support and optimized delivery behavior
+
+**Section sources**
+- [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
+- [db_models.py:112-133](file://app/backend/models/db_models.py#L112-L133)
+
 ### Example Client Integrations
 - JavaScript (frontend)
   - Axios client with interceptors for token injection and auto-refresh
@@ -670,21 +720,25 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Chunked upload implementation with progress tracking
   - Queue job monitoring with polling
   - Batch uploads and exports
+  - Resume file download and preview with format-specific behavior
 - Python (backend)
   - Use requests or aiohttp to call endpoints
   - Manage bearer tokens and handle 401/429 responses
   - Implement chunked upload with proper error handling
   - Monitor queue jobs with retry logic
+  - Handle binary file downloads with appropriate response types
 - Go
   - Use net/http or gorilla/mux
   - Implement JWT verification and bearer token parsing
   - Handle chunked upload streams and queue operations
+  - Process binary resume file responses with proper MIME type handling
 
 **Section sources**
 - [api.js:9-43](file://app/frontend/src/lib/api.js#L9-L43)
 - [api.js:47-147](file://app/frontend/src/lib/api.js#L47-L147)
 - [api.js:149-165](file://app/frontend/src/lib/api.js#L149-L165)
 - [api.js:183-200](file://app/frontend/src/lib/api.js#L183-L200)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 
 ### Request/Response Schemas
 - AnalysisResponse
@@ -704,6 +758,8 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - job_id, status, progress_percent, processing_stage, timing information
 - WeightSuggestionResponse
   - role_category, seniority_level, suggested_weights, reasoning, confidence, role_excellence_label
+- ResumeFileResponse
+  - Binary file stream with appropriate MIME type and Content-Disposition header
 
 **Section sources**
 - [schemas.py:89-136](file://app/backend/models/schemas.py#L89-L136)
@@ -756,6 +812,8 @@ class Candidate {
 +string email
 +string phone
 +string resume_file_hash
++string resume_filename
++LargeBinary resume_file_data
 +string raw_resume_text
 +string parsed_skills
 +string parsed_education

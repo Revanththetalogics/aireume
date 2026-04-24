@@ -31,9 +31,30 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import TypedDict, Annotated, Any, Dict, List, Optional
 import operator
+import logging
 
 from langgraph.graph import StateGraph, START, END
 from langchain_ollama import ChatOllama
+
+from app.backend.services.guardrail_service import (
+    llm_invoke_with_retry,
+    validate_jd_output,
+    validate_resume_output,
+    validate_scorer_output,
+    check_cross_node_consistency,
+    detect_prompt_injection,
+    sanitize_for_injection,
+    ensemble_vote_3x,
+    vote_jd_parser,
+    vote_scorer,
+    hitl_gate_check,
+    get_token_budget_manager,
+    get_ab_test_tracker,
+    emit_guardrail_event,
+    estimate_tokens,
+    ConsistencyReport,
+    HITLFlag,
+)
 
 
 def _json_default(obj):
@@ -95,11 +116,18 @@ _jd_cache: Dict[str, dict] = {}
 
 _llm_request_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150")) + 30
 
+# Guardrail Tier 2+4: Feature flags
+_GUARDRAIL_ENSEMBLE_ENABLED = os.getenv("GUARDRAIL_ENSEMBLE_ENABLED", "false").lower() == "true"
+_GUARDRAIL_INJECTION_CHECK = os.getenv("GUARDRAIL_INJECTION_CHECK", "true").lower() == "true"
+_GUARDRAIL_TOKEN_BUDGET = os.getenv("GUARDRAIL_TOKEN_BUDGET", "true").lower() == "true"
 
-def get_fast_llm() -> ChatOllama:
+logger = logging.getLogger(__name__)
+
+
+def get_fast_llm(seed: Optional[int] = None) -> ChatOllama:
     """Fast model for jd_parser + resume_analyser. Singleton — never re-initialised."""
     global _fast_llm
-    if _fast_llm is None:
+    if _fast_llm is None and seed is None:
         _is_cloud = _is_ollama_cloud(OLLAMA_BASE_URL)
         # Cloud models need significantly more tokens for verbose output
         # Local: 600 tokens sufficient for combined schema
@@ -111,7 +139,7 @@ def get_fast_llm() -> ChatOllama:
             "model": OLLAMA_FAST_MODEL,
             "base_url": OLLAMA_BASE_URL,
             "temperature": 0.0,
-            "seed": 42,
+            "seed": seed if seed is not None else 42,
             "format": "json",
             "num_predict": _num_predict,
             "num_ctx": _num_ctx,
@@ -131,10 +159,10 @@ def get_fast_llm() -> ChatOllama:
     return _fast_llm
 
 
-def get_reasoning_llm() -> ChatOllama:
+def get_reasoning_llm(seed: Optional[int] = None) -> ChatOllama:
     """Reasoning model for combined scorer + interview questions. Singleton."""
     global _reasoning_llm
-    if _reasoning_llm is None:
+    if _reasoning_llm is None and seed is None:
         _is_cloud = _is_ollama_cloud(OLLAMA_BASE_URL)
         # Cloud models need significantly more tokens for verbose output
         # Local: 800 tokens sufficient for scorer + interview_questions
@@ -146,7 +174,7 @@ def get_reasoning_llm() -> ChatOllama:
             "model": OLLAMA_REASONING_MODEL,
             "base_url": OLLAMA_BASE_URL,
             "temperature": 0.0,
-            "seed": 42,
+            "seed": seed if seed is not None else 42,
             "format": "json",
             "num_predict": _num_predict,
             "num_ctx": _num_ctx,
@@ -360,12 +388,35 @@ async def jd_parser_node(state: PipelineState) -> dict:
         "required_skills": [], "required_years": 0,
         "nice_to_have_skills": [], "key_responsibilities": [],
     }
+    raw_jd = state["raw_jd_text"]
+    tenant_id = state.get("tenant_id")
+
+    # Guardrail Tier 2: Prompt injection detection
+    if _GUARDRAIL_INJECTION_CHECK:
+        is_suspicious, confidence, patterns = detect_prompt_injection(raw_jd)
+        if is_suspicious:
+            emit_guardrail_event(
+                "prompt_injection_blocked",
+                tenant_id=tenant_id,
+                metadata={"confidence": confidence, "patterns": patterns, "source": "jd_text"},
+            )
+            # Sanitize but continue processing
+            raw_jd = sanitize_for_injection(raw_jd)
+
     # Guardrail: increased truncation to capture full requirements section
-    jd_text = state["raw_jd_text"][:8000]
+    jd_text = raw_jd[:8000]
     # Guardrail: Phase 2 — cache key includes prompt version for auto-invalidation
     cache_key = hashlib.md5(f"{jd_text}:{_PROMPT_VERSION}".encode()).hexdigest()
     if cache_key in _jd_cache:
         return {"jd_analysis": _jd_cache[cache_key]}
+
+    # Guardrail Tier 4: Token budget check
+    if _GUARDRAIL_TOKEN_BUDGET and tenant_id:
+        budget_mgr = get_token_budget_manager()
+        has_budget, budget_info = await budget_mgr.check_budget(tenant_id, estimate_tokens(jd_text + _JD_PARSER_PROMPT))
+        if not has_budget:
+            emit_guardrail_event("token_budget_exceeded", tenant_id=tenant_id, metadata=budget_info)
+            return {"jd_analysis": fallback, "errors": [f"jd_parser: token budget exceeded for tenant {tenant_id}"]}
 
     # Guardrail: Phase 4 — circuit breaker: if hallucination rate is high, use rule-based fallback
     now = datetime.now().timestamp()
@@ -375,30 +426,77 @@ async def jd_parser_node(state: PipelineState) -> dict:
 
     use_llm = _hallucination_counter["count"] < _CIRCUIT_BREAKER_THRESHOLD
 
+    # Guardrail Tier 3: A/B test tracking
+    ab_tracker = get_ab_test_tracker()
+    variant_id = "jd_parser_v1"
+    prompt_hash = hashlib.md5(_JD_PARSER_PROMPT.encode()).hexdigest()[:8]
+    start_time = datetime.now().timestamp()
+
     try:
         if use_llm:
-            llm    = get_fast_llm()
             prompt = _JD_PARSER_PROMPT.format(jd_text=jd_text)
-            resp   = await llm.ainvoke(prompt)
-            raw_result = _parse_json(resp.content, fallback)
-            # Guardrail: sanitize output — remove hallucinated skills, normalize enums
-            result = _sanitize_jd_output(raw_result, state["raw_jd_text"])
 
-            # Guardrail: Phase 4 — detect hallucination and increment circuit breaker counter
-            raw_skills = raw_result.get("required_skills", []) if isinstance(raw_result, dict) else []
-            validated_skills = result.get("required_skills", [])
-            if len(raw_skills) > len(validated_skills):
-                _hallucination_counter["count"] += 1
+            if _GUARDRAIL_ENSEMBLE_ENABLED:
+                # Guardrail Tier 2: 3x voting ensemble
+                result = await ensemble_vote_3x(
+                    llm_factory=lambda s: get_fast_llm(seed=s),
+                    prompt=prompt,
+                    parse_fn=lambda content: _sanitize_jd_output(
+                        _parse_json(content, fallback), raw_jd
+                    ),
+                    vote_fn=vote_jd_parser,
+                )
+            else:
+                # Guardrail Tier 1: Retry with exponential backoff
+                llm = get_fast_llm()
+                resp = await llm_invoke_with_retry(llm.ainvoke, prompt)
+                raw_result = _parse_json(resp.content, fallback)
+                # Guardrail: sanitize output — remove hallucinated skills, normalize enums
+                result = _sanitize_jd_output(raw_result, raw_jd)
+
+                # Guardrail: Phase 4 — detect hallucination and increment circuit breaker counter
+                raw_skills = raw_result.get("required_skills", []) if isinstance(raw_result, dict) else []
+                validated_skills = result.get("required_skills", [])
+                if len(raw_skills) > len(validated_skills):
+                    _hallucination_counter["count"] += 1
+                    emit_guardrail_event(
+                        "hallucination_detected",
+                        tenant_id=tenant_id,
+                        metadata={"raw_count": len(raw_skills), "validated_count": len(validated_skills)},
+                    )
+
+            # Guardrail Tier 1: Strict schema validation
+            validation = validate_jd_output(result)
+            if not validation.is_valid:
+                emit_guardrail_event(
+                    "schema_validation_failed",
+                    tenant_id=tenant_id,
+                    metadata={"node": "jd_parser", "errors": validation.errors},
+                )
+            result = validation.data
+
+            # Guardrail Tier 4: Record token consumption
+            if _GUARDRAIL_TOKEN_BUDGET and tenant_id:
+                await budget_mgr.consume_tokens(tenant_id, estimate_tokens(prompt) + estimate_tokens(json.dumps(result)))
+
+            # Guardrail Tier 3: A/B test record
+            latency_ms = (datetime.now().timestamp() - start_time) * 1000
+            await ab_tracker.record(variant_id, prompt_hash, success=True, latency_ms=latency_ms)
         else:
             # Circuit breaker triggered — fallback to rule-based JD parser
             from app.backend.services.hybrid_pipeline import parse_jd_rules
-            result = parse_jd_rules(state["raw_jd_text"])
+            result = parse_jd_rules(raw_jd)
             # Normalize to match LLM output schema
-            result = _sanitize_jd_output(result, state["raw_jd_text"])
+            result = _sanitize_jd_output(result, raw_jd)
+            emit_guardrail_event("circuit_breaker_triggered", tenant_id=tenant_id, metadata={"node": "jd_parser"})
 
         _jd_cache[cache_key] = result
         return {"jd_analysis": result}
     except Exception as exc:
+        # Guardrail Tier 3: A/B test record failure
+        latency_ms = (datetime.now().timestamp() - start_time) * 1000
+        await ab_tracker.record(variant_id, prompt_hash, success=False, latency_ms=latency_ms)
+        emit_guardrail_event("llm_fallback", tenant_id=tenant_id, metadata={"node": "jd_parser", "error": str(exc)})
         return {"jd_analysis": fallback, "errors": [f"jd_parser: {exc}"]}
 
 
@@ -540,8 +638,9 @@ async def resume_analyser_node(state: PipelineState) -> dict:
     except Exception:
         resume_text = raw_resume  # fallback to raw text if redaction fails
 
+    tenant_id = state.get("tenant_id")
+
     try:
-        llm    = get_fast_llm()
         prompt = _RESUME_ANALYSER_PROMPT.format(
             role_title=jd.get("role_title", ""),
             domain=jd.get("domain", "other"),
@@ -551,10 +650,30 @@ async def resume_analyser_node(state: PipelineState) -> dict:
             resume_text=resume_text[:8000],
             timeline=json.dumps(state.get("employment_timeline", [])[:10], default=_json_default),
         )
-        resp = await llm.ainvoke(prompt)
+
+        # Guardrail Tier 1: Retry with exponential backoff
+        llm = get_fast_llm()
+        resp = await llm_invoke_with_retry(llm.ainvoke, prompt)
         data = _parse_json(resp.content, {**_cp_fb, **_sa_fb, **_eta_fb})
+
+        # Guardrail Tier 1: Strict schema validation
+        validation = validate_resume_output(data)
+        if not validation.is_valid:
+            emit_guardrail_event(
+                "schema_validation_failed",
+                tenant_id=tenant_id,
+                metadata={"node": "resume_analyser", "errors": validation.errors},
+            )
+        data = validation.data
+
+        # Guardrail Tier 4: Record token consumption
+        if _GUARDRAIL_TOKEN_BUDGET and tenant_id:
+            budget_mgr = get_token_budget_manager()
+            await budget_mgr.consume_tokens(tenant_id, estimate_tokens(prompt) + estimate_tokens(json.dumps(data)))
+
         return _split_resume_analyser(data, required_skills)
     except Exception as exc:
+        emit_guardrail_event("llm_fallback", tenant_id=tenant_id, metadata={"node": "resume_analyser", "error": str(exc)})
         return {
             "candidate_profile":     _cp_fb,
             "skill_analysis":        _sa_fb,
@@ -672,9 +791,9 @@ async def scorer_node(state: PipelineState) -> dict:
     }
     fallback_scores = _compute_fallback_scores(sa, eta, cp, jd, w)
 
+    tenant_id = state.get("tenant_id")
+
     try:
-        llm    = get_reasoning_llm()
-        
         # Build enhanced prompt with calibration context
         base_prompt = _SCORER_PROMPT.format(
             role_title=jd.get("role_title", ""),
@@ -696,7 +815,7 @@ async def scorer_node(state: PipelineState) -> dict:
             w_architecture=w["architecture"], w_education=w["education"],
             w_timeline=w["timeline"], w_domain=w["domain"], w_risk=w["risk"],
         )
-        
+
         # Inject calibration context if available
         if calibration_context or similar_context:
             enhanced_prompt = f"""{calibration_context}{similar_context}
@@ -707,13 +826,38 @@ Now analyze this candidate using similar reasoning and maintain consistency with
             prompt = enhanced_prompt
         else:
             prompt = base_prompt
-        resp   = await llm.ainvoke(prompt)
-        result = _parse_json(resp.content, {**fallback_scores, "interview_questions": fallback_iq})
 
-        # Extract interview_questions sub-dict from the combined output
-        iq = result.pop("interview_questions", fallback_iq)
-        if not isinstance(iq, dict):
-            iq = fallback_iq
+        if _GUARDRAIL_ENSEMBLE_ENABLED:
+            # Guardrail Tier 2: 3x voting ensemble for critical scorer node
+            result = await ensemble_vote_3x(
+                llm_factory=lambda s: get_reasoning_llm(seed=s),
+                prompt=prompt,
+                parse_fn=lambda content: _parse_json(content, {**fallback_scores, "interview_questions": fallback_iq}),
+                vote_fn=vote_scorer,
+            )
+            iq = result.pop("interview_questions", fallback_iq)
+            if not isinstance(iq, dict):
+                iq = fallback_iq
+        else:
+            # Guardrail Tier 1: Retry with exponential backoff
+            llm = get_reasoning_llm()
+            resp = await llm_invoke_with_retry(llm.ainvoke, prompt)
+            result = _parse_json(resp.content, {**fallback_scores, "interview_questions": fallback_iq})
+
+            # Extract interview_questions sub-dict from the combined output
+            iq = result.pop("interview_questions", fallback_iq)
+            if not isinstance(iq, dict):
+                iq = fallback_iq
+
+        # Guardrail Tier 1: Strict schema validation
+        validation = validate_scorer_output(result)
+        if not validation.is_valid:
+            emit_guardrail_event(
+                "schema_validation_failed",
+                tenant_id=tenant_id,
+                metadata={"node": "scorer", "errors": validation.errors},
+            )
+        result = validation.data
 
         # Sanitise fit_score and recommendation
         result["fit_score"] = max(0, min(100, int(result.get("fit_score", 50))))
@@ -735,8 +879,15 @@ Now analyze this candidate using similar reasoning and maintain consistency with
             result.get("experience_score", sb.get("experience_match", 0))
         )))
         result["score_breakdown"] = sb
+
+        # Guardrail Tier 4: Record token consumption
+        if _GUARDRAIL_TOKEN_BUDGET and tenant_id:
+            budget_mgr = get_token_budget_manager()
+            await budget_mgr.consume_tokens(tenant_id, estimate_tokens(prompt) + estimate_tokens(json.dumps(result)))
+
         return {"final_scores": result, "interview_questions": iq}
     except Exception as exc:
+        emit_guardrail_event("llm_fallback", tenant_id=tenant_id, metadata={"node": "scorer", "error": str(exc)})
         return {
             "final_scores":        fallback_scores,
             "interview_questions": fallback_iq,
@@ -843,12 +994,14 @@ def build_initial_state(
     job_description: str,
     gap_analysis:   dict,
     scoring_weights: Optional[Dict[str, float]] = None,
+    tenant_id: Optional[int] = None,
 ) -> dict:
     return {
         "raw_jd_text":          job_description,
         "raw_resume_text":      resume_text,
         "employment_timeline":  gap_analysis.get("employment_timeline", []),
         "scoring_weights":      scoring_weights or DEFAULT_WEIGHTS,
+        "tenant_id":            tenant_id,
         "jd_analysis":          {},
         "candidate_profile":    {},
         "skill_analysis":       {},
@@ -868,6 +1021,9 @@ def assemble_result(
     Assemble the final result dict from completed pipeline state.
     Maintains full backward compatibility with existing AnalysisResponse schema
     while adding all new LangGraph-produced fields.
+
+    Guardrail Tier 1: Cross-node consistency checks are applied here.
+    Guardrail Tier 3: HITL flags are generated for low-confidence results.
     """
     fs  = state.get("final_scores", {})
     sa  = state.get("skill_analysis", {})
@@ -875,6 +1031,31 @@ def assemble_result(
     iq  = state.get("interview_questions", {})
     cp  = state.get("candidate_profile", {})
     jd  = state.get("jd_analysis", {})
+    tenant_id = state.get("tenant_id")
+
+    # Guardrail Tier 1: Cross-node consistency check
+    consistency_report = check_cross_node_consistency(jd, sa, fs)
+    if not consistency_report.is_consistent:
+        emit_guardrail_event(
+            "inconsistency_fixed",
+            tenant_id=tenant_id,
+            metadata={"violations": consistency_report.violations, "fixes": consistency_report.fixes_applied},
+        )
+
+    # Guardrail Tier 3: HITL gate check
+    hitl_flags = hitl_gate_check(
+        jd_analysis=jd,
+        skill_analysis=sa,
+        final_scores=fs,
+        consistency_report=consistency_report,
+        raw_jd_text=state.get("raw_jd_text", ""),
+    )
+    if hitl_flags:
+        emit_guardrail_event(
+            "hitl_flag_generated",
+            tenant_id=tenant_id,
+            metadata={"flags": [{"type": f.flag_type, "severity": f.severity, "message": f.message} for f in hitl_flags]},
+        )
 
     score_bd = fs.get("score_breakdown", {})
     # Map timeline → stability for backward compat (frontend still renders "Stability" bar)
@@ -911,6 +1092,16 @@ def assemble_result(
         "recommendation_rationale": fs.get("recommendation_rationale", ""),
         "adjacent_skills":       sa.get("adjacent_skills", []),
         "pipeline_errors":       state.get("errors", []),
+        # ── Guardrail outputs ──
+        "guardrail_consistency_report": {
+            "is_consistent": consistency_report.is_consistent,
+            "violations": consistency_report.violations,
+            "fixes_applied": consistency_report.fixes_applied,
+        },
+        "guardrail_hitl_flags": [
+            {"flag_type": f.flag_type, "severity": f.severity, "message": f.message, "metadata": f.metadata}
+            for f in hitl_flags
+        ],
     }
 
 
@@ -934,15 +1125,13 @@ async def run_agent_pipeline(
         tenant_id: Tenant ID for calibration (optional)
         role_category: Role category for calibration (optional)
     """
-    state = build_initial_state(resume_text, job_description, gap_analysis, scoring_weights)
-    
+    state = build_initial_state(resume_text, job_description, gap_analysis, scoring_weights, tenant_id)
+
     # Add calibration context to state if available
     if db_session:
         state["db_session"] = db_session
-    if tenant_id:
-        state["tenant_id"] = tenant_id
     if role_category:
         state["role_category"] = role_category
-    
+
     final_state = await pipeline.ainvoke(state)
     return assemble_result(final_state, parsed_data, gap_analysis)
