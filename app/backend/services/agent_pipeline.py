@@ -87,11 +87,11 @@ STREAMABLE_NODES = {"jd_parser", "resume_analyser", "scorer"}
 _fast_llm: Optional[ChatOllama] = None
 _reasoning_llm: Optional[ChatOllama] = None
 
-# In-memory JD cache: MD5(jd_text[:2000]) → parsed jd_analysis dict.
+# In-memory JD cache: MD5(jd_text[:8000] + prompt_version) → parsed jd_analysis dict.
 # For batch screening (same JD, many resumes) this skips the jd_parser LLM call
 # entirely after the first request, saving ~3–8 seconds per candidate.
+# Cache is invalidated automatically when the prompt changes (prompt_version hash).
 _jd_cache: Dict[str, dict] = {}
-
 
 _llm_request_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150")) + 30
 
@@ -346,6 +346,13 @@ OUTPUT SCHEMA:
   "key_responsibilities": []
 }}"""
 
+# Guardrail: Phase 2 — cache versioning. Changing the prompt invalidates old cache entries.
+_PROMPT_VERSION = hashlib.md5(_JD_PARSER_PROMPT.encode()).hexdigest()[:8]
+
+# Guardrail: Phase 4 — circuit breaker for JD parser hallucinations.
+_hallucination_counter: Dict[str, int] = {"count": 0, "last_reset": datetime.now().timestamp()}
+_CIRCUIT_BREAKER_THRESHOLD = 5  # max hallucinations per hour before fallback to rules
+
 
 async def jd_parser_node(state: PipelineState) -> dict:
     fallback = {
@@ -354,17 +361,41 @@ async def jd_parser_node(state: PipelineState) -> dict:
         "nice_to_have_skills": [], "key_responsibilities": [],
     }
     # Guardrail: increased truncation to capture full requirements section
-    jd_text = state["raw_jd_text"][:5000]
-    cache_key = hashlib.md5(jd_text.encode()).hexdigest()
+    jd_text = state["raw_jd_text"][:8000]
+    # Guardrail: Phase 2 — cache key includes prompt version for auto-invalidation
+    cache_key = hashlib.md5(f"{jd_text}:{_PROMPT_VERSION}".encode()).hexdigest()
     if cache_key in _jd_cache:
         return {"jd_analysis": _jd_cache[cache_key]}
+
+    # Guardrail: Phase 4 — circuit breaker: if hallucination rate is high, use rule-based fallback
+    now = datetime.now().timestamp()
+    if now - _hallucination_counter["last_reset"] > 3600:
+        _hallucination_counter["count"] = 0
+        _hallucination_counter["last_reset"] = now
+
+    use_llm = _hallucination_counter["count"] < _CIRCUIT_BREAKER_THRESHOLD
+
     try:
-        llm    = get_fast_llm()
-        prompt = _JD_PARSER_PROMPT.format(jd_text=jd_text)
-        resp   = await llm.ainvoke(prompt)
-        raw_result = _parse_json(resp.content, fallback)
-        # Guardrail: sanitize output — remove hallucinated skills, normalize enums
-        result = _sanitize_jd_output(raw_result, state["raw_jd_text"])
+        if use_llm:
+            llm    = get_fast_llm()
+            prompt = _JD_PARSER_PROMPT.format(jd_text=jd_text)
+            resp   = await llm.ainvoke(prompt)
+            raw_result = _parse_json(resp.content, fallback)
+            # Guardrail: sanitize output — remove hallucinated skills, normalize enums
+            result = _sanitize_jd_output(raw_result, state["raw_jd_text"])
+
+            # Guardrail: Phase 4 — detect hallucination and increment circuit breaker counter
+            raw_skills = raw_result.get("required_skills", []) if isinstance(raw_result, dict) else []
+            validated_skills = result.get("required_skills", [])
+            if len(raw_skills) > len(validated_skills):
+                _hallucination_counter["count"] += 1
+        else:
+            # Circuit breaker triggered — fallback to rule-based JD parser
+            from app.backend.services.hybrid_pipeline import parse_jd_rules
+            result = parse_jd_rules(state["raw_jd_text"])
+            # Normalize to match LLM output schema
+            result = _sanitize_jd_output(result, state["raw_jd_text"])
+
         _jd_cache[cache_key] = result
         return {"jd_analysis": result}
     except Exception as exc:
@@ -499,6 +530,16 @@ async def resume_analyser_node(state: PipelineState) -> dict:
         "timeline_score": 70, "timeline_analysis": "Timeline could not be assessed.",
         "gap_interpretation": "No significant gap pattern detected.",
     }
+    # Guardrail: Phase 3 — PII redaction to eliminate bias from names, emails, phones
+    raw_resume = state["raw_resume_text"]
+    try:
+        from app.backend.services.pii_redaction_service import get_pii_service
+        pii_service = get_pii_service()
+        redaction_result = pii_service.redact_pii(raw_resume)
+        resume_text = redaction_result.redacted_text
+    except Exception:
+        resume_text = raw_resume  # fallback to raw text if redaction fails
+
     try:
         llm    = get_fast_llm()
         prompt = _RESUME_ANALYSER_PROMPT.format(
@@ -506,7 +547,8 @@ async def resume_analyser_node(state: PipelineState) -> dict:
             domain=jd.get("domain", "other"),
             seniority=jd.get("seniority", "mid"),
             required_skills=json.dumps(required_skills[:20], default=_json_default),
-            resume_text=state["raw_resume_text"][:3000],
+            # Guardrail: increased truncation to capture full resume context
+            resume_text=resume_text[:8000],
             timeline=json.dumps(state.get("employment_timeline", [])[:10], default=_json_default),
         )
         resp = await llm.ainvoke(prompt)
