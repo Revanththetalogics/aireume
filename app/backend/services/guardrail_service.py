@@ -1045,13 +1045,13 @@ async def apply_data_retention_policy(
         very_old = cutoff - timedelta(days=retention_days)
         old_results = db_session.query(ScreeningResult).filter(
             ScreeningResult.tenant_id == tenant_id,
-            ScreeningResult.created_at < very_old,
+            ScreeningResult.timestamp < very_old,
         ).all()
 
         for result in old_results:
             # Anonymize: clear PII-heavy fields but keep score
-            if hasattr(result, "narrative"):
-                result.narrative = "[ANONYMIZED - Retention policy applied]"
+            if hasattr(result, "narrative_json"):
+                result.narrative_json = '"[ANONYMIZED - Retention policy applied]"'
             affected["old_screening_results"] += 1
 
         db_session.commit()

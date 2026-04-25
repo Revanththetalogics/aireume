@@ -505,6 +505,42 @@ export default function ReportPage() {
         {/* Scrollable result content */}
         <div className="report-content flex-1 overflow-y-auto p-6 space-y-5 print:overflow-visible print:p-4">
 
+          {/* Score Summary — visible in both screen and PDF */}
+          {result.fit_score != null && (
+            <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-5 flex items-center gap-6">
+              <div className="flex flex-col items-center justify-center w-24 h-24 rounded-full bg-brand-50 ring-4 ring-brand-100 shrink-0">
+                <span className="text-3xl font-extrabold text-brand-700">{result.fit_score}</span>
+                <span className="text-[10px] font-bold text-brand-400 uppercase tracking-wider">/ 100</span>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${
+                    result.fit_score >= 72 ? 'bg-green-500' :
+                    result.fit_score >= 45 ? 'bg-amber-500' : 'bg-red-500'
+                  }`}>
+                    {result.fit_score >= 72 ? 'Strong Fit' :
+                     result.fit_score >= 45 ? 'Moderate Fit' : 'Low Fit'}
+                  </span>
+                  {result.final_recommendation && (
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-brand-100 text-brand-700 ring-1 ring-brand-200">
+                      {safeStr(result.final_recommendation)}
+                    </span>
+                  )}
+                  {result.risk_level && (
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      result.risk_level === 'Low' ? 'bg-green-100 text-green-700' :
+                      result.risk_level === 'Medium' ? 'bg-amber-100 text-amber-700' :
+                      'bg-red-100 text-red-700'
+                    }`}>
+                      {safeStr(result.risk_level)} Risk
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-slate-500">Overall fit score based on skills, experience, education, and timeline analysis.</p>
+              </div>
+            </div>
+          )}
+
           {/* Candidate Information Section - Visible in both screen and print */}
           <div className="mb-6 pb-4 border-b-2 border-brand-200 bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-5 print:shadow-none print:ring-0 print:bg-transparent print:rounded-none">
             <div className="flex items-start justify-between mb-3">

@@ -66,6 +66,15 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def _truncate(text: str, max_len: int) -> str:
+    """Truncate text to max_len characters, adding ellipsis if truncated."""
+    if not text:
+        return ""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rsplit(" ", 1)[0] + "..."
+
+
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
 OLLAMA_BASE_URL       = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -686,16 +695,30 @@ async def resume_analyser_node(state: PipelineState) -> dict:
 # Replaces scorer_explainer + interview_qs (2 calls → 1 call).
 
 _SCORER_PROMPT = """\
-Score a candidate and generate interview questions. Output ONLY valid JSON. No markdown.
+Score a candidate and generate a targeted interview kit tightly aligned with both the job description and the candidate's resume. Output ONLY valid JSON. No markdown.
 
-INPUTS:
-role={role_title} domain={domain}
+ROLE CONTEXT:
+Title: {role_title} | Domain: {domain} | Seniority: {seniority}
+Key Responsibilities: {key_responsibilities}
+Required Skills: {required_skills}
+Nice-to-Have Skills: {nice_to_have_skills}
+
+CANDIDATE CONTEXT:
+Current Role: {current_role} at {current_company}
+Career Summary: {career_summary}
+Years Experience: {years_actual}y (role requires: {years_required}y)
+Matched Skills: {matched_skills}
+Missing Skills: {missing_skills}
+Adjacent Skills: {adjacent_skills}
+Architecture Assessment: {architecture_comment}
+Domain Fit Assessment: {domain_fit_comment}
+Timeline/Gap Assessment: {gap_interpretation}
+
+SCORES & WEIGHTS:
 skill={skill_score} domain_fit={domain_fit_score} arch={architecture_score} edu={education_score} timeline={timeline_score}
-experience: {years_actual}y actual / {years_required}y required
-matched: {matched_skills}
-missing: {missing_skills}
-context: {domain_fit_comment} | {education_analysis} | {timeline_analysis} | {gap_interpretation}
 weights: skills={w_skills} exp={w_experience} arch={w_architecture} edu={w_education} tl={w_timeline} domain={w_domain} risk={w_risk}
+
+Additional Context: {education_analysis} | {timeline_analysis}
 
 OUTPUT SCHEMA:
 {{
@@ -717,12 +740,29 @@ OUTPUT SCHEMA:
   }}
 }}
 
-RULES:
+SCORING RULES:
 experience_score: required=0→min(100,actual*10); actual>=required→min(100,70+(actual-required)*5); else→(actual/required)*70
 risk_penalty: 0-100 based on missing critical skills, gaps, domain mismatch
 fit_score=round(skill*{w_skills}+exp*{w_experience}+arch*{w_architecture}+edu*{w_education}+tl*{w_timeline}+domain*{w_domain}-risk*{w_risk}), clamp 0-100
 risk_level: >=72→Low, >=45→Medium, else→High; recommendation: >=72→Shortlist, >=45→Consider, else→Reject
-interview: 5 technical (probe missing skills), 3 behavioral STAR (address gaps), 2 culture/motivation questions."""
+
+INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
+1. TECHNICAL QUESTIONS (5 questions):
+   a) For EACH missing skill: Create a scenario-based question that ties the skill to a specific job responsibility from the Key Responsibilities list. Do NOT ask "Do you know X?" — instead ask how they would solve a real problem using that skill in this role.
+   b) For 1-2 critical matched skills: Create a depth-probing question that tests expertise level. Reference their current role ({current_role}) vs. the role requirements.
+   c) If architecture_comment mentions system design gaps or the role requires architecture decisions: Include a system design question relevant to the domain.
+   d) Use the domain ({domain}) and seniority ({seniority}) to calibrate difficulty.
+
+2. BEHAVIORAL QUESTIONS (3 questions, STAR format):
+   a) Address the biggest risk signal from the gap/timeline assessment: {gap_interpretation}. If gaps exist, ask about the circumstance without being invasive.
+   b) Target a seniority-specific challenge: for senior roles probe leadership/mentorship; for mid roles probe ownership; for junior roles probe learning agility.
+   c) Probe the role transition: moving from {current_role} to {role_title} — what motivates this and what challenges do they anticipate?
+
+3. CULTURE-FIT QUESTIONS (2 questions):
+   a) Motivation for THIS specific role: Why this company/role given their career trajectory ({career_summary})?
+   b) Work-style alignment: A question tied to the role context (e.g., fast-paced startup vs. structured enterprise, remote vs. on-site if implied by domain).
+
+DO NOT generate generic questions like "Tell me about yourself", "What are your strengths?", or "Where do you see yourself in 5 years?". Every question MUST reference specific skills, role responsibilities, or candidate resume context provided above."""
 
 
 async def scorer_node(state: PipelineState) -> dict:
@@ -774,20 +814,68 @@ async def scorer_node(state: PipelineState) -> dict:
         logger.debug(f"Calibration context unavailable: {e}")
 
     missing_skills = sa.get("missing_skills", [])
+    role_title = jd.get("role_title", "this role")
+    domain = jd.get("domain", "the domain")
+    seniority = jd.get("seniority", "mid")
+    key_responsibilities = jd.get("key_responsibilities", [])
+    current_role = cp.get("current_role") or "their current role"
+    current_company = cp.get("current_company") or "their current company"
+    career_summary = cp.get("career_summary", "")
+    matched = sa.get("matched_skills", [])
+    adjacent = sa.get("adjacent_skills", [])
+    arch_comment = sa.get("architecture_comment", "")
+    gap_interp = eta.get("gap_interpretation", "")
+
+    # Context-aware fallback technical questions
+    tech_qs = []
+    for skill in missing_skills[:3]:
+        resp = key_responsibilities[0] if key_responsibilities else "the role's core work"
+        tech_qs.append(
+            f"This role involves {resp}. Walk me through how you would approach a challenge requiring {skill} — what tools, patterns, or experience would you draw on?"
+        )
+    if not tech_qs:
+        tech_qs = [f"Describe a complex technical problem you solved in {domain} that is relevant to {role_title}."]
+    if matched:
+        tech_qs.append(
+            f"You have experience with {matched[0]}. Tell me about a time you had to push the limits of that technology — what was the hardest problem you solved with it?"
+        )
+    if adjacent:
+        tech_qs.append(
+            f"You have adjacent experience with {adjacent[0]}. How would you leverage that background to ramp up quickly on the core stack for {role_title}?"
+        )
+    if "architecture" in arch_comment.lower() or "system design" in arch_comment.lower() or "design" in arch_comment.lower():
+        tech_qs.append(
+            f"For {role_title}, we'd need to make architectural decisions in {domain}. Describe a system you designed or significantly improved — what trade-offs did you make?"
+        )
+    tech_qs = tech_qs[:5]
+    if len(tech_qs) < 3:
+        tech_qs.append(f"How do you stay current with developments in {domain}? Give a recent example of applying a new technique or tool.")
+
+    # Context-aware fallback behavioral questions
+    beh_qs = []
+    if gap_interp and ("gap" in gap_interp.lower() or "unemployed" in gap_interp.lower() or "break" in gap_interp.lower()):
+        beh_qs.append(
+            "Your timeline shows a career transition period. Can you walk me through what drove that change and what you focused on during that time?"
+        )
+    else:
+        beh_qs.append(
+            f"You're currently at {current_company} as a {current_role}. What would make this {role_title} opportunity the right next step for you?"
+        )
+    beh_qs.extend([
+        f"Tell me about a time you had to deliver results in {domain} under significant constraint — tight deadline, limited resources, or unclear requirements. What was your approach?",
+        f"Describe a situation where you had to influence a decision or mentor someone in a {domain} context. What was the outcome?",
+    ])
+
+    # Context-aware fallback culture-fit questions
+    cult_qs = [
+        f"Given your background in {domain}, what type of work environment brings out your best performance — structured processes or autonomous ownership?",
+        f"What specifically attracted you to {role_title}, and how does it align with the direction you see your career heading?",
+    ]
+
     fallback_iq = {
-        "technical_questions": (
-            [f"Walk us through your experience with {s}?" for s in missing_skills[:3]]
-            or ["Describe a challenging technical problem you solved recently."]
-        ),
-        "behavioral_questions": [
-            "Tell me about a time you had to quickly learn a new technology.",
-            "Describe handling a difficult stakeholder or team conflict.",
-            "Walk me through a project where timelines slipped — how did you respond?",
-        ],
-        "culture_fit_questions": [
-            "What motivates you most in your day-to-day work?",
-            "How do you prefer to receive and act on feedback?",
-        ],
+        "technical_questions": tech_qs,
+        "behavioral_questions": beh_qs,
+        "culture_fit_questions": cult_qs,
     }
     fallback_scores = _compute_fallback_scores(sa, eta, cp, jd, w)
 
@@ -798,6 +886,13 @@ async def scorer_node(state: PipelineState) -> dict:
         base_prompt = _SCORER_PROMPT.format(
             role_title=jd.get("role_title", ""),
             domain=jd.get("domain", "other"),
+            seniority=jd.get("seniority", "mid"),
+            key_responsibilities=json.dumps(jd.get("key_responsibilities", [])[:5], default=_json_default),
+            required_skills=json.dumps(jd.get("required_skills", [])[:8], default=_json_default),
+            nice_to_have_skills=json.dumps(jd.get("nice_to_have_skills", [])[:5], default=_json_default),
+            current_role=cp.get("current_role") or "Unknown",
+            current_company=cp.get("current_company") or "Unknown",
+            career_summary=_truncate(cp.get("career_summary", ""), 300),
             skill_score=sa.get("skill_score", 0),
             domain_fit_score=sa.get("domain_fit_score", 50),
             architecture_score=sa.get("architecture_score", 50),
@@ -807,6 +902,8 @@ async def scorer_node(state: PipelineState) -> dict:
             years_required=jd.get("required_years", 0),
             matched_skills=json.dumps(sa.get("matched_skills", [])[:8], default=_json_default),
             missing_skills=json.dumps(missing_skills[:8], default=_json_default),
+            adjacent_skills=json.dumps(sa.get("adjacent_skills", [])[:5], default=_json_default),
+            architecture_comment=sa.get("architecture_comment", ""),
             domain_fit_comment=sa.get("domain_fit_comment", ""),
             education_analysis=eta.get("education_analysis", ""),
             timeline_analysis=eta.get("timeline_analysis", ""),

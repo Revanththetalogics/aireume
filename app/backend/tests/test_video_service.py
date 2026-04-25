@@ -11,6 +11,16 @@ import pytest
 import asyncio
 from unittest.mock import patch, AsyncMock, MagicMock
 
+
+def _arun(coro):
+    """Run an async coroutine in a fresh event loop (Python 3.10+ compatible)."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
 from app.backend.services.video_service import (
     extract_pause_signals,
     extract_audio_anomalies,
@@ -139,13 +149,13 @@ class TestExtractAudioAnomalies:
 
 class TestAnalyzeCommunication:
     def test_empty_transcript_returns_default(self):
-        result = asyncio.get_event_loop().run_until_complete(
+        result = _arun(
             analyze_communication("", 30.0)
         )
         assert result["communication_score"] == 50
 
     def test_short_transcript_returns_default(self):
-        result = asyncio.get_event_loop().run_until_complete(
+        result = _arun(
             analyze_communication("Hi.", 5.0)
         )
         assert result["communication_score"] == 50
@@ -172,7 +182,7 @@ class TestAnalyzeCommunication:
             mock_client.post = AsyncMock(return_value=mock_resp)
             MockClient.return_value = mock_client
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _arun(
                 analyze_communication("I have five years of experience building large scale systems at top tech companies.", 60.0)
             )
 
@@ -189,7 +199,7 @@ class TestAnalyzeCommunication:
             mock_client.post = AsyncMock(side_effect=Exception("Connection refused"))
             MockClient.return_value = mock_client
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _arun(
                 analyze_communication("Some reasonable transcript with enough words here.", 60.0)
             )
 
@@ -213,7 +223,7 @@ class TestAnalyzeCommunication:
             MockClient.return_value = mock_client
 
             transcript = " ".join(["word"] * 120)  # 120 words
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _arun(
                 analyze_communication(transcript, 60.0)  # 60 seconds = 1 minute
             )
 
@@ -228,7 +238,7 @@ class TestAnalyzeMalpractice:
             {"at_seconds": 30, "duration_s": 20, "before_text": "What is Python?", "after_text": "Python is...", "severity": "high", "formatted_at": "0:30"},
             {"at_seconds": 90, "duration_s": 15, "before_text": "Any experience?", "after_text": "Yes indeed", "severity": "medium", "formatted_at": "1:30"},
         ]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = _arun(
             analyze_malpractice("", pauses, {"low_confidence_count": 0, "high_no_speech_count": 0, "speech_rate_variance": 0, "total_segments": 0}, 60)
         )
         assert result["pause_count"] == 2
@@ -256,7 +266,7 @@ class TestAnalyzeMalpractice:
             mock_client.post = AsyncMock(return_value=mock_resp)
             MockClient.return_value = mock_client
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _arun(
                 analyze_malpractice(
                     "I um, yeah so basically I have about five years of, uh, experience.",
                     [],
@@ -292,7 +302,7 @@ class TestAnalyzeMalpractice:
             mock_client.post = AsyncMock(return_value=mock_resp)
             MockClient.return_value = mock_client
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _arun(
                 analyze_malpractice(
                     "Every answer is perfectly structured with no hesitation whatsoever.",
                     pauses,
@@ -315,7 +325,7 @@ class TestAnalyzeMalpractice:
             mock_client.post = AsyncMock(side_effect=Exception("timeout"))
             MockClient.return_value = mock_client
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _arun(
                 analyze_malpractice("Some transcript text.", pauses,
                                     {"low_confidence_count": 0, "high_no_speech_count": 0, "speech_rate_variance": 0, "total_segments": 3}, 60)
             )

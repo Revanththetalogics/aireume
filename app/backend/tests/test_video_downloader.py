@@ -11,6 +11,16 @@ import pytest
 import asyncio
 from unittest.mock import patch, AsyncMock, MagicMock
 
+
+def _arun(coro):
+    """Run an async coroutine in a fresh event loop (Python 3.10+ compatible)."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
 from app.backend.services.video_downloader import (
     detect_platform,
     platform_display_name,
@@ -145,7 +155,7 @@ class TestResolveZoomUrl:
             mock_client.get = AsyncMock(return_value=mock_resp)
             MockClient.return_value = mock_client
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _arun(
                 resolve_zoom_url("https://zoom.us/rec/share/abc123")
             )
 
@@ -164,7 +174,7 @@ class TestResolveZoomUrl:
             mock_client.get = AsyncMock(return_value=mock_resp)
             MockClient.return_value = mock_client
 
-            result = asyncio.get_event_loop().run_until_complete(resolve_zoom_url(original))
+            result = _arun(resolve_zoom_url(original))
 
         assert result == original
 
@@ -177,7 +187,7 @@ class TestResolveZoomUrl:
             mock_client.get = AsyncMock(side_effect=Exception("Network error"))
             MockClient.return_value = mock_client
 
-            result = asyncio.get_event_loop().run_until_complete(resolve_zoom_url(original))
+            result = _arun(resolve_zoom_url(original))
 
         assert result == original
 
@@ -210,7 +220,7 @@ class TestHttpDownload:
             mock_cm.stream = MagicMock(return_value=mock_stream)
             MockClient.return_value = mock_cm
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _arun(
                 _http_download("https://example.com/video.mp4", "direct")
             )
 
@@ -230,7 +240,7 @@ class TestHttpDownload:
             MockClient.return_value = mock_cm
 
             with pytest.raises(ValueError, match="authentication"):
-                asyncio.get_event_loop().run_until_complete(
+                _arun(
                     _http_download("https://example.com/video.mp4", "zoom")
                 )
 
@@ -248,7 +258,7 @@ class TestHttpDownload:
             MockClient.return_value = mock_cm
 
             with pytest.raises(ValueError, match="[Nn]ot found|expired"):
-                asyncio.get_event_loop().run_until_complete(
+                _arun(
                     _http_download("https://example.com/missing.mp4", "direct")
                 )
 
@@ -266,7 +276,7 @@ class TestHttpDownload:
             MockClient.return_value = mock_cm
 
             with pytest.raises(ValueError, match="webpage|HTML|html"):
-                asyncio.get_event_loop().run_until_complete(
+                _arun(
                     _http_download("https://drive.google.com/file", "google_drive")
                 )
 
@@ -277,7 +287,7 @@ class TestDownloadVideoFromUrl:
     def test_youtube_raises_without_yt_dlp(self):
         with patch.dict("sys.modules", {"yt_dlp": None}):
             with pytest.raises((ValueError, ImportError, ModuleNotFoundError)):
-                asyncio.get_event_loop().run_until_complete(
+                _arun(
                     download_video_from_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
                 )
 
@@ -285,7 +295,7 @@ class TestDownloadVideoFromUrl:
         # An unknown URL is still attempted; failure comes from HTTP
         with patch("app.backend.services.video_downloader._http_download",
                    new_callable=AsyncMock, return_value=b"data") as mock_dl:
-            asyncio.get_event_loop().run_until_complete(
+            _arun(
                 download_video_from_url("https://random.example.com/something")
             )
             mock_dl.assert_called_once()
