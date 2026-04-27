@@ -353,6 +353,12 @@ def _fallback_result(gap_analysis: dict) -> dict:
         "edu_timeline_analysis": {}, "explainability": {}, "adjacent_skills": [],
         "pipeline_errors": ["Pipeline unavailable"],
         "analysis_quality": "low", "narrative_pending": False,
+        "deterministic_score": None,
+        "decision_explanation": None,
+        "jd_domain": None,
+        "candidate_domain": None,
+        "eligibility": None,
+        "deterministic_features": None,
     }
 
 

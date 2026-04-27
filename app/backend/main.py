@@ -143,7 +143,7 @@ async def _startup_checks() -> dict:
 
     # ── 2. Skills registry ────────────────────────────────────────────────────
     try:
-        from app.backend.services.hybrid_pipeline import skills_registry
+        from app.backend.services.skill_matcher import skills_registry
         db = SessionLocal()
         try:
             skills_registry.seed_if_empty(db)

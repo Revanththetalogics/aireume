@@ -2,7 +2,7 @@
 Hybrid Analysis Pipeline — Python-first, single LLM call for narrative.
 
 Architecture:
-  Phase 1 (Python, ~1-2s): parse_jd_rules → parse_resume_rules → match_skills_rules
+  Phase 1 (Python, ~1-2s): parse_jd_rules → parse_resume_rules → match_skills
                             → score_education/experience/domain → compute_fit_score
   Phase 2 (LLM, ~40s):     explain_with_llm (generates strengths, weaknesses,
                             rationale, interview questions)
@@ -28,6 +28,22 @@ from typing import AsyncGenerator, Dict, Any, List, Optional, Callable
 
 from app.backend.services.metrics import LLM_CALL_DURATION, LLM_FALLBACK_TOTAL
 from app.backend.services.llm_service import get_ollama_semaphore
+from app.backend.services.constants import (
+    RECOMMENDATION_THRESHOLDS,
+    SENIORITY_RANGES,
+    DEFAULT_WEIGHTS as _DEFAULT_WEIGHTS,
+    DOMAIN_KEYWORDS,
+    DEGREE_SCORES,
+    FIELD_RELEVANCE,
+)
+from app.backend.services.domain_service import detect_domain_from_jd, detect_domain_from_resume
+from app.backend.services.eligibility_service import check_eligibility
+from app.backend.services.fit_scorer import compute_fit_score, compute_deterministic_score, explain_decision
+from app.backend.services.skill_matcher import (
+    skills_registry,
+    _extract_skills_from_text,
+    match_skills,
+)
 
 log = logging.getLogger("aria.hybrid")
 
@@ -154,482 +170,6 @@ def _get_llm():
         except Exception as e:
             log.warning("LLM init failed: %s", e)
     return _REASONING_LLM
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SKILLS REGISTRY
-# ═══════════════════════════════════════════════════════════════════════════════
-
-MASTER_SKILLS: List[str] = [
-    # ── Programming languages ──────────────────────────────────────────────────
-    "python", "java", "javascript", "typescript", "c++", "c#", "c", "golang", "go",
-    "rust", "scala", "kotlin", "swift", "ruby", "php", "r", "matlab", "perl",
-    "haskell", "erlang", "elixir", "clojure", "f#", "lua", "dart", "zig", "ada",
-    "assembly", "bash", "powershell", "groovy", "cobol", "fortran", "vba",
-    "nim", "crystal", "julia", "ocaml", "reasonml", "purescript", "elm",
-    "solidity", "vyper", "move", "cairo",
-    # ── Web frameworks ─────────────────────────────────────────────────────────
-    "react", "vue.js", "vue", "angular", "next.js", "nuxt.js", "svelte", "astro",
-    "remix", "gatsby", "ember.js", "backbone.js", "jquery", "bootstrap", "tailwind",
-    "material ui", "chakra ui", "ant design", "storybook",
-    "node.js", "express.js", "fastapi", "django", "flask", "tornado", "aiohttp",
-    "starlette", "litestar", "spring boot", "spring", "quarkus", "micronaut",
-    "nestjs", "koa", "hapi", "feathers", "strapi", "rails", "sinatra", "laravel",
-    "symfony", "codeigniter", "gin", "fiber", "echo", "chi", "actix", "axum", "rocket",
-    "htmx", "alpine.js", "lit", "stencil", "solid.js", "qwik", "preact",
-    "blazor", "asp.net", "asp.net core", "dotnet", ".net", "wpf", "winforms",
-    # ── Databases ──────────────────────────────────────────────────────────────
-    "postgresql", "mysql", "sqlite", "mariadb", "oracle", "microsoft sql server",
-    "mongodb", "redis", "elasticsearch", "cassandra", "dynamodb", "couchdb",
-    "neo4j", "influxdb", "timescaledb", "cockroachdb", "planetscale",
-    "snowflake", "bigquery", "redshift", "databricks", "clickhouse",
-    "supabase", "firebase", "firestore", "realm", "fauna", "deno kv",
-    "sqlalchemy", "hibernate", "prisma", "typeorm", "sequelize", "drizzle",
-    "mongoose", "redis om", "entity framework", "dapper",
-    "db2", "informix", "sybase", "teradata", "greenplum",
-    # ── Cloud platforms ────────────────────────────────────────────────────────
-    "amazon web services", "aws", "google cloud platform", "gcp", "microsoft azure",
-    "azure", "digital ocean", "linode", "vultr", "hetzner", "oracle cloud",
-    "ibm cloud", "alibaba cloud", "cloudflare", "vercel", "netlify", "heroku",
-    "fly.io", "render", "railway", "supabase", "firebase", "appwrite", "pocketbase",
-    "cloudfoundry", "openshift", "rancher", "nomad", "hashicorp",
-    # ── AWS services ───────────────────────────────────────────────────────────
-    "ec2", "s3", "lambda", "ecs", "eks", "rds", "aurora", "elasticache",
-    "api gateway", "cloudfront", "route53", "iam", "cloudwatch", "sns", "sqs",
-    "kinesis", "glue", "athena", "emr", "sagemaker", "bedrock",
-    "dynamodb", "step functions", "eventbridge", "sqs", "ses", "sns",
-    "vpc", "alb", "nlb", "autoscaling", "cloudformation", "elastic beanstalk",
-    # ── DevOps & infrastructure ────────────────────────────────────────────────
-    "docker", "kubernetes", "helm", "terraform", "ansible", "puppet", "chef",
-    "vagrant", "packer", "jenkins", "github actions", "gitlab ci", "circleci",
-    "travis ci", "bitbucket pipelines", "argo cd", "flux", "spinnaker", "tekton",
-    "prometheus", "grafana", "datadog", "new relic", "dynatrace", "splunk",
-    "elk stack", "loki", "jaeger", "zipkin", "opentelemetry",
-    "nginx", "apache", "traefik", "envoy", "istio", "linkerd", "consul",
-    "vault", "linux", "unix", "ubuntu", "centos", "rhel", "debian",
-    "ci/cd", "devops", "sre", "infrastructure as code", "gitops",
-    "pulumi", "crossplane", "backstage", "kustomize", "skaffold", "tilt",
-    "bazel", "buck", "nix", "guix", "chocolatey", "homebrew",
-    # ── AI / ML ────────────────────────────────────────────────────────────────
-    "machine learning", "deep learning", "neural networks", "natural language processing",
-    "nlp", "computer vision", "reinforcement learning", "generative ai",
-    "large language models", "llm", "transformers", "bert", "gpt",
-    "pytorch", "tensorflow", "keras", "jax", "mxnet", "caffe",
-    "scikit-learn", "xgboost", "lightgbm", "catboost", "statsmodels",
-    "hugging face", "langchain", "llamaindex", "ollama", "openai",
-    "anthropic", "cohere", "vector database", "rag", "fine-tuning",
-    "mlflow", "wandb", "optuna", "ray", "kubeflow", "vertex ai",
-    "opencv", "pillow", "albumentations", "detectron", "yolo",
-    "stable diffusion", "midjourney", "comfyui", "diffusers",
-    "spacy", "nltk", "gensim", "fasttext", "word2vec", "doc2vec",
-    "tensorflow lite", "onnx", "tensorrt", "openvino", "coreml",
-    "automl", "feature store", "feast", "tecton",
-    # ── Data science & analytics ───────────────────────────────────────────────
-    "pandas", "numpy", "scipy", "matplotlib", "seaborn", "plotly", "bokeh",
-    "jupyter", "jupyter notebook", "colab", "dask", "polars", "vaex",
-    "apache spark", "pyspark", "hadoop", "hive", "pig", "flink",
-    "apache kafka", "rabbitmq", "celery", "airflow", "prefect", "dagster",
-    "dbt", "fivetran", "airbyte", "stitch", "etl", "data pipeline",
-    "tableau", "power bi", "looker", "metabase", "superset", "grafana",
-    "excel", "google sheets", "data analysis", "statistics", "a/b testing",
-    "data warehousing", "data lake", "data mesh", "data governance",
-    "feature engineering", "data mining", "predictive modeling", "time series analysis",
-    "sas", "spss", "minitab", "stata",
-    # ── Embedded / systems ─────────────────────────────────────────────────────
-    "embedded", "rtos", "freertos", "zephyr", "vxworks", "qnx", "embedded linux",
-    "microcontroller", "fpga", "arm", "arm cortex", "avr", "pic",
-    "uart", "spi", "i2c", "can bus", "modbus", "ethernet",
-    "tcp/ip", "udp", "mqtt", "coap", "ble", "zigbee", "lorawan",
-    "device driver", "bsp", "bootloader", "firmware", "real-time",
-    "ipc", "multithreading", "multiprocessing", "posix",
-    "cmake", "makefile", "openocd", "jtag", "gdb",
-    "iso 26262", "misra", "do-178", "sil4", "functional safety",
-    "plc", "ladder logic", "scada", "industrial automation", "hart",
-    # ── Mobile ─────────────────────────────────────────────────────────────────
-    "ios", "android", "react native", "flutter", "xamarin", "ionic", "capacitor",
-    "swift", "swiftui", "objective-c", "kotlin", "jetpack compose",
-    "xcode", "android studio", "expo", "firebase", "appcenter",
-    "cordova", "phonegap", "titanium", "unity mobile",
-    # ── Testing ────────────────────────────────────────────────────────────────
-    "unit testing", "integration testing", "e2e testing", "tdd", "bdd",
-    "pytest", "unittest", "jest", "vitest", "mocha", "jasmine", "cypress",
-    "playwright", "selenium", "appium", "postman", "insomnia",
-    "k6", "locust", "jmeter", "gatling",
-    "sonarqube", "codecov", "coveralls", "code review",
-    "mutation testing", "property based testing", "fuzz testing",
-    # ── Architecture & design ──────────────────────────────────────────────────
-    "microservices", "monolith", "event-driven", "cqrs", "event sourcing",
-    "domain driven design", "ddd", "hexagonal architecture", "clean architecture",
-    "rest api", "graphql", "grpc", "websocket", "mqtt", "openapi", "swagger",
-    "system design", "distributed systems", "high availability", "scalability",
-    "design patterns", "solid", "ooad", "uml", "soa",
-    "api gateway", "service mesh", "sidecar", "circuit breaker", "bulkhead",
-    "saga pattern", "outbox pattern", "inbox pattern", "strangler fig",
-    "twelve-factor app", "cap theorem", "acid", "base",
-    # ── Security ───────────────────────────────────────────────────────────────
-    "oauth2", "jwt", "saml", "ldap", "iam", "rbac",
-    "tls", "ssl", "cryptography", "penetration testing", "owasp",
-    "soc2", "gdpr", "hipaa", "pci dss",
-    "zero trust", "siem", "soar", "edr", "xdr", "mdr",
-    "vulnerability scanning", "threat modeling", "bug bounty",
-    "pkcs", "x.509", "aes", "rsa", "ecc", "sha", "md5",
-    # ── Project management ─────────────────────────────────────────────────────
-    "agile", "scrum", "kanban", "safe", "lean",
-    "jira", "confluence", "linear", "asana", "trello", "notion",
-    "git", "github", "gitlab", "bitbucket", "svn",
-    "project management", "product management", "technical lead",
-    "team lead", "engineering manager",
-    "program management", "portfolio management", "release management",
-    "change management", "itil", "cobit", "ppm",
-    # ── Design & UX ───────────────────────────────────────────────────────────
-    "figma", "sketch", "adobe xd", "invision", "zeplin",
-    "ui/ux", "user research", "wireframing", "prototyping",
-    "accessibility", "wcag", "responsive design",
-    "design system", "component library", "storybook",
-    "adobe creative suite", "photoshop", "illustrator", "after effects",
-    "blender", "cinema 4d", "maya", "3ds max",
-    "motion design", "interaction design", "information architecture",
-    "usability testing", "heuristic evaluation", "card sorting",
-    # ── Blockchain ─────────────────────────────────────────────────────────────
-    "blockchain", "solidity", "ethereum", "web3", "smart contracts",
-    "defi", "nft", "hyperledger", "polkadot",
-    "bitcoin", "cosmos", "tendermint", "avalanche", "solana", "cardano",
-    "chainlink", "the graph", "ipfs", "filecoin",
-    "zero knowledge", "zk-snarks", "zk-starks", "rollups", "layer 2",
-    # ── Gaming / AR / VR ───────────────────────────────────────────────────────
-    "unity", "unreal engine", "godot", "cryengine", "game maker",
-    "cocos2d", "phaser", "babylon.js", "three.js", "webgl", "webgpu",
-    "openxr", "arkit", "arcore", "vuforia", "metaverse",
-    "shader programming", "hlsl", "glsl", "compute shaders",
-    # ── Networking ─────────────────────────────────────────────────────────────
-    "networking", "tcp/ip", "udp", "http", "http/2", "http/3", "quic",
-    "dns", "dhcp", "vpn", "ipsec", "wireguard", "openvpn",
-    "load balancing", "cdn", "reverse proxy", "waf", "ddos protection",
-    "bgp", "ospf", "mpls", "sdn", "nfv", "vlan", "vxlan",
-    "firewall", "ids", "ips", "network security", "packet analysis",
-    # ── Operating systems ──────────────────────────────────────────────────────
-    "windows", "windows server", "linux", "macos", "unix",
-    "freebsd", "openbsd", "netbsd", "solaris", "aix",
-    "embedded linux", "android os", "ios", "chrome os",
-    "active directory", "group policy", "ldap", "kerberos",
-    # ── CRM / ERP / Business ───────────────────────────────────────────────────
-    "salesforce", "hubspot", "zoho", "pipedrive", "freshsales",
-    "sap", "oracle erp", "dynamics 365", "netsuite", "workday",
-    "servicenow", "jira service management", "freshdesk", "zendesk",
-    "sharepoint", "power platform", "power apps", "power automate",
-    "outsystems", "mendix", "appian", " Salesforce apex", "visualforce",
-    "business analysis", "business intelligence", "data modeling",
-    "process modeling", "bpmn", "uml", "enterprise architecture",
-    "togaf", "archimate", "zachman",
-    # ── Soft skills & non-technical ────────────────────────────────────────────
-    "communication", "leadership", "mentoring", "documentation",
-    "technical writing", "code review", "pair programming",
-    "problem solving", "critical thinking", "analytical thinking",
-    "creativity", "innovation", "adaptability", "flexibility",
-    "time management", "prioritization", "organization",
-    "collaboration", "teamwork", "cross-functional collaboration",
-    "stakeholder management", "client management", "customer success",
-    "conflict resolution", "negotiation", "persuasion",
-    "public speaking", "presentation skills", "storytelling",
-    "emotional intelligence", "empathy", "cultural awareness",
-    "decision making", "strategic thinking", "vision",
-    "coaching", "feedback", "performance management",
-    "hiring", "recruiting", "talent acquisition", "onboarding",
-    "budget management", "financial planning", "roi analysis",
-    "vendor management", "contract negotiation", "procurement",
-    "compliance", "risk management", "business continuity",
-    "change management", "organizational development",
-    "quality assurance", "process improvement", "six sigma", "lean manufacturing",
-    "root cause analysis", "fishbone diagram", "5 whys",
-    "technical support", "customer support", "help desk", "it support",
-    "training", "knowledge management", "wiki", "confluence",
-    "event planning", "workshop facilitation", "sprint planning",
-    "daily standups", "retrospectives", "demos", "backlog grooming",
-    "user stories", "acceptance criteria", "definition of done",
-    "market research", "competitive analysis", "product strategy",
-    "go-to-market", "pricing strategy", "revenue modeling",
-    "sales engineering", "solution architecture", "presales",
-    "account management", "relationship management", "partnerships",
-    "content strategy", "content marketing", "seo", "sem",
-    "social media marketing", "email marketing", "marketing automation",
-    "brand management", "public relations", "copywriting",
-    "video editing", "audio editing", "podcasting", "streaming",
-    "data entry", "transcription", "translation", "localization",
-    # ── Misc ──────────────────────────────────────────────────────────────────
-    "webscraping", "beautifulsoup", "scrapy", "selenium",
-    "celery", "redis queue", "bull", "sidekiq",
-    "protobuf", "avro", "json schema", "thrift", "grpc",
-    "regex", "xml", "yaml", "toml", "json", "csv",
-    "rest", "soap", "graphql", "webhook", "api design",
-    "seo", "analytics", "google analytics", "segment", "mixpanel",
-    "amplitude", "hotjar", "fullstory", "crazy egg", "optimizely",
-    "ab testing", "multivariate testing", "conversion rate optimization",
-    "latex", "markdown", "asciidoc", "restructuredtext",
-    "vim", "emacs", "vscode", "intellij", "pycharm", "webstorm",
-    "eclipse", "netbeans", "visual studio", "rider", "clion",
-    "postman", "insomnia", "swagger ui", "hoppscotch",
-    "git", "gitflow", "trunk based development", "monorepo", "turborepo", "nx",
-    "dependabot", "snyk", "black duck", "whitesource", " FOSSA",
-    "swagger", "openapi", "postman", "graphql playground",
-    "diagrams", "mermaid", "plantuml", "draw.io", "lucidchart",
-    "chatgpt", "claude", "copilot", "cursor", "codeium", "tabnine",
-    "notion", "obsidian", "roam research", "logseq", "evernote",
-    "slack", "microsoft teams", "discord", "zoom", "webex", "google meet",
-    "loom", "gitpitch", "canva", "gamma",
-]
-
-SKILL_ALIASES: Dict[str, List[str]] = {
-    # Languages
-    "javascript":              ["js", "ecmascript", "es6", "es2015", "es2020", "es2022"],
-    "typescript":              ["ts"],
-    "python":                  ["py", "python3", "python 3"],
-    "golang":                  ["go", "go lang", "go language"],
-    "c++":                     ["cpp", "c plus plus", "cplusplus"],
-    "c#":                      ["csharp", "c sharp", ".net c#", "dotnet c#"],
-    "kotlin":                  ["kotlin jvm"],
-    "ruby":                    ["rb", "ruby on rails"],
-    # Web frameworks
-    "react":                   ["reactjs", "react.js", "react js"],
-    "vue.js":                  ["vue", "vuejs", "vue 3", "vue3"],
-    "angular":                 ["angularjs", "angular 2+", "angular js"],
-    "next.js":                 ["nextjs", "next js", "nextjs 13", "nextjs 14"],
-    "nuxt.js":                 ["nuxt", "nuxtjs"],
-    "node.js":                 ["node", "nodejs", "express", "express.js"],
-    "fastapi":                 ["fast api"],
-    "django":                  ["django rest framework", "drf", "django 4"],
-    "spring boot":             ["spring", "spring framework", "spring mvc", "spring cloud"],
-    "tailwind":                ["tailwind css", "tailwindcss"],
-    # Databases
-    "postgresql":              ["postgres", "psql", "pg", "postgre"],
-    "mongodb":                 ["mongo", "mongo db", "mongoose"],
-    "elasticsearch":           ["elastic search", "elk", "opensearch", "elastic"],
-    "microsoft sql server":    ["mssql", "sql server", "t-sql", "tsql"],
-    "redis":                   ["redis cache", "redis queue"],
-    "dynamodb":                ["dynamo", "aws dynamodb"],
-    "bigquery":                ["google bigquery", "bq"],
-    "snowflake":               ["snowflake db"],
-    # Cloud
-    "amazon web services":     ["aws", "amazon aws"],
-    "google cloud platform":   ["gcp", "google cloud"],
-    "microsoft azure":         ["azure", "az", "azure cloud"],
-    # DevOps
-    "kubernetes":              ["k8s", "kube", "k8"],
-    "docker":                  ["dockerfile", "docker compose", "docker swarm", "container"],
-    "github actions":          ["gh actions", "github ci", "github workflows"],
-    "terraform":               ["tf", "iac", "infrastructure as code", "hcl"],
-    "ansible":                 ["ansible playbook"],
-    "jenkins":                 ["jenkins ci", "jenkins pipeline"],
-    "continuous integration":  ["ci", "ci/cd", "cicd"],
-    "nginx":                   ["nginx web server"],
-    "prometheus":              ["prometheus monitoring"],
-    "grafana":                 ["grafana dashboard"],
-    "elk stack":               ["elk", "elastic stack", "elasticsearch kibana logstash"],
-    # AI/ML
-    "machine learning":        ["ml", "supervised learning", "unsupervised learning", "classification"],
-    "deep learning":           ["dl", "neural networks", "neural network"],
-    "natural language processing": ["nlp", "text processing", "language models", "text mining"],
-    "pytorch":                 ["torch", "pytorch lightning"],
-    "tensorflow":              ["tf", "keras", "tensorflow keras"],
-    "scikit-learn":            ["sklearn", "scikit learn"],
-    "computer vision":         ["cv", "image processing", "object detection"],
-    "large language models":   ["llm", "llms", "foundation models"],
-    "hugging face":            ["huggingface", "transformers library"],
-    "langchain":               ["lang chain"],
-    # Data
-    "pandas":                  ["pd", "pandas dataframe"],
-    "apache spark":            ["spark", "pyspark", "databricks spark"],
-    "apache kafka":            ["kafka", "kafka streams"],
-    "apache airflow":          ["airflow"],
-    # Embedded
-    "freertos":                ["free rtos", "free-rtos"],
-    "embedded linux":          ["buildroot", "yocto"],
-    "can bus":                 ["can", "canopen", "j1939"],
-    "iso 26262":               ["iso26262", "functional safety automotive"],
-    "firmware":                ["bare metal"],
-    # Mobile
-    "react native":            ["rn", "react-native"],
-    "flutter":                 ["flutter sdk", "dart flutter"],
-    "swiftui":                 ["swift ui"],
-    "jetpack compose":         ["compose", "android compose"],
-    # Testing
-    "end to end testing":      ["e2e", "e2e testing"],
-    "test driven development": ["tdd"],
-    "behavior driven development": ["bdd"],
-    # Architecture
-    "rest api":                ["rest", "restful", "restful api"],
-    "graphql":                 ["graph ql"],
-    "microservices":           ["microservice", "micro services"],
-    "domain driven design":    ["ddd"],
-    "event-driven":            ["event driven", "event driven architecture", "eda"],
-    # Cloud services
-    "ec2":                     ["aws ec2", "amazon ec2"],
-    "s3":                      ["aws s3", "amazon s3"],
-    "lambda":                  ["aws lambda", "serverless"],
-    "sagemaker":               ["aws sagemaker"],
-    # Security
-    "oauth2":                  ["oauth", "oauth 2.0"],
-    "jwt":                     ["json web token", "json web tokens"],
-    # Tools
-    "git":                     ["version control", "vcs"],
-    "github":                  ["github.com"],
-    "jira":                    ["atlassian jira"],
-    "power bi":                ["powerbi", "ms power bi", "microsoft power bi"],
-    "tableau":                 ["tableau desktop", "tableau server"],
-    "figma":                   ["figma design"],
-    "ci/cd":                   ["cicd", "continuous delivery", "continuous deployment", "continuous integration"],
-}
-
-DOMAIN_KEYWORDS: Dict[str, List[str]] = {
-    "backend":      ["fastapi", "django", "flask", "spring", "rest api", "grpc",
-                     "postgresql", "mysql", "redis", "microservices", "golang", "node.js",
-                     "express", "api development", "backend", "server side", "database design",
-                     "sqlalchemy", "orm", "celery", "message queue"],
-    "frontend":     ["react", "vue", "angular", "next.js", "nuxt", "tailwind", "html", "css",
-                     "webpack", "vite", "typescript", "ui development", "frontend", "responsive",
-                     "web components", "ssr", "spa", "pwa", "accessibility", "figma"],
-    "fullstack":    ["full stack", "fullstack", "full-stack", "frontend and backend",
-                     "end-to-end", "mern", "mean", "lamp", "jamstack"],
-    "data_science": ["pandas", "numpy", "sklearn", "scikit", "jupyter", "data analysis",
-                     "statistics", "tableau", "power bi", "data pipeline", "etl",
-                     "feature engineering", "regression", "classification", "clustering",
-                     "time series", "sql", "bigquery", "snowflake", "dbt"],
-    "ml_ai":        ["machine learning", "deep learning", "neural network", "nlp", "pytorch",
-                     "tensorflow", "transformers", "llm", "computer vision", "reinforcement learning",
-                     "mlops", "model training", "fine-tuning", "hugging face", "langchain",
-                     "rag", "vector database", "embeddings", "generative ai"],
-    "devops":       ["kubernetes", "docker", "terraform", "ansible", "jenkins", "ci/cd", "helm",
-                     "argo", "prometheus", "grafana", "infrastructure as code", "sre",
-                     "linux", "bash", "monitoring", "observability", "cloud", "gitops",
-                     "deployment", "devops"],
-    "embedded":     ["embedded", "firmware", "rtos", "microcontroller", "fpga", "uart",
-                     "can bus", "i2c", "spi", "arm cortex", "device driver", "bsp",
-                     "real-time", "baremetal", "freertos", "yocto", "iso 26262", "misra",
-                     "embedded linux", "bootloader"],
-    "mobile":       ["ios", "android", "react native", "flutter", "swift", "kotlin",
-                     "xcode", "mobile app", "jetpack compose", "swiftui", "app store",
-                     "mobile development", "push notification"],
-    "management":   ["product manager", "engineering manager", "team lead", "delivery manager",
-                     "scrum master", "agile coach", "roadmap", "stakeholder", "okr",
-                     "program manager", "pmo", "budget", "hiring"],
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SKILLS REGISTRY CLASS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class SkillsRegistry:
-    """
-    DB-backed skills registry with in-memory flashtext processor.
-    Falls back to MASTER_SKILLS if DB is unavailable.
-    """
-
-    def __init__(self):
-        self._processor = None
-        self._skills: List[str] = []
-        self._loaded = False
-
-    def _build_processor(self, skills: List[str]):
-        """Build flashtext KeywordProcessor from a skills list."""
-        try:
-            from flashtext import KeywordProcessor
-            kp = KeywordProcessor(case_sensitive=False)
-            kp.add_keywords_from_list(skills)
-            # Also add all known aliases
-            for canonical, aliases in SKILL_ALIASES.items():
-                for alias in aliases:
-                    kp.add_keyword(alias, canonical)
-            self._processor = kp
-            self._skills = skills
-        except ImportError:
-            self._processor = None
-            self._skills = skills
-
-    def seed_if_empty(self, db) -> None:
-        """Upsert MASTER_SKILLS into the skills table — safe to call on every startup.
-
-        Uses INSERT … ON CONFLICT (name) DO NOTHING so re-deploys never crash
-        on duplicate keys, and new skills added to MASTER_SKILLS are picked up
-        automatically without manual DB intervention.
-        """
-        try:
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-            from app.backend.models.db_models import Skill
-
-            _domain_map = _build_domain_skill_map()
-            rows = [
-                {
-                    "name":    skill,
-                    "aliases": ",".join(SKILL_ALIASES.get(skill, [])),
-                    "domain":  _domain_map.get(skill, "general"),
-                    "status":  "active",
-                    "source":  "seed",
-                    "frequency": 0,
-                }
-                for skill in MASTER_SKILLS
-            ]
-            stmt = pg_insert(Skill).values(rows).on_conflict_do_nothing(index_elements=["name"])
-            db.execute(stmt)
-            db.commit()
-            log.info("Skills upsert complete (%d definitions)", len(rows))
-        except Exception as e:
-            db.rollback()
-            log.warning("Skills seed failed (non-fatal): %s", e)
-
-    def load(self, db=None) -> None:
-        """Load active skills from DB into the in-memory processor.
-
-        Always uses a fresh query — never reuses a session that may have been
-        poisoned by a previous exception.
-        """
-        skills = []
-        if db is not None:
-            try:
-                # Explicitly begin a clean transaction in case the caller's
-                # session was rolled back by seed_if_empty above.
-                db.rollback()
-                from app.backend.models.db_models import Skill
-                rows = db.query(Skill).filter(Skill.status == "active").all()
-                if rows:
-                    for row in rows:
-                        skills.append(row.name)
-                        if row.aliases:
-                            skills.extend(a.strip() for a in row.aliases.split(",") if a.strip())
-            except Exception as e:
-                log.warning("Skills load from DB failed (using hardcoded): %s", e)
-        if not skills:
-            skills = list(MASTER_SKILLS)
-        self._build_processor(skills)
-        self._loaded = True
-        log.info("SkillsRegistry loaded %d skills", len(self._skills))
-
-    def rebuild(self, db=None) -> None:
-        """Hot-reload skills without restarting the app."""
-        self._loaded = False
-        self.load(db)
-
-    def get_processor(self):
-        """Return the flashtext processor, lazy-loading if needed."""
-        if not self._loaded:
-            self.load()
-        return self._processor
-
-    def get_all_skills(self) -> List[str]:
-        if not self._loaded:
-            self.load()
-        return self._skills
-
-
-# Module-level singleton
-skills_registry = SkillsRegistry()
-
-
-def _build_domain_skill_map() -> Dict[str, str]:
-    """Map each MASTER_SKILL to its primary domain for seeding."""
-    skill_to_domain: Dict[str, str] = {}
-    for domain, keywords in DOMAIN_KEYWORDS.items():
-        for kw in keywords:
-            skill_to_domain[kw] = domain
-    return skill_to_domain
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -783,17 +323,6 @@ def _infer_total_years_from_resume_text(text: str) -> float:
     return min(45.0, best)
 
 
-def _extract_skills_from_text(text: str) -> List[str]:
-    """Extract skills from text using flashtext processor or regex fallback."""
-    processor = skills_registry.get_processor()
-    if processor:
-        found = processor.extract_keywords(text)
-        return list(dict.fromkeys(found))   # deduplicate, preserve order
-    # Regex fallback
-    text_lower = text.lower()
-    return [s for s in skills_registry.get_all_skills() if re.search(r'\b' + re.escape(s) + r'\b', text_lower)]
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # COMPONENT 2: RESUME PROFILE BUILDER
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -856,145 +385,10 @@ def _build_career_summary(role: str, company: str, years: float) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# COMPONENT 3: SKILL MATCHING ENGINE
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _normalize_skill(s: str) -> str:
-    s = s.strip()
-    # Special-case skills that must not be normalized
-    if s.lower() in ("c++", "c#"):
-        return s.lower()
-    s = s.lower()
-    s = re.sub(r'[.\-/\\]', ' ', s)
-    s = re.sub(r'\s+', ' ', s).strip()
-    return s
-
-
-def _expand_skill(skill: str) -> List[str]:
-    """Return skill + all its aliases, all normalized."""
-    n = _normalize_skill(skill)
-    aliases = [_normalize_skill(a) for a in SKILL_ALIASES.get(n, [])]
-    # Also check the original unnormalized form
-    raw_aliases = SKILL_ALIASES.get(skill.lower(), [])
-    aliases += [_normalize_skill(a) for a in raw_aliases]
-    return list(dict.fromkeys([n] + aliases))
-
-
-def match_skills_rules(
-    candidate_profile: Dict[str, Any],
-    jd_analysis: Dict[str, Any],
-    raw_text: str,
-) -> Dict[str, Any]:
-    required_skills  = jd_analysis.get("required_skills", [])
-    nice_have_skills = jd_analysis.get("nice_to_have_skills", [])
-    candidate_skills = candidate_profile.get("skills_identified", [])
-
-    # Build candidate skill set (all aliases included)
-    cand_normalized: List[str] = []
-    for s in candidate_skills:
-        cand_normalized.extend(_expand_skill(s))
-    cand_set = set(cand_normalized)
-
-    # Also scan raw text with flashtext for skills the parser may have missed
-    scanned = _extract_skills_from_text(raw_text)
-    for s in scanned:
-        cand_set.update(_expand_skill(s))
-
-    matched  = []
-    missing  = []
-
-    for req in required_skills:
-        req_variants = _expand_skill(req)
-        found = False
-
-        # Exact / alias match
-        if any(v in cand_set for v in req_variants):
-            found = True
-
-        # Substring match: "React Native" in "React" or vice-versa
-        if not found:
-            req_norm = _normalize_skill(req)
-            for c in cand_set:
-                if req_norm in c or c in req_norm:
-                    found = True
-                    break
-
-        # Fuzzy fallback (rapidfuzz, threshold 88)
-        if not found:
-            try:
-                from rapidfuzz import fuzz
-                req_norm = _normalize_skill(req)
-                for c in list(cand_set)[:200]:  # cap for performance
-                    if fuzz.token_sort_ratio(req_norm, c) >= 88:
-                        found = True
-                        break
-            except ImportError:
-                pass
-
-        if found:
-            matched.append(req)
-        else:
-            missing.append(req)
-
-    # Adjacent (nice-to-have) matches
-    adjacent = []
-    for s in nice_have_skills:
-        s_variants = _expand_skill(s)
-        if any(v in cand_set for v in s_variants):
-            adjacent.append(s)
-
-    total_req  = max(len(required_skills), 1)
-    skill_score = round(len(matched) / total_req * 100) if required_skills else 50
-    skill_score = min(100, skill_score)
-
-    return {
-        "matched_skills":   matched,
-        "missing_skills":   missing,
-        "adjacent_skills":  adjacent,
-        "skill_score":      skill_score,
-        "required_count":   len(required_skills),
-        "matched_count":    len(matched),
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # COMPONENT 4: EDUCATION SCORING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-DEGREE_SCORES: Dict[str, int] = {
-    "phd": 100, "ph.d": 100, "doctorate": 100, "doctor of": 100,
-    "master": 85, "msc": 85, "m.sc": 85, "mba": 82, "mca": 85,
-    "mtech": 85, "m.tech": 85, "m.e.": 85, "ms ": 85, "m.s.": 85,
-    "me ": 85, "post graduate": 82, "postgraduate": 82, "pg diploma": 75,
-    "bachelor": 70, "bsc": 70, "b.sc": 70, "be ": 70, "b.e.": 70,
-    "btech": 70, "b.tech": 70, "bs ": 70, "b.s.": 70, "ba ": 65,
-    "b.a.": 65, "bca": 65, "bba": 62,
-    "diploma": 50, "associate": 48, "hnd": 45,
-    "certif": 38, "bootcamp": 35, "course": 30,
-}
-
-FIELD_RELEVANCE: Dict[str, List[str]] = {
-    "backend":      ["computer science", "computer engineering", "software engineering",
-                     "information technology", "cse", "it", "bca", "mca", "electronics"],
-    "frontend":     ["computer science", "software engineering", "web", "human computer interaction",
-                     "hci", "interaction design", "information technology"],
-    "fullstack":    ["computer science", "software engineering", "information technology",
-                     "cse", "mca", "bca"],
-    "data_science": ["data science", "statistics", "mathematics", "computer science",
-                     "analytics", "information systems", "operations research", "economics"],
-    "ml_ai":        ["artificial intelligence", "machine learning", "computer science",
-                     "computational", "data science", "statistics", "mathematics"],
-    "devops":       ["computer science", "computer engineering", "information technology",
-                     "systems", "networking", "telecommunications"],
-    "embedded":     ["electronics", "electrical", "computer engineering", "embedded",
-                     "vlsi", "instrumentation", "mechatronics", "robotics", "avionics"],
-    "mobile":       ["computer science", "software engineering", "information technology",
-                     "mobile computing"],
-    "management":   ["business", "management", "mba", "project management", "administration",
-                     "operations", "strategy"],
-    "other":        ["computer", "information", "engineering", "technology", "science",
-                     "mathematics", "systems"],
-}
+# DEGREE_SCORES and FIELD_RELEVANCE are now imported from constants.py
 
 
 def score_education_rules(candidate_profile: Dict[str, Any], jd_domain: str) -> int:
@@ -1157,112 +551,8 @@ def domain_architecture_rules(
 # COMPONENT 7: FIT SCORE & RISK SIGNALS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_DEFAULT_WEIGHTS = {
-    "skills":       0.30,
-    "experience":   0.20,
-    "architecture": 0.15,
-    "education":    0.10,
-    "timeline":     0.10,
-    "domain":       0.10,
-    "risk":         0.15,
-}
-
-
-def compute_fit_score(scores: Dict[str, Any], scoring_weights: Optional[Dict] = None) -> Dict[str, Any]:
-    """Compute weighted fit score, risk signals, and recommendation."""
-    w = {**_DEFAULT_WEIGHTS, **(scoring_weights or {})}
-
-    skill_score    = scores.get("skill_score",    50)
-    exp_score      = scores.get("exp_score",       50)
-    arch_score     = scores.get("arch_score",      50)
-    edu_score      = scores.get("edu_score",       60)
-    timeline_score = scores.get("timeline_score",  85)
-    domain_score   = scores.get("domain_score",    60)
-    actual_years   = scores.get("actual_years",    0)
-    required_years = scores.get("required_years",  0)
-    matched_skills = scores.get("matched_skills",  [])
-    missing_skills = scores.get("missing_skills",  [])
-    required_count = scores.get("required_count",  0)
-    employment_gaps = scores.get("employment_gaps", [])
-    short_stints    = scores.get("short_stints",   [])
-
-    # ── Risk signals (deterministic Python — not LLM) ─────────────────────────
-    risk_signals = []
-
-    has_critical_gap = any(g.get("severity") == "critical" for g in employment_gaps)
-    if has_critical_gap:
-        risk_signals.append({"type": "gap",           "severity": "high",
-                              "description": "Critical employment gap detected (12+ months)"})
-
-    skill_miss_pct = (len(missing_skills) / max(required_count, 1)) * 100
-    if skill_miss_pct >= 50:
-        risk_signals.append({"type": "skill_gap",     "severity": "high",
-                              "description": f"Missing {len(missing_skills)}/{required_count} required skills"})
-    elif skill_miss_pct >= 30:
-        risk_signals.append({"type": "skill_gap",     "severity": "medium",
-                              "description": f"Missing {len(missing_skills)}/{required_count} required skills"})
-
-    if domain_score < 40:
-        risk_signals.append({"type": "domain_mismatch", "severity": "medium",
-                              "description": "Candidate domain does not closely match role requirements"})
-
-    if len(short_stints) >= 3:
-        risk_signals.append({"type": "stability",     "severity": "medium",
-                              "description": f"{len(short_stints)} short stints (<6 months) detected"})
-    elif len(short_stints) >= 2:
-        risk_signals.append({"type": "stability",     "severity": "low",
-                              "description": f"{len(short_stints)} short stints detected"})
-
-    if required_years > 0 and actual_years > required_years * 2:
-        risk_signals.append({"type": "overqualified",  "severity": "low",
-                              "description": f"Candidate has {actual_years}y experience vs {required_years}y required"})
-
-    # ── Risk penalty ──────────────────────────────────────────────────────────
-    risk_penalty = sum(
-        {"high": 20, "medium": 10, "low": 4}.get(r.get("severity", "low"), 0)
-        for r in risk_signals
-    )
-
-    # ── Fit score ──────────────────────────────────────────────────────────────
-    fit_score = round(
-        skill_score    * w["skills"]       +
-        exp_score      * w["experience"]   +
-        arch_score     * w["architecture"] +
-        edu_score      * w["education"]    +
-        timeline_score * w["timeline"]     +
-        domain_score   * w["domain"]       -
-        risk_penalty   * w["risk"]
-    )
-    fit_score = max(0, min(100, fit_score))
-
-    # ── Recommendation ────────────────────────────────────────────────────────
-    if fit_score >= 72:
-        recommendation = "Shortlist"
-        risk_level = "Low"
-    elif fit_score >= 45:
-        recommendation = "Consider"
-        risk_level = "Medium" if risk_signals else "Low"
-    else:
-        recommendation = "Reject"
-        risk_level = "High" if any(r["severity"] == "high" for r in risk_signals) else "Medium"
-
-    return {
-        "fit_score":            fit_score,
-        "final_recommendation": recommendation,
-        "risk_level":           risk_level,
-        "risk_signals":         risk_signals,
-        "risk_penalty":         risk_penalty,
-        "score_breakdown": {
-            "skill_match":      skill_score,
-            "experience_match": exp_score,
-            "stability":        timeline_score,
-            "education":        edu_score,
-            "architecture":     arch_score,
-            "domain_fit":       domain_score,
-            "timeline":         timeline_score,
-            "risk_penalty":     risk_penalty,
-        },
-    }
+# _DEFAULT_WEIGHTS is now imported from constants.py
+# DOMAIN_KEYWORDS is now imported from constants.py
 
 
 def _assess_quality(candidate_profile: Dict[str, Any]) -> str:
@@ -1857,11 +1147,7 @@ def _build_risk_summary(
     # Seniority alignment
     actual_y = exp_r.get("actual_years", 0)
     seniority = jd.get("seniority", "unknown")
-    seniority_ranges = {
-        "intern": (0, 1), "junior": (0, 2), "mid": (2, 5),
-        "senior": (5, 10), "lead": (7, 15), "principal": (10, 25),
-        "staff": (8, 20), "architect": (10, 25), "director": (12, 30),
-    }
+    seniority_ranges = SENIORITY_RANGES
     lo, hi = seniority_ranges.get(seniority.lower(), (0, 100))
     if actual_y < lo:
         seniority_alignment = f"Underqualified — {actual_y:.1f}y experience, {seniority} typically requires {lo}-{hi}y"
@@ -1949,7 +1235,12 @@ def _run_python_phase(
 
     jd       = jd_analysis or parse_jd_rules(job_description)
     profile  = parse_resume_rules(parsed_data, gap_analysis)
-    skill_a  = match_skills_rules(profile, jd, resume_text)
+    skill_a  = match_skills(
+        profile.get("skills_identified", []),
+        jd.get("required_skills", []),
+        resume_text,
+        jd.get("nice_to_have_skills", []),
+    )
     edu_s    = score_education_rules(profile, jd["domain"])
     exp_r    = score_experience_rules(profile, jd, gap_analysis)
     dom_r    = domain_architecture_rules(resume_text, jd["domain"], profile.get("current_role"))
@@ -1971,8 +1262,46 @@ def _run_python_phase(
         "fit_score": 0,
     }
 
-    fit_r = compute_fit_score(all_scores, scoring_weights)
-    all_scores["fit_score"] = fit_r["fit_score"]
+    # Weight system is locked — always use DEFAULT_WEIGHTS for deterministic scoring
+    fit_r = compute_fit_score(all_scores, _DEFAULT_WEIGHTS)
+
+    # ── Deterministic engine (domain → eligibility → deterministic score) ─────
+    jd_domain = {"domain": "unknown", "confidence": 0.0, "scores": {}}
+    candidate_domain = {"domain": "unknown", "confidence": 0.0, "scores": {}}
+    eligibility = None
+    deterministic_score = fit_r["fit_score"]
+    decision_explanation = {}
+    deterministic_features = {}
+    try:
+        jd_domain = detect_domain_from_jd(job_description)
+        candidate_domain = detect_domain_from_resume(
+            skills=profile.get("skills_identified", []),
+            resume_text=resume_text,
+        )
+
+        deterministic_features = {
+            "core_skill_match": skill_a.get("core_match_ratio", 0) if isinstance(skill_a, dict) else 0,
+            "secondary_skill_match": skill_a.get("secondary_match_ratio", 0) if isinstance(skill_a, dict) else 0,
+            "domain_match": jd_domain.get("confidence", 0) if jd_domain["domain"] == candidate_domain["domain"] else 0,
+            "relevant_experience": min(profile.get("total_effective_years", 0) / max(jd.get("required_years", 1), 1), 1.0),
+            "total_experience": profile.get("total_effective_years", 0),
+        }
+
+        eligibility = check_eligibility(
+            jd_domain=jd_domain["domain"],
+            candidate_domain=candidate_domain["domain"],
+            core_skill_match=deterministic_features["core_skill_match"],
+            relevant_experience=deterministic_features["relevant_experience"],
+            jd_domain_confidence=jd_domain["confidence"],
+            candidate_domain_confidence=candidate_domain["confidence"],
+        )
+
+        deterministic_score = compute_deterministic_score(deterministic_features, eligibility)
+        decision_explanation = explain_decision(deterministic_features, eligibility)
+    except Exception as e:
+        log.warning("Deterministic engine failed, falling back to legacy fit_score: %s", e)
+
+    all_scores["fit_score"] = deterministic_score
     all_scores["final_recommendation"] = fit_r["final_recommendation"]
 
     rationales = _build_score_rationales(all_scores, profile, jd, skill_a, exp_r, edu_s, dom_r, gap_analysis)
@@ -1993,7 +1322,7 @@ def _run_python_phase(
             "short_stints":     gap_analysis.get("short_stints", []),
         },
         # Top-level fields for AnalysisResponse schema
-        "fit_score":            fit_r["fit_score"],
+        "fit_score":            deterministic_score,
         "job_role":             jd["role_title"],
         "final_recommendation": fit_r["final_recommendation"],
         "risk_level":           fit_r["risk_level"],
@@ -2013,6 +1342,17 @@ def _run_python_phase(
         "score_rationales":     rationales,
         "risk_summary":         risk_summary,
         "skill_depth":          skill_depth,
+        # Deterministic engine outputs
+        "deterministic_score":  deterministic_score,
+        "decision_explanation": decision_explanation,
+        "jd_domain":            jd_domain,
+        "candidate_domain":     candidate_domain,
+        "eligibility":          {
+            "eligible": eligibility.eligible,
+            "reason": eligibility.reason,
+            "details": eligibility.details,
+        } if eligibility else {"eligible": True, "reason": None, "details": {}},
+        "deterministic_features": deterministic_features,
         # Internal — used by fallback
         "_required_years":      exp_r["required_years"],
         "_scores":              all_scores,

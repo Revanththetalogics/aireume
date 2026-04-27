@@ -154,6 +154,13 @@ class ScreeningResult(Base):
     suggested_weights_json = Column(Text, nullable=True)        # JSON: suggested scoring weights
     timestamp          = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
+    # ── Deterministic scoring fields ─────────────────────────────────────────
+    deterministic_score = Column(Integer, nullable=True)        # Hard-capped deterministic score
+    domain_match_score  = Column(Float, nullable=True)           # Domain match confidence
+    core_skill_score    = Column(Float, nullable=True)           # Core skill match ratio
+    eligibility_status  = Column(Boolean, nullable=True)         # Whether candidate passed eligibility gates
+    eligibility_reason  = Column(String(100), nullable=True)     # Rejection reason if ineligible
+
     tenant        = relationship("Tenant", back_populates="results")
     candidate     = relationship("Candidate", back_populates="results")
     role_template = relationship("RoleTemplate", back_populates="results")

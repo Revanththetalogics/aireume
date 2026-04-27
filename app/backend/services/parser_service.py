@@ -899,7 +899,7 @@ class ResumeParser:
 
         # ── Step 2: full-text scan with flashtext (MASTER_SKILLS) ────────────
         try:
-            from app.backend.services.hybrid_pipeline import skills_registry
+            from app.backend.services.skill_matcher import skills_registry
             processor = skills_registry.get_processor()
             if processor:
                 scanned = processor.extract_keywords(text)

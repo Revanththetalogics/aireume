@@ -72,8 +72,8 @@ def get_role_calibration(
         # Calculate percentiles for thresholds
         p75_idx = int(len(sorted_scores) * 0.75)
         p25_idx = int(len(sorted_scores) * 0.25)
-        shortlist_threshold = sorted_scores[p75_idx] if p75_idx < len(sorted_scores) else 70
-        reject_threshold = sorted_scores[p25_idx] if p25_idx < len(sorted_scores) else 45
+        shortlist_threshold = sorted_scores[p75_idx] if p75_idx < len(sorted_scores) else RECOMMENDATION_THRESHOLDS["shortlist"]
+        reject_threshold = sorted_scores[p25_idx] if p25_idx < len(sorted_scores) else RECOMMENDATION_THRESHOLDS["consider"]
         
         # Extract common patterns
         common_strengths = extract_common_patterns(results, "key_strengths", top_n=5)
@@ -124,8 +124,8 @@ def get_default_calibration(role_category: str) -> Dict[str, Any]:
         "total_analyzed": 0,
         "avg_fit_score": None,
         "median_fit_score": None,
-        "shortlist_threshold": 70,  # Default threshold
-        "reject_threshold": 45,     # Default threshold
+        "shortlist_threshold": RECOMMENDATION_THRESHOLDS["shortlist"],  # Default threshold (from constants)
+        "reject_threshold": RECOMMENDATION_THRESHOLDS["consider"],     # Default threshold
         "common_strengths": [],
         "common_concerns": [],
         "common_red_flags": [],

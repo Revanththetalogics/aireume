@@ -122,6 +122,13 @@ class AnalysisResponse(BaseModel):
     analysis_quality:   Optional[str] = None   # high | medium | low
     narrative_pending:  Optional[bool] = False  # True if LLM timed out, Python scores still valid
     duplicate_candidate: Optional[DuplicateCandidateInfo] = None
+    # ── Deterministic engine fields ──
+    deterministic_score:  Optional[int] = None
+    decision_explanation: Optional[Dict[str, Any]] = None
+    jd_domain:            Optional[Dict[str, Any]] = None
+    candidate_domain:     Optional[Dict[str, Any]] = None
+    eligibility:          Optional[Dict[str, Any]] = None
+    deterministic_features: Optional[Dict[str, Any]] = None
 
 
 class BatchAnalysisResult(BaseModel):

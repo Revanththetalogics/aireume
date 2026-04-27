@@ -12,7 +12,6 @@ from app.backend.services.hybrid_pipeline import (
     parse_jd_rules,
     parse_resume_rules,
     _infer_total_years_from_resume_text,
-    match_skills_rules,
     score_education_rules,
     score_experience_rules,
     domain_architecture_rules,
@@ -21,9 +20,12 @@ from app.backend.services.hybrid_pipeline import (
     _merge_llm_into_result,
     _run_python_phase,
     run_hybrid_pipeline,
+    _assess_quality,
+)
+from app.backend.services.skill_matcher import (
+    match_skills,
     _normalize_skill,
     _expand_skill,
-    _assess_quality,
 )
 
 
@@ -138,62 +140,56 @@ class TestParseJdRules:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Component 3: match_skills_rules
+# Component 3: match_skills
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestMatchSkillsRules:
-
-    def _profile(self, skills):
-        return {"skills_identified": skills, "education": [], "work_experience": []}
-
-    def _jd(self, required, nice=None):
-        return {"required_skills": required, "nice_to_have_skills": nice or [],
-                "domain": "backend", "role_title": "Engineer", "required_years": 3}
+class TestMatchSkills:
 
     def test_exact_match(self):
-        result = match_skills_rules(self._profile(["python"]), self._jd(["python"]), "python developer")
+        result = match_skills(["python"], ["python"], "python developer")
         assert "python" in result["matched_skills"]
         assert result["skill_score"] == 100
 
     def test_alias_match_postgres(self):
         """'postgres' in candidate should match 'postgresql' in JD."""
-        result = match_skills_rules(self._profile(["postgres"]), self._jd(["postgresql"]), "")
+        result = match_skills(["postgres"], ["postgresql"], "")
         assert result["matched_skills"]
         assert result["missing_skills"] == [] or "postgresql" not in result["missing_skills"]
 
     def test_alias_match_js(self):
         """'js' in candidate should match 'javascript' in JD."""
-        result = match_skills_rules(self._profile(["js"]), self._jd(["javascript"]), "")
+        result = match_skills(["js"], ["javascript"], "")
         assert result["matched_skills"]
 
     def test_substring_match(self):
         """'react' in candidate should match 'react native' in JD."""
-        result = match_skills_rules(self._profile(["react"]), self._jd(["react native"]), "")
+        result = match_skills(["react"], ["react native"], "")
         assert result["matched_skills"]
 
     def test_missing_skill_tracked(self):
-        result = match_skills_rules(self._profile(["python"]), self._jd(["python", "kubernetes"]), "")
+        result = match_skills(["python"], ["python", "kubernetes"], "")
         assert "kubernetes" in result["missing_skills"]
 
     def test_empty_required_defaults_50(self):
         """If JD has no required skills, skill_score defaults to 50 (neutral)."""
-        result = match_skills_rules(self._profile(["python"]), self._jd([]), "")
+        result = match_skills(["python"], [], "")
         assert result["skill_score"] == 50
 
     def test_adjacent_skills(self):
-        result = match_skills_rules(
-            self._profile(["python", "redis"]),
-            self._jd(["python"], nice=["redis", "graphql"]),
-            ""
+        result = match_skills(
+            ["python", "redis"],
+            ["python"],
+            "",
+            ["redis", "graphql"],
         )
         assert "redis" in result["adjacent_skills"]
         assert "graphql" not in result["adjacent_skills"]
 
     def test_skill_score_partial(self):
-        result = match_skills_rules(
-            self._profile(["python"]),
-            self._jd(["python", "java", "c++"]),
-            ""
+        result = match_skills(
+            ["python"],
+            ["python", "java", "c++"],
+            "",
         )
         # 1 of 3 matched = 33%
         assert result["skill_score"] == pytest.approx(33, abs=2)
@@ -201,10 +197,10 @@ class TestMatchSkillsRules:
     def test_rawtext_fallback_scan(self):
         """Skills found in raw resume text even if not in skills_identified."""
         raw_text = "Worked extensively with kubernetes and docker in production."
-        result = match_skills_rules(
-            self._profile([]),
-            self._jd(["kubernetes"]),
-            raw_text
+        result = match_skills(
+            [],
+            ["kubernetes"],
+            raw_text,
         )
         assert result["matched_skills"]
 
@@ -444,14 +440,15 @@ class TestComputeFitScore:
         assert "timeline" in bd
         assert "domain_fit" in bd
 
-    def test_custom_weights_change_score(self):
+    def test_custom_weights_ignored_locked_system(self):
+        """Custom weights are ignored — the weight system is locked for deterministic scoring."""
         scores = self._scores(skill_score=100, exp_score=0)
         r_default  = compute_fit_score(scores)
-        r_exp_heavy = compute_fit_score(scores, {"skills": 0.10, "experience": 0.50,
-                                                  "architecture": 0.10, "education": 0.05,
-                                                  "timeline": 0.10, "domain": 0.05, "risk": 0.10})
-        # exp_heavy should score lower because exp_score is 0 and weighted more
-        assert r_exp_heavy["fit_score"] < r_default["fit_score"]
+        r_custom = compute_fit_score(scores, {"skills": 0.10, "experience": 0.50,
+                                               "architecture": 0.10, "education": 0.05,
+                                               "timeline": 0.10, "domain": 0.05, "risk": 0.10})
+        # Both should produce identical scores because custom weights are ignored
+        assert r_custom["fit_score"] == r_default["fit_score"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -36,25 +36,14 @@ import logging
 from langgraph.graph import StateGraph, START, END
 from langchain_ollama import ChatOllama
 
-from app.backend.services.guardrail_service import (
-    llm_invoke_with_retry,
-    validate_jd_output,
-    validate_resume_output,
-    validate_scorer_output,
-    check_cross_node_consistency,
-    detect_prompt_injection,
-    sanitize_for_injection,
-    ensemble_vote_3x,
-    vote_jd_parser,
-    vote_scorer,
-    hitl_gate_check,
-    get_token_budget_manager,
-    get_ab_test_tracker,
-    emit_guardrail_event,
-    estimate_tokens,
-    ConsistencyReport,
-    HITLFlag,
+from app.backend.services.constants import (
+    RECOMMENDATION_THRESHOLDS,
+    SENIORITY_RANGES,
+    DEFAULT_WEIGHTS,
 )
+from app.backend.services.risk_calculator import compute_risk_penalty
+from app.backend.services.fit_scorer import compute_fit_score
+from app.backend.services.skill_matcher import validate_skills_against_text
 
 
 def _json_default(obj):
@@ -96,15 +85,27 @@ def _get_ollama_headers(base_url: str) -> Dict[str, str]:
             headers["Authorization"] = f"Bearer {api_key}"
     return headers
 
-DEFAULT_WEIGHTS: Dict[str, float] = {
-    "skills":       0.30,
-    "experience":   0.20,
-    "architecture": 0.15,
-    "education":    0.10,
-    "timeline":     0.10,
-    "domain":       0.10,
-    "risk":         0.15,
-}
+from app.backend.services.guardrail_service import (
+    llm_invoke_with_retry,
+    validate_jd_output,
+    validate_resume_output,
+    validate_scorer_output,
+    check_cross_node_consistency,
+    detect_prompt_injection,
+    sanitize_for_injection,
+    ensemble_vote_3x,
+    vote_jd_parser,
+    vote_scorer,
+    hitl_gate_check,
+    get_token_budget_manager,
+    get_ab_test_tracker,
+    emit_guardrail_event,
+    estimate_tokens,
+    ConsistencyReport,
+    HITLFlag,
+)
+
+# DEFAULT_WEIGHTS is now imported from constants.py
 
 # Nodes that emit SSE events when complete (3-step sequential pipeline)
 STREAMABLE_NODES = {"jd_parser", "resume_analyser", "scorer"}
@@ -242,44 +243,6 @@ def _parse_json(content: str, fallback: dict) -> dict:
     return fallback
 
 
-def _validate_skills_against_jd(skills: List[str], jd_text: str) -> List[str]:
-    """Filter out skills not found in the original JD text (hallucination guard)."""
-    if not skills or not jd_text:
-        return []
-
-    jd_lower = jd_text.lower()
-    validated = []
-
-    for skill in skills:
-        if not skill or not isinstance(skill, str):
-            continue
-
-        skill_lower = skill.lower()
-
-        # Direct substring match
-        if skill_lower in jd_lower:
-            validated.append(skill)
-            continue
-
-        # Check aliases from the skill registry
-        try:
-            from app.backend.services.hybrid_pipeline import SKILL_ALIASES
-            aliases = SKILL_ALIASES.get(skill_lower, [])
-            if any(alias.lower() in jd_lower for alias in aliases):
-                validated.append(skill)
-                continue
-        except Exception:
-            pass
-
-        # Multi-word skill: check if any significant word (3+ chars) matches
-        words = [w for w in skill_lower.split() if len(w) > 2]
-        if words and any(word in jd_lower for word in words):
-            validated.append(skill)
-            continue
-
-    return validated
-
-
 def _sanitize_jd_output(data: dict, original_jd_text: str) -> dict:
     """Post-process and sanitize JD parser output to remove hallucinations."""
     fallback = {
@@ -297,20 +260,20 @@ def _sanitize_jd_output(data: dict, original_jd_text: str) -> dict:
             data[key] = default
 
     # Validate skills against original JD text (hallucination guard)
-    data["required_skills"] = _validate_skills_against_jd(
+    data["required_skills"] = validate_skills_against_text(
         data.get("required_skills", []), original_jd_text
     )
-    data["nice_to_have_skills"] = _validate_skills_against_jd(
+    data["nice_to_have_skills"] = validate_skills_against_text(
         data.get("nice_to_have_skills", []), original_jd_text
     )
 
     # Normalize seniority
-    valid_seniority = {"junior", "mid", "senior", "lead", "principal"}
+    valid_seniority = set(SENIORITY_RANGES.keys()) | {"principal"}
     if data.get("seniority") not in valid_seniority:
         years = data.get("required_years", 0)
-        if years >= 8:
+        if years >= SENIORITY_RANGES["senior"][0]:
             data["seniority"] = "senior"
-        elif years >= 3:
+        elif years >= SENIORITY_RANGES["mid"][0]:
             data["seniority"] = "mid"
         else:
             data["seniority"] = "junior"
@@ -961,7 +924,7 @@ Now analyze this candidate using similar reasoning and maintain consistency with
         if result.get("final_recommendation") not in ("Shortlist", "Consider", "Reject"):
             fit = result["fit_score"]
             result["final_recommendation"] = (
-                "Shortlist" if fit >= 72 else "Consider" if fit >= 45 else "Reject"
+                "Shortlist" if fit >= RECOMMENDATION_THRESHOLDS["shortlist"] else "Consider" if fit >= RECOMMENDATION_THRESHOLDS["consider"] else "Reject"
             )
 
         # Always override score_breakdown with actual agent-computed input scores.
@@ -1023,36 +986,29 @@ def _compute_fallback_scores(
     else:
         exp_score = int((actual / required) * 70)
 
-    risk_penalty = max(0, (100 - skill_score) // 3)
-    fit = round(
-        skill_score    * w.get("skills",       0.30) +
-        exp_score      * w.get("experience",    0.20) +
-        arch_score     * w.get("architecture",  0.15) +
-        edu_score      * w.get("education",     0.10) +
-        timeline_score * w.get("timeline",      0.10) +
-        domain_score   * w.get("domain",        0.10) -
-        risk_penalty   * w.get("risk",          0.15)
-    )
-    fit = max(0, min(100, int(fit)))
-    rec = "Shortlist" if fit >= 72 else "Consider" if fit >= 45 else "Reject"
+    risk_penalty = compute_risk_penalty([])
+
+    scores = {
+        "skill_score":    skill_score,
+        "exp_score":      exp_score,
+        "arch_score":     arch_score,
+        "edu_score":      edu_score,
+        "timeline_score": timeline_score,
+        "domain_score":   domain_score,
+    }
+    fit_result = compute_fit_score(scores, w, risk_signals=[])
+    fit = fit_result["fit_score"]
+    rec = fit_result["final_recommendation"]
 
     return {
         "experience_score": exp_score,
         "risk_penalty":     risk_penalty,
-        "score_breakdown": {
-            "skill_match":       skill_score,
-            "experience_match":  exp_score,
-            "architecture":      arch_score,
-            "education":         edu_score,
-            "timeline":          timeline_score,
-            "domain_fit":        domain_score,
-            "risk_penalty":      risk_penalty,
-        },
-        "fit_score":    fit,
-        "risk_level":   "Low" if fit >= 72 else "Medium" if fit >= 45 else "High",
-        "risk_signals": [],
-        "strengths":    [],
-        "weaknesses":   [],
+        "score_breakdown":  fit_result["score_breakdown"],
+        "fit_score":        fit,
+        "risk_level":       fit_result["risk_level"],
+        "risk_signals":     [],
+        "strengths":        [],
+        "weaknesses":       [],
         "explainability": {
             "overall_rationale": "Automated scoring unavailable — LLM analysis pending."
         },

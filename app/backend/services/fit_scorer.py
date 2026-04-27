@@ -1,0 +1,215 @@
+"""Standardized fit score computation — single source of truth."""
+
+from typing import Any, Dict, List, Optional
+
+from app.backend.services.constants import (
+    DEFAULT_WEIGHTS,
+    RECOMMENDATION_THRESHOLDS,
+)
+from app.backend.services.risk_calculator import compute_risk_penalty
+
+
+def compute_fit_score(
+    scores: Dict[str, Any],
+    scoring_weights: Optional[Dict] = None,
+    risk_signals: Optional[List[dict]] = None,
+    risk_penalty: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Compute weighted fit score, risk signals, and recommendation.
+
+    NOTE: The weight system is locked for deterministic scoring.
+    Custom scoring_weights are ignored — DEFAULT_WEIGHTS are always used.
+    """
+    w = DEFAULT_WEIGHTS.copy()
+
+    skill_score    = scores.get("skill_score",    50)
+    exp_score      = scores.get("exp_score",       50)
+    arch_score     = scores.get("arch_score",      50)
+    edu_score      = scores.get("edu_score",       60)
+    timeline_score = scores.get("timeline_score", 85)
+    domain_score   = scores.get("domain_score",    60)
+    actual_years   = scores.get("actual_years",    0)
+    required_years = scores.get("required_years",  0)
+    matched_skills = scores.get("matched_skills",  [])
+    missing_skills = scores.get("missing_skills",  [])
+    required_count = scores.get("required_count",  0)
+    employment_gaps = scores.get("employment_gaps", [])
+    short_stints    = scores.get("short_stints",   [])
+
+    # ── Risk signals (deterministic Python — not LLM) ─────────────────────────
+    if risk_signals is None:
+        risk_signals = []
+
+        has_critical_gap = any(g.get("severity") == "critical" for g in employment_gaps)
+        if has_critical_gap:
+            risk_signals.append({"type": "gap",           "severity": "high",
+                                  "description": "Critical employment gap detected (12+ months)"})
+
+        skill_miss_pct = (len(missing_skills) / max(required_count, 1)) * 100
+        if skill_miss_pct >= 50:
+            risk_signals.append({"type": "skill_gap",     "severity": "high",
+                                  "description": f"Missing {len(missing_skills)}/{required_count} required skills"})
+        elif skill_miss_pct >= 30:
+            risk_signals.append({"type": "skill_gap",     "severity": "medium",
+                                  "description": f"Missing {len(missing_skills)}/{required_count} required skills"})
+
+        if domain_score < 40:
+            risk_signals.append({"type": "domain_mismatch", "severity": "medium",
+                                  "description": "Candidate domain does not closely match role requirements"})
+
+        if len(short_stints) >= 3:
+            risk_signals.append({"type": "stability",     "severity": "medium",
+                                  "description": f"{len(short_stints)} short stints (<6 months) detected"})
+        elif len(short_stints) >= 2:
+            risk_signals.append({"type": "stability",     "severity": "low",
+                                  "description": f"{len(short_stints)} short stints detected"})
+
+        if required_years > 0 and actual_years > required_years * 2:
+            risk_signals.append({"type": "overqualified",  "severity": "low",
+                                  "description": f"Candidate has {actual_years}y experience vs {required_years}y required"})
+
+    # ── Risk penalty ──────────────────────────────────────────────────────────
+    if risk_penalty is None:
+        risk_penalty = compute_risk_penalty(risk_signals)
+
+    # ── Fit score ──────────────────────────────────────────────────────────────
+    fit_score = round(
+        skill_score    * w["skills"]       +
+        exp_score      * w["experience"]   +
+        arch_score     * w["architecture"] +
+        edu_score      * w["education"]    +
+        timeline_score * w["timeline"]     +
+        domain_score   * w["domain"]       -
+        risk_penalty   * w["risk"]
+    )
+    fit_score = max(0, min(100, fit_score))
+
+    # ── Recommendation ────────────────────────────────────────────────────────
+    if fit_score >= RECOMMENDATION_THRESHOLDS["shortlist"]:
+        recommendation = "Shortlist"
+        risk_level = "Low"
+    elif fit_score >= RECOMMENDATION_THRESHOLDS["consider"]:
+        recommendation = "Consider"
+        risk_level = "Medium" if risk_signals else "Low"
+    else:
+        recommendation = "Reject"
+        risk_level = "High" if any(r["severity"] == "high" for r in risk_signals) else "Medium"
+
+    return {
+        "fit_score":            fit_score,
+        "final_recommendation": recommendation,
+        "risk_level":           risk_level,
+        "risk_signals":         risk_signals,
+        "risk_penalty":         risk_penalty,
+        "score_breakdown": {
+            "skill_match":      skill_score,
+            "experience_match": exp_score,
+            "stability":        timeline_score,
+            "education":        edu_score,
+            "architecture":     arch_score,
+            "domain_fit":       domain_score,
+            "timeline":         timeline_score,
+            "risk_penalty":     risk_penalty,
+        },
+    }
+
+
+def compute_deterministic_score(features: dict, eligibility) -> int:
+    """Compute a deterministic score with hard caps based on eligibility and feature quality.
+
+    Args:
+        features: dict with keys:
+            - core_skill_match: float (0-1)
+            - secondary_skill_match: float (0-1)
+            - domain_match: float (0-1)
+            - relevant_experience: float (0-1, normalized)
+            - total_experience: float (years)
+        eligibility: EligibilityResult from eligibility_service
+
+    Returns:
+        Integer score 0-100 with deterministic caps applied
+    """
+    # Base score from weighted features
+    score = (
+        features.get("core_skill_match", 0) * 40 +
+        features.get("secondary_skill_match", 0) * 15 +
+        features.get("domain_match", 0) * 25 +
+        features.get("relevant_experience", 0) * 20
+    ) * 100  # Scale to 0-100
+
+    # Normalize to 0-100 range
+    score = max(0, min(100, score))
+
+    # Apply hard caps for ineligible candidates
+    if not eligibility.eligible:
+        score = min(score, 35)
+
+    # Apply domain match cap
+    if features.get("domain_match", 0) < 0.3:
+        score = min(score, 35)
+
+    # Apply core skill cap
+    if features.get("core_skill_match", 0) < 0.3:
+        score = min(score, 40)
+
+    return int(score)
+
+
+def explain_decision(features: dict, eligibility) -> dict:
+    """Generate a structured, deterministic explanation of the scoring decision.
+
+    Returns:
+        {
+            "decision": "Shortlist" | "Consider" | "Reject",
+            "reasons": list of strings explaining the decision,
+            "feature_summary": dict of feature scores,
+            "caps_applied": list of cap reasons if any
+        }
+    """
+    from app.backend.services.constants import RECOMMENDATION_THRESHOLDS
+
+    score = compute_deterministic_score(features, eligibility)
+    caps_applied = []
+    reasons = []
+
+    # Determine decision based on thresholds
+    if score >= RECOMMENDATION_THRESHOLDS["shortlist"]:
+        decision = "Shortlist"
+    elif score >= RECOMMENDATION_THRESHOLDS["consider"]:
+        decision = "Consider"
+    else:
+        decision = "Reject"
+
+    # Build reasons
+    if not eligibility.eligible:
+        caps_applied.append("ineligible_cap_35")
+        if eligibility.reason == "domain_mismatch":
+            reasons.append(f"Domain mismatch: JD requires {eligibility.details.get('jd_domain', 'unknown')}, candidate is {eligibility.details.get('candidate_domain', 'unknown')}")
+        elif eligibility.reason == "low_core_skills":
+            reasons.append(f"Core skill match too low: {eligibility.details.get('core_skill_match', 0):.0%} (minimum 30%)")
+        elif eligibility.reason == "no_relevant_experience":
+            reasons.append("No relevant experience detected")
+
+    if features.get("domain_match", 0) < 0.3:
+        caps_applied.append("low_domain_cap_35")
+        reasons.append(f"Low domain match: {features.get('domain_match', 0):.0%}")
+
+    if features.get("core_skill_match", 0) < 0.3:
+        caps_applied.append("low_core_skills_cap_40")
+        reasons.append(f"Low core skill match: {features.get('core_skill_match', 0):.0%}")
+
+    if not reasons:
+        if decision == "Shortlist":
+            reasons.append("Strong match across all criteria")
+        elif decision == "Consider":
+            reasons.append("Moderate match — review recommended")
+        else:
+            reasons.append("Below threshold across multiple criteria")
+
+    return {
+        "decision": decision,
+        "score": score,
+        "reasons": reasons,
+        "feature_summary": {k: round(v, 3) if isinstance(v, float) else v for k, v in features.items()},
+        "caps_applied": caps_applied,
+    }

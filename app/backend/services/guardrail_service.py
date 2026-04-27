@@ -27,6 +27,9 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field, ValidationError, validator
 
+from app.backend.services.constants import RECOMMENDATION_THRESHOLDS, DEFAULT_WEIGHTS
+from app.backend.services.fit_scorer import compute_fit_score
+
 logger = logging.getLogger(__name__)
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
@@ -349,18 +352,18 @@ def check_cross_node_consistency(
         fixes["final_scores.fit_score"] = computed_fit
         final_scores["fit_score"] = computed_fit
         # Re-derive recommendation
-        rec = "Shortlist" if computed_fit >= 72 else "Consider" if computed_fit >= 45 else "Reject"
+        rec = "Shortlist" if computed_fit >= RECOMMENDATION_THRESHOLDS["shortlist"] else "Consider" if computed_fit >= RECOMMENDATION_THRESHOLDS["consider"] else "Reject"
         final_scores["final_recommendation"] = rec
         fixes["final_scores.final_recommendation"] = rec
 
     # 5. recommendation must align with fit_score thresholds
     rec = final_scores.get("final_recommendation", "")
-    if rec == "Shortlist" and reported_fit < 72:
-        violations.append(f"Shortlist recommendation with fit_score={reported_fit} (<72)")
+    if rec == "Shortlist" and reported_fit < RECOMMENDATION_THRESHOLDS["shortlist"]:
+        violations.append(f"Shortlist recommendation with fit_score={reported_fit} (<{RECOMMENDATION_THRESHOLDS['shortlist']})")
         final_scores["final_recommendation"] = "Consider"
         fixes["final_scores.final_recommendation"] = "Consider"
-    elif rec == "Reject" and reported_fit >= 45:
-        violations.append(f"Reject recommendation with fit_score={reported_fit} (>=45)")
+    elif rec == "Reject" and reported_fit >= RECOMMENDATION_THRESHOLDS["consider"]:
+        violations.append(f"Reject recommendation with fit_score={reported_fit} (>={RECOMMENDATION_THRESHOLDS['consider']})")
         final_scores["final_recommendation"] = "Consider"
         fixes["final_scores.final_recommendation"] = "Consider"
 
@@ -374,25 +377,18 @@ def check_cross_node_consistency(
 def _recompute_fit_score(sa: dict, fs: dict, jd: dict) -> int:
     """Recompute fit_score from score_breakdown to detect drift."""
     sb = fs.get("score_breakdown", {})
-    skill = sb.get("skill_match", sa.get("skill_score", 0))
-    exp = sb.get("experience_match", 0)
-    arch = sb.get("architecture", sa.get("architecture_score", 50))
-    edu = sb.get("education", sa.get("education_score", 60))
-    tl = sb.get("timeline", sa.get("timeline_score", 70))
-    domain = sb.get("domain_fit", sa.get("domain_fit_score", 50))
-    risk = sb.get("risk_penalty", fs.get("risk_penalty", 0))
-
-    # Use DEFAULT_WEIGHTS proportions (will be overridden by caller if needed)
-    fit = round(
-        skill * 0.30 +
-        exp * 0.20 +
-        arch * 0.15 +
-        edu * 0.10 +
-        tl * 0.10 +
-        domain * 0.10 -
-        risk * 0.15
-    )
-    return max(0, min(100, int(fit)))
+    scores = {
+        "skill_score": sb.get("skill_match", sa.get("skill_score", 0)),
+        "exp_score": sb.get("experience_match", 0),
+        "arch_score": sb.get("architecture", sa.get("architecture_score", 50)),
+        "edu_score": sb.get("education", sa.get("education_score", 60)),
+        "timeline_score": sb.get("timeline", sa.get("timeline_score", 70)),
+        "domain_score": sb.get("domain_fit", sa.get("domain_fit_score", 50)),
+    }
+    risk_signals = fs.get("risk_signals", [])
+    risk_penalty = sb.get("risk_penalty", fs.get("risk_penalty", None))
+    result = compute_fit_score(scores, DEFAULT_WEIGHTS, risk_signals=risk_signals, risk_penalty=risk_penalty)
+    return result["fit_score"]
 
 
 # ─── Tier 2: Prompt Injection Detection ────────────────────────────────────────
@@ -697,7 +693,7 @@ def hitl_gate_check(
     recommendation = final_scores.get("final_recommendation", "Consider")
 
     # 1. Threshold boundary: fit_score within 5 points of threshold
-    if 40 <= fit_score < 45 or 67 <= fit_score < 72:
+    if 40 <= fit_score < RECOMMENDATION_THRESHOLDS["consider"] or (RECOMMENDATION_THRESHOLDS["shortlist"] - 5) <= fit_score < RECOMMENDATION_THRESHOLDS["shortlist"]:
         flags.append(HITLFlag(
             flag_type="threshold_boundary",
             severity="warning",

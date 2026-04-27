@@ -14,38 +14,23 @@ New Schema (7 weights):
 from typing import Dict, Optional, Any
 import logging
 
+from app.backend.services.constants import (
+    LEGACY_WEIGHTS,
+    NEW_DEFAULT_WEIGHTS,
+    OLD_BACKEND_WEIGHTS,
+)
+
 log = logging.getLogger(__name__)
 
 
 # ─── Legacy weight schema (for backward compatibility) ───────────────────────
-LEGACY_WEIGHTS = {
-    "skills": 0.40,
-    "experience": 0.35,
-    "stability": 0.15,
-    "education": 0.10,
-}
+# LEGACY_WEIGHTS is now imported from constants.py
 
 # ─── New universal-adaptive weight schema ────────────────────────────────────
-NEW_DEFAULT_WEIGHTS = {
-    "core_competencies": 0.30,
-    "experience": 0.20,
-    "domain_fit": 0.20,
-    "education": 0.10,
-    "career_trajectory": 0.10,
-    "role_excellence": 0.10,
-    "risk": -0.10,
-}
+# NEW_DEFAULT_WEIGHTS is now imported from constants.py
 
 # ─── Old backend schema (7 tech-centric weights) ──────────────────────────────
-OLD_BACKEND_WEIGHTS = {
-    "skills": 0.30,
-    "experience": 0.20,
-    "architecture": 0.15,
-    "education": 0.10,
-    "timeline": 0.10,
-    "domain": 0.10,
-    "risk": 0.15,
-}
+# OLD_BACKEND_WEIGHTS is now imported from constants.py
 
 
 def normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
