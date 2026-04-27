@@ -8,10 +8,6 @@ Analyzes job descriptions and suggests optimal scoring weights based on:
 - Company culture signals
 
 Provides intelligent, context-aware weight recommendations with reasoning.
-
-NOTE: Suggested weights are INFORMATIONAL ONLY. They are not applied to
-actual score computation. The deterministic scoring engine uses fixed
-DEFAULT_WEIGHTS to ensure consistent, auditable hiring decisions.
 """
 
 import json
@@ -89,12 +85,8 @@ GUIDELINES:
 
 def suggest_weights_for_jd(jd_text: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
     """
-    Analyze job description and suggest optimal scoring weights using LLM.
-
-    NOTE: Suggestions are informational only and are NOT applied to scoring.
-    The deterministic scoring engine uses fixed DEFAULT_WEIGHTS regardless
-    of what weights the LLM suggests here.
-
+    """Analyze job description and suggest optimal scoring weights using LLM.
+    
     Args:
         jd_text: Job description text
         timeout: LLM timeout in seconds
@@ -103,7 +95,7 @@ def suggest_weights_for_jd(jd_text: str, timeout: int = 30) -> Optional[Dict[str
         Dictionary containing:
         - role_category: Detected role type
         - seniority_level: Detected seniority
-        - suggested_weights: Optimal weights for this role (informational only)
+        - suggested_weights: Optimal weights for this role
         - role_excellence_label: Adaptive label for role_excellence factor
         - reasoning: Explanation for the suggestions
         - confidence: Confidence score (0.0-1.0)

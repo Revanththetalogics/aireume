@@ -31,7 +31,6 @@ from app.backend.services.llm_service import get_ollama_semaphore
 from app.backend.services.constants import (
     RECOMMENDATION_THRESHOLDS,
     SENIORITY_RANGES,
-    DEFAULT_WEIGHTS as _DEFAULT_WEIGHTS,
     DOMAIN_KEYWORDS,
     DEGREE_SCORES,
     FIELD_RELEVANCE,
@@ -551,7 +550,6 @@ def domain_architecture_rules(
 # COMPONENT 7: FIT SCORE & RISK SIGNALS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# _DEFAULT_WEIGHTS is now imported from constants.py
 # DOMAIN_KEYWORDS is now imported from constants.py
 
 
@@ -1262,8 +1260,8 @@ def _run_python_phase(
         "fit_score": 0,
     }
 
-    # Weight system is locked — always use DEFAULT_WEIGHTS for deterministic scoring
-    fit_r = compute_fit_score(all_scores, _DEFAULT_WEIGHTS)
+    # Use custom weights if provided, otherwise DEFAULT_WEIGHTS is the fallback
+    fit_r = compute_fit_score(all_scores, scoring_weights)
 
     # ── Deterministic engine (domain → eligibility → deterministic score) ─────
     jd_domain = {"domain": "unknown", "confidence": 0.0, "scores": {}}
@@ -1296,7 +1294,7 @@ def _run_python_phase(
             candidate_domain_confidence=candidate_domain["confidence"],
         )
 
-        deterministic_score = compute_deterministic_score(deterministic_features, eligibility)
+        deterministic_score = compute_deterministic_score(deterministic_features, eligibility, scoring_weights)
         decision_explanation = explain_decision(deterministic_features, eligibility)
     except Exception as e:
         log.warning("Deterministic engine failed, falling back to legacy fit_score: %s", e)

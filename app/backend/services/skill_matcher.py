@@ -333,6 +333,208 @@ SKILL_ALIASES: Dict[str, List[str]] = {
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# DOMAIN-CLUSTERED SKILL TAXONOMY
+# SKILL_TAXONOMY is the authoritative source for skill domain classification.
+# MASTER_SKILLS is kept for backward compatibility (FlashText processor, DB seeding).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SKILL_TAXONOMY = {
+    "programming_languages": {
+        "core_imperative": [
+            "python", "java", "c++", "c#", "c", "golang", "go", "rust", "kotlin",
+            "swift", "ruby", "php", "perl", "ada", "cobol", "fortran", "vba",
+            "pascal", "assembly", "nim", "zig", "crystal"
+        ],
+        "functional": [
+            "haskell", "erlang", "elixir", "clojure", "f#", "lisp", "scheme",
+            "ocaml", "reasonml", "purescript", "elm", "scala"
+        ],
+        "scripting": [
+            "bash", "powershell", "groovy", "lua", "perl"
+        ],
+        "specialized": [
+            "r", "matlab", "julia", "sas", "spss", "minitab", "stata"
+        ],
+        "blockchain": [
+            "solidity", "vyper", "move", "cairo"
+        ]
+    },
+    "web_frontend": {
+        "frameworks": [
+            "react", "vue.js", "vue", "angular", "next.js", "nuxt.js", "svelte",
+            "astro", "remix", "gatsby", "ember.js", "backbone.js", "qwik", "solid.js"
+        ],
+        "libraries": ["jquery", "lit", "stencil", "preact"],
+        "css_frameworks": ["tailwind", "bootstrap", "material ui", "chakra ui", "ant design"],
+        "tools": ["storybook", "webpack", "vite", "parcel", "rollup"],
+        "markup": ["html", "xml", "htmx", "alpine.js"]
+    },
+    "web_backend": {
+        "nodejs": ["node.js", "express.js", "nestjs", "koa", "hapi", "feathers", "strapi"],
+        "python": ["fastapi", "django", "flask", "tornado", "aiohttp", "starlette", "litestar"],
+        "java": ["spring boot", "spring", "quarkus", "micronaut"],
+        "golang": ["gin", "fiber", "echo", "chi"],
+        "rust": ["actix", "axum", "rocket", "warp"],
+        "ruby": ["rails", "sinatra"],
+        "elixir": ["phoenix"],
+        "php": ["laravel", "symfony", "codeigniter"],
+        "dotnet": ["asp.net", "asp.net core", "dotnet", ".net", "blazor", "wpf", "winforms"]
+    },
+    "databases": {
+        "relational": [
+            "postgresql", "mysql", "sqlite", "mariadb", "oracle", "microsoft sql server",
+            "db2", "informix", "sybase", "teradata", "greenplum"
+        ],
+        "nosql_document": ["mongodb", "couchdb", "firebase", "firestore", "realm", "fauna"],
+        "nosql_kv": ["redis", "memcached"],
+        "search_timeseries": ["elasticsearch", "cassandra", "influxdb", "timescaledb", "clickhouse"],
+        "graph_specialized": ["neo4j", "dynamodb"],
+        "cloud_managed": ["snowflake", "bigquery", "redshift", "databricks", "supabase", "planetscale"],
+        "orms": [
+            "sqlalchemy", "hibernate", "prisma", "typeorm", "sequelize", "drizzle",
+            "mongoose", "entity framework", "dapper"
+        ]
+    },
+    "cloud_platforms": {
+        "hyperscalers": ["amazon web services", "aws", "google cloud platform", "gcp", "microsoft azure", "azure"],
+        "regional": ["digital ocean", "linode", "vultr", "hetzner", "oracle cloud", "ibm cloud", "alibaba cloud"],
+        "deployment_platforms": ["vercel", "netlify", "heroku", "fly.io", "render", "railway"],
+        "backend_as_service": ["supabase", "firebase", "appwrite", "pocketbase"],
+        "orchestration": ["cloudfoundry", "openshift", "rancher", "nomad"]
+    },
+    "aws_services": {
+        "compute": ["ec2", "lambda", "ecs", "eks", "elastic beanstalk"],
+        "storage": ["s3", "ebs", "efs"],
+        "database": ["rds", "aurora", "dynamodb"],
+        "networking": ["vpc", "api gateway", "cloudfront", "route53"],
+        "messaging": ["sqs", "sns", "kinesis", "eventbridge"],
+        "analytics": ["glue", "athena", "emr", "sagemaker"],
+        "management": ["cloudformation", "iam", "cloudwatch", "step functions"]
+    },
+    "devops_infrastructure": {
+        "containers": ["docker", "docker swarm"],
+        "orchestration": ["kubernetes", "k8s", "helm", "kustomize"],
+        "iac": ["terraform", "ansible", "puppet", "chef", "vagrant", "packer", "pulumi"],
+        "ci_cd": [
+            "jenkins", "github actions", "gitlab ci", "circleci", "travis ci",
+            "bitbucket pipelines", "argo cd", "flux", "spinnaker"
+        ],
+        "monitoring": [
+            "prometheus", "grafana", "datadog", "new relic", "dynatrace", "splunk",
+            "elk stack", "loki", "jaeger", "zipkin", "opentelemetry"
+        ],
+        "networking_proxy": ["nginx", "apache", "traefik", "envoy"],
+        "secrets": ["vault", "consul"]
+    },
+    "embedded_systems": {
+        "rtos_os": ["rtos", "freertos", "zephyr", "vxworks", "qnx", "embedded linux", "baremetal"],
+        "hardware": ["microcontroller", "fpga", "arm", "arm cortex", "avr", "pic"],
+        "protocols": ["uart", "spi", "i2c", "can bus", "modbus", "mqtt", "coap", "ble", "zigbee", "lorawan"],
+        "tools": ["openocd", "jtag", "gdb"],
+        "standards": ["iso 26262", "misra", "do-178", "functional safety"],
+        "firmware": ["firmware", "bsp", "bootloader", "device driver"],
+        "industrial": ["plc", "ladder logic", "scada", "industrial automation"]
+    },
+    "mobile": {
+        "ios": ["ios", "swift", "swiftui", "objective-c", "xcode"],
+        "android": ["android", "kotlin", "jetpack compose", "android studio"],
+        "crossplatform": ["react native", "flutter", "xamarin", "ionic", "capacitor", "cordova"]
+    },
+    "ai_ml": {
+        "core": [
+            "machine learning", "deep learning", "neural networks", "reinforcement learning",
+            "generative ai", "computer vision", "natural language processing", "nlp"
+        ],
+        "frameworks": ["pytorch", "tensorflow", "keras", "jax", "scikit-learn", "xgboost", "lightgbm"],
+        "llm": ["transformers", "hugging face", "langchain", "llamaindex", "rag", "fine-tuning", "ollama", "openai"],
+        "tools": ["mlflow", "wandb", "kubeflow", "vertex ai"],
+        "vision": ["opencv", "yolo", "stable diffusion"]
+    },
+    "data_engineering": {
+        "processing": ["apache spark", "spark", "pyspark", "hadoop", "hive", "flink"],
+        "messaging": ["apache kafka", "kafka", "rabbitmq"],
+        "orchestration": ["apache airflow", "airflow", "prefect", "dagster"],
+        "transformation": ["dbt", "fivetran", "airbyte"],
+        "concepts": ["etl", "data pipeline", "data warehousing", "data lake", "data mesh", "data governance"]
+    },
+    "data_science_analytics": {
+        "core_libraries": ["pandas", "numpy", "scipy", "polars"],
+        "visualization": ["matplotlib", "seaborn", "plotly"],
+        "bi": ["tableau", "power bi", "looker", "metabase"],
+        "tools": ["jupyter", "excel", "google analytics"]
+    },
+    "architecture_design": {
+        "patterns": [
+            "microservices", "event-driven", "cqrs", "event sourcing", "saga pattern",
+            "domain driven design", "ddd", "clean architecture"
+        ],
+        "api": ["rest api", "graphql", "grpc", "websocket", "openapi", "swagger"]
+    },
+    "security": {
+        "auth": ["oauth2", "jwt", "saml", "ldap", "rbac"],
+        "crypto": ["tls", "ssl", "cryptography"],
+        "compliance": ["soc2", "gdpr", "hipaa", "pci dss"],
+        "practices": ["penetration testing", "owasp", "zero trust"]
+    },
+    "testing": {
+        "types": ["unit testing", "integration testing", "e2e testing", "tdd", "bdd"],
+        "frameworks": ["pytest", "jest", "vitest", "mocha", "cypress", "playwright", "selenium"],
+        "performance": ["k6", "locust", "jmeter"],
+        "coverage": ["sonarqube", "codecov"]
+    },
+    "blockchain": {
+        "platforms": ["ethereum", "bitcoin", "solana", "cardano", "polkadot"],
+        "concepts": ["blockchain", "web3", "smart contracts", "defi", "nft"],
+        "tools": ["hyperledger", "chainlink", "ipfs"]
+    },
+    "gaming_graphics": {
+        "engines": ["unity", "unreal engine", "godot"],
+        "web": ["three.js", "babylon.js", "webgl", "webgpu"]
+    },
+    "networking": {
+        "protocols": ["tcp/ip", "udp", "http", "dns", "vpn"],
+        "infrastructure": ["load balancing", "cdn", "reverse proxy", "firewall"]
+    },
+    "project_management": {
+        "methodologies": ["agile", "scrum", "kanban", "safe", "lean"],
+        "tools": ["jira", "confluence", "linear", "asana", "trello", "notion"],
+        "vcs": ["git", "github", "gitlab", "bitbucket"]
+    },
+    "business_erp": {
+        "crm": ["salesforce", "hubspot", "zoho"],
+        "erp": ["sap", "oracle erp", "dynamics 365", "netsuite", "workday"],
+        "service": ["servicenow", "freshdesk", "zendesk"],
+        "low_code": ["power platform", "power apps", "outsystems", "mendix"]
+    },
+    "design_ux": {
+        "tools": ["figma", "sketch", "adobe xd"],
+        "concepts": ["ui/ux", "wireframing", "prototyping", "accessibility", "responsive design"]
+    },
+    "soft_skills": {
+        "communication": ["communication", "technical writing", "public speaking"],
+        "leadership": ["leadership", "mentoring", "coaching"],
+        "analytical": ["problem solving", "critical thinking", "analytical thinking"]
+    }
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HIGH-COLLISION SKILLS
+# Skills that are common English words — require domain co-occurrence validation
+# when extracted from raw text (not from structured skills sections)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+HIGH_COLLISION_SKILLS = {
+    # CRITICAL — very common words
+    "railway", "rtos", "r", "go", "c",
+    # HIGH — moderately common words
+    "swift", "ruby", "scala", "spark", "rocket", "phoenix",
+    # MEDIUM — less common but still ambiguous
+    "julia", "nim", "elixir", "erlang", "kotlin", "terraform",
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # NORMALIZATION HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -345,6 +547,44 @@ def _normalize_skill(s: str) -> str:
     s = re.sub(r'[.\-/\\]', ' ', s)
     s = re.sub(r'\s+', ' ', s).strip()
     return s
+
+
+def _get_skill_domains(skill: str) -> set:
+    """Return set of top-level domain names this skill belongs to in SKILL_TAXONOMY."""
+    norm = _normalize_skill(skill)
+    domains = set()
+    for domain_name, subcategories in SKILL_TAXONOMY.items():
+        for subcat_skills in subcategories.values():
+            if norm in {_normalize_skill(s) for s in subcat_skills}:
+                domains.add(domain_name)
+    return domains
+
+
+def _get_skill_subcategory_keys(skill: str) -> set:
+    """Return set of (domain, subcategory) tuples for a skill in SKILL_TAXONOMY.
+
+    More granular than _get_skill_domains — used for two-pass validation
+    to avoid false positives where a skill shares a top-level domain but
+    belongs to a completely different subcategory (e.g. 'aws' in
+    cloud_platforms.hyperscalers should not validate 'railway' in
+    cloud_platforms.deployment_platforms).
+    """
+    norm = _normalize_skill(skill)
+    keys = set()
+    for domain_name, subcategories in SKILL_TAXONOMY.items():
+        for subcat_name, skill_list in subcategories.items():
+            if norm in {_normalize_skill(s) for s in skill_list}:
+                keys.add((domain_name, subcat_name))
+    return keys
+
+
+def _flatten_taxonomy() -> set:
+    """Derive flat skill set from SKILL_TAXONOMY for backward compatibility."""
+    skills = set()
+    for subcategories in SKILL_TAXONOMY.values():
+        for skill_list in subcategories.values():
+            skills.update(_normalize_skill(s) for s in skill_list)
+    return skills
 
 
 def _expand_skill(skill: str) -> List[str]:
@@ -525,10 +765,25 @@ def match_skills(candidate_skills, jd_skills, jd_text="", jd_nice_to_have=None) 
             cand_normalized.extend(_expand_skill(s))
     cand_set = set(cand_normalized)
 
-    # Also scan raw text with flashtext for skills the parser may have missed
+    # Pass 2: Text-extracted skills — validate high-collision ones against subcategory context
     if jd_text:
         scanned = _extract_skills_from_text(jd_text)
+        # Build subcategory profile from high-confidence skills (Pass 1)
+        _subcat_counts = {}
+        for s in cand_set:
+            for key in _get_skill_subcategory_keys(s):
+                _subcat_counts[key] = _subcat_counts.get(key, 0) + 1
+
         for s in scanned:
+            s_norm = _normalize_skill(s)
+            if s_norm in HIGH_COLLISION_SKILLS:
+                # Require at least 1 other skill from the same subcategory
+                # (subcategory-level is narrower than domain-level, preventing
+                # false positives like 'aws' validating 'railway')
+                skill_subcats = _get_skill_subcategory_keys(s_norm)
+                has_context = any(_subcat_counts.get(key, 0) >= 1 for key in skill_subcats)
+                if not has_context:
+                    continue  # Reject — no supporting subcategory context
             cand_set.update(_expand_skill(s))
 
     matched = []

@@ -440,15 +440,18 @@ class TestComputeFitScore:
         assert "timeline" in bd
         assert "domain_fit" in bd
 
-    def test_custom_weights_ignored_locked_system(self):
-        """Custom weights are ignored — the weight system is locked for deterministic scoring."""
+    def test_custom_weights_change_score(self):
+        """Custom weights should produce a different score than default weights."""
         scores = self._scores(skill_score=100, exp_score=0)
-        r_default  = compute_fit_score(scores)
+        r_default = compute_fit_score(scores)
         r_custom = compute_fit_score(scores, {"skills": 0.10, "experience": 0.50,
                                                "architecture": 0.10, "education": 0.05,
                                                "timeline": 0.10, "domain": 0.05, "risk": 0.10})
-        # Both should produce identical scores because custom weights are ignored
-        assert r_custom["fit_score"] == r_default["fit_score"]
+        # Custom weights should shift the score toward experience (0) and away from skills (100)
+        assert r_custom["fit_score"] != r_default["fit_score"]
+        # With skills weighted low and experience weighted high (but score=0),
+        # the custom result should be lower
+        assert r_custom["fit_score"] < r_default["fit_score"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

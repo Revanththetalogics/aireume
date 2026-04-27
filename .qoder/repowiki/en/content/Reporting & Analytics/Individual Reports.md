@@ -20,10 +20,12 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced Analysis Source Badge system with AI Enhanced Report vs Analysis complete distinction
-- Added AI enhancement flag propagation through the entire analysis pipeline
-- Updated frontend badge rendering to differentiate between AI-generated and fallback narratives
-- Integrated backend flagging system for consistent identification across frontend and backend
+- Enhanced PDF reporting functionality with improved PDF generation process
+- Added comprehensive score summaries directly within the .report-content container
+- Refined PDF generation options with optimized scaling, CORS handling, logging configuration, and letter rendering settings
+- Implemented letter-format PDF generation with A4 portrait orientation
+- Enhanced print optimization with dedicated .report-content styling
+- Preserved candidate information, score summaries, risk assessments, final recommendations, and detailed analysis sections in printed output
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -44,7 +46,7 @@ This document explains the end-to-end individual report generation and display s
 - Sharing mechanisms and PDF download capabilities
 - The ResultCard component for detailed analysis presentation with expandable sections
 - The ScoreGauge component for visual fit score representation and recommendation display
-- **Enhanced narrative distinction system** with AI Enhanced Report vs Analysis complete badges
+- **Enhanced PDF reporting system** with improved generation process and comprehensive screening report formatting
 - Customization options for report layouts, branding integration, print optimization, and export formats (CSV and Excel)
 
 ## Project Structure
@@ -52,7 +54,7 @@ The reporting system spans frontend React components and backend FastAPI routes:
 - Frontend pages and components render the report UI, manage user interactions, and trigger exports
 - Backend routes handle analysis, email generation, and export generation
 - Styling and print optimization are centralized in Tailwind CSS and media queries
-- **Enhanced backend services now propagate AI enhancement flags** through the entire analysis pipeline
+- **Enhanced PDF generation system** with optimized html2pdf configuration and print-specific styling
 
 ```mermaid
 graph TB
@@ -64,6 +66,8 @@ SR["SkillsRadar.jsx"]
 TL["Timeline.jsx"]
 API["api.js"]
 CSS["index.css"]
+ENDPOINT[".report-content container"]
+PDFOPT["PDF Generation Options"]
 end
 subgraph "Backend"
 AN["analyze.py"]
@@ -87,6 +91,8 @@ API --> EX
 API --> EG
 CSS --> RP
 CSS --> RC
+PDFOPT --> ENDPOINT
+ENDPOINT --> RP
 ```
 
 **Diagram sources**
@@ -116,14 +122,14 @@ CSS --> RC
 - [email_gen.py:39-104](file://app/backend/routes/email_gen.py#L39-L104)
 
 ## Core Components
-- ReportPage: Orchestrates the report UI, inline name editing, sharing, and PDF printing
+- ReportPage: Orchestrates the report UI, inline name editing, sharing, and **enhanced PDF printing** with comprehensive score summaries
 - ResultCard: Presents analysis results with collapsible sections, email generation, and interview kit
 - ScoreGauge: Visualizes fit score thresholds and recommendation
 - SkillsRadar: Displays skills coverage and category breakdown
 - Timeline: Renders employment history and gaps
 - api.js: Provides functions for analysis, exports, and email generation
-- index.css: Defines print and branding styles
-- **Enhanced Analysis Source Badge System**: Distinguishes between AI Enhanced Report and Analysis complete narratives
+- index.css: Defines **optimized print and PDF styling** for the .report-content container
+- **Enhanced PDF Generation System**: Optimized html2pdf configuration with A4 portrait format and comprehensive content preservation
 
 **Section sources**
 - [ReportPage.jsx:82-296](file://app/frontend/src/pages/ReportPage.jsx#L82-L296)
@@ -135,13 +141,14 @@ CSS --> RC
 - [index.css:136-160](file://app/frontend/src/index.css#L136-L160)
 
 ## Architecture Overview
-The report rendering pipeline integrates frontend and backend with enhanced AI distinction:
+The report rendering pipeline integrates frontend and backend with **enhanced PDF generation capabilities**:
 - Frontend loads a result (via route state or session storage) and renders ReportPage
 - ReportPage delegates analysis display to ResultCard and ScoreGauge
 - Timeline visualizes work experience and gaps
-- **Enhanced Analysis Source Badge System** differentiates AI-generated vs fallback narratives
+- **Enhanced PDF generation system** processes the .report-content container with optimized settings
+- **Comprehensive screening report formatting** preserves candidate information, score summaries, risk assessments, and detailed analysis sections
 - Sharing uses client-side session storage to generate a shareable URL
-- PDF download triggers the browser's print dialog
+- PDF download triggers optimized html2pdf generation with A4 portrait format
 - Exports (CSV/Excel) are generated server-side and downloaded client-side
 
 ```mermaid
@@ -152,22 +159,19 @@ participant RC as "ResultCard"
 participant SG as "ScoreGauge"
 participant TL as "Timeline"
 participant API as "api.js"
+participant PDF as "html2pdf.js"
+participant CSS as "index.css"
 participant BE as "Backend Routes"
 User->>RP : Open report page
 RP->>RP : Load result from state/session
 RP->>SG : Render fit score
 RP->>RC : Render analysis sections
 RC->>TL : Render timeline
-RC->>RC : Check ai_enhanced flag
-alt AI Enhanced Report
-RC->>RC : Show "AI Enhanced Report" badge
-else Analysis Complete
-RC->>RC : Show "Analysis complete" badge
-end
-User->>RP : Click "Share"
-RP->>RP : Store result in session<br/>Generate share URL
 User->>RP : Click "Download PDF"
-RP->>RP : window.print()
+RP->>RP : Get .report-content element
+RP->>PDF : Configure options (A4, scale=2, CORS=true)
+PDF->>PDF : Generate PDF from .report-content
+PDF-->>User : Download optimized PDF
 User->>API : Export CSV/Excel
 API->>BE : GET /export/csv or /export/excel
 BE-->>API : Streamed file
@@ -189,16 +193,16 @@ Responsibilities:
 - Resolve and persist the selected result
 - Inline candidate name editor with persistence
 - Share report via client-side session storage
-- Trigger PDF printing
+- **Enhanced PDF generation** with optimized html2pdf configuration
 - Provide training labeling for outcomes
-- **Display AI Enhancement Status Badge** based on ai_enhanced flag
 
 Key behaviors:
 - Loads result from route state or session storage keyed by a random ID
 - Renders sidebar with score, recommendation, and labeling controls
 - Renders sticky action bar with Share and Download PDF buttons
-- **Shows AI Enhanced Report badge for ai_enhanced === true**
-- **Shows Analysis complete badge for ai_enhanced === false**
+- **Processes .report-content container for comprehensive PDF generation**
+- **Configures html2pdf with A4 portrait format, scale 2, CORS handling, and letter rendering**
+- **Preserves score summaries, candidate information, and analysis sections in PDF output**
 - Prints a print-friendly header and delegates content to ResultCard and Timeline
 
 ```mermaid
@@ -210,23 +214,28 @@ HasResult -- Yes --> Render["Render sidebar + action bar + content"]
 Render --> NameEditor["InlineNameEditor"]
 Render --> Share["handleShare()"]
 Render --> Download["handleDownload()"]
-Render --> CheckAIEnhanced{"Check ai_enhanced flag"}
-CheckAIEnhanced --> |true| AIEnhancedBadge["Show 'AI Enhanced Report' badge"]
-CheckAIEnhanced --> |false| AnalysisCompleteBadge["Show 'Analysis complete' badge"]
+Download --> GetElement["Query .report-content element"]
+GetElement --> ConfigPDF["Configure html2pdf options"]
+ConfigPDF --> SetOptions["Set A4, scale=2, CORS=true, letterRendering=true"]
+SetOptions --> GeneratePDF["Generate PDF from element"]
+GeneratePDF --> SavePDF["Trigger download"]
 Share --> SessionStore["sessionStorage.set(report_id, result)"]
 Share --> Copy["navigator.clipboard.writeText(url)"]
-Download --> Print["window.print()"]
 ```
 
 **Diagram sources**
 - [ReportPage.jsx:82-151](file://app/frontend/src/pages/ReportPage.jsx#L82-L151)
 - [ReportPage.jsx:153-296](file://app/frontend/src/pages/ReportPage.jsx#L153-L296)
 - [ReportPage.jsx:193-207](file://app/frontend/src/pages/ReportPage.jsx#L193-L207)
+- [ReportPage.jsx:236-276](file://app/frontend/src/pages/ReportPage.jsx#L236-L276)
+- [ReportPage.jsx:241-270](file://app/frontend/src/pages/ReportPage.jsx#L241-L270)
 
 **Section sources**
 - [ReportPage.jsx:82-151](file://app/frontend/src/pages/ReportPage.jsx#L82-L151)
 - [ReportPage.jsx:153-296](file://app/frontend/src/pages/ReportPage.jsx#L153-L296)
 - [ReportPage.jsx:193-207](file://app/frontend/src/pages/ReportPage.jsx#L193-L207)
+- [ReportPage.jsx:236-276](file://app/frontend/src/pages/ReportPage.jsx#L236-L276)
+- [ReportPage.jsx:241-270](file://app/frontend/src/pages/ReportPage.jsx#L241-L270)
 
 ### Inline Name Editor
 - Toggles between display and edit modes
@@ -313,41 +322,6 @@ ResultCard --> EmailModal : "opens"
 - [ResultCard.jsx:265-626](file://app/frontend/src/components/ResultCard.jsx#L265-L626)
 - [ResultCard.jsx:198-244](file://app/frontend/src/components/ResultCard.jsx#L198-L244)
 
-### Analysis Source Badge System
-**Enhanced** - The Analysis Source Badge now provides clear distinction between AI-generated and fallback narratives:
-
-- **AI Enhanced Report Badge** (ai_enhanced === true):
-  - Green background with sparkles icon
-  - Shows analysis quality rating (high/medium/low)
-  - Indicates real LLM-generated narrative
-  - Used when hybrid pipeline successfully generates AI narrative
-
-- **Analysis Complete Badge** (ai_enhanced === false):
-  - Gray background with check circle icon
-  - Indicates fallback deterministic narrative
-  - Used when LLM is unavailable or times out
-
-- **Polling State Badge** (isPolling === true):
-  - Loading spinner with AI analysis enhancing report message
-  - Shown during background LLM processing
-
-```mermaid
-flowchart TD
-Input["ai_enhanced flag"] --> CheckPolling{"isPolling?"}
-CheckPolling -- Yes --> PollingBadge["Show polling badge"]
-CheckPolling -- No --> CheckEnhanced{"ai_enhanced === true?"}
-CheckEnhanced -- Yes --> AIEnhancedBadge["Show AI Enhanced Report badge<br/>+ analysis quality"]
-CheckEnhanced -- No --> CheckFallback{"ai_enhanced === false?"}
-CheckFallback -- Yes --> FallbackBadge["Show Analysis complete badge"]
-CheckFallback -- No --> NoBadge["No badge shown"]
-```
-
-**Diagram sources**
-- [ResultCard.jsx:198-244](file://app/frontend/src/components/ResultCard.jsx#L198-L244)
-
-**Section sources**
-- [ResultCard.jsx:198-244](file://app/frontend/src/components/ResultCard.jsx#L198-L244)
-
 ### ScoreGauge: Fit Score Visualization
 - Thresholds: ≥72 Strong Fit, ≥45 Moderate Fit, else Low Fit
 - Pending state displays "Manual Review" with neutral styling
@@ -419,28 +393,42 @@ end
 **Section sources**
 - [ReportPage.jsx:127-135](file://app/frontend/src/pages/ReportPage.jsx#L127-L135)
 
-### PDF Download and Print Optimization
-- Download triggers browser print dialog
-- Print styles minimize UI, adjust fonts, and remove shadows
-- Print-only header appears at the top of printed pages
+### Enhanced PDF Download and Print Optimization
+**Updated** - The PDF generation system has been significantly enhanced with comprehensive configuration:
+
+- **Target Element**: Processes the .report-content container for complete report capture
+- **Optimized Scaling**: Uses scale: 2 for higher resolution PDF output
+- **CORS Handling**: Enables useCORS: true for cross-origin image support
+- **Logging Control**: Sets logging: false to suppress console output during generation
+- **Letter Rendering**: Enables letterRendering: true for precise typography
+- **Format Configuration**: Uses jsPDF with A4 format, portrait orientation, and millimeter units
+- **Page Break Management**: Implements pagebreak: { mode: ['avoid-all', 'css', 'legacy'] } for optimal layout
+- **Print Styles**: Enhanced @media print rules optimize spacing, fonts, and section preservation
+- **Content Preservation**: Comprehensive screening report formatting maintains all analysis sections
 
 ```mermaid
 flowchart TD
-Click["User clicks Download PDF"] --> Print["window.print()"]
-Print --> Browser["Browser print dialog"]
-Browser --> Styles["@media print styles apply"]
-Styles --> Header["Print-only header"]
-Styles --> RemoveUI["Remove interactive UI"]
-Styles --> AdjustFonts["Adjust font sizes"]
+Click["User clicks Download PDF"] --> GetElement["document.querySelector('.report-content')"]
+GetElement --> Config["Configure html2pdf options"]
+Config --> Scale["scale: 2"]
+Config --> CORS["useCORS: true"]
+Config --> Logging["logging: false"]
+Config --> Letter["letterRendering: true"]
+Config --> Format["jsPDF: A4, portrait, mm"]
+Config --> PageBreak["pagebreak: avoid-all/css/legacy"]
+PageBreak --> Generate["html2pdf().set(opt).from(element).save()"]
+Generate --> Success["PDF saved successfully"]
 ```
 
 **Diagram sources**
-- [ReportPage.jsx:137-137](file://app/frontend/src/pages/ReportPage.jsx#L137-L137)
-- [index.css:136-160](file://app/frontend/src/index.css#L136-L160)
+- [ReportPage.jsx:236-276](file://app/frontend/src/pages/ReportPage.jsx#L236-L276)
+- [ReportPage.jsx:249-266](file://app/frontend/src/pages/ReportPage.jsx#L249-L266)
+- [index.css:174-183](file://app/frontend/src/index.css#L174-L183)
 
 **Section sources**
-- [ReportPage.jsx:137-137](file://app/frontend/src/pages/ReportPage.jsx#L137-L137)
-- [index.css:136-160](file://app/frontend/src/index.css#L136-L160)
+- [ReportPage.jsx:236-276](file://app/frontend/src/pages/ReportPage.jsx#L236-L276)
+- [ReportPage.jsx:249-266](file://app/frontend/src/pages/ReportPage.jsx#L249-L266)
+- [index.css:174-183](file://app/frontend/src/index.css#L174-L183)
 
 ### Export Formats: CSV and Excel
 - CSV export: Streams CSV rows with selected fields
@@ -500,7 +488,8 @@ RC-->>User : Modal shows subject/body
 - ResultCard depends on SkillsRadar and uses api.js for email generation
 - **Enhanced backend services now propagate ai_enhanced flags** through the analysis pipeline
 - Export and analysis flows depend on backend routes
-- Print styles are centralized in index.css
+- **Optimized print styles** are centralized in index.css with dedicated .report-content styling
+- **Enhanced PDF generation system** relies on html2pdf.js configuration
 
 ```mermaid
 graph LR
@@ -508,6 +497,7 @@ RP["ReportPage.jsx"] --> RC["ResultCard.jsx"]
 RP --> SG["ScoreGauge.jsx"]
 RP --> TL["Timeline.jsx"]
 RP --> API["api.js"]
+RP --> PDF["html2pdf.js"]
 RC --> ASB["AnalysisSourceBadge.jsx"]
 RC --> SR["SkillsRadar.jsx"]
 RC --> API
@@ -519,6 +509,9 @@ LS --> AS["analysis_service.py"]
 API --> EG["email_gen.py"]
 CSS["index.css"] --> RP
 CSS --> RC
+PDFOPT["PDF Options"] --> PDF
+PDF --> ENDPOINT[".report-content"]
+ENDPOINT --> RP
 ```
 
 **Diagram sources**
@@ -549,44 +542,51 @@ CSS --> RC
 - [llm_service.py:256-273](file://app/backend/services/llm_service.py#L256-L273)
 
 ## Performance Considerations
-- Printing: The print stylesheet removes shadows and adjusts font sizes to reduce layout overhead during print
-- Export streaming: CSV and Excel are streamed from the backend to avoid large memory usage on the client
-- Client-side sharing: Uses session storage to avoid network requests for sharing within the same tab
-- **AI Enhancement Flag Propagation**: Backend services consistently set ai_enhanced flag to ensure frontend displays accurate badge states
-- Recommendations:
+- **Enhanced PDF Generation**: Optimized html2pdf configuration with scale 2 provides better quality while maintaining reasonable file sizes
+- **CORS Support**: useCORS: true enables cross-origin image loading without performance penalties
+- **Reduced Logging**: logging: false minimizes console overhead during PDF generation
+- **Letter Rendering**: letterRendering: true ensures precise typography in PDF output
+- **Print Optimization**: Enhanced print styles remove shadows, adjust font sizes, and optimize spacing for the .report-content container
+- **Export Streaming**: CSV and Excel are streamed from the backend to avoid large memory usage on the client
+- **Client-side sharing**: Uses session storage to avoid network requests for sharing within the same tab
+- **Recommendations**:
   - Keep print styles minimal to avoid layout thrashing
   - Prefer server-side exports for large datasets
   - Debounce name edits to avoid frequent PATCH requests
-  - **Monitor LLM availability for optimal AI Enhanced Report badge display**
+  - Monitor PDF generation performance with the enhanced configuration
 
 ## Troubleshooting Guide
 Common issues and resolutions:
 - Share link does not open report:
   - Ensure the report ID exists in session storage
   - Verify the URL includes the id query parameter
+- **Enhanced PDF Download Issues**:
+  - **PDF generation fails**: Check that .report-content element exists in DOM
+  - **Poor quality PDF**: Verify scale: 2 setting is working correctly
+  - **Cross-origin image errors**: Confirm useCORS: true is enabled
+  - **Large PDF size**: Consider adjusting image quality setting
+  - **Layout issues**: Review pagebreak configuration and CSS print styles
 - Download PDF does nothing:
   - Confirm browser print dialog is enabled
   - Check that print styles are applied
+  - Verify html2pdf.js is properly loaded
 - Export downloads blank or partial data:
   - Verify backend endpoints are reachable
   - Confirm ids parameter is correctly passed
 - Email generation fails:
   - Check Ollama availability and model readiness
   - Confirm candidate exists and has a recent analysis result
-- **AI Enhancement Badge Issues**:
-  - **AI Enhanced Report badge not showing**: Verify ai_enhanced flag is properly set in backend analysis result
-  - **Analysis complete badge appears incorrectly**: Check that fallback narrative is being generated when LLM is unavailable
-  - **Polling badge stuck**: Ensure background LLM processing is completing and setting narrative_ready flag
 
 **Section sources**
 - [ReportPage.jsx:127-135](file://app/frontend/src/pages/ReportPage.jsx#L127-L135)
 - [ReportPage.jsx:137-137](file://app/frontend/src/pages/ReportPage.jsx#L137-L137)
+- [ReportPage.jsx:236-276](file://app/frontend/src/pages/ReportPage.jsx#L236-L276)
+- [ReportPage.jsx:249-266](file://app/frontend/src/pages/ReportPage.jsx#L249-L266)
 - [api.js:183-204](file://app/frontend/src/lib/api.js#L183-L204)
 - [email_gen.py:77-104](file://app/backend/routes/email_gen.py#L77-L104)
-- [ResultCard.jsx:198-244](file://app/frontend/src/components/ResultCard.jsx#L198-L244)
 
 ## Conclusion
-The individual report system combines a responsive frontend with robust backend support to deliver a complete candidate analysis experience. ReportPage orchestrates the UI, ResultCard presents detailed insights with enhanced AI distinction badges, ScoreGauge communicates fit quickly, and Timeline contextualizes work history. Sharing and PDF printing are streamlined for productivity, while CSV and Excel exports enable scalable data handling. Print optimization and branding are integrated through centralized styles. **The enhanced narrative distinction system now provides clear visual indicators of whether reports are AI-generated or fallback narratives, improving transparency and trust in the analysis process.**
+The individual report system combines a responsive frontend with robust backend support to deliver a complete candidate analysis experience. ReportPage orchestrates the UI with **enhanced PDF generation capabilities**, ResultCard presents detailed insights, ScoreGauge communicates fit quickly, and Timeline contextualizes work history. **The enhanced PDF system now provides comprehensive screening report generation with optimized html2pdf configuration, preserving all analysis sections including candidate information, score summaries, risk assessments, and detailed recommendations in high-quality PDF format.** Sharing and PDF printing are streamlined for productivity, while CSV and Excel exports enable scalable data handling. Print optimization and branding are integrated through centralized styles with dedicated .report-content container styling.
 
 ## Appendices
 
@@ -597,19 +597,25 @@ The individual report system combines a responsive frontend with robust backend 
 - Branding integration:
   - Brand colors and gradients are defined in Tailwind utilities and CSS
   - Update color classes to align with brand guidelines
-- Print optimization:
+- **Enhanced Print Optimization**:
   - Modify @media print rules in index.css to adjust margins, fonts, and UI removal
+  - **Optimize .report-content container styling for PDF output**
+  - **Fine-tune page break settings for optimal section preservation**
 - Export formats:
   - Extend backend export.py to add new columns or sheets
   - Update frontend api.js to support additional formats
-- **AI Enhancement Badge Customization**:
-  - Modify AnalysisSourceBadge component to change badge appearance
-  - Update color schemes for different analysis quality levels
-  - Customize badge text and icons for different AI enhancement states
+- **Enhanced PDF Generation Customization**:
+  - Modify html2pdf configuration options in handleDownload function
+  - **Adjust scale factor for quality vs file size balance**
+  - **Configure page format and orientation settings**
+  - **Customize image quality and compression settings**
+  - **Tune page break modes for different content layouts**
 
 **Section sources**
 - [ReportPage.jsx:153-296](file://app/frontend/src/pages/ReportPage.jsx#L153-L296)
 - [ResultCard.jsx:265-626](file://app/frontend/src/components/ResultCard.jsx#L265-L626)
 - [ResultCard.jsx:198-244](file://app/frontend/src/components/ResultCard.jsx#L198-L244)
 - [index.css:136-160](file://app/frontend/src/index.css#L136-L160)
+- [index.css:174-183](file://app/frontend/src/index.css#L174-L183)
 - [export.py:27-52](file://app/backend/routes/export.py#L27-L52)
+- [ReportPage.jsx:249-266](file://app/frontend/src/pages/ReportPage.jsx#L249-L266)

@@ -17,10 +17,10 @@ def compute_fit_score(
 ) -> Dict[str, Any]:
     """Compute weighted fit score, risk signals, and recommendation.
 
-    NOTE: The weight system is locked for deterministic scoring.
-    Custom scoring_weights are ignored — DEFAULT_WEIGHTS are always used.
+    When custom scoring_weights are provided, they are applied to scoring.
+    When no custom weights are provided, DEFAULT_WEIGHTS from constants.py is used.
     """
-    w = DEFAULT_WEIGHTS.copy()
+    w = (scoring_weights or DEFAULT_WEIGHTS).copy()
 
     skill_score    = scores.get("skill_score",    50)
     exp_score      = scores.get("exp_score",       50)
@@ -114,7 +114,7 @@ def compute_fit_score(
     }
 
 
-def compute_deterministic_score(features: dict, eligibility) -> int:
+def compute_deterministic_score(features: dict, eligibility, weights: Optional[Dict] = None) -> int:
     """Compute a deterministic score with hard caps based on eligibility and feature quality.
 
     Args:
@@ -125,16 +125,31 @@ def compute_deterministic_score(features: dict, eligibility) -> int:
             - relevant_experience: float (0-1, normalized)
             - total_experience: float (years)
         eligibility: EligibilityResult from eligibility_service
+        weights: Optional dict with keys matching feature names (core_skill_match,
+            secondary_skill_match, domain_match, relevant_experience). Defaults to
+            40/15/25/20 split when None.
 
     Returns:
         Integer score 0-100 with deterministic caps applied
     """
+    # Default weight split for deterministic features
+    if weights is not None:
+        w_core = weights.get("core_skill_match", 0.40)
+        w_secondary = weights.get("secondary_skill_match", 0.15)
+        w_domain = weights.get("domain_match", 0.25)
+        w_experience = weights.get("relevant_experience", 0.20)
+    else:
+        w_core = 0.40
+        w_secondary = 0.15
+        w_domain = 0.25
+        w_experience = 0.20
+
     # Base score from weighted features
     score = (
-        features.get("core_skill_match", 0) * 40 +
-        features.get("secondary_skill_match", 0) * 15 +
-        features.get("domain_match", 0) * 25 +
-        features.get("relevant_experience", 0) * 20
+        features.get("core_skill_match", 0) * w_core +
+        features.get("secondary_skill_match", 0) * w_secondary +
+        features.get("domain_match", 0) * w_domain +
+        features.get("relevant_experience", 0) * w_experience
     ) * 100  # Scale to 0-100
 
     # Normalize to 0-100 range

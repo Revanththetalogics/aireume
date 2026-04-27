@@ -22,6 +22,7 @@
 - [013_webhooks_and_notifications.py](file://alembic/versions/013_webhooks_and_notifications.py)
 - [014_billing_system.py](file://alembic/versions/014_billing_system.py)
 - [015_add_resume_file_storage.py](file://alembic/versions/015_add_resume_file_storage.py)
+- [016_deterministic_scoring_fields.py](file://alembic/versions/016_deterministic_scoring_fields.py)
 - [main.py](file://app/backend/main.py)
 - [auth.py](file://app/backend/middleware/auth.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
@@ -37,14 +38,18 @@
 - [audit_service.py](file://app/backend/services/audit_service.py)
 - [feature_flag_service.py](file://app/backend/services/feature_flag_service.py)
 - [webhook_service.py](file://app/backend/services/webhook_service.py)
+- [eligibility_service.py](file://app/backend/services/eligibility_service.py)
+- [fit_scorer.py](file://app/backend/services/fit_scorer.py)
+- [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added documentation for new resume file storage schema including resume_filename (String 255) and resume_file_data (LargeBinary/BYTEA) columns in the candidates table
-- Updated migration documentation to include the 015_add_resume_file_storage.py migration
-- Enhanced Candidate model documentation with file storage capabilities
-- Added resume download functionality documentation
+- Added documentation for new deterministic scoring fields in screening_results table: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), and eligibility_reason (String 100)
+- Updated ScreeningResult model documentation with deterministic scoring capabilities
+- Enhanced migration documentation to include the 016_deterministic_scoring_fields.py migration
+- Added eligibility service integration documentation
+- Updated data validation rules to include deterministic scoring constraints
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -61,10 +66,10 @@
 ## Introduction
 This document describes the database design for Resume AI by ThetaLogics. It covers the entity relationship model, field definitions, indexes, constraints, multi-tenant architecture, subscription and usage tracking, the Alembic migration system, data validation rules, business logic constraints, referential integrity, data access patterns, caching strategies, performance considerations, data lifecycle and retention, backup strategies, and representative queries and reporting scenarios.
 
-**Updated** Enhanced with comprehensive audit logging, feature flag management, webhook system, billing configuration management, and native resume file storage capabilities
+**Updated** Enhanced with comprehensive audit logging, feature flag management, webhook system, billing configuration management, native resume file storage capabilities, and deterministic scoring framework with eligibility gating
 
 ## Project Structure
-The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements included connection pooling for PostgreSQL, token revocation support, strategic indexing for improved query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, and native resume file storage with download functionality.
+The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements included connection pooling for PostgreSQL, token revocation support, strategic indexing for improved query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, and deterministic scoring with eligibility gating.
 
 ```mermaid
 graph TB
@@ -78,28 +83,35 @@ F["Audit Service<br/>audit_service.py"]
 G["Feature Flag Service<br/>feature_flag_service.py"]
 H["Webhook Service<br/>webhook_service.py"]
 I["Upload Routes<br/>upload.py"]
+J["Eligibility Service<br/>eligibility_service.py"]
+K["Fit Scorer<br/>fit_scorer.py"]
+L["Hybrid Pipeline<br/>hybrid_pipeline.py"]
 end
 subgraph "Database Layer"
-J["SQLAlchemy Engine & Session<br/>database.py"]
-K["Declarative Models<br/>db_models.py"]
-L["Alembic Env & Script<br/>env.py / script.py.mako"]
-M["Enhanced Models<br/>AuditLog, FeatureFlag, Webhook, PlatformConfig"]
-N["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015"]
-O["Resume File Storage<br/>resume_filename, resume_file_data"]
+M["SQLAlchemy Engine & Session<br/>database.py"]
+N["Declarative Models<br/>db_models.py"]
+O["Alembic Env & Script<br/>env.py / script.py.mako"]
+P["Enhanced Models<br/>AuditLog, FeatureFlag, Webhook, PlatformConfig"]
+Q["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016"]
+R["Deterministic Scoring<br/>deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason"]
+S["Resume File Storage<br/>resume_filename, resume_file_data"]
 end
 A --> B
 A --> C
 C --> D
 D --> E
 C --> I
-I --> J
-A --> J
-J --> K
-J --> L
-J --> O
-K --> M
-L --> M
-L --> N
+I --> M
+A --> M
+M --> N
+M --> O
+M --> R
+M --> S
+N --> P
+O --> P
+O --> Q
+L --> J
+L --> K
 ```
 
 **Diagram sources**
@@ -125,6 +137,10 @@ L --> N
 - [013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
 - [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
+- [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
+- [eligibility_service.py:1-80](file://app/backend/services/eligibility_service.py#L1-L80)
+- [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
+- [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
@@ -132,7 +148,7 @@ L --> N
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Core Components
-This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, and the new native resume file storage capabilities.
+This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, native resume file storage capabilities, and the new deterministic scoring framework with eligibility gating.
 
 - Tenant
   - Purpose: Multi-tenant container with subscription and usage tracking.
@@ -158,8 +174,9 @@ This section documents the core entities and their attributes relevant to the mu
   - **Updated** Enhanced with native resume file storage capabilities for direct file access and download.
 
 - ScreeningResult
-  - Purpose: Stores analysis outputs for a candidate/job combination.
+  - Purpose: Stores analysis outputs for a candidate/job combination with deterministic scoring framework.
   - Key fields: id, tenant_id (FK), candidate_id (FK), role_template_id (FK), resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
+  - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
   - Indexes: candidate_id, timestamp; relationships: tenant, candidate, role_template, comments, training_examples.
 
 - RoleTemplate
@@ -212,6 +229,11 @@ This section documents the core entities and their attributes relevant to the mu
   - Key fields: id, config_key (unique), config_value, description, updated_at, updated_by (FK, SET NULL).
   - Indexes: id, config_key; relationships: users.
 
+- EligibilityResult
+  - Purpose: Structured eligibility decision with reason and details.
+  - Key fields: eligible (Boolean), reason (Optional[String]), details (Dict).
+  - Used by eligibility_service to apply deterministic gating rules.
+
 - Queue System Tables
   - AnalysisJobs: Main queue table for tracking analysis tasks with priority, status, and retry management.
   - AnalysisResults: Immutable storage for completed analyses with quality assurance and metrics.
@@ -222,7 +244,7 @@ This section documents the core entities and their attributes relevant to the mu
 - [db_models.py:11-380](file://app/backend/models/db_models.py#L11-L380)
 
 ## Architecture Overview
-The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations. Recent enhancements included token revocation support, strategic indexing for improved performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, and native resume file storage with download functionality.
+The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations. Recent enhancements included token revocation support, strategic indexing for improved performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, and deterministic scoring framework with eligibility gating.
 
 ```mermaid
 erDiagram
@@ -257,6 +279,9 @@ ANALYSIS_JOBS ||--o{ ANALYSIS_ARTIFACTS : "uses"
 ANALYSIS_RESULTS ||--o{ JOB_METRICS : "generates"
 ANALYSIS_ARTIFACTS ||--o{ ANALYSIS_JOBS : "consumed_by"
 CANDIDATES ||--|| RESUME_FILES : "stores"
+SCREENING_RESULTS ||--|| DETERMINISTIC_SCORES : "contains"
+ELIGIBILITY_SERVICE ||--|| SCREENING_RESULTS : "evaluates"
+FIT_SCORER ||--|| SCREENING_RESULTS : "computes"
 ```
 
 **Diagram sources**
@@ -283,7 +308,7 @@ Sub->>DB : SELECT Tenant + SubscriptionPlan
 Sub->>Sub : _ensure_monthly_reset()
 Sub->>Sub : _get_plan_limits()
 Sub->>DB : INSERT UsageLog + UPDATE Tenant.analyses_count_this_month
-Route->>DB : CREATE ScreeningResult with narrative_json
+Route->>DB : CREATE ScreeningResult with deterministic scoring fields
 Client->>Admin : POST /api/admin/tenants/{id}/suspend
 Admin->>DB : UPDATE Tenant SET suspended_at, suspended_reason, subscription_status
 Admin->>DB : INSERT AuditLog with action "tenant.suspend"
@@ -470,6 +495,39 @@ Candidates->>Client : Stream file with proper MIME type
 - [db_models.py:102-133](file://app/backend/models/db_models.py#L102-L133)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 
+### Deterministic Scoring Framework and Eligibility Gating
+- **New** Comprehensive deterministic scoring system integrated into ScreeningResult model with five new fields: deterministic_score, domain_match_score, core_skill_score, eligibility_status, and eligibility_reason.
+- **New** Eligibility service applies hard gating rules before scoring: domain mismatch, core skill thresholds, and relevant experience requirements.
+- **New** Fit scorer computes capped deterministic scores with weighted feature evaluation and decision explanations.
+- **New** Hybrid pipeline orchestrates domain detection, eligibility evaluation, and deterministic scoring computation.
+- **New** EligibilityResult dataclass provides structured decision-making with reasons and details.
+
+```mermaid
+sequenceDiagram
+participant Hybrid as "hybrid_pipeline.py"
+participant Eligibility as "eligibility_service.py"
+participant Fit as "fit_scorer.py"
+participant DB as "Database"
+Hybrid->>Hybrid : Detect JD and candidate domains
+Hybrid->>Eligibility : check_eligibility(domain_match, core_skill_match, experience)
+Eligibility-->>Hybrid : EligibilityResult (eligible, reason, details)
+Hybrid->>Fit : compute_deterministic_score(features, eligibility)
+Fit-->>Hybrid : Integer score (0-100) with caps
+Hybrid->>DB : Update ScreeningResult with deterministic fields
+DB-->>Hybrid : Persist scoring results
+```
+
+**Diagram sources**
+- [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
+- [eligibility_service.py:17-80](file://app/backend/services/eligibility_service.py#L17-L80)
+- [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
+
+**Section sources**
+- [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
+- [eligibility_service.py:17-80](file://app/backend/services/eligibility_service.py#L17-L80)
+- [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
+- [db_models.py:157-162](file://app/backend/models/db_models.py#L157-L162)
+
 ### Enhanced Authentication and Token Management
 - Token revocation system prevents reuse of invalidated refresh tokens.
 - RevokedToken table stores JWT IDs (JTI) with timestamps for tracking.
@@ -501,7 +559,7 @@ Auth-->>Client : Clear cookies and return success
 ### Migration System and Schema Evolution
 - Alembic env registers models and binds metadata to the configured DATABASE_URL.
 - Migrations are idempotent and guard against pre-existing tables/columns.
-- **Updated** Version history with new administrative, notification, and file storage features:
+- **Updated** Version history with new administrative, notification, file storage, and deterministic scoring features:
   - 001: Enrich candidates with profile fields; add jd_cache and skills tables.
   - 002: Add parser_snapshot_json to candidates.
   - 003: Enhance subscription_plans, add tenant usage fields, create usage_logs, seed plans, link existing tenants to default plan.
@@ -517,6 +575,7 @@ Auth-->>Client : Clear cookies and return success
   - 013: **New** Webhooks and notifications with default feature flag seeding.
   - 014: **New** Billing system with platform configuration management.
   - 015: **New** Resume file storage with resume_filename and resume_file_data columns.
+  - 016: **New** Deterministic scoring fields (deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason) added to screening_results.
 
 ```mermaid
 graph LR
@@ -535,6 +594,7 @@ L --> M["012: Admin foundation"]
 M --> N["013: Webhooks and notifications"]
 N --> O["014: Billing system"]
 O --> P["015: Resume file storage"]
+P --> Q["016: Deterministic scoring fields"]
 ```
 
 **Diagram sources**
@@ -554,6 +614,7 @@ O --> P["015: Resume file storage"]
 - [013_webhooks_and_notifications.py:36-114](file://alembic/versions/013_webhooks_and_notifications.py#L36-L114)
 - [014_billing_system.py:33-56](file://alembic/versions/014_billing_system.py#L33-L56)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
+- [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
 
 **Section sources**
 - [env.py:1-51](file://alembic/env.py#L1-L51)
@@ -573,6 +634,7 @@ O --> P["015: Resume file storage"]
 - [013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
 - [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
+- [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
 
 ### Data Validation Rules and Business Logic Constraints
 - Tenant isolation: All sensitive routes filter by tenant_id.
@@ -587,6 +649,7 @@ O --> P["015: Resume file storage"]
 - **Updated** Webhook security: HMAC signatures validate payload integrity and authenticity.
 - **Updated** Billing security: Configuration values stored securely with audit trails.
 - **Updated** Resume file storage: Native database storage eliminates external dependencies and improves security.
+- **Updated** Deterministic scoring: Eligibility gating applies hard caps (domain match < 0.3 → cap 35, core skill < 0.3 → cap 40) with integer scoring in range 0-100.
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -597,6 +660,8 @@ O --> P["015: Resume file storage"]
 - [feature_flag_service.py:30-44](file://app/backend/services/feature_flag_service.py#L30-L44)
 - [webhook_service.py:18-21](file://app/backend/services/webhook_service.py#L18-L21)
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
+- [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
+- [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 
 ### Referential Integrity and Indexes
 - Foreign keys:
@@ -635,6 +700,7 @@ O --> P["015: Resume file storage"]
   - AnalysisResults(fit_score), AnalysisResults(artifact_id)
   - AnalysisArtifacts(resume_hash, jd_hash), AnalysisArtifacts(expires_at)
   - JobMetrics(total_time_ms), JobMetrics(tenant_id, created_at)
+  - **Updated** ScreeningResults(deterministic_score), ScreeningResults(eligibility_status), ScreeningResults(core_skill_score)
   - **Updated** Candidate.resume_filename, Candidate.resume_file_data (nullable)
 
 **Section sources**
@@ -662,6 +728,7 @@ O --> P["015: Resume file storage"]
 - [013_webhooks_and_notifications.py:39-88](file://alembic/versions/013_webhooks_and_notifications.py#L39-L88)
 - [014_billing_system.py:36-56](file://alembic/versions/014_billing_system.py#L36-L56)
 - [015_add_resume_file_storage.py:29-48](file://alembic/versions/015_add_resume_file_storage.py#L29-L48)
+- [016_deterministic_scoring_fields.py:33-73](file://alembic/versions/016_deterministic_scoring_fields.py#L33-L73)
 
 ### Data Access Patterns, Caching, and Performance
 - Data access patterns:
@@ -674,6 +741,7 @@ O --> P["015: Resume file storage"]
   - **Updated** Feature flag caching: In-memory cache with TTL for reduced database load.
   - **Updated** Webhook delivery tracking: Separate tables for delivery attempts with indexing for monitoring.
   - **Updated** Resume file storage: Direct database access eliminates network latency and external dependencies.
+  - **Updated** Deterministic scoring: Efficient querying by deterministic_score, eligibility_status, and core_skill_score for filtering and reporting.
 - Caching strategies:
   - JdCache stores parsed job descriptions keyed by hash to avoid repeated parsing.
   - Candidate enrichment fields reduce repeated parsing costs.
@@ -682,8 +750,9 @@ O --> P["015: Resume file storage"]
   - **Updated** Feature flag service implements thread-safe in-memory caching with TTL.
   - **Updated** Audit log service provides structured logging for compliance.
   - **Updated** Resume files stored directly in database eliminate need for external caching.
+  - **Updated** Eligibility decisions cached in hybrid pipeline to avoid repeated computations.
 - Performance considerations:
-  - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp).
+  - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp, deterministic_score, eligibility_status).
   - Prefer batch operations for inserts (bulk insert for plans).
   - Avoid N+1 queries by using joined eager loading where appropriate.
   - Connection pooling reduces connection overhead for PostgreSQL deployments.
@@ -692,6 +761,7 @@ O --> P["015: Resume file storage"]
   - **Updated** Webhook service uses async HTTP client for non-blocking delivery.
   - **Updated** Platform configuration provides centralized access to billing settings.
   - **Updated** Native resume storage reduces I/O complexity and improves reliability.
+  - **Updated** Deterministic scoring computation optimized with early gating and capped scoring.
 
 **Section sources**
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
@@ -706,11 +776,13 @@ O --> P["015: Resume file storage"]
 - [feature_flag_service.py:7-28](file://app/backend/services/feature_flag_service.py#L7-L28)
 - [webhook_service.py:23-44](file://app/backend/services/webhook_service.py#L23-L44)
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
+- [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
+- [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 
 ### Data Lifecycle, Retention, and Backup
 - Data lifecycle:
   - Candidates: enriched once and reused for subsequent analyses; parser snapshots retained for auditability; resume files stored natively for direct access.
-  - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights.
+  - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights; deterministic scoring fields provide permanent record of decision rationale.
   - AnalysisArtifacts: temporary storage of parsed data with expiration for deduplication and reuse.
   - AnalysisJobs: queue management with automatic cleanup of failed or cancelled jobs.
   - AnalysisResults: immutable storage of completed analyses with quality assurance.
@@ -722,6 +794,7 @@ O --> P["015: Resume file storage"]
   - **Updated** WebhookDeliveries: delivery attempt history with success/failure tracking.
   - **Updated** PlatformConfigs: configuration history with change tracking.
   - **Updated** Resume files: stored directly in database with automatic cleanup policies.
+  - **Updated** Deterministic scoring data: permanent storage of eligibility decisions and scoring rationale.
 - Retention:
   - No explicit retention policies are defined in code; implement administrative controls to archive or purge historical data.
   - AnalysisArtifacts have automatic expiration (30 days) for cleanup.
@@ -730,11 +803,13 @@ O --> P["015: Resume file storage"]
   - **Updated** AuditLogs and WebhookDeliveries should be retained for compliance purposes.
   - **Updated** PlatformConfigs changes should be maintained for audit trails.
   - **Updated** Resume files: consider storage quotas and automatic cleanup for large deployments.
+  - **Updated** Deterministic scoring data: retain for compliance and decision transparency.
 - Backup:
   - Use database-native backups (e.g., pg_dump for PostgreSQL, SQLite backup mechanisms) and regular snapshots.
   - Consider logical backups for portable deployments.
   - **Updated** Ensure backup includes new audit and configuration tables for full disaster recovery.
   - **Updated** Resume file storage requires consideration of binary data backup strategies.
+  - **Updated** Deterministic scoring fields require backup for compliance and analytics continuity.
 
 ### Sample Queries and Reporting Scenarios
 - Monthly usage by tenant
@@ -760,6 +835,12 @@ O --> P["015: Resume file storage"]
   - Query: select config_key, updated_at, updated_by, config_value from platform_configs order by updated_at desc limit 100.
 - **Updated** Resume file storage statistics
   - Query: select count(*) as total_candidates_with_files, sum(coalesce(length(resume_file_data), 0)) as total_storage_bytes, avg(coalesce(length(resume_file_data), 0)) as avg_file_size from candidates where resume_file_data is not null and tenant_id = ?.
+- **Updated** Deterministic scoring analysis
+  - Query: select eligibility_status, count(*) as count, avg(deterministic_score) as avg_score, avg(core_skill_score) as avg_core_score from screening_results where deterministic_score is not null and tenant_id = ? group by eligibility_status order by eligibility_status.
+- **Updated** Eligibility gating effectiveness
+  - Query: select eligibility_reason, count(*) as rejection_count, avg(deterministic_score) as avg_score_when_rejected from screening_results where eligibility_status = false and tenant_id = ? group by eligibility_reason order by rejection_count desc.
+- **Updated** Domain match analysis
+  - Query: select case when domain_match_score >= 0.7 then 'High' when domain_match_score >= 0.4 then 'Medium' else 'Low' end as match_level, count(*) as count, avg(deterministic_score) as avg_score from screening_results where domain_match_score is not null and tenant_id = ? group by match_level order by count desc.
 
 **Section sources**
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
@@ -772,9 +853,11 @@ O --> P["015: Resume file storage"]
 - [feature_flag_service.py:82-94](file://app/backend/services/feature_flag_service.py#L82-L94)
 - [webhook_service.py:114-138](file://app/backend/services/webhook_service.py#L114-L138)
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
+- [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
+- [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 
 ## Dependency Analysis
-The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements included connection pooling configuration, token revocation support, queue system implementation, intelligent scoring capabilities, platform administration, webhook notifications, billing configuration management, and native resume file storage with download functionality.
+The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements included connection pooling configuration, token revocation support, queue system implementation, intelligent scoring capabilities, platform administration, webhook notifications, billing configuration management, native resume file storage with download functionality, and deterministic scoring framework with eligibility gating.
 
 ```mermaid
 graph TB
@@ -793,6 +876,9 @@ FF["feature_flag_service.py<br/>services"] --> D
 WH["webhook_service.py<br/>services"] --> D
 CAND["candidates.py<br/>routes"] --> D
 UP["upload.py<br/>routes"] --> D
+EL["eligibility_service.py<br/>services"] --> D
+FS["fit_scorer.py<br/>services"] --> D
+HP["hybrid_pipeline.py<br/>services"] --> D
 D --> CP["Connection Pooling<br/>PostgreSQL"]
 D --> RT["Revoked Tokens<br/>Token Management"]
 D --> QS["Queue System<br/>Scalable Processing"]
@@ -801,6 +887,7 @@ D --> FF["Feature Flags<br/>Flexible Control"]
 D --> WH["Webhooks<br/>Event Notifications"]
 D --> PC["Platform Config<br/>Billing Management"]
 D --> RF["Resume Files<br/>Native Storage"]
+D --> DS["Deterministic Scoring<br/>Eligibility Gating"]
 ```
 
 **Diagram sources**
@@ -821,13 +908,16 @@ D --> RF["Resume Files<br/>Native Storage"]
 - [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
 - [database.py:21-37](file://app/backend/db/database.py#L21-L37)
 - [db_models.py:256-266](file://app/backend/models/db_models.py#L256-L266)
+- [eligibility_service.py:1-80](file://app/backend/services/eligibility_service.py#L1-L80)
+- [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
+- [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Performance Considerations
-- Indexing: Ensure tenant_id, email, resume_file_hash, candidate_id, timestamp are indexed for fast filtering and deduplication.
+- Indexing: Ensure tenant_id, email, resume_file_hash, candidate_id, timestamp, deterministic_score, eligibility_status are indexed for fast filtering and deduplication.
 - Query patterns: Use composite indexes for common filters (tenant_id + action, tenant_id + created_at).
 - Caching: Reuse JdCache and candidate enrichment to minimize parsing overhead.
 - Concurrency: Use SQLAlchemy sessions per request and avoid long transactions.
@@ -840,6 +930,7 @@ D --> RF["Resume Files<br/>Native Storage"]
 - **Updated** Webhook performance: Async HTTP client with retry logic minimizes blocking operations.
 - **Updated** Platform configuration performance: Centralized access to billing settings reduces configuration overhead.
 - **Updated** Resume file storage performance: Direct database storage eliminates network latency and reduces infrastructure complexity.
+- **Updated** Deterministic scoring performance: Early gating reduces computational overhead; capped scoring ensures consistent performance.
 
 ## Troubleshooting Guide
 - Database connectivity
@@ -875,6 +966,11 @@ D --> RF["Resume Files<br/>Native Storage"]
   - Storage concerns: Monitor database size growth due to binary data.
   - File corruption: Use resume_file_hash for integrity verification.
   - Performance: Large resume files may impact query performance; consider storage quotas.
+- **Updated** Deterministic scoring issues
+  - Missing deterministic fields: Verify migration 016 has been applied successfully.
+  - Inconsistent eligibility decisions: Check eligibility_service thresholds and domain detection confidence.
+  - Performance: Deterministic scoring computation can be optimized by ensuring proper indexing on eligibility_status and deterministic_score.
+  - Data quality: Verify that eligibility_reason contains meaningful values for compliance reporting.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -889,9 +985,12 @@ D --> RF["Resume Files<br/>Native Storage"]
 - [webhook_service.py:114-138](file://app/backend/services/webhook_service.py#L114-L138)
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
+- [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
+- [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
+- [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
 
 ## Conclusion
-The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, and native resume file storage with download functionality. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model provides straightforward analysis tracking with comprehensive administrative oversight. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
+The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, native resume file storage with download functionality, and deterministic scoring framework with eligibility gating. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model now provides comprehensive deterministic scoring with eligibility gating, structured decision rationale, and detailed scoring breakdowns. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. The deterministic scoring system with hard gating rules ensures fair and transparent candidate evaluation processes. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
 
 ## Appendices
 
@@ -912,6 +1011,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
   - **Updated** Enhanced with native resume file storage capabilities.
 - ScreeningResult
   - Fields: id, tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
+  - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
   - Indexes: candidate_id, timestamp.
 - RoleTemplate
   - Fields: id, tenant_id, name, jd_text, scoring_weights (JSON), tags, timestamps.
@@ -941,6 +1041,8 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - PlatformConfig
   - Fields: id, config_key (unique), config_value, description, updated_at, updated_by (SET NULL).
   - Indexes: id, config_key.
+- EligibilityResult
+  - Fields: eligible (Boolean), reason (Optional[String]), details (Dict).
 - AnalysisJobs
   - Fields: id, tenant_id, candidate_id, user_id, job_type, resume_hash, jd_hash, input_hash (unique), status, priority, retry_count, max_retries, timestamps, worker_id, processing_stage, progress_percent, error tracking, result_id, job_config.
   - Indexes: input_hash, status, priority, queued_at, next_retry_at, worker_id, tenant_id, status, created_at.
@@ -966,6 +1068,8 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [013_webhooks_and_notifications.py:36-114](file://alembic/versions/013_webhooks_and_notifications.py#L36-L114)
 - [014_billing_system.py:33-56](file://alembic/versions/014_billing_system.py#L33-L56)
 - [015_add_resume_file_storage.py:29-48](file://alembic/versions/015_add_resume_file_storage.py#L29-L48)
+- [016_deterministic_scoring_fields.py:33-73](file://alembic/versions/016_deterministic_scoring_fields.py#L33-L73)
+- [eligibility_service.py:10-14](file://app/backend/services/eligibility_service.py#L10-L14)
 
 ### Appendix B: Migration History
 - 001: Enrich candidates with profile fields; add jd_cache and skills tables.
@@ -983,6 +1087,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - 013: **New** Webhooks and notifications with default feature flag seeding.
 - 014: **New** Billing system with platform configuration management.
 - 015: **New** Resume file storage with resume_filename and resume_file_data columns.
+- 016: **New** Deterministic scoring fields (deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason) added to screening_results.
 
 **Section sources**
 - [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
@@ -1000,3 +1105,4 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [013_webhooks_and_notifications.py:1-145](file://alembic/versions/013_webhooks_and_notifications.py#L1-L145)
 - [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
+- [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)

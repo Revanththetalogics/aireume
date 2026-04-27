@@ -9,15 +9,19 @@
 - [main.py](file://app/backend/main.py)
 - [test_agent_pipeline.py](file://app/backend/tests/test_agent_pipeline.py)
 - [pii_redaction_service.py](file://app/backend/services/pii_redaction_service.py)
+- [guardrail_service.py](file://app/backend/services/guardrail_service.py)
+- [weight_mapper.py](file://app/backend/services/weight_mapper.py)
+- [constants.py](file://app/backend/services/constants.py)
+- [fit_scorer.py](file://app/backend/services/fit_scorer.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced with comprehensive anti-hallucination guardrails including cache versioning, circuit breaker mechanisms, and deterministic LLM behavior with fixed seeds
-- Integrated PII redaction service to eliminate bias from personal identifiers in resume analysis
-- Increased truncation limits from 2000 to 8000 characters for job descriptions and resumes to capture complete context
-- Implemented hallucination detection and fallback to rule-based parsing when hallucination thresholds are exceeded
-- Added comprehensive cache versioning system to automatically invalidate cached results when prompts change
+- Streamlined agent pipeline by removing complex scoring logic in favor of new deterministic framework based on Applied Changes
+- Simplified scorer node to focus on interview question generation while delegating numerical scoring to deterministic components
+- Enhanced weight mapping system with new universal schema supporting 7-weight categories
+- Integrated comprehensive guardrail system with ensemble voting and cross-node consistency checks
+- Improved calibration context integration for RAG learning capabilities
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -25,29 +29,30 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Anti-Hallucination Guardrails](#anti-hallucination-guardrails)
-7. [PII Redaction Integration](#pii-redaction-integration)
-8. [Deterministic LLM Behavior](#deterministic-llm-behavior)
-9. [Enhanced Truncation Limits](#enhanced-truncation-limits)
-10. [Cloud-Aware Configuration Management](#cloud-aware-configuration-management)
-11. [Timeout Configuration and Management](#timeout-configuration-and-management)
-12. [JSON Serialization Handling](#json-serialization-handling)
-13. [Dependency Analysis](#dependency-analysis)
-14. [Performance Considerations](#performance-considerations)
-15. [Troubleshooting Guide](#troubleshooting-guide)
-16. [Conclusion](#conclusion)
-17. [Appendices](#appendices)
+6. [Enhanced Interview Kit Generation System](#enhanced-interview-kit-generation-system)
+7. [Anti-Hallucination Guardrails](#anti-hallucination-guardrails)
+8. [PII Redaction Integration](#pii-redaction-integration)
+9. [Deterministic LLM Behavior](#deterministic-llm-behavior)
+10. [Enhanced Truncation Limits](#enhanced-truncation-limits)
+11. [Cloud-Aware Configuration Management](#cloud-aware-configuration-management)
+12. [Timeout Configuration and Management](#timeout-configuration-and-management)
+13. [JSON Serialization Handling](#json-serialization-handling)
+14. [Dependency Analysis](#dependency-analysis)
+15. [Performance Considerations](#performance-considerations)
+16. [Troubleshooting Guide](#troubleshooting-guide)
+17. [Conclusion](#conclusion)
+18. [Appendices](#appendices)
 
 ## Introduction
-This document describes the LangGraph-based multi-agent analysis pipeline that powers complex, step-by-step reasoning workflows for resume and job description evaluation. The pipeline integrates with Ollama models to enable structured extraction, matching, scoring, and recommendation generation. It emphasizes deterministic, schema-bound outputs, robust fallbacks, and graceful degradation when LLM calls fail. The system is designed to support both non-streaming batch processing and streaming SSE responses, while complementing a hybrid approach that combines Python-first determinism with a single LLM narrative.
+This document describes the LangGraph-based multi-agent analysis pipeline that powers complex, step-by-step reasoning workflows for resume and job description evaluation. The pipeline integrates with Ollama models to enable structured extraction, matching, scoring, and comprehensive interview kit generation. It emphasizes deterministic, schema-bound outputs, robust fallbacks, and graceful degradation when LLM calls fail. The system is designed to support both non-streaming batch processing and streaming SSE responses, while complementing a hybrid approach that combines Python-first determinism with a single LLM narrative.
 
-**Updated** Enhanced with comprehensive anti-hallucination guardrails including cache versioning, circuit breaker mechanisms, deterministic LLM behavior with fixed seeds, increased truncation limits, and PII redaction integration. The pipeline now includes sophisticated hallucination detection and automatic fallback to rule-based parsing when thresholds are exceeded, ensuring reliable and unbiased analysis results.
+**Updated** Streamlined by removing complex scoring logic in favor of new deterministic framework based on Applied Changes. The pipeline now focuses on interview question generation while delegating numerical scoring to deterministic components, resulting in more reliable and consistent results.
 
 ## Project Structure
 The agent pipeline is implemented as a LangGraph StateGraph with three sequential nodes:
 - Stage 1 (parallel within stage): jd_parser
-- Stage 2 (parallel within stage): resume_analyser (combines resume parsing, skill matching, and education/timeline analysis)
-- Stage 3 (parallel within stage): scorer (combines scoring and interview question generation)
+- Stage 2 (parallel): resume_analyser (combines resume parsing, skill matching, and education/timeline analysis)
+- Stage 3 (parallel): scorer (interview question generation with fallback scoring)
 
 ```mermaid
 graph TB
@@ -60,17 +65,19 @@ end
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:818-836](file://app/backend/services/agent_pipeline.py#L818-L836)
+- [agent_pipeline.py:1022-1037](file://app/backend/services/agent_pipeline.py#L1022-L1037)
 
 **Section sources**
 - [agent_pipeline.py:4-24](file://app/backend/services/agent_pipeline.py#L4-L24)
-- [agent_pipeline.py:818-836](file://app/backend/services/agent_pipeline.py#L818-L836)
+- [agent_pipeline.py:1022-1037](file://app/backend/services/agent_pipeline.py#L1022-L1037)
 
 ## Core Components
 - StateGraph and State: The pipeline defines a strongly-typed state interface that carries inputs, intermediate outputs, and accumulated errors across nodes.
 - LLM singletons: Fast and reasoning LLM clients are created once and reused to reduce connection overhead and improve throughput.
+- **Updated** Simplified scoring framework: Removed complex scoring logic in favor of deterministic scoring through fit_scorer.py and weight_mapper.py integration.
+- **Updated** Enhanced interview kit generation: Sophisticated scoring prompts that incorporate comprehensive role and candidate context for targeted question generation.
 - Anti-hallucination guardrails: Comprehensive systems to prevent hallucinations including cache versioning, circuit breakers, and rule-based fallbacks.
-- PII redaction integration: Automatic removal of personally identifiable information to eliminate bias in analysis.
+- PII redaction integration: Automatic removal of personally identifiable information to eliminate bias from personal identifiers in resume analysis.
 - Deterministic LLM behavior: Fixed seeds and controlled temperature settings for reproducible results.
 - Enhanced truncation limits: Increased character limits for job descriptions and resumes to capture complete context.
 - Intelligent keep_alive management: Cost-efficient cloud deployments disable keep_alive to avoid unnecessary charges.
@@ -78,28 +85,23 @@ end
 - Node implementations:
   - jd_parser: Extracts structured job requirements from raw job descriptions with hallucination detection.
   - resume_analyser: Parses candidate profiles, identifies skills, and computes education and timeline scores with PII redaction.
-  - scorer: Computes weighted fit scores, risk penalties, and generates interview questions.
+  - **Updated** scorer: Generates comprehensive interview questions with fallback mechanisms, delegating numerical scoring to deterministic components.
 - Result assembly: Converts the final state into a unified response compatible with the existing API schema.
 - JSON serialization: Comprehensive handling of datetime, date, and Decimal objects for proper serialization.
 
 **Section sources**
-- [agent_pipeline.py:169-186](file://app/backend/services/agent_pipeline.py#L169-L186)
-- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
-- [agent_pipeline.py:352-403](file://app/backend/services/agent_pipeline.py#L352-L403)
-- [agent_pipeline.py:533-563](file://app/backend/services/agent_pipeline.py#L533-L563)
-- [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
-- [agent_pipeline.py:114](file://app/backend/services/agent_pipeline.py#L114)
-- [agent_pipeline.py:149](file://app/backend/services/agent_pipeline.py#L149)
-- [agent_pipeline.py:363](file://app/backend/services/agent_pipeline.py#L363)
-- [agent_pipeline.py:550](file://app/backend/services/agent_pipeline.py#L550)
-- [agent_pipeline.py:432-514](file://app/backend/services/agent_pipeline.py#L432-L514)
-- [agent_pipeline.py:862-914](file://app/backend/services/agent_pipeline.py#L862-L914)
+- [agent_pipeline.py:209-226](file://app/backend/services/agent_pipeline.py#L209-L226)
+- [agent_pipeline.py:137-204](file://app/backend/services/agent_pipeline.py#L137-L204)
+- [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
+- [agent_pipeline.py:581-654](file://app/backend/services/agent_pipeline.py#L581-L654)
+- [agent_pipeline.py:731-955](file://app/backend/services/agent_pipeline.py#L731-L955)
+- [agent_pipeline.py:1068-1158](file://app/backend/services/agent_pipeline.py#L1068-L1158)
 
 ## Architecture Overview
 The agent pipeline orchestrates three specialized agents with comprehensive anti-hallucination guardrails and cloud-aware configuration management:
 - Agent 1 (jd_parser): Parses job descriptions into canonical fields with hallucination detection and rule-based fallback.
 - Agent 2 (resume_analyser): Builds a candidate profile with PII redaction, matches skills, and evaluates education and timeline.
-- Agent 3 (scorer): Computes a weighted fit score, risk signals, and generates interview questions.
+- **Updated** Agent 3 (scorer): Generates comprehensive interview questions with fallback mechanisms, while delegating numerical scoring to deterministic components.
 
 ```mermaid
 sequenceDiagram
@@ -123,17 +125,20 @@ RA->>O1 : "ainvoke(prompt) with enhanced truncation"
 O1-->>RA : "structured JSON"
 RA-->>Graph : "candidate_profile + skill_analysis + edu_timeline_analysis + errors"
 Graph->>SC : "invoke(state)"
+SC->>SC : "Enhanced scoring prompt with role/candidate context"
 SC->>O2 : "ainvoke(prompt) with deterministic settings"
-O2-->>SC : "structured JSON"
+O2-->>SC : "structured JSON with interview questions"
+SC->>SC : "Generate fallback questions if LLM fails"
+SC->>SC : "Delegate numerical scoring to deterministic components"
 SC-->>Graph : "final_scores + interview_questions + errors"
 Graph-->>Client : "assemble_result(final_state)"
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:919-948](file://app/backend/services/agent_pipeline.py#L919-L948)
-- [agent_pipeline.py:352-403](file://app/backend/services/agent_pipeline.py#L352-L403)
-- [agent_pipeline.py:533-563](file://app/backend/services/agent_pipeline.py#L533-L563)
-- [agent_pipeline.py:609-744](file://app/backend/services/agent_pipeline.py#L609-L744)
+- [agent_pipeline.py:1163-1190](file://app/backend/services/agent_pipeline.py#L1163-L1190)
+- [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
+- [agent_pipeline.py:581-654](file://app/backend/services/agent_pipeline.py#L581-L654)
+- [agent_pipeline.py:731-955](file://app/backend/services/agent_pipeline.py#L731-L955)
 
 ## Detailed Component Analysis
 
@@ -166,20 +171,20 @@ PipelineState <.. StateGraph : "typed state"
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:169-186](file://app/backend/services/agent_pipeline.py#L169-L186)
-- [agent_pipeline.py:818-836](file://app/backend/services/agent_pipeline.py#L818-L836)
+- [agent_pipeline.py:209-226](file://app/backend/services/agent_pipeline.py#L209-L226)
+- [agent_pipeline.py:1022-1037](file://app/backend/services/agent_pipeline.py#L1022-L1037)
 
 **Section sources**
-- [agent_pipeline.py:169-186](file://app/backend/services/agent_pipeline.py#L169-L186)
-- [agent_pipeline.py:818-836](file://app/backend/services/agent_pipeline.py#L818-L836)
+- [agent_pipeline.py:209-226](file://app/backend/services/agent_pipeline.py#L209-L226)
+- [agent_pipeline.py:1022-1037](file://app/backend/services/agent_pipeline.py#L1022-L1037)
 
 ### Node: jd_parser
 - Purpose: Extract canonical job requirements from raw job descriptions with hallucination detection and rule-based fallback.
 - Behavior:
   - Uses a fast LLM with strict JSON schema and deterministic settings.
   - Implements an in-memory cache keyed by MD5 of the first 8000 characters of the job description plus prompt version to avoid repeated LLM calls for identical inputs.
-  - **Updated** Implements hallucination detection by comparing raw LLM output with validated skills and increments a counter when hallucinations are detected.
-  - **Updated** Uses circuit breaker mechanism that triggers rule-based fallback when hallucination threshold is exceeded.
+  - Implements hallucination detection by comparing raw LLM output with validated skills and increments a counter when hallucinations are detected.
+  - Uses circuit breaker mechanism that triggers rule-based fallback when hallucination threshold is exceeded.
   - On LLM failure, returns typed-null defaults and appends an error to the state's errors list.
 
 ```mermaid
@@ -206,22 +211,20 @@ ReturnState --> End
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:352-403](file://app/backend/services/agent_pipeline.py#L352-L403)
-- [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
-- [agent_pipeline.py:387-391](file://app/backend/services/agent_pipeline.py#L387-L391)
+- [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
 
 **Section sources**
-- [agent_pipeline.py:352-403](file://app/backend/services/agent_pipeline.py#L352-L403)
+- [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
 
 ### Node: resume_analyser
 - Purpose: Combine resume parsing, skill matching, education scoring, and timeline analysis into a single LLM call with PII redaction.
 - Behavior:
   - Uses a fast LLM with a comprehensive prompt that includes role, domain, seniority, required skills, resume text, and employment timeline.
-  - **Updated** Integrates PII redaction service to eliminate bias from names, emails, phones, and other personal identifiers.
-  - **Updated** Splits the flat combined output into three sub-dictionaries: candidate_profile, skill_analysis, and edu_timeline_analysis.
-  - **Updated** Applies defaults for missing or null fields to ensure schema completeness.
+  - Integrates PII redaction service to eliminate bias from names, emails, phones, and other personal identifiers.
+  - Splits the flat combined output into three sub-dictionaries: candidate_profile, skill_analysis, and edu_timeline_analysis.
+  - Applies defaults for missing or null fields to ensure schema completeness.
   - On LLM failure, returns typed-null defaults for all three sub-dictionaries and appends an error.
-  - **Updated** Properly serializes complex data structures using the `_json_default` function for datetime, date, and Decimal objects.
+  - Properly serializes complex data structures using the `_json_default` function for datetime, date, and Decimal objects.
 
 ```mermaid
 flowchart TD
@@ -236,48 +239,50 @@ ReturnState --> End(["Exit"])
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:533-563](file://app/backend/services/agent_pipeline.py#L533-L563)
-- [agent_pipeline.py:511-563](file://app/backend/services/agent_pipeline.py#L511-L563)
+- [agent_pipeline.py:581-654](file://app/backend/services/agent_pipeline.py#L581-L654)
 
 **Section sources**
-- [agent_pipeline.py:511-563](file://app/backend/services/agent_pipeline.py#L511-L563)
+- [agent_pipeline.py:581-654](file://app/backend/services/agent_pipeline.py#L581-L654)
 
 ### Node: scorer
-- Purpose: Compute weighted fit score, risk penalties, risk signals, strengths, weaknesses, explainability, and interview questions.
+- Purpose: Generate comprehensive interview questions with fallback mechanisms, while delegating numerical scoring to deterministic components.
 - Behavior:
   - Uses a reasoning LLM with a detailed prompt that includes all prior scores and contextual comments.
-  - Normalizes scoring weights to sum to 1.0 and clamps the final fit score to 0–100.
-  - Corrects invalid recommendations and overrides score breakdown fields with agent-computed values to prevent template literals.
-  - On LLM failure, computes a deterministic fallback using Python math and returns typed-null defaults for interview questions.
+  - **Updated** Simplified scoring approach: Delegates numerical scoring to deterministic components while focusing on interview question generation.
+  - **Updated** Integrates weight mapping system for new universal schema with 7-weight categories.
+  - **Updated** Implements context-aware fallback question generation with technical, behavioral, and culture-fit questions.
   - **Updated** Uses deterministic LLM behavior with fixed seed (42) and controlled temperature (0.0) for reproducible results.
-  - **Updated** Properly serializes complex data structures using the `_json_default` function for datetime, date, and Decimal objects.
+  - **Updated** Implements schema validation for interview questions with strict Pydantic models.
+  - On LLM failure, computes a deterministic fallback using Python math and returns typed-null defaults for interview questions.
 
 ```mermaid
 flowchart TD
 Start(["Call scorer_node(state)"]) --> BuildPrompt["Build prompt with all prior scores/comments"]
-BuildPrompt --> CallLLM["Call reasoning LLM (seed=42, temp=0.0)"]
+BuildPrompt --> WeightMapping["Convert to new weight schema"]
+WeightMapping --> CallLLM["Call reasoning LLM (seed=42, temp=0.0)"]
 CallLLM --> Parse["Parse JSON with fallback"]
-Parse --> Override["Override score_breakdown with agent scores"]
+Parse --> ExtractIQ["Extract interview_questions from combined output"]
+ExtractIQ --> ValidateSchema["Validate against ScorerResult schema"]
+ValidateSchema --> Override["Override score_breakdown with agent scores"]
 Override --> Clamp["Clamp fit_score to 0..100"]
 Clamp --> Rec["Derive recommendation from fit_score"]
-Rec --> ReturnState["Return {final_scores, interview_questions, errors}"]
+Rec --> GenerateFallback["Generate context-aware fallback questions"]
+GenerateFallback --> ReturnState["Return {final_scores, interview_questions, errors}"]
 ReturnState --> End(["Exit"])
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:609-744](file://app/backend/services/agent_pipeline.py#L609-L744)
-- [agent_pipeline.py:149](file://app/backend/services/agent_pipeline.py#L149)
-- [agent_pipeline.py:114](file://app/backend/services/agent_pipeline.py#L114)
+- [agent_pipeline.py:731-955](file://app/backend/services/agent_pipeline.py#L731-L955)
 
 **Section sources**
-- [agent_pipeline.py:609-744](file://app/backend/services/agent_pipeline.py#L609-L744)
+- [agent_pipeline.py:731-955](file://app/backend/services/agent_pipeline.py#L731-L955)
 
 ### Result Assembly and Backward Compatibility
 - The final state is transformed into a unified result dictionary that preserves backward compatibility with the existing AnalysisResponse schema while adding new fields produced by the LangGraph pipeline.
 - Ensures that the frontend's "Stability" bar continues to render by mapping timeline to stability in the score breakdown.
 
 **Section sources**
-- [agent_pipeline.py:862-914](file://app/backend/services/agent_pipeline.py#L862-L914)
+- [agent_pipeline.py:1068-1158](file://app/backend/services/agent_pipeline.py#L1068-L1158)
 
 ### Integration with Hybrid Approach
 - While the LangGraph pipeline focuses on structured, schema-bound outputs and deterministic fallbacks, the hybrid pipeline provides a complementary approach:
@@ -290,9 +295,85 @@ ReturnState --> End(["Exit"])
 - [hybrid_pipeline.py:1-11](file://app/backend/services/hybrid_pipeline.py#L1-L11)
 - [analyze.py:304-311](file://app/backend/routes/analyze.py#L304-L311)
 
+## Enhanced Interview Kit Generation System
+
+**Updated** The agent pipeline now includes a sophisticated interview kit generation system that creates highly targeted, non-generic questions based on comprehensive role and candidate context, while simplifying the scoring framework.
+
+### Comprehensive Scoring Prompt with Interview Kit Rules
+The scorer node uses an enhanced prompt that incorporates detailed role context and candidate context:
+
+```mermaid
+flowchart TD
+A["Enhanced Scoring Prompt"] --> B["ROLE CONTEXT"]
+B --> B1["Title: {role_title}"]
+B --> B2["Domain: {domain}"]
+B --> B3["Seniority: {seniority}"]
+B --> B4["Key Responsibilities: {key_responsibilities}"]
+B --> B5["Required Skills: {required_skills}"]
+B --> B6["Nice-to-Have Skills: {nice_to_have_skills}"]
+A --> C["CANDIDATE CONTEXT"]
+C --> C1["Current Role: {current_role} at {current_company}"]
+C --> C2["Career Summary: {career_summary}"]
+C --> C3["Years Experience: {years_actual}y (role requires: {years_required}y)"]
+C --> C4["Matched Skills: {matched_skills}"]
+C --> C5["Missing Skills: {missing_skills}"]
+C --> C6["Adjacent Skills: {adjacent_skills}"]
+C --> C7["Architecture Assessment: {architecture_comment}"]
+C --> C8["Domain Fit Assessment: {domain_fit_comment}"]
+C --> C9["Timeline/Gap Assessment: {gap_interpretation}"]
+A --> D["INTERVIEW KIT RULES"]
+D --> D1["TECHNICAL QUESTIONS (5)"]
+D --> D2["BEHAVIORAL QUESTIONS (3)"]
+D --> D3["CULTURE-FIT QUESTIONS (2)"]
+```
+
+**Diagram sources**
+- [agent_pipeline.py:660-728](file://app/backend/services/agent_pipeline.py#L660-L728)
+
+### Context-Aware Fallback Question Generation
+The system generates comprehensive fallback questions when LLM calls fail or produce invalid output:
+
+#### Technical Questions (5 questions)
+- **Missing Skills**: For each missing skill, create a scenario-based question that ties the skill to specific job responsibilities
+- **Critical Matched Skills**: For 1-2 critical matched skills, create depth-probing questions testing expertise level
+- **System Design**: Include system design questions when architecture comments mention gaps or role requires architecture decisions
+- **Difficulty Calibration**: Use domain and seniority to calibrate question difficulty
+
+#### Behavioral Questions (3 questions, STAR format)
+- **Timeline Gap Address**: Address the biggest risk signal from gap/timeline assessment
+- **Seniority-Specific Challenges**: Target senior roles (leadership/mentorship), mid roles (ownership), junior roles (learning agility)
+- **Role Transition**: Probe motivation for moving from current role to target role
+
+#### Culture-Fit Questions (2 questions)
+- **Motivation**: Why this specific role given candidate's career trajectory
+- **Work-Style Alignment**: Question tied to role context (startup vs. enterprise, remote vs. on-site)
+
+### Schema Validation for Interview Questions
+The system implements strict schema validation for interview questions:
+
+```python
+class InterviewQuestions(BaseModel):
+    technical_questions: List[str] = Field(default_factory=list, max_length=20)
+    behavioral_questions: List[str] = Field(default_factory=list, max_length=20)
+    culture_fit_questions: List[str] = Field(default_factory=list, max_length=20)
+```
+
+### Benefits of Enhanced Interview Kit Generation
+- **Highly Targeted Questions**: Every question references specific skills, role responsibilities, or candidate resume context
+- **Non-Generic Questions**: Avoids standard interview boilerplate like "Tell me about yourself"
+- **Context Awareness**: Questions adapt to candidate's background, timeline gaps, and role requirements
+- **Comprehensive Coverage**: Addresses technical competency, behavioral fit, and cultural alignment
+- **Fallback Resilience**: Generates meaningful questions even when LLM calls fail
+- **Schema Compliance**: Ensures interview questions meet strict validation requirements
+
+**Section sources**
+- [agent_pipeline.py:660-728](file://app/backend/services/agent_pipeline.py#L660-L728)
+- [agent_pipeline.py:838-842](file://app/backend/services/agent_pipeline.py#L838-L842)
+- [guardrail_service.py:107-126](file://app/backend/services/guardrail_service.py#L107-L126)
+
 ## Anti-Hallucination Guardrails
 
-**Updated** The agent pipeline now includes comprehensive anti-hallucination guardrails to ensure reliable and unbiased analysis results.
+The agent pipeline now includes comprehensive anti-hallucination guardrails to ensure reliable and unbiased analysis results.
 
 ### Cache Versioning System
 The pipeline implements a sophisticated cache versioning system to automatically invalidate cached results when prompts change:
@@ -327,12 +408,12 @@ Detection mechanism:
 The pipeline validates extracted skills against the original job description to prevent hallucinations:
 
 ```python
-def _validate_skills_against_jd(skills: List[str], jd_text: str) -> List[str]:
-    """Filter out skills not found in the original JD text (hallucination guard)."""
-    if not skills or not jd_text:
+def _validate_skills_against_text(skills: List[str], text: str) -> List[str]:
+    """Filter out skills not found in the original text (hallucination guard)."""
+    if not skills or not text:
         return []
 
-    jd_lower = jd_text.lower()
+    text_lower = text.lower()
     validated = []
 
     for skill in skills:
@@ -342,7 +423,7 @@ def _validate_skills_against_jd(skills: List[str], jd_text: str) -> List[str]:
         skill_lower = skill.lower()
 
         # Direct substring match
-        if skill_lower in jd_lower:
+        if skill_lower in text_lower:
             validated.append(skill)
             continue
 
@@ -350,7 +431,7 @@ def _validate_skills_against_jd(skills: List[str], jd_text: str) -> List[str]:
         try:
             from app.backend.services.hybrid_pipeline import SKILL_ALIASES
             aliases = SKILL_ALIASES.get(skill_lower, [])
-            if any(alias.lower() in jd_lower for alias in aliases):
+            if any(alias.lower() in text_lower for alias in aliases):
                 validated.append(skill)
                 continue
         except Exception:
@@ -358,7 +439,7 @@ def _validate_skills_against_jd(skills: List[str], jd_text: str) -> List[str]:
 
         # Multi-word skill: check if any significant word (3+ chars) matches
         words = [w for w in skill_lower.split() if len(w) > 2]
-        if words and any(word in jd_lower for word in words):
+        if words and any(word in text_lower for word in words):
             validated.append(skill)
             continue
 
@@ -369,7 +450,7 @@ def _validate_skills_against_jd(skills: List[str], jd_text: str) -> List[str]:
 The pipeline sanitizes extracted job requirements to ensure they meet predefined standards:
 
 ```python
-def _sanitize_jd_output(data: dict, original_jd_text: str) -> dict:
+def _sanitize_jd_output(data: dict, original_text: str) -> dict:
     """Post-process and sanitize JD parser output to remove hallucinations."""
     fallback = {
         "role_title": "", "domain": "other", "seniority": "mid",
@@ -385,21 +466,21 @@ def _sanitize_jd_output(data: dict, original_jd_text: str) -> dict:
         if key not in data or data[key] is None:
             data[key] = default
 
-    # Validate skills against original JD text (hallucination guard)
-    data["required_skills"] = _validate_skills_against_jd(
-        data.get("required_skills", []), original_jd_text
+    # Validate skills against original text (hallucination guard)
+    data["required_skills"] = _validate_skills_against_text(
+        data.get("required_skills", []), original_text
     )
-    data["nice_to_have_skills"] = _validate_skills_against_jd(
-        data.get("nice_to_have_skills", []), original_jd_text
+    data["nice_to_have_skills"] = _validate_skills_against_text(
+        data.get("nice_to_have_skills", []), original_text
     )
 
     # Normalize seniority
-    valid_seniority = {"junior", "mid", "senior", "lead", "principal"}
+    valid_seniority = set(SENIORITY_RANGES.keys()) | {"principal"}
     if data.get("seniority") not in valid_seniority:
         years = data.get("required_years", 0)
-        if years >= 8:
+        if years >= SENIORITY_RANGES["senior"][0]:
             data["seniority"] = "senior"
-        elif years >= 3:
+        elif years >= SENIORITY_RANGES["mid"][0]:
             data["seniority"] = "mid"
         else:
             data["seniority"] = "junior"
@@ -440,13 +521,13 @@ def _sanitize_jd_output(data: dict, original_jd_text: str) -> dict:
 
 **Section sources**
 - [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
-- [agent_pipeline.py:352-403](file://app/backend/services/agent_pipeline.py#L352-L403)
-- [agent_pipeline.py:208-244](file://app/backend/services/agent_pipeline.py#L208-L244)
+- [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
 - [agent_pipeline.py:246-304](file://app/backend/services/agent_pipeline.py#L246-L304)
+- [agent_pipeline.py:262-268](file://app/backend/services/agent_pipeline.py#L262-L268)
 
 ## PII Redaction Integration
 
-**Updated** The agent pipeline now integrates comprehensive PII redaction to eliminate bias from personal identifiers in analysis results.
+The agent pipeline now integrates comprehensive PII redaction to eliminate bias from personal identifiers in analysis results.
 
 ### PII Redaction Service Integration
 The resume analyzer integrates with a dedicated PII redaction service to remove personally identifiable information:
@@ -499,12 +580,12 @@ class RedactionResult:
 - **Content Preservation**: Maintains analytical value while removing sensitive information
 
 **Section sources**
-- [agent_pipeline.py:533-563](file://app/backend/services/agent_pipeline.py#L533-L563)
+- [agent_pipeline.py:603-611](file://app/backend/services/agent_pipeline.py#L603-L611)
 - [pii_redaction_service.py:17-233](file://app/backend/services/pii_redaction_service.py#L17-L233)
 
 ## Deterministic LLM Behavior
 
-**Updated** The agent pipeline now ensures deterministic LLM behavior through fixed seeds and controlled temperature settings.
+The agent pipeline now ensures deterministic LLM behavior through fixed seeds and controlled temperature settings.
 
 ### Fixed Seed Implementation
 Both LLM instances use fixed seeds to ensure reproducible results:
@@ -546,19 +627,18 @@ Temperature is set to 0.0 for both models to ensure deterministic behavior:
 - **Performance Optimization**: Eliminates need for multiple inference attempts
 
 **Section sources**
-- [agent_pipeline.py:114](file://app/backend/services/agent_pipeline.py#L114)
-- [agent_pipeline.py:149](file://app/backend/services/agent_pipeline.py#L149)
+- [agent_pipeline.py:137-204](file://app/backend/services/agent_pipeline.py#L137-L204)
 
 ## Enhanced Truncation Limits
 
-**Updated** The agent pipeline now uses significantly increased truncation limits to capture complete context for analysis.
+The agent pipeline now uses significantly increased truncation limits to capture complete context for analysis.
 
 ### Increased Character Limits
 The pipeline now processes up to 8000 characters from job descriptions and resumes:
 
 ```python
 # Guardrail: increased truncation to capture full requirements section
-jd_text = state["raw_jd_text"][:8000]
+jd_text = raw_jd_text[:8000]
 
 # Guardrail: increased truncation to capture full resume context
 resume_text = resume_text[:8000]
@@ -577,12 +657,12 @@ resume_text = resume_text[:8000]
 - **Bias Reduction**: Full context helps prevent incomplete analysis that could introduce bias
 
 **Section sources**
-- [agent_pipeline.py:363](file://app/backend/services/agent_pipeline.py#L363)
-- [agent_pipeline.py:550](file://app/backend/services/agent_pipeline.py#L550)
+- [agent_pipeline.py:379](file://app/backend/services/agent_pipeline.py#L379)
+- [agent_pipeline.py:622](file://app/backend/services/agent_pipeline.py#L622)
 
 ## Cloud-Aware Configuration Management
 
-**Updated** The agent pipeline now includes comprehensive cloud-aware configuration management for optimal performance and cost efficiency with significantly enhanced token limits for cloud deployments.
+The agent pipeline now includes comprehensive cloud-aware configuration management for optimal performance and cost efficiency with significantly enhanced token limits for cloud deployments.
 
 ### Cloud Detection and Authentication
 The pipeline automatically detects Ollama Cloud deployments and handles authentication:
@@ -657,12 +737,12 @@ if not _is_cloud:
 - **Resource Efficiency**: Optimized resource allocation based on deployment characteristics with significantly larger token limits for cloud models
 
 **Section sources**
-- [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
-- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
+- [agent_pipeline.py:74-86](file://app/backend/services/agent_pipeline.py#L74-L86)
+- [agent_pipeline.py:137-204](file://app/backend/services/agent_pipeline.py#L137-L204)
 
 ## Timeout Configuration and Management
 
-**Updated** The agent pipeline now includes comprehensive timeout management for reliable LLM interactions with enhanced cloud deployment support.
+The agent pipeline now includes comprehensive timeout management for reliable LLM interactions with enhanced cloud deployment support.
 
 ### _llm_request_timeout Constant
 The `_llm_request_timeout` constant provides centralized timeout configuration for all LLM interactions:
@@ -708,13 +788,12 @@ The timeout configuration ensures consistency between:
 - **Enhanced Cloud Support**: Timeout management works seamlessly with cloud deployments and increased token limits
 
 **Section sources**
-- [agent_pipeline.py:96](file://app/backend/services/agent_pipeline.py#L96)
-- [agent_pipeline.py:105-114](file://app/backend/services/agent_pipeline.py#L105-L114)
-- [agent_pipeline.py:151-162](file://app/backend/services/agent_pipeline.py#L151-L162)
+- [agent_pipeline.py:127](file://app/backend/services/agent_pipeline.py#L127)
+- [agent_pipeline.py:137-204](file://app/backend/services/agent_pipeline.py#L137-L204)
 
 ## JSON Serialization Handling
 
-**Updated** The agent pipeline now includes comprehensive JSON serialization handling for complex data types that are not natively JSON-serializable with enhanced support for cloud deployments.
+The agent pipeline now includes comprehensive JSON serialization handling for complex data types that are not natively JSON-serializable with enhanced support for cloud deployments.
 
 ### _json_default Function
 The `_json_default` function serves as a custom JSON encoder that converts non-serializable Python objects to JSON-compatible formats:
@@ -759,13 +838,15 @@ The JSON serialization handler supports the following non-JSON-serializable type
 - **Enhanced Cloud Support**: Works seamlessly with increased token limits and larger context windows in cloud deployments
 
 **Section sources**
-- [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)
-- [agent_pipeline.py:369-376](file://app/backend/services/agent_pipeline.py#L369-L376)
-- [agent_pipeline.py:459-478](file://app/backend/services/agent_pipeline.py#L459-L478)
+- [agent_pipeline.py:49-55](file://app/backend/services/agent_pipeline.py#L49-L55)
+- [agent_pipeline.py:620](file://app/backend/services/agent_pipeline.py#L620)
+- [agent_pipeline.py:866](file://app/backend/services/agent_pipeline.py#L866)
 
 ## Dependency Analysis
 - LangGraph integration: Uses StateGraph with typed state and node callbacks.
 - LLM integration: ChatOllama singletons configured with deterministic settings and long-lived connections.
+- **Updated** Simplified scoring framework: Removed complex scoring logic in favor of deterministic components through fit_scorer.py and weight_mapper.py.
+- **Updated** Enhanced interview kit generation: Sophisticated scoring prompts with comprehensive role and candidate context.
 - Anti-hallucination guardrails: Comprehensive systems including cache versioning, circuit breakers, and skill validation.
 - PII redaction integration: Automatic removal of personally identifiable information to eliminate bias.
 - Deterministic LLM behavior: Fixed seeds and controlled temperature settings for reproducible results.
@@ -777,6 +858,7 @@ The JSON serialization handler supports the following non-JSON-serializable type
 - Route integration: The main analysis route invokes the hybrid pipeline and stores results in the database; the LangGraph pipeline is not currently wired into the main route.
 - JSON serialization: Comprehensive handling of datetime, date, and Decimal objects across all pipeline components.
 - Enhanced cloud authentication: Improved logging and debugging capabilities for cloud deployments.
+- Schema validation: Strict Pydantic models for interview questions and other structured outputs.
 
 ```mermaid
 graph TB
@@ -789,30 +871,42 @@ AP --> CD["Cloud Detection"]
 AP --> KA["Keep-Alive Manager"]
 AP --> AH["Anti-Hallucination Guardrails"]
 AP --> PII["PII Redaction Service"]
+AP --> IQ["Interview Kit Generator"]
+AP --> WM["Weight Mapper"]
+AP --> FS["Fit Scorer"]
+GS["guardrail_service.py"] --> IQV["Interview Questions Schema"]
 HP["hybrid_pipeline.py"] --> CO2["ChatOllama (reasoning)"]
 AR["routes/analyze.py"] --> HP
 MS["main.py"] --> AR
 ```
 
 **Diagram sources**
-- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
-- [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)
-- [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
-- [agent_pipeline.py:125-127](file://app/backend/services/agent_pipeline.py#L125-L127)
-- [agent_pipeline.py:352-403](file://app/backend/services/agent_pipeline.py#L352-L403)
-- [agent_pipeline.py:533-563](file://app/backend/services/agent_pipeline.py#L533-L563)
-- [hybrid_pipeline.py:82-105](file://app/backend/services/hybrid_pipeline.py#L82-L105)
+- [agent_pipeline.py:137-204](file://app/backend/services/agent_pipeline.py#L137-L204)
+- [agent_pipeline.py:49-55](file://app/backend/services/agent_pipeline.py#L49-L55)
+- [agent_pipeline.py:74-86](file://app/backend/services/agent_pipeline.py#L74-L86)
+- [agent_pipeline.py:127](file://app/backend/services/agent_pipeline.py#L127)
+- [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
+- [agent_pipeline.py:581-654](file://app/backend/services/agent_pipeline.py#L581-L654)
+- [agent_pipeline.py:731-955](file://app/backend/services/agent_pipeline.py#L731-L955)
+- [guardrail_service.py:107-126](file://app/backend/services/guardrail_service.py#L107-L126)
+- [weight_mapper.py:197-231](file://app/backend/services/weight_mapper.py#L197-L231)
+- [fit_scorer.py:12-114](file://app/backend/services/fit_scorer.py#L12-L114)
+- [hybrid_pipeline.py:82-105](file://app/backend/services/hybrid_pipeline.py#L82-105)
 - [analyze.py:304-311](file://app/backend/routes/analyze.py#L304-L311)
 - [main.py:200-214](file://app/backend/main.py#L200-L214)
 
 **Section sources**
-- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
-- [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)
-- [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
-- [agent_pipeline.py:125-127](file://app/backend/services/agent_pipeline.py#L125-L127)
-- [agent_pipeline.py:352-403](file://app/backend/services/agent_pipeline.py#L352-L403)
-- [agent_pipeline.py:533-563](file://app/backend/services/agent_pipeline.py#L533-L563)
-- [hybrid_pipeline.py:82-105](file://app/backend/services/hybrid_pipeline.py#L82-L105)
+- [agent_pipeline.py:137-204](file://app/backend/services/agent_pipeline.py#L137-L204)
+- [agent_pipeline.py:49-55](file://app/backend/services/agent_pipeline.py#L49-L55)
+- [agent_pipeline.py:74-86](file://app/backend/services/agent_pipeline.py#L74-L86)
+- [agent_pipeline.py:127](file://app/backend/services/agent_pipeline.py#L127)
+- [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
+- [agent_pipeline.py:581-654](file://app/backend/services/agent_pipeline.py#L581-L654)
+- [agent_pipeline.py:731-955](file://app/backend/services/agent_pipeline.py#L731-L955)
+- [guardrail_service.py:107-126](file://app/backend/services/guardrail_service.py#L107-L126)
+- [weight_mapper.py:197-231](file://app/backend/services/weight_mapper.py#L197-L231)
+- [fit_scorer.py:12-114](file://app/backend/services/fit_scorer.py#L12-L114)
+- [hybrid_pipeline.py:82-105](file://app/backend/services/hybrid_pipeline.py#L82-105)
 - [analyze.py:304-311](file://app/backend/routes/analyze.py#L304-L311)
 - [main.py:200-214](file://app/backend/main.py#L200-L214)
 
@@ -830,6 +924,15 @@ MS["main.py"] --> AR
   - JD cache avoids repeated LLM calls for identical job descriptions with automatic cache versioning.
 - Streaming:
   - The hybrid pipeline supports SSE streaming to provide progressive updates while the LLM narrative is generated.
+- **Updated** Simplified scoring framework:
+  - Removed complex scoring logic in favor of deterministic components through fit_scorer.py
+  - Reduced computational overhead by delegating numerical scoring to Python-based calculations
+  - Improved performance by eliminating redundant scoring computations
+- **Updated** Enhanced interview kit generation:
+  - Comprehensive scoring prompts with detailed role and candidate context
+  - Sophisticated fallback question generation with 5 technical, 3 behavioral, and 2 culture-fit questions
+  - Schema validation ensures interview questions meet strict requirements
+  - Context-aware question generation adapts to candidate background and timeline gaps
 - **Updated** Enhanced cloud-aware optimizations:
   - Significantly increased token limits: Fast LLM from 1500 to 3000 tokens, Reasoning LLM from 2000 to 4000 tokens
   - Expanded context windows: Fast LLM from 6144 to 12288, Reasoning LLM from 4096 to 8192
@@ -874,6 +977,15 @@ MS["main.py"] --> AR
   - Invalid recommendations are corrected based on fit score thresholds.
 - Error aggregation:
   - Errors from all nodes are accumulated in the state's errors list for centralized diagnostics.
+- **Updated** Simplified scoring framework issues:
+  - Verify weight mapping is working correctly with new universal schema.
+  - Check deterministic scoring components are properly integrated.
+  - Monitor performance improvements from removed complex scoring logic.
+- **Updated** Enhanced interview kit generation issues:
+  - Verify interview questions meet schema validation requirements (max 20 questions per category).
+  - Check that fallback question generation is working when LLM calls fail.
+  - Ensure context-aware questions reference specific skills, role responsibilities, or candidate resume context.
+  - Monitor interview kit generation performance with increased token limits.
 - **Updated** Anti-hallucination guardrail issues:
   - Verify hallucination counter resets hourly and thresholds are properly configured.
   - Check cache versioning is working correctly with prompt changes.
@@ -914,40 +1026,37 @@ MS["main.py"] --> AR
   - Review hallucination detection performance and circuit breaker effectiveness.
 
 **Section sources**
-- [agent_pipeline.py:125-138](file://app/backend/services/agent_pipeline.py#L125-L138)
-- [agent_pipeline.py:510-514](file://app/backend/services/agent_pipeline.py#L510-L514)
-- [agent_pipeline.py:453-460](file://app/backend/services/agent_pipeline.py#L453-L460)
-- [agent_pipeline.py:241-245](file://app/backend/services/agent_pipeline.py#L241-L245)
-- [agent_pipeline.py:380-387](file://app/backend/services/agent_pipeline.py#L380-L387)
-- [agent_pipeline.py:534-545](file://app/backend/services/agent_pipeline.py#L534-L545)
-- [agent_pipeline.py:96](file://app/backend/services/agent_pipeline.py#L96)
+- [agent_pipeline.py:127-138](file://app/backend/services/agent_pipeline.py#L127-L138)
+- [agent_pipeline.py:647-654](file://app/backend/services/agent_pipeline.py#L647-L654)
+- [agent_pipeline.py:949-955](file://app/backend/services/agent_pipeline.py#L949-L955)
+- [guardrail_service.py:205-215](file://app/backend/services/guardrail_service.py#L205-L215)
 
 ## Conclusion
-The LangGraph-based multi-agent analysis pipeline provides a robust, schema-bound, and deterministic approach to complex, multi-step reasoning workflows. By leveraging Ollama models with careful configuration, typed state management, comprehensive fallbacks, and centralized timeout handling, it ensures reliable operation under varied conditions. The enhanced anti-hallucination guardrails including cache versioning, circuit breaker mechanisms, and deterministic LLM behavior with fixed seeds provide comprehensive protection against hallucinations and ensure reliable analysis results. The PII redaction integration eliminates bias from personal identifiers, while the increased truncation limits from 2000 to 8000 characters capture complete context for accurate analysis. The enhanced cloud-aware configuration management with significantly increased token limits (3000/4000 tokens vs 1500/2000) and expanded context windows (12288/8192 vs 6144/4096) provides cost-efficient operations for cloud deployments while maintaining optimal performance. The enhanced timeout management with the `_llm_request_timeout` constant provides predictable behavior and improved reliability across all LLM interactions. The enhanced JSON serialization handling for datetime objects, dates, and Decimal values further strengthens the pipeline's reliability and compatibility with diverse data types. The enhanced cloud authentication logging and debugging capabilities provide better visibility into cloud deployment configurations. While the hybrid pipeline offers a complementary approach with streaming and narrative synthesis, the LangGraph pipeline remains ideal for scenarios requiring strict schema-bound outputs and resilient error handling with comprehensive anti-hallucination protection.
+The LangGraph-based multi-agent analysis pipeline provides a robust, schema-bound, and deterministic approach to complex, multi-step reasoning workflows. By leveraging Ollama models with careful configuration, typed state management, comprehensive fallbacks, and centralized timeout handling, it ensures reliable operation under varied conditions. The enhanced anti-hallucination guardrails including cache versioning, circuit breaker mechanisms, and deterministic LLM behavior with fixed seeds provide comprehensive protection against hallucinations and ensure reliable analysis results. The PII redaction integration eliminates bias from personal identifiers, while the increased truncation limits from 2000 to 8000 characters capture complete context for accurate analysis. The enhanced cloud-aware configuration management with significantly increased token limits (3000/4000 tokens vs 1500/2000) and expanded context windows (12288/8192 vs 6144/4096) provides cost-efficient operations for cloud deployments while maintaining optimal performance. The enhanced timeout management with the `_llm_request_timeout` constant provides predictable behavior and improved reliability across all LLM interactions. The enhanced JSON serialization handling for datetime objects, dates, and Decimal values further strengthens the pipeline's reliability and compatibility with diverse data types. The enhanced cloud authentication logging and debugging capabilities provide better visibility into cloud deployment configurations. The enhanced interview kit generation system creates highly targeted, non-generic questions based on comprehensive role and candidate context, with sophisticated fallback mechanisms for technical, behavioral, and culture-fit questions. **Updated** The simplified scoring framework removes complex scoring logic in favor of deterministic components, resulting in more reliable and consistent results while improving performance. While the hybrid pipeline offers a complementary approach with streaming and narrative synthesis, the LangGraph pipeline remains ideal for scenarios requiring strict schema-bound outputs and resilient error handling with comprehensive anti-hallucination protection and sophisticated interview kit generation.
 
 ## Appendices
 
 ### Workflow Definition and Execution
 - The pipeline is defined as a StateGraph with three sequential nodes and compiled once at module load.
 - Execution proceeds from job description parsing to candidate analysis and finally to scoring and interview question generation.
-- **Updated** Enhanced with anti-hallucination guardrails and PII redaction integration.
+- **Updated** Enhanced with anti-hallucination guardrails, PII redaction integration, and simplified scoring framework.
 
 **Section sources**
-- [agent_pipeline.py:818-836](file://app/backend/services/agent_pipeline.py#L818-L836)
+- [agent_pipeline.py:1022-1037](file://app/backend/services/agent_pipeline.py#L1022-L1037)
 
 ### State Persistence and Error Recovery
 - State includes an errors accumulator for centralized diagnostics.
 - The hybrid pipeline demonstrates persistent storage of analysis results and candidate profiles in the database.
-- **Updated** Enhanced error recovery with anti-hallucination guardrails and rule-based fallback mechanisms.
+- **Updated** Enhanced error recovery with anti-hallucination guardrails, rule-based fallback mechanisms, and comprehensive interview kit fallback generation.
 
 **Section sources**
-- [agent_pipeline.py:185](file://app/backend/services/agent_pipeline.py#L185)
+- [agent_pipeline.py:225](file://app/backend/services/agent_pipeline.py#L225)
 - [analyze.py:462-472](file://app/backend/routes/analyze.py#L462-L472)
 
 ### Performance Monitoring
 - The main application exposes health checks and diagnostic endpoints for Ollama status and model readiness.
 - Logging captures pipeline stages and errors for operational visibility.
-- **Updated** Enhanced monitoring includes hallucination detection metrics and PII redaction statistics.
+- **Updated** Enhanced monitoring includes hallucination detection metrics, PII redaction statistics, and interview kit generation performance.
 
 **Section sources**
 - [main.py:354-399](file://app/backend/main.py#L354-L399)
@@ -955,11 +1064,10 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 
 ### Example: Running the Agent Pipeline
 - The public API entry point constructs initial state, invokes the compiled graph, and assembles the final result.
-- **Updated** Enhanced with anti-hallucination guardrails and PII redaction integration.
+- **Updated** Enhanced with anti-hallucination guardrails, PII redaction integration, and simplified scoring framework.
 
 **Section sources**
-- [agent_pipeline.py:919-948](file://app/backend/services/agent_pipeline.py#L919-L948)
-- [agent_pipeline.py:919-948](file://app/backend/services/agent_pipeline.py#L919-L948)
+- [agent_pipeline.py:1163-1190](file://app/backend/services/agent_pipeline.py#L1163-L1190)
 
 ### Cloud Deployment Configuration Best Practices
 **Updated** Guidelines for configuring and managing cloud-aware deployments with enhanced token limits:
@@ -983,29 +1091,35 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
    - Prevents resource exhaustion and improves reliability
    - Works seamlessly with increased token limits in cloud deployments
 
-4. **Anti-Hallucination Guardrail Configuration**:
+4. **Enhanced Interview Kit Generation Configuration**:
+   - Monitor interview kit generation performance with increased token limits
+   - Verify fallback question generation is working correctly
+   - Check schema validation for interview questions meets requirements
+   - Ensure context-aware questions reference specific skills and role responsibilities
+
+5. **Anti-Hallucination Guardrail Configuration**:
    - Monitor hallucination counter for proper operation
    - Verify cache versioning responds to prompt changes
    - Check circuit breaker threshold (5 hallucinations per hour) is appropriate
    - Ensure skill validation is properly configured against original job descriptions
 
-5. **PII Redaction Service Setup**:
+6. **PII Redaction Service Setup**:
    - Install Presidio libraries for enterprise-grade detection (recommended)
    - Configure fallback to regex patterns for basic PII detection
    - Monitor redaction statistics and confidence scores
    - Ensure comprehensive tracking of redacted entities
 
-6. **Deterministic Behavior Configuration**:
+7. **Deterministic Behavior Configuration**:
    - Verify fixed seeds (42) are properly applied to both LLM instances
    - Confirm temperature settings are set to 0.0 for deterministic results
    - Test reproducibility across multiple runs
 
-7. **Enhanced Truncation Limits**:
+8. **Enhanced Truncation Limits**:
    - Verify 8000-character limits for job descriptions and resumes
    - Monitor performance impact with increased character limits
    - Ensure complete context capture without losing important information
 
-8. **Monitoring and Adjustment**:
+9. **Monitoring and Adjustment**:
    - Monitor LLM response times and adjust `LLM_NARRATIVE_TIMEOUT` accordingly
    - Consider network latency and model complexity when tuning timeout values
    - Test with representative workloads to determine optimal timeout settings
@@ -1013,28 +1127,32 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
    - Monitor enhanced cloud authentication logs for debugging and troubleshooting
    - Track hallucination detection effectiveness and adjust thresholds as needed
    - Monitor PII redaction performance and accuracy metrics
+   - Review interview kit generation effectiveness and adjust question generation as needed
 
-9. **Fallback Mechanisms**:
-   - Timeout exceptions trigger graceful fallback to typed-null defaults
-   - Hallucination detection triggers rule-based fallback when thresholds are exceeded
-   - Error messages are captured in the state's errors list for diagnostics
-   - Pipeline continues operation even when individual LLM calls timeout or hallucinate
-   - Enhanced error handling works with increased token limits and context windows
+10. **Fallback Mechanisms**:
+    - Timeout exceptions trigger graceful fallback to typed-null defaults
+    - Hallucination detection triggers rule-based fallback when thresholds are exceeded
+    - Error messages are captured in the state's errors list for diagnostics
+    - Pipeline continues operation even when individual LLM calls timeout or hallucinate
+    - Enhanced error handling works with increased token limits and context windows
+    - Interview kit fallback generation ensures meaningful questions even when LLM fails
 
-10. **Performance Optimization**:
+11. **Performance Optimization**:
     - Leverage increased token limits (3000/4000) for more verbose and accurate outputs
     - Utilize expanded context windows (12288/8192) for complex reasoning tasks
     - Monitor cloud deployment performance with enhanced configuration
     - Optimize for cloud-specific resource allocation and cost efficiency
     - Ensure anti-hallucination guardrails don't introduce significant performance overhead
+    - Verify interview kit generation doesn't impact overall pipeline performance
+    - Monitor simplified scoring framework performance improvements
 
 **Section sources**
-- [agent_pipeline.py:55-67](file://app/backend/services/agent_pipeline.py#L55-L67)
-- [agent_pipeline.py:99-164](file://app/backend/services/agent_pipeline.py#L99-L164)
-- [agent_pipeline.py:133-164](file://app/backend/services/agent_pipeline.py#L133-L164)
-- [agent_pipeline.py:96](file://app/backend/services/agent_pipeline.py#L96)
-- [agent_pipeline.py:352-403](file://app/backend/services/agent_pipeline.py#L352-L403)
-- [agent_pipeline.py:533-563](file://app/backend/services/agent_pipeline.py#L533-L563)
+- [agent_pipeline.py:74-86](file://app/backend/services/agent_pipeline.py#L74-L86)
+- [agent_pipeline.py:137-204](file://app/backend/services/agent_pipeline.py#L137-L204)
+- [agent_pipeline.py:127](file://app/backend/services/agent_pipeline.py#L127)
+- [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
+- [agent_pipeline.py:581-654](file://app/backend/services/agent_pipeline.py#L581-L654)
+- [agent_pipeline.py:731-955](file://app/backend/services/agent_pipeline.py#L731-L955)
 
 ### JSON Serialization Best Practices
 **Updated** Guidelines for handling complex data types in the pipeline with enhanced cloud deployment support:
@@ -1046,9 +1164,10 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 5. **Validate deserialization** on the receiving end to ensure data integrity
 6. **Work seamlessly with cloud deployments** that support larger token limits and context windows
 7. **Utilize enhanced error handling** for serialization issues in cloud environments
-8. **Ensure compatibility** with anti-hallucination guardrails and PII redaction processes
+8. **Ensure compatibility** with anti-hallucination guardrails, PII redaction processes, and interview kit generation
+9. **Monitor performance improvements** from simplified scoring framework integration
 
 **Section sources**
-- [agent_pipeline.py:39-46](file://app/backend/services/agent_pipeline.py#L39-L46)
-- [agent_pipeline.py:369-376](file://app/backend/services/agent_pipeline.py#L369-L376)
-- [agent_pipeline.py:459-478](file://app/backend/services/agent_pipeline.py#L459-L478)
+- [agent_pipeline.py:49-55](file://app/backend/services/agent_pipeline.py#L49-L55)
+- [agent_pipeline.py:620](file://app/backend/services/agent_pipeline.py#L620)
+- [agent_pipeline.py:866](file://app/backend/services/agent_pipeline.py#L866)

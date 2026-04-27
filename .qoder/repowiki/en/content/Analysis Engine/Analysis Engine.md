@@ -6,6 +6,7 @@
 - [analyze.py](file://app/backend/routes/analyze.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
+- [guardrail_service.py](file://app/backend/services/guardrail_service.py)
 - [parser_service.py](file://app/backend/services/parser_service.py)
 - [gap_detector.py](file://app/backend/services/gap_detector.py)
 - [analysis_service.py](file://app/backend/services/analysis_service.py)
@@ -25,12 +26,12 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced with comprehensive anti-hallucination guardrails including cache versioning, circuit breaker monitoring, deterministic behavior, and bias mitigation rules
-- Added new PII redaction capabilities with enterprise-grade Presidio integration and regex fallback
-- Improved validation mechanisms with evidence validation service for transcript analysis
-- Implemented deterministic behavior through prompt injection sanitization and input validation
-- Added circuit breaker monitoring for hallucination detection in JD parsing
-- Enhanced JSON parsing with robust extraction from LLM responses
+- Integrated comprehensive 4-tier LLM guardrail framework with retry mechanisms, schema validation, cross-node consistency checks, and ensemble processing
+- Enhanced agent pipeline with guardrail service integration including retry logic, schema validation, and consistency enforcement
+- Added cross-node consistency checking and HITL (Human-in-the-Loop) flag generation for quality assurance
+- Implemented 3x voting ensemble processing for critical nodes with seed-based reproducibility
+- Added comprehensive monitoring hooks and Prometheus metrics for guardrail events
+- Enhanced error handling with structured guardrail event emission and fallback mechanisms
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -51,26 +52,27 @@
 16. [Anti-Hallucination Guardrails](#anti-hallucination-guardrails)
 17. [PII Redaction and Bias Mitigation](#pii-redaction-and-bias-mitigation)
 18. [Evidence Validation and Deterministic Behavior](#evidence-validation-and-deterministic-behavior)
-19. [Dependency Analysis](#dependency-analysis)
-20. [Performance Considerations](#performance-considerations)
-21. [Troubleshooting Guide](#troubleshooting-guide)
-22. [Conclusion](#conclusion)
-23. [Appendices](#appendices)
+19. [Guardrail Service Integration](#guardrail-service-integration)
+20. [Dependency Analysis](#dependency-analysis)
+21. [Performance Considerations](#performance-considerations)
+22. [Troubleshooting Guide](#troubleshooting-guide)
+23. [Conclusion](#conclusion)
+24. [Appendices](#appendices)
 
 ## Introduction
-This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis, the enhanced resume parsing service supporting PDF and DOCX formats with multi-tier extraction strategies, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
+This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis with comprehensive guardrail integration, the enhanced resume parsing service supporting PDF and DOCX formats with multi-tier extraction strategies, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
 
-**Updated** The analysis engine now features comprehensive anti-hallucination guardrails including cache versioning, circuit breaker monitoring, deterministic behavior, and bias mitigation rules. The system includes enhanced PII redaction capabilities with enterprise-grade Presidio integration and improved validation mechanisms to ensure reliable, unbiased analysis results.
+**Updated** The analysis engine now features a comprehensive 4-tier LLM guardrail framework that provides robust reliability, security, governance, and operational controls. The guardrail service integrates seamlessly with the agent pipeline to ensure consistent, high-quality analysis results through retry mechanisms, schema validation, cross-node consistency checks, and ensemble processing capabilities.
 
 ## Project Structure
 The backend is organized around FastAPI routes, SQLAlchemy models, and modular services. The analysis engine spans:
 - Routes orchestrating the end-to-end flow with robust JSON serialization
 - Services implementing parsing, gap detection, hybrid scoring, and LLM integration
+- Guardrail service providing comprehensive 4-tier LLM safety controls
 - Models defining persistence for candidates, screening results, and caches
 - Startup and health checks coordinating environment readiness
 - Queue management system with automatic retry mechanisms
-- Anti-hallucination guardrails and bias mitigation systems
-- PII redaction service with enterprise-grade capabilities
+- Enhanced PII redaction capabilities with enterprise-grade Presidio integration
 - Evidence validation service for transcript analysis
 
 ```mermaid
@@ -82,7 +84,7 @@ subgraph "Services"
 B["parser_service.py<br/>Multi-tier Extraction Strategies"]
 C["gap_detector.py"]
 D["hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Exponential Backoff<br/>Guardrails"]
-E["agent_pipeline.py<br/>Anti-Hallucination Guardrails"]
+E["agent_pipeline.py<br/>Anti-Hallucination Guardrails<br/>Ensemble Processing"]
 F["analysis_service.py"]
 G["llm_service.py<br/>Semaphore Control<br/>Health Monitoring"]
 H["llm_contact_extractor.py<br/>Enhanced LLM Contact Extraction"]
@@ -93,13 +95,14 @@ L["pii_redaction_service.py<br/>Enterprise PII Redaction"]
 M["transcript_service.py<br/>Evidence Validation"]
 N["evidence_validation_service.py<br/>Bias Mitigation"]
 O["adverse_action_service.py<br/>Bias Documentation"]
+P["guardrail_service.py<br/>4-Tier LLM Guardrails<br/>Ensemble Processing<br/>Monitoring Hooks"]
 end
 subgraph "Models"
-P["db_models.py"]
+Q["db_models.py"]
 end
 subgraph "App"
-Q["main.py<br/>Background Task Management<br/>Health Monitoring"]
-R["nginx.prod.conf<br/>Streaming Configuration"]
+R["main.py<br/>Background Task Management<br/>Health Monitoring"]
+S["nginx.prod.conf<br/>Streaming Configuration"]
 end
 A --> B
 A --> C
@@ -116,9 +119,10 @@ A --> M
 A --> N
 A --> O
 A --> P
-Q --> A
-Q --> G
+Q --> P
 R --> A
+R --> G
+S --> A
 ```
 
 **Diagram sources**
@@ -133,6 +137,7 @@ R --> A
 - [transcript_service.py:330-374](file://app/backend/services/transcript_service.py#L330-L374)
 - [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
 - [adverse_action_service.py:71-102](file://app/backend/services/adverse_action_service.py#L71-L102)
+- [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-1128)
 
 **Section sources**
 - [README.md:273-333](file://README.md#L273-L333)
@@ -140,7 +145,8 @@ R --> A
 
 ## Core Components
 - Hybrid Pipeline: Python-first deterministic scoring (skills, education, experience/timeline, domain/architecture) followed by a single LLM call for narrative synthesis and interview questions with enhanced error handling, anti-hallucination guardrails, and deterministic behavior.
-- LangGraph Agent Pipeline: Multi-agent, multi-stage workflow with structured nodes for JD parsing, combined resume analysis, and scoring with explainability and circuit breaker monitoring.
+- LangGraph Agent Pipeline: Multi-agent, multi-stage workflow with structured nodes for JD parsing, combined resume analysis, and scoring with explainability, cross-node consistency checks, and comprehensive guardrail integration.
+- Guardrail Service: 4-tier LLM safety framework providing retry mechanisms, schema validation, cross-node consistency, prompt injection detection, 3x voting ensemble, HITL gates, token budget management, and monitoring hooks.
 - Enhanced Resume Parser: Robust text extraction from PDF and DOCX with multi-tier fallbacks, deduplication, and normalization.
 - Gap Detector: Mechanical date parsing and interval merging to compute objective timeline metrics.
 - Skills Registry: Dynamic, DB-backed registry with in-memory flashtext processor and hot reload capability.
@@ -158,7 +164,8 @@ R --> A
 
 **Section sources**
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
-- [agent_pipeline.py:1-634](file://app/backend/services/agent_pipeline.py#L1-L634)
+- [agent_pipeline.py:1-1138](file://app/backend/services/agent_pipeline.py#L1-L1138)
+- [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-L1128)
 - [parser_service.py:1-552](file://app/backend/services/parser_service.py#L1-L552)
 - [gap_detector.py:1-219](file://app/backend/services/gap_detector.py#L1-L219)
 - [llm_service.py:1-332](file://app/backend/services/llm_service.py#L1-L332)
@@ -172,12 +179,13 @@ R --> A
 - [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
 
 ## Architecture Overview
-The system uses a hybrid approach with enhanced error handling and comprehensive guardrails:
+The system uses a hybrid approach with comprehensive guardrail integration and enhanced error handling:
 - Phase 1 (Python, ~1–2s): parse_jd_rules → parse_resume_rules → match_skills_rules → score_education/experience/domain → compute_fit_score → generate score rationales and risk summary
 - Phase 2 (LLM, ~40s): explain_with_llm (generates strengths, weaknesses, rationale, interview questions) with exponential backoff retry for rate limiting and anti-hallucination guardrails
 - Fallback: deterministic narrative when LLM is unavailable or times out
 - Background Processing: LLM narrative generated as background task with graceful shutdown handling
 - Bias Mitigation: PII redaction and evidence validation throughout the pipeline
+- **Guardrail Integration**: 4-tier safety framework with retry mechanisms, schema validation, cross-node consistency, and ensemble processing
 
 ```mermaid
 sequenceDiagram
@@ -186,6 +194,8 @@ participant Route as "analyze.py"
 participant Parser as "parser_service.py"
 participant Gap as "gap_detector.py"
 participant Hybrid as "hybrid_pipeline.py"
+participant Guardrail as "guardrail_service.py"
+participant Agent as "agent_pipeline.py"
 participant Contact as "llm_contact_extractor.py"
 participant PII as "pii_redaction_service.py"
 participant LLM as "Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails"
@@ -196,21 +206,30 @@ Route->>Contact : extract_contact_with_llm(raw_text)
 Contact-->>Route : contact_info
 Route->>Gap : analyze_gaps(work_experience)
 Gap-->>Route : gap_analysis
-Route->>Hybrid : run_hybrid_pipeline(...)
-Hybrid->>Hybrid : _run_python_phase(...)
-Hybrid->>Hybrid : _build_score_rationales()
-Hybrid->>Hybrid : _build_risk_summary()
-Hybrid->>PII : redact_pii(resume_text)
-PII-->>Hybrid : redacted_text
-Hybrid->>LLM : explain_with_llm(context)<br/>Exponential Backoff Retry<br/>Guardrails
-LLM-->>Hybrid : narrative JSON (with guardrails)
-Hybrid-->>Route : merged result
-Route-->>Client : AnalysisResponse
+Route->>Agent : run_agent_pipeline(...)
+Agent->>Guardrail : llm_invoke_with_retry()
+Guardrail->>LLM : Retry with exponential backoff
+LLM-->>Guardrail : Response or Error
+Guardrail-->>Agent : Validated result or fallback
+Agent->>Guardrail : validate_jd_output()
+Guardrail-->>Agent : Schema validation result
+Agent->>Guardrail : check_cross_node_consistency()
+Guardrail-->>Agent : Consistency report with fixes
+Agent->>Guardrail : hitl_gate_check()
+Guardrail-->>Agent : HITL flags if needed
+Agent-->>Route : assembled result with guardrail outputs
+Route->>PII : redact_pii(resume_text)
+PII-->>Route : redacted_text
+Route-->>Client : AnalysisResponse with guardrail metadata
 ```
 
 **Diagram sources**
 - [analyze.py:268-318](file://app/backend/routes/analyze.py#L268-L318)
-- [hybrid_pipeline.py:1262-1407](file://app/backend/services/hybrid_pipeline.py#L1262-L1407)
+- [agent_pipeline.py:1110-1138](file://app/backend/services/agent_pipeline.py#L1110-L1138)
+- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-168)
+- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-214)
+- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-371)
+- [guardrail_service.py:684-752](file://app/backend/services/guardrail_service.py#L684-752)
 - [parser_service.py:547-552](file://app/backend/services/parser_service.py#L547-L552)
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
@@ -263,10 +282,10 @@ Merge --> End(["End"])
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
 
 ### LangGraph Agent Pipeline
-The LangGraph-based agent pipeline defines a 3-stage workflow with comprehensive anti-hallucination guardrails:
-- Stage 1 (parallel): jd_parser with cache versioning and circuit breaker monitoring
-- Stage 2 (parallel): resume_analyser (combines skill/domain/edu/timeline)
-- Stage 3 (parallel): scorer (combined scoring and interview questions)
+The LangGraph-based agent pipeline defines a 3-stage workflow with comprehensive guardrail integration:
+- Stage 1 (parallel): jd_parser with cache versioning, circuit breaker monitoring, and ensemble processing
+- Stage 2 (parallel): resume_analyser (combines skill/domain/edu/timeline) with schema validation and PII redaction
+- Stage 3 (parallel): scorer (combined scoring and interview questions) with cross-node consistency checks and HITL gates
 
 It uses:
 - Two LLM singletons (fast and reasoning) with keep-alive sessions
@@ -274,22 +293,34 @@ It uses:
 - In-memory JD cache keyed by MD5 of first 2000 characters with prompt versioning
 - Streamable nodes emitting SSE events
 - Fallback per node returning typed-null defaults on failures
-- **Guardrails**: Cache versioning, circuit breaker monitoring, and bias mitigation rules
+- **Guardrails**: Retry mechanisms, schema validation, cross-node consistency, and comprehensive monitoring
 
 ```mermaid
 sequenceDiagram
 participant Client as "Client"
 participant Agent as "agent_pipeline.py"
+participant Guardrail as "guardrail_service.py"
 participant Fast as "get_fast_llm()"
 participant Reason as "get_reasoning_llm()"
 Client->>Agent : run_agent_pipeline(...)
-Agent->>Fast : jd_parser_node()
-Fast-->>Agent : jd_analysis
+Agent->>Guardrail : llm_invoke_with_retry()
+Guardrail->>Fast : jd_parser_node()
+Fast-->>Guardrail : jd_analysis
+Agent->>Guardrail : validate_jd_output()
+Guardrail-->>Agent : Schema validated result
 Agent->>Fast : resume_analyser_node()
 Fast-->>Agent : candidate_profile/skill_analysis/edu_timeline_analysis
+Agent->>Guardrail : validate_resume_output()
+Guardrail-->>Agent : Schema validated result
 Agent->>Reason : scorer_node()
 Reason-->>Agent : final_scores/interview_questions
-Agent-->>Client : assembled result
+Agent->>Guardrail : validate_scorer_output()
+Guardrail-->>Agent : Schema validated result
+Agent->>Guardrail : check_cross_node_consistency()
+Guardrail-->>Agent : Consistency report with fixes
+Agent->>Guardrail : hitl_gate_check()
+Guardrail-->>Agent : HITL flags if needed
+Agent-->>Client : assembled result with guardrail metadata
 ```
 
 **Diagram sources**
@@ -297,9 +328,63 @@ Agent-->>Client : assembled result
 - [agent_pipeline.py:161-180](file://app/backend/services/agent_pipeline.py#L161-L180)
 - [agent_pipeline.py:280-322](file://app/backend/services/agent_pipeline.py#L280-L322)
 - [agent_pipeline.py:367-448](file://app/backend/services/agent_pipeline.py#L367-L448)
+- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-168)
+- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-214)
+- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-371)
+- [guardrail_service.py:684-752](file://app/backend/services/guardrail_service.py#L684-752)
 
 **Section sources**
-- [agent_pipeline.py:1-634](file://app/backend/services/agent_pipeline.py#L1-L634)
+- [agent_pipeline.py:1-1138](file://app/backend/services/agent_pipeline.py#L1-L1138)
+
+### Guardrail Service Integration
+The guardrail service provides comprehensive 4-tier LLM safety framework:
+- **Tier 1: Reliability** - Retry with exponential backoff, strict schema validation, and consistency checks
+- **Tier 2: Security** - Prompt injection detection, timeout enforcement, and 3x voting ensemble
+- **Tier 3: Governance** - HITL gates, A/B testing, and adversarial harness
+- **Tier 4: Operations** - Token budgets, data retention, and monitoring hooks
+
+Key features include:
+- **Retry Mechanisms**: Configurable exponential backoff with per-call timeouts and jitter
+- **Schema Validation**: Pydantic-based validation with automatic coercion to safe defaults
+- **Cross-Node Consistency**: Automated detection and correction of inconsistencies between pipeline stages
+- **Prompt Injection Detection**: Comprehensive pattern matching and sanitization
+- **3x Voting Ensemble**: Seed-based reproducible ensemble processing for critical nodes
+- **HITL Gates**: Human-in-the-loop flags for low-confidence results
+- **Monitoring Hooks**: Structured event emission with Prometheus metrics integration
+
+```mermaid
+flowchart TD
+Guardrail["4-Tier Guardrail Framework"] --> Tier1["Tier 1: Reliability<br/>Retry + Schema Validation + Consistency"]
+Guardrail --> Tier2["Tier 2: Security<br/>Injection Detection + Timeout + 3x Voting"]
+Guardrail --> Tier3["Tier 3: Governance<br/>HITL Gates + A/B Testing + Adversarial Harness"]
+Guardrail --> Tier4["Tier 4: Operations<br/>Token Budget + Data Retention + Monitoring"]
+Tier1 --> Retry["Exponential Backoff Retry"]
+Tier1 --> Schema["Strict Schema Validation"]
+Tier1 --> Consistency["Cross-Node Consistency Checks"]
+Tier2 --> Injection["Prompt Injection Detection"]
+Tier2 --> Timeout["Per-Call Timeout Enforcement"]
+Tier2 --> Ensemble["3x Voting Ensemble"]
+Tier3 --> HITL["HITL Gate Checks"]
+Tier3 --> ABTest["A/B Testing Framework"]
+Tier3 --> Adversarial["Adversarial Harness"]
+Tier4 --> TokenBudget["Token Budget Management"]
+Tier4 --> Retention["Data Retention Policy"]
+Tier4 --> Monitoring["Event Emission + Metrics"]
+```
+
+**Diagram sources**
+- [guardrail_service.py:1-12](file://app/backend/services/guardrail_service.py#L1-L12)
+- [guardrail_service.py:128-168](file://app/backend/services/guardrail_service.py#L128-L168)
+- [guardrail_service.py:171-287](file://app/backend/services/guardrail_service.py#L171-L287)
+- [guardrail_service.py:290-371](file://app/backend/services/guardrail_service.py#L290-L371)
+- [guardrail_service.py:398-496](file://app/backend/services/guardrail_service.py#L398-L496)
+- [guardrail_service.py:499-672](file://app/backend/services/guardrail_service.py#L499-L672)
+- [guardrail_service.py:675-752](file://app/backend/services/guardrail_service.py#L675-L752)
+- [guardrail_service.py:941-1062](file://app/backend/services/guardrail_service.py#L941-L1062)
+- [guardrail_service.py:1065-1121](file://app/backend/services/guardrail_service.py#L1065-L1121)
+
+**Section sources**
+- [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-L1128)
 
 ### Enhanced Parser Service
 The enhanced parser supports:
@@ -492,7 +577,7 @@ Route-->>Client : AnalysisResponse
 
 ## Enhanced AI Pipeline Capabilities
 
-**Updated** The analysis engine now features sophisticated score rationales and comprehensive risk analysis capabilities that provide detailed explanations for each score dimension and structured risk summaries.
+**Updated** The analysis engine now features sophisticated score rationales and comprehensive risk analysis capabilities that provide detailed explanations for each score dimension and structured risk summaries, enhanced by comprehensive guardrail integration.
 
 ### Score Rationale Generation
 
@@ -741,7 +826,7 @@ The nginx configuration ensures proper streaming behavior:
 
 ## Structured Risk Analysis
 
-**Updated** The enhanced risk analysis system provides comprehensive risk assessment with structured summaries and detailed explanations.
+**Updated** The enhanced risk analysis system provides comprehensive risk assessment with structured summaries and detailed explanations, enhanced by guardrail integration.
 
 ### Risk Flag System
 
@@ -834,6 +919,9 @@ Key environment variables:
 - **OLLAMA_HOST**: docker host for containerized deployments
 - **OLLAMA_MAX_CONCURRENT**: Maximum concurrent LLM requests (auto-detected)
 - **LLM_MAX_RETRIES**: Maximum retry attempts for LLM calls (default: 3)
+- **GUARDRAIL_MAX_RETRIES**: Maximum retry attempts for guardrail operations (default: 3)
+- **GUARDRAIL_RETRY_DELAY**: Base delay for exponential backoff (default: 2.0 seconds)
+- **GUARDRAIL_PER_CALL_TIMEOUT**: Per-call timeout for LLM operations (default: 90.0 seconds)
 
 **Section sources**
 - [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
@@ -872,6 +960,12 @@ The LangGraph agent pipeline includes:
 - Support for datetime and Decimal types in pipeline states
 - JSON parsing helpers with fallback extraction
 
+#### Guardrail Service Serialization
+The guardrail service implements:
+- Structured event emission with JSON serialization
+- Consistent logging format across all guardrail tiers
+- Prometheus metrics integration with proper serialization
+
 #### Service-Level Serialization
 Various services implement JSON serialization for:
 - Parser snapshot storage
@@ -900,12 +994,12 @@ The system includes robust error handling:
 **Section sources**
 - [analyze.py:48-56](file://app/backend/routes/analyze.py#L48-L56)
 - [agent_pipeline.py:39-45](file://app/backend/services/agent_pipeline.py#L39-L45)
+- [guardrail_service.py:1077-1090](file://app/backend/services/guardrail_service.py#L1077-L1090)
 - [hybrid_pipeline.py:16](file://app/backend/services/hybrid_pipeline.py#L16)
-- [llm_service.py:1](file://app/backend/services/llm_service.py#L1)
 
 ## Enhanced Error Handling and Retry Systems
 
-**Updated** The analysis engine now features comprehensive error handling and retry mechanisms with exponential backoff support for enhanced reliability and fault tolerance.
+**Updated** The analysis engine now features comprehensive error handling and retry mechanisms with exponential backoff support for enhanced reliability and fault tolerance, integrated with the guardrail service framework.
 
 ### Exponential Backoff Retry Mechanism
 
@@ -939,9 +1033,40 @@ Parse --> End["Return Result"]
 **Diagram sources**
 - [hybrid_pipeline.py:1369-1400](file://app/backend/services/hybrid_pipeline.py#L1369-L1400)
 
+### Guardrail Service Retry Integration
+
+The guardrail service provides enhanced retry mechanisms:
+
+- **Configurable Parameters**: MAX_LLM_RETRIES, LLM_RETRY_BASE_DELAY, LLM_PER_CALL_TIMEOUT
+- **Seed-Based Reproducibility**: 3x voting ensemble with fixed seeds for consistent results
+- **Structured Error Handling**: Comprehensive logging and event emission for all retry attempts
+- **Timeout Enforcement**: Per-call timeout to prevent resource exhaustion
+
+```mermaid
+flowchart TD
+Start["Guardrail Retry Attempt"] --> Call["llm_invoke_with_retry()"]
+Call --> Success{"Call Success?"}
+Success --> |Yes| Validate["validate_output()"]
+Success --> |No| CheckError{"Error Type?"}
+CheckError --> |Timeout| LogTimeout["Log Timeout Event"]
+CheckError --> |Rate Limit| LogRateLimit["Log Rate Limit Event"]
+CheckError --> |Other Error| LogOther["Log Other Error"]
+LogTimeout --> Retry{"Retries < MAX?"}
+LogRateLimit --> Retry
+LogOther --> Retry
+Retry --> |Yes| Call
+Retry --> |No| Fallback["Return Fallback Result"]
+Validate --> End["Return Validated Result"]
+Fallback --> End
+```
+
+**Diagram sources**
+- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-168)
+- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-214)
+
 ### Retry Configuration
 
-- **Maximum Retries**: Configurable via `LLM_MAX_RETRIES` environment variable (default: 3)
+- **Maximum Retries**: Configurable via `GUARDRAIL_MAX_RETRIES` environment variable (default: 3)
 - **Base Delay**: 2.0 seconds for exponential backoff calculation
 - **Randomization**: ±1 second jitter to prevent thundering herd effects
 - **Progressive Delays**: 2s, 6s, 14s, 30s, 62s (exponential with jitter)
@@ -976,12 +1101,14 @@ Complete --> End
 
 **Section sources**
 - [hybrid_pipeline.py:1359-1500](file://app/backend/services/hybrid_pipeline.py#L1359-L1500)
+- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-168)
+- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-214)
 - [queue_manager.py:206-208](file://app/backend/services/queue_manager.py#L206-L208)
 - [queue_manager.py:456-478](file://app/backend/services/queue_manager.py#L456-L478)
 
 ## Resource Management and Concurrency Control
 
-**Updated** The analysis engine implements comprehensive resource management and concurrency control to ensure optimal performance and reliability under various load conditions.
+**Updated** The analysis engine implements comprehensive resource management and concurrency control to ensure optimal performance and reliability under various load conditions, with guardrail integration for enhanced safety.
 
 ### Semaphore-Based Concurrency Control
 
@@ -1034,15 +1161,25 @@ Enhanced background task handling for graceful shutdown:
 - **KV Cache Management**: Memory-efficient handling of large model contexts
 - **Resource Cleanup**: Proper cleanup of semaphores and background tasks
 
+### Guardrail Resource Management
+
+The guardrail service implements additional resource management:
+
+- **Token Budget Management**: Per-tenant token consumption tracking
+- **Memory-Constrained Operations**: In-memory A/B test tracking and token budget counters
+- **Async Locking**: Thread-safe operations with asyncio locks for concurrent access
+- **Resource Cleanup**: Proper cleanup of guardrail resources on shutdown
+
 **Section sources**
 - [llm_service.py:35-66](file://app/backend/services/llm_service.py#L35-L66)
 - [llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 - [hybrid_pipeline.py:34-50](file://app/backend/services/hybrid_pipeline.py#L34-L50)
 - [main.py:260-297](file://app/backend/main.py#L260-L297)
+- [guardrail_service.py:943-1004](file://app/backend/services/guardrail_service.py#L943-L1004)
 
 ## Anti-Hallucination Guardrails
 
-**Updated** The analysis engine now implements comprehensive anti-hallucination guardrails to ensure reliable and unbiased analysis results.
+**Updated** The analysis engine now implements comprehensive anti-hallucination guardrails to ensure reliable and unbiased analysis results, integrated with the 4-tier guardrail framework.
 
 ### Cache Versioning System
 
@@ -1136,11 +1273,21 @@ The system implements explicit bias mitigation rules in LLM prompts:
 - **Missing Skills**: missing_skills must ONLY include genuinely absent required skills
 - **No Invented Skills**: Do NOT invent skills not in resume or required skills list
 
+### Cross-Node Consistency Checks
+
+The guardrail service provides comprehensive cross-node consistency validation:
+
+- **Mutual Consistency**: Validates outputs from different pipeline nodes are mutually consistent
+- **Auto-Fix Mechanisms**: Automatically applies corrections for detected inconsistencies
+- **Violation Reporting**: Detailed reporting of violations and fixes applied
+- **Score Recalculation**: Recomputes fit scores when inconsistencies are detected
+
 **Section sources**
 - [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
 - [agent_pipeline.py:352-354](file://app/backend/services/agent_pipeline.py#L352-L354)
 - [agent_pipeline.py:414-421](file://app/backend/services/agent_pipeline.py#L414-L421)
 - [hybrid_pipeline.py:52-80](file://app/backend/services/hybrid_pipeline.py#L52-L80)
+- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-371)
 
 ## PII Redaction and Bias Mitigation
 
@@ -1284,11 +1431,99 @@ Evidence validation ensures deterministic behavior by:
 - [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
 - [transcript_service.py:330-374](file://app/backend/services/transcript_service.py#L330-L374)
 
+## Guardrail Service Integration
+
+**Updated** The analysis engine now features comprehensive guardrail service integration that provides robust safety controls across all pipeline stages.
+
+### 4-Tier Guardrail Framework
+
+The guardrail service implements a comprehensive 4-tier safety framework:
+
+#### Tier 1: Reliability
+- **Retry with Exponential Backoff**: Configurable retry mechanisms with jitter
+- **Strict Schema Validation**: Pydantic-based validation with automatic coercion
+- **Consistency Checks**: Cross-node validation and auto-correction
+- **Timeout Enforcement**: Per-call timeout limits to prevent resource exhaustion
+
+#### Tier 2: Security
+- **Prompt Injection Detection**: Comprehensive pattern matching and sanitization
+- **3x Voting Ensemble**: Seed-based reproducible ensemble processing
+- **Bias Mitigation**: Explicit bias rules in LLM prompts and validation
+- **Input Sanitization**: Protection against malicious inputs and injections
+
+#### Tier 3: Governance
+- **HITL (Human-in-the-Loop) Gates**: Flags for low-confidence results requiring human review
+- **A/B Testing Framework**: Variant tracking and performance metrics
+- **Adversarial Harness**: Synthetic test cases for robustness validation
+- **Quality Assurance**: Comprehensive validation and monitoring
+
+#### Tier 4: Operations
+- **Token Budget Management**: Per-tenant token consumption tracking
+- **Data Retention Policy**: Automated cleanup of old data
+- **Monitoring Hooks**: Structured event emission with Prometheus metrics
+- **Resource Management**: Efficient memory and computational resource usage
+
+### Guardrail Integration Points
+
+The guardrail service integrates with the agent pipeline at multiple stages:
+
+#### Retry Mechanisms
+- **Configurable Parameters**: MAX_LLM_RETRIES, LLM_RETRY_BASE_DELAY, LLM_PER_CALL_TIMEOUT
+- **Seed-Based Reproducibility**: 3x voting ensemble with fixed seeds for consistent results
+- **Structured Error Handling**: Comprehensive logging and event emission for all retry attempts
+- **Timeout Enforcement**: Per-call timeout to prevent resource exhaustion
+
+#### Schema Validation
+- **Pydantic Models**: Strict validation for JD, Resume, and Scorer outputs
+- **Automatic Coercion**: Safe fallback to defaults for invalid fields
+- **Error Reporting**: Detailed validation errors and recovery actions
+- **Consistency Enforcement**: Cross-node validation and auto-correction
+
+#### Cross-Node Consistency
+- **Mutual Validation**: Ensures outputs from different pipeline stages are consistent
+- **Auto-Fix Mechanisms**: Automatic correction of detected inconsistencies
+- **Violation Reporting**: Detailed reporting of violations and fixes applied
+- **Score Recalculation**: Recomputation of fit scores when inconsistencies are detected
+
+#### Monitoring and Metrics
+- **Structured Events**: Comprehensive logging with metadata and severity levels
+- **Prometheus Integration**: Metrics collection for guardrail events
+- **Alerting Hooks**: Real-time notifications for critical guardrail events
+- **Performance Tracking**: Latency and success rate monitoring
+
+### Guardrail Configuration
+
+Key configuration parameters:
+
+- **GUARDRAIL_MAX_RETRIES**: Maximum retry attempts for guardrail operations (default: 3)
+- **GUARDRAIL_RETRY_DELAY**: Base delay for exponential backoff (default: 2.0 seconds)
+- **GUARDRAIL_PER_CALL_TIMEOUT**: Per-call timeout for LLM operations (default: 90.0 seconds)
+- **GUARDRAIL_CIRCUIT_THRESHOLD**: Hallucination threshold for circuit breaker (default: 5)
+- **GUARDRAIL_ENSEMBLE_ENABLED**: Enable/disable 3x voting ensemble (default: false)
+- **GUARDRAIL_INJECTION_CHECK**: Enable/disable prompt injection detection (default: true)
+- **GUARDRAIL_TOKEN_BUDGET**: Enable/disable token budget management (default: true)
+
+### Guardrail Event Emission
+
+The system provides comprehensive event emission for monitoring and alerting:
+
+- **Normal Events**: Informational events logged at INFO level
+- **Anomaly Events**: Warning events for hallucinations and security issues
+- **Critical Events**: Critical events for circuit breaker triggers and token budget exceeded
+- **Metrics Integration**: Prometheus counters for automated monitoring
+
+**Section sources**
+- [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-L1128)
+- [agent_pipeline.py:385-500](file://app/backend/services/agent_pipeline.py#L385-L500)
+- [agent_pipeline.py:609-682](file://app/backend/services/agent_pipeline.py#L609-L682)
+- [agent_pipeline.py:728-895](file://app/backend/services/agent_pipeline.py#L728-L895)
+
 ## Dependency Analysis
 Key dependencies and relationships:
 - Routes depend on parser, gap detector, hybrid pipeline, and models
 - Hybrid pipeline depends on skills registry and Ollama with guardrails
-- Agent pipeline depends on LangGraph and ChatOllama with anti-hallucination guardrails
+- Agent pipeline depends on LangGraph, ChatOllama, and guardrail service with comprehensive safety controls
+- Guardrail service provides centralized safety controls for all LLM operations
 - Models define relationships among tenants, users, candidates, and screening results
 - Startup checks validate DB connectivity, skills registry, and Ollama availability
 - **Enhanced JSON serialization**: Unified serialization utilities across all components
@@ -1301,13 +1536,14 @@ Key dependencies and relationships:
 - **Anti-Hallucination Guardrails**: Cache versioning, circuit breaker monitoring, and deterministic behavior
 - **PII Redaction**: Enterprise-grade PII detection and anonymization service
 - **Evidence Validation**: Comprehensive validation of LLM claims against transcript evidence
+- **Guardrail Integration**: 4-tier safety framework with comprehensive monitoring and metrics
 
 ```mermaid
 graph LR
 Route["routes/analyze.py<br/>JSON Utils<br/>SSE Streaming"] --> Parser["services/parser_service.py"]
 Route --> Gap["services/gap_detector.py"]
 Route --> Hybrid["services/hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Guardrails"]
-Route --> Agent["services/agent_pipeline.py<br/>Anti-Hallucination Guardrails"]
+Route --> Agent["services/agent_pipeline.py<br/>Anti-Hallucination Guardrails<br/>Ensemble Processing"]
 Route --> Contact["services/llm_contact_extractor.py"]
 Route --> WeightMapper["services/weight_mapper.py"]
 Route --> WeightSuggester["services/weight_suggester.py"]
@@ -1316,12 +1552,16 @@ Route --> PII["services/pii_redaction_service.py<br/>Enterprise PII Redaction"]
 Route --> Transcript["services/transcript_service.py<br/>Evidence Validation"]
 Route --> Evidence["services/evidence_validation_service.py<br/>Bias Mitigation"]
 Route --> Adverse["services/adverse_action_service.py<br/>Bias Documentation"]
+Route --> Guardrail["services/guardrail_service.py<br/>4-Tier LLM Guardrails<br/>Monitoring Hooks"]
 Hybrid --> Skills["skills registry"]
 Hybrid --> Ollama["Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails"]
 Agent --> Ollama
-Route --> Models["models/db_models.py"]
+Agent --> Guardrail
+Guardrail --> Models["models/db_models.py"]
+Route --> Models
 Main["main.py<br/>Background Task Management<br/>Health Monitoring"] --> Route
 Main --> Ollama
+Main --> Guardrail
 Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 ```
 
@@ -1329,6 +1569,7 @@ Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 - [analyze.py:32-38](file://app/backend/routes/analyze.py#L32-L38)
 - [hybrid_pipeline.py:49-66](file://app/backend/services/hybrid_pipeline.py#L49-L66)
 - [agent_pipeline.py:33-34](file://app/backend/services/agent_pipeline.py#L33-L34)
+- [guardrail_service.py:1-12](file://app/backend/services/guardrail_service.py#L1-L12)
 - [db_models.py:97-147](file://app/backend/models/db_models.py#L97-L147)
 - [main.py:68-149](file://app/backend/main.py#L68-L149)
 - [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
@@ -1362,6 +1603,10 @@ Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 - **Anti-Hallucination Guardrails**: Cache versioning and circuit breaker monitoring prevent hallucinations
 - **PII Redaction**: Enterprise-grade detection with fallback ensures comprehensive bias mitigation
 - **Evidence Validation**: Comprehensive claim verification prevents hallucinations and ensures reliability
+- **Guardrail Integration**: Comprehensive safety framework with minimal performance impact
+- **Retry Optimization**: Configurable retry parameters balance reliability and performance
+- **Schema Validation**: Efficient Pydantic validation with automatic coercion reduces processing overhead
+- **Cross-Node Consistency**: Automated validation reduces manual intervention and improves throughput
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -1388,6 +1633,11 @@ Common issues and resolutions:
 - **PII Redaction Failures**: Presidio fallback to regex patterns; check enterprise dependencies installation
 - **Evidence Validation Errors**: Comprehensive logging for validation failures and quality metrics
 - **Bias Mitigation Concerns**: Review PII redaction count and bias documentation in adverse action reports
+- **Guardrail Failures**: Monitor guardrail event logs and Prometheus metrics for safety framework issues
+- **Retry Exhaustion**: Check GUARDRAIL_MAX_RETRIES and LLM_PER_CALL_TIMEOUT configuration
+- **Schema Validation Errors**: Review validation error messages and fix LLM output formatting
+- **Cross-Node Consistency Issues**: Check consistency report and fix detected violations
+- **Token Budget Exceeded**: Monitor token usage and adjust DEFAULT_LLM_TOKEN_BUDGET configuration
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -1396,11 +1646,13 @@ Common issues and resolutions:
 - [README.md:337-375](file://README.md#L337-L375)
 
 ## Conclusion
-The analysis engine blends efficient Python-first processing with a single, well-configured LLM call to deliver fast, deterministic scoring and rich narrative insights. The LangGraph agent pipeline enables scalable, multi-step workflows with structured nodes and robust fallbacks. The enhanced resume parsing service and gap detection provide reliable inputs, while the skills registry and scoring logic offer extensible, configurable evaluation criteria suitable for customization and growth.
+The analysis engine blends efficient Python-first processing with a single, well-configured LLM call to deliver fast, deterministic scoring and rich narrative insights. The LangGraph agent pipeline enables scalable, multi-step workflows with structured nodes and robust fallbacks, enhanced by comprehensive guardrail integration. The enhanced resume parsing service and gap detection provide reliable inputs, while the skills registry and scoring logic offer extensible, configurable evaluation criteria suitable for customization and growth.
 
 **Updated** The enhanced AI pipeline capabilities now provide sophisticated score rationales and comprehensive risk analysis, generating detailed explanations for each score dimension and structured risk summaries including seniority alignment, career trajectory analysis, and stability assessments. The system maintains backward compatibility while delivering significantly improved explainability and risk assessment capabilities. The AI-enhanced narrative distinction system ensures clear differentiation between LLM-generated and fallback content, improving transparency for users. The migration to gemma4:31b-cloud model across all services provides enhanced performance and reliability, with intelligent token limit scaling for both local and cloud deployments.
 
-The integration of comprehensive anti-hallucination guardrails including cache versioning, circuit breaker monitoring, deterministic behavior enforcement, and bias mitigation rules demonstrates the evolution toward a more robust, reliable, and fair analysis platform. The enhanced PII redaction capabilities with enterprise-grade Presidio integration and improved validation mechanisms ensure unbiased analysis results. The evidence validation service prevents hallucinations by ensuring all LLM claims are supported by actual transcript evidence. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing and heartbeat mechanisms. The queue system integration adds automatic retry capabilities with exponential backoff, ensuring resilient job processing even under adverse conditions.
+The integration of comprehensive 4-tier guardrail framework provides robust safety controls across all pipeline stages, including retry mechanisms, schema validation, cross-node consistency checks, prompt injection detection, 3x voting ensemble processing, HITL gates, token budget management, and comprehensive monitoring hooks. The guardrail service enhances system reliability, prevents hallucinations, ensures deterministic behavior, and provides comprehensive observability through structured event emission and Prometheus metrics integration.
+
+The enhanced PII redaction capabilities with enterprise-grade Presidio integration and improved validation mechanisms ensure unbiased analysis results. The evidence validation service prevents hallucinations by ensuring all LLM claims are supported by actual transcript evidence. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing and heartbeat mechanisms. The queue system integration adds automatic retry capabilities with exponential backoff, ensuring resilient job processing even under adverse conditions.
 
 ## Appendices
 
@@ -1417,14 +1669,16 @@ The integration of comprehensive anti-hallucination guardrails including cache v
 - **Contact Enhancement**: Implement custom contact extraction strategies using LLM contact extractor framework
 - **Error Handling**: Implement exponential backoff retry mechanisms for custom LLM integrations
 - **Resource Management**: Add semaphore-based concurrency control for external service integrations
-- **Anti-Hallucination Guardrails**: Implement cache versioning and circuit breaker monitoring for custom components
+- **Guardrail Integration**: Implement comprehensive safety controls using the 4-tier guardrail framework
 - **PII Redaction**: Integrate enterprise-grade PII detection with regex fallback capabilities
 - **Evidence Validation**: Add comprehensive claim validation for custom analysis components
+- **Monitoring Integration**: Add custom metrics and alerts for guardrail events and system performance
 
 **Section sources**
 - [hybrid_pipeline.py:953-1058](file://app/backend/services/hybrid_pipeline.py#L953-L1058)
 - [hybrid_pipeline.py:350-426](file://app/backend/services/hybrid_pipeline.py#L350-L426)
 - [agent_pipeline.py:327-365](file://app/backend/services/agent_pipeline.py#L327-L365)
+- [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-L1128)
 - [parser_service.py:319-371](file://app/backend/services/parser_service.py#L319-L371)
 - [llm_contact_extractor.py:133-164](file://app/backend/services/llm_contact_extractor.py#L133-L164)
 - [weight_mapper.py:212-246](file://app/backend/services/weight_mapper.py#L212-L246)
@@ -1445,10 +1699,12 @@ The integration of comprehensive anti-hallucination guardrails including cache v
 8. **Streaming Compatibility**: Ensure all streamed data can be properly serialized for SSE transmission
 9. **Error Handling**: Implement comprehensive error handling for serialization failures
 10. **Guardrail Integration**: Ensure new components respect anti-hallucination guardrails and bias mitigation rules
+11. **Guardrail Event Emission**: Use the structured event emission format for consistent monitoring and alerting
 
 **Section sources**
 - [analyze.py:48-56](file://app/backend/routes/analyze.py#L48-L56)
 - [agent_pipeline.py:39-45](file://app/backend/services/agent_pipeline.py#L39-L45)
+- [guardrail_service.py:1077-1090](file://app/backend/services/guardrail_service.py#L1077-L1090)
 - [hybrid_pipeline.py:16](file://app/backend/services/hybrid_pipeline.py#L16)
 
 ### Model Configuration Guidelines
@@ -1469,6 +1725,7 @@ The integration of comprehensive anti-hallucination guardrails including cache v
 12. **Error Handling**: Configure LLM_MAX_RETRIES environment variable for optimal retry behavior
 13. **Resource Management**: Set OLLAMA_MAX_CONCURRENT for appropriate concurrency levels
 14. **Guardrail Configuration**: Ensure cache versioning and circuit breaker thresholds are appropriately tuned
+15. **Retry Parameters**: Configure GUARDRAIL_MAX_RETRIES, GUARDRAIL_RETRY_DELAY, and GUARDRAIL_PER_CALL_TIMEOUT for optimal reliability
 
 **Section sources**
 - [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
@@ -1488,7 +1745,7 @@ The integration of comprehensive anti-hallucination guardrails including cache v
 7. **Enhanced Logging**: Implement comprehensive logging for debugging and monitoring
 8. **Error Handling**: Graceful degradation when LLM extraction fails
 9. **Retry Mechanisms**: Implement exponential backoff for rate-limited LLM calls
-10. **Bias Mitigation**: Ensure contact extraction doesn't introduce PII bias in analysis
+10. **Bias Mitigation**: Ensure contact extraction doesn't compromise PII protection measures
 
 **Section sources**
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
@@ -1528,11 +1785,14 @@ The integration of comprehensive anti-hallucination guardrails including cache v
 8. **Health Monitoring**: Implement health checks for external service dependencies
 9. **Queue Integration**: Leverage queue manager retry mechanisms for persistent job processing
 10. **Background Task Management**: Ensure proper cleanup of background tasks during error scenarios
-11. **Guardrail Integration**: Implement cache versioning and circuit breaker monitoring for custom components
+11. **Guardrail Integration**: Implement comprehensive safety controls using the 4-tier guardrail framework
 12. **PII Redaction**: Ensure error handling doesn't compromise PII protection measures
+13. **Retry Parameters**: Configure GUARDRAIL_MAX_RETRIES, GUARDRAIL_RETRY_DELAY, and GUARDRAIL_PER_CALL_TIMEOUT
+14. **Event Emission**: Use structured event emission for consistent monitoring and alerting
 
 **Section sources**
 - [hybrid_pipeline.py:1359-1500](file://app/backend/services/hybrid_pipeline.py#L1359-L1500)
+- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-L168)
 - [queue_manager.py:456-478](file://app/backend/services/queue_manager.py#L456-L478)
 - [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
 
@@ -1550,12 +1810,17 @@ The integration of comprehensive anti-hallucination guardrails including cache v
 8. **Fallback Strategies**: Implement rule-based fallbacks when guardrails trigger
 9. **Continuous Improvement**: Regularly update guardrails based on hallucination patterns
 10. **Compliance**: Ensure guardrails meet regulatory requirements for fair evaluation
+11. **Cross-Node Consistency**: Implement mutual validation between pipeline stages
+12. **Event Emission**: Use structured event emission for consistent monitoring and alerting
+13. **Retry Integration**: Implement exponential backoff retry mechanisms for reliability
+14. **Schema Validation**: Use Pydantic models for strict output validation
 
 **Section sources**
 - [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
 - [agent_pipeline.py:352-354](file://app/backend/services/agent_pipeline.py#L352-L354)
 - [agent_pipeline.py:414-421](file://app/backend/services/agent_pipeline.py#L414-L421)
 - [hybrid_pipeline.py:52-80](file://app/backend/services/hybrid_pipeline.py#L52-L80)
+- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-L371)
 
 ### PII Redaction Integration Guidelines
 
@@ -1571,6 +1836,7 @@ The integration of comprehensive anti-hallucination guardrails including cache v
 8. **Bias Mitigation**: Ensure redaction doesn't remove critical evaluation information
 9. **Compliance**: Meet regulatory requirements for PII protection and data privacy
 10. **Monitoring**: Track redaction effectiveness and identify potential privacy risks
+11. **Integration Points**: Ensure PII redaction is applied consistently across all analysis components
 
 **Section sources**
 - [pii_redaction_service.py:34-66](file://app/backend/services/pii_redaction_service.py#L34-L66)
@@ -1591,8 +1857,34 @@ The integration of comprehensive anti-hallucination guardrails including cache v
 8. **Audit Trail**: Maintain comprehensive validation records for compliance and transparency
 9. **Threshold Tuning**: Calibrate validation thresholds based on domain requirements and quality targets
 10. **Continuous Improvement**: Regularly update validation strategies based on performance metrics
+11. **Integration Points**: Ensure evidence validation is applied consistently across all analysis components
 
 **Section sources**
 - [evidence_validation_service.py:56-70](file://app/backend/services/evidence_validation_service.py#L56-L70)
 - [evidence_validation_service.py:171-221](file://app/backend/services/evidence_validation_service.py#L171-L221)
 - [evidence_validation_service.py:223-239](file://app/backend/services/evidence_validation_service.py#L223-L239)
+
+### Guardrail Service Integration Guidelines
+
+**Updated** For implementing comprehensive guardrail integration in custom components:
+
+1. **4-Tier Framework**: Implement reliability, security, governance, and operations tiers
+2. **Retry Mechanisms**: Implement exponential backoff with configurable parameters
+3. **Schema Validation**: Use Pydantic models for strict output validation
+4. **Cross-Node Consistency**: Implement mutual validation between pipeline stages
+5. **Prompt Injection Detection**: Implement comprehensive pattern matching and sanitization
+6. **3x Voting Ensemble**: Implement seed-based reproducible ensemble processing
+7. **HITL Gates**: Implement human-in-the-loop flags for low-confidence results
+8. **Token Budget Management**: Implement per-tenant token consumption tracking
+9. **Monitoring Hooks**: Implement structured event emission with Prometheus metrics
+10. **Configuration Management**: Use environment variables for guardrail parameter tuning
+11. **Error Handling**: Implement comprehensive error handling and fallback mechanisms
+12. **Performance Optimization**: Balance safety controls with system performance requirements
+13. **Integration Points**: Ensure guardrail integration is consistent across all analysis components
+14. **Testing and Validation**: Implement comprehensive testing for guardrail functionality
+
+**Section sources**
+- [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-L1128)
+- [agent_pipeline.py:385-500](file://app/backend/services/agent_pipeline.py#L385-L500)
+- [agent_pipeline.py:609-682](file://app/backend/services/agent_pipeline.py#L609-L682)
+- [agent_pipeline.py:728-895](file://app/backend/services/agent_pipeline.py#L728-L895)

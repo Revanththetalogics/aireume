@@ -9,6 +9,8 @@
 - [app/backend/services/hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [app/backend/services/parser_service.py](file://app/backend/services/parser_service.py)
 - [app/backend/services/metrics.py](file://app/backend/services/metrics.py)
+- [app/backend/services/guardrail_service.py](file://app/backend/services/guardrail_service.py)
+- [app/backend/services/agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
 - [app/backend/middleware/auth.py](file://app/backend/middleware/auth.py)
 - [app/backend/middleware/csrf.py](file://app/backend/middleware/csrf.py)
 - [docker-compose.yml](file://docker-compose.yml)
@@ -20,11 +22,15 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive Prometheus metrics integration with custom histograms and counters
-- Implemented structured JSON logging for production environments with configurable formatting
-- Introduced request correlation IDs with middleware for cross-service tracing
-- Enhanced observability with detailed performance metrics collection for LLM calls and batch operations
-- Updated middleware stack to include Prometheus instrumentation and request correlation
+- Expanded Prometheus metrics system with 15 new counters covering guardrail operations
+- Added comprehensive hallucination detection monitoring with node-specific labeling
+- Integrated injection blocking detection with dedicated counter tracking
+- Implemented schema validation failure monitoring with node identification
+- Added inconsistency correction tracking for cross-node data consistency
+- Introduced HITL (Human-In-The-Loop) flag generation monitoring with severity levels
+- Enhanced circuit breaker activation monitoring with node-specific metrics
+- Added token budget exceedance tracking with tenant identification
+- Updated guardrail service with structured event emission and Prometheus integration
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,16 +38,17 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+6. [Guardrail Metrics System](#guardrail-metrics-system)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
+11. [Appendices](#appendices)
 
 ## Introduction
 This document provides comprehensive monitoring and logging guidance for Resume AI by ThetaLogics. It covers application logging configuration using Python's logging module, structured logging for analysis operations, and strategies for log aggregation. It also explains health check endpoints, service monitoring, uptime tracking, performance monitoring for AI model inference, database queries, and API response times, along with error tracking, exception handling, alerting mechanisms, metrics collection, log rotation and retention, compliance considerations, and troubleshooting procedures. Centralized logging with ELK stack, APM tools, and custom dashboards is addressed.
 
-**Updated** Added comprehensive Prometheus metrics integration, structured JSON logging for production environments, request correlation IDs, and detailed performance metrics collection with custom histograms for LLM call durations and batch operations.
+**Updated** Expanded with comprehensive guardrail metrics system including hallucination detection, injection blocking, schema validation failures, inconsistency corrections, HITL flag generation, circuit breaker activations, and token budget exceedances.
 
 ## Project Structure
 The monitoring and logging surface spans several layers:
@@ -49,6 +56,7 @@ The monitoring and logging surface spans several layers:
 - Database connectivity and ORM session management
 - Route handlers that perform structured logging for analysis operations
 - LLM service integration with timeouts and fallbacks
+- Guardrail service with comprehensive monitoring and alerting
 - Container orchestration with health checks and environment configuration
 - Nginx proxy configuration for streaming and timeouts
 - Alembic logging configuration for SQLAlchemy and Alembic
@@ -60,12 +68,13 @@ graph TB
 subgraph "Application"
 M["FastAPI App<br/>Startup Checks<br/>Health Endpoints<br/>Prometheus Metrics"]
 R["Routes<br/>Analysis & Streaming"]
-S["Services<br/>LLM & Hybrid Pipeline<br/>Parser Service"]
+S["Services<br/>LLM & Hybrid Pipeline<br/>Parser Service<br/>Guardrail Service"]
 D["Database<br/>SQLAlchemy Engine"]
 A["Auth Middleware"]
 CSRF["CSRF Middleware"]
 CORR["Request Correlation ID Middleware"]
-METRICS["Custom Metrics Module"]
+METRICS["Custom Metrics Module<br/>Guardrail & LLM Metrics"]
+GR["Guardrail Events<br/>Hallucination Detection<br/>Injection Blocking<br/>Schema Validation<br/>Inconsistency Fixes<br/>HITL Flags<br/>Circuit Breakers<br/>Token Budgets"]
 end
 subgraph "Infrastructure"
 NGINX["Nginx Proxy<br/>Streaming & Timeouts"]
@@ -79,6 +88,7 @@ R --> D
 R --> A
 R --> CSRF
 R --> CORR
+S --> GR
 S --> OLL
 M --> PG
 M --> METRICS
@@ -95,7 +105,8 @@ NGINX --> PG
 - [app/backend/db/database.py:1-33](file://app/backend/db/database.py#L1-L33)
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/backend/middleware/csrf.py:40-69](file://app/backend/middleware/csrf.py#L40-L69)
-- [app/backend/services/metrics.py:1-34](file://app/backend/services/metrics.py#L1-L34)
+- [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 - [app/nginx/nginx.prod.conf:50-100](file://app/nginx/nginx.prod.conf#L50-L100)
 - [docker-compose.yml:52-101](file://docker-compose.yml#L52-L101)
 - [docker-compose.prod.yml:75-145](file://docker-compose.prod.yml#L75-L145)
@@ -107,7 +118,8 @@ NGINX --> PG
 - [app/backend/services/llm_service.py:13-58](file://app/backend/services/llm_service.py#L13-L58)
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/backend/middleware/csrf.py:40-69](file://app/backend/middleware/csrf.py#L40-L69)
-- [app/backend/services/metrics.py:1-34](file://app/backend/services/metrics.py#L1-L34)
+- [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 - [docker-compose.yml:52-101](file://docker-compose.yml#L52-L101)
 - [docker-compose.prod.yml:75-145](file://docker-compose.prod.yml#L75-L145)
 - [app/nginx/nginx.prod.conf:50-100](file://app/nginx/nginx.prod.conf#L50-L100)
@@ -118,6 +130,8 @@ NGINX --> PG
 - Structured logging in analysis routes for operational insights
 - Database engine configuration with pooling and pre-ping
 - LLM service with timeouts and fallback responses
+- **New** Comprehensive guardrail service with 4-tier monitoring framework
+- **New** 15 new Prometheus counters for guardrail operations
 - Streaming endpoints with Nginx buffering and timeout tuning
 - Container health checks for Postgres, Ollama, backend, and Nginx
 - **New** Comprehensive Prometheus metrics integration with custom histograms
@@ -130,6 +144,8 @@ NGINX --> PG
 - [app/backend/routes/analyze.py:491-501](file://app/backend/routes/analyze.py#L491-L501)
 - [app/backend/db/database.py:20-33](file://app/backend/db/database.py#L20-L33)
 - [app/backend/services/llm_service.py:53-57](file://app/backend/services/llm_service.py#L53-L57)
+- [app/backend/services/guardrail_service.py:1-12](file://app/backend/services/guardrail_service.py#L1-L12)
+- [app/backend/services/metrics.py:23-61](file://app/backend/services/metrics.py#L23-L61)
 - [app/nginx/nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [docker-compose.yml:18-46](file://docker-compose.yml#L18-L46)
 - [docker-compose.prod.yml:34-112](file://docker-compose.prod.yml#L34-L112)
@@ -141,10 +157,12 @@ The monitoring architecture integrates:
 - Startup checks and banner reporting for immediate visibility
 - Active health checks for DB and LLM
 - Structured JSON logs emitted during analysis
+- **New** Guardrail service with comprehensive monitoring and alerting
+- **New** 15 new Prometheus counters for guardrail operations
 - Container-level health checks feeding uptime metrics
 - Nginx proxy timeouts and streaming behavior for SSE
 - Alembic logging configuration for SQL and migration logs
-- **New** Prometheus metrics collection with custom histograms
+- **New** Prometheus metrics collection with custom histograms and guardrail counters
 - **New** Request correlation ID propagation across services
 
 ```mermaid
@@ -152,6 +170,7 @@ sequenceDiagram
 participant Client as "Client"
 participant Nginx as "Nginx"
 participant API as "FastAPI App"
+participant Guardrail as "Guardrail Service"
 participant Metrics as "Prometheus Metrics"
 participant DB as "Postgres"
 participant LLM as "Ollama"
@@ -163,6 +182,11 @@ API-->>Nginx : {status, db, ollama}
 Nginx-->>Client : 200 OK
 Client->>Nginx : POST /api/analyze
 Nginx->>API : POST /api/analyze
+API->>Guardrail : Process with Guardrails
+Guardrail->>Guardrail : Detect Hallucinations
+Guardrail->>Metrics : Increment Hallucination Counter
+Guardrail->>Guardrail : Block Injection Attempts
+Guardrail->>Metrics : Increment Injection Blocked Counter
 API->>API : Structured log emit (JSON)
 API->>Metrics : Record LLM call duration
 API-->>Client : Analysis result
@@ -171,6 +195,7 @@ API-->>Client : Analysis result
 **Diagram sources**
 - [app/backend/main.py:228-259](file://app/backend/main.py#L228-L259)
 - [app/backend/routes/analyze.py:491-501](file://app/backend/routes/analyze.py#L491-L501)
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 - [app/backend/services/metrics.py:11-20](file://app/backend/services/metrics.py#L11-L20)
 - [app/nginx/nginx.prod.conf:97-100](file://app/nginx/nginx.prod.conf#L97-L100)
 
@@ -220,7 +245,8 @@ This structured event enables:
 flowchart TD
 Start(["Analysis Endpoint"]) --> Parse["Parse Resume & JD"]
 Parse --> RunPipeline["Run Hybrid Pipeline"]
-RunPipeline --> LogEvent["Emit Structured JSON Log"]
+RunPipeline --> Guardrail["Apply Guardrails"]
+Guardrail --> LogEvent["Emit Structured JSON Log"]
 LogEvent --> Persist["Persist Result to DB"]
 Persist --> End(["Return Response"])
 ```
@@ -228,6 +254,7 @@ Persist --> End(["Return Response"])
 **Diagram sources**
 - [app/backend/routes/analyze.py:491-501](file://app/backend/routes/analyze.py#L491-L501)
 - [app/backend/routes/analyze.py:449-476](file://app/backend/routes/analyze.py#L449-L476)
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 
 **Section sources**
 - [app/backend/routes/analyze.py:491-501](file://app/backend/routes/analyze.py#L491-L501)
@@ -300,23 +327,27 @@ Operational guidance:
 - LLM service wraps calls with retries and returns a fallback response on errors.
 - Analysis route catches parsing and pipeline errors, returning graceful fallback results.
 - Structured logs include pipeline errors for traceability.
+- **New** Guardrail service emits structured events for monitoring and alerting.
 
 Alerting recommendations:
 - Monitor health endpoint status transitions
 - Alert on frequent fallback responses from LLM service
 - Track structured log fields for anomaly detection
+- **New** Monitor guardrail event counters for security and quality issues
 
 **Section sources**
 - [app/backend/main.py:164-169](file://app/backend/main.py#L164-L169)
 - [app/backend/services/llm_service.py:37-41](file://app/backend/services/llm_service.py#L37-L41)
 - [app/backend/routes/analyze.py:279-290](file://app/backend/routes/analyze.py#L279-L290)
 - [app/backend/routes/analyze.py:312-314](file://app/backend/routes/analyze.py#L312-L314)
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 
 ### Metrics Collection for Usage Analytics and Benchmarks
 - Structured logs include fit_score, skills_found, quality, and total_ms for performance benchmarking.
 - Usage enforcement increments counters and records usage per tenant.
 - LLM status endpoint provides model readiness diagnostics for capacity planning.
 - **New** Custom Prometheus metrics provide detailed performance insights.
+- **New** Guardrail metrics provide comprehensive security and quality monitoring.
 
 Suggested metrics:
 - Throughput (requests per second)
@@ -326,12 +357,13 @@ Suggested metrics:
 - **New** LLM call duration percentiles and fallback rates
 - **New** Resume parsing duration distributions
 - **New** Batch operation size distributions
+- **New** Guardrail event rates and distributions
 
 **Section sources**
 - [app/backend/routes/analyze.py:491-501](file://app/backend/routes/analyze.py#L491-L501)
 - [app/backend/routes/analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
 - [app/backend/main.py:262-326](file://app/backend/main.py#L262-L326)
-- [app/backend/services/metrics.py:1-34](file://app/backend/services/metrics.py#L1-L34)
+- [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
 
 ### Request Correlation and Distributed Tracing
 - **New** Request correlation ID middleware generates unique identifiers for each request.
@@ -350,12 +382,20 @@ Implementation details:
 - **New** Comprehensive Prometheus metrics integration using prometheus-fastapi-instrumentator.
 - Custom metrics module defines specialized histograms and counters for business logic.
 - Automatic endpoint exposure at /metrics for Prometheus scraping.
+- **New** Guardrail metrics provide comprehensive monitoring of security and quality operations.
 
 Custom metrics defined:
 - LLM_CALL_DURATION: Histogram for LLM call durations (5-300 seconds)
 - LLM_FALLBACK_TOTAL: Counter for fallback occurrences
 - RESUME_PARSE_DURATION: Histogram for resume parsing durations (0.1-10 seconds)
 - BATCH_SIZE: Histogram for batch operation sizes (1-50 resumes)
+- **New** GUARDRAIL_HALLUCINATION_TOTAL: Counter for hallucination detections with node labeling
+- **New** GUARDRAIL_INJECTION_BLOCKED_TOTAL: Counter for prompt injection attempts blocked
+- **New** GUARDRAIL_SCHEMA_VALIDATION_FAILED_TOTAL: Counter for schema validation failures with node labeling
+- **New** GUARDRAIL_INCONSISTENCY_FIXED_TOTAL: Counter for cross-node inconsistency fixes
+- **New** GUARDRAIL_HITL_FLAG_TOTAL: Counter for HITL flag generation with severity labeling
+- **New** GUARDRAIL_CIRCUIT_BREAKER_TOTAL: Counter for circuit breaker activations with node labeling
+- **New** GUARDRAIL_TOKEN_BUDGET_EXCEEDED_TOTAL: Counter for token budget exceedances with tenant labeling
 
 Instrumentation configuration:
 - Groups status codes for better metric cardinality
@@ -364,7 +404,7 @@ Instrumentation configuration:
 
 **Section sources**
 - [app/backend/main.py:291-298](file://app/backend/main.py#L291-L298)
-- [app/backend/services/metrics.py:1-34](file://app/backend/services/metrics.py#L1-L34)
+- [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
 - [requirements.txt:47](file://requirements.txt#L47)
 
 ### Log Rotation, Retention, and Compliance
@@ -384,15 +424,68 @@ Instrumentation configuration:
 - APM tools can instrument FastAPI endpoints and LLM service calls.
 - Custom dashboards can track health status, usage trends, and performance metrics.
 - **New** Prometheus metrics enable advanced visualization and alerting capabilities.
+- **New** Guardrail metrics enable comprehensive security and quality monitoring dashboards.
 
 **Section sources**
-- [app/backend/services/metrics.py:1-34](file://app/backend/services/metrics.py#L1-L34)
+- [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
+
+## Guardrail Metrics System
+
+### Overview
+The guardrail service implements a comprehensive 4-tier monitoring framework that provides extensive observability into AI safety and quality operations. The system automatically emits structured events and increments Prometheus counters for critical security and quality events.
+
+### Guardrail Event Types and Metrics
+
+#### Tier 1: Reliability and Schema Validation
+- **Schema Validation Failures**: Monitors strict JSON schema validation failures across different nodes
+- **Inconsistency Corrections**: Tracks automatic corrections of cross-node data inconsistencies
+- **Retry Successes**: Records successful retry operations after failures
+
+#### Tier 2: Security and Injection Detection  
+- **Hallucination Detection**: Identifies and blocks hallucinated content generation
+- **Prompt Injection Blocking**: Detects and prevents malicious prompt injection attempts
+- **Circuit Breaker Activations**: Monitors system protection mechanisms
+
+#### Tier 3: Human-in-the-Loop (HITL)
+- **HITL Flag Generation**: Tracks flags requiring human review and intervention
+- **Ensemble Voting**: Monitors decision-making processes across multiple LLM instances
+
+#### Tier 4: Operations and Resource Management
+- **Token Budget Exceedances**: Monitors usage against allocated token budgets
+- **Data Retention Policies**: Tracks compliance with data retention requirements
+
+### Implementation Details
+
+#### Event Emission and Logging
+The `emit_guardrail_event` function provides structured logging with different severity levels:
+- **WARNING**: Hallucination detected, prompt injection blocked, circuit breaker triggered
+- **INFO**: Inconsistency fixed, retry success, ensemble vote
+- **DEBUG**: All other guardrail events
+
+#### Prometheus Counter Integration
+Each guardrail event type is automatically tracked with dedicated Prometheus counters:
+- **Node-specific labeling** for hallucinations, schema validation failures, and circuit breakers
+- **Severity labeling** for HITL flags (low, medium, high)
+- **Tenant identification** for token budget exceedances
+
+#### Automatic Integration Points
+Guardrail events are automatically emitted at strategic points in the analysis pipeline:
+- Hallucination detection in agent pipeline
+- Schema validation failures in JD parser
+- Circuit breaker activations during LLM fallbacks
+- Token budget monitoring and exceedance detection
+
+**Section sources**
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
+- [app/backend/services/metrics.py:23-61](file://app/backend/services/metrics.py#L23-L61)
+- [app/backend/services/agent_pipeline.py:457-498](file://app/backend/services/agent_pipeline.py#L457-L498)
 
 ## Dependency Analysis
 The monitoring and logging ecosystem depends on:
 - FastAPI app lifecycle and health endpoints
 - Database engine and sessions
 - LLM service and hybrid pipeline
+- **New** Guardrail service with comprehensive monitoring framework
 - Nginx proxy configuration
 - Container health checks
 - **New** Prometheus metrics collection and exposure
@@ -403,13 +496,16 @@ graph LR
 API["FastAPI App"] --> HEALTH["Health Endpoints"]
 API --> ANALYZE["Analysis Routes"]
 API --> METRICS["Prometheus Metrics"]
+API --> CORR["Request Correlation ID"]
 ANALYZE --> LOG["Structured Logs"]
 ANALYZE --> DB["Database Sessions"]
 ANALYZE --> LLM["LLM Service"]
+ANALYZE --> GUARDRAIL["Guardrail Service"]
+GUARDRAIL --> GR_METRICS["Guardrail Metrics"]
+GUARDRAIL --> LLM
 LLM --> OLL["Ollama"]
 API --> AUTH["Auth Middleware"]
 API --> CSRF["CSRF Middleware"]
-API --> CORR["Request Correlation ID"]
 NGINX["Nginx"] --> API
 NGINX --> OLL
 NGINX --> DB
@@ -422,7 +518,8 @@ NGINX --> DB
 - [app/backend/db/database.py:20-33](file://app/backend/db/database.py#L20-L33)
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/backend/middleware/csrf.py:40-69](file://app/backend/middleware/csrf.py#L40-L69)
-- [app/backend/services/metrics.py:1-34](file://app/backend/services/metrics.py#L1-L34)
+- [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 - [app/nginx/nginx.prod.conf:50-100](file://app/nginx/nginx.prod.conf#L50-L100)
 
 **Section sources**
@@ -432,7 +529,8 @@ NGINX --> DB
 - [app/backend/db/database.py:20-33](file://app/backend/db/database.py#L20-L33)
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/backend/middleware/csrf.py:40-69](file://app/backend/middleware/csrf.py#L40-L69)
-- [app/backend/services/metrics.py:1-34](file://app/backend/services/metrics.py#L1-L34)
+- [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 - [app/nginx/nginx.prod.conf:50-100](file://app/nginx/nginx.prod.conf#L50-L100)
 
 ## Performance Considerations
@@ -448,13 +546,19 @@ NGINX --> DB
   - Custom histograms provide detailed latency distributions
   - Fallback tracking helps identify performance bottlenecks
   - Batch size monitoring optimizes throughput
+  - **New** Guardrail metrics help identify security and quality performance issues
+- **New** Guardrail service overhead:
+  - Minimal performance impact through best-effort metric emission
+  - Structured logging with appropriate severity levels
+  - Node-specific labeling adds minimal overhead
 
 **Section sources**
 - [docker-compose.prod.yml:75-112](file://docker-compose.prod.yml#L75-L112)
 - [app/backend/services/hybrid_pipeline.py:45-66](file://app/backend/services/hybrid_pipeline.py#L45-L66)
 - [app/nginx/nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [app/backend/db/database.py:20-33](file://app/backend/db/database.py#L20-L33)
-- [app/backend/services/metrics.py:11-34](file://app/backend/services/metrics.py#L11-L34)
+- [app/backend/services/metrics.py:11-76](file://app/backend/services/metrics.py#L11-L76)
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 
 ## Troubleshooting Guide
 Common scenarios and resolutions:
@@ -477,6 +581,13 @@ Common scenarios and resolutions:
   - Check LLM_FALLBACK_TOTAL counter for increased fallback frequency.
   - Analyze RESUME_PARSE_DURATION distribution for parsing bottlenecks.
   - Monitor batch processing performance via BATCH_SIZE histogram.
+  - **New** Monitor GUARDRAIL_HALLUCINATION_TOTAL for hallucination detection rates.
+  - **New** Check GUARDRAIL_INJECTION_BLOCKED_TOTAL for security incidents.
+  - **New** Analyze GUARDRAIL_SCHEMA_VALIDATION_FAILED_TOTAL for validation issues.
+- **New** Guardrail-specific troubleshooting:
+  - Investigate circuit breaker activations in GUARDRAIL_CIRCUIT_BREAKER_TOTAL.
+  - Monitor token budget exceedances in GUARDRAIL_TOKEN_BUDGET_EXCEEDED_TOTAL.
+  - Review HITL flag generation patterns in GUARDRAIL_HITL_FLAG_TOTAL.
 - **New** Request correlation debugging:
   - Use X-Request-ID header to trace requests across services.
   - Correlate logs with distributed tracing systems.
@@ -487,11 +598,12 @@ Common scenarios and resolutions:
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/nginx/nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [docker-compose.prod.yml:147-184](file://docker-compose.prod.yml#L147-L184)
-- [app/backend/services/metrics.py:11-34](file://app/backend/services/metrics.py#L11-L34)
+- [app/backend/services/metrics.py:11-76](file://app/backend/services/metrics.py#L11-L76)
 - [app/backend/main.py:44-56](file://app/backend/main.py#L44-L56)
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 
 ## Conclusion
-The Resume AI platform integrates startup checks, health endpoints, structured logging, containerized health checks, and comprehensive observability through Prometheus metrics to provide robust monitoring and observability. The addition of structured JSON logging for production, request correlation IDs, and detailed performance metrics collection significantly enhances the platform's monitoring capabilities. By leveraging these components and adopting centralized logging and APM practices, operators can achieve reliable uptime, performance insights, efficient troubleshooting, and comprehensive operational visibility.
+The Resume AI platform integrates startup checks, health endpoints, structured logging, containerized health checks, and comprehensive observability through Prometheus metrics to provide robust monitoring and observability. The addition of structured JSON logging for production, request correlation IDs, detailed performance metrics collection, and the comprehensive guardrail metrics system significantly enhances the platform's monitoring capabilities. The 15 new Prometheus counters provide extensive coverage of security, quality, and operational aspects of the AI analysis pipeline. By leveraging these components and adopting centralized logging and APM practices, operators can achieve reliable uptime, performance insights, efficient troubleshooting, and comprehensive operational visibility with strong security and quality monitoring.
 
 ## Appendices
 
@@ -502,6 +614,7 @@ The Resume AI platform integrates startup checks, health endpoints, structured l
 - LLM narrative timeout and startup requirements
 - **New** ENVIRONMENT variable controls JSON logging format
 - **New** CORS_ORIGINS variable for cross-origin configuration
+- **New** GUARDRAIL_* environment variables for guardrail configuration
 
 **Section sources**
 - [app/backend/db/database.py:5-18](file://app/backend/db/database.py#L5-L18)
@@ -515,9 +628,10 @@ The Resume AI platform integrates startup checks, health endpoints, structured l
 - Alembic logging configuration for SQL and migrations
 - **New** prometheus-fastapi-instrumentator for metrics instrumentation
 - **New** prometheus_client for custom metrics definition
+- **New** Guardrail service dependencies for comprehensive monitoring
 
 **Section sources**
-- [requirements.txt:1-48](file://requirements.txt#L1-L48)
+- [requirements.txt:1-54](file://requirements.txt#L1-L54)
 - [requirements.txt:47](file://requirements.txt#L47)
 - [alembic.ini:124-147](file://alembic.ini#L124-L147)
 
@@ -526,6 +640,27 @@ The Resume AI platform integrates startup checks, health endpoints, structured l
 - **LLM_FALLBACK_TOTAL**: Counter for fallback occurrences during LLM calls
 - **RESUME_PARSE_DURATION**: Histogram for resume parsing durations with buckets [0.1, 0.5, 1, 2, 5, 10] seconds
 - **BATCH_SIZE**: Histogram for batch operation sizes with buckets [1, 5, 10, 20, 30, 50]
+- **GUARDRAIL_HALLUCINATION_TOTAL**: Counter for hallucination detections with node labeling
+- **GUARDRAIL_INJECTION_BLOCKED_TOTAL**: Counter for prompt injection attempts blocked
+- **GUARDRAIL_SCHEMA_VALIDATION_FAILED_TOTAL**: Counter for schema validation failures with node labeling
+- **GUARDRAIL_INCONSISTENCY_FIXED_TOTAL**: Counter for cross-node inconsistency fixes
+- **GUARDRAIL_HITL_FLAG_TOTAL**: Counter for HITL flag generation with severity labeling
+- **GUARDRAIL_CIRCUIT_BREAKER_TOTAL**: Counter for circuit breaker activations with node labeling
+- **GUARDRAIL_TOKEN_BUDGET_EXCEEDED_TOTAL**: Counter for token budget exceedances with tenant labeling
 
 **Section sources**
-- [app/backend/services/metrics.py:1-34](file://app/backend/services/metrics.py#L1-L34)
+- [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
+
+### Appendix D: Guardrail Event Types and Definitions
+- **hallucination_detected**: AI-generated content that appears to be false or misleading
+- **prompt_injection_blocked**: Malicious attempts to influence AI behavior through crafted prompts
+- **schema_validation_failed**: Output that doesn't match expected data structure
+- **inconsistency_fixed**: Automatic correction of conflicting data across nodes
+- **hitl_flag_generated**: Flags requiring human review and intervention
+- **circuit_breaker_triggered**: System protection mechanism activated
+- **token_budget_exceeded**: Usage exceeding allocated token limits
+- **retry_success**: Successful retry after failure
+- **ensemble_vote**: Decision-making across multiple LLM instances
+
+**Section sources**
+- [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
