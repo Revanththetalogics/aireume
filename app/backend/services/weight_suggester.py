@@ -85,7 +85,7 @@ GUIDELINES:
 
 def suggest_weights_for_jd(jd_text: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
     """
-    """Analyze job description and suggest optimal scoring weights using LLM.
+    Analyze job description and suggest optimal scoring weights using LLM.
     
     Args:
         jd_text: Job description text

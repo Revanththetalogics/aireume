@@ -259,38 +259,68 @@ def sync_if_stale(max_age_days: int = 30) -> None:
 
     Safe to call on startup — handles all errors gracefully and never raises.
     Intended to be run in a background daemon thread.
+    Uses a file lock to prevent multiple workers from syncing simultaneously.
     """
     try:
         from datetime import timedelta
+        import fcntl  # Unix file locking
+    except ImportError:
+        fcntl = None  # Windows fallback below
 
+    try:
         db_path = DEFAULT_DB_PATH
-        cache = ONETCache(db_path)
+        lock_path = db_path + ".lock"
+        _ensure_dir(lock_path)
 
-        if cache.is_populated():
-            download_date_str = cache.get_metadata("download_date")
-            if download_date_str:
-                try:
-                    download_date = datetime.fromisoformat(download_date_str)
-                    if datetime.now(timezone.utc) - download_date < timedelta(days=max_age_days):
-                        logger.info(
-                            "O*NET data is fresh (downloaded %s), skipping sync",
+        # Acquire file lock — only one worker syncs at a time
+        lock_fd = None
+        try:
+            lock_fd = open(lock_path, "w")
+            if fcntl is not None:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                # Windows: use msvcrt for non-blocking lock
+                import msvcrt
+                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+        except (IOError, OSError):
+            # Another worker already holds the lock — skip
+            logger.info("O*NET sync already in progress by another worker, skipping")
+            if lock_fd:
+                lock_fd.close()
+            return
+
+        try:
+            cache = ONETCache(db_path)
+
+            if cache.is_populated():
+                download_date_str = cache.get_metadata("download_date")
+                if download_date_str:
+                    try:
+                        download_date = datetime.fromisoformat(download_date_str)
+                        if datetime.now(timezone.utc) - download_date < timedelta(days=max_age_days):
+                            logger.info(
+                                "O*NET data is fresh (downloaded %s), skipping sync",
+                                download_date_str,
+                            )
+                            cache.close()
+                            return
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            "Could not parse O*NET download_date '%s', re-syncing",
                             download_date_str,
                         )
-                        cache.close()
-                        return
-                except (ValueError, TypeError):
-                    logger.warning(
-                        "Could not parse O*NET download_date '%s', re-syncing",
-                        download_date_str,
-                    )
 
-        logger.info("O*NET data is missing or stale, starting background sync...")
-        cache.close()
-        ok = sync_onet()
-        if ok:
-            logger.info("O*NET background sync completed successfully")
-        else:
-            logger.warning("O*NET background sync failed — Layer 3 may be unavailable")
+            logger.info("O*NET data is missing or stale, starting background sync...")
+            cache.close()
+            ok = sync_onet()
+            if ok:
+                logger.info("O*NET background sync completed successfully")
+            else:
+                logger.warning("O*NET background sync failed — Layer 3 may be unavailable")
+        finally:
+            # Release file lock
+            if lock_fd:
+                lock_fd.close()
 
     except Exception as e:
         logger.warning("O*NET background sync failed (non-critical): %s", e)
