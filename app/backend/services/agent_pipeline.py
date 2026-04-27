@@ -43,7 +43,7 @@ from app.backend.services.constants import (
 )
 from app.backend.services.risk_calculator import compute_risk_penalty
 from app.backend.services.fit_scorer import compute_fit_score
-from app.backend.services.skill_matcher import validate_skills_against_text
+from app.backend.services.skill_matcher import validate_skills_against_text, match_skills_with_onet
 
 
 def _json_default(obj):
@@ -1118,6 +1118,31 @@ def assemble_result(
     score_bd_compat.setdefault("experience_match", score_bd.get("experience_match", 0))
     score_bd_compat.setdefault("education", score_bd.get("education", 0))
 
+    # O*NET occupation-aware validation enrichment
+    onet_occupation = ""
+    onet_soc_code = ""
+    onet_match_ratio = 0.0
+    onet_hot_skills = []
+    try:
+        onet_skill_result = match_skills_with_onet(
+            cp.get("skills_identified", []),
+            jd.get("required_skills", []),
+            jd_text=state.get("raw_jd_text", ""),
+            jd_nice_to_have=jd.get("nice_to_have_skills", []),
+            job_title=jd.get("role_title"),
+        )
+        if onet_skill_result.get("onet_validation"):
+            onet = onet_skill_result["onet_validation"]
+            onet_occupation = onet.get("occupation_title", "")
+            onet_soc_code = onet.get("soc_code", "")
+            onet_match_ratio = onet.get("occupation_match_ratio", 0.0)
+            onet_hot_skills = [
+                s["skill"] for s in onet.get("validated", [])
+                if s.get("is_hot")
+            ]
+    except Exception as exc:
+        logger.debug("O*NET enrichment unavailable (non-fatal): %s", exc)
+
     return {
         # ── Backward-compatible core fields ──
         "fit_score":             fs.get("fit_score", 0),
@@ -1155,6 +1180,11 @@ def assemble_result(
             {"flag_type": f.flag_type, "severity": f.severity, "message": f.message, "metadata": f.metadata}
             for f in hitl_flags
         ],
+        # ── O*NET occupation-aware validation (optional) ──
+        "onet_occupation":     onet_occupation,
+        "onet_soc_code":      onet_soc_code,
+        "onet_match_ratio":   onet_match_ratio,
+        "onet_hot_skills":    onet_hot_skills,
     }
 
 

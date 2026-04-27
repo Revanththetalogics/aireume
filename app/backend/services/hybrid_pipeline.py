@@ -42,6 +42,7 @@ from app.backend.services.skill_matcher import (
     skills_registry,
     _extract_skills_from_text,
     match_skills,
+    match_skills_with_onet,
 )
 
 log = logging.getLogger("aria.hybrid")
@@ -1233,11 +1234,12 @@ def _run_python_phase(
 
     jd       = jd_analysis or parse_jd_rules(job_description)
     profile  = parse_resume_rules(parsed_data, gap_analysis)
-    skill_a  = match_skills(
+    skill_a  = match_skills_with_onet(
         profile.get("skills_identified", []),
         jd.get("required_skills", []),
         resume_text,
         jd.get("nice_to_have_skills", []),
+        job_title=jd.get("role_title"),
     )
     edu_s    = score_education_rules(profile, jd["domain"])
     exp_r    = score_experience_rules(profile, jd, gap_analysis)
@@ -1351,6 +1353,14 @@ def _run_python_phase(
             "details": eligibility.details,
         } if eligibility else {"eligible": True, "reason": None, "details": {}},
         "deterministic_features": deterministic_features,
+        # O*NET occupation-aware validation (optional — absent when DB not synced)
+        "onet_occupation":     skill_a.get("onet_validation", {}).get("occupation_title", ""),
+        "onet_soc_code":      skill_a.get("onet_validation", {}).get("soc_code", ""),
+        "onet_match_ratio":   skill_a.get("onet_validation", {}).get("occupation_match_ratio", 0.0),
+        "onet_hot_skills":    [
+            s["skill"] for s in skill_a.get("onet_validation", {}).get("validated", [])
+            if s.get("is_hot")
+        ],
         # Internal — used by fallback
         "_required_years":      exp_r["required_years"],
         "_scores":              all_scores,

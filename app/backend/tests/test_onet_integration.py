@@ -592,3 +592,40 @@ class TestONETCacheUnit:
                 cache.close()
         finally:
             import shutil; shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Pipeline O*NET integration tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestPipelineONETIntegration:
+    """Verify O*NET is wired into the analysis pipelines."""
+
+    def test_hybrid_pipeline_imports_onet(self):
+        """Verify hybrid_pipeline imports match_skills_with_onet."""
+        from app.backend.services import hybrid_pipeline
+        import inspect
+        source = inspect.getsource(hybrid_pipeline)
+        assert "match_skills_with_onet" in source
+
+    def test_agent_pipeline_imports_onet(self):
+        """Verify agent_pipeline imports match_skills_with_onet."""
+        from app.backend.services import agent_pipeline
+        import inspect
+        source = inspect.getsource(agent_pipeline)
+        assert "match_skills_with_onet" in source
+
+    def test_hybrid_pipeline_passes_job_title(self):
+        """Verify hybrid_pipeline passes job_title to match_skills_with_onet."""
+        from app.backend.services import hybrid_pipeline
+        import inspect
+        source = inspect.getsource(hybrid_pipeline)
+        assert "job_title=" in source
+
+    def test_agent_pipeline_passes_job_title(self):
+        """Verify agent_pipeline passes job_title to match_skills_with_onet."""
+        from app.backend.services import agent_pipeline
+        import inspect
+        source = inspect.getsource(agent_pipeline)
+        assert "job_title=" in source

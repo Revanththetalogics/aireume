@@ -10,16 +10,21 @@
 - [main.py](file://app/backend/main.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [test_skill_taxonomy.py](file://app/backend/tests/test_skill_taxonomy.py)
+- [onet_cache.py](file://app/backend/services/onet/onet_cache.py)
+- [onet_sync.py](file://app/backend/services/onet/onet_sync.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
+- [test_onet_integration.py](file://app/backend/tests/test_onet_integration.py)
+- [README.md](file://data/onet/README.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated to reflect the new SKILL_TAXONOMY structure replacing MASTER_SKILLS
-- Added comprehensive domain-clustered skill taxonomy with 17 distinct domains and 518 skills
-- Implemented two-pass validation system to eliminate false positives in skill matching
-- Added HIGH_COLLISION_SKILLS set with sophisticated validation logic
-- Updated database schema to support the new taxonomy structure
-- Enhanced skill matching with subcategory-level validation for accuracy
+- Updated to reflect comprehensive O*NET (Occupational Information Network) integration system
+- Added four core ONET modules (onet_cache.py, onet_sync.py, onet_validator.py) with SQLite-based caching
+- Integrated occupation-aware skill validation with graceful degradation capabilities
+- Enhanced skill matching with O*NET context-aware validation through match_skills_with_onet
+- Added comprehensive test coverage for ONET integration and false-positive prevention
+- Updated database schema to support taxonomy structure with 17 distinct domains and 518 skills
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -27,13 +32,18 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
+6. [O*NET Integration System](#onet-integration-system)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
 
 ## Introduction
-This document provides comprehensive guidance for extending the skills registry system in Resume AI. The system has undergone a major transformation with the introduction of a comprehensive domain-clustered skill taxonomy featuring 17 distinct domains and 518 carefully organized skills. The new SKILL_TAXONOMY structure replaces the previous MASTER_SKILLS approach and includes a sophisticated two-pass validation system designed to eliminate false positives in skill matching. This enhanced system provides precise domain classification, subcategory-level validation, and maintains backward compatibility while supporting advanced skill discovery and validation capabilities.
+This document provides comprehensive guidance for extending the skills registry system in Resume AI. The system has undergone a major transformation with the introduction of a comprehensive domain-clustered skill taxonomy featuring 17 distinct domains and 518 carefully organized skills. The new SKILL_TAXONOMY structure replaces the previous MASTER_SKILLS approach and includes a sophisticated two-pass validation system designed to eliminate false positives in skill matching. 
+
+**Updated** The system now includes a comprehensive O*NET (Occupational Information Network) integration that provides authoritative occupation-aware skill validation. This enhancement adds four core modules (onet_cache.py, onet_sync.py, onet_validator.py) that integrate with the existing skill matcher to provide occupation context, reduce false positives, and improve matching accuracy with graceful degradation capabilities.
+
+The enhanced system provides precise domain classification, subcategory-level validation, O*NET-powered occupation-aware validation, and maintains backward compatibility while supporting advanced skill discovery and validation capabilities.
 
 ## Project Structure
 The skills registry is implemented in the backend service layer with a comprehensive taxonomy-based architecture and backed by a database model. The key files are:
@@ -45,6 +55,9 @@ The skills registry is implemented in the backend service layer with a comprehen
 - Application initialization and skills registry bootstrap: [main.py](file://app/backend/main.py)
 - Hybrid pipeline integration: [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - Taxonomy validation tests: [test_skill_taxonomy.py](file://app/backend/tests/test_skill_taxonomy.py)
+- **O*NET Integration Modules**: [onet_cache.py](file://app/backend/services/onet/onet_cache.py), [onet_sync.py](file://app/backend/services/onet/onet_sync.py), [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
+- **O*NET Integration Tests**: [test_onet_integration.py](file://app/backend/tests/test_onet_integration.py)
+- **O*NET Data Cache**: [README.md](file://data/onet/README.md)
 
 ```mermaid
 graph TB
@@ -55,19 +68,28 @@ CONST["constants.py<br/>DOMAIN_KEYWORDS + configuration"]
 MAIN["main.py<br/>App bootstrap + skills seed/load"]
 HP["hybrid_pipeline.py<br/>Pipeline integration"]
 end
+subgraph "O*NET Integration"
+OC["onet_cache.py<br/>SQLite cache manager"]
+OS["onet_sync.py<br/>Data synchronization"]
+OV["onet_validator.py<br/>Occupation-aware validation"]
+end
 subgraph "Database"
 DBM["db_models.py<br/>Skill model"]
 MIG["001_enrich_candidates_add_caches.py<br/>Alembic migration"]
 end
 subgraph "Tests"
 TST["test_skill_taxonomy.py<br/>Taxonomy validation tests"]
+OTST["test_onet_integration.py<br/>O*NET integration tests"]
 end
 SM --> DBM
+SM --> OV
 PS --> SM
 MAIN --> SM
 DBM --> MIG
 TST --> SM
-HP --> SM
+OTST --> OV
+OC --> OS
+OV --> OC
 ```
 
 **Diagram sources**
@@ -79,6 +101,10 @@ HP --> SM
 - [main.py](file://app/backend/main.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [test_skill_taxonomy.py](file://app/backend/tests/test_skill_taxonomy.py)
+- [onet_cache.py](file://app/backend/services/onet/onet_cache.py)
+- [onet_sync.py](file://app/backend/services/onet/onet_sync.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
+- [test_onet_integration.py](file://app/backend/tests/test_onet_integration.py)
 
 **Section sources**
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
@@ -89,6 +115,10 @@ HP --> SM
 - [main.py](file://app/backend/main.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [test_skill_taxonomy.py](file://app/backend/tests/test_skill_taxonomy.py)
+- [onet_cache.py](file://app/backend/services/onet/onet_cache.py)
+- [onet_sync.py](file://app/backend/services/onet/onet_sync.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
+- [test_onet_integration.py](file://app/backend/tests/test_onet_integration.py)
 
 ## Core Components
 - **SKILL_TAXONOMY**: Comprehensive hierarchical skill taxonomy with 17 domains and 518 skills organized into subcategories, replacing the previous MASTER_SKILLS approach.
@@ -97,6 +127,8 @@ HP --> SM
 - **SkillsRegistry**: Database-backed registry with in-memory flashtext processor, supporting hot-reload capability and maintaining backward compatibility.
 - **Domain Classification**: Hierarchical domain mapping with subcategory-level precision for accurate skill categorization.
 - **Database Model**: Enhanced Skill model supporting taxonomy integration, domain mapping, and frequency tracking.
+- **O*NET Integration**: SQLite-based caching system with occupation-aware skill validation, graceful degradation, and authoritative validation.
+- **match_skills_with_onet**: Enhanced skill matching function that integrates O*NET context for improved accuracy.
 
 Key responsibilities:
 - Maintaining comprehensive domain-clustered skill taxonomy with 17 distinct domains
@@ -104,14 +136,19 @@ Key responsibilities:
 - Supporting subcategory-level validation for high-collision skills
 - Providing backward compatibility with existing MASTER_SKILLS structure
 - Enabling dynamic skill loading and hot-reloading without application restart
+- **O*NET Integration**: Managing local SQLite cache, synchronizing with O*NET data, and providing occupation-aware validation
+- **Graceful Degradation**: Operating without O*NET data while maintaining full functionality
 
 **Section sources**
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [parser_service.py](file://app/backend/services/parser_service.py)
+- [onet_cache.py](file://app/backend/services/onet/onet_cache.py)
+- [onet_sync.py](file://app/backend/services/onet/onet_sync.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
 
 ## Architecture Overview
-The skills registry architecture integrates a comprehensive domain-clustered taxonomy with in-memory fast text processing and sophisticated validation logic. The system seeds skills from SKILL_TAXONOMY, stores them in the database with domain classification, and loads them into a flashtext processor for efficient matching. The two-pass validation system ensures accuracy by requiring subcategory-level context for high-collision skills.
+The skills registry architecture integrates a comprehensive domain-clustered taxonomy with in-memory fast text processing, sophisticated validation logic, and O*NET-based occupation-aware validation. The system seeds skills from SKILL_TAXONOMY, stores them in the database with domain classification, and loads them into a flashtext processor for efficient matching. The two-pass validation system ensures accuracy by requiring subcategory-level context for high-collision skills, while the O*NET integration provides authoritative occupation context for validation.
 
 ```mermaid
 sequenceDiagram
@@ -120,6 +157,7 @@ participant MAIN as "main.py"
 participant SR as "SkillsRegistry"
 participant DB as "Database"
 participant REG as "flashtext Processor"
+participant ONET as "ONET Validator"
 APP->>MAIN : Initialize app
 MAIN->>SR : seed_if_empty(db)
 SR->>DB : Upsert skills from SKILL_TAXONOMY (518 skills)
@@ -127,16 +165,24 @@ SR->>DB : Build domain mappings and subcategory profiles
 MAIN->>SR : load(db)
 SR->>DB : Query active skills with taxonomy data
 SR->>REG : Build KeywordProcessor with taxonomy + aliases
-SR-->>APP : Skills registry ready with 518 skills across 17 domains
+Note over ONET : Optional O*NET Integration
+ONET->>ONET : Initialize validator (lazy)
+ONET->>ONET : Check cache availability
+APP->>APP : match_skills_with_onet()
+APP->>ONET : Validate skills against occupation context
+ONET-->>APP : Return O*NET validation results
+APP-->>APP : Skills registry ready with 518 skills across 17 domains
 ```
 
 **Diagram sources**
 - [main.py](file://app/backend/main.py)
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
 
 **Section sources**
 - [main.py](file://app/backend/main.py)
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
 
 ## Detailed Component Analysis
 
@@ -411,6 +457,7 @@ Enhanced normalization and matching logic with taxonomy support:
 - **_get_skill_domains()**: Returns set of top-level domain names for a skill using SKILL_TAXONOMY
 - **_get_skill_subcategory_keys()**: Returns set of (domain, subcategory) tuples for precise validation
 - **match_skills()**: Implements two-pass validation system with subcategory-level context checking
+- **match_skills_with_onet()**: Enhanced matching with O*NET occupation-aware validation
 
 **Section sources**
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
@@ -476,10 +523,99 @@ Enhanced advanced features:
 - **Two-pass validation system**: Eliminates false positives by requiring supporting context
 - **Backward compatibility**: Maintains MASTER_SKILLS for legacy integrations
 - **Taxonomy-aware matching**: Accurate skill categorization based on domain and subcategory relationships
+- **O*NET Integration**: Occupation-aware validation with authoritative data source
+- **Graceful Degradation**: Continues operation without O*NET data while maintaining functionality
 
 **Section sources**
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
 - [db_models.py](file://app/backend/models/db_models.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
+
+## O*NET Integration System
+
+### ONETCache: SQLite-Based Cache Manager
+The ONETCache provides a local SQLite database for storing O*NET occupational data with comprehensive indexing and metadata support:
+
+**Core Features:**
+- **Schema Management**: Automatic table creation with proper constraints and indexes
+- **Metadata Tracking**: Stores O*NET version, download date, and statistics
+- **Occupation Management**: Upsert operations for SOC codes, titles, and descriptions
+- **Technology Skills**: Comprehensive skill mapping with hot technology and in-demand indicators
+- **Alternate Titles**: Support for job title variations and synonyms
+- **Query Optimization**: Indexes for fast skill lookup and title matching
+
+**Database Schema:**
+- **onet_occupation**: SOC code, title, description
+- **onet_technology_skill**: Skill mapping with commodity codes and validation flags
+- **onet_alternate_title**: Job title variations and short forms
+- **onet_metadata**: System metadata and statistics
+
+**Section sources**
+- [onet_cache.py](file://app/backend/services/onet/onet_cache.py)
+
+### ONETSync: Data Synchronization Script
+The ONETSync script handles downloading and processing O*NET data from the official source:
+
+**Key Capabilities:**
+- **Automated Download**: Downloads O*NET database ZIP from official source
+- **CSV Parsing**: Processes Occupation Data, Technology Skills, and Alternate Titles
+- **Data Validation**: Column mapping and validation with error handling
+- **Progress Tracking**: Logging and progress reporting during sync
+- **Fallback Handling**: Graceful handling of network and parsing errors
+
+**Supported Files:**
+- Occupation Data.txt: SOC code, title, description
+- Technology Skills.txt: Skills with hot technology and in-demand flags
+- Alternate Titles.txt: Job title variations and synonyms
+
+**Section sources**
+- [onet_sync.py](file://app/backend/services/onet/onet_sync.py)
+
+### ONETValidator: Occupation-Aware Validation
+The ONETValidator provides authoritative skill validation against O*NET occupational data:
+
+**Validation Features:**
+- **Occupation Resolution**: Maps job titles to SOC codes with confidence scores
+- **Skill Validation**: Validates skills against occupation-specific technology skills
+- **Hot Technology Detection**: Identifies skills marked as hot technology or in-demand
+- **Batch Processing**: Validates multiple skills against occupation context
+- **Graceful Degradation**: Operates without O*NET data while maintaining functionality
+
+**Validation Methods:**
+- **resolve_occupation()**: Maps job titles to SOC codes with confidence
+- **validate_skill()**: Checks individual skill recognition for occupation
+- **validate_skills_batch()**: Validates multiple skills with match ratios
+- **get_expected_skills()**: Retrieves all technology skills for occupation
+
+**Section sources**
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
+
+### Integration with Skill Matching
+The O*NET integration enhances the skill matching process through match_skills_with_onet:
+
+**Integration Benefits:**
+- **Occupation Context**: Validates skills against authoritative O*NET data
+- **False Positive Prevention**: Prevents homonym skill recognition (e.g., railway, rtos)
+- **Hot Technology Identification**: Flags skills marked as hot technology or in-demand
+- **Match Ratio Enhancement**: Provides occupation-specific match ratios
+- **Graceful Fallback**: Continues operation without O*NET data
+
+**Section sources**
+- [skill_matcher.py](file://app/backend/services/skill_matcher.py)
+- [test_onet_integration.py](file://app/backend/tests/test_onet_integration.py)
+
+### O*NET Data Cache Management
+The O*NET data cache system manages local storage and synchronization:
+
+**Cache Features:**
+- **Local Storage**: SQLite database in data/onet/db/onet_cache.db
+- **Automatic Sync**: Command-line interface for data synchronization
+- **Version Tracking**: Metadata tracking for O*NET version and update dates
+- **Performance Optimization**: Indexes and query optimization for fast lookups
+- **Maintenance Support**: Tools for cache population and validation
+
+**Section sources**
+- [README.md](file://data/onet/README.md)
 
 ## Dependency Analysis
 The enhanced skills registry depends on:
@@ -488,16 +624,22 @@ The enhanced skills registry depends on:
 - Parser service for integration with enhanced matching
 - Application bootstrap for initialization with taxonomy seeding
 - Test suite for taxonomy validation
+- **O*NET Integration**: SQLite cache, synchronization script, and validation service
+- **Hybrid Pipeline**: Integration with O*NET validation for enhanced matching
 
 ```mermaid
 graph TB
 SM["skill_matcher.py"] --> DBM["db_models.py"]
 SM --> PS["parser_service.py"]
 SM --> CONST["constants.py"]
+SM --> OV["onet_validator.py"]
 MAIN["main.py"] --> SM
 DBM --> MIG["001_enrich_candidates_add_caches.py"]
 TST["test_skill_taxonomy.py"] --> SM
+OTST["test_onet_integration.py"] --> OV
 HP["hybrid_pipeline.py"] --> SM
+OC["onet_cache.py"] --> OS["onet_sync.py"]
+OV --> OC
 ```
 
 **Diagram sources**
@@ -508,7 +650,11 @@ HP["hybrid_pipeline.py"] --> SM
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 - [main.py](file://app/backend/main.py)
 - [test_skill_taxonomy.py](file://app/backend/tests/test_skill_taxonomy.py)
+- [test_onet_integration.py](file://app/backend/tests/test_onet_integration.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [onet_cache.py](file://app/backend/services/onet/onet_cache.py)
+- [onet_sync.py](file://app/backend/services/onet/onet_sync.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
 
 **Section sources**
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
@@ -518,7 +664,11 @@ HP["hybrid_pipeline.py"] --> SM
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 - [main.py](file://app/backend/main.py)
 - [test_skill_taxonomy.py](file://app/backend/tests/test_skill_taxonomy.py)
+- [test_onet_integration.py](file://app/backend/tests/test_onet_integration.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [onet_cache.py](file://app/backend/services/onet/onet_cache.py)
+- [onet_sync.py](file://app/backend/services/onet/onet_sync.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
 
 ## Performance Considerations
 Enhanced performance optimizations:
@@ -528,9 +678,14 @@ Enhanced performance optimizations:
 - **Database indexing**: Optimized indexes for taxonomy queries and skill lookups
 - **Memory efficiency**: Hierarchical structure reduces memory overhead compared to flat lists
 - **Backward compatibility**: Maintains performance of existing MASTER_SKILLS integration
+- **O*NET Cache Optimization**: SQLite indexing and query optimization for fast validation
+- **Graceful Degradation**: Minimal performance impact when O*NET data is unavailable
+- **Lazy Initialization**: ONET validator initialized only when needed
 
 **Section sources**
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
+- [onet_cache.py](file://app/backend/services/onet/onet_cache.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
 
 ## Troubleshooting Guide
 Enhanced troubleshooting for the new taxonomy system:
@@ -541,10 +696,24 @@ Enhanced troubleshooting for the new taxonomy system:
 - **Hot-reload not taking effect**: Confirm rebuild() is called and the registry is marked as unloaded
 - **Taxonomy validation errors**: Use test_skill_taxonomy.py to validate taxonomy structure integrity
 - **Performance issues**: Monitor two-pass validation overhead and optimize taxonomy structure
+- **O*NET Cache Issues**: Check data/onet/db/onet_cache.db accessibility and SQLite connectivity
+- **Synchronization Failures**: Verify network connectivity and O*NET data source availability
+- **Validation Errors**: Check O*NET validator availability and job title resolution
+- **Graceful Degradation**: Confirm fallback behavior when O*NET data is unavailable
 
 **Section sources**
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
 - [test_skill_taxonomy.py](file://app/backend/tests/test_skill_taxonomy.py)
+- [test_onet_integration.py](file://app/backend/tests/test_onet_integration.py)
+- [onet_cache.py](file://app/backend/services/onet/onet_cache.py)
+- [onet_sync.py](file://app/backend/services/onet/onet_sync.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
 
 ## Conclusion
-The enhanced skills registry system in Resume AI provides a robust, extensible foundation for managing skills with comprehensive domain clustering and sophisticated validation. The new SKILL_TAXONOMY structure with 17 distinct domains and 518 carefully organized skills, combined with the two-pass validation system, delivers unprecedented accuracy in skill matching while maintaining backward compatibility. The system's hierarchical approach to skill organization, subcategory-level validation, and taxonomy-aware matching enables precise domain classification and eliminates false positives that plagued the previous MASTER_SKILLS approach. By leveraging database-backed persistence, in-memory flashtext processing, and hot-reload capabilities, it supports continuous evolution of skill categories, alias mappings, and domain recognition. Following the extension guidelines and maintenance procedures outlined here will enable seamless integration of new skills into the taxonomy and improved matching performance at scale.
+The enhanced skills registry system in Resume AI provides a robust, extensible foundation for managing skills with comprehensive domain clustering, sophisticated validation, and authoritative O*NET integration. The new SKILL_TAXONOMY structure with 17 distinct domains and 518 carefully organized skills, combined with the two-pass validation system and O*NET-powered occupation-aware validation, delivers unprecedented accuracy in skill matching while maintaining backward compatibility.
+
+The O*NET integration adds four core modules (onet_cache.py, onet_sync.py, onet_validator.py) that provide authoritative occupational context, reduce false positives, and improve matching accuracy with graceful degradation capabilities. The system's hierarchical approach to skill organization, subcategory-level validation, taxonomy-aware matching, and O*NET-powered validation enables precise domain classification and eliminates false positives that plagued the previous MASTER_SKILLS approach.
+
+By leveraging database-backed persistence, in-memory flashtext processing, hot-reload capabilities, and comprehensive O*NET integration, the system supports continuous evolution of skill categories, alias mappings, domain recognition, and authoritative validation. Following the extension guidelines and maintenance procedures outlined here will enable seamless integration of new skills into the taxonomy, improved matching performance at scale, and authoritative validation powered by O*NET data.
+
+The addition of O*NET integration represents a significant advancement in skill validation accuracy, providing occupation-aware context that prevents homonym skill recognition and ensures that skills are validated against authoritative occupational standards. This enhancement makes the system more reliable for production use while maintaining the flexibility and extensibility required for continued growth and evolution.
