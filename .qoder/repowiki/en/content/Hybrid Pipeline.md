@@ -20,23 +20,26 @@
 - [video_service.py](file://app/backend/services/video_service.py)
 - [candidates.py](file://app/backend/routes/candidates.py)
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
+- [skill_matcher.py](file://app/backend/services/skill_matcher.py)
+- [risk_calculator.py](file://app/backend/services/risk_calculator.py)
+- [constants.py](file://app/backend/services/constants.py)
+- [test_skill_taxonomy.py](file://app/backend/tests/test_skill_taxonomy.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- **Major Refactoring**: Hybrid pipeline reduced from 700+ lines to ~200 lines by delegating scoring responsibilities to new deterministic framework
-- **Deterministic Scoring Engine**: New centralized scoring system in fit_scorer.py with hard caps and eligibility gates
-- **Enhanced Domain Detection**: Improved domain classification with confidence scoring and cross-validation
-- **Eligibility Gates**: New deterministic eligibility checking with structured rejection reasons
-- **Streamlined Architecture**: Simplified pipeline with focused responsibilities for each component
-- **Improved Reliability**: Enhanced fallback mechanisms and error handling throughout the system
+- **Enhanced Two-Pass Validation System**: Implemented domain co-occurrence validation for high-collision skills in match_skills() to prevent false positives
+- **Improved Error Handling**: Enhanced exception management for deterministic engine failures with better fallback mechanisms
+- **Refined Risk Signal Calculations**: Upgraded risk penalty calculation logic with improved severity scoring
+- **Structured Skill Taxonomy**: Added comprehensive domain-clustered skill taxonomy for precise subcategory validation
+- **Hard Collision Skill Management**: Introduced HIGH_COLLISION_SKILLS list with domain-specific validation requirements
 
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [System Architecture](#system-architecture)
 3. [Core Components](#core-components)
 4. [Hybrid Pipeline Implementation](#hybrid-pipeline-implementation)
-5. [Skills Registry System](#skills-registry-system)
+5. [Enhanced Skills Registry System](#enhanced-skills-registry-system)
 6. [Background Processing](#background-processing)
 7. [Status Tracking and Polling](#status-tracking-and-polling)
 8. [API Integration](#api-integration)
@@ -49,7 +52,7 @@
 
 The Hybrid Pipeline represents a sophisticated resume analysis system that combines the speed and reliability of pure Python processing with the contextual understanding of Large Language Models (LLMs). This architecture optimizes for both performance and accuracy by implementing a two-phase analysis approach: a fast Python-based scoring phase followed by an LLM-powered narrative generation phase.
 
-**Updated** The system has undergone a major refactoring that dramatically simplifies its architecture. The hybrid pipeline has been streamlined from 700+ lines to approximately 200 lines by delegating complex scoring responsibilities to a new centralized deterministic framework. This refactoring introduces a robust scoring engine that applies hard caps and eligibility gates, ensuring consistent and reliable results while maintaining the system's ability to generate comprehensive LLM narratives.
+**Updated** The system has undergone significant enhancements to address false positive skill matching through a sophisticated two-pass validation system. The new domain co-occurrence validation prevents high-collision skills like "railway" from being incorrectly matched when extracted from raw text without proper domain context. Additionally, improved error handling provides better exception management for deterministic engine failures, while refined risk signal calculations offer more accurate penalty assessments.
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
@@ -73,7 +76,7 @@ Hybrid[Hybrid Pipeline]
 Agent[Agent Pipeline]
 END
 subgraph "Analysis Layer"
-Skills[Skills Registry]
+Skills[Enhanced Skills Registry]
 LLM[LLM Services]
 Cache[JD Cache]
 CB[Circuit Breaker]
@@ -142,6 +145,7 @@ The architecture implements several key design principles:
 - **Data Truncation Protection**: Automatic truncation of candidate profile data to prevent database constraint violations
 - **Circuit Breaker Integration**: Hybrid pipeline serves as fallback for hallucination detection in agent pipeline
 - **Enhanced Rule-Based Parsing**: Improved skill extraction with bidirectional substring matching and fuzzy logic
+- **Domain Co-Occurrence Validation**: Sophisticated two-pass validation system prevents false positives for high-collision skills
 
 ## Core Components
 
@@ -238,38 +242,47 @@ CalculateTotal --> End([Structured Gap Analysis])
 
 The gap detection algorithm implements interval merging to prevent double-counting of overlapping employment periods and provides objective classifications for gap severity thresholds.
 
-### Resume Parser
+### Enhanced Skills Registry System
 
-The Resume Parser extracts structured information from various document formats using multiple extraction strategies:
+**Updated** The enhanced skills registry system now features a comprehensive domain-clustered taxonomy and sophisticated two-pass validation to prevent false positives.
 
 ```mermaid
-sequenceDiagram
-participant Client as "Client"
-participant Parser as "ResumeParser"
-participant Extractor as "Format Extractors"
-participant Skills as "Skills Registry"
-Client->>Parser : parse_resume(file_bytes, filename)
-Parser->>Extractor : extract_text()
-Extractor-->>Parser : raw_text
-Parser->>Parser : _extract_work_experience()
-Parser->>Parser : _extract_skills()
-Parser->>Parser : _extract_education()
-Parser->>Parser : _extract_contact_info()
-Parser->>Skills : get_processor()
-Skills-->>Parser : KeywordProcessor
-Parser-->>Client : structured_data
+flowchart TD
+CandidateSkills[Candidate Skills] --> Normalization[Skill Normalization]
+Normalization --> Pass1[Pass 1: Structured Skills]
+Pass1 --> SubcategoryProfile[Build Subcategory Profile]
+SubcategoryProfile --> Pass2[Pass 2: Text-Extracted Skills]
+Pass2 --> Validation{High-Collision Skill?}
+Validation --> |Yes| DomainCheck[Domain Co-Occurrence Check]
+Validation --> |No| Accept[Accept Skill]
+DomainCheck --> HasContext{Has Supporting Context?}
+HasContext --> |Yes| Accept
+HasContext --> |No| Reject[Reject Skill]
+Accept --> FinalSet[Final Skill Set]
+Reject --> FinalSet
 ```
 
 **Diagram sources**
-- [parser_service.py:242-663](file://app/backend/services/parser_service.py#L242-L663)
+- [skill_matcher.py:735-852](file://app/backend/services/skill_matcher.py#L735-L852)
 
-The parser supports multiple document formats including PDF, DOCX, DOC, TXT, RTF, HTML, and ODT, with fallback mechanisms for robust text extraction.
+The enhanced skills registry provides:
+
+**Domain-Clustered Taxonomy**: Organized skills into 17 specialized domains including programming languages, web development, databases, cloud platforms, AI/ML, data engineering, and more.
+
+**Two-Pass Validation System**: 
+- Pass 1 validates structured skills from candidate profiles (always accepted)
+- Pass 2 validates text-extracted skills with domain co-occurrence requirements
+- High-collision skills require supporting subcategory context to prevent false positives
+
+**High-Collision Skill Management**: Skills like "railway", "rtos", "r", "go", and "c" require domain-specific context to avoid misclassification.
+
+**Enhanced Matching Algorithm**: Improved bidirectional substring matching with domain-aware validation to prevent false positives like "Java" matching "JavaScript".
 
 ## Hybrid Pipeline Implementation
 
 ### Two-Phase Architecture
 
-**Updated** The hybrid pipeline now operates as a streamlined orchestrator that delegates complex scoring to the new deterministic framework while maintaining the original two-phase approach.
+**Updated** The hybrid pipeline now operates as a streamlined orchestrator that delegates complex scoring to the new deterministic framework while maintaining the original two-phase approach with enhanced validation systems.
 
 ```mermaid
 sequenceDiagram
@@ -278,6 +291,7 @@ participant Route as "Analysis Route"
 participant Hybrid as "Hybrid Pipeline"
 participant Python as "Python Phase"
 participant Deterministic as "Deterministic Engine"
+participant Skills as "Enhanced Skills Registry"
 participant LLM as "LLM Phase"
 participant Background as "Background Task"
 participant Merge as "Merge Function"
@@ -291,7 +305,9 @@ Route->>Hybrid : run_hybrid_pipeline()
 Hybrid->>Python : _run_python_phase()
 Python->>Python : parse_jd_rules()
 Python->>Python : parse_resume_rules()
-Python->>Python : match_skills_rules()
+Python->>Skills : match_skills()
+Skills->>Skills : Two-pass validation with domain co-occurrence
+Skills-->>Python : Validated skill matches
 Python->>Python : score_education_rules()
 Python->>Python : score_experience_rules()
 Python->>Python : domain_architecture_rules()
@@ -326,7 +342,7 @@ Note over Agent,RuleBased : When threshold exceeded, use hybrid pipeline rules
 
 ### Phase 1: Python Processing (1-2 seconds)
 
-**Updated** The first phase executes entirely in Python, providing immediate results with comprehensive scoring through the new deterministic framework:
+**Updated** The first phase executes entirely in Python, providing immediate results with comprehensive scoring through the new deterministic framework and enhanced skills validation:
 
 **JD Analysis Components:**
 - **Role Title Extraction**: Identifies job titles using pattern matching and linguistic analysis
@@ -340,12 +356,14 @@ Note over Agent,RuleBased : When threshold exceeded, use hybrid pipeline rules
 - **Fuzzy Matching**: Enhanced rapidfuzz integration with 88% threshold for approximate string matching
 - **Alias Expansion**: Comprehensive alias handling with proper normalization
 - **Raw Text Scanning**: Additional skill extraction from resume text using flashtext processor
+- **Two-Pass Validation**: Sophisticated domain co-occurrence validation for high-collision skills
+- **Structured Skills Acceptance**: Skills from candidate profiles bypass validation (always accepted)
 
 **Candidate Profile Building:**
 - **Contact Information Extraction**: Name, email, phone, LinkedIn from resume
 - **Work Experience Parsing**: Extracts job titles, companies, dates, and descriptions
 - **Education Analysis**: Degree, field, institution, graduation year
-- **Skill Identification**: Extracts technical skills using skills registry
+- **Skill Identification**: Extracts technical skills using enhanced skills registry
 
 **Enhanced Deterministic Scoring:**
 **Updated** The new scoring system replaces the previous complex weighting approach with a three-tier deterministic evaluation:
@@ -448,62 +466,86 @@ The hybrid pipeline implements intelligent environment detection to optimize LLM
 - [hybrid_pipeline.py:1350-1365](file://app/backend/services/hybrid_pipeline.py#L1350-L1365)
 - [hybrid_pipeline.py:1167-1235](file://app/backend/services/hybrid_pipeline.py#L1167-L1235)
 
-## Skills Registry System
+## Enhanced Skills Registry System
 
-### Comprehensive Skill Database
+### Comprehensive Domain-Clustered Skill Taxonomy
 
-The skills registry contains over 400 technical skills organized into specialized categories:
+**Updated** The enhanced skills registry now features a sophisticated domain-clustered taxonomy with 17 specialized domains and comprehensive validation systems.
 
-**Programming Languages:**
-- Python, Java, JavaScript, TypeScript, C++, C#, Go, Rust, Swift, Ruby, PHP, R, MATLAB, Perl
-- Haskell, Erlang, Elixir, Clojure, F#, Lua, Dart, Zig, Ada, Assembly, Bash, PowerShell
+**Programming Languages Domain**:
+- Core Imperative: Python, Java, C++, C#, C, Go, Rust, Kotlin, Swift, Ruby, PHP, Perl, Ada, Assembly
+- Functional: Haskell, Erlang, Elixir, Clojure, F#, Lisp, Scheme, OCaml, PureScript, Elm, Scala
+- Scripting: Bash, PowerShell, Groovy, Lua, Perl
+- Specialized: R, MATLAB, Julia, SAS, SPSS, Minitab, Stata
+- Blockchain: Solidity, Vyper, Move, Cairo
 
-**Web Technologies:**
-- React, Vue.js, Angular, Next.js, Nuxt.js, Svelte, Astro, Remix, Gatsby
-- Node.js, Express.js, FastAPI, Django, Flask, Spring Boot, NestJS, Koa, Laravel
+**Web Development Domains**:
+- Frontend: React, Vue.js, Angular, Next.js, Nuxt.js, Svelte, Astro, Remix, Gatsby, and supporting libraries
+- Backend: Node.js, Python (FastAPI, Django, Flask), Java (Spring Boot), Go (Gin, Echo), Ruby (Rails), PHP (Laravel)
+- Databases: Relational (PostgreSQL, MySQL, MongoDB, Redis, Elasticsearch, Cassandra, DynamoDB)
+- Cloud Platforms: AWS, Google Cloud Platform, Microsoft Azure, DigitalOcean, Alibaba Cloud, Railway, Vercel
 
-**Databases and Data Systems:**
-- PostgreSQL, MySQL, SQLite, MongoDB, Redis, Elasticsearch, Cassandra, DynamoDB
-- Snowflake, BigQuery, Redshift, ClickHouse, Supabase, Firestore
+**AI/ML and Data Engineering**:
+- Core AI/ML: Machine Learning, Deep Learning, Neural Networks, Natural Language Processing, Computer Vision
+- Frameworks: PyTorch, TensorFlow, Scikit-learn, Hugging Face, LangChain, LlamaIndex
+- Data Engineering: Apache Spark, Pandas, NumPy, Apache Kafka, Airflow, DBT
 
-**Cloud and DevOps:**
-- AWS, Google Cloud Platform, Microsoft Azure, DigitalOcean, Alibaba Cloud
-- Docker, Kubernetes, Terraform, Ansible, Jenkins, GitHub Actions, GitLab CI
+### Enhanced Two-Pass Validation System
 
-**AI/ML and Data Science:**
-- Machine Learning, Deep Learning, Natural Language Processing, Computer Vision
-- PyTorch, TensorFlow, Scikit-learn, Hugging Face, LangChain, LlamaIndex
-- Apache Spark, Pandas, NumPy, Apache Kafka, Airflow, DBT
-
-### Advanced Matching Algorithm
-
-The skills matching system implements multiple layers of sophistication:
+**Updated** The new two-pass validation system in match_skills() prevents false positives by requiring domain co-occurrence context for high-collision skills:
 
 ```mermaid
 flowchart TD
 Input[Input Skills] --> Normalize[Normalize Skill Names]
-Normalize --> ExpandAliases[Expand Aliases]
-ExpandAliases --> ExactMatch[Exact Matches]
-ExactMatch --> SubstringMatch[Substring Matches]
-SubstringMatch --> FuzzyMatch[Fuzzy Matching]
-FuzzyMatch --> Aggregate[Aggregate Results]
+Normalize --> Pass1[Pass 1: Structured Skills]
+Pass1 --> Accept1[Accept All Structured Skills]
+Accept1 --> Pass2[Pass 2: Text-Extracted Skills]
+Pass2 --> CheckCollision{High-Collision Skill?}
+CheckCollision --> |No| Accept2[Accept Skill]
+CheckCollision --> |Yes| CheckContext[Check Domain Context]
+CheckContext --> HasContext{Has Supporting Context?}
+HasContext --> |Yes| Accept2
+HasContext --> |No| Reject[Reject Skill]
+Accept2 --> Aggregate[Aggregate Results]
+Reject --> Aggregate
 Aggregate --> Score[Calculate Scores]
 Score --> Output[Final Skill Set]
 ```
 
 **Diagram sources**
-- [hybrid_pipeline.py:731-800](file://app/backend/services/hybrid_pipeline.py#L731-L800)
+- [skill_matcher.py:735-852](file://app/backend/services/skill_matcher.py#L735-L852)
 
-The matching algorithm handles:
-- **Exact matches**: Direct skill name matches
-- **Alias expansion**: Recognizes variations like "js" for "javascript"
-- **Enhanced substring matching**: Bidirectional matching with improved precision to prevent false positives
-- **Fuzzy matching**: Uses rapidfuzz library for approximate string matching with 88% threshold
+The validation system handles:
+- **Pass 1**: All structured skills from candidate profiles are accepted without validation
+- **Pass 2**: Text-extracted skills undergo domain co-occurrence validation
+- **High-Collision Skills**: Skills like "railway", "rtos", "r", "go", "c" require supporting context
+- **Domain Context**: Skills must have at least one supporting skill from the same subcategory
 
 **Enhanced Bidirectional Substring Matching**: The system now implements improved bidirectional substring matching that prevents common false positives:
 - "Java" will not match "JavaScript" 
 - "SQL" will not match "SQLAlchemy"
 - Proper normalization ensures accurate matching while maintaining flexibility
+
+**High-Collision Skill Management**: The system identifies and validates high-collision skills that require domain context:
+- **Critical**: railway, rtos, r, go, c
+- **High**: swift, ruby, scala, spark, rocket, phoenix  
+- **Medium**: julia, nim, elixir, erlang, kotlin, terraform
+
+**Domain Co-Occurrence Validation**: Skills are validated against subcategory context using the domain-clustered taxonomy:
+- "railway" requires cloud platform context (AWS, GCP, Azure, Vercel, etc.)
+- "rtos" requires embedded systems context (FreeRTOS, ARM, microcontroller, etc.)
+- Prevents false positives when skills appear in business context without technical domain
+
+**Enhanced Testing Framework**: Comprehensive test coverage validates the two-pass validation system:
+- Prevents false positives for high-collision skills without proper context
+- Ensures structured skills are always accepted
+- Validates domain-specific acceptance patterns
+- Tests edge cases and boundary conditions
+
+**Section sources**
+- [skill_matcher.py:340-529](file://app/backend/services/skill_matcher.py#L340-L529)
+- [skill_matcher.py:735-852](file://app/backend/services/skill_matcher.py#L735-L852)
+- [test_skill_taxonomy.py:90-194](file://app/backend/tests/test_skill_taxonomy.py#L90-L194)
 
 ## Background Processing
 
@@ -788,7 +830,7 @@ The system maintains backward compatibility while extending functionality with d
 
 ### Comprehensive Test Coverage
 
-**Updated** The testing suite covers all aspects of the hybrid pipeline with extensive unit and integration tests, including the new deterministic scoring framework:
+**Updated** The testing suite covers all aspects of the hybrid pipeline with extensive unit and integration tests, including the new deterministic scoring framework and enhanced skills validation:
 
 **Test Categories:**
 - **Component Tests**: Individual function testing for each pipeline component
@@ -796,10 +838,12 @@ The system maintains backward compatibility while extending functionality with d
 - **Performance Tests**: Load testing and benchmarking
 - **Regression Tests**: Ensuring backward compatibility
 - **Deterministic Scoring Tests**: Testing new scoring engine with eligibility gates
+- **Skills Validation Tests**: Testing two-pass validation system and domain co-occurrence logic
 
 **Key Test Areas:**
 - **JD Parsing**: Validates role title extraction, experience requirements, and domain classification
 - **Enhanced Skill Matching**: Tests bidirectional substring matching and fuzzy matching algorithms
+- **Two-Pass Validation**: Tests domain co-occurrence validation for high-collision skills
 - **Gap Analysis**: Verifies date parsing, interval merging, and gap severity classification
 - **Background Processing**: Validates LLM fallback mechanisms and database integration
 - **Status Tracking**: Tests four-state status transitions and polling functionality
@@ -867,36 +911,50 @@ The system maintains backward compatibility while extending functionality with d
 - **Rule-Based Fallback**: Validates automatic switch to hybrid pipeline rule-based parsing
 - **Counter Reset**: Tests hourly reset of hallucination counter
 
-**Deterministic Scoring Tests:**
+**Enhanced Deterministic Scoring Tests:**
 - **Eligibility Gate Testing**: Tests domain mismatch, core skill, and experience requirements
 - **Hard Cap Validation**: Tests score caps based on eligibility and feature quality
 - **Weight Distribution Testing**: Tests configurable weight splits and score calculations
 - **Risk Penalty Testing**: Tests penalty calculation and recommendation enforcement
 - **Decision Explanation Testing**: Tests structured explanations with confidence scores
 
+**Enhanced Skills Validation Tests:**
+- **Two-Pass Validation Testing**: Tests domain co-occurrence validation for high-collision skills
+- **Structured Skills Acceptance**: Tests that structured skills are always accepted
+- **Domain Context Validation**: Tests proper acceptance of skills with supporting context
+- **False Positive Prevention**: Tests prevention of high-collision skill false positives
+- **Boundary Condition Testing**: Tests edge cases and validation thresholds
+
+**Section sources**
+- [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
+- [test_skill_taxonomy.py:1-194](file://app/backend/tests/test_skill_taxonomy.py#L1-L194)
+
 ## Performance Considerations
 
 ### Optimization Strategies
 
-**Updated** The hybrid pipeline implements multiple optimization techniques to achieve sub-second response times through the new deterministic scoring framework:
+**Updated** The hybrid pipeline implements multiple optimization techniques to achieve sub-second response times through the new deterministic scoring framework and enhanced skills validation:
 
 **Memory Management:**
 - Skills registry uses in-memory keyword processing for fast lookups
 - LLM model remains loaded in RAM for instant response times
 - Efficient string processing with proper memory cleanup
 - Deterministic scoring computed in-memory without external dependencies
+- Enhanced skills taxonomy optimized for validation performance
 
 **Computational Efficiency:**
 - Early termination for obvious cases (e.g., zero-length inputs)
 - Optimized regex patterns for skill extraction
 - Minimal object creation during processing loops
 - Deterministic feature scoring with hard caps reduces complexity
+- Two-pass validation optimized to minimize unnecessary processing
 
 **Caching Mechanisms:**
 - JD parsing cache prevents redundant processing
 - Skills registry cache reduces database queries
 - Candidate profile caching enables quick re-analysis
 - Deterministic scoring results cached for repeated use
+- Domain taxonomy cached for validation operations
 
 **Environment-Aware Optimizations:**
 - Dynamic parameter adjustment based on deployment type
@@ -912,7 +970,7 @@ The system maintains backward compatibility while extending functionality with d
 
 ### Scalability Features
 
-**Updated** The system includes enhanced scalability features with deterministic scoring:
+**Updated** The system includes enhanced scalability features with deterministic scoring and improved validation:
 
 **Concurrency Control:**
 - Semaphore-based rate limiting for LLM requests
@@ -967,6 +1025,17 @@ The system maintains backward compatibility while extending functionality with d
 - **Configurable Weights**: Pre-computed weight distributions reduce runtime overhead
 - **Structured Explanations**: Cached explanations improve response times
 - **Risk Penalties**: Pre-calculated penalties minimize runtime computation
+
+**Enhanced Skills Validation Performance:**
+- **Domain Taxonomy Caching**: Skills taxonomy cached for validation operations
+- **Two-Pass Optimization**: Minimizes unnecessary validation processing
+- **High-Collision Skill Filtering**: Reduces validation overhead for common skills
+- **Subcategory Context Building**: Efficient subcategory profile construction for validation
+
+**Enhanced Risk Calculation Performance:**
+- **Structured Signals**: Pre-computed risk signals minimize runtime calculation
+- **Penalty Lookup**: Cached penalty calculations reduce overhead
+- **Diminishing Returns**: Optimized penalty application for performance
 
 ## Troubleshooting Guide
 
@@ -1057,6 +1126,18 @@ The system maintains backward compatibility while extending functionality with d
 - **Solutions**: Check eligibility thresholds, validate weight distributions, review confidence scores
 - **Monitoring**: Watch for eligibility rejection reasons and confidence threshold violations
 
+**Enhanced Skills Validation Issues:**
+- **Symptoms**: False positive skill matches, missing valid skills
+- **Causes**: Domain co-occurrence validation failures, taxonomy configuration issues
+- **Solutions**: Check domain taxonomy completeness, validate high-collision skill configuration, review validation logic
+- **Monitoring**: Watch for validation warnings and skill matching anomalies
+
+**Enhanced Risk Calculation Issues:**
+- **Symptoms**: Unexpected risk penalties, incorrect recommendation thresholds
+- **Causes**: Risk signal configuration issues, penalty calculation errors
+- **Solutions**: Check risk severity penalties configuration, validate risk signal generation, review recommendation thresholds
+- **Monitoring**: Watch for risk signal counts and penalty calculations
+
 ### Enhanced Diagnostic Tools
 
 **Health Monitoring:**
@@ -1145,15 +1226,28 @@ The system maintains backward compatibility while extending functionality with d
 - **Risk Penalty Monitoring**: Tracking penalty calculation and recommendation enforcement
 - **Decision Explanation Validation**: Ensuring structured explanations are properly generated
 
+**Enhanced Skills Validation Diagnostics:**
+- **Two-Pass Validation Logs**: Monitoring domain co-occurrence validation effectiveness
+- **High-Collision Skill Validation**: Tracking validation of critical skills like railway, rtos, r, go, c
+- **Domain Context Detection**: Ensuring proper subcategory context recognition
+- **False Positive Prevention**: Monitoring validation effectiveness in preventing false matches
+- **Taxonomy Completeness**: Validating skills taxonomy coverage for all high-collision skills
+
+**Enhanced Risk Calculation Diagnostics:**
+- **Risk Signal Generation**: Monitoring risk signal detection and categorization
+- **Penalty Calculation Validation**: Ensuring proper risk penalty application
+- **Recommendation Threshold Monitoring**: Validating recommendation threshold enforcement
+- **Severity Penalty Validation**: Ensuring proper risk severity penalty application
+
 **Section sources**
 - [hybrid_pipeline.py:135-147](file://app/backend/services/hybrid_pipeline.py#L135-L147)
 - [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
 
 ## Conclusion
 
-**Updated** The Hybrid Pipeline represents a mature, production-ready solution that successfully balances computational efficiency with intelligent analysis through a major architectural refactoring. The system has been streamlined from 700+ lines to approximately 200 lines by delegating complex scoring responsibilities to a new centralized deterministic framework.
+**Updated** The Hybrid Pipeline represents a mature, production-ready solution that successfully balances computational efficiency with intelligent analysis through significant architectural enhancements. The system has been streamlined from 700+ lines to approximately 200 lines by delegating complex scoring responsibilities to a new centralized deterministic framework.
 
-The recent architectural enhancements significantly improve the system's reliability and data integrity through comprehensive candidate profile data handling and enhanced LLM response validation. The implementation of automatic truncation for current role and company information to 255 characters prevents database constraint violations while generating warning logs to alert administrators of potential data loss. This dual-implementation approach ensures data integrity across both the hybrid pipeline service and analyze route, providing robust protection against database errors.
+**Enhanced Two-Pass Validation System**: The most significant improvement is the implementation of a sophisticated two-pass validation system in match_skills() that prevents false positives by requiring domain co-occurrence context for high-collision skills. This addresses critical issues where skills like "railway" could be incorrectly matched from business context without proper technical domain validation.
 
 **Enhanced Deterministic Scoring Engine**: The new centralized scoring system in fit_scorer.py provides robust, deterministic candidate evaluation with hard caps and structured risk management. This eliminates the complexity of the previous weighting system while ensuring consistent and predictable results.
 
@@ -1188,6 +1282,8 @@ The recent architectural enhancements significantly improve the system's reliabi
 - **Enhanced Deterministic Scoring**: Centralized scoring engine with hard caps and eligibility gates
 - **Enhanced Eligibility Validation**: Structured rejection reasons with confidence thresholds
 - **Enhanced Domain Detection**: Confidence-based domain classification with cross-validation
+- **Enhanced Skills Validation**: Sophisticated two-pass validation preventing false positives
+- **Enhanced Risk Calculation**: Improved penalty calculation with structured risk signals
 
 **Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results through deterministic framework
@@ -1212,6 +1308,8 @@ The recent architectural enhancements significantly improve the system's reliabi
 - **Enhanced Deterministic Scoring** providing consistent and predictable results
 - **Enhanced Eligibility Validation** ensuring only qualified candidates advance
 - **Enhanced Domain Detection** improving accuracy of role matching and evaluation
+- **Enhanced Skills Validation** preventing false positives through domain co-occurrence requirements
+- **Enhanced Risk Calculation** providing accurate penalty assessments
 
 The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes. The comprehensive status tracking and polling architecture ensure reliable operation in production environments while maintaining responsive user experiences.
 
@@ -1232,8 +1330,10 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Ultra-Short Response Protection**: Automated validation prevents malformed JSON parsing errors
 - **Circuit Breaker Effectiveness**: Seamless fallback ensures system stability under hallucination conditions
 - **Enhanced Deterministic Scoring**: Consistent and predictable results through hard caps and eligibility gates
-- **Enhanced Eligibility Validation**: Structured rejection reasons improve system reliability
-- **Enhanced Domain Detection**: Confidence-based classification improves accuracy
+- **Enhanced Eligibility Validation**: Structured rejection reasons improve system accuracy
+- **Enhanced Domain Detection**: Confidence-based classification improves matching accuracy
+- **Enhanced Skills Validation**: Sophisticated two-pass validation prevents false positives
+- **Enhanced Risk Calculation**: Accurate penalty calculations improve recommendation quality
 
 **Enhanced Data Persistence Benefits:**
 - **Reliable Report Availability**: Complete analysis data remains accessible even when LLM processing fails
@@ -1246,6 +1346,7 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Ultra-Short Response Reliability**: Automated validation prevents malformed JSON parsing errors consistently
 - **Circuit Breaker Reliability**: Seamless fallback ensures system stability under hallucination conditions
 - **Enhanced Deterministic Scoring Reliability**: Consistent results through hard caps and eligibility gates
+- **Enhanced Skills Validation Reliability**: Sophisticated validation prevents false positives consistently
 
 **Enhanced Streaming Benefits:**
 - **Robust Timeout Handling**: Improved timeout management and graceful degradation
@@ -1264,10 +1365,10 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 
 **Enhanced Ultra-Short Response Detection Benefits:**
 - **System Stability**: Prevention of malformed JSON parsing errors and system crashes
-- **Robust Error Handling**: Automatic retry mechanism with higher temperature (0.3) for edge cases
+- **Robust Error Recovery**: Intelligent retry mechanism with higher temperature (0.3) handles edge cases effectively
 - **Performance Optimization**: Minimal overhead while providing comprehensive response validation
 - **Diagnostic Efficiency**: Comprehensive logging enables rapid troubleshooting of malformed responses
-- **User Experience**: Seamless handling of LLM failures without user intervention
+- **User Experience**: Seamless handling of LLM failures improves overall system reliability
 - **Data Quality Assurance**: Ensures only valid JSON narratives are processed and stored
 
 **Enhanced Circuit Breaker Benefits:**
@@ -1285,6 +1386,19 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Transparency**: Structured explanations with confidence scores
 - **Scalability**: Deterministic scoring reduces computational overhead
 
+**Enhanced Skills Validation Benefits:**
+- **Accuracy**: Sophisticated two-pass validation prevents false positives
+- **Reliability**: Domain co-occurrence requirements ensure context-appropriate matches
+- **Performance**: Optimized validation reduces processing overhead
+- **Quality**: Enhanced taxonomy provides comprehensive skill coverage
+- **Scalability**: Efficient validation scales with growing skill databases
+
+**Enhanced Risk Calculation Benefits:**
+- **Accuracy**: Structured risk signal detection improves penalty calculations
+- **Reliability**: Standardized risk severity penalties ensure consistent application
+- **Performance**: Pre-computed penalties reduce runtime overhead
+- **Quality**: Comprehensive risk assessment improves recommendation accuracy
+
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
 **Enhanced Architecture Benefits:**
@@ -1296,13 +1410,14 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced Deterministic Scoring**: Centralized framework provides consistent results
 - **Enhanced Eligibility Validation**: Structured rejection improves system accuracy
 - **Enhanced Domain Detection**: Confidence-based classification improves matching accuracy
+- **Enhanced Skills Validation**: Sophisticated two-pass validation prevents false positives
+- **Enhanced Risk Calculation**: Accurate penalty calculations improve recommendation quality
 - **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
 - **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
 - **Data Integrity Enhancement**: Automatic truncation prevents database constraint violations
 - **Administrative Transparency**: Warning logs provide visibility into data truncation events
 - **Ultra-Short Response Protection**: Comprehensive validation prevents malformed JSON parsing errors
 - **Circuit Breaker Integration**: Critical fallback mechanism ensures system stability
-- **Enhanced Rule-Based Parsing**: Improved skill extraction algorithms provide accurate results
 
 **Enhanced Data Merging Benefits:**
 - **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
@@ -1317,6 +1432,8 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Ultra-Short Response Reliability**: Automated validation prevents malformed JSON parsing errors consistently
 - **Circuit Breaker Reliability**: Seamless fallback ensures system stability under hallucination conditions
 - **Enhanced Deterministic Scoring Reliability**: Consistent results through hard caps and eligibility gates
+- **Enhanced Skills Validation Reliability**: Sophisticated validation prevents false positives consistently
+- **Enhanced Risk Calculation Reliability**: Accurate penalty calculations improve recommendation quality
 
 **Enhanced Streaming Error Handling Benefits:**
 - **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
@@ -1356,6 +1473,19 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Performance Optimization**: Eliminates complex calculations for ineligible candidates
 - **Transparency Enhancement**: Structured explanations with confidence scores improve user understanding
 - **Scalability Improvement**: Deterministic scoring reduces computational overhead for large-scale operations
+
+**Enhanced Skills Validation Benefits:**
+- **Systematic Accuracy**: Sophisticated two-pass validation prevents false positives consistently
+- **Robust Reliability**: Domain co-occurrence requirements ensure context-appropriate matches
+- **Performance Optimization**: Efficient validation reduces processing overhead significantly
+- **Quality Enhancement**: Comprehensive taxonomy provides superior skill coverage and matching
+- **Scalability Improvement**: Optimized validation scales effectively with growing skill databases
+
+**Enhanced Risk Calculation Benefits:**
+- **Systematic Accuracy**: Structured risk signal detection improves penalty calculations
+- **Robust Reliability**: Standardized risk severity penalties ensure consistent application
+- **Performance Optimization**: Pre-computed penalties reduce runtime overhead substantially
+- **Quality Enhancement**: Comprehensive risk assessment improves recommendation accuracy significantly
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -1366,6 +1496,8 @@ The system's architecture represents a mature balance between functionality and 
 - **User Experience**: Recruiters always receive complete analysis data, preventing confusion from 'PENDING' state displays
 - **Data Integrity**: Maintains the integrity of analysis history even when LLM processing encounters issues
 - **Deterministic Scoring Reliability**: Consistent results through hard caps and eligibility gates ensure predictable performance
+- **Skills Validation Reliability**: Sophisticated validation prevents false positives consistently
+- **Risk Calculation Reliability**: Accurate penalty calculations improve recommendation quality
 
 **Enhanced Streaming Error Handling Benefits:**
 - **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
@@ -1406,6 +1538,19 @@ The system's architecture represents a mature balance between functionality and 
 - **Transparency Enhancement**: Structured explanations with confidence scores improve user understanding
 - **Scalability Improvement**: Deterministic scoring reduces computational overhead for large-scale operations
 
+**Enhanced Skills Validation Benefits:**
+- **Systematic Accuracy**: Sophisticated two-pass validation prevents false positives consistently
+- **Robust Reliability**: Domain co-occurrence requirements ensure context-appropriate matches
+- **Performance Optimization**: Efficient validation reduces processing overhead significantly
+- **Quality Enhancement**: Comprehensive taxonomy provides superior skill coverage and matching
+- **Scalability Improvement**: Optimized validation scales effectively with growing skill databases
+
+**Enhanced Risk Calculation Benefits:**
+- **Systematic Accuracy**: Structured risk signal detection improves penalty calculations
+- **Robust Reliability**: Standardized risk severity penalties ensure consistent application
+- **Performance Optimization**: Pre-computed penalties reduce runtime overhead substantially
+- **Quality Enhancement**: Comprehensive risk assessment improves recommendation accuracy significantly
+
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
 **Enhanced Architecture Benefits:**
@@ -1417,6 +1562,8 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced Deterministic Scoring**: Centralized framework provides consistent results
 - **Enhanced Eligibility Validation**: Structured rejection improves system accuracy
 - **Enhanced Domain Detection**: Confidence-based classification improves matching accuracy
+- **Enhanced Skills Validation**: Sophisticated two-pass validation prevents false positives
+- **Enhanced Risk Calculation**: Accurate penalty calculations improve recommendation quality
 - **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
 - **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
 - **Data Integrity Enhancement**: Automatic truncation prevents database constraint violations
@@ -1437,23 +1584,20 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Ultra-Short Response Reliability**: Automated validation prevents malformed JSON parsing errors consistently
 - **Circuit Breaker Reliability**: Seamless fallback ensures system stability under hallucination conditions
 - **Enhanced Deterministic Scoring Reliability**: Consistent results through hard caps and eligibility gates
+- **Enhanced Skills Validation Reliability**: Sophisticated validation prevents false positives consistently
+- **Enhanced Risk Calculation Reliability**: Accurate penalty calculations improve recommendation quality
 
-The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
+**Enhanced Skills Validation Benefits:**
+- **Sophisticated Two-Pass Validation**: Prevents false positives through domain co-occurrence requirements
+- **Enhanced Taxonomy Coverage**: Comprehensive domain-clustered skill taxonomy improves matching accuracy
+- **Performance Optimization**: Efficient validation reduces processing overhead significantly
+- **Quality Enhancement**: Systematic validation prevents high-collision skill false positives
+- **Scalability Improvement**: Optimized validation scales with growing skill databases
 
-**Enhanced Architecture Benefits:**
-- **Reduced Complexity**: Streamlined error handling and weight schema conversion logic
-- **Improved Maintainability**: Easier to understand and modify core functionality
-- **Enhanced Reliability**: Fewer failure points in the system architecture
-- **Better Performance**: Optimized Python phase execution without complex fallback mechanisms
-- **Future Extensibility**: Clean foundation for adding new features without architectural debt
-- **Enhanced Deterministic Scoring**: Centralized framework provides consistent results
-- **Enhanced Eligibility Validation**: Structured rejection improves system accuracy
-- **Enhanced Domain Detection**: Confidence-based classification improves matching accuracy
-- **Data Persistence Enhancement**: Complete report data remains available through robust merging mechanisms
-- **Streaming Performance**: Enhanced error handling ensures reliable real-time operations
-- **Data Integrity Enhancement**: Automatic truncation prevents database constraint violations
-- **Administrative Transparency**: Warning logs provide visibility into data truncation events
-- **Ultra-Short Response Protection**: Comprehensive validation prevents malformed JSON parsing errors
-- **Circuit Breaker Integration**: Critical fallback mechanism ensures system stability
+**Enhanced Risk Calculation Benefits:**
+- **Structured Risk Signal Detection**: Comprehensive risk assessment improves penalty accuracy
+- **Standardized Penalty Application**: Consistent risk severity penalties ensure fair scoring
+- **Performance Optimization**: Pre-computed penalties reduce runtime overhead
+- **Quality Enhancement**: Accurate risk calculations improve recommendation reliability
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.

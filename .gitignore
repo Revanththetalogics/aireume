@@ -12,6 +12,7 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
+data/onet/db/
 
 # Frontend
 node_modules/

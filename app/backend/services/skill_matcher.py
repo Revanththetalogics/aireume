@@ -9,6 +9,49 @@ from typing import Dict, List, Any
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# O*NET OCCUPATION-AWARE VALIDATION (OPTIONAL)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_onet_validator = None
+
+
+def _get_onet_validator():
+    """Lazy singleton for ONETValidator."""
+    global _onet_validator
+    if _onet_validator is None:
+        try:
+            from app.backend.services.onet import ONETValidator
+            _onet_validator = ONETValidator()
+        except Exception as e:
+            logger.warning("ONETValidator init failed: %s", e)
+            _onet_validator = None
+    return _onet_validator
+
+
+def match_skills_with_onet(
+    candidate_skills, jd_skills, jd_text="", jd_nice_to_have=None, job_title=None
+):
+    """Enhanced skill matching with O*NET occupation context.
+
+    Falls back to standard :func:`match_skills` if O*NET data is unavailable
+    or no *job_title* is provided.
+    """
+    result = match_skills(candidate_skills, jd_skills, jd_text, jd_nice_to_have)
+
+    validator = _get_onet_validator()
+    if validator is not None and validator.available and job_title:
+        try:
+            onet_result = validator.validate_skills_batch(
+                [m for m in result.get("matched_skills", [])],
+                job_title,
+            )
+            result["onet_validation"] = onet_result
+        except Exception as e:
+            logger.warning("O*NET validation failed (non-fatal): %s", e)
+
+    return result
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MASTER SKILLS LIST
 # ═══════════════════════════════════════════════════════════════════════════════
 
