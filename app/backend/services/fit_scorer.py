@@ -74,13 +74,13 @@ def compute_fit_score(
 
     # ── Fit score ──────────────────────────────────────────────────────────────
     fit_score = round(
-        skill_score    * w["skills"]       +
-        exp_score      * w["experience"]   +
-        arch_score     * w["architecture"] +
-        edu_score      * w["education"]    +
-        timeline_score * w["timeline"]     +
-        domain_score   * w["domain"]       -
-        risk_penalty   * w["risk"]
+        skill_score    * w.get("skills", DEFAULT_WEIGHTS["skills"])       +
+        exp_score      * w.get("experience", DEFAULT_WEIGHTS["experience"])   +
+        arch_score     * w.get("architecture", DEFAULT_WEIGHTS["architecture"]) +
+        edu_score      * w.get("education", DEFAULT_WEIGHTS["education"])    +
+        timeline_score * w.get("timeline", DEFAULT_WEIGHTS["timeline"])     +
+        domain_score   * w.get("domain", DEFAULT_WEIGHTS["domain"])       -
+        risk_penalty   * w.get("risk", DEFAULT_WEIGHTS["risk"])
     )
     fit_score = max(0, min(100, fit_score))
 

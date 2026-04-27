@@ -38,6 +38,7 @@ from app.backend.services.constants import (
 from app.backend.services.domain_service import detect_domain_from_jd, detect_domain_from_resume
 from app.backend.services.eligibility_service import check_eligibility
 from app.backend.services.fit_scorer import compute_fit_score, compute_deterministic_score, explain_decision
+from app.backend.services.weight_mapper import convert_to_new_schema
 from app.backend.services.skill_matcher import (
     skills_registry,
     _extract_skills_from_text,
@@ -1262,8 +1263,20 @@ def _run_python_phase(
         "fit_score": 0,
     }
 
-    # Use custom weights if provided, otherwise DEFAULT_WEIGHTS is the fallback
-    fit_r = compute_fit_score(all_scores, scoring_weights)
+    # Convert incoming weights to new schema, then map to internal 7-key schema
+    # (mirrors agent_pipeline.py scorer_node — frontend may send legacy or new keys)
+    new_weights = convert_to_new_schema(scoring_weights)
+    internal_weights = {
+        "skills":       new_weights.get("core_competencies", 0.30),
+        "experience":   new_weights.get("experience", 0.20),
+        "architecture": new_weights.get("role_excellence", 0.15),
+        "education":    new_weights.get("education", 0.10),
+        "timeline":     new_weights.get("career_trajectory", 0.10),
+        "domain":       new_weights.get("domain_fit", 0.10),
+        "risk":         new_weights.get("risk", 0.15),
+    }
+
+    fit_r = compute_fit_score(all_scores, internal_weights)
 
     # ── Deterministic engine (domain → eligibility → deterministic score) ─────
     jd_domain = {"domain": "unknown", "confidence": 0.0, "scores": {}}
