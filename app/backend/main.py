@@ -8,6 +8,7 @@ import httpx
 import uuid
 import contextvars
 import time
+import threading
 import shutil
 import asyncio
 from datetime import datetime, timezone, timedelta
@@ -280,6 +281,22 @@ async def lifespan(app: FastAPI):
         log.info("Queue worker started successfully")
     except Exception as e:
         log.exception("Failed to start queue worker: %s", e)
+
+    # Start O*NET background sync (daemon thread — non-blocking, graceful on failure)
+    try:
+        def _onet_bg_sync():
+            try:
+                from app.backend.services.onet.onet_sync import sync_if_stale
+                sync_if_stale(max_age_days=30)
+            except Exception as exc:
+                log.warning("O*NET startup sync skipped: %s", exc)
+
+        onet_thread = threading.Thread(
+            target=_onet_bg_sync, daemon=True, name="onet-sync"
+        )
+        onet_thread.start()
+    except Exception as e:
+        log.exception("Failed to start O*NET background sync thread: %s", e)
 
     yield
 

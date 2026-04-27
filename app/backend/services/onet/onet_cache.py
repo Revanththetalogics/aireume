@@ -82,6 +82,15 @@ class ONETCache:
         row = cur.fetchone()
         return row[0] if row else None
 
+    def get_metadata(self, key: str) -> Optional[str]:
+        """Return the value for a metadata key, or None if not found."""
+        cur = self._conn.execute(
+            "SELECT value FROM onet_metadata WHERE key = ? LIMIT 1",
+            (key,),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+
     def set_metadata(self, key: str, value: str) -> None:
         """Upsert a metadata key/value pair."""
         self._conn.execute(
