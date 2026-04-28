@@ -697,9 +697,21 @@ OUTPUT SCHEMA:
   "final_recommendation": "Shortlist|Consider|Reject",
   "recommendation_rationale": "",
   "interview_questions": {{
-    "technical_questions": [],
-    "behavioral_questions": [],
-    "culture_fit_questions": []
+    "candidate_briefing": {{
+      "profile_snapshot": "2-3 sentence summary: who is this person, current role, domain, years of experience",
+      "strengths_to_confirm": ["top strength from matched skills to validate in interview"],
+      "areas_to_probe": ["specific gap, risk signal, or concern to investigate"],
+      "context_notes": ["Why Q1 targets missing Kubernetes skill", "Why Q4 probes the 14-month gap"]
+    }},
+    "technical_questions": [
+      {{"text": "scenario-based question text", "what_to_listen_for": ["signal indicating competence", "red flag to watch for"], "follow_ups": ["conditional follow-up if candidate is vague"]}}
+    ],
+    "behavioral_questions": [
+      {{"text": "STAR-format question text", "what_to_listen_for": ["signal of leadership/ownership/agility"], "follow_ups": ["probe deeper if response is generic"]}}
+    ],
+    "culture_fit_questions": [
+      {{"text": "motivation/alignment question text", "what_to_listen_for": ["genuine interest signal", "alignment with role context"], "follow_ups": ["follow-up based on their answer"]}}
+    ]
   }}
 }}
 
@@ -715,15 +727,25 @@ INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
    b) For 1-2 critical matched skills: Create a depth-probing question that tests expertise level. Reference their current role ({current_role}) vs. the role requirements.
    c) If architecture_comment mentions system design gaps or the role requires architecture decisions: Include a system design question relevant to the domain.
    d) Use the domain ({domain}) and seniority ({seniority}) to calibrate difficulty.
+   For each technical question, include "what_to_listen_for": 2-3 bullet points describing what a strong answer demonstrates (specific technologies, patterns, depth indicators). Also include "follow_ups": 1-2 conditional follow-up questions (e.g., "If they claim hands-on experience, ask about specific cluster sizes or deployment strategies").
 
 2. BEHAVIORAL QUESTIONS (3 questions, STAR format):
    a) Address the biggest risk signal from the gap/timeline assessment: {gap_interpretation}. If gaps exist, ask about the circumstance without being invasive.
    b) Target a seniority-specific challenge: for senior roles probe leadership/mentorship; for mid roles probe ownership; for junior roles probe learning agility.
    c) Probe the role transition: moving from {current_role} to {role_title} — what motivates this and what challenges do they anticipate?
+   For each behavioral question, include "what_to_listen_for": 2-3 bullet points describing what a strong STAR response includes (specific outcomes, self-awareness, leadership signals). Also include "follow_ups": 1-2 probing follow-ups for when answers are vague or surface-level.
 
 3. CULTURE-FIT QUESTIONS (2 questions):
    a) Motivation for THIS specific role: Why this company/role given their career trajectory ({career_summary})?
    b) Work-style alignment: A question tied to the role context (e.g., fast-paced startup vs. structured enterprise, remote vs. on-site if implied by domain).
+   For each culture-fit question, include "what_to_listen_for": 2-3 bullet points indicating genuine motivation and alignment. Also include "follow_ups": 1 conditional follow-up.
+
+4. CANDIDATE BRIEFING (mandatory):
+   Generate a "candidate_briefing" object at the top of interview_questions:
+   - "profile_snapshot": A 2-3 sentence summary of who this candidate is — their current role, domain, experience level, and how they relate to this position.
+   - "strengths_to_confirm": Top 2-3 matched skills or experiences from the resume that the recruiter should validate during the interview.
+   - "areas_to_probe": Top 2-3 gaps, risk signals, or concerns from the analysis that specific questions below target.
+   - "context_notes": For each notable question, explain WHY it was generated (e.g., "Q3 targets a 14-month employment gap between roles", "Q5 probes Kubernetes depth because it's a critical missing skill").
 
 DO NOT generate generic questions like "Tell me about yourself", "What are your strengths?", or "Where do you see yourself in 5 years?". Every question MUST reference specific skills, role responsibilities, or candidate resume context provided above."""
 
@@ -793,49 +815,179 @@ async def scorer_node(state: PipelineState) -> dict:
     tech_qs = []
     for skill in missing_skills[:3]:
         resp = key_responsibilities[0] if key_responsibilities else "the role's core work"
-        tech_qs.append(
-            f"This role involves {resp}. Walk me through how you would approach a challenge requiring {skill} — what tools, patterns, or experience would you draw on?"
-        )
+        tech_qs.append({
+            "text": f"This role involves {resp}. Walk me through how you would approach a challenge requiring {skill} — what tools, patterns, or experience would you draw on?",
+            "what_to_listen_for": [
+                f"Practical experience with {skill} or closely related technologies",
+                "Problem-solving approach and reasoning, not just tool names",
+                "Awareness of trade-offs and real-world constraints"
+            ],
+            "follow_ups": [
+                f"Can you describe a specific project where you used {skill} or something similar?",
+                f"What would be your first step if you had to learn {skill} for this role?"
+            ]
+        })
     if not tech_qs:
-        tech_qs = [f"Describe a complex technical problem you solved in {domain} that is relevant to {role_title}."]
+        tech_qs.append({
+            "text": f"Describe a complex technical problem you solved in {domain} that is relevant to {role_title}.",
+            "what_to_listen_for": [
+                "Structured problem-solving approach",
+                "Technical depth and relevance to the role",
+                "Outcome and impact of the solution"
+            ],
+            "follow_ups": [
+                "What alternatives did you consider?",
+                "How did you measure the success of your solution?"
+            ]
+        })
     if matched:
-        tech_qs.append(
-            f"You have experience with {matched[0]}. Tell me about a time you had to push the limits of that technology — what was the hardest problem you solved with it?"
-        )
+        tech_qs.append({
+            "text": f"You have experience with {matched[0]}. Tell me about a time you had to push the limits of that technology — what was the hardest problem you solved with it?",
+            "what_to_listen_for": [
+                f"Depth of expertise with {matched[0]} beyond basic usage",
+                "Specific technical challenges and how they were overcome",
+                "Evidence of innovation or advanced application"
+            ],
+            "follow_ups": [
+                f"What was the scale or complexity of the {matched[0]} project?",
+                "How did you optimize or extend the technology beyond standard patterns?"
+            ]
+        })
     if adjacent:
-        tech_qs.append(
-            f"You have adjacent experience with {adjacent[0]}. How would you leverage that background to ramp up quickly on the core stack for {role_title}?"
-        )
+        tech_qs.append({
+            "text": f"You have adjacent experience with {adjacent[0]}. How would you leverage that background to ramp up quickly on the core stack for {role_title}?",
+            "what_to_listen_for": [
+                f"Understanding of how {adjacent[0]} relates to the target stack",
+                "Learning strategy and resourcefulness",
+                "Realistic assessment of ramp-up time and knowledge gaps"
+            ],
+            "follow_ups": [
+                f"Can you give an example of learning a technology similar to {adjacent[0]} quickly?",
+                "What resources or approach would you use to bridge the gap?"
+            ]
+        })
     if "architecture" in arch_comment.lower() or "system design" in arch_comment.lower() or "design" in arch_comment.lower():
-        tech_qs.append(
-            f"For {role_title}, we'd need to make architectural decisions in {domain}. Describe a system you designed or significantly improved — what trade-offs did you make?"
-        )
+        tech_qs.append({
+            "text": f"For {role_title}, we'd need to make architectural decisions in {domain}. Describe a system you designed or significantly improved — what trade-offs did you make?",
+            "what_to_listen_for": [
+                "Clear articulation of system requirements and constraints",
+                "Thoughtful trade-offs (performance vs. cost, scalability vs. complexity)",
+                "Evidence of ownership and long-term thinking"
+            ],
+            "follow_ups": [
+                "How would you evolve that design given 10x growth?",
+                "What would you do differently with hindsight?"
+            ]
+        })
     tech_qs = tech_qs[:5]
     if len(tech_qs) < 3:
-        tech_qs.append(f"How do you stay current with developments in {domain}? Give a recent example of applying a new technique or tool.")
+        tech_qs.append({
+            "text": f"How do you stay current with developments in {domain}? Give a recent example of applying a new technique or tool.",
+            "what_to_listen_for": [
+                "Proactive learning habits and curiosity",
+                "Practical application of new knowledge",
+                "Critical evaluation of trends vs. hype"
+            ],
+            "follow_ups": [
+                "What was the outcome of applying that new technique?",
+                "How do you decide which new technologies are worth investing time in?"
+            ]
+        })
 
     # Context-aware fallback behavioral questions
     beh_qs = []
     if gap_interp and ("gap" in gap_interp.lower() or "unemployed" in gap_interp.lower() or "break" in gap_interp.lower()):
-        beh_qs.append(
-            "Your timeline shows a career transition period. Can you walk me through what drove that change and what you focused on during that time?"
-        )
+        beh_qs.append({
+            "text": "Your timeline shows a career transition period. Can you walk me through what drove that change and what you focused on during that time?",
+            "what_to_listen_for": [
+                "Self-awareness and honest reflection",
+                "Evidence of productive use of time (learning, projects, caregiving)",
+                "Growth mindset and resilience"
+            ],
+            "follow_ups": [
+                "What did you learn about yourself during that period?",
+                "How has that experience shaped your approach to your career?"
+            ]
+        })
     else:
-        beh_qs.append(
-            f"You're currently at {current_company} as a {current_role}. What would make this {role_title} opportunity the right next step for you?"
-        )
+        beh_qs.append({
+            "text": f"You're currently at {current_company} as a {current_role}. What would make this {role_title} opportunity the right next step for you?",
+            "what_to_listen_for": [
+                "Clear motivation aligned with career trajectory",
+                "Specific interest in this role and company",
+                "Realistic understanding of the transition challenges"
+            ],
+            "follow_ups": [
+                "What would success look like for you in this role after one year?",
+                "What concerns do you have about making this transition?"
+            ]
+        })
     beh_qs.extend([
-        f"Tell me about a time you had to deliver results in {domain} under significant constraint — tight deadline, limited resources, or unclear requirements. What was your approach?",
-        f"Describe a situation where you had to influence a decision or mentor someone in a {domain} context. What was the outcome?",
+        {
+            "text": f"Tell me about a time you had to deliver results in {domain} under significant constraint — tight deadline, limited resources, or unclear requirements. What was your approach?",
+            "what_to_listen_for": [
+                "Structured approach to prioritization and problem-solving",
+                "Resourcefulness and adaptability under pressure",
+                "Specific outcomes and lessons learned"
+            ],
+            "follow_ups": [
+                "How did you prioritize what to focus on?",
+                "What would you do differently if faced with the same situation again?"
+            ]
+        },
+        {
+            "text": f"Describe a situation where you had to influence a decision or mentor someone in a {domain} context. What was the outcome?",
+            "what_to_listen_for": [
+                "Evidence of leadership or influence without authority",
+                "Empathy and communication skills",
+                "Measurable positive outcomes for the team or project"
+            ],
+            "follow_ups": [
+                "How did you handle resistance or disagreement?",
+                "What did you learn about effective leadership from that experience?"
+            ]
+        },
     ])
 
     # Context-aware fallback culture-fit questions
     cult_qs = [
-        f"Given your background in {domain}, what type of work environment brings out your best performance — structured processes or autonomous ownership?",
-        f"What specifically attracted you to {role_title}, and how does it align with the direction you see your career heading?",
+        {
+            "text": f"Given your background in {domain}, what type of work environment brings out your best performance — structured processes or autonomous ownership?",
+            "what_to_listen_for": [
+                "Self-awareness about personal working style",
+                "Alignment with the implied role context",
+                "Flexibility and adaptability"
+            ],
+            "follow_ups": [
+                "Can you give an example of thriving in that type of environment?",
+                "How do you adapt when the environment doesn't match your preference?"
+            ]
+        },
+        {
+            "text": f"What specifically attracted you to {role_title}, and how does it align with the direction you see your career heading?",
+            "what_to_listen_for": [
+                "Genuine interest in the role and domain",
+                "Strategic career thinking and long-term vision",
+                "Alignment between personal goals and role opportunities"
+            ],
+            "follow_ups": [
+                "What would you hope to achieve in this role over the next 2-3 years?",
+                "What other types of roles are you considering, and why this one?"
+            ]
+        },
     ]
 
+    # Fallback candidate briefing
+    years_actual = cp.get("total_effective_years")
+    candidate_briefing = {
+        "profile_snapshot": f"{current_role} at {current_company} with experience in {domain}. {f'Total experience: {years_actual} years.' if years_actual else ''}",
+        "strengths_to_confirm": [f"Experience with {s}" for s in matched[:3]] if matched else ["General technical background"],
+        "areas_to_probe": [f"Missing skill: {s}" for s in missing_skills[:3]] if missing_skills else ["Overall fit for role requirements"],
+        "context_notes": [f"Technical questions target missing skills: {', '.join(missing_skills[:3])}" if missing_skills else "Questions cover general technical competency"]
+    }
+
     fallback_iq = {
+        "candidate_briefing": candidate_briefing,
         "technical_questions": tech_qs,
         "behavioral_questions": beh_qs,
         "culture_fit_questions": cult_qs,

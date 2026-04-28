@@ -53,18 +53,47 @@ class ScoreBreakdown(BaseModel):
     risk_penalty:     Optional[int] = None
 
 
+class InterviewQuestion(BaseModel):
+    """Single interview question with evaluation guidance."""
+    text: str
+    what_to_listen_for: List[str] = []
+    follow_ups: List[str] = []
+
+class CandidateBriefing(BaseModel):
+    """Pre-interview snapshot for the recruiter."""
+    profile_snapshot: str = ""
+    strengths_to_confirm: List[str] = []
+    areas_to_probe: List[str] = []
+    context_notes: List[str] = []
+
 class InterviewQuestions(BaseModel):
-    technical_questions:   List[str] = []
-    behavioral_questions:  List[str] = []
-    culture_fit_questions: List[str] = []
+    technical_questions: List[InterviewQuestion] = []
+    behavioral_questions: List[InterviewQuestion] = []
+    culture_fit_questions: List[InterviewQuestion] = []
+    candidate_briefing: Optional[CandidateBriefing] = None
 
     @field_validator('technical_questions', 'behavioral_questions', 'culture_fit_questions', mode='before')
     @classmethod
-    def coerce_to_str_list(cls, v):
-        """Coerce LLM output that may return objects/non-strings into a clean list[str]."""
+    def coerce_questions(cls, v):
+        """Backward-compatible: convert old str items and new dict/object items."""
         if not isinstance(v, list):
             return []
-        return [item if isinstance(item, str) else str(item) for item in v]
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                result.append(InterviewQuestion(text=item))
+            elif isinstance(item, dict):
+                # Handle dicts — ensure 'text' key exists
+                if 'text' not in item:
+                    # Old format or malformed — try to salvage
+                    result.append(InterviewQuestion(text=str(item)))
+                else:
+                    result.append(InterviewQuestion(**{k: v for k, v in item.items() if k in InterviewQuestion.model_fields}))
+            elif isinstance(item, InterviewQuestion):
+                result.append(item)
+            else:
+                result.append(InterviewQuestion(text=str(item)))
+        return result
 
 
 class ScoringWeights(BaseModel):
@@ -405,3 +434,81 @@ class SubscriptionResponse(BaseModel):
     usage: UsageStats
     available_plans: List[PlanInfo]
     days_until_reset: int
+
+
+# ── Interview Evaluation Schemas ──────────────────────────────────────
+
+class EvaluationUpsert(BaseModel):
+    """Request body for creating/updating a question evaluation."""
+    question_category: str      # technical / behavioral / culture_fit
+    question_index: int         # 0-based index within category
+    rating: Optional[str] = None       # strong / adequate / weak
+    notes: Optional[str] = None
+
+    @field_validator('question_category')
+    @classmethod
+    def validate_category(cls, v):
+        allowed = {'technical', 'behavioral', 'culture_fit'}
+        if v not in allowed:
+            raise ValueError(f'question_category must be one of {allowed}')
+        return v
+
+    @field_validator('rating')
+    @classmethod
+    def validate_rating(cls, v):
+        if v is not None:
+            allowed = {'strong', 'adequate', 'weak'}
+            if v not in allowed:
+                raise ValueError(f'rating must be one of {allowed}')
+        return v
+
+class EvaluationOut(BaseModel):
+    """Response for a single evaluation."""
+    id: int
+    question_category: str
+    question_index: int
+    rating: Optional[str] = None
+    notes: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+class OverallAssessmentUpsert(BaseModel):
+    """Request body for overall recruiter assessment."""
+    overall_assessment: str
+    recruiter_recommendation: Optional[str] = None   # advance / hold / reject
+
+    @field_validator('recruiter_recommendation')
+    @classmethod
+    def validate_recommendation(cls, v):
+        if v is not None:
+            allowed = {'advance', 'hold', 'reject'}
+            if v not in allowed:
+                raise ValueError(f'recruiter_recommendation must be one of {allowed}')
+        return v
+
+class ScorecardDimension(BaseModel):
+    """Summary of one evaluation dimension."""
+    category: str
+    total_questions: int = 0
+    evaluated_count: int = 0
+    strong_count: int = 0
+    adequate_count: int = 0
+    weak_count: int = 0
+    key_notes: List[str] = []
+
+class ScorecardOut(BaseModel):
+    """HM-facing scorecard aggregating evaluations."""
+    candidate_name: str
+    role_title: str
+    fit_score: Optional[int] = None
+    recommendation: Optional[str] = None
+    evaluator_email: str
+    evaluated_at: Optional[datetime] = None
+    technical_summary: ScorecardDimension
+    behavioral_summary: ScorecardDimension
+    culture_fit_summary: ScorecardDimension
+    overall_assessment: Optional[str] = None
+    recruiter_recommendation: Optional[str] = None
+    strengths_confirmed: List[str] = []
+    concerns_identified: List[str] = []

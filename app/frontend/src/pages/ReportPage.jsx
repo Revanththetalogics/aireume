@@ -7,6 +7,7 @@ import {
 import html2pdf from 'html2pdf.js'
 import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
+import InterviewScorecard from '../components/InterviewScorecard'
 import Timeline from '../components/Timeline'
 import { labelTrainingExample, updateResultStatus, updateCandidateName, getNarrative, viewCandidateResume, downloadCandidateResume } from '../lib/api'
 
@@ -606,6 +607,17 @@ export default function ReportPage() {
           </div>
 
           <ResultCard result={result} defaultExpandEducation />
+
+          {/* Interview Scorecard Section */}
+          {result?.interview_questions && result.result_id && (
+            <div className="mt-6">
+              <div className="flex items-center gap-2 mb-4">
+                <FileText className="w-5 h-5 text-brand-600" />
+                <h2 className="text-lg font-bold text-slate-900">Interview Scorecard</h2>
+              </div>
+              <InterviewScorecard resultId={result.result_id} />
+            </div>
+          )}
 
           <Timeline
             workExperience={result.work_experience || []}

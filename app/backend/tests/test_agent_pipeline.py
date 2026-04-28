@@ -696,32 +696,46 @@ class TestRunAgentPipeline:
 # ─── Schema-level tests (Pydantic validators + model config) ──────────────────
 
 class TestInterviewQuestionsSchema:
-    """Tests for the field_validator that coerces LLM output to List[str]."""
+    """Tests for the field_validator that coerces LLM output to List[InterviewQuestion]."""
 
-    def test_plain_string_list_passes_unchanged(self):
-        from app.backend.models.schemas import InterviewQuestions
+    def test_plain_string_list_backward_compatible(self):
+        """Old string lists are converted to InterviewQuestion objects."""
+        from app.backend.models.schemas import InterviewQuestions, InterviewQuestion
         iq = InterviewQuestions(
             technical_questions=["Explain async/await."],
             behavioral_questions=["Tell me about a deadline."],
             culture_fit_questions=["What motivates you?"],
         )
-        assert iq.technical_questions == ["Explain async/await."]
+        assert isinstance(iq.technical_questions[0], InterviewQuestion)
+        assert iq.technical_questions[0].text == "Explain async/await."
 
-    def test_dict_items_coerced_to_strings(self):
-        """LLM sometimes returns [{"question": "..."}] instead of ["..."]."""
-        from app.backend.models.schemas import InterviewQuestions
+    def test_dict_items_with_text_key_parsed(self):
+        """Dict items with 'text' key become structured InterviewQuestions."""
+        from app.backend.models.schemas import InterviewQuestions, InterviewQuestion
         iq = InterviewQuestions(
-            technical_questions=[{"question": "Explain REST?"}],
+            technical_questions=[{"text": "Explain REST?", "what_to_listen_for": ["async knowledge"]}],
             behavioral_questions=[{"text": "How do you handle pressure?"}],
             culture_fit_questions=[],
         )
-        assert isinstance(iq.technical_questions[0], str)
-        assert isinstance(iq.behavioral_questions[0], str)
+        assert isinstance(iq.technical_questions[0], InterviewQuestion)
+        assert iq.technical_questions[0].text == "Explain REST?"
+        assert iq.technical_questions[0].what_to_listen_for == ["async knowledge"]
+        assert isinstance(iq.behavioral_questions[0], InterviewQuestion)
 
-    def test_integer_items_coerced_to_strings(self):
-        from app.backend.models.schemas import InterviewQuestions
+    def test_dict_items_without_text_key_salvaged(self):
+        """Dict items without 'text' key are salvaged as string representation."""
+        from app.backend.models.schemas import InterviewQuestions, InterviewQuestion
+        iq = InterviewQuestions(
+            technical_questions=[{"question": "Explain REST?"}],
+        )
+        assert isinstance(iq.technical_questions[0], InterviewQuestion)
+        assert "question" in iq.technical_questions[0].text
+
+    def test_integer_items_coerced_to_questions(self):
+        from app.backend.models.schemas import InterviewQuestions, InterviewQuestion
         iq = InterviewQuestions(technical_questions=[1, 2, 3])
-        assert all(isinstance(q, str) for q in iq.technical_questions)
+        assert all(isinstance(q, InterviewQuestion) for q in iq.technical_questions)
+        assert iq.technical_questions[0].text == "1"
 
     def test_non_list_field_becomes_empty_list(self):
         """If LLM returns a string instead of a list, field should be []."""
@@ -740,6 +754,30 @@ class TestInterviewQuestionsSchema:
         assert iq.technical_questions == []
         assert iq.behavioral_questions == []
         assert iq.culture_fit_questions == []
+
+    def test_structured_format_works(self):
+        """New structured InterviewQuestion format works end-to-end."""
+        from app.backend.models.schemas import InterviewQuestions, InterviewQuestion, CandidateBriefing
+        iq = InterviewQuestions(
+            technical_questions=[
+                InterviewQuestion(text="Q1", what_to_listen_for=["x"], follow_ups=["y"])
+            ],
+            candidate_briefing=CandidateBriefing(
+                profile_snapshot="Senior dev",
+                strengths_to_confirm=["Python"],
+            ),
+        )
+        assert iq.technical_questions[0].what_to_listen_for == ["x"]
+        assert iq.candidate_briefing.profile_snapshot == "Senior dev"
+
+    def test_mixed_format_backward_compatible(self):
+        """Mixed plain strings and dicts both work."""
+        from app.backend.models.schemas import InterviewQuestions, InterviewQuestion
+        iq = InterviewQuestions(
+            technical_questions=["plain string", {"text": "structured", "what_to_listen_for": ["x"]}]
+        )
+        assert iq.technical_questions[0].text == "plain string"
+        assert iq.technical_questions[1].what_to_listen_for == ["x"]
 
 
 class TestAnalysisResponseSchema:
@@ -782,7 +820,7 @@ class TestAnalysisResponseSchema:
 
     def test_interview_questions_with_dict_items_coerced(self):
         """End-to-end: AnalysisResponse wrapping InterviewQuestions with dict items."""
-        from app.backend.models.schemas import AnalysisResponse
+        from app.backend.models.schemas import AnalysisResponse, InterviewQuestion
         result = AnalysisResponse(
             fit_score=65,
             interview_questions={
@@ -791,5 +829,5 @@ class TestAnalysisResponseSchema:
                 "culture_fit_questions": [],
             },
         )
-        assert isinstance(result.interview_questions.technical_questions[0], str)
-        assert result.interview_questions.behavioral_questions[0] == "How do you handle conflict?"
+        assert isinstance(result.interview_questions.technical_questions[0], InterviewQuestion)
+        assert result.interview_questions.behavioral_questions[0].text == "How do you handle conflict?"

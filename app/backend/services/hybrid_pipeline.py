@@ -1013,17 +1013,127 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "overall_rationale":    f"Overall fit score: {score}/100.",
         }
 
-    tech_q = [f"Can you describe your experience with {s}?" for s in missing[:5]] or \
-             ["Describe a complex technical challenge you solved."]
+    tech_q = [
+        {
+            "text": "Describe a complex technical problem you solved that is relevant to this role.",
+            "what_to_listen_for": [
+                "Structured problem-solving approach",
+                "Technical depth and relevance to the role",
+                "Outcome and impact of the solution"
+            ],
+            "follow_ups": [
+                "What alternatives did you consider?",
+                "How did you measure the success of your solution?"
+            ]
+        },
+        {
+            "text": "Tell me about a time you had to learn a new technology quickly.",
+            "what_to_listen_for": [
+                "Learning strategy and resourcefulness",
+                "Speed of ramp-up and practical application",
+                "Self-awareness about knowledge gaps"
+            ],
+            "follow_ups": [
+                "What resources did you rely on most?",
+                "How long before you felt productive with the new technology?"
+            ]
+        },
+        {
+            "text": "Walk me through how you approach debugging in a complex system.",
+            "what_to_listen_for": [
+                "Systematic debugging methodology",
+                "Use of logging, monitoring, and observability tools",
+                "Experience with distributed systems debugging"
+            ],
+            "follow_ups": [
+                "Can you give a specific example of a particularly tricky bug?",
+                "How do you prioritize which issues to investigate first?"
+            ]
+        },
+        {
+            "text": "Give an example of how you balance technical excellence with practical constraints.",
+            "what_to_listen_for": [
+                "Pragmatic engineering judgment",
+                "Understanding of business priorities vs technical debt",
+                "Communication skills when negotiating trade-offs"
+            ],
+            "follow_ups": [
+                "How did stakeholders react to your approach?",
+                "Would you make the same trade-off again?"
+            ]
+        },
+    ]
     behavioral_q = [
-        "Tell me about a time you led a difficult project. What was the outcome?",
-        "Describe a situation where you had to learn a new technology quickly.",
-        "Give an example of a time you resolved a conflict in a team.",
+        {
+            "text": "Tell me about a time you led a difficult project. What was the outcome?",
+            "what_to_listen_for": [
+                "Clear STAR structure (Situation, Task, Action, Result)",
+                "Evidence of ownership and accountability",
+                "Specific outcomes and lessons learned"
+            ],
+            "follow_ups": [
+                "What was the biggest obstacle and how did you overcome it?",
+                "How did you keep the team aligned and motivated?"
+            ]
+        },
+        {
+            "text": "Describe a situation where you had to learn a new technology quickly.",
+            "what_to_listen_for": [
+                "Proactive learning mindset",
+                "Resourcefulness in finding information",
+                "Ability to apply new knowledge under pressure"
+            ],
+            "follow_ups": [
+                "What was your biggest frustration during the learning process?",
+                "How did you validate that you had learned enough to be effective?"
+            ]
+        },
+        {
+            "text": "Give an example of a time you resolved a conflict in a team.",
+            "what_to_listen_for": [
+                "Emotional intelligence and empathy",
+                "Focus on finding common ground",
+                "Positive resolution and relationship preservation"
+            ],
+            "follow_ups": [
+                "What was your personal role in de-escalating the situation?",
+                "What would you do differently if faced with a similar conflict?"
+            ]
+        },
     ]
     culture_q = [
-        "What motivates you to apply for this role?",
-        "How do you keep up with new developments in your field?",
+        {
+            "text": "What motivates you to apply for this role?",
+            "what_to_listen_for": [
+                "Genuine interest in the company and mission",
+                "Alignment between personal goals and role opportunities",
+                "Specific aspects of the role that excite them"
+            ],
+            "follow_ups": [
+                "What would success look like for you in this role?",
+                "What concerns do you have about this opportunity?"
+            ]
+        },
+        {
+            "text": "How do you keep up with new developments in your field?",
+            "what_to_listen_for": [
+                "Proactive learning habits",
+                "Critical thinking about trends vs hype",
+                "Practical application of new knowledge"
+            ],
+            "follow_ups": [
+                "What's a recent trend you think is overhyped?",
+                "Can you share a time you applied something new you learned?"
+            ]
+        },
     ]
+
+    candidate_briefing = {
+        "profile_snapshot": "Candidate profile details not available — fallback interview kit generated.",
+        "strengths_to_confirm": ["Review resume for key strengths before interview"],
+        "areas_to_probe": ["Assess overall technical depth and role motivation"],
+        "context_notes": ["Generic questions generated — LLM-enhanced analysis was not available"]
+    }
 
     # Return with both 'concerns' (new) and 'weaknesses' (backward compat)
     return {
@@ -1038,6 +1148,7 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
         ),
         "explainability": explainability,
         "interview_questions": {
+            "candidate_briefing": candidate_briefing,
             "technical_questions":   tech_q,
             "behavioral_questions":  behavioral_q,
             "culture_fit_questions": culture_q,

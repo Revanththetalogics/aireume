@@ -165,6 +165,8 @@ class ScreeningResult(Base):
     candidate     = relationship("Candidate", back_populates="results")
     role_template = relationship("RoleTemplate", back_populates="results")
     comments      = relationship("Comment", back_populates="result")
+    evaluations = relationship("InterviewEvaluation", back_populates="result", cascade="all, delete-orphan")
+    overall_assessment = relationship("OverallAssessment", back_populates="result", cascade="all, delete-orphan", uselist=True)
     training_examples = relationship("TrainingExample", back_populates="result")
 
 
@@ -211,6 +213,48 @@ class Comment(Base):
 
     result = relationship("ScreeningResult", back_populates="comments")
     author = relationship("User", back_populates="comments")
+
+
+class InterviewEvaluation(Base):
+    """Per-question recruiter evaluation (note + rating)."""
+    __tablename__ = "interview_evaluations"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    result_id         = Column(Integer, ForeignKey("screening_results.id"), nullable=False, index=True)
+    user_id           = Column(Integer, ForeignKey("users.id"), nullable=False)
+    question_category = Column(String(30), nullable=False)
+    question_index    = Column(Integer, nullable=False)
+    rating            = Column(String(10), nullable=True)
+    notes             = Column(Text, nullable=True)
+    created_at        = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at        = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    result = relationship("ScreeningResult", back_populates="evaluations")
+    evaluator = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint('result_id', 'user_id', 'question_category', 'question_index',
+                         name='uq_eval_per_question'),
+    )
+
+class OverallAssessment(Base):
+    """Recruiter's overall assessment for HM scorecard."""
+    __tablename__ = "overall_assessments"
+
+    id                       = Column(Integer, primary_key=True, index=True)
+    result_id                = Column(Integer, ForeignKey("screening_results.id"), nullable=False, index=True)
+    user_id                  = Column(Integer, ForeignKey("users.id"), nullable=False)
+    overall_assessment       = Column(Text, nullable=True)
+    recruiter_recommendation = Column(String(10), nullable=True)
+    created_at               = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at               = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    result = relationship("ScreeningResult", back_populates="overall_assessment")
+    evaluator = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint('result_id', 'user_id', name='uq_overall_per_user'),
+    )
 
 
 # ─── Transcript analysis ──────────────────────────────────────────────────────

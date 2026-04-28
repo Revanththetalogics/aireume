@@ -75,6 +75,7 @@ from app.backend.routes import queue_api
 from app.backend.routes import admin
 from app.backend.routes import upload
 from app.backend.routes import billing
+from app.backend.routes import interview_kit
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -385,6 +386,7 @@ app.include_router(queue_api.router)
 app.include_router(admin.router)
 app.include_router(upload.router)
 app.include_router(billing.router)
+app.include_router(interview_kit.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

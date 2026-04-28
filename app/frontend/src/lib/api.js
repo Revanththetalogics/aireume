@@ -951,6 +951,36 @@ export async function getBillingProviders() {
   return response.data
 }
 
+// ─── Interview Evaluation & Scorecard ─────────────────────────────────────────
+
+export async function getEvaluations(resultId) {
+  const res = await api.get(`/results/${resultId}/evaluations`)
+  return res.data
+}
+
+export async function saveEvaluation(resultId, { question_category, question_index, rating, notes }) {
+  const res = await api.put(`/results/${resultId}/evaluations`, {
+    question_category,
+    question_index,
+    rating: rating || null,
+    notes: notes || null,
+  })
+  return res.data
+}
+
+export async function saveOverallAssessment(resultId, { overall_assessment, recruiter_recommendation }) {
+  const res = await api.put(`/results/${resultId}/evaluations/overall`, {
+    overall_assessment,
+    recruiter_recommendation: recruiter_recommendation || null,
+  })
+  return res.data
+}
+
+export async function getScorecard(resultId) {
+  const res = await api.get(`/results/${resultId}/scorecard`)
+  return res.data
+}
+
 // ─── Notification Admin API ──────────────────────────────────────
 
 export async function getNotificationConfig() {
