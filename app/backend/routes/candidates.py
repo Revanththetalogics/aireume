@@ -263,12 +263,12 @@ def get_candidate(
         merged_data.pop("narrative_pending", None)
         merged_data.pop("ai_enhanced", None)
 
-        # Resolve candidate name from multiple sources
+        # Resolve candidate name: candidate.name takes priority (may have been edited by recruiter)
         candidate_name = (
+            (candidate.name or "").strip() or
             (merged_data.get("candidate_name") or "").strip() or
             (merged_data.get("contact_info", {}).get("name") or "").strip() or
             (merged_data.get("candidate_profile", {}).get("name") or "").strip() or
-            candidate.name or
             None
         )
 
@@ -294,6 +294,11 @@ def get_candidate(
         # merged_data contains: fit_score, final_recommendation, candidate_profile,
         # contact_info, strengths, weaknesses, etc.
         result_item.update(merged_data)
+
+        # Re-apply resolved candidate_name: merged_data.update() above may overwrite
+        # candidate_name with the stale parsed value; the recruiter-edited candidate.name
+        # must always win.
+        result_item["candidate_name"] = candidate_name
 
         history.append(result_item)
 

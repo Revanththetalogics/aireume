@@ -21,12 +21,71 @@ from app.backend.services.hybrid_pipeline import (
     _run_python_phase,
     run_hybrid_pipeline,
     _assess_quality,
+    _compute_domain_similarity,
 )
 from app.backend.services.skill_matcher import (
     match_skills,
     _normalize_skill,
     _expand_skill,
 )
+
+
+# ==============================================================================
+# Domain Similarity
+# ==============================================================================
+
+class TestComputeDomainSimilarity:
+    """Tests for _compute_domain_similarity in hybrid_pipeline.py."""
+
+    def test_same_domain_high_similarity(self):
+        """Identical score vectors should yield similarity > 0.8."""
+        jd = {"domain": "embedded", "confidence": 0.6, "scores": {"embedded": 0.6, "hardware": 0.3, "backend": 0.1}}
+        cand = {"domain": "embedded", "confidence": 0.6, "scores": {"embedded": 0.6, "hardware": 0.3, "backend": 0.1}}
+        sim = _compute_domain_similarity(jd, cand)
+        assert sim > 0.8
+
+    def test_related_domains_medium_similarity(self):
+        """Embedded + hardware share overlap -- medium similarity."""
+        jd = {"domain": "embedded", "confidence": 0.6, "scores": {"embedded": 0.6, "hardware": 0.3, "backend": 0.1}}
+        cand = {"domain": "hardware", "confidence": 0.5, "scores": {"embedded": 0.3, "hardware": 0.5, "backend": 0.2}}
+        sim = _compute_domain_similarity(jd, cand)
+        assert 0.3 <= sim <= 0.9
+
+    def test_unrelated_domains_low_similarity(self):
+        """Embedded vs management -- low similarity."""
+        jd = {"domain": "embedded", "confidence": 0.6, "scores": {"embedded": 0.6, "hardware": 0.3, "backend": 0.1}}
+        cand = {"domain": "management", "confidence": 0.5, "scores": {"management": 0.7, "backend": 0.2, "devops": 0.1}}
+        sim = _compute_domain_similarity(jd, cand)
+        assert sim < 0.2
+
+    def test_unknown_domain_fallback_binary_match(self):
+        """When scores are empty, fallback to binary name comparison."""
+        jd = {"domain": "embedded", "confidence": 0.6, "scores": {}}
+        cand = {"domain": "embedded", "confidence": 0.6, "scores": {}}
+        sim = _compute_domain_similarity(jd, cand)
+        assert sim == 0.6
+
+    def test_unknown_domain_fallback_mismatch(self):
+        """When scores are empty and names differ, returns 0."""
+        jd = {"domain": "embedded", "confidence": 0.6, "scores": {}}
+        cand = {"domain": "backend", "confidence": 0.5, "scores": {}}
+        sim = _compute_domain_similarity(jd, cand)
+        assert sim == 0.0
+
+    def test_zero_magnitude_returns_zero(self):
+        """All-zero score vectors should return 0."""
+        jd = {"domain": "unknown", "confidence": 0.0, "scores": {"embedded": 0.0}}
+        cand = {"domain": "unknown", "confidence": 0.0, "scores": {"embedded": 0.0}}
+        sim = _compute_domain_similarity(jd, cand)
+        assert sim == 0.0
+
+    def test_symmetry(self):
+        """Similarity should be symmetric."""
+        jd = {"domain": "embedded", "confidence": 0.6, "scores": {"embedded": 0.6, "hardware": 0.3}}
+        cand = {"domain": "backend", "confidence": 0.5, "scores": {"embedded": 0.2, "backend": 0.6, "hardware": 0.1}}
+        sim_ab = _compute_domain_similarity(jd, cand)
+        sim_ba = _compute_domain_similarity(cand, jd)
+        assert sim_ab == sim_ba
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

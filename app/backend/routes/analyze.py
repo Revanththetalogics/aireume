@@ -786,12 +786,12 @@ async def analyze_endpoint(
     result["analysis_id"]  = db_result.id   # Add this line
     result["candidate_id"] = candidate_id
 
-    # Resolve name: try multiple sources, skip empty strings
+    # Resolve name: candidate.name (possibly edited) takes priority over parsed/analysis data
     _cand_row = db.get(Candidate, candidate_id)
     result["candidate_name"] = (
-        (parsed_data.get("contact_info", {}).get("name") or "").strip()
+        (_cand_row.name if _cand_row and _cand_row.name else None)
+        or (parsed_data.get("contact_info", {}).get("name") or "").strip()
         or (result.get("candidate_profile", {}).get("name") or "").strip()
-        or (_cand_row.name if _cand_row and _cand_row.name else None)
         or None
     )
 
@@ -1043,9 +1043,9 @@ async def analyze_stream_endpoint(
             final_result["candidate_id"] = candidate_id
             _cand_row_s = db.get(Candidate, candidate_id)
             final_result["candidate_name"] = (
-                (parsed_data.get("contact_info", {}).get("name") or "").strip()
+                (_cand_row_s.name if _cand_row_s and _cand_row_s.name else None)
+                or (parsed_data.get("contact_info", {}).get("name") or "").strip()
                 or (final_result.get("candidate_profile", {}).get("name") or "").strip()
-                or (_cand_row_s.name if _cand_row_s and _cand_row_s.name else None)
                 or None
             )
             if is_dup and action not in ("update_profile", "create_new"):
@@ -1891,8 +1891,11 @@ def get_analysis_history(
         analysis = _safe_loads(r.analysis_result)
         parsed = _safe_loads(r.parsed_data)
 
-        # Resolve candidate name from multiple sources
+        # Resolve candidate name: Candidate.name (possibly edited) takes priority
+        cand = db.get(Candidate, r.candidate_id) if r.candidate_id else None
         candidate_name = (
+            (cand.name or "").strip() if cand and cand.name else None
+        ) or (
             (analysis.get("candidate_name") or "").strip() or
             (analysis.get("contact_info", {}).get("name") or "").strip() or
             (analysis.get("candidate_profile", {}).get("name") or "").strip() or

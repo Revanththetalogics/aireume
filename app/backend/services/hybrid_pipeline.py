@@ -52,6 +52,35 @@ log = logging.getLogger("aria.hybrid")
 _background_tasks: set = set()
 
 
+def _compute_domain_similarity(jd_domain: dict, candidate_domain: dict) -> float:
+    """Compute cosine similarity between JD and candidate domain score vectors.
+
+    Falls back to binary name comparison when score vectors are unavailable.
+    """
+    jd_scores = jd_domain.get("scores", {})
+    cand_scores = candidate_domain.get("scores", {})
+
+    if not jd_scores or not cand_scores:
+        # Fallback to binary if scores not available
+        if jd_domain.get("domain", "unknown") == candidate_domain.get("domain", "unknown"):
+            return jd_domain.get("confidence", 0)
+        return 0.0
+
+    # Get union of all domains
+    all_domains = set(jd_scores.keys()) | set(cand_scores.keys())
+
+    # Compute cosine similarity
+    dot_product = sum(jd_scores.get(d, 0) * cand_scores.get(d, 0) for d in all_domains)
+    jd_magnitude = sum(v ** 2 for v in jd_scores.values()) ** 0.5
+    cand_magnitude = sum(v ** 2 for v in cand_scores.values()) ** 0.5
+
+    if jd_magnitude == 0 or cand_magnitude == 0:
+        return 0.0
+
+    return round(dot_product / (jd_magnitude * cand_magnitude), 3)
+
+
+
 def register_background_task(task: asyncio.Task) -> None:
     """Register a background task for tracking."""
     _background_tasks.add(task)
@@ -1306,18 +1335,16 @@ def _run_python_phase(
         deterministic_features = {
             "core_skill_match": skill_a.get("core_match_ratio", 0) if isinstance(skill_a, dict) else 0,
             "secondary_skill_match": skill_a.get("secondary_match_ratio", 0) if isinstance(skill_a, dict) else 0,
-            "domain_match": jd_domain.get("confidence", 0) if jd_domain["domain"] == candidate_domain["domain"] else 0,
+            "domain_match": _compute_domain_similarity(jd_domain, candidate_domain),
             "relevant_experience": min(profile.get("total_effective_years", 0) / max(jd.get("required_years", 1), 1), 1.0),
             "total_experience": profile.get("total_effective_years", 0),
         }
 
         eligibility = check_eligibility(
-            jd_domain=jd_domain["domain"],
-            candidate_domain=candidate_domain["domain"],
+            jd_domain=jd_domain,
+            candidate_domain=candidate_domain,
             core_skill_match=deterministic_features["core_skill_match"],
             relevant_experience=deterministic_features["relevant_experience"],
-            jd_domain_confidence=jd_domain["confidence"],
-            candidate_domain_confidence=candidate_domain["confidence"],
         )
 
         deterministic_score = compute_deterministic_score(deterministic_features, eligibility, scoring_weights)

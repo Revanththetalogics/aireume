@@ -24,12 +24,10 @@ class TestDeterministicIntegration:
         assert candidate_domain["confidence"] >= 0.3
 
         eligibility = check_eligibility(
-            jd_domain=jd_domain["domain"],
-            candidate_domain=candidate_domain["domain"],
+            jd_domain=jd_domain,
+            candidate_domain=candidate_domain,
             core_skill_match=0.2,
             relevant_experience=3.0,
-            jd_domain_confidence=jd_domain["confidence"],
-            candidate_domain_confidence=candidate_domain["confidence"],
         )
         assert eligibility.eligible is False
         assert eligibility.reason == "domain_mismatch"
@@ -59,12 +57,10 @@ class TestDeterministicIntegration:
         assert candidate_domain["domain"] == "backend"
 
         eligibility = check_eligibility(
-            jd_domain=jd_domain["domain"],
-            candidate_domain=candidate_domain["domain"],
+            jd_domain=jd_domain,
+            candidate_domain=candidate_domain,
             core_skill_match=0.9,
             relevant_experience=5.0,
-            jd_domain_confidence=jd_domain["confidence"],
-            candidate_domain_confidence=candidate_domain["confidence"],
         )
         assert eligibility.eligible is True
 
@@ -92,12 +88,10 @@ class TestDeterministicIntegration:
         candidate_domain = detect_domain_from_resume(skills=resume_skills)
 
         eligibility = check_eligibility(
-            jd_domain=jd_domain["domain"],
-            candidate_domain=candidate_domain["domain"],
+            jd_domain=jd_domain,
+            candidate_domain=candidate_domain,
             core_skill_match=0.5,
             relevant_experience=2.0,
-            jd_domain_confidence=jd_domain["confidence"],
-            candidate_domain_confidence=candidate_domain["confidence"],
         )
 
         features = {
@@ -131,12 +125,10 @@ class TestDeterministicIntegration:
         assert jd_domain["domain"] == "devops"
 
         eligibility = check_eligibility(
-            jd_domain=jd_domain["domain"],
-            candidate_domain=candidate_domain["domain"],
+            jd_domain=jd_domain,
+            candidate_domain=candidate_domain,
             core_skill_match=0.1,
             relevant_experience=1.0,
-            jd_domain_confidence=jd_domain["confidence"],
-            candidate_domain_confidence=candidate_domain["confidence"],
         )
         assert eligibility.eligible is False
         assert eligibility.reason == "low_core_skills"
