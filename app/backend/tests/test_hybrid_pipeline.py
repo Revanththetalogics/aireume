@@ -146,41 +146,40 @@ class TestParseJdRules:
 class TestMatchSkills:
 
     def test_exact_match(self):
-        result = match_skills(["python"], ["python"], "python developer")
+        result = match_skills(["python"], ["python"])
         assert "python" in result["matched_skills"]
         assert result["skill_score"] == 100
 
     def test_alias_match_postgres(self):
         """'postgres' in candidate should match 'postgresql' in JD."""
-        result = match_skills(["postgres"], ["postgresql"], "")
+        result = match_skills(["postgres"], ["postgresql"])
         assert result["matched_skills"]
         assert result["missing_skills"] == [] or "postgresql" not in result["missing_skills"]
 
     def test_alias_match_js(self):
         """'js' in candidate should match 'javascript' in JD."""
-        result = match_skills(["js"], ["javascript"], "")
+        result = match_skills(["js"], ["javascript"])
         assert result["matched_skills"]
 
     def test_substring_match(self):
         """'react' in candidate should match 'react native' in JD."""
-        result = match_skills(["react"], ["react native"], "")
+        result = match_skills(["react"], ["react native"])
         assert result["matched_skills"]
 
     def test_missing_skill_tracked(self):
-        result = match_skills(["python"], ["python", "kubernetes"], "")
+        result = match_skills(["python"], ["python", "kubernetes"])
         assert "kubernetes" in result["missing_skills"]
 
     def test_empty_required_defaults_50(self):
         """If JD has no required skills, skill_score defaults to 50 (neutral)."""
-        result = match_skills(["python"], [], "")
+        result = match_skills(["python"], [])
         assert result["skill_score"] == 50
 
     def test_adjacent_skills(self):
         result = match_skills(
             ["python", "redis"],
             ["python"],
-            "",
-            ["redis", "graphql"],
+            jd_nice_to_have=["redis", "graphql"],
         )
         assert "redis" in result["adjacent_skills"]
         assert "graphql" not in result["adjacent_skills"]
@@ -189,18 +188,17 @@ class TestMatchSkills:
         result = match_skills(
             ["python"],
             ["python", "java", "c++"],
-            "",
         )
         # 1 of 3 matched = 33%
         assert result["skill_score"] == pytest.approx(33, abs=2)
 
     def test_rawtext_fallback_scan(self):
-        """Skills found in raw resume text even if not in skills_identified."""
-        raw_text = "Worked extensively with kubernetes and docker in production."
+        """Text-scanned skills are promoted when they have domain context."""
         result = match_skills(
-            [],
+            ["docker"],                          # structured candidate skills (provides context)
             ["kubernetes"],
-            raw_text,
+            text_scanned_skills=["kubernetes"],   # pre-extracted from text
+            structured_skills=["docker"],         # context: devops domain
         )
         assert result["matched_skills"]
 
