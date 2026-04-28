@@ -1130,6 +1130,7 @@ def assemble_result(
             jd_text=state.get("raw_jd_text", ""),
             jd_nice_to_have=jd.get("nice_to_have_skills", []),
             job_title=jd.get("role_title"),
+            structured_skills=cp.get("skills_identified", []),
         )
         if onet_skill_result.get("onet_validation"):
             onet = onet_skill_result["onet_validation"]

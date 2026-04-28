@@ -95,7 +95,7 @@ class TestTwoPassValidation:
         result = match_skills(
             candidate_skills=["python", "sql", "hadoop", "spark", "etl"],
             jd_skills=["railway", "docker", "kubernetes"],
-            jd_text="Worked on railway modernization project for Indian Railways",
+            text_scanned_skills=["railway"],
         )
         assert "railway" not in result["matched_skills"], (
             f"'railway' should NOT be matched for a data engineer with no cloud context. "
@@ -103,14 +103,14 @@ class TestTwoPassValidation:
         )
 
     def test_railway_accepted_with_cloud_context(self):
-        """A cloud engineer with cloud skills SHOULD get 'railway' matched from text."""
+        """A cloud engineer with deployment-platforms context SHOULD get 'railway' matched."""
         result = match_skills(
-            candidate_skills=["docker", "kubernetes", "vercel", "aws"],
+            candidate_skills=["docker", "kubernetes", "vercel", "heroku", "aws"],
             jd_skills=["railway", "docker"],
-            jd_text="Deployed app on railway platform",
+            text_scanned_skills=["railway"],
         )
         assert "railway" in result["matched_skills"], (
-            f"'railway' SHOULD be matched for a cloud engineer with cloud context. "
+            f"'railway' SHOULD be matched for a cloud engineer with deployment context. "
             f"matched_skills={result['matched_skills']}"
         )
 
@@ -119,7 +119,7 @@ class TestTwoPassValidation:
         result = match_skills(
             candidate_skills=["python", "django", "react"],
             jd_skills=["rtos"],
-            jd_text="Experience with rtos scheduling and real-time systems",
+            text_scanned_skills=["rtos"],
         )
         assert "rtos" not in result["matched_skills"], (
             f"'rtos' should NOT be matched for a web dev without embedded context. "
@@ -129,24 +129,24 @@ class TestTwoPassValidation:
     def test_rtos_accepted_with_embedded_context(self):
         """An embedded engineer SHOULD get 'rtos' matched from text."""
         result = match_skills(
-            candidate_skills=["freertos", "arm", "firmware"],
+            candidate_skills=["freertos", "zephyr", "arm", "firmware"],
             jd_skills=["rtos"],
-            jd_text="Experience with rtos scheduling and real-time systems",
+            text_scanned_skills=["rtos"],
         )
         assert "rtos" in result["matched_skills"], (
             f"'rtos' SHOULD be matched for an embedded engineer with embedded context. "
             f"matched_skills={result['matched_skills']}"
         )
 
-    def test_non_collision_skill_always_accepted(self):
-        """A non-collision skill like 'docker' should always be accepted from text scanning."""
+    def test_non_collision_skill_accepted_with_domain_context(self):
+        """A non-collision skill like 'docker' should be accepted from text scanning with same-domain context."""
         result = match_skills(
-            candidate_skills=["python"],
+            candidate_skills=["kubernetes"],
             jd_skills=["docker"],
-            jd_text="Containerized applications using docker and kubernetes",
+            text_scanned_skills=["docker"],
         )
         assert "docker" in result["matched_skills"], (
-            f"'docker' (non-collision) should always be accepted from text. "
+            f"'docker' (non-collision) should be accepted from text with domain context. "
             f"matched_skills={result['matched_skills']}"
         )
 
@@ -157,7 +157,6 @@ class TestTwoPassValidation:
         result = match_skills(
             candidate_skills=["railway", "docker", "python"],
             jd_skills=["railway"],
-            jd_text="",  # No text scanning needed — structured skills bypass validation
         )
         assert "railway" in result["matched_skills"], (
             f"'railway' from structured skills should always be accepted. "
@@ -182,7 +181,7 @@ class TestBigDataRailwayFalsePositive:
                 "snowflake", "azure", "aws",
             ],
             jd_skills=["railway", "python", "sql"],
-            jd_text="Railway domain client project experience preferred",
+            text_scanned_skills=["railway"],
         )
         assert "railway" not in result["matched_skills"], (
             f"'railway' should NOT be matched for a big-data engineer. "
@@ -191,3 +190,188 @@ class TestBigDataRailwayFalsePositive:
         # But python and sql should still match
         assert "python" in result["matched_skills"], "'python' should still match"
         assert "sql" in result["matched_skills"], "'sql' should still match"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Regression tests for domain boundary enforcement
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestDomainBoundaryRegressions:
+    """Regression tests ensuring domain boundaries prevent false-positive skill matches."""
+
+    def test_data_warehouse_resume_vs_embedded_jd(self):
+        """Data Warehouse/ETL candidate must NOT match embedded JD's railway or rtos."""
+        result = match_skills(
+            candidate_skills=["teradata", "informatica", "hadoop", "hive", "sql", "data_modeling", "etl"],
+            jd_skills=["railway", "rtos", "embedded", "communication", "c", "linux"],
+            text_scanned_skills=["railway", "rtos"],
+        )
+        assert "railway" not in result["matched_skills"], (
+            f"'railway' should NOT match for a data-warehouse candidate. "
+            f"matched_skills={result['matched_skills']}"
+        )
+        assert "rtos" not in result["matched_skills"], (
+            f"'rtos' should NOT match for a data-warehouse candidate. "
+            f"matched_skills={result['matched_skills']}"
+        )
+
+    def test_embedded_resume_vs_embedded_jd(self):
+        """Embedded Systems candidate SHOULD match embedded JD's railway and rtos."""
+        result = match_skills(
+            candidate_skills=["rtos", "railway", "embedded", "c", "linux", "can_bus", "arm"],
+            jd_skills=["railway", "rtos", "embedded", "communication", "c", "linux"],
+        )
+        assert "railway" in result["matched_skills"], (
+            f"'railway' SHOULD match for an embedded candidate with railway skill. "
+            f"matched_skills={result['matched_skills']}"
+        )
+        assert "rtos" in result["matched_skills"], (
+            f"'rtos' SHOULD match for an embedded candidate with rtos skill. "
+            f"matched_skills={result['matched_skills']}"
+        )
+
+    def test_substring_matching_respects_domain_boundaries(self):
+        """Substring matching for high-collision skills requires subcategory overlap."""
+        # Positive: react_native shares subcategory with react → should match
+        result_pos = match_skills(
+            candidate_skills=["react native"],
+            jd_skills=["react"],
+        )
+        assert "react" in result_pos["matched_skills"], (
+            f"'react' SHOULD match via substring with 'react native' (same subcategory). "
+            f"matched_skills={result_pos['matched_skills']}"
+        )
+
+        # Negative: data_warehouse does not share subcategory with railway → no substring match
+        result_neg = match_skills(
+            candidate_skills=["data_warehouse"],
+            jd_skills=["railway"],
+        )
+        assert "railway" not in result_neg["matched_skills"], (
+            f"'railway' should NOT match via substring with 'data_warehouse' (different domains). "
+            f"matched_skills={result_neg['matched_skills']}"
+        )
+
+    def test_short_skills_skip_substring_matching(self):
+        """Skills with ≤3 characters should not match via substring."""
+        result = match_skills(
+            candidate_skills=["redux"],
+            jd_skills=["r"],
+        )
+        assert "r" not in result["matched_skills"], (
+            f"'r' should NOT match 'redux' via substring (≤3 chars skip substring matching). "
+            f"matched_skills={result['matched_skills']}"
+        )
+
+    def test_structured_skills_context_only(self):
+        """When structured_skills provided, two-pass validation uses ONLY those for context."""
+        result = match_skills(
+            candidate_skills=["teradata", "sql", "hadoop"],
+            jd_skills=["railway", "rtos", "sql"],
+            text_scanned_skills=["railway", "rtos"],
+            structured_skills=["teradata", "sql", "hadoop"],
+        )
+        assert "railway" not in result["matched_skills"], (
+            f"'railway' should NOT match — no embedded/cloud context in structured skills. "
+            f"matched_skills={result['matched_skills']}"
+        )
+        assert "rtos" not in result["matched_skills"], (
+            f"'rtos' should NOT match — no embedded context in structured skills. "
+            f"matched_skills={result['matched_skills']}"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Regression tests for text_scanned_skills architecture
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestTextScannedSkillRegression:
+    """Regression tests for the text_scanned_skills promotion architecture.
+
+    These tests validate the new three-tier skill matching:
+      - Tier 0: structured_skills / candidate_skills (trusted, always accepted)
+      - Tier 2: text_scanned_skills (low confidence, require domain validation)
+    """
+
+    def test_text_scanned_rejected_without_context(self):
+        """text_scanned_skills with no candidate context must not be promoted (no circular fallback)."""
+        result = match_skills(
+            candidate_skills=[],
+            jd_skills=["railway", "rtos"],
+            text_scanned_skills=["railway", "rtos"],
+        )
+        assert "railway" not in result["matched_skills"], (
+            f"'railway' should NOT be matched with empty candidate skills (no circular fallback). "
+            f"matched_skills={result['matched_skills']}"
+        )
+        assert "rtos" not in result["matched_skills"], (
+            f"'rtos' should NOT be matched with empty candidate skills (no circular fallback). "
+            f"matched_skills={result['matched_skills']}"
+        )
+
+    def test_text_scanned_accepted_with_cloud_context(self):
+        """text_scanned 'railway' is promoted when structured skills provide deployment_platforms context."""
+        result = match_skills(
+            candidate_skills=["vercel", "heroku", "aws"],
+            jd_skills=["railway", "aws"],
+            text_scanned_skills=["railway"],
+            structured_skills=["vercel", "heroku", "aws"],
+        )
+        assert "railway" in result["matched_skills"], (
+            f"'railway' SHOULD be matched — vercel and heroku provide deployment_platforms context. "
+            f"matched_skills={result['matched_skills']}"
+        )
+
+    def test_text_scanned_rejected_wrong_domain(self):
+        """text_scanned 'railway' is rejected when context is data engineering, not cloud platforms."""
+        result = match_skills(
+            candidate_skills=["teradata", "hadoop", "sql"],
+            jd_skills=["railway"],
+            text_scanned_skills=["railway"],
+            structured_skills=["teradata", "hadoop", "sql"],
+        )
+        assert "railway" not in result["matched_skills"], (
+            f"'railway' should NOT be matched — data engineering doesn't validate cloud platform skills. "
+            f"matched_skills={result['matched_skills']}"
+        )
+
+    def test_structured_skills_always_match(self):
+        """Structured candidate_skills always match regardless of domain context."""
+        result = match_skills(
+            candidate_skills=["python", "aws"],
+            jd_skills=["python", "aws"],
+        )
+        assert "python" in result["matched_skills"], (
+            f"'python' should always match from structured skills. "
+            f"matched_skills={result['matched_skills']}"
+        )
+        assert "aws" in result["matched_skills"], (
+            f"'aws' should always match from structured skills. "
+            f"matched_skills={result['matched_skills']}"
+        )
+
+    def test_fuzzy_skipped_for_collision_skills(self):
+        """HIGH_COLLISION_SKILLS must not match via fuzzy matching."""
+        result = match_skills(
+            candidate_skills=["redux"],
+            jd_skills=["rtos"],
+        )
+        assert "rtos" not in result["matched_skills"], (
+            f"'rtos' should NOT match 'redux' via fuzzy (collision skill). "
+            f"matched_skills={result['matched_skills']}"
+        )
+
+    def test_text_scanned_non_collision_accepted_same_domain(self):
+        """Non-collision text_scanned skill is promoted when same-domain context exists."""
+        result = match_skills(
+            candidate_skills=["aws", "docker"],
+            jd_skills=["terraform"],
+            text_scanned_skills=["terraform"],
+            structured_skills=["aws", "docker"],
+        )
+        assert "terraform" in result["matched_skills"], (
+            f"'terraform' SHOULD be matched — shares devops_infrastructure domain with docker. "
+            f"matched_skills={result['matched_skills']}"
+        )

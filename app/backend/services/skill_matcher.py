@@ -29,14 +29,21 @@ def _get_onet_validator():
 
 
 def match_skills_with_onet(
-    candidate_skills, jd_skills, jd_text="", jd_nice_to_have=None, job_title=None
+    candidate_skills, jd_skills, jd_text="", jd_nice_to_have=None, job_title=None,
+    structured_skills=None, text_scanned_skills=None
 ):
     """Enhanced skill matching with O*NET occupation context.
 
     Falls back to standard :func:`match_skills` if O*NET data is unavailable
     or no *job_title* is provided.
+
+    .. deprecated:: jd_text
+        Kept for backward compatibility (agent_pipeline.py). Ignored internally.
+        Use *text_scanned_skills* instead.
     """
-    result = match_skills(candidate_skills, jd_skills, jd_text, jd_nice_to_have)
+    result = match_skills(candidate_skills, jd_skills, jd_nice_to_have,
+                          structured_skills=structured_skills,
+                          text_scanned_skills=text_scanned_skills)
 
     validator = _get_onet_validator()
     if validator is not None and validator.available and job_title:
@@ -46,6 +53,18 @@ def match_skills_with_onet(
                 job_title,
             )
             result["onet_validation"] = onet_result
+
+            # Filter: remove high-collision skills that O*NET says are NOT valid for this occupation
+            if onet_result.get("skill_validations"):
+                invalid_high_collision = set()
+                for skill_name, validation in onet_result["skill_validations"].items():
+                    norm = _normalize_skill(skill_name)
+                    if norm in HIGH_COLLISION_SKILLS and not validation.get("valid", True):
+                        invalid_high_collision.add(skill_name)
+                if invalid_high_collision:
+                    result["matched_skills"] = [s for s in result["matched_skills"]
+                                                if s not in invalid_high_collision]
+                    result["onet_filtered"] = list(invalid_high_collision)
         except Exception as e:
             logger.warning("O*NET validation failed (non-fatal): %s", e)
 
@@ -386,7 +405,7 @@ SKILL_TAXONOMY = {
         "core_imperative": [
             "python", "java", "c++", "c#", "c", "golang", "go", "rust", "kotlin",
             "swift", "ruby", "php", "perl", "ada", "cobol", "fortran", "vba",
-            "pascal", "assembly", "nim", "zig", "crystal"
+            "pascal", "assembly", "nim", "zig", "crystal", "dart"
         ],
         "functional": [
             "haskell", "erlang", "elixir", "clojure", "f#", "lisp", "scheme",
@@ -470,7 +489,7 @@ SKILL_TAXONOMY = {
         "secrets": ["vault", "consul"]
     },
     "embedded_systems": {
-        "rtos_os": ["rtos", "freertos", "zephyr", "vxworks", "qnx", "embedded linux", "baremetal"],
+        "rtos_os": ["embedded", "rtos", "freertos", "zephyr", "vxworks", "qnx", "embedded linux", "baremetal"],
         "hardware": ["microcontroller", "fpga", "arm", "arm cortex", "avr", "pic"],
         "protocols": ["uart", "spi", "i2c", "can bus", "modbus", "mqtt", "coap", "ble", "zigbee", "lorawan"],
         "tools": ["openocd", "jtag", "gdb"],
@@ -562,22 +581,6 @@ SKILL_TAXONOMY = {
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# HIGH-COLLISION SKILLS
-# Skills that are common English words — require domain co-occurrence validation
-# when extracted from raw text (not from structured skills sections)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-HIGH_COLLISION_SKILLS = {
-    # CRITICAL — very common words
-    "railway", "rtos", "r", "go", "c",
-    # HIGH — moderately common words
-    "swift", "ruby", "scala", "spark", "rocket", "phoenix",
-    # MEDIUM — less common but still ambiguous
-    "julia", "nim", "elixir", "erlang", "kotlin", "terraform",
-}
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # NORMALIZATION HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -590,6 +593,41 @@ def _normalize_skill(s: str) -> str:
     s = re.sub(r'[.\-/\\]', ' ', s)
     s = re.sub(r'\s+', ' ', s).strip()
     return s
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HIGH-COLLISION SKILLS
+# Skills that are common English words — require domain co-occurrence validation
+# when extracted from raw text (not from structured skills sections)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _build_collision_skills():
+    """Auto-detect skills appearing in 2+ domains plus known English-word homonyms."""
+    multi_domain = set()
+    # Find skills that exist in multiple top-level domains
+    skill_domains = {}  # norm_skill -> set of domain names
+    for domain_name, subcats in SKILL_TAXONOMY.items():
+        for subcat_name, skill_list in subcats.items():
+            for s in skill_list:
+                norm = _normalize_skill(s)
+                if norm not in skill_domains:
+                    skill_domains[norm] = set()
+                skill_domains[norm].add(domain_name)
+    
+    for norm, domains in skill_domains.items():
+        if len(domains) >= 2:
+            multi_domain.add(norm)
+    
+    # Known English-word homonyms that could appear in non-technical context
+    ENGLISH_HOMONYMS = {
+        "go", "r", "c", "swift", "ruby", "rust", "dart",
+        "scala", "spark", "rocket", "phoenix", "julia",
+        "nim", "elixir", "erlang", "embedded", "railway",
+        "rtos", "communication", "assembly",
+    }
+    return multi_domain | ENGLISH_HOMONYMS
+
+HIGH_COLLISION_SKILLS = _build_collision_skills()
 
 
 def _get_skill_domains(skill: str) -> set:
@@ -775,14 +813,18 @@ def _extract_skills_from_text(text: str) -> List[str]:
 # MAIN SKILL MATCHING FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def match_skills(candidate_skills, jd_skills, jd_text="", jd_nice_to_have=None) -> dict:
+def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
+                 structured_skills=None, text_scanned_skills=None) -> dict:
     """Unified skill matching — single source of truth.
 
     Args:
         candidate_skills: List of skills identified from the candidate.
         jd_skills: List of required skills from the job description.
-        jd_text: Optional raw JD/resume text for additional skill scanning.
         jd_nice_to_have: Optional list of nice-to-have skills.
+        structured_skills: Tier 0 skills (parser output, high confidence).
+        text_scanned_skills: Tier 2 skills (text-scanned, low confidence).
+            These are promoted into the candidate set only if they pass
+            strict domain-context validation.
 
     Returns dict with:
     - core_match_ratio: float (0-1)
@@ -801,33 +843,44 @@ def match_skills(candidate_skills, jd_skills, jd_text="", jd_nice_to_have=None) 
     if jd_nice_to_have is None:
         jd_nice_to_have = []
 
-    # Build candidate skill set (all aliases included)
+    # Step 1: Build candidate set from structured candidate_skills ONLY
     cand_normalized: List[str] = []
     for s in candidate_skills:
         if s and isinstance(s, str):
             cand_normalized.extend(_expand_skill(s))
     cand_set = set(cand_normalized)
 
-    # Pass 2: Text-extracted skills — validate high-collision ones against subcategory context
-    if jd_text:
-        scanned = _extract_skills_from_text(jd_text)
-        # Build subcategory profile from high-confidence skills (Pass 1)
-        _subcat_counts = {}
-        for s in cand_set:
-            for key in _get_skill_subcategory_keys(s):
-                _subcat_counts[key] = _subcat_counts.get(key, 0) + 1
+    # Step 2: Build domain context from structured skills
+    context_subcats = {}
+    for s in (structured_skills or candidate_skills):
+        norm = _normalize_skill(s)
+        for key in _get_skill_subcategory_keys(norm):
+            context_subcats[key] = context_subcats.get(key, 0) + 1
 
-        for s in scanned:
-            s_norm = _normalize_skill(s)
-            if s_norm in HIGH_COLLISION_SKILLS:
-                # Require at least 1 other skill from the same subcategory
-                # (subcategory-level is narrower than domain-level, preventing
-                # false positives like 'aws' validating 'railway')
-                skill_subcats = _get_skill_subcategory_keys(s_norm)
-                has_context = any(_subcat_counts.get(key, 0) >= 1 for key in skill_subcats)
-                if not has_context:
-                    continue  # Reject — no supporting subcategory context
-            cand_set.update(_expand_skill(s))
+    # Step 3: Promote text-scanned skills WITH strict validation
+    promoted = []
+    for s in (text_scanned_skills or []):
+        s_norm = _normalize_skill(s)
+        # Skip if already in candidate set (from structured)
+        if s_norm in cand_set:
+            continue
+
+        subcats = _get_skill_subcategory_keys(s_norm)
+
+        if s_norm in HIGH_COLLISION_SKILLS or not subcats:
+            # High-collision or unknown-domain: require 2+ context skills from same subcategory
+            has_strong_context = any(context_subcats.get(k, 0) >= 2 for k in subcats)
+            if not has_strong_context:
+                continue  # REJECT
+        else:
+            # Non-collision: require 1+ context skill from same domain
+            skill_domains = {k[0] for k in subcats}
+            context_domains = {k[0] for k in context_subcats}
+            if not (skill_domains & context_domains):
+                continue  # REJECT (different domain entirely)
+
+        promoted.append(s)
+        cand_set.update(_expand_skill(s))
 
     matched = []
     missing = []
@@ -845,22 +898,30 @@ def match_skills(candidate_skills, jd_skills, jd_text="", jd_nice_to_have=None) 
         # Substring match: "React Native" in "React" or vice-versa
         if not found:
             req_norm = _normalize_skill(req)
-            for c in cand_set:
-                if req_norm in c or c in req_norm:
-                    found = True
-                    break
+            if len(req_norm) > 3:  # Skip very short skills for substring matching
+                for c in cand_set:
+                    if len(c) > 3 and (req_norm in c or c in req_norm):
+                        # High-collision skills require same subcategory
+                        if req_norm in HIGH_COLLISION_SKILLS:
+                            req_subcats = _get_skill_subcategory_keys(req_norm)
+                            c_subcats = _get_skill_subcategory_keys(c)
+                            if not (req_subcats & c_subcats):
+                                continue  # Different domains, skip
+                        found = True
+                        break
 
         # Fuzzy fallback (rapidfuzz, threshold 88)
         if not found:
-            try:
-                from rapidfuzz import fuzz
-                req_norm = _normalize_skill(req)
-                for c in list(cand_set)[:200]:  # cap for performance
-                    if fuzz.token_sort_ratio(req_norm, c) >= 88:
-                        found = True
-                        break
-            except ImportError:
-                pass
+            req_norm = _normalize_skill(req)
+            if req_norm not in HIGH_COLLISION_SKILLS:  # Skip fuzzy for ambiguous skills
+                try:
+                    from rapidfuzz import fuzz
+                    for c in list(cand_set)[:200]:  # cap for performance
+                        if fuzz.token_sort_ratio(req_norm, c) >= 88:
+                            found = True
+                            break
+                except ImportError:
+                    pass
 
         if found:
             matched.append(req)

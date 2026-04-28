@@ -208,10 +208,21 @@ class ONETValidator:
 
         match_ratio = recognized_count / max(len(skills), 1)
 
+        # Dict-indexed form for downstream filtering (e.g., high-collision guard)
+        skill_validations = {
+            v["skill"]: {
+                "valid": v["recognized"],
+                "is_hot": v["is_hot"],
+                "is_in_demand": v["is_in_demand"],
+            }
+            for v in validated
+        }
+
         return {
             "soc_code": soc_code,
             "occupation_title": occ["title"],
             "validated": validated,
+            "skill_validations": skill_validations,
             "occupation_match_ratio": round(match_ratio, 4),
         }
 

@@ -334,11 +334,19 @@ def parse_resume_rules(parsed_data: Dict[str, Any], gap_analysis: Dict[str, Any]
     work_exp     = parsed_data.get("work_experience", [])
     raw_text     = parsed_data.get("raw_text", "")
 
-    # Skills — from parser + full-text scan
+    # Skills — tiered confidence model
     parser_skills = [str(s).strip() for s in parsed_data.get("skills", []) if s]
     scanned_skills = _extract_skills_from_text(raw_text)
-    # Merge deduplicating by normalized name
-    all_skills = list(dict.fromkeys(parser_skills + scanned_skills))
+
+    # Tier 0: Structured parser output (HIGH confidence)
+    structured = list(dict.fromkeys(parser_skills))
+
+    # Tier 2: Text-scanned only (LOW confidence) -- exclude anything already in Tier 0
+    structured_norm = {s.lower().strip() for s in structured}
+    text_only = [s for s in scanned_skills if s.lower().strip() not in structured_norm]
+
+    # skills_identified = ONLY structured by default
+    # text_scanned_skills = tracked separately, validated during matching
 
     total_years = float(gap_analysis.get("total_years", 0.0) or 0.0)
     if total_years <= 0 and raw_text:
@@ -364,7 +372,9 @@ def parse_resume_rules(parsed_data: Dict[str, Any], gap_analysis: Dict[str, Any]
         "name":                  contact.get("name", ""),
         "email":                 contact.get("email", ""),
         "phone":                 contact.get("phone", ""),
-        "skills_identified":     all_skills,
+        "structured_skills":     structured,       # Tier 0: parser output (HIGH confidence)
+        "text_scanned_skills":   text_only,         # Tier 2: text-only (LOW confidence)
+        "skills_identified":     structured,        # ONLY structured — key change
         "education":             parsed_data.get("education", []),
         "work_experience":       work_exp,
         "career_summary":        career_summary,
@@ -1238,9 +1248,10 @@ def _run_python_phase(
     skill_a  = match_skills_with_onet(
         profile.get("skills_identified", []),
         jd.get("required_skills", []),
-        resume_text,
         jd.get("nice_to_have_skills", []),
         job_title=jd.get("role_title"),
+        structured_skills=profile.get("structured_skills", []),
+        text_scanned_skills=profile.get("text_scanned_skills", []),
     )
     edu_s    = score_education_rules(profile, jd["domain"])
     exp_r    = score_experience_rules(profile, jd, gap_analysis)
