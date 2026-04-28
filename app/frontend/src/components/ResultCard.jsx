@@ -469,6 +469,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     { key: 'technical',   label: 'Technical',   questions: interview_questions?.technical_questions   || [] },
     { key: 'behavioral',  label: 'Behavioral',  questions: interview_questions?.behavioral_questions  || [] },
     { key: 'culture_fit', label: 'Culture Fit', questions: interview_questions?.culture_fit_questions || [] },
+    { key: 'experience_deep_dive', label: 'Experience Deep-Dive', questions: interview_questions?.experience_deep_dive_questions || [] },
   ]
   
   // Merge narrative data with existing result data
@@ -854,7 +855,8 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                 <span className="text-xs bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-semibold">
                   {(interview_questions.technical_questions?.length || 0) +
                    (interview_questions.behavioral_questions?.length || 0) +
-                   (interview_questions.culture_fit_questions?.length || 0)} questions
+                   (interview_questions.culture_fit_questions?.length || 0) +
+                   (interview_questions.experience_deep_dive_questions?.length || 0)} questions
                 </span>
               </div>
               {showInterviewKit

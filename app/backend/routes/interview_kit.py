@@ -166,6 +166,7 @@ def get_scorecard(
     tech_total = len(iq.get("technical_questions", []))
     beh_total = len(iq.get("behavioral_questions", []))
     cult_total = len(iq.get("culture_fit_questions", []))
+    exp_total = len(iq.get("experience_deep_dive_questions", []))
 
     # Build dimension summaries
     def build_dimension(category: str, total: int) -> ScorecardDimension:
@@ -187,6 +188,7 @@ def get_scorecard(
     tech_summary = build_dimension("technical", tech_total)
     beh_summary = build_dimension("behavioral", beh_total)
     cult_summary = build_dimension("culture_fit", cult_total)
+    exp_summary = build_dimension("experience_deep_dive", exp_total)
 
     # Derive strengths/concerns from evaluations
     strengths = [e.notes for e in evals if e.rating == "strong" and e.notes and e.notes.strip()]
@@ -213,6 +215,7 @@ def get_scorecard(
         technical_summary=tech_summary,
         behavioral_summary=beh_summary,
         culture_fit_summary=cult_summary,
+        experience_deep_dive_summary=exp_summary,
         overall_assessment=overall.overall_assessment if overall else None,
         recruiter_recommendation=overall.recruiter_recommendation if overall else None,
         strengths_confirmed=strengths[:5],

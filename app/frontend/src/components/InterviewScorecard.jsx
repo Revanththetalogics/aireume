@@ -154,10 +154,11 @@ export default function InterviewScorecard({ resultId }) {
         </div>
 
         {/* Dimension Summaries */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <DimensionCard dimension={scorecard.technical_summary} label="Technical" icon={FileText} />
           <DimensionCard dimension={scorecard.behavioral_summary} label="Behavioral" icon={CheckCircle} />
           <DimensionCard dimension={scorecard.culture_fit_summary} label="Culture Fit" icon={AlertCircle} />
+          <DimensionCard dimension={scorecard.experience_deep_dive_summary} label="Experience" icon={FileText} />
         </div>
 
         {/* Strengths & Concerns */}

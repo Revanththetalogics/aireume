@@ -175,10 +175,10 @@ def get_reasoning_llm(seed: Optional[int] = None) -> ChatOllama:
     if _reasoning_llm is None and seed is None:
         _is_cloud = _is_ollama_cloud(OLLAMA_BASE_URL)
         # Cloud models need significantly more tokens for verbose output
-        # Local: 800 tokens sufficient for scorer + interview_questions
-        # Cloud: 4000 tokens for very large models (480B+) that generate extremely verbose output
-        _num_predict = 4000 if _is_cloud else 800
-        _num_ctx = 8192 if _is_cloud else 2048
+        # Local: 6000 tokens for scorer + interview_questions (15 structured questions with guidance)
+        # Cloud: 8000 tokens for very large models (480B+) that generate extremely verbose output
+        _num_predict = 8000 if _is_cloud else 6000
+        _num_ctx = 16384 if _is_cloud else 8192
 
         _llm_kwargs = {
             "model": OLLAMA_REASONING_MODEL,
@@ -711,6 +711,9 @@ OUTPUT SCHEMA:
     ],
     "culture_fit_questions": [
       {{"text": "motivation/alignment question text", "what_to_listen_for": ["genuine interest signal", "alignment with role context"], "follow_ups": ["follow-up based on their answer"]}}
+    ],
+    "experience_deep_dive_questions": [
+      {{"text": "question probing specific past experience", "what_to_listen_for": ["concrete details", "measurable outcomes"], "follow_ups": ["probe for specifics"]}}
     ]
   }}
 }}
@@ -729,18 +732,26 @@ INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
    d) Use the domain ({domain}) and seniority ({seniority}) to calibrate difficulty.
    For each technical question, include "what_to_listen_for": 2-3 bullet points describing what a strong answer demonstrates (specific technologies, patterns, depth indicators). Also include "follow_ups": 1-2 conditional follow-up questions (e.g., "If they claim hands-on experience, ask about specific cluster sizes or deployment strategies").
 
-2. BEHAVIORAL QUESTIONS (3 questions, STAR format):
+2. BEHAVIORAL QUESTIONS (4 questions, STAR format):
    a) Address the biggest risk signal from the gap/timeline assessment: {gap_interpretation}. If gaps exist, ask about the circumstance without being invasive.
    b) Target a seniority-specific challenge: for senior roles probe leadership/mentorship; for mid roles probe ownership; for junior roles probe learning agility.
    c) Probe the role transition: moving from {current_role} to {role_title} — what motivates this and what challenges do they anticipate?
+   d) Include a question about collaboration or cross-functional teamwork — how they've worked with non-technical stakeholders or handled disagreements about technical direction.
    For each behavioral question, include "what_to_listen_for": 2-3 bullet points describing what a strong STAR response includes (specific outcomes, self-awareness, leadership signals). Also include "follow_ups": 1-2 probing follow-ups for when answers are vague or surface-level.
 
-3. CULTURE-FIT QUESTIONS (2 questions):
+3. CULTURE-FIT QUESTIONS (3 questions):
    a) Motivation for THIS specific role: Why this company/role given their career trajectory ({career_summary})?
    b) Work-style alignment: A question tied to the role context (e.g., fast-paced startup vs. structured enterprise, remote vs. on-site if implied by domain).
+   c) Growth mindset and continuous learning: How they stay current in their field and adapt to changing requirements or technologies.
    For each culture-fit question, include "what_to_listen_for": 2-3 bullet points indicating genuine motivation and alignment. Also include "follow_ups": 1 conditional follow-up.
 
-4. CANDIDATE BRIEFING (mandatory):
+4. EXPERIENCE DEEP-DIVE QUESTIONS (3 questions):
+   a) Pick the most relevant role from the candidate's career history ({career_summary}) and ask them to walk through a specific project or achievement in detail — scope, their individual contribution, challenges faced, and measurable outcomes.
+   b) Ask about a situation where they had to work outside their comfort zone or take on responsibilities beyond their job title — this reveals adaptability and breadth.
+   c) If the candidate has {years_actual}+ years of experience, ask how their approach to [a key responsibility from the JD] has evolved over their career — this reveals depth of expertise and maturity.
+   For each question, include "what_to_listen_for": 2-3 bullet points focused on specificity, measurable outcomes, and self-awareness. Include "follow_ups": 1-2 questions to probe for concrete details if the answer is vague.
+
+5. CANDIDATE BRIEFING (mandatory):
    Generate a "candidate_briefing" object at the top of interview_questions:
    - "profile_snapshot": A 2-3 sentence summary of who this candidate is — their current role, domain, experience level, and how they relate to this position.
    - "strengths_to_confirm": Top 2-3 matched skills or experiences from the resume that the recruiter should validate during the interview.
@@ -977,6 +988,46 @@ async def scorer_node(state: PipelineState) -> dict:
         },
     ]
 
+    # Experience deep-dive fallback questions
+    exp_qs = [
+        {
+            "text": f"Walk me through the most impactful project you led at {current_company or 'your current company'}. What was the scope, your specific role, and the measurable outcome?",
+            "what_to_listen_for": [
+                "Specificity about their individual contribution vs team effort",
+                "Quantifiable outcomes (metrics, timelines, scale)",
+                "Honest assessment of challenges and how they were overcome"
+            ],
+            "follow_ups": [
+                "What would you do differently if you could redo that project?",
+                "How did this project influence your approach to similar challenges?"
+            ]
+        },
+        {
+            "text": "Tell me about a time you had to work outside your comfort zone or take on responsibilities beyond your defined role.",
+            "what_to_listen_for": [
+                "Willingness to stretch beyond job description",
+                "How they handled uncertainty or lack of expertise",
+                "Growth that resulted from the experience"
+            ],
+            "follow_ups": [
+                "What support did you seek, and from whom?",
+                "Would you volunteer for a similar challenge again?"
+            ]
+        },
+        {
+            "text": f"How has your approach to {key_responsibilities[0] if key_responsibilities else 'your core work'} evolved over your career?",
+            "what_to_listen_for": [
+                "Evidence of professional growth and maturity",
+                "Ability to reflect on past approaches critically",
+                "Adaptation to changing industry practices"
+            ],
+            "follow_ups": [
+                "What was the biggest lesson that changed your approach?",
+                "How do you stay current with best practices in this area?"
+            ]
+        },
+    ]
+
     # Fallback candidate briefing
     years_actual = cp.get("total_effective_years")
     candidate_briefing = {
@@ -991,6 +1042,7 @@ async def scorer_node(state: PipelineState) -> dict:
         "technical_questions": tech_qs,
         "behavioral_questions": beh_qs,
         "culture_fit_questions": cult_qs,
+        "experience_deep_dive_questions": exp_qs,
     }
     fallback_scores = _compute_fallback_scores(sa, eta, cp, jd, w)
 

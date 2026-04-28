@@ -70,9 +70,10 @@ class InterviewQuestions(BaseModel):
     technical_questions: List[InterviewQuestion] = []
     behavioral_questions: List[InterviewQuestion] = []
     culture_fit_questions: List[InterviewQuestion] = []
+    experience_deep_dive_questions: List[InterviewQuestion] = []
     candidate_briefing: Optional[CandidateBriefing] = None
 
-    @field_validator('technical_questions', 'behavioral_questions', 'culture_fit_questions', mode='before')
+    @field_validator('technical_questions', 'behavioral_questions', 'culture_fit_questions', 'experience_deep_dive_questions', mode='before')
     @classmethod
     def coerce_questions(cls, v):
         """Backward-compatible: convert old str items and new dict/object items."""
@@ -448,7 +449,7 @@ class EvaluationUpsert(BaseModel):
     @field_validator('question_category')
     @classmethod
     def validate_category(cls, v):
-        allowed = {'technical', 'behavioral', 'culture_fit'}
+        allowed = {'technical', 'behavioral', 'culture_fit', 'experience_deep_dive'}
         if v not in allowed:
             raise ValueError(f'question_category must be one of {allowed}')
         return v
@@ -508,6 +509,7 @@ class ScorecardOut(BaseModel):
     technical_summary: ScorecardDimension
     behavioral_summary: ScorecardDimension
     culture_fit_summary: ScorecardDimension
+    experience_deep_dive_summary: ScorecardDimension
     overall_assessment: Optional[str] = None
     recruiter_recommendation: Optional[str] = None
     strengths_confirmed: List[str] = []

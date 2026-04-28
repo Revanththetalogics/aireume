@@ -782,7 +782,8 @@ Return ONLY valid JSON:
   "interview_questions": {{
     "technical_questions": ["2 questions probing missing/weak skills"],
     "behavioral_questions": ["1 STAR-format question for role challenges"],
-    "culture_fit_questions": ["1 motivation/values question"]
+    "culture_fit_questions": ["1 motivation/values question"],
+    "experience_deep_dive_questions": ["1 question probing specific past experience"]
   }}
 }}
 No markdown, no code fences."""
@@ -951,6 +952,7 @@ No markdown, no code fences."""
             "technical_questions":   _ensure_str_list(data.get("interview_questions", {}).get("technical_questions", [])),
             "behavioral_questions":  _ensure_str_list(data.get("interview_questions", {}).get("behavioral_questions", [])),
             "culture_fit_questions": _ensure_str_list(data.get("interview_questions", {}).get("culture_fit_questions", [])),
+            "experience_deep_dive_questions": data.get("interview_questions", {}).get("experience_deep_dive_questions", []),
         },
     }
 
@@ -1135,6 +1137,45 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
         "context_notes": ["Generic questions generated — LLM-enhanced analysis was not available"]
     }
 
+    experience_deep_dive_q = [
+        {
+            "text": "Walk me through the most significant project you've worked on. What was your role, the challenges, and the outcome?",
+            "what_to_listen_for": [
+                "Concrete details about scope and personal contribution",
+                "Measurable outcomes and results",
+                "Self-awareness about what went well and what didn't"
+            ],
+            "follow_ups": [
+                "What was the most difficult decision you had to make during that project?",
+                "How did you measure success?"
+            ]
+        },
+        {
+            "text": "Describe a time you took on responsibilities beyond your job description. What drove you to do it?",
+            "what_to_listen_for": [
+                "Initiative and proactive mindset",
+                "Ability to learn quickly in unfamiliar territory",
+                "Impact of stepping up on the team or organization"
+            ],
+            "follow_ups": [
+                "What did you learn from that experience?",
+                "How did it shape your career direction?"
+            ]
+        },
+        {
+            "text": "How has your professional approach changed from your first role to your current one?",
+            "what_to_listen_for": [
+                "Evidence of growth mindset and self-reflection",
+                "Specific examples of evolved thinking or methodology",
+                "Maturity in handling ambiguity and complexity"
+            ],
+            "follow_ups": [
+                "What was the single biggest lesson in your career so far?",
+                "What advice would you give your earlier self?"
+            ]
+        },
+    ]
+
     # Return with both 'concerns' (new) and 'weaknesses' (backward compat)
     return {
         "ai_enhanced": False,  # Marks this as a fallback narrative, not LLM-generated
@@ -1152,6 +1193,7 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "technical_questions":   tech_q,
             "behavioral_questions":  behavioral_q,
             "culture_fit_questions": culture_q,
+            "experience_deep_dive_questions": experience_deep_dive_q,
         },
     }
 
