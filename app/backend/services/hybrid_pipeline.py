@@ -161,9 +161,9 @@ def _get_llm():
             #     raise RuntimeError(f"OLLAMA_REQUIRE_CLOUD is set but OLLAMA_BASE_URL points to local instance: {_base_url}")
 
             # num_predict: Cloud models need significantly more tokens for verbose output
-            # Local: 2048 tokens for narrative JSON with interview questions (can exceed 1024 tokens)
-            # Cloud: 4096 tokens for very large models (480B+) that generate extremely verbose output
-            _num_predict = 4096 if _is_cloud else 2048
+            # Local: 6000 tokens for 15 structured interview questions with candidate briefing
+            # Cloud: 8000 tokens for very large models (480B+) that generate extremely verbose output
+            _num_predict = 8000 if _is_cloud else 6000
 
             # Build kwargs for ChatOllama
             # NOTE: "format": "json" is intentionally omitted. Ollama's constrained JSON
@@ -176,8 +176,8 @@ def _get_llm():
                 "temperature": 0.1,
                 "num_predict": _num_predict,
                 # num_ctx: Cloud models need larger context for complex reasoning
-                # 16384 for cloud to handle very large outputs, 2048 for local
-                "num_ctx": 16384 if _is_cloud else 2048,
+                # 16384 for cloud to handle very large outputs, 8192 for local (15 structured questions)
+                "num_ctx": 16384 if _is_cloud else 8192,
                 # HTTP timeout must exceed LLM_NARRATIVE_TIMEOUT to let the
                 # outer asyncio.wait_for control cancellation, not httpx.
                 "request_timeout": _llm_timeout + 30,
@@ -780,12 +780,59 @@ Return ONLY valid JSON:
     "overall_rationale": "synthesis of all factors"
   }},
   "interview_questions": {{
-    "technical_questions": ["2 questions probing missing/weak skills"],
-    "behavioral_questions": ["1 STAR-format question for role challenges"],
-    "culture_fit_questions": ["1 motivation/values question"],
-    "experience_deep_dive_questions": ["1 question probing specific past experience"]
+    "candidate_briefing": {{
+      "profile_snapshot": "2-3 sentence summary: who is this person, current role, domain, years of experience",
+      "strengths_to_confirm": ["top matched skill/experience to validate"],
+      "areas_to_probe": ["specific gap, risk signal, or concern to investigate"],
+      "context_notes": ["Why Q1 targets missing skill X", "Why Q4 probes the employment gap"]
+    }},
+    "technical_questions": [
+      {{"text": "scenario-based question", "what_to_listen_for": ["competence signal", "red flag"], "follow_ups": ["conditional follow-up"]}}
+    ],
+    "behavioral_questions": [
+      {{"text": "STAR-format question", "what_to_listen_for": ["leadership/ownership signal"], "follow_ups": ["probe deeper"]}}
+    ],
+    "culture_fit_questions": [
+      {{"text": "motivation/alignment question", "what_to_listen_for": ["genuine interest signal"], "follow_ups": ["follow-up"]}}
+    ],
+    "experience_deep_dive_questions": [
+      {{"text": "question probing specific past experience", "what_to_listen_for": ["concrete details", "measurable outcomes"], "follow_ups": ["probe for specifics"]}}
+    ]
   }}
 }}
+
+INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
+1. TECHNICAL QUESTIONS (5 questions):
+   a) For EACH missing skill: Create a scenario-based question that ties the skill to a specific job responsibility. Do NOT ask "Do you know X?" — instead ask how they would solve a real problem using that skill.
+   b) For 1-2 critical matched skills: Create depth-probing questions testing expertise level.
+   c) If architecture gaps exist: Include a system design question relevant to the domain.
+   d) Calibrate difficulty by domain and seniority level.
+   For each question, include "what_to_listen_for": 2-3 bullet points describing what a strong answer demonstrates. Include "follow_ups": 1-2 conditional follow-up questions.
+
+2. BEHAVIORAL QUESTIONS (4 questions, STAR format):
+   a) Address the biggest risk signal from gap/timeline assessment.
+   b) Target a seniority-specific challenge: senior→leadership/mentorship; mid→ownership; junior→learning agility.
+   c) Probe the role transition motivation.
+   d) Include a collaboration/cross-functional teamwork question.
+   For each question, include "what_to_listen_for" and "follow_ups".
+
+3. CULTURE-FIT QUESTIONS (3 questions):
+   a) Motivation for THIS specific role given career trajectory.
+   b) Work-style alignment tied to role context.
+   c) Growth mindset and continuous learning approach.
+   For each question, include "what_to_listen_for" and "follow_ups".
+
+4. EXPERIENCE DEEP-DIVE QUESTIONS (3 questions):
+   a) Ask about the most relevant past project — scope, individual contribution, challenges, measurable outcomes.
+   b) Ask about working outside comfort zone or taking on responsibilities beyond job title.
+   c) Ask how their approach to a key responsibility has evolved over their career.
+   For each question, include "what_to_listen_for" and "follow_ups".
+
+5. CANDIDATE BRIEFING (mandatory):
+   Generate a "candidate_briefing" with: profile_snapshot (2-3 sentences), strengths_to_confirm (top 2-3), areas_to_probe (top 2-3), context_notes (why each notable question was generated).
+
+DO NOT generate generic questions like "Tell me about yourself" or "What are your strengths?". Every question MUST reference specific skills, role responsibilities, or candidate context.
+
 No markdown, no code fences."""
 
     import httpx  # For specific error handling
@@ -859,7 +906,7 @@ No markdown, no code fences."""
         _is_cloud_retry = _is_ollama_cloud(_base_url)
 
         # num_predict: Cloud models need significantly more tokens for verbose output
-        _num_predict_retry = 4096 if _is_cloud_retry else 2048
+        _num_predict_retry = 8000 if _is_cloud_retry else 6000
 
         # Build kwargs for retry LLM - higher temperature as fallback for edge cases
         _retry_kwargs = {
@@ -867,7 +914,7 @@ No markdown, no code fences."""
             "base_url": _base_url,
             "temperature": 0.3,
             "num_predict": _num_predict_retry,
-            "num_ctx": 16384 if _is_cloud_retry else 2048,
+            "num_ctx": 16384 if _is_cloud_retry else 8192,
             "request_timeout": _llm_timeout + 30,
         }
 
@@ -940,6 +987,20 @@ No markdown, no code fences."""
     concerns = _ensure_str_list(data.get("concernes", data.get("concerns", data.get("weaknesses", []))))
     weaknesses = _ensure_str_list(data.get("weaknesses", concerns))
 
+    def _ensure_question_list(v) -> list:
+        """Normalize question entries to dicts with text/what_to_listen_for/follow_ups."""
+        if not isinstance(v, list):
+            return []
+        result = []
+        for item in v:
+            if isinstance(item, dict):
+                result.append(item)
+            elif isinstance(item, str):
+                result.append({"text": item, "what_to_listen_for": [], "follow_ups": []})
+        return result
+
+    iq = data.get("interview_questions", {})
+
     return {
         "ai_enhanced": True,  # Marks this as a real LLM-generated narrative
         "fit_summary":            str(data.get("fit_summary", "")),
@@ -949,10 +1010,11 @@ No markdown, no code fences."""
         "recommendation_rationale": str(data.get("recommendation_rationale", "")),
         "explainability":         data.get("explainability", {}),
         "interview_questions": {
-            "technical_questions":   _ensure_str_list(data.get("interview_questions", {}).get("technical_questions", [])),
-            "behavioral_questions":  _ensure_str_list(data.get("interview_questions", {}).get("behavioral_questions", [])),
-            "culture_fit_questions": _ensure_str_list(data.get("interview_questions", {}).get("culture_fit_questions", [])),
-            "experience_deep_dive_questions": data.get("interview_questions", {}).get("experience_deep_dive_questions", []),
+            "candidate_briefing": iq.get("candidate_briefing", {}),
+            "technical_questions":   _ensure_question_list(iq.get("technical_questions", [])),
+            "behavioral_questions":  _ensure_question_list(iq.get("behavioral_questions", [])),
+            "culture_fit_questions": _ensure_question_list(iq.get("culture_fit_questions", [])),
+            "experience_deep_dive_questions": _ensure_question_list(iq.get("experience_deep_dive_questions", [])),
         },
     }
 
@@ -1064,6 +1126,18 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
                 "Would you make the same trade-off again?"
             ]
         },
+        {
+            "text": "How would you design a solution for a key responsibility of this role?",
+            "what_to_listen_for": [
+                "System design thinking relevant to the domain",
+                "Consideration of scalability and edge cases",
+                "Ability to articulate architectural decisions"
+            ],
+            "follow_ups": [
+                "What trade-offs would you consider in this design?",
+                "How would you handle failure scenarios?"
+            ]
+        },
     ]
     behavioral_q = [
         {
@@ -1102,6 +1176,18 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
                 "What would you do differently if faced with a similar conflict?"
             ]
         },
+        {
+            "text": "Describe a time when you had to collaborate with a cross-functional team to deliver a project.",
+            "what_to_listen_for": [
+                "Ability to communicate across disciplines",
+                "Understanding of different team priorities and constraints",
+                "Track record of delivering through influence rather than authority"
+            ],
+            "follow_ups": [
+                "How did you handle differing priorities between teams?",
+                "What was your approach to keeping everyone aligned?"
+            ]
+        },
     ]
     culture_q = [
         {
@@ -1126,6 +1212,18 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What's a recent trend you think is overhyped?",
                 "Can you share a time you applied something new you learned?"
+            ]
+        },
+        {
+            "text": "Describe a time when you received critical feedback. How did you respond and what did you learn?",
+            "what_to_listen_for": [
+                "Growth mindset and self-awareness",
+                "Ability to separate feedback from ego",
+                "Concrete actions taken to improve"
+            ],
+            "follow_ups": [
+                "How did that feedback change your approach going forward?",
+                "Do you actively seek out feedback now?"
             ]
         },
     ]
