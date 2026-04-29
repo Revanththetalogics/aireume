@@ -52,3 +52,4 @@ pytest-cov==6.0.0
 
 # Utilities
 python-dotenv==1.0.1
+dateparser>=1.2

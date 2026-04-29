@@ -595,6 +595,61 @@ def _normalize_skill(s: str) -> str:
     return s
 
 
+def normalize_skill_name(skill: str) -> str:
+    """Normalize a skill name using SKILL_ALIASES.
+
+    Returns the canonical form if an alias exists, otherwise returns
+    the original (stripped).  When the input already *is* the canonical
+    form (case-insensitive), the original casing is preserved so that
+    "Python" stays "Python" rather than becoming "python".
+
+    This is the public API for parser_service and any other consumer
+    that needs to collapse alias variants at extraction time.
+
+    Examples
+    --------
+    >>> normalize_skill_name("nodejs")
+    'node.js'
+    >>> normalize_skill_name("react.js")
+    'react'
+    >>> normalize_skill_name("Python")
+    'Python'
+    """
+    if not skill:
+        return skill
+    stripped = skill.strip()
+    lower = stripped.lower()
+
+    # Special-case: preserve c++ / c# casing from SKILL_ALIASES keys
+    if lower in ("c++", "c#"):
+        for canonical in SKILL_ALIASES:
+            if canonical.lower() == lower:
+                return canonical
+        return stripped
+
+    # Normalize punctuation for lookup (e.g. "react.js" -> "react js")
+    norm = _normalize_skill(stripped)
+
+    # Check if the normalised form matches a canonical key
+    for canonical, aliases in SKILL_ALIASES.items():
+        if norm == _normalize_skill(canonical):
+            # Input IS the canonical form (possibly different casing/punctuation).
+            # If only casing differs (lowered input == canonical key), preserve
+            # original casing — e.g. "Python" stays "Python".
+            # If punctuation/spacing differs (e.g. "node js" vs "node.js"),
+            # return the canonical form.
+            if lower == canonical.lower():
+                return stripped
+            return canonical
+        for alias in aliases:
+            if norm == _normalize_skill(alias):
+                # Input is an alias — map to canonical form.
+                return canonical
+
+    # No alias match — return original stripped form
+    return stripped
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # HIGH-COLLISION SKILLS
 # Skills that are common English words — require domain co-occurrence validation

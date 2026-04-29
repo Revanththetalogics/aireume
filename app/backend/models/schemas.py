@@ -139,6 +139,9 @@ class AnalysisResponse(BaseModel):
     candidate_name:       Optional[str] = None
     work_experience:      Optional[List[Any]] = []
     contact_info:         Optional[Dict[str, Any]] = None
+    certifications:       Optional[List[str]] = []
+    languages:            Optional[List[dict]] = []
+    professional_summary: Optional[str] = ""
     # ── New hybrid pipeline fields ──
     jd_analysis:              Optional[Dict[str, Any]] = None
     candidate_profile:        Optional[Dict[str, Any]] = None

@@ -44,6 +44,12 @@ try:
 except ImportError:
     _HAS_ODFPY = False
 
+try:
+    import dateparser
+    _HAS_DATEPARSER = True
+except ImportError:
+    _HAS_DATEPARSER = False
+
 
 # ─── spaCy NER singleton for name extraction (Tier 0) ────────────────────────
 
@@ -83,6 +89,88 @@ def _extract_name_ner(raw_text: str) -> str | None:
                 return name
     
     return None
+
+
+# ─── Date extraction helpers (dateparser-powered) ────────────────────────────
+
+_PRESENT_SYNONYMS_RE = re.compile(
+    r'\b(till\s*date|till\s*now|till\s*present|to\s*date|to\s*present'
+    r'|ongoing|continuing|current\s*position)\b', re.IGNORECASE)
+
+_MONTH_PERIOD_RE = re.compile(
+    r'\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|SEPT|OCT|NOV|DEC)\.', re.IGNORECASE)
+
+
+def _normalize_date_text(text: str) -> str:
+    """Normalize common date formatting variations before matching."""
+    s = _MONTH_PERIOD_RE.sub(r'\1', text)       # "AUG." -> "AUG"
+    s = _PRESENT_SYNONYMS_RE.sub('Present', s)  # "Till Date" -> "Present"
+    return s
+
+
+_DATE_RANGE_CANDIDATE_RE = re.compile(
+    r'('
+    r'(?:\d{1,2}[/\-]\d{4})'           # MM/YYYY or MM-YYYY
+    r'|(?:\d{4}[/\-]\d{1,2})'           # YYYY/MM or YYYY-MM
+    r'|(?:[A-Za-z]+\.?\s+\d{4})'        # Month YYYY (with optional period)
+    r'|(?:\d{4})'                         # Bare year
+    r')'
+    r'\s*[-–—]+\s*'                       # Separator (dash variants)
+    r'('
+    r'(?:present|current|now)'
+    r'|(?:\d{1,2}[/\-]\d{4})'
+    r'|(?:\d{4}[/\-]\d{1,2})'
+    r'|(?:[A-Za-z]+\.?\s+\d{4})'
+    r'|(?:\d{4})'
+    r')',
+    re.IGNORECASE
+)
+
+
+def _parse_date_str(s: str):
+    """Parse a date string using dateparser. Returns datetime or None."""
+    if not s:
+        return None
+    s = s.strip()
+    if s.lower() in ('present', 'current', 'now'):
+        return None  # Caller handles "present" specially
+    if not _HAS_DATEPARSER:
+        return None
+    dt = dateparser.parse(s, settings={
+        'PREFER_DAY_OF_MONTH': 'first',
+        'REQUIRE_PARTS': ['year'],
+    })
+    return dt
+
+
+def _extract_date_range(line: str):
+    """Extract a date range from a line using normalization + dateparser.
+    Returns (start_str, end_str) or None.
+    start_str/end_str are normalized like "August 2011" or "present".
+    """
+    normalized = _normalize_date_text(line)
+    m = _DATE_RANGE_CANDIDATE_RE.search(normalized)
+    if not m:
+        # Year-only fallback: look for two bare years
+        years = re.findall(r'\b((?:19|20)\d{2})\b', normalized)
+        if len(years) >= 2:
+            return (years[0], years[-1])
+        if len(years) == 1 and re.search(r'\b(present|current|now)\b', normalized, re.IGNORECASE):
+            return (years[0], 'present')
+        return None
+
+    raw_start, raw_end = m.group(1).strip(), m.group(2).strip()
+
+    if raw_end.lower() in ('present', 'current', 'now'):
+        end_str = 'present'
+    else:
+        dt_end = _parse_date_str(raw_end)
+        end_str = dt_end.strftime('%B %Y') if dt_end else raw_end
+
+    dt_start = _parse_date_str(raw_start)
+    start_str = dt_start.strftime('%B %Y') if dt_start else raw_start
+
+    return (start_str, end_str)
 
 
 # ─── JD text extractor (multi-format, lenient) ───────────────────────────────
@@ -744,8 +832,108 @@ class ResumeParser:
             "work_experience": self._extract_work_experience(text),
             "skills": self._extract_skills(text),
             "education": self._extract_education(text),
-            "contact_info": self._extract_contact_info(text)
+            "contact_info": self._extract_contact_info(text),
+            "certifications": self._extract_certifications(text),
+            "languages": self._extract_languages(text),
+            "professional_summary": self._extract_professional_summary(text),
         }
+
+    # ── Title/company splitting patterns ─────────────────────────────────
+    _TITLE_COMPANY_DELIMITERS = re.compile(
+        r'\s*(?:\||\t+|\s{3,}|\s+at\s+|\s+-\s+|\s+@\s+|,\s+(?=[A-Z]))\s*')
+
+    _TITLE_KEYWORDS = re.compile(
+        r'\b(Engineer|Developer|Manager|Director|Analyst|Architect|'
+        r'Designer|Consultant|Administrator|Specialist|Coordinator|'
+        r'Lead|Senior|Junior|Principal|Staff|VP|CTO|CEO|CFO|COO|'
+        r'Intern|Trainee|Associate|Officer|Executive|Supervisor|'
+        r'Technician|Programmer|Scientist|Researcher)\b',
+        re.IGNORECASE)
+
+    _COMPANY_KEYWORDS = re.compile(
+        r'\b(Ltd\.?|Inc\.?|Corp\.?|LLC|LLP|Pvt\.?|Private|Limited|'
+        r'Corporation|Company|Co\.?|Group|Solutions|Technologies|'
+        r'Systems|Services|Software|Labs?|Laboratories|Industries|'
+        r'Enterprises|Associates|Partners|International|Global)\b',
+        re.IGNORECASE)
+
+    def _split_title_company(self, text: str) -> tuple:
+        """Split text into (title, company) using delimiters and keyword disambiguation.
+
+        Handles patterns like:
+        - "Senior Engineer | TechCorp"
+        - "Senior Engineer at TechCorp"
+        - "Senior Engineer - TechCorp"
+        - "Senior Engineer @ TechCorp"
+        - "Senior Engineer TRIGENT SOFTWARE LTD. deputed @ AMETEK"
+        """
+        text = text.strip()
+
+        # Handle "deputed @" or "deputed at" pattern — extract host company
+        deputed_match = re.search(
+            r'\b(deputed\s+(?:@|at)\s+)(.+)', text, re.IGNORECASE)
+        if deputed_match:
+            host_company = deputed_match.group(2).strip()
+            remainder = text[:deputed_match.start()].strip()
+            # Remainder is "Title CONTRACTING_CO" or just "Title"
+            if remainder:
+                inner_title, inner_company = self._split_title_company(remainder)
+                if inner_company:
+                    return (inner_title, inner_company + " / " + host_company)
+                return (inner_title, host_company)
+            return ("", host_company)
+
+        # Try splitting on delimiters
+        parts = self._TITLE_COMPANY_DELIMITERS.split(text, maxsplit=1)
+
+        if len(parts) >= 2:
+            part1, part2 = parts[0].strip(), parts[1].strip()
+
+            # Disambiguate: which part is title, which is company?
+            p1_is_company = bool(self._COMPANY_KEYWORDS.search(part1))
+            p2_is_company = bool(self._COMPANY_KEYWORDS.search(part2))
+            p1_is_title = bool(self._TITLE_KEYWORDS.search(part1))
+            p2_is_title = bool(self._TITLE_KEYWORDS.search(part2))
+
+            if p1_is_company and not p2_is_company:
+                return (part2, part1)  # company first, then title
+            elif p1_is_title and not p2_is_title:
+                return (part1, part2)  # title first, then company
+            elif p2_is_company:
+                return (part1, part2)  # assume title first
+            else:
+                return (part1, part2)  # default: title first
+
+        # Single text — try to split at title/company boundary using keywords
+        title_match = self._TITLE_KEYWORDS.search(text)
+        company_match = self._COMPANY_KEYWORDS.search(text)
+
+        if title_match and company_match and title_match.end() <= company_match.start():
+            # Both present and title comes first: find the end of the title phrase.
+            # Use the LAST title keyword match to find the split boundary.
+            # For "Senior Engineer TRIGENT SOFTWARE LTD.", the last title keyword
+            # is "Engineer" — we split after it, keeping "Senior Engineer" as title.
+            last_title_end = title_match.end()
+            for m in self._TITLE_KEYWORDS.finditer(text):
+                if m.end() <= company_match.start():
+                    last_title_end = m.end()
+                else:
+                    break
+
+            # Now skip whitespace after the last title keyword to find the
+            # start of the company portion.
+            pos = last_title_end
+            while pos < len(text) and text[pos] == ' ':
+                pos += 1
+            if pos < len(text):
+                return (text[:last_title_end].strip(), text[pos:].strip())
+
+        # Single text — try to determine if it's a title or company
+        if self._TITLE_KEYWORDS.search(text):
+            return (text, "")
+        elif self._COMPANY_KEYWORDS.search(text):
+            return ("", text)
+        return (text, "")
 
     def _extract_work_experience(self, text: str) -> List[Dict[str, Any]]:
         jobs = []
@@ -766,44 +954,74 @@ class ResumeParser:
 
             # Look for date ranges that indicate work experience
             date_match = None
-            for pattern in self.date_patterns:
-                match = re.search(pattern, line, re.IGNORECASE)
-                if match:
-                    date_match = match
-                    break
+            start_date = None
+            end_date = None
 
-            if date_match:
+            # Try dateparser-powered extraction first
+            if _HAS_DATEPARSER:
+                date_result = _extract_date_range(line)
+                if date_result:
+                    start_date, end_date = date_result
+
+            # Fallback to old regex patterns
+            if not start_date:
+                for pattern in self.date_patterns:
+                    match = re.search(pattern, line, re.IGNORECASE)
+                    if match:
+                        date_match = match
+                        start_date = match.group(1)
+                        end_date = match.group(2).lower()
+                        if end_date in ['present', 'current', 'now']:
+                            end_date = 'present'
+                        break
+
+            if start_date:
                 # If we have a current job being built, save it
                 if current_job and (current_job.get('company') or current_job.get('title')):
                     jobs.append(current_job)
 
                 # Start a new job entry
-                start_date = date_match.group(1)
-                end_date = date_match.group(2).lower()
-                if end_date in ['present', 'current', 'now']:
-                    end_date = 'present'
+                # start_date and end_date already set above
 
                 # Try to extract company and title from the same line or previous lines
-                parts = line[:date_match.start()].strip()
+                if date_match:
+                    parts = line[:date_match.start()].strip()
+                else:
+                    # dateparser path: find split position in original line
+                    parts = ""
+                    normalized = _normalize_date_text(line)
+                    m = _DATE_RANGE_CANDIDATE_RE.search(normalized)
+                    if m:
+                        raw_start = m.group(1).strip()
+                        # Try to locate raw_start in original line (handle period differences)
+                        candidates = [raw_start]
+                        words = raw_start.split()
+                        if len(words) >= 2 and not words[0].endswith('.'):
+                            candidates.append(words[0] + '. ' + ' '.join(words[1:]))
+                            candidates.append(words[0].upper() + '. ' + ' '.join(words[1:]))
+                        for candidate in candidates:
+                            idx = line.lower().find(candidate.lower())
+                            if idx >= 0:
+                                parts = line[:idx].strip()
+                                break
+                        if not parts:
+                            # Fallback: find year and walk back for month
+                            year_match = re.search(r'\d{4}', raw_start)
+                            if year_match:
+                                year = year_match.group(0)
+                                for ym in re.finditer(r'\b' + re.escape(year) + r'\b', line):
+                                    before = line[:ym.start()]
+                                    month_pat = re.search(r'\b([A-Za-z]{3,}\.?)\s+$', before)
+                                    if month_pat:
+                                        parts = line[:month_pat.start()].strip()
+                                        break
+                                    parts = line[:ym.start()].strip()
+                                    break
                 if not parts and last_role_line:
                     parts = last_role_line
                 last_role_line = None
 
-                if '|' in parts:
-                    split_parts = parts.split('|', 1)
-                    company = split_parts[0].strip()
-                    title = split_parts[1].strip()
-                elif ',' in parts:
-                    split_parts = parts.split(',', 1)
-                    company = split_parts[0].strip()
-                    title = split_parts[1].strip()
-                elif ' at ' in parts:
-                    split_parts = parts.split(' at ', 1)
-                    title = split_parts[0].strip()
-                    company = split_parts[1].strip()
-                else:
-                    company = parts
-                    title = ""
+                title, company = self._split_title_company(parts)
 
                 current_job = {
                     'company': company,
@@ -894,8 +1112,9 @@ class ResumeParser:
                 break
 
         if skills_section:
-            raw_skills = re.split(r'[,;|•\-\n]', skills_section)
-            skills = [s.strip() for s in raw_skills if 1 < len(s.strip()) < 60]
+            # Split on common separators including " and " / " & " conjunctions
+            raw_skills = re.split(r'[,;|•\-\n]|(?:\s+and\s+)|(?:\s+&\s+)', skills_section)
+            skills = [s.strip() for s in raw_skills if 0 < len(s.strip()) < 60]
 
         # ── Step 2: full-text scan with flashtext (MASTER_SKILLS) ────────────
         try:
@@ -915,7 +1134,167 @@ class ResumeParser:
                 text_lower = text.lower()
                 skills.extend(s for s in self.KNOWN_SKILLS_BROAD if s in text_lower)
 
-        return list(dict.fromkeys(skills))  # deduplicate, preserve order
+        # ── Step 3: Normalize aliases and deduplicate ─────────────────────────
+        try:
+            from app.backend.services.skill_matcher import normalize_skill_name
+            normalized = []
+            seen = set()
+            for skill in skills:
+                canonical = normalize_skill_name(skill)
+                key = canonical.lower()
+                if key not in seen:
+                    seen.add(key)
+                    normalized.append(canonical)
+            skills = normalized
+        except Exception:
+            pass  # normalization is best-effort; dedup still applies
+
+        return list(dict.fromkeys(skills))  # final dedup, preserve order
+
+    # ── Education extraction helpers ────────────────────────────────────
+    _DEGREE_PATTERNS = re.compile(
+        r'\b('
+        # Doctoral
+        r'Ph\.?D\.?|Doctorate|D\.?Phil\.?|Ed\.?D\.?|'
+        # Master's
+        r"Master(?:'?s)?|M\.?S\.?c?\.?|M\.?A\.?|M\.?B\.?A\.?|M\.?E\.?|M\.?Tech\.?|"
+        r'M\.?Phil\.?|M\.?Ed\.?|M\.?Com\.?|M\.?Sc\.?|MCA|'
+        # Bachelor's
+        r"Bachelor(?:'?s)?|B\.?S\.?c?\.?|B\.?A\.?|B\.?E\.?|B\.?Tech\.?|"
+        r'B\.?Com\.?|B\.?Sc\.?|BCA|B\.?B\.?A\.?|B\.?Arch\.?|'
+        # Associate / Diploma / Certificate
+        r"Associate(?:'?s)?|Diploma|Advanced\s+Diploma|National\s+Diploma|"
+        r'Certificate|Professional\s+Certificate|'
+        # International
+        r'Ingenieur|Dipl\.?\s*Ing\.?|Licence|Laurea|Magister|'
+        # Secondary / High School
+        r'Higher\s+Secondary(?:\s+Education)?|Secondary(?:\s+Education)?|'
+        r'High\s+School(?:\s+Diploma)?|HSC|SSC|SSLC|GED|A[\s-]?Levels?|O[\s-]?Levels?|'
+        # Postgraduate generic
+        r'Post\s*Graduate|Postgraduate|PG\s+Diploma'
+        r')\b',
+        re.IGNORECASE
+    )
+
+    _INSTITUTION_SUFFIXES = re.compile(
+        r'\b[A-Z][A-Za-z\s&\'-]+'
+        r'(?:University|College|Institute|School|Academy|Polytechnic|'
+        r'Conservatory|Seminary|Centre|Center|Foundation)'
+        r'(?:\s+of\s+[A-Z][A-Za-z\s&\'-]+?)?\b',
+        re.IGNORECASE
+    )
+
+    _KNOWN_INSTITUTIONS = {
+        'MIT', 'IIT', 'NIT', 'IIIT', 'BITS', 'ISB', 'IIM',
+        'Yale', 'Harvard', 'Stanford', 'Princeton', 'Oxford', 'Cambridge',
+        'LSE', 'ETH', 'Caltech', 'UCLA', 'USC', 'NYU', 'CMU',
+    }
+
+    # Qualifiers that are part of the degree name, not the field
+    _DEGREE_QUALIFIERS = (
+        r'(?:Engineering|Science|Arts|Commerce|Technology|'
+        r'Business\s+Administration|Computer\s+Applications|'
+        r'Law|Medicine|Education|Philosophy|Fine\s+Arts|'
+        r'Social\s+Work|Public\s+Health|Public\s+Administration|'
+        r'Divinity|Architecture|Design|Music|Nursing|Pharmacy|Agriculture)'
+    )
+
+    # Degree words used in "degree of/in" patterns (mirrors _DEGREE_PATTERNS)
+    _DEGREE_WORDS = (
+        r"(?:Ph\.?D\.?|Doctorate|D\.?Phil\.?|Ed\.?D\.?|"
+        r"Master(?:'?s)?|M\.?S\.?c?\.?|M\.?A\.?|M\.?B\.?A\.?|M\.?E\.?|M\.?Tech\.?|"
+        r"M\.?Phil\.?|M\.?Ed\.?|M\.?Com\.?|M\.?Sc\.?|MCA|"
+        r"Bachelor(?:'?s)?|B\.?S\.?c?\.?|B\.?A\.?|B\.?E\.?|B\.?Tech\.?|"
+        r"B\.?Com\.?|B\.?Sc\.?|BCA|B\.?B\.?A\.?|B\.?Arch\.?|"
+        r"Associate(?:'?s)?|Diploma|Advanced\s+Diploma|National\s+Diploma|"
+        r"Certificate|Professional\s+Certificate|"
+        r"Higher\s+Secondary(?:\s+Education)?|Secondary(?:\s+Education)?|"
+        r"High\s+School(?:\s+Diploma)?|HSC|SSC|SSLC|GED|"
+        r"Post\s*Graduate|Postgraduate|PG\s+Diploma)"
+    )
+
+    # Ending boundary for field-of-study captures
+    _FIELD_BOUNDARY = r"(?:\s+(?:from|at)\b|\s*[,\u2013\u2014\-]\s*|\s+\d{4}|\s*$)"
+
+    def _extract_field_of_study(self, line: str, degree_match) -> str:
+        """Extract field of study from education line.
+
+        E.g. 'Bachelor of Engineering Electronics and Instrumentation'
+        -> 'Electronics and Instrumentation'
+        """
+        # Pattern 1: "Bachelor/Master of QUALIFIER [in] FIELD" (qualifier is part of degree)
+        # e.g. "Bachelor of Engineering Electronics and Instrumentation"
+        # e.g. "Master of Science in Computer Science"
+        m = re.search(
+            r"(?:Bachelor|Master)(?:\s*(?:'s))?\s+of\s+" + self._DEGREE_QUALIFIERS +
+            r"(?:\s+in)?\s+(.+?)(?:" + self._FIELD_BOUNDARY + r")",
+            line, re.IGNORECASE)
+        if m:
+            field = m.group(1).strip()
+            field = re.sub(r'\s+(?:University|College|Institute|School|Academy).*$', '', field, flags=re.IGNORECASE)
+            return field
+
+        # Pattern 2: "degree [of QUALIFIER] in FIELD"
+        # e.g. "B.A. in Economics", "Ph.D. in Data Science"
+        m = re.search(
+            self._DEGREE_WORDS + r"(?:\s*(?:'s))?(?:\s+of\s+" + self._DEGREE_QUALIFIERS + r")?\s+in\s+(.+?)(?:" + self._FIELD_BOUNDARY + r")",
+            line, re.IGNORECASE)
+        if m:
+            field = m.group(1).strip()
+            field = re.sub(r'\s+(?:University|College|Institute|School|Academy).*$', '', field, flags=re.IGNORECASE)
+            return field
+
+        # Pattern 3: "degree of FIELD" (direct, no qualifier)
+        # e.g. "Bachelor of Commerce", "Diploma of Accounting"
+        m = re.search(
+            self._DEGREE_WORDS + r"(?:\s*(?:'s))?\s+of\s+(.+?)(?:" + self._FIELD_BOUNDARY + r")",
+            line, re.IGNORECASE)
+        if m:
+            field = m.group(1).strip()
+            field = re.sub(r'\s+(?:University|College|Institute|School|Academy).*$', '', field, flags=re.IGNORECASE)
+            return field
+
+        # Pattern 4: Degree followed directly by field text (no preposition)
+        # e.g. "Higher Secondary Education Physics, Chemistry, Math and Computer Science 1996"
+        # e.g. "B.E. Electronics and Instrumentation 1998"
+        degree_end = degree_match.end()
+        remainder = line[degree_end:].strip()
+        # Skip trailing dots/commas/periods that weren't consumed by the degree regex
+        remainder = re.sub(r'^[.,;:\s]+', '', remainder)
+        # Remove year(s) from the remainder
+        remainder_no_year = re.sub(r'\b(19|20)\d{2}\b.*$', '', remainder).strip()
+        # Remove trailing dashes/dots/commas
+        remainder_no_year = re.sub(r'[\s\u2013\u2014\-–—]+$', '', remainder_no_year).strip()
+        # Remove "from/at INSTITUTION" patterns (including at start of remainder)
+        remainder_no_year = re.sub(r'(?:^|\s+)(?:at|from)\s+.*$', '', remainder_no_year, flags=re.IGNORECASE).strip()
+        # Remove institution suffix patterns (e.g. "Harvard Business School")
+        remainder_no_year = re.sub(
+            r',?\s*[A-Z][A-Za-z\s&\'-]+'
+            r'(?:University|College|Institute|School|Academy|Polytechnic|'
+            r'Centre|Center|Foundation).*$',
+            '', remainder_no_year, flags=re.IGNORECASE).strip()
+        # Remove known abbreviated institution names
+        for inst in self._KNOWN_INSTITUTIONS:
+            remainder_no_year = re.sub(
+                r',?\s*\b' + re.escape(inst) + r'\b.*$', '', remainder_no_year, flags=re.IGNORECASE).strip()
+        # If what's left is substantive (>=3 chars), use it as the field
+        if len(remainder_no_year) >= 3:
+            return remainder_no_year
+
+        # Pattern 5: Common field keywords on same line as degree
+        field_keywords = re.compile(
+            r'\b(Computer\s+Science|Electrical\s+Engineering|Mechanical\s+Engineering|'
+            r'Civil\s+Engineering|Electronics(?:\s+and\s+\w+)*|Information\s+Technology|'
+            r'Business\s+Administration|Commerce|Mathematics|Physics|Chemistry|'
+            r'Biology|Economics|Accounting|Finance|Marketing|'
+            r'Software\s+Engineering|Data\s+Science|Artificial\s+Intelligence|'
+            r'Arts|Science|Engineering|Instrumentation|Communication)\b',
+            re.IGNORECASE)
+        m = field_keywords.search(line)
+        if m:
+            return m.group(1).strip()
+
+        return ""
 
     def _extract_education(self, text: str) -> List[Dict[str, str]]:
         education = []
@@ -937,8 +1316,8 @@ class ResumeParser:
                 if len(line) < 10:
                     continue
 
-                # Look for degree patterns
-                degree_match = re.search(r'(Bachelor|Master|PhD|Doctorate|B\.S\.|M\.S\.|B\.A\.|M\.A\.|MBA|BE|ME|BTech|MTech)', line, re.IGNORECASE)
+                # Look for degree patterns (broad coverage)
+                degree_match = self._DEGREE_PATTERNS.search(line)
                 if degree_match:
                     university = ""
                     field = ""
@@ -949,10 +1328,26 @@ class ResumeParser:
                     if year_match:
                         year = year_match.group(0)
 
-                    # Try to extract university (often after "from" or before degree)
-                    uni_match = re.search(r'(?:from\s+|at\s+|,?\s*)([A-Z][A-Za-z\s]+(?:University|College|Institute|School))', line)
+                    # Try to extract university (suffix-based)
+                    uni_match = self._INSTITUTION_SUFFIXES.search(line)
                     if uni_match:
-                        university = uni_match.group(1).strip()
+                        university = uni_match.group(0).strip()
+                    else:
+                        # Try "from/at" prefix pattern
+                        uni_match = re.search(r'(?:from\s+|at\s+)([A-Z][A-Za-z\s&\'-]+(?:University|College|Institute|School|Academy|Polytechnic|Centre|Center|Foundation))', line, re.IGNORECASE)
+                        if uni_match:
+                            university = uni_match.group(1).strip()
+
+                    # Also check for known abbreviated institutions on this line
+                    if not university:
+                        words_on_line = set(re.findall(r'\b[A-Za-z]+\b', line))
+                        for inst in self._KNOWN_INSTITUTIONS:
+                            if inst in words_on_line or inst.upper() in {w.upper() for w in words_on_line}:
+                                university = inst
+                                break
+
+                    # Extract field of study
+                    field = self._extract_field_of_study(line, degree_match)
 
                     education.append({
                         'degree': degree_match.group(0),
@@ -962,6 +1357,147 @@ class ResumeParser:
                     })
 
         return education
+
+    def _extract_certifications(self, text: str) -> list:
+        """Extract certifications from resume text."""
+        certifications = []
+        lines = text.split('\n')
+        in_cert_section = False
+
+        cert_headers = re.compile(
+            r'^\s*(CERTIFICATIONS?|CERTIFICATES?|PROFESSIONAL\s+CERTIFICATIONS?|'
+            r'LICENSES?\s*(?:AND|&)?\s*CERTIFICATIONS?|ACCREDITATIONS?)\s*:?\s*$',
+            re.IGNORECASE)
+
+        # Generic section header to detect end of cert section
+        section_header = re.compile(
+            r'^\s*[A-Z][A-Z\s&/]{2,}(?:\s*:)?\s*$')
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            if cert_headers.match(stripped):
+                in_cert_section = True
+                continue
+
+            if in_cert_section:
+                # Check if we hit the next section
+                if section_header.match(stripped) and not cert_headers.match(stripped):
+                    in_cert_section = False
+                    continue
+                # Extract certification (strip bullet points, dashes, numbers)
+                cert = re.sub(r'^[\s\-•●○◆▪►\d.)\]]+\s*', '', stripped)
+                if cert and len(cert) > 3:  # Skip very short lines
+                    certifications.append(cert)
+
+        return certifications
+
+    def _extract_languages(self, text: str) -> list:
+        """Extract languages from resume text."""
+        languages = []
+        lines = text.split('\n')
+        in_lang_section = False
+
+        lang_headers = re.compile(
+            r'^\s*(LANGUAGES?|LANGUAGE\s+SKILLS?|LANGUAGE\s+PROFICIENCY|'
+            r'LINGUISTIC\s+SKILLS?)\s*:?\s*$',
+            re.IGNORECASE)
+
+        section_header = re.compile(
+            r'^\s*[A-Z][A-Z\s&/]{2,}(?:\s*:)?\s*$')
+
+        proficiency_re = re.compile(
+            r'[-–—:]\s*(native|fluent|proficient|intermediate|'
+            r'advanced|basic|beginner|elementary|conversational|'
+            r'professional|working\s+proficiency|mother\s+tongue|'
+            r'native\s+speaker|bilingual)\b',
+            re.IGNORECASE)
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            if lang_headers.match(stripped):
+                in_lang_section = True
+                continue
+
+            if in_lang_section:
+                if section_header.match(stripped) and not lang_headers.match(stripped):
+                    in_lang_section = False
+                    continue
+
+                # Could be comma-separated on one line or one per line
+                # Try splitting by comma first
+                items = re.split(r'[,;]', stripped)
+                for item in items:
+                    item = re.sub(r'^[\s\-•●○◆▪►\d.)\]]+\s*', '', item).strip()
+                    if not item or len(item) < 2:
+                        continue
+
+                    # Check for proficiency level
+                    prof_match = proficiency_re.search(item)
+                    if prof_match:
+                        lang_name = item[:prof_match.start()].strip().rstrip('-–—: ')
+                        proficiency = prof_match.group(1).strip().capitalize()
+                    else:
+                        # Check for parenthesized proficiency
+                        paren_match = re.search(r'\(([^)]+)\)', item)
+                        if paren_match:
+                            lang_name = item[:paren_match.start()].strip()
+                            proficiency = paren_match.group(1).strip().capitalize()
+                        else:
+                            lang_name = item.strip()
+                            proficiency = ""
+
+                    if lang_name and len(lang_name) > 1:
+                        languages.append({
+                            "language": lang_name,
+                            "proficiency": proficiency
+                        })
+
+        return languages
+
+    def _extract_professional_summary(self, text: str) -> str:
+        """Extract professional summary/objective from resume text."""
+        lines = text.split('\n')
+        in_summary_section = False
+        summary_lines = []
+
+        summary_headers = re.compile(
+            r'^\s*(PROFESSIONAL\s+SUMMARY|SUMMARY|CAREER\s+SUMMARY|'
+            r'EXECUTIVE\s+SUMMARY|OBJECTIVE|CAREER\s+OBJECTIVE|'
+            r'PROFILE|PROFESSIONAL\s+PROFILE|ABOUT\s+ME|OVERVIEW)\s*:?\s*$',
+            re.IGNORECASE)
+
+        section_header = re.compile(
+            r'^\s*[A-Z][A-Z\s&/]{2,}(?:\s*:)?\s*$')
+
+        for line in lines:
+            stripped = line.strip()
+
+            if summary_headers.match(stripped):
+                in_summary_section = True
+                continue
+
+            if in_summary_section:
+                if not stripped:
+                    # Allow one blank line within summary
+                    if summary_lines and summary_lines[-1] != '':
+                        summary_lines.append('')
+                    continue
+
+                if section_header.match(stripped) and not summary_headers.match(stripped):
+                    in_summary_section = False
+                    break
+
+                summary_lines.append(stripped)
+
+        # Join and truncate to 500 chars
+        summary = ' '.join(line for line in summary_lines if line).strip()
+        return summary[:500] if summary else ""
 
     def _extract_name(self, text: str) -> str:
         """
@@ -1124,6 +1660,141 @@ def _extract_name_relaxed(text: str) -> str:
     return ""
 
 
+async def _llm_extract_structured(raw_text: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """LLM fallback for structured field gaps when deterministic extraction misses entries.
+
+    Checks heuristic gap indicators; if nothing is missing, returns empty dict immediately.
+    Otherwise sends first 4000 chars of resume to the LLM with a focused prompt,
+    requesting only the missing fields as JSON.
+    Graceful 10 s timeout — if LLM is unavailable, returns empty dict.
+    """
+    import json as _json
+    import httpx as _httpx
+
+    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+
+    # --- Heuristic gap detection ---
+    needs_work = False
+    needs_education = False
+
+    work_experience = data.get("work_experience", [])
+    education = data.get("education", [])
+
+    # Work gap: ≤1 entry but text has 2+ company-keyword mentions
+    if len(work_experience) <= 1 and raw_text:
+        company_keywords = re.findall(
+            r"\b(?:Ltd|Inc|Corp|Pvt|LLC|Co\.|Corporation|Company|Technologies|Solutions|Services|Enterprises|Group|Industries|Consulting|Associates|Systems|Labs|Ventures|Holdings)\b",
+            raw_text,
+            re.IGNORECASE,
+        )
+        if len(company_keywords) >= 2:
+            needs_work = True
+
+    # Education gap: no entries but text mentions degree keywords
+    if len(education) == 0 and raw_text:
+        degree_keywords = re.findall(
+            r"\b(?:Bachelor|Master|B\.?Tech|M\.?Tech|B\.?E|M\.?E|B\.?Sc|M\.?Sc|MBA|PhD|BBA|BCA|MCA|Diploma|Associate\s+Degree|Doctorate|B\.?Com|M\.?Com|B\.?A|M\.?A|B\.?Arch)\b",
+            raw_text,
+            re.IGNORECASE,
+        )
+        if degree_keywords:
+            needs_education = True
+
+    if not needs_work and not needs_education:
+        return {}
+
+    # --- Build focused prompt ---
+    missing_fields: list[str] = []
+    if needs_work:
+        missing_fields.append("work_experience")
+    if needs_education:
+        missing_fields.append("education")
+
+    system_prompt = (
+        "You are a resume data extractor. Extract ONLY the requested fields "
+        "and return ONLY valid JSON. Be precise and conservative."
+    )
+
+    fields_desc = []
+    if needs_work:
+        fields_desc.append(
+            '"work_experience": list of objects with keys "title", "company", '
+            '"start_date", "end_date", "description". Use null for missing sub-fields.'
+        )
+    if needs_education:
+        fields_desc.append(
+            '"education": list of objects with keys "degree", "institution", '
+            '"start_date", "end_date", "gpa". Use null for missing sub-fields.'
+        )
+
+    user_prompt = (
+        f"Extract the following fields from this resume: {', '.join(missing_fields)}.\n"
+        f"Return ONLY a valid JSON object with these keys:\n"
+        + "\n".join(f"  - {desc}" for desc in fields_desc)
+        + "\n\nResume text:\n"
+        + raw_text[:4000]
+        + "\n\nJSON output:"
+    )
+
+    try:
+        from app.backend.services.llm_service import get_ollama_headers
+
+        headers = get_ollama_headers(OLLAMA_BASE_URL)
+
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{OLLAMA_BASE_URL}/api/chat",
+                headers=headers,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1,
+                        "num_predict": 1500,
+                    },
+                },
+            )
+            response.raise_for_status()
+
+            result = response.json()
+            llm_output = result.get("message", {}).get("content", "").strip()
+
+            # Strip markdown code blocks
+            if "```json" in llm_output:
+                llm_output = llm_output.split("```json")[1].split("```")[0].strip()
+            elif "```" in llm_output:
+                llm_output = llm_output.split("```")[1].split("```")[0].strip()
+
+            # Minimum length check for safety
+            if len(llm_output) < 10:
+                logger.warning("[LLM Structured] Response too short (%d chars), discarding", len(llm_output))
+                return {}
+
+            parsed = _json.loads(llm_output)
+
+            if not isinstance(parsed, dict):
+                logger.warning("[LLM Structured] Non-dict response: %s", type(parsed).__name__)
+                return {}
+
+            # Keep only requested fields
+            return {k: v for k, v in parsed.items() if k in missing_fields and isinstance(v, list)}
+
+    except _json.JSONDecodeError as e:
+        logger.warning("[LLM Structured] JSON parse error: %s", e)
+        return {}
+    except _httpx.TimeoutException:
+        logger.warning("[LLM Structured] Timed out after 10s")
+        return {}
+    except Exception as e:
+        logger.warning("[LLM Structured] Failed: %s: %s", type(e).__name__, str(e)[:200])
+        return {}
+
+
 async def enrich_parsed_resume_async(data: Dict[str, Any], filename: Optional[str] = None) -> None:
     """Fill gaps in parser output in-place using LLM + NER + regex fallbacks."""
     from app.backend.services.llm_contact_extractor import extract_contact_with_llm, merge_contact_info
@@ -1131,45 +1802,61 @@ async def enrich_parsed_resume_async(data: Dict[str, Any], filename: Optional[st
     contact = data.setdefault("contact_info", {})
     raw = (data.get("raw_text") or "").strip()
     
-    # If we already have complete contact info, skip
-    if contact.get("name") and contact.get("email"):
-        return
-    
-    # Try LLM extraction first (most accurate, handles all edge cases)
-    llm_contact = None
-    if raw:
-        try:
-            llm_contact = await extract_contact_with_llm(raw, timeout=8.0)
-        except Exception as e:
-            logger.warning("LLM contact extraction failed, using fallbacks: %s", e)
-    
-    # Merge LLM results with existing regex results
-    if llm_contact:
-        contact.update(merge_contact_info(contact, llm_contact))
-    
-    # If still no name, try traditional fallbacks
-    if not contact.get("name"):
-        guess = None
-        
-        # Tier 1: Try spaCy NER
+    # --- Contact enrichment (skip if already complete) ---
+    if not (contact.get("name") and contact.get("email")):
+        # Try LLM extraction first (most accurate, handles all edge cases)
+        llm_contact = None
         if raw:
-            guess = _extract_name_ner(raw)
+            try:
+                llm_contact = await extract_contact_with_llm(raw, timeout=8.0)
+            except Exception as e:
+                logger.warning("LLM contact extraction failed, using fallbacks: %s", e)
         
-        # Tier 2: Fallback to email-based extraction
-        if not guess:
-            email = (contact.get("email") or "").strip()
-            guess = _name_from_email(email)
+        # Merge LLM results with existing regex results
+        if llm_contact:
+            contact.update(merge_contact_info(contact, llm_contact))
         
-        # Tier 3: Fallback to relaxed header scan
-        if not guess and raw:
-            guess = _extract_name_relaxed(raw)
+        # If still no name, try traditional fallbacks
+        if not contact.get("name"):
+            guess = None
+            
+            # Tier 1: Try spaCy NER
+            if raw:
+                guess = _extract_name_ner(raw)
+            
+            # Tier 2: Fallback to email-based extraction
+            if not guess:
+                email = (contact.get("email") or "").strip()
+                guess = _name_from_email(email)
+            
+            # Tier 3: Fallback to relaxed header scan
+            if not guess and raw:
+                guess = _extract_name_relaxed(raw)
+            
+            # Tier 4: Fallback to filename-based extraction
+            if not guess and filename:
+                guess = _name_from_filename(filename)
+            
+            if guess:
+                contact["name"] = guess
+    
+    # --- LLM fallback for structured field gaps ---
+    try:
+        llm_fields = await _llm_extract_structured(
+            data.get("raw_text", ""), data)
         
-        # Tier 4: Fallback to filename-based extraction
-        if not guess and filename:
-            guess = _name_from_filename(filename)
+        # Merge: only fill gaps, don't overwrite deterministic results
+        if "work_experience" in llm_fields:
+            llm_jobs = llm_fields["work_experience"]
+            if isinstance(llm_jobs, list) and len(llm_jobs) > len(data.get("work_experience", [])):
+                data["work_experience"] = llm_jobs
         
-        if guess:
-            contact["name"] = guess
+        if "education" in llm_fields:
+            llm_edu = llm_fields["education"]
+            if isinstance(llm_edu, list) and len(llm_edu) > len(data.get("education", [])):
+                data["education"] = llm_edu
+    except Exception:
+        pass  # Graceful failure
 
 
 def enrich_parsed_resume(data: Dict[str, Any], filename: Optional[str] = None) -> None:

@@ -25,26 +25,36 @@ except ImportError:
 # ─── Date utilities ────────────────────────────────────────────────────────────
 
 def _to_ym(date_str: Optional[str]) -> Optional[str]:
-    """Normalize any date string to YYYY-MM format. Returns None if unparseable."""
+    """Normalize any date string to YYYY-MM format."""
     if not date_str:
         return None
     s = str(date_str).strip()
+    # Normalize "till date" and other present synonyms
+    if re.match(r'^(till\s*date|till\s*now|till\s*present|to\s*date|to\s*present|ongoing|continuing)$', s, re.IGNORECASE):
+        return datetime.now().strftime("%Y-%m")
     if s.lower() in ("present", "current", "now"):
         return datetime.now().strftime("%Y-%m")
-    # Bare 4-digit year — default to January
+    # Strip periods from month abbreviations before parsing
+    s = re.sub(r'\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|SEPT|OCT|NOV|DEC)\.', r'\1', s, flags=re.IGNORECASE)
+    # Bare 4-digit year
     if re.match(r"^(?:19|20)\d{2}$", s):
         return f"{s}-01"
+    # Try dateparser first (better format coverage than dateutil)
     try:
         if _HAS_DATEPARSER:
-            # dateparser handles "Q1 2020", "early 2020", "Jan–Mar 2019", international formats
-            settings = {"PREFER_DAY_OF_MONTH": "first", "RETURN_AS_TIMEZONE_AWARE": False}
-            dt = _dateparser.parse(s, settings=settings)
-        else:
-            dt = _dateutil_parser.parse(s, fuzzy=True)
+            dt = _dateparser.parse(s, settings={'PREFER_DAY_OF_MONTH': 'first', 'REQUIRE_PARTS': ['year']})
+            if dt:
+                return dt.strftime("%Y-%m")
+    except Exception:
+        pass
+    # Fallback to dateutil
+    try:
+        dt = _dateutil_parser.parse(s, fuzzy=True)
         if dt:
             return dt.strftime("%Y-%m")
     except Exception:
         pass
+    # Last resort: bare year extraction
     m = re.search(r"\b((?:19|20)\d{2})\b", s)
     if m:
         return f"{m.group(0)}-01"
