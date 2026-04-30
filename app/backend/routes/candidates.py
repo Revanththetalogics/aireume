@@ -20,12 +20,18 @@ from typing import Optional
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import Candidate, ScreeningResult, User
+from app.backend.models.db_models import Candidate, ScreeningResult, User, RoleTemplate
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/candidates", tags=["candidates"])
+
+# Separate router for JD-scoped candidate endpoints (paths live under /api/jd/)
+jd_router = APIRouter(prefix="/api/jd", tags=["jd-candidates"])
+
+# Allowed statuses for bulk shortlist updates
+_VALID_STATUSES = {"pending", "shortlisted", "rejected", "in-review", "hired"}
 
 
 def _json_default(obj):
@@ -561,3 +567,154 @@ def download_candidate_resume(
         media_type=media_type,
         headers={"Content-Disposition": disposition},
     )
+
+
+# ─── JD-scoped candidate ranking & bulk shortlist ─────────────────────────────
+
+
+@jd_router.get("/{jd_id}/candidates")
+def get_jd_candidates(
+    jd_id: int,
+    status: Optional[str] = Query(None),
+    sort_by: str = Query("fit_score"),
+    sort_order: str = Query("desc"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return all candidates screened against a specific JD, sorted and filtered.
+
+    Joins ScreeningResult → Candidate so we can return name, email, and profile
+    fields alongside the per-JD analysis data (fit_score, matched/missing skills, …).
+    """
+    # ── Verify JD exists and belongs to tenant ──────────────────────────────
+    jd = db.query(RoleTemplate).filter(
+        RoleTemplate.id == jd_id,
+        RoleTemplate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not jd:
+        raise HTTPException(status_code=404, detail="Job description not found")
+
+    # ── Build base query ────────────────────────────────────────────────────
+    query = (
+        db.query(ScreeningResult, Candidate)
+        .join(Candidate, ScreeningResult.candidate_id == Candidate.id)
+        .filter(
+            ScreeningResult.role_template_id == jd_id,
+            ScreeningResult.is_active == True,
+            ScreeningResult.tenant_id == current_user.tenant_id,
+        )
+    )
+
+    # Optional status filter
+    if status:
+        query = query.filter(ScreeningResult.status == status)
+
+    rows = query.all()
+
+    # ── Build candidate list ────────────────────────────────────────────────
+    candidates = []
+    for sr, cand in rows:
+        analysis = {}
+        try:
+            analysis = json.loads(sr.analysis_result) if sr.analysis_result else {}
+        except Exception as e:
+            logger.warning("Failed to parse analysis_result for result %s: %s", sr.id, e)
+
+        # Prefer deterministic_score when available; fall back to analysis_result
+        fit_score = sr.deterministic_score
+        if fit_score is None:
+            fit_score = analysis.get("fit_score")
+
+        candidates.append({
+            "candidate_id":    cand.id,
+            "result_id":       sr.id,
+            "name":            cand.name,
+            "email":           cand.email,
+            "fit_score":       fit_score,
+            "status":          sr.status or "pending",
+            "recommendation":  analysis.get("final_recommendation", "Pending"),
+            "matched_skills":  analysis.get("matched_skills", []),
+            "missing_skills":  analysis.get("missing_skills", []),
+            "total_years_exp": cand.total_years_exp,
+            "current_role":    cand.current_role,
+            "analyzed_at":     sr.timestamp,
+        })
+
+    # ── Sort ────────────────────────────────────────────────────────────────
+    reverse = sort_order.lower() == "desc"
+
+    if sort_by == "fit_score":
+        candidates.sort(
+            key=lambda c: (c["fit_score"] is None, c["fit_score"] or 0),
+            reverse=reverse,
+        )
+    elif sort_by == "name":
+        candidates.sort(
+            key=lambda c: (c["name"] or "").lower(),
+            reverse=reverse,
+        )
+    elif sort_by == "date":
+        candidates.sort(
+            key=lambda c: c["analyzed_at"] or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=reverse,
+        )
+
+    return {
+        "jd_id":   jd_id,
+        "jd_name": jd.name,
+        "candidates": candidates,
+        "total": len(candidates),
+    }
+
+
+@jd_router.post("/{jd_id}/shortlist")
+def bulk_update_status(
+    jd_id: int,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Bulk-update the status of multiple ScreeningResults for a given JD.
+
+    Body: {"result_ids": [1, 2, 3], "status": "shortlisted"}
+    Valid statuses: pending, shortlisted, rejected, in-review, hired
+    """
+    result_ids = body.get("result_ids")
+    new_status = body.get("status")
+
+    # ── Validate payload ────────────────────────────────────────────────────
+    if not isinstance(result_ids, list) or not result_ids:
+        raise HTTPException(status_code=422, detail="result_ids must be a non-empty list")
+    if not all(isinstance(rid, int) for rid in result_ids):
+        raise HTTPException(status_code=422, detail="All result_ids must be integers")
+    if not new_status or not isinstance(new_status, str):
+        raise HTTPException(status_code=422, detail="status must be a non-empty string")
+    if new_status not in _VALID_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid status '{new_status}'. Must be one of: {', '.join(sorted(_VALID_STATUSES))}",
+        )
+
+    # ── Verify JD belongs to tenant ─────────────────────────────────────────
+    jd = db.query(RoleTemplate).filter(
+        RoleTemplate.id == jd_id,
+        RoleTemplate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not jd:
+        raise HTTPException(status_code=404, detail="Job description not found")
+
+    # ── Bulk update ─────────────────────────────────────────────────────────
+    updated = (
+        db.query(ScreeningResult)
+        .filter(
+            ScreeningResult.id.in_(result_ids),
+            ScreeningResult.tenant_id == current_user.tenant_id,
+            ScreeningResult.role_template_id == jd_id,
+        )
+        .update({ScreeningResult.status: new_status}, synchronize_session="fetch")
+    )
+    db.commit()
+
+    return {"updated": updated}

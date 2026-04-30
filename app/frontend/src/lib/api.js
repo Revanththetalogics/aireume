@@ -981,6 +981,46 @@ export async function getScorecard(resultId) {
   return res.data
 }
 
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
+export async function getDashboardSummary() {
+  const res = await api.get('/dashboard/summary')
+  return res.data
+}
+
+export async function getDashboardActivity() {
+  const res = await api.get('/dashboard/activity')
+  return res.data
+}
+
+// ─── JD Candidates & Shortlisting ──────────────────────────────────────────
+
+export async function getJDCandidates(jdId, { sortBy = 'fit_score', sortOrder = 'desc', status = '' } = {}) {
+  const params = { sort_by: sortBy, sort_order: sortOrder }
+  if (status) params.status = status
+  const res = await api.get(`/jd/${jdId}/candidates`, { params })
+  return res.data
+}
+
+export async function bulkUpdateStatus(jdId, resultIds, status) {
+  const res = await api.post(`/jd/${jdId}/shortlist`, { result_ids: resultIds, status })
+  return res.data
+}
+
+// ─── Screening Analytics ────────────────────────────────────────────────────
+
+export async function getScreeningAnalytics(period = 'last_30_days') {
+  const response = await api.get('/analytics/screening', { params: { period } })
+  return response.data
+}
+
+// ─── HM Handoff Package ──────────────────────────────────────────────────────
+
+export async function getHandoffPackage(jdId) {
+  const response = await api.get(`/jd/${jdId}/handoff-package`)
+  return response.data
+}
+
 // ─── Notification Admin API ──────────────────────────────────────
 
 export async function getNotificationConfig() {

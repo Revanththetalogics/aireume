@@ -76,6 +76,7 @@ from app.backend.routes import admin
 from app.backend.routes import upload
 from app.backend.routes import billing
 from app.backend.routes import interview_kit
+from app.backend.routes import dashboard
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -375,6 +376,7 @@ app.include_router(compare.router)
 app.include_router(export.router)
 app.include_router(templates.router)
 app.include_router(candidates.router)
+app.include_router(candidates.jd_router)
 app.include_router(email_gen.router)
 app.include_router(jd_url.router)
 app.include_router(team.router)
@@ -387,6 +389,7 @@ app.include_router(admin.router)
 app.include_router(upload.router)
 app.include_router(billing.router)
 app.include_router(interview_kit.router)
+app.include_router(dashboard.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

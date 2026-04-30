@@ -11,6 +11,8 @@ import ErrorBoundary from './components/ErrorBoundary'
 const DashboardNew = lazy(() => import('./pages/DashboardNew'))
 const AnalyzePage  = lazy(() => import('./pages/AnalyzePage'))
 const JDLibraryPage = lazy(() => import('./pages/JDLibraryPage'))
+const HandoffPackage = lazy(() => import('./components/HandoffPackage'))
+const JDCandidatesPage = lazy(() => import('./pages/JDCandidatesPage'))
 
 // Existing pages
 const Dashboard    = lazy(() => import('./pages/Dashboard'))
@@ -26,6 +28,7 @@ const TranscriptPage = lazy(() => import('./pages/TranscriptPage'))
 const VideoPage    = lazy(() => import('./pages/VideoPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
+const AnalyticsPage  = lazy(() => import('./pages/AnalyticsPage'))
 
 function PageLoader() {
   return (
@@ -59,6 +62,8 @@ function App() {
           <Route path="/"           element={<Shell><DashboardNew /></Shell>} />
           <Route path="/analyze"    element={<Shell><AnalyzePage /></Shell>} />
           <Route path="/jd-library" element={<Shell><JDLibraryPage /></Shell>} />
+          <Route path="/jd-library/:id/handoff" element={<Shell><HandoffPackage /></Shell>} />
+          <Route path="/jd-library/:id/candidates" element={<Shell><JDCandidatesPage /></Shell>} />
           
           {/* Existing routes */}
           <Route path="/report"     element={<Shell><ReportPage /></Shell>} />
@@ -67,6 +72,7 @@ function App() {
           <Route path="/team"       element={<Shell><TeamPage /></Shell>} />
           <Route path="/transcript" element={<Shell><TranscriptPage /></Shell>} />
           <Route path="/video"      element={<Shell><VideoPage /></Shell>} />
+          <Route path="/analytics"  element={<Shell><AnalyticsPage /></Shell>} />
           <Route path="/settings"   element={<Shell><SettingsPage /></Shell>} />
           <Route path="/admin" element={<PlatformAdminRoute><Shell><AdminDashboardPage /></Shell></PlatformAdminRoute>} />
 
