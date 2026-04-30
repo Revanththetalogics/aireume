@@ -94,7 +94,7 @@ api.interceptors.response.use(
 /**
  * Submit a resume analysis job to the queue (returns immediately with job_id)
  */
-export async function submitAnalysisJob(file, jobDescription, jobFile = null, scoringWeights = null, priority = 5) {
+export async function submitAnalysisJob(file, jobDescription, jobFile = null, scoringWeights = null, priority = 5, templateId = null) {
   const formData = new FormData()
   formData.append('resume_file', file)
   if (jobFile) {
@@ -106,6 +106,9 @@ export async function submitAnalysisJob(file, jobDescription, jobFile = null, sc
     formData.append('scoring_weights', JSON.stringify(scoringWeights))
   }
   formData.append('priority', priority.toString())
+  if (templateId) {
+    formData.append('template_id', templateId)
+  }
   
   const response = await api.post('/queue/submit', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -179,7 +182,7 @@ export async function analyzeResumeAsync(file, jobDescription, jobFile = null, s
 
 // ─── Resume Analysis (Legacy Synchronous) ─────────────────────────────────────
 
-export async function analyzeResume(file, jobDescription, jobFile = null, scoringWeights = null) {
+export async function analyzeResume(file, jobDescription, jobFile = null, scoringWeights = null, templateId = null) {
   const formData = new FormData()
   formData.append('resume', file)
   if (jobFile) {
@@ -189,6 +192,9 @@ export async function analyzeResume(file, jobDescription, jobFile = null, scorin
   }
   if (scoringWeights) {
     formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  }
+  if (templateId) {
+    formData.append('template_id', templateId)
   }
   const response = await api.post('/analyze', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -213,6 +219,7 @@ export async function analyzeResumeStream(
   jobFile = null,
   scoringWeights = null,
   onStageComplete = null,
+  templateId = null,
 ) {
   const formData = new FormData()
   formData.append('resume', file)
@@ -223,6 +230,9 @@ export async function analyzeResumeStream(
   }
   if (scoringWeights) {
     formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  }
+  if (templateId) {
+    formData.append('template_id', templateId)
   }
 
   const baseURL = import.meta.env.VITE_API_URL || '/api'
@@ -317,7 +327,7 @@ export async function analyzeResumeStream(
   return finalResult
 }
 
-export async function analyzeBatch(files, jobDescription, jobFile = null, scoringWeights = null) {
+export async function analyzeBatch(files, jobDescription, jobFile = null, scoringWeights = null, templateId = null) {
   const formData = new FormData()
   files.forEach((f) => formData.append('resumes', f))
   if (jobFile) {
@@ -327,6 +337,9 @@ export async function analyzeBatch(files, jobDescription, jobFile = null, scorin
   }
   if (scoringWeights) {
     formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  }
+  if (templateId) {
+    formData.append('template_id', templateId)
   }
   const response = await api.post('/analyze/batch', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -348,7 +361,7 @@ export async function analyzeBatch(files, jobDescription, jobFile = null, scorin
  * @param {Function} callbacks.onOverallProgress - Called with overall upload progress
  * @returns {Promise} Analysis results
  */
-export async function analyzeBatchChunked(files, jobDescription, jobFile = null, scoringWeights = null, callbacks = {}) {
+export async function analyzeBatchChunked(files, jobDescription, jobFile = null, scoringWeights = null, callbacks = {}, templateId = null) {
   const { uploadMultipleFiles } = await import('./uploadChunked')
 
   // Upload all files using chunked upload
@@ -382,6 +395,9 @@ export async function analyzeBatchChunked(files, jobDescription, jobFile = null,
   if (scoringWeights) {
     formData.append('scoring_weights', JSON.stringify(scoringWeights))
   }
+  if (templateId) {
+    formData.append('template_id', templateId)
+  }
 
   const response = await api.post('/analyze/batch-chunked', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -410,7 +426,7 @@ export async function analyzeBatchChunked(files, jobDescription, jobFile = null,
  * @param {Function} callbacks.onDone - Called with (total, successful, failedCount) when complete
  * @returns {Promise<void>}
  */
-export async function analyzeBatchStream(files, jobDescription, jdFile = null, scoringWeights = null, callbacks = {}) {
+export async function analyzeBatchStream(files, jobDescription, jdFile = null, scoringWeights = null, callbacks = {}, templateId = null) {
   const {
     onFileProgress, onOverallProgress, onFileComplete, onFileError,  // upload callbacks
     onResult,    // (index, total, filename, result, screeningResultId) => void
@@ -448,6 +464,7 @@ export async function analyzeBatchStream(files, jobDescription, jdFile = null, s
   if (jobDescription) formData.append('job_description', jobDescription)
   if (jdFile) formData.append('job_file', jdFile)
   if (scoringWeights) formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  if (templateId) formData.append('template_id', templateId)
 
   // Phase 3: Open SSE stream
   const baseURL = import.meta.env.VITE_API_URL || '/api'
@@ -1004,6 +1021,11 @@ export async function getJDCandidates(jdId, { sortBy = 'fit_score', sortOrder = 
 
 export async function bulkUpdateStatus(jdId, resultIds, status) {
   const res = await api.post(`/jd/${jdId}/shortlist`, { result_ids: resultIds, status })
+  return res.data
+}
+
+export async function getAllJDStats() {
+  const res = await api.get('/jd/stats/batch')
   return res.data
 }
 

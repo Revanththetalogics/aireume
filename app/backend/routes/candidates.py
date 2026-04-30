@@ -46,12 +46,38 @@ def _json_default(obj):
 @router.get("")
 def list_candidates(
     search: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Candidate).filter(Candidate.tenant_id == current_user.tenant_id)
+    # Validate status filter early
+    if status and status not in _VALID_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{status}'. Must be one of: {', '.join(sorted(_VALID_STATUSES))}",
+        )
+
+    # When status filter is active, we must join through ScreeningResult to find
+    # candidates that have at least one result with that status.
+    if status:
+        candidate_ids_with_status = (
+            db.query(ScreeningResult.candidate_id)
+            .filter(
+                ScreeningResult.tenant_id == current_user.tenant_id,
+                ScreeningResult.status == status,
+            )
+            .distinct()
+            .subquery()
+        )
+        query = db.query(Candidate).filter(
+            Candidate.tenant_id == current_user.tenant_id,
+            Candidate.id.in_(candidate_ids_with_status),
+        )
+    else:
+        query = db.query(Candidate).filter(Candidate.tenant_id == current_user.tenant_id)
+
     if search:
         q = f"%{search}%"
         query = query.filter(
@@ -86,8 +112,10 @@ def list_candidates(
         candidate_results = results_map.get(c.id, [])
         result_count = len(candidate_results)
         
-        # Find the result with the highest fit_score
+        # Find the result with the highest fit_score and the latest status
         best_score = None
+        latest_status = "pending"
+        latest_result_id = None
         if candidate_results:
             try:
                 scores = []
@@ -102,6 +130,11 @@ def list_candidates(
             except Exception as e:
                 logger.warning("Non-critical: Failed to parse analysis results for best_score: %s", e)
 
+            # Latest result (first in desc-ordered list) provides the status
+            latest = candidate_results[0]
+            latest_status = latest.status or "pending"
+            latest_result_id = latest.id
+
         result.append({
             "id":              c.id,
             "name":            c.name,
@@ -110,6 +143,8 @@ def list_candidates(
             "created_at":      c.created_at,
             "result_count":    result_count,
             "best_score":      best_score,
+            "latest_status":   latest_status,
+            "latest_result_id": latest_result_id,
             # Enriched profile fields
             "current_role":    c.current_role,
             "current_company": c.current_company,
@@ -718,3 +753,81 @@ def bulk_update_status(
     db.commit()
 
     return {"updated": updated}
+
+
+@jd_router.get("/{jd_id}/stats")
+def get_jd_stats(
+    jd_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return candidate statistics for a specific JD."""
+    # Verify JD belongs to tenant
+    jd = db.query(RoleTemplate).filter(
+        RoleTemplate.id == jd_id,
+        RoleTemplate.tenant_id == current_user.tenant_id
+    ).first()
+    if not jd:
+        raise HTTPException(404, "JD not found")
+
+    # Count results by status
+    results = db.query(ScreeningResult).filter(
+        ScreeningResult.role_template_id == jd_id,
+        ScreeningResult.tenant_id == current_user.tenant_id,
+        ScreeningResult.is_active == True,
+    ).all()
+
+    by_status = {}
+    total = 0
+    score_sum = 0
+    score_count = 0
+    for r in results:
+        total += 1
+        status = r.status or "pending"
+        by_status[status] = by_status.get(status, 0) + 1
+        if r.deterministic_score is not None:
+            score_sum += r.deterministic_score
+            score_count += 1
+
+    return {
+        "total": total,
+        "by_status": by_status,
+        "avg_fit_score": round(score_sum / score_count, 1) if score_count > 0 else None
+    }
+
+
+@jd_router.get("/stats/batch")
+def get_all_jd_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return candidate stats for all JDs belonging to tenant."""
+    results = db.query(
+        ScreeningResult.role_template_id,
+        ScreeningResult.status,
+        ScreeningResult.deterministic_score
+    ).filter(
+        ScreeningResult.tenant_id == current_user.tenant_id,
+        ScreeningResult.is_active == True,
+        ScreeningResult.role_template_id.isnot(None)
+    ).all()
+
+    stats = {}
+    for r in results:
+        jd_id = r.role_template_id
+        if jd_id not in stats:
+            stats[jd_id] = {"total": 0, "by_status": {}, "scores": []}
+        stats[jd_id]["total"] += 1
+        status = r.status or "pending"
+        stats[jd_id]["by_status"][status] = stats[jd_id]["by_status"].get(status, 0) + 1
+        if r.deterministic_score is not None:
+            stats[jd_id]["scores"].append(r.deterministic_score)
+
+    result = {}
+    for jd_id, s in stats.items():
+        result[str(jd_id)] = {
+            "total": s["total"],
+            "by_status": s["by_status"],
+            "avg_fit_score": round(sum(s["scores"]) / len(s["scores"]), 1) if s["scores"] else None
+        }
+    return result

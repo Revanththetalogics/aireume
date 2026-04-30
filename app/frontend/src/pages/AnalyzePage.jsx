@@ -395,7 +395,9 @@ export default function AnalyzePage() {
           files[0],
           jdMode === 'text' ? jdText : null,
           jdMode === 'file' ? jdFile : null,
-          weights
+          weights,
+          null,  // onStageComplete
+          loadedTemplateId,
         )
         navigate('/report', { state: { result } })
       } else {
@@ -432,7 +434,8 @@ export default function AnalyzePage() {
               setIsAnalyzing(false)
               setAnalysisProgress({ completed: total, total })
             }
-          }
+          },
+          loadedTemplateId,
         )
       }
 

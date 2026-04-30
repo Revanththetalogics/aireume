@@ -19,6 +19,7 @@ import logging
 import time
 from datetime import datetime, date, timezone
 from decimal import Decimal
+from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -573,6 +574,7 @@ async def analyze_endpoint(
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
     action: str = Form(None),   # use_existing | update_profile | create_new | None
+    template_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -677,6 +679,7 @@ async def analyze_endpoint(
                 jd_text=job_description,
                 parsed_data=json.dumps(parsed_data, default=_json_default),
                 analysis_result="{}",  # Placeholder
+                role_template_id=template_id,
             )
             db.add(db_result)
             db.commit()
@@ -750,6 +753,7 @@ async def analyze_endpoint(
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
         analysis_result="{}",  # Placeholder — will be updated
+        role_template_id=template_id,
     )
     db.add(db_result)
     db.commit()
@@ -831,6 +835,7 @@ async def analyze_stream_endpoint(
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
     action: str = Form(None),
+    template_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -939,6 +944,7 @@ async def analyze_stream_endpoint(
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
         analysis_result="{}",  # Placeholder — will be updated
+        role_template_id=template_id,
     )
     db.add(db_result)
     db.commit()
@@ -1126,6 +1132,7 @@ async def batch_analyze_chunked_endpoint(
     job_description: str = Form(None),
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
+    template_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1321,6 +1328,7 @@ async def batch_analyze_chunked_endpoint(
                 jd_text=job_description,
                 parsed_data=json.dumps(parsed_data),
                 analysis_result=json.dumps(raw),
+                role_template_id=template_id,
             )
             db.add(db_result)
             db.flush()
@@ -1372,6 +1380,7 @@ async def batch_analyze_stream_endpoint(
     job_description: str = Form(None),
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
+    template_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1548,6 +1557,7 @@ async def batch_analyze_stream_endpoint(
 
     # Extract tenant_id while session is still active
     tenant_id = current_user.tenant_id
+    _template_id = template_id  # Capture for use inside generator
 
     # ── Tagged wrapper for asyncio.as_completed mapping ──────────────────────
     async def _process_and_tag(
@@ -1632,6 +1642,7 @@ async def batch_analyze_stream_endpoint(
                     jd_text=job_description,
                     parsed_data=json.dumps(parsed_data, default=_json_default),
                     analysis_result=json.dumps(raw, default=_json_default),
+                    role_template_id=_template_id,
                 )
                 save_db.add(db_result)
                 save_db.commit()
@@ -1719,6 +1730,7 @@ async def batch_analyze_endpoint(
     job_description: str = Form(None),
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
+    template_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1842,6 +1854,7 @@ async def batch_analyze_endpoint(
             jd_text=job_description,
             parsed_data=json.dumps(parsed_data),
             analysis_result=json.dumps(raw),
+            role_template_id=template_id,
         )
         db.add(db_result)
         db.flush()

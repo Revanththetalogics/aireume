@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LayoutTemplate, Plus, Trash2, Edit2, X, Save, Sparkles, TrendingUp, Filter } from 'lucide-react'
-import { getTemplates, createTemplate, updateTemplate, deleteTemplate } from '../lib/api'
+import { LayoutTemplate, Plus, Trash2, Edit2, X, Save, Sparkles, TrendingUp, Filter, Users, ChevronRight } from 'lucide-react'
+import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getAllJDStats } from '../lib/api'
 
 function TemplateModal({ template, onSave, onClose }) {
   const [name, setName] = useState(template?.name || '')
@@ -94,8 +94,20 @@ export default function JDLibraryPage() {
   const [editing, setEditing] = useState(null)
   const [filterCategory, setFilterCategory] = useState('all')
   const [sortBy, setSortBy] = useState('recent')
+  const [jdStats, setJdStats] = useState({})
 
-  const load = () => getTemplates().then(setTemplates).finally(() => setLoading(false))
+  const load = async () => {
+    try {
+      const [templates, stats] = await Promise.all([
+        getTemplates(),
+        getAllJDStats().catch(() => ({}))
+      ])
+      setTemplates(templates)
+      setJdStats(stats)
+    } finally {
+      setLoading(false)
+    }
+  }
   useEffect(() => { load() }, [])
 
   const handleSave = async (data) => {
@@ -256,6 +268,8 @@ export default function JDLibraryPage() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredTemplates.map(t => {
               const weights = getWeights(t)
+              const stats = jdStats[t.id]
+              const shortlisted = stats?.by_status?.shortlisted || 0
               return (
                 <div 
                   key={t.id} 
@@ -322,6 +336,43 @@ export default function JDLibraryPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Stats */}
+                  <div className="mb-3 space-y-2">
+                    <div className="flex items-center flex-wrap gap-2">
+                      {stats ? (
+                        <>
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-700 text-xs rounded-lg font-semibold">
+                            <Users className="w-3 h-3" />
+                            {stats.total} candidate{stats.total !== 1 ? 's' : ''} screened
+                          </span>
+                          {shortlisted > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 text-xs rounded-lg font-semibold ring-1 ring-emerald-100">
+                              {shortlisted} shortlisted
+                            </span>
+                          )}
+                          {stats.avg_fit_score !== null && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-brand-50 text-brand-700 text-xs rounded-lg font-semibold ring-1 ring-brand-100">
+                              Avg {stats.avg_fit_score}%
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-500 text-xs rounded-lg font-medium">
+                          <Users className="w-3 h-3" />
+                          No candidates yet
+                        </span>
+                      )}
+                    </div>
+                    {stats && stats.total > 0 && (
+                      <button
+                        onClick={() => navigate(`/jd-library/${t.id}/candidates`)}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800 transition-colors"
+                      >
+                        View Candidates <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
 
                   {/* Meta Info */}
                   <div className="flex items-center justify-between text-xs text-slate-400 mb-3">
