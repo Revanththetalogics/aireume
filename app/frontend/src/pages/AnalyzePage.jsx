@@ -187,6 +187,11 @@ export default function AnalyzePage() {
       if (location.state.role_category) {
         setRoleCategory(location.state.role_category)
       }
+      // Mark as loaded from library to prevent duplicate JD creation
+      if (location.state.template_id) {
+        setLoadedFromLibrary(true)
+        setLoadedTemplateId(location.state.template_id)
+      }
     }
   }, [location.state])
 

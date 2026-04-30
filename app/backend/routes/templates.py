@@ -54,6 +54,22 @@ def create_template(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Check if identical JD already exists for this tenant
+    existing = db.query(RoleTemplate).filter(
+        RoleTemplate.tenant_id == current_user.tenant_id,
+        RoleTemplate.jd_text == body.jd_text
+    ).first()
+
+    if existing:
+        # Update weights/tags if provided (user may have changed them)
+        if body.scoring_weights:
+            existing.scoring_weights = json.dumps(body.scoring_weights, default=_json_default)
+        if body.tags:
+            existing.tags = body.tags
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     template = RoleTemplate(
         tenant_id=current_user.tenant_id,
         name=body.name,

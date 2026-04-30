@@ -129,7 +129,8 @@ export default function JDLibraryPage() {
       state: { 
         jd_text: template.jd_text,
         weights: weights,
-        role_category: template.tags
+        role_category: template.tags,
+        template_id: template.id
       } 
     })
   }
