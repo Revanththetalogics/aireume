@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, Briefcase, Building2, Clock, Download, Eye,
   ChevronDown, ChevronRight, CheckCircle2, AlertTriangle, GraduationCap,
-  Award, Globe, FileText, Activity
+  Award, Globe, FileText, Activity, User, Sparkles, X
 } from 'lucide-react'
 import {
   getCandidate, getCandidateTimeline, updateResultStatus,
@@ -52,15 +52,15 @@ function StatusPill({ status, onChange }) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false) }} />
-          <div className="absolute left-0 top-full mt-1 w-36 bg-white border border-brand-100/80 shadow-lg rounded-xl py-1 z-50">
+          <div className="absolute left-0 top-full mt-1 w-36 bg-white border border-gray-200 shadow-lg rounded-xl py-1 z-50">
             {STATUS_OPTIONS.map(s => {
               const sc = STATUS_CONFIG[s]
               return (
                 <button
                   key={s}
                   onClick={(e) => { e.stopPropagation(); setOpen(false); onChange(s) }}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium hover:bg-brand-50 transition-colors ${
-                    s === status ? 'text-brand-700 bg-brand-50/60' : 'text-slate-600'
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium hover:bg-gray-50 transition-colors ${
+                    s === status ? 'text-indigo-700 bg-indigo-50/60' : 'text-slate-600'
                   }`}
                 >
                   <span className={`w-2 h-2 rounded-full ring-1 ${sc.color}`} />
@@ -92,10 +92,10 @@ function ScoreBar({ label, score, colorClass }) {
   if (score == null) return null
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs font-semibold text-slate-500 w-32 shrink-0">{label}</span>
-      <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+      <span className="text-xs font-semibold text-slate-500 w-36 shrink-0">{label}</span>
+      <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${colorClass}`}
+          className={`h-full rounded-full transition-all duration-500 bg-gradient-to-r ${colorClass}`}
           style={{ width: `${Math.min(score, 100)}%` }}
         />
       </div>
@@ -107,13 +107,13 @@ function ScoreBar({ label, score, colorClass }) {
 function CollapsibleQuestion({ question, index }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="border border-brand-100 rounded-xl overflow-hidden">
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-brand-50/40 transition-colors"
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
       >
-        {open ? <ChevronDown className="w-4 h-4 text-brand-500 shrink-0" /> : <ChevronRight className="w-4 h-4 text-brand-400 shrink-0" />}
-        <span className="text-sm font-medium text-brand-900">Q{index + 1}: {safeStr(question)}</span>
+        {open ? <ChevronDown className="w-4 h-4 text-indigo-500 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />}
+        <span className="text-sm font-medium text-slate-800">Q{index + 1}: {safeStr(question)}</span>
       </button>
     </div>
   )
@@ -126,10 +126,10 @@ function TimelineItem({ icon: Icon, iconColor, title, subtitle, detail }) {
         <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${iconColor}`}>
           <Icon className="w-4 h-4" />
         </div>
-        <div className="w-px flex-1 bg-brand-100 mt-1" />
+        <div className="w-px flex-1 bg-gray-200 mt-1" />
       </div>
       <div className="pb-5">
-        <p className="text-sm font-semibold text-brand-900">{title}</p>
+        <p className="text-sm font-semibold text-slate-800">{title}</p>
         {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
         {detail && <p className="text-xs text-slate-400 mt-0.5">{detail}</p>}
       </div>
@@ -143,8 +143,83 @@ function Toast({ message, onDone }) {
     return () => clearTimeout(t)
   }, [onDone])
   return (
-    <div className="fixed bottom-6 right-6 z-50 bg-brand-900 text-white px-5 py-3 rounded-2xl shadow-brand-lg text-sm font-semibold card-animate">
+    <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl text-sm font-semibold animate-in">
       {message}
+    </div>
+  )
+}
+
+/* ── Skeleton loader ── */
+function SkeletonBlock({ className }) {
+  return <div className={`animate-pulse bg-gray-200 rounded ${className || ''}`} />
+}
+
+function ProfileSkeleton() {
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Header skeleton */}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm px-6 py-4 -mx-4 sm:-mx-6 lg:-mx-8">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <SkeletonBlock className="w-10 h-10 rounded-lg" />
+            <div className="space-y-2">
+              <SkeletonBlock className="h-7 w-48 rounded" />
+              <SkeletonBlock className="h-4 w-32 rounded" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <SkeletonBlock className="h-9 w-24 rounded-lg" />
+            <SkeletonBlock className="h-9 w-24 rounded-lg" />
+          </div>
+        </div>
+      </div>
+      {/* Body skeleton */}
+      <div className="flex flex-col lg:flex-row gap-6 mt-6">
+        <div className="w-full lg:w-80 space-y-4">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 space-y-3">
+              <SkeletonBlock className="h-4 w-20 rounded" />
+              <SkeletonBlock className="h-3 w-full rounded" />
+              <SkeletonBlock className="h-3 w-3/4 rounded" />
+              <SkeletonBlock className="h-3 w-1/2 rounded" />
+            </div>
+          ))}
+        </div>
+        <div className="flex-1 space-y-4">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 space-y-3">
+            <SkeletonBlock className="h-4 w-40 rounded" />
+            <SkeletonBlock className="h-16 w-full rounded" />
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 space-y-3">
+            <SkeletonBlock className="h-4 w-32 rounded" />
+            <SkeletonBlock className="h-3 w-full rounded" />
+            <SkeletonBlock className="h-3 w-5/6 rounded" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Card wrapper for consistent styling ── */
+function Card({ children, className }) {
+  return (
+    <div className={`bg-white rounded-lg shadow-sm border border-gray-200 p-5 ${className || ''}`}>
+      {children}
+    </div>
+  )
+}
+
+function CardTitle({ children, icon: Icon, badge }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      {Icon && <Icon className="w-4 h-4 text-slate-400" />}
+      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">{children}</h3>
+      {badge != null && (
+        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+          {badge}
+        </span>
+      )}
     </div>
   )
 }
@@ -158,6 +233,7 @@ export default function CandidateProfilePage() {
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState(0)
   const [toast, setToast] = useState(null)
+  const [skillsExpanded, setSkillsExpanded] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -199,40 +275,41 @@ export default function CandidateProfilePage() {
   }
 
   // ── Loading State ──
-  if (loading) return (
-    <div className="flex justify-center py-32">
-      <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
+  if (loading) return <ProfileSkeleton />
 
-  // ── Error State ──
+  // ── 404 State ──
   if (error === 'not_found') return (
-    <div className="max-w-5xl mx-auto px-4 py-16 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-brand-50 ring-1 ring-brand-200 flex items-center justify-center mx-auto mb-4">
-        <Briefcase className="w-8 h-8 text-brand-300" />
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
+      <div className="w-20 h-20 rounded-2xl bg-gray-100 ring-1 ring-gray-200 flex items-center justify-center mx-auto mb-5">
+        <User className="w-10 h-10 text-gray-300" />
       </div>
-      <h2 className="text-xl font-bold text-brand-900 mb-2">Candidate Not Found</h2>
-      <p className="text-slate-500 mb-6">The candidate you're looking for doesn't exist or has been removed.</p>
+      <h2 className="text-2xl font-bold text-slate-900 mb-2">Candidate Not Found</h2>
+      <p className="text-slate-500 mb-8 max-w-md mx-auto">
+        The candidate you're looking for doesn't exist or may have been removed from the system.
+      </p>
       <button
         onClick={() => navigate('/candidates')}
-        className="px-5 py-2.5 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow-sm transition-colors"
       >
+        <ArrowLeft className="w-4 h-4" />
         Back to Candidates
       </button>
     </div>
   )
 
+  // ── Error State ──
   if (error) return (
-    <div className="max-w-5xl mx-auto px-4 py-16 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-red-50 ring-1 ring-red-200 flex items-center justify-center mx-auto mb-4">
-        <AlertTriangle className="w-8 h-8 text-red-300" />
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
+      <div className="w-20 h-20 rounded-2xl bg-red-50 ring-1 ring-red-200 flex items-center justify-center mx-auto mb-5">
+        <AlertTriangle className="w-10 h-10 text-red-300" />
       </div>
-      <h2 className="text-xl font-bold text-brand-900 mb-2">Failed to Load Candidate</h2>
-      <p className="text-slate-500 mb-6">Something went wrong. Please try again.</p>
+      <h2 className="text-2xl font-bold text-slate-900 mb-2">Failed to Load Candidate</h2>
+      <p className="text-slate-500 mb-8">Something went wrong. Please try again.</p>
       <button
         onClick={() => navigate('/candidates')}
-        className="px-5 py-2.5 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow-sm transition-colors"
       >
+        <ArrowLeft className="w-4 h-4" />
         Back to Candidates
       </button>
     </div>
@@ -250,398 +327,430 @@ export default function CandidateProfilePage() {
 
   const activeResult = results[activeTab] || null
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+  const parsedSkills = (candidate.parsed_skills || []).slice().sort((a, b) =>
+    String(a).localeCompare(String(b))
+  )
+  const SKILLS_PREVIEW = 12
 
+  return (
+    <div className="min-h-screen bg-gray-50">
       {/* ── Sticky Header ── */}
-      <div className="sticky top-16 z-30 bg-white/95 backdrop-blur-xl rounded-2xl ring-1 ring-brand-100 shadow-brand-sm px-6 py-4 card-animate">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate('/candidates')}
-              className="p-2 hover:bg-brand-50 rounded-xl transition-colors text-slate-400 hover:text-brand-600"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-2xl font-extrabold text-brand-900 tracking-tight">
-                  {safeStr(candidate.name) || 'Unknown Candidate'}
-                </h1>
-                {bestScore != null && <ScoreBadge score={bestScore} />}
-                <StatusPill
-                  status={currentStatus}
-                  onChange={(s) => latestResult && handleStatusChange(latestResult.id, s)}
-                />
-              </div>
-              <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
-                {candidate.email && (
-                  <a href={`mailto:${candidate.email}`} className="flex items-center gap-1 hover:text-brand-600 transition-colors">
-                    <Mail className="w-3.5 h-3.5" />
-                    {safeStr(candidate.email)}
-                  </a>
-                )}
-                {candidate.phone && (
-                  <a href={`tel:${candidate.phone}`} className="flex items-center gap-1 hover:text-brand-600 transition-colors">
-                    <Phone className="w-3.5 h-3.5" />
-                    {safeStr(candidate.phone)}
-                  </a>
-                )}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between py-4 gap-4">
+            <div className="flex items-center gap-4 min-w-0">
+              <button
+                onClick={() => navigate('/candidates')}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-slate-400 hover:text-slate-600 shrink-0"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div className="min-w-0">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="text-xl font-bold text-slate-900 tracking-tight truncate">
+                    {safeStr(candidate.name) || 'Unknown Candidate'}
+                  </h1>
+                  {bestScore != null && <ScoreBadge score={bestScore} />}
+                  <StatusPill
+                    status={currentStatus}
+                    onChange={(s) => latestResult && handleStatusChange(latestResult.id, s)}
+                  />
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {candidate.has_resume && (
-              <>
-                <button
-                  onClick={() => viewCandidateResume(candidate.id).catch(() => setToast('Resume not available'))}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50 transition-colors"
-                  title="View original resume"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  View Resume
-                </button>
-                <button
-                  onClick={() => downloadCandidateResume(candidate.id, candidate.resume_filename || `resume_${candidate.id}.pdf`).catch(() => setToast('Resume not available'))}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50 transition-colors"
-                  title="Download original resume"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Download
-                </button>
-              </>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {candidate.has_resume && (
+                <>
+                  <button
+                    onClick={() => viewCandidateResume(candidate.id).catch(() => setToast('Resume not available'))}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-slate-700 ring-1 ring-gray-300 hover:bg-gray-50 transition-colors"
+                    title="View original resume"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    View Resume
+                  </button>
+                  <button
+                    onClick={() => downloadCandidateResume(candidate.id, candidate.resume_filename || `resume_${candidate.id}.pdf`).catch(() => setToast('Resume not available'))}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-sm"
+                    title="Download original resume"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* ── 2-Column Body ── */}
-      <div className="flex flex-col lg:flex-row gap-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="flex flex-col lg:flex-row gap-6">
 
-        {/* ── Left Sidebar (1/3) ── */}
-        <div className="w-full lg:w-1/3 space-y-5">
+          {/* ── Left Sidebar ── */}
+          <div className="w-full lg:w-80 shrink-0 space-y-4">
 
-          {/* Contact Card */}
-          <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-5 space-y-3">
-            <h3 className="text-sm font-bold text-brand-700 uppercase tracking-wide">Contact Info</h3>
-            <div className="space-y-2">
-              {candidate.email ? (
-                <div className="flex items-center gap-2 text-sm">
-                  <Mail className="w-4 h-4 text-brand-400" />
-                  <a href={`mailto:${candidate.email}`} className="text-brand-600 hover:underline">{safeStr(candidate.email)}</a>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-sm text-slate-400">
-                  <Mail className="w-4 h-4" />
-                  No email
-                </div>
-              )}
-              {candidate.phone ? (
-                <div className="flex items-center gap-2 text-sm">
-                  <Phone className="w-4 h-4 text-brand-400" />
-                  <a href={`tel:${candidate.phone}`} className="text-brand-600 hover:underline">{safeStr(candidate.phone)}</a>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-sm text-slate-400">
-                  <Phone className="w-4 h-4" />
-                  No phone
-                </div>
-              )}
-              {candidate.current_role && (
-                <div className="flex items-center gap-2 text-sm">
-                  <Briefcase className="w-4 h-4 text-brand-400" />
-                  <span className="text-slate-700">{safeStr(candidate.current_role)}</span>
-                </div>
-              )}
-              {candidate.current_company && (
-                <div className="flex items-center gap-2 text-sm">
-                  <Building2 className="w-4 h-4 text-brand-400" />
-                  <span className="text-slate-700">{safeStr(candidate.current_company)}</span>
-                </div>
-              )}
-              {candidate.total_years_exp != null && (
-                <div className="flex items-center gap-2 text-sm">
-                  <Clock className="w-4 h-4 text-brand-400" />
-                  <span className="text-slate-700">{candidate.total_years_exp} year{candidate.total_years_exp !== 1 ? 's' : ''} experience</span>
-                </div>
-              )}
-              {!candidate.email && !candidate.phone && !candidate.current_role && !candidate.current_company && candidate.total_years_exp == null && (
-                <p className="text-sm text-slate-400">No contact information available</p>
-              )}
-            </div>
-          </div>
-
-          {/* Skills Cloud */}
-          <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-5">
-            <h3 className="text-sm font-bold text-brand-700 uppercase tracking-wide mb-3">Skills</h3>
-            {candidate.parsed_skills && candidate.parsed_skills.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {candidate.parsed_skills.map((skill, i) => (
-                  <span key={i} className="px-2 py-0.5 bg-green-50 text-green-700 text-xs rounded-full font-semibold ring-1 ring-green-100">
-                    {safeStr(skill)}
-                  </span>
-                ))}
+            {/* Contact Card */}
+            <Card>
+              <CardTitle icon={Mail}>Contact</CardTitle>
+              <div className="space-y-2.5">
+                {candidate.email ? (
+                  <a href={`mailto:${candidate.email}`} className="flex items-center gap-2.5 text-sm text-slate-700 hover:text-indigo-600 transition-colors group">
+                    <Mail className="w-4 h-4 text-slate-400 group-hover:text-indigo-500" />
+                    <span className="truncate">{safeStr(candidate.email)}</span>
+                  </a>
+                ) : (
+                  <div className="flex items-center gap-2.5 text-sm text-slate-400">
+                    <Mail className="w-4 h-4" />
+                    <span>No email provided</span>
+                  </div>
+                )}
+                {candidate.phone ? (
+                  <a href={`tel:${candidate.phone}`} className="flex items-center gap-2.5 text-sm text-slate-700 hover:text-indigo-600 transition-colors group">
+                    <Phone className="w-4 h-4 text-slate-400 group-hover:text-indigo-500" />
+                    <span>{safeStr(candidate.phone)}</span>
+                  </a>
+                ) : (
+                  <div className="flex items-center gap-2.5 text-sm text-slate-400">
+                    <Phone className="w-4 h-4" />
+                    <span>Not provided</span>
+                  </div>
+                )}
+                {candidate.current_role && (
+                  <div className="flex items-center gap-2.5 text-sm text-slate-700">
+                    <Briefcase className="w-4 h-4 text-slate-400" />
+                    <span>{safeStr(candidate.current_role)}</span>
+                  </div>
+                )}
+                {candidate.current_company && (
+                  <div className="flex items-center gap-2.5 text-sm text-slate-700">
+                    <Building2 className="w-4 h-4 text-slate-400" />
+                    <span>{safeStr(candidate.current_company)}</span>
+                  </div>
+                )}
+                {candidate.total_years_exp != null && (
+                  <div className="flex items-center gap-2.5 text-sm text-slate-700">
+                    <Clock className="w-4 h-4 text-slate-400" />
+                    <span>{candidate.total_years_exp} year{candidate.total_years_exp !== 1 ? 's' : ''} experience</span>
+                  </div>
+                )}
+                {!candidate.email && !candidate.phone && !candidate.current_role && !candidate.current_company && candidate.total_years_exp == null && (
+                  <p className="text-sm text-slate-400 italic">No contact information available</p>
+                )}
               </div>
-            ) : (
-              <p className="text-sm text-slate-400">No skills data</p>
-            )}
-          </div>
+            </Card>
 
-          {/* Education Timeline */}
-          <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-5">
-            <h3 className="text-sm font-bold text-brand-700 uppercase tracking-wide mb-3">Education</h3>
-            {candidate.parsed_education && candidate.parsed_education.length > 0 ? (
-              <div className="space-y-3">
-                {candidate.parsed_education.map((edu, i) => (
-                  <TimelineItem
-                    key={i}
-                    icon={GraduationCap}
-                    iconColor="bg-blue-50 text-blue-600"
-                    title={safeStr(edu.degree) || 'Degree not specified'}
-                    subtitle={safeStr(edu.institution) || 'Institution not specified'}
-                    detail={edu.year ? `Class of ${safeStr(edu.year)}` : null}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">No education data</p>
-            )}
-          </div>
-
-          {/* Certifications */}
-          {candidate.certifications && candidate.certifications.length > 0 && (
-            <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-5">
-              <h3 className="text-sm font-bold text-brand-700 uppercase tracking-wide mb-3">Certifications</h3>
-              <ul className="space-y-1.5">
-                {candidate.certifications.map((cert, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm text-slate-700">
-                    <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                    {safeStr(cert)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Languages */}
-          {candidate.languages && candidate.languages.length > 0 && (
-            <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-5">
-              <h3 className="text-sm font-bold text-brand-700 uppercase tracking-wide mb-3">Languages</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {candidate.languages.map((lang, i) => (
-                  <span key={i} className="px-2 py-0.5 bg-slate-50 text-slate-600 text-xs rounded-full font-medium ring-1 ring-slate-200 flex items-center gap-1">
-                    <Globe className="w-3 h-3" />
-                    {safeStr(lang)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── Right Main Area (2/3) ── */}
-        <div className="w-full lg:w-2/3 space-y-5">
-
-          {/* Professional Summary */}
-          {candidate.professional_summary && (
-            <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-5">
-              <h3 className="text-sm font-bold text-brand-700 uppercase tracking-wide mb-3">Professional Summary</h3>
-              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">{safeStr(candidate.professional_summary)}</p>
-            </div>
-          )}
-
-          {/* Screening Results Tabs */}
-          {results.length > 0 && (
-            <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm overflow-hidden">
-              <div className="border-b border-brand-100 overflow-x-auto">
-                <div className="flex">
-                  {results.map((r, i) => (
+            {/* Skills Card */}
+            <Card>
+              <CardTitle icon={Sparkles} badge={parsedSkills.length > 0 ? parsedSkills.length : undefined}>
+                Skills
+              </CardTitle>
+              {parsedSkills.length > 0 ? (
+                <div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(skillsExpanded ? parsedSkills : parsedSkills.slice(0, SKILLS_PREVIEW)).map((skill, i) => (
+                      <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-medium">
+                        {safeStr(skill)}
+                      </span>
+                    ))}
+                  </div>
+                  {parsedSkills.length > SKILLS_PREVIEW && !skillsExpanded && (
                     <button
-                      key={r.id}
-                      onClick={() => setActiveTab(i)}
-                      className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors shrink-0 ${
-                        i === activeTab
-                          ? 'border-brand-600 text-brand-700 bg-brand-50/60'
-                          : 'border-transparent text-slate-500 hover:text-brand-600 hover:bg-brand-50/30'
-                      }`}
+                      onClick={() => setSkillsExpanded(true)}
+                      className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 font-semibold transition-colors"
                     >
-                      {safeStr(r.jd_name) || `Result ${i + 1}`}
-                      <ScoreBadge score={r.fit_score} />
+                      Show all ({parsedSkills.length})
                     </button>
+                  )}
+                  {skillsExpanded && (
+                    <button
+                      onClick={() => setSkillsExpanded(false)}
+                      className="mt-2 text-xs text-slate-500 hover:text-slate-700 font-medium transition-colors"
+                    >
+                      Show less
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400 italic">No skills data available</p>
+              )}
+            </Card>
+
+            {/* Education Card */}
+            <Card>
+              <CardTitle icon={GraduationCap}>Education</CardTitle>
+              {candidate.parsed_education && candidate.parsed_education.length > 0 ? (
+                <div className="space-y-3">
+                  {candidate.parsed_education.map((edu, i) => (
+                    <div key={i} className="flex gap-3">
+                      <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                        <GraduationCap className="w-4 h-4 text-blue-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{safeStr(edu.degree) || 'Degree not specified'}</p>
+                        <p className="text-xs text-slate-500">{safeStr(edu.institution) || 'Institution not specified'}</p>
+                        {edu.year && <p className="text-xs text-slate-400">Class of {safeStr(edu.year)}</p>}
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </div>
-
-              {activeResult && (
-                <div className="p-5 space-y-5">
-
-                  {/* Score Breakdown */}
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-bold text-slate-700">Score Breakdown</h4>
-                    <ScoreBar
-                      label="Fit Score"
-                      score={activeResult.fit_score}
-                      colorClass={
-                        activeResult.fit_score >= 70 ? 'bg-green-500' :
-                        activeResult.fit_score >= 45 ? 'bg-amber-500' : 'bg-red-500'
-                      }
-                    />
-                    <ScoreBar
-                      label="Deterministic Score"
-                      score={activeResult.deterministic_score}
-                      colorClass={
-                        (activeResult.deterministic_score ?? 0) >= 70 ? 'bg-blue-500' :
-                        (activeResult.deterministic_score ?? 0) >= 45 ? 'bg-amber-400' : 'bg-red-400'
-                      }
-                    />
-                    <div className="flex items-center gap-3 mt-2">
-                      <span className="text-xs font-semibold text-slate-500">Recommendation:</span>
-                      <RecommendationBadge recommendation={activeResult.recommendation} />
-                      <span className="text-xs text-slate-400">•</span>
-                      <StatusPill
-                        status={activeResult.status || 'pending'}
-                        onChange={(s) => handleStatusChange(activeResult.id, s)}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Skills Comparison */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-700 mb-2">Matched Skills</h4>
-                      {activeResult.matched_skills && activeResult.matched_skills.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {activeResult.matched_skills.map((skill, i) => (
-                            <span key={i} className="px-2 py-0.5 bg-green-50 text-green-700 text-xs rounded-full font-semibold ring-1 ring-green-100">
-                              {safeStr(skill)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-slate-400">No matched skills</p>
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-700 mb-2">Missing Skills</h4>
-                      {activeResult.missing_skills && activeResult.missing_skills.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {activeResult.missing_skills.map((skill, i) => (
-                            <span key={i} className="px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded-full font-semibold ring-1 ring-red-100">
-                              {safeStr(skill)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-slate-400">No missing skills</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Strengths & Weaknesses */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-700 mb-2">Strengths</h4>
-                      {activeResult.strengths && activeResult.strengths.length > 0 ? (
-                        <ul className="space-y-1.5">
-                          {activeResult.strengths.map((s, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
-                              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
-                              {safeStr(s)}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-sm text-slate-400">No strengths listed</p>
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-700 mb-2">Weaknesses</h4>
-                      {activeResult.weaknesses && activeResult.weaknesses.length > 0 ? (
-                        <ul className="space-y-1.5">
-                          {activeResult.weaknesses.map((w, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
-                              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                              {safeStr(w)}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-sm text-slate-400">No weaknesses listed</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Interview Questions */}
-                  {activeResult.interview_questions && activeResult.interview_questions.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-700 mb-2">Interview Questions</h4>
-                      <div className="space-y-2">
-                        {activeResult.interview_questions.map((q, i) => (
-                          <CollapsibleQuestion key={i} question={q} index={i} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Narrative Summary */}
-                  {activeResult.narrative && (
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-700 mb-2">Narrative Summary</h4>
-                      <div className="bg-brand-50/60 rounded-xl p-4 text-sm text-slate-600 leading-relaxed whitespace-pre-line ring-1 ring-brand-100">
-                        {safeStr(activeResult.narrative)}
-                      </div>
-                    </div>
-                  )}
+              ) : (
+                <div className="flex flex-col items-center py-3 text-center">
+                  <GraduationCap className="w-8 h-8 text-gray-200 mb-2" />
+                  <p className="text-sm text-slate-400 italic">No education data available</p>
                 </div>
               )}
-            </div>
-          )}
+            </Card>
 
-          {results.length === 0 && (
-            <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-8 text-center">
-              <FileText className="w-8 h-8 text-brand-300 mx-auto mb-3" />
-              <p className="text-sm text-slate-500 font-medium">No screening results yet</p>
-              <p className="text-xs text-slate-400 mt-1">Analyze this candidate against a job description to see results here.</p>
-            </div>
-          )}
+            {/* Certifications Card */}
+            {candidate.certifications && candidate.certifications.length > 0 && (
+              <Card>
+                <CardTitle icon={Award}>Certifications</CardTitle>
+                <ul className="space-y-1.5">
+                  {candidate.certifications.map((cert, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm text-slate-700">
+                      <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      {safeStr(cert)}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
 
-          {/* Work Experience Timeline */}
-          {candidate.parsed_work_exp && candidate.parsed_work_exp.length > 0 && (
-            <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-5">
-              <h3 className="text-sm font-bold text-brand-700 uppercase tracking-wide mb-4">Work Experience</h3>
-              <div className="space-y-0">
-                {candidate.parsed_work_exp.map((exp, i) => (
-                  <TimelineItem
-                    key={i}
-                    icon={Briefcase}
-                    iconColor="bg-brand-50 text-brand-600"
-                    title={safeStr(exp.title) || 'Role not specified'}
-                    subtitle={`${safeStr(exp.company) || 'Company not specified'}${exp.duration ? ` · ${safeStr(exp.duration)}` : ''}`}
-                    detail={exp.description ? safeStr(exp.description) : null}
-                  />
-                ))}
+            {/* Languages Card */}
+            {candidate.languages && candidate.languages.length > 0 && (
+              <Card>
+                <CardTitle icon={Globe}>Languages</CardTitle>
+                <div className="flex flex-wrap gap-1.5">
+                  {candidate.languages.map((lang, i) => (
+                    <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 font-medium ring-1 ring-slate-200 flex items-center gap-1">
+                      <Globe className="w-3 h-3" />
+                      {safeStr(lang)}
+                    </span>
+                  ))}
+                </div>
+              </Card>
+            )}
+          </div>
+
+          {/* ── Right Main Area ── */}
+          <div className="flex-1 min-w-0 space-y-4">
+
+            {/* Professional Summary Card */}
+            <Card>
+              <CardTitle icon={FileText}>Professional Summary</CardTitle>
+              {candidate.professional_summary ? (
+                <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                  <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">{safeStr(candidate.professional_summary)}</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center py-6 text-center">
+                  <FileText className="w-8 h-8 text-gray-200 mb-2" />
+                  <p className="text-sm text-slate-400 italic">No professional summary available</p>
+                </div>
+              )}
+            </Card>
+
+            {/* Screening Results Tabs */}
+            {results.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                {/* Tab bar */}
+                <div className="border-b border-gray-200 overflow-x-auto bg-white">
+                  <div className="flex">
+                    {results.map((r, i) => (
+                      <button
+                        key={r.id}
+                        onClick={() => setActiveTab(i)}
+                        className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors shrink-0 ${
+                          i === activeTab
+                            ? 'border-indigo-600 text-indigo-700 bg-indigo-50/60'
+                            : 'border-transparent text-slate-500 hover:text-indigo-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {safeStr(r.jd_name) || `Result ${i + 1}`}
+                        <ScoreBadge score={r.fit_score} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {activeResult && (
+                  <div className="p-5 space-y-5">
+
+                    {/* Score Breakdown */}
+                    <div className="space-y-2.5">
+                      <h4 className="text-sm font-bold text-slate-700">Score Breakdown</h4>
+                      <ScoreBar
+                        label="Fit Score"
+                        score={activeResult.fit_score}
+                        colorClass={
+                          activeResult.fit_score >= 70 ? 'from-green-400 to-green-600' :
+                          activeResult.fit_score >= 45 ? 'from-amber-400 to-amber-500' : 'from-red-400 to-red-500'
+                        }
+                      />
+                      <ScoreBar
+                        label="Deterministic Score"
+                        score={activeResult.deterministic_score}
+                        colorClass={
+                          (activeResult.deterministic_score ?? 0) >= 70 ? 'from-blue-400 to-blue-600' :
+                          (activeResult.deterministic_score ?? 0) >= 45 ? 'from-amber-300 to-amber-500' : 'from-red-300 to-red-500'
+                        }
+                      />
+                      <div className="flex items-center gap-3 mt-2 pt-2 border-t border-gray-100">
+                        <span className="text-xs font-semibold text-slate-500">Recommendation:</span>
+                        <RecommendationBadge recommendation={activeResult.recommendation} />
+                        <span className="text-xs text-slate-300">|</span>
+                        <StatusPill
+                          status={activeResult.status || 'pending'}
+                          onChange={(s) => handleStatusChange(activeResult.id, s)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Skills Comparison */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-700 mb-2">Matched Skills</h4>
+                        {activeResult.matched_skills && activeResult.matched_skills.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {activeResult.matched_skills.map((skill, i) => (
+                              <span key={i} className="px-2 py-0.5 bg-green-50 text-green-700 text-xs rounded-full font-semibold ring-1 ring-green-200">
+                                {safeStr(skill)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-400 italic">No matched skills</p>
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-700 mb-2">Missing Skills</h4>
+                        {activeResult.missing_skills && activeResult.missing_skills.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {activeResult.missing_skills.map((skill, i) => (
+                              <span key={i} className="px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded-full font-semibold ring-1 ring-red-200">
+                                {safeStr(skill)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-400 italic">No missing skills</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Strengths & Weaknesses */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-700 mb-2">Strengths</h4>
+                        {activeResult.strengths && activeResult.strengths.length > 0 ? (
+                          <ul className="space-y-1.5">
+                            {activeResult.strengths.map((s, i) => (
+                              <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+                                <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                                {safeStr(s)}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-slate-400 italic">No strengths listed</p>
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-700 mb-2">Weaknesses</h4>
+                        {activeResult.weaknesses && activeResult.weaknesses.length > 0 ? (
+                          <ul className="space-y-1.5">
+                            {activeResult.weaknesses.map((w, i) => (
+                              <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+                                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                                {safeStr(w)}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-slate-400 italic">No weaknesses listed</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Interview Questions */}
+                    {activeResult.interview_questions && activeResult.interview_questions.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-700 mb-2">Interview Questions</h4>
+                        <div className="space-y-2">
+                          {activeResult.interview_questions.map((q, i) => (
+                            <CollapsibleQuestion key={i} question={q} index={i} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Narrative Summary */}
+                    {activeResult.narrative && (
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-700 mb-2">Narrative Summary</h4>
+                        <blockquote className="border-l-4 border-indigo-300 bg-indigo-50/50 rounded-r-lg p-4 text-sm text-slate-600 leading-relaxed whitespace-pre-line italic">
+                          {safeStr(activeResult.narrative)}
+                        </blockquote>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Activity Timeline */}
-          {timeline.length > 0 && (
-            <div className="bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-5">
-              <h3 className="text-sm font-bold text-brand-700 uppercase tracking-wide mb-4">Activity</h3>
-              <div className="space-y-0">
-                {timeline.map((evt, i) => (
-                  <TimelineItem
-                    key={i}
-                    icon={Activity}
-                    iconColor="bg-slate-50 text-slate-500"
-                    title={safeStr(evt.event)}
-                    subtitle={evt.jd_name ? `for ${safeStr(evt.jd_name)}` : null}
-                    detail={`${new Date(evt.timestamp).toLocaleString()}${evt.details ? ` · ${safeStr(evt.details)}` : ''}`}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+            {results.length === 0 && (
+              <Card className="text-center py-8">
+                <FileText className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+                <p className="text-sm text-slate-500 font-medium">No screening results yet</p>
+                <p className="text-xs text-slate-400 mt-1">Analyze this candidate against a job description to see results here.</p>
+              </Card>
+            )}
+
+            {/* Work Experience Timeline */}
+            <Card>
+              <CardTitle icon={Briefcase}>Work Experience</CardTitle>
+              {candidate.parsed_work_exp && candidate.parsed_work_exp.length > 0 ? (
+                <div className="space-y-0">
+                  {candidate.parsed_work_exp.map((exp, i) => (
+                    <TimelineItem
+                      key={i}
+                      icon={Briefcase}
+                      iconColor="bg-indigo-50 text-indigo-600"
+                      title={safeStr(exp.title) || 'Role not specified'}
+                      subtitle={`${safeStr(exp.company) || 'Company not specified'}${exp.duration ? ` · ${safeStr(exp.duration)}` : ''}`}
+                      detail={exp.description ? safeStr(exp.description) : null}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center py-4 text-center">
+                  <Briefcase className="w-8 h-8 text-gray-200 mb-2" />
+                  <p className="text-sm text-slate-400 italic">No work experience data available</p>
+                </div>
+              )}
+            </Card>
+
+            {/* Activity Timeline */}
+            {timeline.length > 0 && (
+              <Card>
+                <CardTitle icon={Activity}>Activity</CardTitle>
+                <div className="space-y-0">
+                  {timeline.map((evt, i) => (
+                    <TimelineItem
+                      key={i}
+                      icon={Activity}
+                      iconColor="bg-slate-50 text-slate-500"
+                      title={safeStr(evt.event)}
+                      subtitle={evt.jd_name ? `for ${safeStr(evt.jd_name)}` : null}
+                      detail={`${new Date(evt.timestamp).toLocaleString()}${evt.details ? ` · ${safeStr(evt.details)}` : ''}`}
+                    />
+                  ))}
+                </div>
+              </Card>
+            )}
+          </div>
         </div>
       </div>
 

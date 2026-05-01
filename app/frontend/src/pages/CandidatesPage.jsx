@@ -494,7 +494,7 @@ export default function CandidatesPage() {
             )}
             <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden card-animate">
             <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[900px]">
+            <table className="w-full text-sm min-w-[1100px]">
               <thead className="bg-brand-50 border-b border-brand-100">
                 <tr>
                   <th className="px-4 py-3.5 text-left w-10">
@@ -525,10 +525,10 @@ export default function CandidatesPage() {
                   >
                     Best Score <SortIcon column="best_score" />
                   </th>
-                  <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide min-w-[140px]">Top Skills</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide max-w-[160px]">Top Skills</th>
                   <th
                     onClick={() => handleSort('created_at')}
-                    className={`px-4 py-3.5 text-left text-xs uppercase tracking-wide min-w-[80px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'created_at' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                    className={`px-4 py-3.5 text-left text-xs uppercase tracking-wide whitespace-nowrap min-w-[90px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'created_at' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
                   >
                     Added <SortIcon column="created_at" />
                   </th>
@@ -581,17 +581,17 @@ export default function CandidatesPage() {
                       <span className="text-brand-700 font-bold">{c.result_count}</span>
                     </td>
                     <td className="px-4 py-3.5"><ScoreBadge score={c.best_score} /></td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-4 py-3.5 max-w-[160px] overflow-hidden">
                       {c.matched_skills && c.matched_skills.length > 0 ? (
-                        <div className="flex flex-wrap gap-1 max-h-[3rem] overflow-hidden">
-                          {c.matched_skills.slice(0, 3).map((skill, i) => (
+                        <div className="flex flex-wrap gap-1 max-h-[2.5rem] overflow-hidden">
+                          {c.matched_skills.slice(0, 2).map((skill, i) => (
                             <span key={i} className="px-1.5 py-0.5 bg-green-50 text-green-700 text-xs rounded font-semibold ring-1 ring-green-100 whitespace-nowrap">
                               {skill}
                             </span>
                           ))}
-                          {c.matched_skills.length > 3 && (
+                          {c.matched_skills.length > 2 && (
                             <span className="px-1.5 py-0.5 bg-slate-50 text-slate-400 text-xs rounded font-medium ring-1 ring-slate-100 whitespace-nowrap">
-                              +{c.matched_skills.length - 3}
+                              +{c.matched_skills.length - 2}
                             </span>
                           )}
                         </div>
@@ -599,7 +599,7 @@ export default function CandidatesPage() {
                         <span className="text-xs text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3.5 text-slate-400 text-xs font-medium whitespace-nowrap">
+                    <td className="px-4 py-3.5 text-slate-400 text-xs font-medium whitespace-nowrap min-w-[90px]">
                       {c.created_at
                         ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                         : '—'}
