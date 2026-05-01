@@ -3,15 +3,24 @@
 <cite>
 **Referenced Files in This Document**
 - [constants.py](file://app/backend/services/constants.py)
+- [weight_mapper.py](file://app/backend/services/weight_mapper.py)
+- [weight_suggester.py](file://app/backend/services/weight_suggester.py)
+- [fit_scorer.py](file://app/backend/services/fit_scorer.py)
 - [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
-- [fit_scorer.py](file://app/backend/services/fit_scorer.py)
 - [risk_calculator.py](file://app/backend/services/risk_calculator.py)
 - [domain_service.py](file://app/backend/services/domain_service.py)
-- [weight_mapper.py](file://app/backend/services/weight_mapper.py)
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
 - [main.py](file://app/backend/main.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Enhanced weight schema definitions with new universal weights system
+- Improved LEGACY_WEIGHTS and OLD_BACKEND_WEIGHTS constants with comprehensive coverage
+- Added NEW_DEFAULT_WEIGHTS for the new universal schema with core_competencies, domain_fit, career_trajectory, and role_excellence factors
+- Comprehensive weight schema management support with intelligent conversion capabilities
+- Updated weight mapping and normalization logic for backward compatibility
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -27,14 +36,14 @@
 ## Introduction
 The Centralized Constants Module serves as the single source of truth for all scoring constants, thresholds, domain configurations, and weight schemas within the Resume AI platform. This module ensures consistency across the entire system by providing standardized values for recommendation thresholds, seniority ranges, degree scoring, domain keywords, risk penalties, and various weight schemas used throughout the intelligent screening pipeline.
 
-The module is designed to support both legacy and modern weight schemas while maintaining backward compatibility and enabling seamless transitions between different scoring methodologies. It plays a crucial role in the automated resume screening and candidate evaluation processes.
+The module has been enhanced with a comprehensive weight schema management system that supports both legacy and modern weight schemas while maintaining backward compatibility and enabling seamless transitions between different scoring methodologies. It now provides intelligent conversion between different weight schemas and supports the new universal weight system with enhanced domain coverage.
 
 ## Project Structure
-The centralized constants module is organized within the backend services directory and is imported by multiple service components throughout the application. The module follows a structured approach with clearly defined categories for different types of constants.
+The centralized constants module is organized within the backend services directory and is imported by multiple service components throughout the application. The module follows a structured approach with clearly defined categories for different types of constants, including the new comprehensive weight schema definitions.
 
 ```mermaid
 graph TB
-subgraph "Constants Module Structure"
+subgraph "Enhanced Constants Module Structure"
 A[constants.py] --> B[Recommendation Thresholds]
 A --> C[Seniority Ranges]
 A --> D[Default Scoring Weights]
@@ -42,7 +51,7 @@ A --> E[Domain Keywords]
 A --> F[Degree Scores]
 A --> G[Field Relevance]
 A --> H[Risk Severity Penalties]
-A --> I[Weight Schema Definitions]
+A --> I[Enhanced Weight Schema Definitions]
 end
 subgraph "Service Components"
 J[agent_pipeline.py]
@@ -52,6 +61,7 @@ M[risk_calculator.py]
 N[domain_service.py]
 O[weight_mapper.py]
 P[skill_matcher.py]
+Q[weight_suggester.py]
 end
 B --> J
 B --> K
@@ -66,17 +76,13 @@ F --> K
 G --> K
 H --> M
 I --> O
+I --> Q
 ```
 
 **Diagram sources**
 - [constants.py:1-158](file://app/backend/services/constants.py#L1-L158)
-- [agent_pipeline.py:39-43](file://app/backend/services/agent_pipeline.py#L39-L43)
-- [hybrid_pipeline.py:31-37](file://app/backend/services/hybrid_pipeline.py#L31-L37)
-- [fit_scorer.py:5-8](file://app/backend/services/fit_scorer.py#L5-L8)
-- [risk_calculator.py:3](file://app/backend/services/risk_calculator.py#L3)
-- [domain_service.py:6](file://app/backend/services/domain_service.py#L6)
 - [weight_mapper.py:17-21](file://app/backend/services/weight_mapper.py#L17-L21)
-- [skill_matcher.py:366](file://app/backend/services/skill_matcher.py#L366)
+- [weight_suggester.py:17](file://app/backend/services/weight_suggester.py#L17)
 
 **Section sources**
 - [constants.py:1-158](file://app/backend/services/constants.py#L1-L158)
@@ -126,65 +132,73 @@ Risk severity penalties define the impact levels for different types of risk sig
 **Section sources**
 - [constants.py:121-125](file://app/backend/services/constants.py#L121-L125)
 
-### Weight Schema Definitions
-The module defines three distinct weight schemas to support different scoring approaches and maintain backward compatibility:
+### Enhanced Weight Schema Definitions
+The module now defines four distinct weight schemas to support different scoring approaches and maintain comprehensive backward compatibility:
 
-1. **Legacy Weights**: Four-weight schema (skills, experience, stability, education)
-2. **New Default Weights**: Seven-weight universal schema with enhanced domain coverage
+1. **Legacy Weights**: Four-weight schema (skills, experience, stability, education) for backward compatibility
+2. **New Default Weights**: Seven-weight universal schema with enhanced domain coverage including core_competencies, domain_fit, career_trajectory, and role_excellence factors
 3. **Old Backend Weights**: Seven-weight tech-centric schema for specialized backend roles
+4. **Weight Mapper Integration**: Comprehensive conversion system supporting automatic schema detection and transformation
+
+**Updated** Enhanced with NEW_DEFAULT_WEIGHTS for universal schema and improved LEGACY_WEIGHTS and OLD_BACKEND_WEIGHTS constants
 
 **Section sources**
-- [constants.py:130-157](file://app/backend/services/constants.py#L130-L157)
+- [constants.py:128-157](file://app/backend/services/constants.py#L128-L157)
+- [weight_mapper.py:17-21](file://app/backend/services/weight_mapper.py#L17-L21)
 
 ## Architecture Overview
-The centralized constants module operates as a foundational layer that supports the entire intelligent screening architecture. Multiple service components depend on these standardized values to ensure consistent behavior across the platform.
+The centralized constants module operates as a foundational layer that supports the entire intelligent screening architecture. Multiple service components depend on these standardized values to ensure consistent behavior across the platform, with enhanced weight schema management capabilities.
 
 ```mermaid
 graph TB
-subgraph "Centralized Constants Layer"
+subgraph "Enhanced Centralized Constants Layer"
 A[constants.py]
+B[NEW_DEFAULT_WEIGHTS]
+C[LEGACY_WEIGHTS]
+D[OLD_BACKEND_WEIGHTS]
 end
-subgraph "Scoring Services"
-B[fit_scorer.py]
-C[risk_calculator.py]
-D[weight_mapper.py]
+subgraph "Advanced Scoring Services"
+E[fit_scorer.py]
+F[risk_calculator.py]
+G[weight_mapper.py]
+H[weight_suggester.py]
 end
 subgraph "Pipeline Components"
-E[agent_pipeline.py]
-F[hybrid_pipeline.py]
+I[agent_pipeline.py]
+J[hybrid_pipeline.py]
 end
 subgraph "Domain Services"
-G[domain_service.py]
-H[skill_matcher.py]
+K[domain_service.py]
+L[skill_matcher.py]
 end
-A --> B
-A --> C
-A --> D
 A --> E
 A --> F
 A --> G
 A --> H
-B --> I[Final Recommendations]
-C --> B
-D --> E
-D --> F
-G --> F
-H --> F
+A --> I
+A --> J
+A --> K
+A --> L
+B --> G
+C --> G
+D --> G
+E --> M[Final Recommendations]
+F --> E
+G --> I
+G --> J
+H --> G
+K --> J
+L --> J
 ```
 
 **Diagram sources**
-- [constants.py:1-158](file://app/backend/services/constants.py#L1-L158)
-- [fit_scorer.py:12-114](file://app/backend/services/fit_scorer.py#L12-L114)
-- [risk_calculator.py:6-15](file://app/backend/services/risk_calculator.py#L6-L15)
-- [weight_mapper.py:17-21](file://app/backend/services/weight_mapper.py#L17-L21)
-- [agent_pipeline.py:39-43](file://app/backend/services/agent_pipeline.py#L39-L43)
-- [hybrid_pipeline.py:31-37](file://app/backend/services/hybrid_pipeline.py#L31-L37)
-- [domain_service.py:6](file://app/backend/services/domain_service.py#L6)
-- [skill_matcher.py:366](file://app/backend/services/skill_matcher.py#L366)
+- [constants.py:128-157](file://app/backend/services/constants.py#L128-L157)
+- [weight_mapper.py:197-230](file://app/backend/services/weight_mapper.py#L197-L230)
+- [weight_suggester.py:17](file://app/backend/services/weight_suggester.py#L17)
 
 ## Detailed Component Analysis
 
-### Recommendation Thresholds Implementation
+### Enhanced Recommendation Thresholds Implementation
 The recommendation thresholds serve as the cornerstone for automated candidate evaluation. The system uses a tiered approach where scores above 72 qualify for shortlisting, scores between 45-71 warrant consideration, and scores below 45 result in rejection.
 
 ```mermaid
@@ -210,7 +224,7 @@ F --> M[Risk Level High/Medium]
 - [constants.py:10-14](file://app/backend/services/constants.py#L10-L14)
 - [fit_scorer.py:88-96](file://app/backend/services/fit_scorer.py#L88-L96)
 
-### Domain Keyword Processing
+### Advanced Domain Keyword Processing
 The domain keyword system enables sophisticated domain detection through keyword matching algorithms. Each domain category contains 15-25 relevant keywords that help identify technical specialties within job descriptions and candidate profiles.
 
 ```mermaid
@@ -235,81 +249,95 @@ DS-->>JD : Best matching domain with confidence
 - [domain_service.py:9-41](file://app/backend/services/domain_service.py#L9-L41)
 - [constants.py:46-78](file://app/backend/services/constants.py#L46-L78)
 
-### Weight Schema Management
-The weight mapper provides intelligent conversion between different scoring schemas, ensuring backward compatibility while supporting modern scoring methodologies.
+### Comprehensive Weight Schema Management
+The enhanced weight mapper provides intelligent conversion between different scoring schemas, ensuring backward compatibility while supporting modern scoring methodologies. The system now supports four distinct weight schemas with comprehensive coverage.
 
 ```mermaid
 flowchart LR
-A[Legacy Schema<br/>4 weights] --> B[Weight Mapper]
-C[Old Backend Schema<br/>7 weights] --> B
-D[New Default Schema<br/>7 weights] --> B
-B --> E[Normalized Weights<br/>Sum = 1.0]
-E --> F[Apply to Scoring<br/>Calculation]
-G[Schema Detection] --> B
-B --> H[Automatic Migration]
+A[Legacy Schema<br/>4 weights: skills, experience, stability, education] --> B[Weight Mapper]
+C[Old Backend Schema<br/>7 weights: skills, experience, architecture, education, timeline, domain, risk] --> B
+D[New Default Schema<br/>7 weights: core_competencies, experience, domain_fit, education, career_trajectory, role_excellence, risk] --> B
+B --> E[Universal Schema<br/>core_competencies, domain_fit, career_trajectory, role_excellence]
+E --> F[Normalized Weights<br/>Sum = 1.0]
+F --> G[Apply to Scoring<br/>Calculation]
+H[Schema Detection] --> B
+B --> I[Automatic Migration]
+J[Weight Suggestion] --> B
 ```
+
+**Updated** Enhanced with NEW_DEFAULT_WEIGHTS and improved conversion logic
 
 **Diagram sources**
 - [weight_mapper.py:75-161](file://app/backend/services/weight_mapper.py#L75-L161)
-- [constants.py:130-157](file://app/backend/services/constants.py#L130-L157)
+- [constants.py:128-157](file://app/backend/services/constants.py#L128-L157)
+- [weight_suggester.py:180-247](file://app/backend/services/weight_suggester.py#L180-L247)
 
 **Section sources**
 - [weight_mapper.py:75-161](file://app/backend/services/weight_mapper.py#L75-L161)
-- [constants.py:130-157](file://app/backend/services/constants.py#L130-L157)
+- [constants.py:128-157](file://app/backend/services/constants.py#L128-L157)
+- [weight_suggester.py:180-247](file://app/backend/services/weight_suggester.py#L180-L247)
 
-### Risk Penalty Calculation
-The risk penalty system applies standardized penalties based on detected risk signals, with severity levels determining the impact magnitude.
+### Enhanced Risk Penalty Calculation
+The risk penalty system applies standardized penalties based on detected risk signals, with severity levels determining the impact magnitude. The new universal schema includes risk as a negative weight (-0.10) to penalize red flags and inconsistencies.
 
 **Section sources**
 - [risk_calculator.py:6-15](file://app/backend/services/risk_calculator.py#L6-L15)
 - [constants.py:121-125](file://app/backend/services/constants.py#L121-L125)
 
 ## Dependency Analysis
-The centralized constants module creates dependencies across multiple service components, establishing a unidirectional dependency flow from the constants module to consuming services.
+The centralized constants module creates dependencies across multiple service components, establishing a unidirectional dependency flow from the constants module to consuming services. The enhanced weight schema system now requires integration with the weight mapper and weight suggester services.
 
 ```mermaid
 graph TB
-subgraph "Constants Module"
+subgraph "Enhanced Constants Module"
 A[constants.py]
+B[NEW_DEFAULT_WEIGHTS]
+C[LEGACY_WEIGHTS]
+D[OLD_BACKEND_WEIGHTS]
 end
 subgraph "Direct Dependencies"
-B[fit_scorer.py]
-C[risk_calculator.py]
-D[domain_service.py]
-E[weight_mapper.py]
-F[agent_pipeline.py]
-G[hybrid_pipeline.py]
-H[skill_matcher.py]
+E[fit_scorer.py]
+F[risk_calculator.py]
+G[domain_service.py]
+H[weight_mapper.py]
+I[agent_pipeline.py]
+J[hybrid_pipeline.py]
+K[skill_matcher.py]
+L[weight_suggester.py]
 end
 subgraph "Indirect Dependencies"
-I[guardrail_service.py]
-J[eligibility_service.py]
-K[consensus_analyzer.py]
+M[guardrail_service.py]
+N[eligibility_service.py]
+O[consensus_analyzer.py]
+P[test_weight_system.py]
 end
-A --> B
-A --> C
-A --> D
 A --> E
 A --> F
 A --> G
 A --> H
-B --> I
-F --> I
-G --> I
-H --> J
-B --> K
-G --> K
+A --> I
+A --> J
+A --> K
+A --> L
+B --> H
+C --> H
+D --> H
+E --> M
+I --> M
+J --> M
+K --> N
+E --> O
+J --> O
+H --> P
+L --> P
 ```
+
+**Updated** Added weight_suggester.py and enhanced weight mapper integration
 
 **Diagram sources**
 - [constants.py:1-158](file://app/backend/services/constants.py#L1-L158)
-- [fit_scorer.py:5-8](file://app/backend/services/fit_scorer.py#L5-L8)
-- [risk_calculator.py:3](file://app/backend/services/risk_calculator.py#L3)
-- [domain_service.py:6](file://app/backend/services/domain_service.py#L6)
 - [weight_mapper.py:17-21](file://app/backend/services/weight_mapper.py#L17-L21)
-- [agent_pipeline.py:39-43](file://app/backend/services/agent_pipeline.py#L39-L43)
-- [hybrid_pipeline.py:31-37](file://app/backend/services/hybrid_pipeline.py#L31-L37)
-- [skill_matcher.py:366](file://app/backend/services/skill_matcher.py#L366)
+- [weight_suggester.py:17](file://app/backend/services/weight_suggester.py#L17)
 
 **Section sources**
 - [constants.py:1-158](file://app/backend/services/constants.py#L1-L158)
@@ -320,14 +348,17 @@ The centralized constants module contributes to system performance through sever
 ### Memory Efficiency
 - Single module loading reduces memory footprint compared to multiple local constant definitions
 - Shared references across all service instances minimize redundant memory usage
+- Enhanced weight schema caching reduces repeated conversion calculations
 
 ### Computational Optimization
 - Pre-computed keyword lists enable efficient string matching operations
 - Standardized thresholds eliminate repeated calculations during scoring
+- Intelligent schema detection minimizes unnecessary conversions
 
 ### Scalability Benefits
 - Centralized updates eliminate the need for distributed constant synchronization
 - Consistent behavior across microservices reduces operational complexity
+- Comprehensive weight schema support enables flexible scaling
 
 ## Troubleshooting Guide
 
@@ -336,24 +367,38 @@ The centralized constants module contributes to system performance through sever
 **Issue: Inconsistent Scoring Results**
 - Verify that all services import constants from the centralized module
 - Check for local constant overrides that may conflict with centralized values
+- Ensure weight schema conversion is properly applied when migrating between schemas
 
 **Issue: Domain Detection Failures**
 - Review domain keyword completeness for specific technical domains
 - Validate keyword case sensitivity and special character handling
 
 **Issue: Weight Schema Conflicts**
-- Use the weight mapper for automatic schema conversion
+- Use the enhanced weight mapper for automatic schema conversion
 - Verify weight normalization when implementing custom scoring
+- Check for proper integration with NEW_DEFAULT_WEIGHTS
+
+**Issue: New Schema Migration Problems**
+- Ensure LEGACY_WEIGHTS and OLD_BACKEND_WEIGHTS are properly configured
+- Verify convert_to_new_schema function is being called correctly
+- Check that weight labels are properly adapted for role categories
+
+**Updated** Added troubleshooting guidance for new weight schema system
 
 **Section sources**
-- [weight_mapper.py:197-200](file://app/backend/services/weight_mapper.py#L197-L200)
+- [weight_mapper.py:197-230](file://app/backend/services/weight_mapper.py#L197-L230)
+- [weight_suggester.py:180-247](file://app/backend/services/weight_suggester.py#L180-L247)
 
 ### Debugging Strategies
 - Monitor service imports to ensure proper constant module references
 - Validate constant values against expected ranges and distributions
 - Test threshold boundaries to confirm correct recommendation categorization
+- Verify weight schema detection and conversion logic
+- Check weight normalization and summation constraints
 
 ## Conclusion
-The Centralized Constants Module represents a critical architectural component that ensures consistency, reliability, and maintainability across the Resume AI platform's intelligent screening capabilities. By providing a single source of truth for all scoring parameters, thresholds, and configuration values, the module enables seamless operation of the automated candidate evaluation system while supporting future enhancements and schema migrations.
+The Centralized Constants Module represents a critical architectural component that ensures consistency, reliability, and maintainability across the Resume AI platform's intelligent screening capabilities. The enhanced weight schema system provides comprehensive backward compatibility while supporting modern scoring methodologies through intelligent conversion and normalization capabilities.
 
-The modular design facilitates easy maintenance and updates, while the comprehensive coverage of different weight schemas ensures backward compatibility and smooth transitions to modern scoring methodologies. This foundation supports the platform's goal of delivering accurate, consistent, and scalable automated resume screening capabilities.
+By providing a single source of truth for all scoring parameters, thresholds, and configuration values, the module enables seamless operation of the automated candidate evaluation system while supporting future enhancements and schema migrations. The addition of NEW_DEFAULT_WEIGHTS for the universal schema, along with improved LEGACY_WEIGHTS and OLD_BACKEND_WEIGHTS constants, ensures comprehensive coverage of different weight schemas and their intelligent conversion pathways.
+
+The modular design facilitates easy maintenance and updates, while the comprehensive coverage of different weight schemas ensures backward compatibility and smooth transitions to modern scoring methodologies. This foundation supports the platform's goal of delivering accurate, consistent, and scalable automated resume screening capabilities with enhanced flexibility and adaptability.

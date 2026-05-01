@@ -20,11 +20,13 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced error handling capabilities now include comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters)
-- Implemented retry mechanism with higher temperature for edge cases where LLM returns empty or too-short responses
-- Added robust fallback system that prevents processing of blank LLM outputs
-- Improved LLM response validation with enhanced logging and error reporting
-- Updated timeout management with +30 second buffer for proper cancellation handling
+- Enhanced token budget allocation with 6000/8000 tokens for local/cloud deployments and 8192 context window
+- Expanded interview question framework from 5 to 15 questions with detailed metadata structure
+- Introduced comprehensive candidate briefing system with profile snapshots and evaluation guidance
+- Implemented INTERVIEW KIT RULES for targeted question generation based on skill gaps and domain requirements
+- Enhanced normalization system for consistent interview question formatting
+- Improved fallback narrative system with expanded candidate briefing capabilities
+- Updated LLM configuration with increased num_predict values (6000 for local, 8000 for cloud)
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,17 +34,23 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Enhanced Cloud Model Processing](#enhanced-cloud-model-processing)
-7. [Enhanced Timeout Management](#enhanced-timeout-management)
-8. [Extended Frontend Polling Architecture](#extended-frontend-polling-architecture)
-9. [Background Worker Pattern](#background-worker-pattern)
-10. [Enhanced Explainability Features](#enhanced-explainability-features)
-11. [Security and Input Sanitization](#security-and-input-sanitization)
-12. [Enhanced Error Handling and Response Validation](#enhanced-error-handling-and-response-validation)
-13. [Dependency Analysis](#dependency-analysis)
-14. [Performance Considerations](#performance-considerations)
-15. [Troubleshooting Guide](#troubleshooting-guide)
-16. [Conclusion](#conclusion)
+6. [Enhanced Token Budget Management](#enhanced-token-budget-management)
+7. [Expanded Interview Question Framework](#expanded-interview-question-framework)
+8. [Candidate Briefing System](#candidate-briefing-system)
+9. [INTERVIEW KIT RULES Implementation](#interview-kit-rules-implementation)
+10. [Enhanced Normalization System](#enhanced-normalization-system)
+11. [Improved Fallback Narrative System](#improved-fallback-narrative-system)
+12. [Enhanced Cloud Model Processing](#enhanced-cloud-model-processing)
+13. [Enhanced Timeout Management](#enhanced-timeout-management)
+14. [Extended Frontend Polling Architecture](#extended-frontend-polling-architecture)
+15. [Background Worker Pattern](#background-worker-pattern)
+16. [Enhanced Explainability Features](#enhanced-explainability-features)
+17. [Security and Input Sanitization](#security-and-input-sanitization)
+18. [Enhanced Error Handling and Response Validation](#enhanced-error-handling-and-response-validation)
+19. [Dependency Analysis](#dependency-analysis)
+20. [Performance Considerations](#performance-considerations)
+21. [Troubleshooting Guide](#troubleshooting-guide)
+22. [Conclusion](#conclusion)
 
 ## Introduction
 This document explains the hybrid pipeline architecture designed to optimize recruitment analysis performance by combining Python-first deterministic processing with asynchronous LLM processing and narrative polling. The system delivers:
@@ -60,10 +68,15 @@ This document explains the hybrid pipeline architecture designed to optimize rec
 - **Extended Polling Architecture**: Frontend polling with 10-minute timeout (60 attempts at 10-second intervals) for CPU-based LLM inference scenarios
 - **Enhanced Cloud Processing**: Optimized token limits and context windows for cloud deployments with 2048 tokens and 8192 context
 - **Local Model Optimization**: Maintained 512 tokens and 2048 context for local deployments to ensure optimal performance
-- **Enhanced Error Handling**: Comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters)
+- **Enhanced Error Handling**: Comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters>
+- **Enhanced Token Budget Management**: Optimized token allocation with 6000/8000 tokens for local/cloud deployments and 8192 context window
+- **Expanded Interview Framework**: Interview questions increased from 5 to 15 with detailed metadata and candidate briefing system
+- **INTERVIEW KIT RULES**: Automated question generation rules based on skill gaps, domain requirements, and candidate profile analysis
+- **Enhanced Normalization**: Consistent interview question formatting and metadata standardization
+- **Improved Fallback System**: Enhanced fallback narratives with comprehensive candidate briefing capabilities
 
 ## Project Structure
-The hybrid pipeline spans services, routes, models, and tests with enhanced background processing and timeout management:
+The hybrid pipeline spans services, routes, models, and tests with enhanced background processing, token budget management, and expanded interview framework:
 - Services: hybrid_pipeline (core with background workers), parser_service (resume parsing), gap_detector (timeline math), llm_service (external LLM), agent_pipeline (alternative LangGraph-based pipeline)
 - Routes: analyze (HTTP endpoints orchestrating the hybrid pipeline with polling support)
 - Models/Schemas: SQLAlchemy models and Pydantic schemas for persistence and API contracts
@@ -76,11 +89,11 @@ subgraph "Routes"
 A["analyze.py<br/>Endpoints<br/>+Narrative Polling<br/>+Background Tasks"]
 end
 subgraph "Services"
-B["hybrid_pipeline.py<br/>Hybrid Pipeline<br/>+Background Workers<br/>+Enhanced Explainability<br/>+Score Rationales<br/>+Timeout Management<br/>+Cloud Model Optimization<br/>+Enhanced Error Handling"]
+B["hybrid_pipeline.py<br/>Hybrid Pipeline<br/>+Background Workers<br/>+Enhanced Explainability<br/>+Score Rationales<br/>+Timeout Management<br/>+Cloud Model Optimization<br/>+Enhanced Error Handling<br/>+Token Budget Management<br/>+Expanded Interview Framework"]
 C["parser_service.py<br/>Resume Parser"]
 D["gap_detector.py<br/>Timeline Analyzer"]
-E["llm_service.py<br/>External LLM<br/>+qwen3.5:4b Model<br/>+Empty Response Validation"]
-F["agent_pipeline.py<br/>LangGraph Alternative"]
+E["llm_service.py<br/>External LLM<br/>+qwen3.5:4b Model<br/>+Empty Response Validation<br/>+Enhanced Token Allocation"]
+F["agent_pipeline.py<br/>LangGraph Alternative<br/>+INTERVIEW KIT RULES"]
 end
 subgraph "Models/Schemas"
 G["db_models.py<br/>SQLAlchemy Models<br/>+narrative_json Column"]
@@ -91,7 +104,7 @@ I["test_hybrid_pipeline.py"]
 J["test_parser_service.py"]
 end
 subgraph "Frontend"
-K["ResultCard.jsx<br/>Enhanced UI Display<br/>+Extended Polling (10-min)<br/>+Silent Error Handling"]
+K["ResultCard.jsx<br/>Enhanced UI Display<br/>+Extended Polling (10-min)<br/>+Silent Error Handling<br/>+Interview Kit Display"]
 L["api.js<br/>Narrative Polling API"]
 end
 A --> B
@@ -143,10 +156,15 @@ K --> L
 - Gap Detector: Computes employment timeline, gaps, overlaps, and total experience
 - Hybrid Pipeline: Executes Python phase (rules) then asynchronous LLM call for narrative with comprehensive input sanitization, timeout management, enhanced explainability, and robust error handling
 - LLM Service: Calls external LLM with JSON schema enforcement, fallbacks, and timeout-aware HTTP requests using qwen3.5:4b model
-- Agent Pipeline: Alternative multi-agent LangGraph pipeline (not used by current routes)
+- Agent Pipeline: Alternative multi-agent LangGraph pipeline with INTERVIEW KIT RULES implementation
 - Routes: Orchestrate parsing, gap analysis, pipeline execution, persistence, and streaming with heartbeat pings and background task management
 - Frontend Components: Display enhanced explainability features including concerns, risk flags, seniority alignment, and score rationales with extended polling integration
 - Background Workers: Manage asynchronous LLM processing with proper task lifecycle management and timeout protection
+- **Enhanced Token Budget Management**: Optimized token allocation with 6000/8000 tokens for local/cloud deployments and 8192 context window
+- **Expanded Interview Framework**: Interview questions increased from 5 to 15 with detailed metadata structure and candidate briefing system
+- **INTERVIEW KIT RULES**: Automated question generation rules based on skill gaps, domain requirements, and candidate profile analysis
+- **Enhanced Normalization**: Consistent interview question formatting and metadata standardization
+- **Improved Fallback System**: Enhanced fallback narratives with comprehensive candidate briefing capabilities
 
 **Section sources**
 - [hybrid_pipeline.py:70-427](file://app/backend/services/hybrid_pipeline.py#L70-L427)
@@ -158,7 +176,7 @@ K --> L
 - [ResultCard.jsx:475-572](file://app/frontend/src/components/ResultCard.jsx#L475-L572)
 
 ## Architecture Overview
-The hybrid pipeline follows a two-phase design with enhanced timeout management, advanced explainability, modern model configuration, and comprehensive error handling:
+The hybrid pipeline follows a two-phase design with enhanced timeout management, advanced explainability, modern model configuration, comprehensive error handling, and expanded interview framework:
 - Phase 1 (Python, ~1–2s): parse job description and resume, match skills, score education/experience/domain, compute fit score, build score rationales, risk summary, and skill depth
 - Asynchronous Phase 2: background LLM processing generates strengths, concerns, executive summaries, rationale, and interview questions with configurable timeout
 - Concurrency control: semaphore limits concurrent LLM calls with proper cancellation handling
@@ -172,6 +190,11 @@ The hybrid pipeline follows a two-phase design with enhanced timeout management,
 - **Enhanced Cloud Processing**: Optimized token limits and context windows for cloud deployments with 2048 tokens and 8192 context
 - **Local Model Optimization**: Maintained 512 tokens and 2048 context for local deployments to ensure optimal performance
 - **Enhanced Error Handling**: Comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters) with retry mechanism
+- **Enhanced Token Budget Management**: Optimized token allocation with 6000/8000 tokens for local/cloud deployments and 8192 context window
+- **Expanded Interview Framework**: Interview questions increased from 5 to 15 with detailed metadata structure and candidate briefing system
+- **INTERVIEW KIT RULES**: Automated question generation rules based on skill gaps, domain requirements, and candidate profile analysis
+- **Enhanced Normalization**: Consistent interview question formatting and metadata standardization
+- **Improved Fallback System**: Enhanced fallback narratives with comprehensive candidate briefing capabilities
 
 ```mermaid
 sequenceDiagram
@@ -381,6 +404,9 @@ Output --> End(["Enriched Python result with explainability"])
 - **Enhanced**: Retry mechanism with higher temperature for edge cases where LLM returns empty or too-short responses
 - **Enhanced**: Cloud model optimization with 2048 tokens and 8192 context window
 - **Enhanced**: Local model optimization with 512 tokens and 2048 context window
+- **Enhanced**: Token budget management with 6000/8000 tokens for local/cloud deployments
+- **Enhanced**: Expanded interview question framework with 15 questions and detailed metadata
+- **Enhanced**: Candidate briefing system with comprehensive profile snapshots
 
 ```mermaid
 sequenceDiagram
@@ -392,15 +418,15 @@ participant DB as "Database"
 Hybrid->>BGTask : Spawn background task with asyncio.wait_for()
 BGTask->>LLM : _get_llm() + enhanced prompt with score_rationales
 LLM->>Model : ainvoke(HumanMessage)
-Model-->>LLM : response with concerns + executive summary
+Model-->>LLM : response with concerns + executive summary + 15 interview questions
 LLM->>LLM : _parse_llm_json_response() + empty response validation
 alt Success
-LLM-->>BGTask : strengths/concerns/executive_summary/questions
+LLM-->>BGTask : strengths/concerns/executive_summary/interview_questions/candidate_briefing
 else Empty/Too-Short Response
 LLM->>LLM : Retry with higher temperature
-LLM-->>BGTask : strengths/concerns/executive_summary/questions
+LLM-->>BGTask : strengths/concerns/executive_summary/interview_questions/candidate_briefing
 else Timeout/Failure
-LLM-->>BGTask : _build_fallback_narrative()
+LLM-->>BGTask : _build_fallback_narrative() with candidate briefing
 end
 BGTask->>DB : Store narrative_json
 DB-->>BGTask : Confirmation
@@ -423,8 +449,9 @@ DB-->>BGTask : Confirmation
 - **Enhanced**: Cloud model optimization with 2048 tokens and 8192 context window
 - **Enhanced**: Local model optimization with 512 tokens and 2048 context window
 - **Enhanced**: Logging for num_predict values to track cloud vs local model usage
-- **Streaming**: Heartbeat pings keep connections alive during LLM processing
-- **Background Tasks**: Proper task lifecycle management with graceful shutdown and asyncio.wait_for() protection
+- **Enhanced**: Token budget management with 6000/8000 tokens for local/cloud deployments
+- **Enhanced**: Streaming: Heartbeat pings keep connections alive during LLM processing
+- **Enhanced**: Background Tasks: Proper task lifecycle management with graceful shutdown and asyncio.wait_for() protection
 
 **Section sources**
 - [hybrid_pipeline.py:24-66](file://app/backend/services/hybrid_pipeline.py#L24-L66)
@@ -445,6 +472,294 @@ DB-->>BGTask : Confirmation
 - [analyze.py:504-646](file://app/backend/routes/analyze.py#L504-L646)
 - [analyze.py:577-658](file://app/backend/routes/analyze.py#L577-L658)
 
+## Enhanced Token Budget Management
+
+### Optimized Token Allocation Strategy
+The hybrid pipeline now implements enhanced token budget management with optimized allocation for different deployment scenarios:
+
+#### Local Deployment Token Configuration
+For local deployments (non-cloud base URLs):
+- **num_predict**: 6000 tokens to accommodate expanded interview framework (15 questions) and candidate briefing
+- **num_ctx**: 8192 context window for comprehensive processing of large outputs
+- **API Authentication**: Automatic Authorization header with OLLAMA_API_KEY when available
+- **Enhanced Logging**: Detailed logging of token usage and budget allocation
+
+#### Cloud Deployment Token Configuration  
+For cloud deployments (Ollama Cloud detected via base URL containing "ollama.com"):
+- **num_predict**: 8000 tokens for very verbose output from large models (480B+)
+- **num_ctx**: 16384 context window for complex reasoning and large outputs
+- **API Authentication**: Automatic Authorization header with OLLAMA_API_KEY when available
+- **Enhanced Logging**: Clear distinction between cloud and local token usage
+
+#### Automatic Environment Detection
+The system automatically detects cloud vs local environments:
+```python
+def _is_ollama_cloud(base_url: str) -> bool:
+    """Check if the base URL points to Ollama Cloud (ollama.com)."""
+    return "ollama.com" in base_url.lower()
+
+def _get_llm():
+    global _REASONING_LLM
+    if _REASONING_LLM is None:
+        try:
+            _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+            _is_cloud = _is_ollama_cloud(_base_url)
+            
+            # Cloud models need significantly more tokens for verbose output
+            # Local: 6000 tokens for 15 structured interview questions with candidate briefing
+            # Cloud: 8000 tokens for very large models (480B+) that generate extremely verbose output
+            _num_predict = 8000 if _is_cloud else 6000
+
+            # Build kwargs for ChatOllama with environment-specific settings
+            _llm_kwargs = {
+                "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
+                "base_url": _base_url,
+                "temperature": 0.1,
+                "num_predict": _num_predict,
+                # Cloud models need larger context for complex reasoning
+                # 16384 for cloud to handle very large outputs, 8192 for local (15 structured questions)
+                "num_ctx": 16384 if _is_cloud else 8192,
+                "request_timeout": _llm_timeout + 30,
+            }
+            
+            # Add headers for Ollama Cloud authentication
+            if _is_cloud:
+                api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+                if api_key:
+                    _llm_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
+                    log.info("Using Ollama Cloud with API key authentication (num_predict=%s, num_ctx=%s)", _num_predict, _llm_kwargs["num_ctx"])
+                else:
+                    log.warning("Ollama Cloud detected but OLLAMA_API_KEY is not set!")
+            else:
+                _llm_kwargs["keep_alive"] = -1
+                
+            _REASONING_LLM = ChatOllama(**_llm_kwargs)
+        except Exception as e:
+            log.warning("LLM init failed: %s", e)
+    return _REASONING_LLM
+```
+
+#### Token Budget Benefits
+- **Local Deployments**: 6000 tokens accommodate comprehensive interview framework with candidate briefing
+- **Cloud Deployments**: 8000 tokens enable extensive verbose output from large models
+- **Context Window**: 8192/16384 context enables complex reasoning for different deployment types
+- **Model Persistence**: Local models stay hot in RAM for faster response times
+- **API Authentication**: Cloud deployments benefit from secure API key authentication
+
+**Section sources**
+- [hybrid_pipeline.py:97-146](file://app/backend/services/hybrid_pipeline.py#L97-L146)
+- [hybrid_pipeline.py:1340-1372](file://app/backend/services/hybrid_pipeline.py#L1340-L1372)
+
+## Expanded Interview Question Framework
+
+### Interview Questions Architecture
+The hybrid pipeline now generates an expanded framework of 15 interview questions with detailed metadata structure:
+
+#### Interview Question Categories
+- **Technical Questions**: 5 scenario-based questions targeting missing skills and critical matched skills
+- **Behavioral Questions**: 4 STAR-format questions assessing leadership and ownership
+- **Culture Fit Questions**: 3 motivation and alignment questions
+- **Experience Deep Dive Questions**: 3 questions probing specific past experiences
+- **Candidate Briefing**: Comprehensive profile snapshot and evaluation guidance
+
+#### Detailed Metadata Structure
+Each interview question includes:
+- **text**: Primary question text
+- **what_to_listen_for**: 2-3 bullet points describing indicators of strong answers
+- **follow_ups**: 1-2 conditional follow-up questions
+- **category**: Technical/Behavioral/Culture/Experience
+- **difficulty**: Calibrated based on domain and seniority
+- **skill_alignment**: Specific skills being evaluated
+
+#### INTERVIEW KIT RULES Implementation
+Automated question generation based on:
+1. **Missing Skills Analysis**: Create scenario-based questions for each missing skill
+2. **Critical Skills Depth**: Probe expertise level for 1-2 critical matched skills
+3. **Domain Architecture**: Include system design questions when architecture comments indicate gaps
+4. **Seniority Calibration**: Adjust difficulty based on role requirements and candidate experience
+5. **Candidate Profile**: Tailor questions to candidate's current role and domain expertise
+
+```mermaid
+flowchart TD
+Start(["Interview Question Generation"]) --> Missing["Analyze Missing Skills"]
+Missing --> Critical["Identify Critical Matched Skills"]
+Critical --> Domain["Check Domain Architecture Comments"]
+Domain --> Seniority["Calibrate by Seniority Level"]
+Seniority --> Generate["Generate 15 Questions"]
+Generate --> Technical["Technical Questions (5)"]
+Generate --> Behavioral["Behavioral Questions (4)"]
+Generate --> Culture["Culture Fit Questions (3)"]
+Generate --> Experience["Experience Deep Dive (3)"]
+Technical --> Briefing["Candidate Briefing"]
+Behavioral --> Briefing
+Culture --> Briefing
+Experience --> Briefing
+Briefing --> End(["Structured Interview Kit"])
+```
+
+**Diagram sources**
+- [hybrid_pipeline.py:782-800](file://app/backend/services/hybrid_pipeline.py#L782-L800)
+- [agent_pipeline.py:727-733](file://app/backend/services/agent_pipeline.py#L727-L733)
+
+**Section sources**
+- [hybrid_pipeline.py:782-800](file://app/backend/services/hybrid_pipeline.py#L782-L800)
+- [agent_pipeline.py:727-733](file://app/backend/services/agent_pipeline.py#L727-L733)
+
+### Candidate Briefing System
+The candidate briefing provides comprehensive evaluation guidance:
+
+#### Profile Snapshot
+- **Who they are**: Basic candidate identification
+- **Current role**: Present position and company
+- **Domain expertise**: Relevant technology stack
+- **Experience level**: Years of professional experience
+
+#### Evaluation Guidance
+- **Strengths to confirm**: Top matched skills/experiences to validate
+- **Areas to probe**: Specific gaps, risk signals, or concerns to investigate
+- **Context notes**: Why specific questions target particular skills or experiences
+
+#### Frontend Integration
+The candidate briefing appears prominently in the Interview Kit section, providing interviewers with immediate context and evaluation focus areas.
+
+**Section sources**
+- [hybrid_pipeline.py:783-788](file://app/backend/services/hybrid_pipeline.py#L783-L788)
+- [ResultCard.jsx:870-890](file://app/frontend/src/components/ResultCard.jsx#L870-L890)
+
+## Candidate Briefing System
+
+### Comprehensive Candidate Profile Snapshot
+The candidate briefing system provides interviewers with immediate, actionable insights:
+
+#### Profile Snapshot Components
+- **Basic Identification**: Candidate name, current role, and company
+- **Domain Expertise**: Primary technologies and domain focus areas
+- **Experience Level**: Total professional experience and role progression
+- **Match Quality**: How well candidate aligns with role requirements
+
+#### Evaluation Guidance Structure
+- **Strengths to Confirm**: Top 3-5 matched skills/experiences to validate during interview
+- **Areas to Probe**: 3-5 specific gaps, risks, or concerns to investigate
+- **Contextual Notes**: Explanatory notes on why certain questions target specific areas
+
+#### Interviewer Support Features
+- **Quick Reference**: Brief snapshot for rapid review
+- **Evaluation Focus**: Clear guidance on what to prioritize during interviews
+- **Contextual Understanding**: Background on candidate's career trajectory and skill development
+
+#### Frontend Display Integration
+The candidate briefing appears as a prominent, expandable section in the Interview Kit, providing interviewers with immediate access to critical evaluation information without navigating through multiple screens.
+
+**Section sources**
+- [hybrid_pipeline.py:783-788](file://app/backend/services/hybrid_pipeline.py#L783-L788)
+- [ResultCard.jsx:870-890](file://app/frontend/src/components/ResultCard.jsx#L870-L890)
+
+## INTERVIEW KIT RULES Implementation
+
+### Automated Question Generation Rules
+The INTERVIEW KIT RULES system automatically generates targeted interview questions based on comprehensive candidate analysis:
+
+#### Technical Question Generation (5 questions)
+1. **For Each Missing Skill**: Create scenario-based question that ties the skill to specific job responsibilities
+2. **For 1-2 Critical Matched Skills**: Create depth-probing question testing expertise level
+3. **For Architecture Gaps**: Include system design question relevant to domain
+4. **Difficulty Calibration**: Use domain and seniority to adjust question complexity
+
+#### Behavioral Question Generation (4 questions)
+- **STAR Format**: Leadership and ownership demonstration questions
+- **Contextual Alignment**: Questions aligned with role requirements and domain
+- **Experience-Based**: Questions probing specific career achievements
+
+#### Culture Fit Questions (3 questions)
+- **Motivation Assessment**: Understanding of role and organizational fit
+- **Alignment Testing**: Values and working style compatibility
+- **Long-term Fit**: Career goals and organizational commitment indicators
+
+#### Experience Deep Dive Questions (3 questions)
+- **Specific Past Experience**: Probing concrete details and measurable outcomes
+- **Problem-Solving Approach**: Methodology and decision-making processes
+- **Team Collaboration**: Evidence of leadership and teamwork skills
+
+#### Metadata Enhancement
+Each question includes:
+- **what_to_listen_for**: Specific indicators of strong responses
+- **follow_ups**: Conditional follow-up questions based on initial responses
+- **skill_alignment**: Direct mapping to candidate skills and role requirements
+
+**Section sources**
+- [agent_pipeline.py:727-733](file://app/backend/services/agent_pipeline.py#L727-L733)
+- [hybrid_pipeline.py:789-800](file://app/backend/services/hybrid_pipeline.py#L789-L800)
+
+## Enhanced Normalization System
+
+### Consistent Interview Question Formatting
+The enhanced normalization system ensures consistent formatting and metadata across all interview questions:
+
+#### Standardized Question Structure
+- **Text Formatting**: Consistent question wording and structure
+- **Metadata Standardization**: Uniform what_to_listen_for and follow_ups formats
+- **Category Classification**: Automatic categorization of question types
+- **Difficulty Scaling**: Consistent difficulty rating system
+
+#### Frontend Normalization
+The frontend includes backward compatibility for older question formats:
+```javascript
+// Normalize interview question to structured format (backward compat)
+const normalizeQ = (q) => {
+  if (typeof q === 'string') return { text: q, what_to_listen_for: [], follow_ups: [] };
+  if (q && typeof q === 'object') return {
+    text: q.text || String(q),
+    what_to_listen_for: q.what_to_listen_for || [],
+    follow_ups: q.follow_ups || [],
+  };
+  return { text: String(q), what_to_listen_for: [], follow_ups: [] };
+};
+```
+
+#### Quality Assurance
+- **Validation**: Ensures all questions have required metadata fields
+- **Consistency**: Maintains uniform structure across different question types
+- **Compatibility**: Supports both new structured format and legacy string format
+- **Extensibility**: Allows for future metadata additions without breaking changes
+
+**Section sources**
+- [hybrid_pipeline.py:789-800](file://app/backend/services/hybrid_pipeline.py#L789-L800)
+- [ResultCard.jsx:282-290](file://app/frontend/src/components/ResultCard.jsx#L282-L290)
+
+## Improved Fallback Narrative System
+
+### Enhanced Fallback Capabilities
+The improved fallback system now includes comprehensive candidate briefing and expanded interview framework:
+
+#### Fallback Narrative Structure
+- **Fit Summary**: Executive summary for hiring manager
+- **Strengths**: Candidate strengths aligned with role requirements
+- **Concerns**: Specific concerns backed by analysis
+- **Recommendation Rationale**: Clear explanation of recommendation
+- **Explainability**: Score rationales and risk analysis
+- **Interview Kit**: 15 structured questions with candidate briefing
+
+#### Candidate Briefing in Fallback
+The fallback system now includes comprehensive candidate briefing:
+- **Profile Snapshot**: Basic candidate identification and domain expertise
+- **Evaluation Guidance**: Strengths to confirm and areas to probe
+- **Contextual Notes**: Explanation of question targeting rationale
+
+#### Backward Compatibility
+- **Weaknesses Alias**: Maintains compatibility with existing frontend expectations
+- **Structured Format**: Provides comprehensive fallback data structure
+- **Integration Ready**: Seamless integration with existing frontend components
+
+#### Enhanced Error Handling
+- **Robust Processing**: Handles various failure scenarios gracefully
+- **Quality Assurance**: Ensures meaningful fallback content regardless of LLM status
+- **User Experience**: Maintains consistent user experience even when LLM processing fails
+
+**Section sources**
+- [hybrid_pipeline.py:1280-1296](file://app/backend/services/hybrid_pipeline.py#L1280-L1296)
+- [hybrid_pipeline.py:1299-1306](file://app/backend/services/hybrid_pipeline.py#L1299-L1306)
+
 ## Enhanced Cloud Model Processing
 
 ### Cloud Deployment Optimization
@@ -452,15 +767,15 @@ The hybrid pipeline now provides enhanced cloud model processing capabilities wi
 
 #### Cloud Model Configuration
 For cloud deployments (Ollama Cloud detected via base URL containing "ollama.com"):
-- **num_predict**: 2048 tokens for large models (480B+) that generate very verbose output
-- **num_ctx**: 8192 context window for complex reasoning and large outputs
+- **num_predict**: 8000 tokens for large models (480B+) that generate very verbose output
+- **num_ctx**: 16384 context window for complex reasoning and large outputs
 - **API Authentication**: Automatic Authorization header with OLLAMA_API_KEY when available
 - **Enhanced Logging**: Detailed logging of cloud model usage with num_predict values
 
 #### Local Model Configuration  
 For local deployments (non-cloud base URLs):
-- **num_predict**: 512 tokens sufficient for narrative JSON (~350-450 tokens)
-- **num_ctx**: 2048 context window for local model optimization
+- **num_predict**: 6000 tokens sufficient for expanded interview framework (15 questions) with candidate briefing
+- **num_ctx**: 8192 context window for local model optimization
 - **Model Persistence**: keep_alive=-1 to keep model hot in RAM
 - **Enhanced Logging**: Clear distinction between cloud and local model usage
 
@@ -479,19 +794,20 @@ def _get_llm():
             _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
             _is_cloud = _is_ollama_cloud(_base_url)
             
-            # Cloud: 2048 tokens for verbose output, 8192 context
-            # Local: 512 tokens for JSON, 2048 context
-            _num_predict = 2048 if _is_cloud else 512
-            _num_ctx = 8192 if _is_cloud else 2048
-            
+            # Cloud models need significantly more tokens for verbose output
+            # Local: 6000 tokens for 15 structured interview questions with candidate briefing
+            # Cloud: 8000 tokens for very large models (480B+) that generate extremely verbose output
+            _num_predict = 8000 if _is_cloud else 6000
+
             # Build kwargs for ChatOllama with environment-specific settings
             _llm_kwargs = {
                 "model": os.getenv("OLLAMA_MODEL") or "qwen3.5:4b",
                 "base_url": _base_url,
                 "temperature": 0.1,
-                "format": "json",
                 "num_predict": _num_predict,
-                "num_ctx": _num_ctx,
+                # Cloud models need larger context for complex reasoning
+                # 16384 for cloud to handle very large outputs, 8192 for local (15 structured questions)
+                "num_ctx": 16384 if _is_cloud else 8192,
                 "request_timeout": _llm_timeout + 30,
             }
             
@@ -500,7 +816,7 @@ def _get_llm():
                 api_key = os.getenv("OLLAMA_API_KEY", "").strip()
                 if api_key:
                     _llm_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
-                    log.info("Using Ollama Cloud with API key authentication (num_predict=%s)", _num_predict)
+                    log.info("Using Ollama Cloud with API key authentication (num_predict=%s, num_ctx=%s)", _num_predict, _llm_kwargs["num_ctx"])
                 else:
                     log.warning("Ollama Cloud detected but OLLAMA_API_KEY is not set!")
             else:
@@ -521,15 +837,15 @@ retry_kwargs = {
     "base_url": _base_url,
     "temperature": 0.3,
     "num_predict": _num_predict_retry,  # Uses environment-specific num_predict
-    "num_ctx": 8192 if _is_cloud_retry else 2048,  # Uses environment-specific context
+    "num_ctx": 16384 if _is_cloud_retry else 8192,  # Uses environment-specific context
     "request_timeout": _llm_timeout + 30,
 }
 ```
 
 #### Performance Benefits
-- **Cloud Models**: 2048 tokens allow for comprehensive verbose output from large models (480B+)
-- **Local Models**: 512 tokens optimize for JSON output size and reduce memory usage
-- **Context Window**: 8192 context enables complex reasoning for cloud deployments
+- **Cloud Models**: 8000 tokens allow for comprehensive verbose output from large models (480B+)
+- **Local Models**: 6000 tokens optimize for expanded interview framework with candidate briefing
+- **Context Window**: 16384 context enables complex reasoning for cloud deployments
 - **Model Persistence**: Local models stay hot in RAM for faster response times
 - **API Authentication**: Cloud deployments benefit from secure API key authentication
 
@@ -644,12 +960,13 @@ The frontend polling mechanism has been extended to accommodate CPU-based LLM in
 - **10-second Intervals**: Polling occurs every 10 seconds to reduce server load
 - **Silent Error Handling**: Polling errors are handled silently to prevent UX disruption
 - **CPU-based Model Support**: Accommodates models like Qwen 3.5 4B that can take 8+ minutes to process
+- **Interview Kit Integration**: Seamless integration with expanded interview framework
 
 ```mermaid
 flowchart TD
 Start(["Polling Start"]) --> Immediate["Immediate Poll"]
 Immediate --> Check{"narrative_json Available?"}
-Check --> |Yes| Success["Serve LLM Narrative"]
+Check --> |Yes| Success["Serve LLM Narrative with Interview Kit"]
 Check --> |No| Increment["Increment Attempt Counter"]
 Increment --> Limit{"Attempt >= 60?"}
 Limit --> |No| Delay["Wait 10 Seconds"]
@@ -670,7 +987,8 @@ The frontend polling implementation includes several enhancements:
 - **Intelligent Retry**: Stops polling after 60 attempts (10 minutes) to prevent resource waste
 - **Error Resilience**: Silent failures during polling to avoid disrupting user experience
 - **CPU-based Model Support**: Extended timeout accommodates slower CPU-based inference
-- **Real-time Updates**: Seamless integration with existing result display components
+- **Interview Kit Display**: Real-time updates for expanded interview framework
+- **Candidate Briefing Integration**: Seamless display of candidate briefing information
 
 ### Polling State Management
 The polling state is managed with comprehensive error handling:
@@ -690,10 +1008,11 @@ if (next >= 60) {
 ### Frontend Integration
 The extended polling architecture integrates seamlessly with the existing frontend components:
 
-- **ResultCard.jsx**: Enhanced with extended polling capabilities
+- **ResultCard.jsx**: Enhanced with extended polling capabilities and Interview Kit display
 - **api.js**: Maintains existing polling API endpoints
 - **State Management**: Proper cleanup of intervals and polling state
 - **User Experience**: Transparent handling of extended processing times
+- **Interview Kit**: Real-time updates for expanded question framework
 
 **Section sources**
 - [ResultCard.jsx:304-343](file://app/frontend/src/components/ResultCard.jsx#L304-L343)
@@ -709,6 +1028,7 @@ The hybrid pipeline implements a comprehensive background task management system
 - **Error Isolation**: Background tasks run in isolated sessions to prevent DB conflicts
 - **Resource Cleanup**: Proper cleanup of database connections and other resources
 - **Asyncio Protection**: All background tasks use asyncio.wait_for() for proper timeout handling
+- **Enhanced Token Management**: Proper token budget handling for both cloud and local deployments
 
 ```mermaid
 classDiagram
@@ -739,6 +1059,7 @@ Background tasks are integrated with the application lifecycle:
 - **Monitoring**: Integration with Prometheus metrics for task tracking
 - **Logging**: Comprehensive logging for task execution and errors
 - **Timeout Protection**: All tasks use asyncio.wait_for() with LLM_NARRATIVE_TIMEOUT
+- **Token Budget Tracking**: Proper handling of token allocation for different deployment types
 
 **Section sources**
 - [hybrid_pipeline.py:32-48](file://app/backend/services/hybrid_pipeline.py#L32-L48)
@@ -811,6 +1132,8 @@ The frontend components now display the enhanced explainability features:
 - **Seniority Alignment**: Clear indication of experience vs role requirements
 - **Explainability Sections**: Detailed breakdown of score rationales
 - **Executive Summaries**: Concise executive summaries for quick decision-making
+- **Interview Kit Integration**: Real-time updates for expanded interview framework with 15 questions
+- **Candidate Briefing**: Comprehensive candidate profile snapshots and evaluation guidance
 - **Polling Integration**: Real-time updates for LLM-generated narratives with extended timeout
 
 **Section sources**
@@ -926,7 +1249,7 @@ retry_kwargs = {
     "base_url": _base_url,
     "temperature": 0.3,  # Higher temperature for better response quality
     "num_predict": _num_predict_retry,
-    "num_ctx": 16384 if _is_cloud_retry else 2048,
+    "num_ctx": 16384 if _is_cloud_retry else 8192,
     "request_timeout": _llm_timeout + 30,
 }
 ```
@@ -954,7 +1277,7 @@ When all validation attempts fail, the system generates a deterministic fallback
 ```python
 def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dict[str, Any]) -> Dict[str, Any]:
     """Deterministic narrative when LLM is unavailable or timed out."""
-    # ... fallback logic ...
+    # ... fallback logic with expanded candidate briefing ...
     return {
         "ai_enhanced": False,
         "fit_summary": fit_summary,
@@ -964,9 +1287,11 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
         "recommendation_rationale": "Automated narrative unavailable — manual review recommended.",
         "explainability": explainability,
         "interview_questions": {
+            "candidate_briefing": candidate_briefing,
             "technical_questions": tech_q,
             "behavioral_questions": behavioral_q,
             "culture_fit_questions": culture_q,
+            "experience_deep_dive_questions": experience_deep_dive_q,
         },
     }
 ```
@@ -984,7 +1309,7 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
 - [hybrid_pipeline.py:1528-1609](file://app/backend/services/hybrid_pipeline.py#L1528-L1609)
 
 ## Dependency Analysis
-The hybrid pipeline integrates several services and models with enhanced background processing and timeout management:
+The hybrid pipeline integrates several services and models with enhanced background processing, token budget management, and expanded interview framework:
 
 ```mermaid
 graph TB
@@ -1036,15 +1361,18 @@ I --> J["Database"]
 - **Frontend Responsiveness**: Extended polling architecture (10 minutes) provides real-time updates without blocking user interactions
 - **Timeout Protection**: asyncio.wait_for() prevents blocking during long inference tasks
 - **Enhanced Error Handling**: Comprehensive validation prevents processing of blank LLM outputs, improving system reliability
-- **Cloud Optimization**: 2048 tokens and 8192 context window enable comprehensive cloud model processing
-- **Local Optimization**: 512 tokens and 2048 context window ensure optimal local model performance
+- **Cloud Optimization**: 8000 tokens and 16384 context window enable comprehensive cloud model processing
+- **Local Optimization**: 6000 tokens and 8192 context window ensure optimal local model performance
 - **Enhanced Logging**: num_predict values logged for better monitoring and debugging
 - **Environment Detection**: Automatic cloud vs local model switching reduces configuration complexity
 - **Retry Mechanism**: Intelligent retry system with higher temperature for edge cases improves success rates
+- **Token Budget Management**: Optimized allocation (6000/8000 tokens) ensures efficient resource utilization
+- **Expanded Interview Framework**: 15 questions with detailed metadata increase processing time but improve evaluation quality
+- **Candidate Briefing**: Comprehensive briefing system provides immediate value to interviewers
 
 ## Troubleshooting Guide
 Common issues and resolutions:
-- LLM timeout/failure: The pipeline returns a deterministic fallback narrative and sets a flag indicating narrative pending
+- LLM timeout/failure: The pipeline returns a deterministic fallback narrative with candidate briefing and sets a flag indicating narrative pending
 - Scanned PDFs: Parser raises a graceful error; route returns fallback result with pipeline errors
 - JD too short: Validation rejects inputs under 80 words
 - Skills not recognized: Registry falls back to master list; ensure skills are seeded and loaded
@@ -1063,9 +1391,12 @@ Common issues and resolutions:
 - **Memory Leaks**: Background tasks are properly cleaned up during application shutdown
 - **Timeout Protection**: Ensure asyncio.wait_for() is properly configured with LLM_NARRATIVE_TIMEOUT
 - **Cloud Model Issues**: Verify OLLAMA_API_KEY is set for cloud deployments; check num_predict logging
-- **Local Model Issues**: Ensure keep_alive=-1 for optimal local model performance; verify 512 token limit
-- **Context Window Problems**: Check num_ctx values are appropriate for cloud (8192) vs local (2048) deployments
+- **Local Model Issues**: Ensure keep_alive=-1 for optimal local model performance; verify 6000 token limit
+- **Context Window Problems**: Check num_ctx values are appropriate for cloud (16384) vs local (8192) deployments
 - **Environment Detection**: Verify OLLAMA_BASE_URL contains "ollama.com" for cloud detection
+- **Token Budget Issues**: Check num_predict values are appropriate for local (6000) vs cloud (8000) deployments
+- **Interview Framework Problems**: Verify expanded interview questions are properly formatted and categorized
+- **Candidate Briefing Issues**: Ensure candidate briefing data is properly structured and displayed in frontend
 
 **Section sources**
 - [hybrid_pipeline.py:1384-1407](file://app/backend/services/hybrid_pipeline.py#L1384-L1407)
@@ -1099,7 +1430,7 @@ The hybrid pipeline achieves optimal performance by leveraging Python-first dete
 
 **Enhanced Error Handling**: The implementation of comprehensive validation for empty responses, whitespace-only responses, and ultra-short responses (< 20 characters) with intelligent retry mechanisms provides robust error handling and improves system reliability. The retry mechanism with higher temperature for edge cases significantly improves the success rate of LLM responses.
 
-**Enhanced Cloud Processing**: The implementation of optimized token limits and context windows for cloud deployments (2048 tokens, 8192 context) enables comprehensive processing of large models while maintaining performance. Local deployments continue with optimized settings (512 tokens, 2048 context) for efficient operation.
+**Enhanced Cloud Processing**: The implementation of optimized token limits and context windows for cloud deployments (8000 tokens, 16384 context) enables comprehensive processing of large models while maintaining performance. Local deployments continue with optimized settings (6000 tokens, 8192 context) for efficient operation.
 
 **Environment Detection**: The automatic cloud vs local model detection simplifies deployment configuration and ensures optimal performance across different environments without manual intervention.
 
@@ -1108,3 +1439,13 @@ The hybrid pipeline achieves optimal performance by leveraging Python-first dete
 **Fallback Mechanisms**: The enhanced fallback system with proper context window handling ensures reliable operation across both cloud and local environments, with appropriate token limits and context windows for each deployment type.
 
 **Retry System**: The intelligent retry mechanism with higher temperature for edge cases provides improved success rates and better user experience when dealing with challenging LLM responses.
+
+**Enhanced Token Budget Management**: The implementation of optimized token allocation (6000/8000 tokens) ensures efficient resource utilization across different deployment scenarios while accommodating the expanded interview framework.
+
+**Expanded Interview Framework**: The transition from 5 to 15 interview questions with detailed metadata provides comprehensive evaluation coverage while maintaining system performance through enhanced token management.
+
+**INTERVIEW KIT RULES**: The automated question generation rules ensure consistent, targeted questioning based on candidate analysis, improving interview quality and reducing bias.
+
+**Enhanced Normalization**: The consistent formatting and metadata standardization across interview questions improves system reliability and frontend compatibility.
+
+**Improved Fallback System**: The enhanced fallback narratives with comprehensive candidate briefing capabilities ensure meaningful results even when LLM processing fails, maintaining system reliability and user satisfaction.

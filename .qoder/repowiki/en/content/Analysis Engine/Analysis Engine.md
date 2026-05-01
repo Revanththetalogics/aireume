@@ -15,6 +15,7 @@
 - [weight_mapper.py](file://app/backend/services/weight_mapper.py)
 - [weight_suggester.py](file://app/backend/services/weight_suggester.py)
 - [db_models.py](file://app/backend/models/db_models.py)
+- [constants.py](file://app/backend/services/constants.py)
 - [README.md](file://README.md)
 - [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
 - [queue_manager.py](file://app/backend/services/queue_manager.py)
@@ -22,16 +23,19 @@
 - [transcript_service.py](file://app/backend/services/transcript_service.py)
 - [evidence_validation_service.py](file://app/backend/services/evidence_validation_service.py)
 - [adverse_action_service.py](file://app/backend/services/adverse_action_service.py)
+- [009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
+- [WeightSuggestionPanel.jsx](file://app/frontend/src/components/WeightSuggestionPanel.jsx)
+- [UniversalWeightsPanel.jsx](file://app/frontend/src/components/UniversalWeightsPanel.jsx)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Integrated comprehensive 4-tier LLM guardrail framework with retry mechanisms, schema validation, cross-node consistency checks, and ensemble processing
-- Enhanced agent pipeline with guardrail service integration including retry logic, schema validation, and consistency enforcement
-- Added cross-node consistency checking and HITL (Human-in-the-Loop) flag generation for quality assurance
-- Implemented 3x voting ensemble processing for critical nodes with seed-based reproducibility
-- Added comprehensive monitoring hooks and Prometheus metrics for guardrail events
-- Enhanced error handling with structured guardrail event emission and fallback mechanisms
+- Enhanced hybrid pipeline with comprehensive weight conversion integration supporting legacy, old backend, and new universal schemas
+- Implemented intelligent weight suggestion system with LLM-based recommendations and fallback mechanisms
+- Added comprehensive database migration for intelligent scoring weights with version management
+- Enhanced error handling with safe dictionary access patterns and improved tenant customization capabilities
+- Integrated weight mapper functionality with adaptive role-based labeling and intelligent schema detection
+- Added weight suggestion endpoint with frontend integration for dynamic weight recommendations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -62,7 +66,7 @@
 ## Introduction
 This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis with comprehensive guardrail integration, the enhanced resume parsing service supporting PDF and DOCX formats with multi-tier extraction strategies, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
 
-**Updated** The analysis engine now features a comprehensive 4-tier LLM guardrail framework that provides robust reliability, security, governance, and operational controls. The guardrail service integrates seamlessly with the agent pipeline to ensure consistent, high-quality analysis results through retry mechanisms, schema validation, cross-node consistency checks, and ensemble processing capabilities.
+**Updated** The analysis engine now features a comprehensive 4-tier LLM guardrail framework that provides robust reliability, security, governance, and operational controls. The guardrail service integrates seamlessly with the agent pipeline to ensure consistent, high-quality analysis results through retry mechanisms, schema validation, cross-node consistency checks, and ensemble processing capabilities. The weight suggestion service has been enhanced with intelligent schema conversion and comprehensive database migration support for intelligent scoring weights.
 
 ## Project Structure
 The backend is organized around FastAPI routes, SQLAlchemy models, and modular services. The analysis engine spans:
@@ -74,35 +78,40 @@ The backend is organized around FastAPI routes, SQLAlchemy models, and modular s
 - Queue management system with automatic retry mechanisms
 - Enhanced PII redaction capabilities with enterprise-grade Presidio integration
 - Evidence validation service for transcript analysis
+- **Enhanced Weight Management System**: Comprehensive schema conversion, intelligent suggestions, and database migration support
 
 ```mermaid
 graph TB
 subgraph "Routes"
-A["analyze.py<br/>JSON Serialization Utilities<br/>SSE Streaming Endpoints"]
+A["analyze.py<br/>JSON Serialization Utilities<br/>SSE Streaming Endpoints<br/>Weight Suggestion Endpoint"]
 end
 subgraph "Services"
 B["parser_service.py<br/>Multi-tier Extraction Strategies"]
 C["gap_detector.py"]
-D["hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Exponential Backoff<br/>Guardrails"]
+D["hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Exponential Backoff<br/>Guardrails<br/>Weight Conversion"]
 E["agent_pipeline.py<br/>Anti-Hallucination Guardrails<br/>Ensemble Processing"]
 F["analysis_service.py"]
 G["llm_service.py<br/>Semaphore Control<br/>Health Monitoring"]
 H["llm_contact_extractor.py<br/>Enhanced LLM Contact Extraction"]
-I["weight_mapper.py<br/>Schema Conversion"]
-J["weight_suggester.py<br/>LLM Weight Suggestions"]
+I["weight_mapper.py<br/>Schema Conversion<br/>Intelligent Mapping"]
+J["weight_suggester.py<br/>LLM Weight Suggestions<br/>Adaptive Labels<br/>Fallback Mechanisms"]
 K["queue_manager.py<br/>Automatic Retry<br/>Exponential Backoff"]
 L["pii_redaction_service.py<br/>Enterprise PII Redaction"]
 M["transcript_service.py<br/>Evidence Validation"]
 N["evidence_validation_service.py<br/>Bias Mitigation"]
 O["adverse_action_service.py<br/>Bias Documentation"]
 P["guardrail_service.py<br/>4-Tier LLM Guardrails<br/>Ensemble Processing<br/>Monitoring Hooks"]
+Q["constants.py<br/>Weight Schema Definitions<br/>Default Configurations"]
+R["009_intelligent_scoring_weights.py<br/>Database Migration<br/>Version Management"]
 end
 subgraph "Models"
-Q["db_models.py"]
+S["db_models.py"]
 end
 subgraph "App"
-R["main.py<br/>Background Task Management<br/>Health Monitoring"]
-S["nginx.prod.conf<br/>Streaming Configuration"]
+T["main.py<br/>Background Task Management<br/>Health Monitoring"]
+U["nginx.prod.conf<br/>Streaming Configuration"]
+V["WeightSuggestionPanel.jsx<br/>Frontend Integration<br/>Dynamic UI"]
+W["UniversalWeightsPanel.jsx<br/>Tenant Customization<br/>Adaptive Labels"]
 end
 A --> B
 A --> C
@@ -119,25 +128,24 @@ A --> M
 A --> N
 A --> O
 A --> P
-Q --> P
-R --> A
-R --> G
-S --> A
+A --> Q
+A --> R
+S --> P
+T --> A
+T --> G
+U --> A
+V --> A
+W --> A
 ```
 
 **Diagram sources**
-- [analyze.py:669-868](file://app/backend/routes/analyze.py#L669-L868)
-- [parser_service.py:343-492](file://app/backend/services/parser_service.py#L343-L492)
-- [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
-- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
+- [analyze.py:470-493](file://app/backend/routes/analyze.py#L470-L493)
+- [weight_mapper.py:197-230](file://app/backend/services/weight_mapper.py#L197-L230)
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
-- [queue_manager.py:1-200](file://app/backend/services/queue_manager.py#L1-200)
-- [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
-- [pii_redaction_service.py:1-233](file://app/backend/services/pii_redaction_service.py#L1-L233)
-- [transcript_service.py:330-374](file://app/backend/services/transcript_service.py#L330-L374)
-- [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
-- [adverse_action_service.py:71-102](file://app/backend/services/adverse_action_service.py#L71-L102)
-- [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-1128)
+- [constants.py:128-158](file://app/backend/services/constants.py#L128-L158)
+- [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
+- [WeightSuggestionPanel.jsx:16-43](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L16-L43)
+- [UniversalWeightsPanel.jsx:1-200](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L200)
 
 **Section sources**
 - [README.md:273-333](file://README.md#L273-L333)
@@ -153,7 +161,6 @@ S --> A
 - LLM Integration: Ollama-backed ChatOllama clients with singletons, timeouts, JSON parsing utilities, comprehensive error handling, and health monitoring.
 - Intelligent Contact Extraction: LLM-powered contact information extraction with merging strategy for accuracy.
 - Scoring and Risk: Weighted fit score computation, risk signals, and recommendation logic with intelligent weight mapping.
-- Persistence: SQLAlchemy models for candidates, screening results, role templates, usage logs, and caches.
 - **Enhanced AI Pipeline**: Sophisticated score rationales and structured risk analysis with detailed explanations.
 - **AI-Enhanced Narratives**: Distinction system between LLM-generated and fallback narratives using `ai_enhanced` flag.
 - **Enhanced Error Handling**: Comprehensive retry mechanisms with exponential backoff for rate limiting and connection failures.
@@ -161,6 +168,7 @@ S --> A
 - **Anti-Hallucination Guardrails**: Cache versioning, circuit breaker monitoring, and deterministic behavior enforcement.
 - **PII Redaction**: Enterprise-grade PII detection and anonymization with regex fallback capabilities.
 - **Evidence Validation**: Comprehensive validation of LLM claims against transcript evidence to prevent hallucinations.
+- **Enhanced Weight Management**: Intelligent schema conversion, LLM-based weight suggestions, database migration support, and tenant customization capabilities.
 
 **Section sources**
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
@@ -170,8 +178,8 @@ S --> A
 - [gap_detector.py:1-219](file://app/backend/services/gap_detector.py#L1-L219)
 - [llm_service.py:1-332](file://app/backend/services/llm_service.py#L1-L332)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
-- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
-- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+- [weight_mapper.py:20-345](file://app/backend/services/weight_mapper.py#L20-L345)
+- [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
 - [db_models.py:97-250](file://app/backend/models/db_models.py#L97-L250)
 - [queue_manager.py:1-200](file://app/backend/services/queue_manager.py#L1-L200)
 - [pii_redaction_service.py:1-233](file://app/backend/services/pii_redaction_service.py#L1-L233)
@@ -186,6 +194,7 @@ The system uses a hybrid approach with comprehensive guardrail integration and e
 - Background Processing: LLM narrative generated as background task with graceful shutdown handling
 - Bias Mitigation: PII redaction and evidence validation throughout the pipeline
 - **Guardrail Integration**: 4-tier safety framework with retry mechanisms, schema validation, cross-node consistency, and ensemble processing
+- **Enhanced Weight Management**: Intelligent schema conversion, LLM-based weight suggestions, database migration with version management, and tenant customization
 
 ```mermaid
 sequenceDiagram
@@ -198,14 +207,17 @@ participant Guardrail as "guardrail_service.py"
 participant Agent as "agent_pipeline.py"
 participant Contact as "llm_contact_extractor.py"
 participant PII as "pii_redaction_service.py"
+participant WeightMapper as "weight_mapper.py"
+participant WeightSuggester as "weight_suggester.py"
 participant LLM as "Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails"
-Client->>Route : POST /api/analyze
 Route->>Parser : parse_resume(file)
 Parser-->>Route : parsed_data
 Route->>Contact : extract_contact_with_llm(raw_text)
 Contact-->>Route : contact_info
 Route->>Gap : analyze_gaps(work_experience)
 Gap-->>Route : gap_analysis
+Route->>WeightMapper : convert_to_new_schema(weights)
+WeightMapper-->>Route : converted_weights
 Route->>Agent : run_agent_pipeline(...)
 Agent->>Guardrail : llm_invoke_with_retry()
 Guardrail->>LLM : Retry with exponential backoff
@@ -220,20 +232,24 @@ Guardrail-->>Agent : HITL flags if needed
 Agent-->>Route : assembled result with guardrail outputs
 Route->>PII : redact_pii(resume_text)
 PII-->>Route : redacted_text
+Route->>WeightSuggester : suggest_weights_for_jd(jd_text)
+WeightSuggester-->>Route : weight suggestion or fallback
 Route-->>Client : AnalysisResponse with guardrail metadata
 ```
 
 **Diagram sources**
 - [analyze.py:268-318](file://app/backend/routes/analyze.py#L268-L318)
 - [agent_pipeline.py:1110-1138](file://app/backend/services/agent_pipeline.py#L1110-L1138)
-- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-168)
-- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-214)
-- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-371)
+- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-L168)
+- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-L214)
+- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-L371)
 - [guardrail_service.py:684-752](file://app/backend/services/guardrail_service.py#L684-752)
 - [parser_service.py:547-552](file://app/backend/services/parser_service.py#L547-L552)
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 - [pii_redaction_service.py:53-66](file://app/backend/services/pii_redaction_service.py#L53-L66)
+- [weight_mapper.py:197-230](file://app/backend/services/weight_mapper.py#L197-L230)
+- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 
 ## Detailed Component Analysis
 
@@ -252,6 +268,7 @@ The hybrid pipeline executes deterministic Python logic first, then a single LLM
 - **Optimized**: gemma4:31b-cloud model with intelligent token limits for improved performance
 - **Robust**: Exponential backoff retry mechanisms for rate limiting and connection failures
 - **Guardrails**: Prompt injection sanitization, cache versioning, and deterministic behavior enforcement
+- **Weight Conversion**: Seamless integration with weight mapper for schema conversion and normalization
 
 ```mermaid
 flowchart TD
@@ -261,7 +278,7 @@ ParseResume --> MatchSkills["match_skills_rules(profile, jd, raw_text)"]
 MatchSkills --> EduScore["score_education_rules(profile, jd_domain)"]
 EduScore --> ExpTimeline["score_experience_rules(profile, jd, gap_analysis)"]
 ExpTimeline --> DomainArch["domain_architecture_rules(raw_text, jd_domain, current_role)"]
-DomainArch --> ComputeFit["compute_fit_score(scores, weights)"]
+DomainArch --> ComputeFit["compute_fit_score(scores, weights)<br/>Enhanced Weight Conversion"]
 ComputeFit --> Rationales["_build_score_rationales()"]
 Rationales --> RiskSummary["_build_risk_summary()"]
 RiskSummary --> PII["PII Redaction"]
@@ -276,6 +293,7 @@ Merge --> End(["End"])
 **Diagram sources**
 - [hybrid_pipeline.py:1262-1407](file://app/backend/services/hybrid_pipeline.py#L1262-L1407)
 - [hybrid_pipeline.py:1074-1256](file://app/backend/services/hybrid_pipeline.py#L1074-L1256)
+- [weight_mapper.py:197-230](file://app/backend/services/weight_mapper.py#L197-L230)
 - [pii_redaction_service.py:53-66](file://app/backend/services/pii_redaction_service.py#L53-L66)
 
 **Section sources**
@@ -328,9 +346,9 @@ Agent-->>Client : assembled result with guardrail metadata
 - [agent_pipeline.py:161-180](file://app/backend/services/agent_pipeline.py#L161-L180)
 - [agent_pipeline.py:280-322](file://app/backend/services/agent_pipeline.py#L280-L322)
 - [agent_pipeline.py:367-448](file://app/backend/services/agent_pipeline.py#L367-L448)
-- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-168)
-- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-214)
-- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-371)
+- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-L168)
+- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-L214)
+- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-L371)
 - [guardrail_service.py:684-752](file://app/backend/services/guardrail_service.py#L684-752)
 
 **Section sources**
@@ -452,7 +470,7 @@ TotalYears --> End
 ### Skills Registry System
 The skills registry:
 - Seeds canonical skills and aliases into the DB
-- Loads active skills into an in-memory flashtext processor
+- loads active skills into an in-memory flashtext processor
 - Provides hot-reload capability and fallback to hardcoded list
 - Maps skills to domains for seeding and matching
 
@@ -527,7 +545,7 @@ Scoring and risk:
 
 ```mermaid
 flowchart TD
-Scores["Scores: skill/exp/arch/edu/timeline/domain"] --> Weights["Apply weights"]
+Scores["Scores: skill/exp/arch/edu/timeline/domain"] --> Weights["Apply weights<br/>Enhanced Schema Conversion"]
 Weights --> Risk["Compute risk_penalty from risk_signals"]
 Risk --> Fit["fit_score = sum - risk_penalty"]
 Fit --> Clamp["Clamp 0..100"]
@@ -537,6 +555,7 @@ Rec --> End(["End"])
 
 **Diagram sources**
 - [hybrid_pipeline.py:964-1058](file://app/backend/services/hybrid_pipeline.py#L964-L1058)
+- [weight_mapper.py:197-230](file://app/backend/services/weight_mapper.py#L197-L230)
 
 **Section sources**
 - [hybrid_pipeline.py:953-1058](file://app/backend/services/hybrid_pipeline.py#L953-L1058)
@@ -549,6 +568,7 @@ The analyze route:
 - Supports SSE streaming with heartbeat pings
 - Implements candidate deduplication and profile storage
 - **Enhanced JSON serialization**: Comprehensive datetime, date, and Decimal handling
+- **Weight Suggestion Endpoint**: New endpoint for AI-powered weight recommendations
 
 ```mermaid
 sequenceDiagram
@@ -644,7 +664,7 @@ Summary --> Output["risk_summary"]
 
 ## Intelligent Scoring Weights System
 
-**Updated** The analysis engine now features a comprehensive intelligent scoring weights system that supports multiple weight schemas and provides automatic conversion between legacy and new formats.
+**Updated** The analysis engine now features a comprehensive intelligent scoring weights system that supports multiple weight schemas and provides automatic conversion between legacy and new formats. The weight suggestion service has been enhanced with LLM-based recommendations and comprehensive database migration support.
 
 ### Weight Schema Support
 
@@ -686,10 +706,63 @@ The LLM-based weight suggestion system analyzes job descriptions to provide opti
 - **Seniority Level Analysis**: Determines appropriate seniority levels for weight balancing
 - **Context-Aware Recommendations**: Provides role-specific weight distributions with confidence scores
 - **Adaptive Labels**: Generates role-specific labels for the role_excellence factor
+- **Fallback Mechanisms**: Provides default weights when LLM is unavailable
+- **Safe Dictionary Access**: Comprehensive error handling with fallback mechanisms
 
 **Section sources**
-- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
-- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+- [weight_mapper.py:20-345](file://app/backend/services/weight_mapper.py#L20-L345)
+- [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
+
+### Database Migration for Intelligent Scoring Weights
+
+**Updated** The system now includes comprehensive database migration support for intelligent scoring weights:
+
+- **Version Management**: Adds `is_active` and `version_number` columns for ScreeningResult table
+- **Role Detection**: Stores `role_category` for intelligent weight selection
+- **Weight Metadata**: Persists `weight_reasoning` and `suggested_weights_json` for audit trails
+- **Index Optimization**: Creates indexes for efficient querying of active versions and version history
+- **Backward Compatibility**: All new columns are nullable with sensible defaults for existing records
+
+```mermaid
+flowchart TD
+Migration["Database Migration 009"] --> AddColumns["Add Columns:<br/>is_active, version_number,<br/>role_category, weight_reasoning,<br/>suggested_weights_json"]
+AddColumns --> CreateIndexes["Create Indexes:<br/>ix_screening_results_is_active<br/>ix_screening_results_version"]
+CreateIndexes --> BackwardCompat["Backward Compatible:<br/>All columns nullable<br/>Existing records defaulted"]
+BackwardCompat --> End["Migration Complete"]
+```
+
+**Diagram sources**
+- [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
+
+### Frontend Integration and Tenant Customization
+
+**Updated** The weight suggestion system integrates seamlessly with the frontend:
+
+- **WeightSuggestionPanel**: React component for AI-powered weight recommendations
+- **UniversalWeightsPanel**: Tenant customization with adaptive role-based labels
+- **Dynamic UI**: Real-time weight visualization with confidence indicators
+- **Fallback Handling**: Graceful degradation when AI suggestions are unavailable
+- **Tenant Support**: Role-specific weight labels and adaptive configurations
+
+**Section sources**
+- [weight_mapper.py:233-345](file://app/backend/services/weight_mapper.py#L233-L345)
+- [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
+- [WeightSuggestionPanel.jsx:16-43](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L16-L43)
+- [UniversalWeightsPanel.jsx:1-200](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L200)
+
+### Safe Dictionary Access Patterns
+
+**Updated** The enhanced error handling includes comprehensive safe dictionary access patterns:
+
+- **Schema Detection**: Robust detection of weight schema types with fallback mechanisms
+- **Validation**: Comprehensive validation of weight dictionaries with default value provision
+- **Error Recovery**: Graceful degradation when weight data is malformed or incomplete
+- **Logging**: Detailed logging for debugging weight conversion issues
+- **Type Safety**: Strict type checking and conversion for weight values
+
+**Section sources**
+- [weight_mapper.py:164-230](file://app/backend/services/weight_mapper.py#L164-L230)
+- [weight_suggester.py:105-177](file://app/backend/services/weight_suggester.py#L105-L177)
 
 ## Advanced Contact Extraction
 
@@ -1061,8 +1134,8 @@ Fallback --> End
 ```
 
 **Diagram sources**
-- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-168)
-- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-214)
+- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-L168)
+- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-L214)
 
 ### Retry Configuration
 
@@ -1101,8 +1174,8 @@ Complete --> End
 
 **Section sources**
 - [hybrid_pipeline.py:1359-1500](file://app/backend/services/hybrid_pipeline.py#L1359-L1500)
-- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-168)
-- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-214)
+- [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-L168)
+- [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-L214)
 - [queue_manager.py:206-208](file://app/backend/services/queue_manager.py#L206-L208)
 - [queue_manager.py:456-478](file://app/backend/services/queue_manager.py#L456-L478)
 
@@ -1287,7 +1360,7 @@ The guardrail service provides comprehensive cross-node consistency validation:
 - [agent_pipeline.py:352-354](file://app/backend/services/agent_pipeline.py#L352-L354)
 - [agent_pipeline.py:414-421](file://app/backend/services/agent_pipeline.py#L414-L421)
 - [hybrid_pipeline.py:52-80](file://app/backend/services/hybrid_pipeline.py#L52-L80)
-- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-371)
+- [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-L371)
 
 ## PII Redaction and Bias Mitigation
 
@@ -1499,7 +1572,7 @@ Key configuration parameters:
 - **GUARDRAIL_RETRY_DELAY**: Base delay for exponential backoff (default: 2.0 seconds)
 - **GUARDRAIL_PER_CALL_TIMEOUT**: Per-call timeout for LLM operations (default: 90.0 seconds)
 - **GUARDRAIL_CIRCUIT_THRESHOLD**: Hallucination threshold for circuit breaker (default: 5)
-- **GUARDRAIL_ENSEMBLE_ENABLED**: Enable/disable 3x voting ensemble (default: false)
+- **GUARDRAIL_ENSEMBLE_ENABLED**: Enable/disable 3x voting ensemble (default: true)
 - **GUARDRAIL_INJECTION_CHECK**: Enable/disable prompt injection detection (default: true)
 - **GUARDRAIL_TOKEN_BUDGET**: Enable/disable token budget management (default: true)
 
@@ -1529,7 +1602,7 @@ Key dependencies and relationships:
 - **Enhanced JSON serialization**: Unified serialization utilities across all components
 - **AI-Enhanced Narratives**: `ai_enhanced` flag distinguishes LLM vs fallback narratives
 - **Enhanced Contact Extraction**: LLM-powered contact extraction with merging strategy
-- **Weight Management**: Comprehensive weight mapping and suggestion system
+- **Enhanced Weight Management**: Comprehensive weight mapping, suggestion system, database migration, and tenant customization
 - **Enhanced Error Handling**: Exponential backoff retry mechanisms for LLM services
 - **Resource Management**: Semaphore-based concurrency control and health monitoring
 - **Queue Integration**: Automatic retry mechanisms with exponential backoff
@@ -1540,19 +1613,21 @@ Key dependencies and relationships:
 
 ```mermaid
 graph LR
-Route["routes/analyze.py<br/>JSON Utils<br/>SSE Streaming"] --> Parser["services/parser_service.py"]
+Route["routes/analyze.py<br/>JSON Utils<br/>SSE Streaming<br/>Weight Suggestion Endpoint"] --> Parser["services/parser_service.py"]
 Route --> Gap["services/gap_detector.py"]
-Route --> Hybrid["services/hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Guardrails"]
+Route --> Hybrid["services/hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Guardrails<br/>Weight Conversion"]
 Route --> Agent["services/agent_pipeline.py<br/>Anti-Hallucination Guardrails<br/>Ensemble Processing"]
 Route --> Contact["services/llm_contact_extractor.py"]
-Route --> WeightMapper["services/weight_mapper.py"]
-Route --> WeightSuggester["services/weight_suggester.py"]
+Route --> WeightMapper["services/weight_mapper.py<br/>Schema Conversion<br/>Intelligent Mapping"]
+Route --> WeightSuggester["services/weight_suggester.py<br/>LLM Weight Suggestions<br/>Adaptive Labels<br/>Fallback Mechanisms"]
 Route --> QueueManager["services/queue_manager.py<br/>Automatic Retry"]
 Route --> PII["services/pii_redaction_service.py<br/>Enterprise PII Redaction"]
 Route --> Transcript["services/transcript_service.py<br/>Evidence Validation"]
 Route --> Evidence["services/evidence_validation_service.py<br/>Bias Mitigation"]
 Route --> Adverse["services/adverse_action_service.py<br/>Bias Documentation"]
 Route --> Guardrail["services/guardrail_service.py<br/>4-Tier LLM Guardrails<br/>Monitoring Hooks"]
+Route --> Constants["services/constants.py<br/>Weight Schema Definitions<br/>Default Configurations"]
+Route --> Migration["alembic/versions/009_intelligent_scoring_weights.py<br/>Database Migration<br/>Version Management"]
 Hybrid --> Skills["skills registry"]
 Hybrid --> Ollama["Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails"]
 Agent --> Ollama
@@ -1563,20 +1638,18 @@ Main["main.py<br/>Background Task Management<br/>Health Monitoring"] --> Route
 Main --> Ollama
 Main --> Guardrail
 Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
+WeightPanel["WeightSuggestionPanel.jsx<br/>Frontend Integration<br/>Dynamic UI"] --> Route
+UniversalPanel["UniversalWeightsPanel.jsx<br/>Tenant Customization<br/>Adaptive Labels"] --> Route
 ```
 
 **Diagram sources**
 - [analyze.py:32-38](file://app/backend/routes/analyze.py#L32-L38)
-- [hybrid_pipeline.py:49-66](file://app/backend/services/hybrid_pipeline.py#L49-L66)
-- [agent_pipeline.py:33-34](file://app/backend/services/agent_pipeline.py#L33-L34)
-- [guardrail_service.py:1-12](file://app/backend/services/guardrail_service.py#L1-L12)
-- [db_models.py:97-147](file://app/backend/models/db_models.py#L97-L147)
-- [main.py:68-149](file://app/backend/main.py#L68-L149)
-- [nginx.prod.conf:73-98](file://app/nginx/nginx.prod.conf#L73-L98)
-- [pii_redaction_service.py:1-233](file://app/backend/services/pii_redaction_service.py#L1-L233)
-- [transcript_service.py:330-374](file://app/backend/services/transcript_service.py#L330-L374)
-- [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
-- [adverse_action_service.py:71-102](file://app/backend/services/adverse_action_service.py#L71-L102)
+- [weight_mapper.py:49-66](file://app/backend/services/weight_mapper.py#L49-L66)
+- [weight_suggester.py:29-39](file://app/backend/services/weight_suggester.py#L29-L39)
+- [constants.py:128-158](file://app/backend/services/constants.py#L128-L158)
+- [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
+- [WeightSuggestionPanel.jsx:16-43](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L16-L43)
+- [UniversalWeightsPanel.jsx:1-200](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L200)
 
 **Section sources**
 - [analyze.py:32-38](file://app/backend/routes/analyze.py#L32-L38)
@@ -1607,6 +1680,8 @@ Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
 - **Retry Optimization**: Configurable retry parameters balance reliability and performance
 - **Schema Validation**: Efficient Pydantic validation with automatic coercion reduces processing overhead
 - **Cross-Node Consistency**: Automated validation reduces manual intervention and improves throughput
+- **Weight Management Performance**: Enhanced schema conversion and suggestion system with optimized database migrations
+- **Frontend Integration**: Weight suggestion panels provide real-time feedback with minimal latency
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -1638,6 +1713,9 @@ Common issues and resolutions:
 - **Schema Validation Errors**: Review validation error messages and fix LLM output formatting
 - **Cross-Node Consistency Issues**: Check consistency report and fix detected violations
 - **Token Budget Exceeded**: Monitor token usage and adjust DEFAULT_LLM_TOKEN_BUDGET configuration
+- **Weight Suggestion Import Errors**: Fixed syntax error resolves critical import failures in weight suggestion service
+- **Database Migration Issues**: Check alembic migration logs for intelligent scoring weights setup
+- **Frontend Integration Problems**: Verify WeightSuggestionPanel and UniversalWeightsPanel communication with backend endpoints
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -1654,6 +1732,8 @@ The integration of comprehensive 4-tier guardrail framework provides robust safe
 
 The enhanced PII redaction capabilities with enterprise-grade Presidio integration and improved validation mechanisms ensure unbiased analysis results. The evidence validation service prevents hallucinations by ensuring all LLM claims are supported by actual transcript evidence. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing and heartbeat mechanisms. The queue system integration adds automatic retry capabilities with exponential backoff, ensuring resilient job processing even under adverse conditions.
 
+**Updated** The enhanced weight management system provides comprehensive schema conversion, intelligent LLM-based weight suggestions, database migration support with version management, and tenant customization capabilities. The weight suggestion endpoint integrates seamlessly with the frontend WeightSuggestionPanel component, providing dynamic weight recommendations based on job requirements. The database migration ensures backward compatibility while enabling future enhancements to the intelligent scoring system.
+
 ## Appendices
 
 ### Extension Points for Custom Evaluation Criteria
@@ -1665,7 +1745,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 - **Enhanced AI Pipeline**: Leverage score rationales and risk summary structures for new evaluation criteria
 - **Model Configuration**: Adjust gemma4:31b-cloud parameters for specialized use cases
 - **AI-Enhanced Narratives**: Use `ai_enhanced` flag to indicate content origin
-- **Weight Management**: Utilize weight mapper for schema conversion and weight_suggester for role-specific recommendations
+- **Enhanced Weight Management**: Utilize weight mapper for schema conversion, weight_suggester for role-specific recommendations, and database migration for version management
 - **Contact Enhancement**: Implement custom contact extraction strategies using LLM contact extractor framework
 - **Error Handling**: Implement exponential backoff retry mechanisms for custom LLM integrations
 - **Resource Management**: Add semaphore-based concurrency control for external service integrations
@@ -1673,6 +1753,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 - **PII Redaction**: Integrate enterprise-grade PII detection with regex fallback capabilities
 - **Evidence Validation**: Add comprehensive claim validation for custom analysis components
 - **Monitoring Integration**: Add custom metrics and alerts for guardrail events and system performance
+- **Frontend Integration**: Extend WeightSuggestionPanel and UniversalWeightsPanel for custom weight management features
 
 **Section sources**
 - [hybrid_pipeline.py:953-1058](file://app/backend/services/hybrid_pipeline.py#L953-L1058)
@@ -1682,7 +1763,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 - [parser_service.py:319-371](file://app/backend/services/parser_service.py#L319-L371)
 - [llm_contact_extractor.py:133-164](file://app/backend/services/llm_contact_extractor.py#L133-L164)
 - [weight_mapper.py:212-246](file://app/backend/services/weight_mapper.py#L212-L246)
-- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+- [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
 - [agent_pipeline.py:414-421](file://app/backend/services/agent_pipeline.py#L414-L421)
 
 ### JSON Serialization Best Practices
@@ -1700,6 +1781,8 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 9. **Error Handling**: Implement comprehensive error handling for serialization failures
 10. **Guardrail Integration**: Ensure new components respect anti-hallucination guardrails and bias mitigation rules
 11. **Guardrail Event Emission**: Use the structured event emission format for consistent monitoring and alerting
+12. **Weight Management Integration**: Follow the enhanced weight management patterns for schema conversion and tenant customization
+13. **Database Migration**: Ensure new fields are properly handled in database migrations with backward compatibility
 
 **Section sources**
 - [analyze.py:48-56](file://app/backend/routes/analyze.py#L48-L56)
@@ -1726,6 +1809,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 13. **Resource Management**: Set OLLAMA_MAX_CONCURRENT for appropriate concurrency levels
 14. **Guardrail Configuration**: Ensure cache versioning and circuit breaker thresholds are appropriately tuned
 15. **Retry Parameters**: Configure GUARDRAIL_MAX_RETRIES, GUARDRAIL_RETRY_DELAY, and GUARDRAIL_PER_CALL_TIMEOUT for optimal reliability
+16. **Weight Management Performance**: Ensure proper model configuration for weight suggestion LLM calls with enhanced schema conversion
 
 **Section sources**
 - [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
@@ -1746,6 +1830,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 8. **Error Handling**: Graceful degradation when LLM extraction fails
 9. **Retry Mechanisms**: Implement exponential backoff for rate-limited LLM calls
 10. **Bias Mitigation**: Ensure contact extraction doesn't compromise PII protection measures
+11. **Weight Management Integration**: Ensure contact extraction doesn't interfere with enhanced weight management systems
 
 **Section sources**
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
@@ -1753,23 +1838,26 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 
 ### Weight Management Best Practices
 
-**Updated** For effective weight management in the analysis engine:
+**Updated** For effective weight management in the enhanced analysis engine:
 
 1. **Schema Detection**: Use `detect_weight_schema()` to automatically identify input weight format
 2. **Automatic Conversion**: Leverage `convert_to_new_schema()` for seamless schema transitions
 3. **Role-Specific Weights**: Utilize `suggest_weights_for_jd()` for context-aware weight recommendations
-4. **Default Handling**: Implement fallback weights using `get_default_weights_for_category()`
+4. **Default Handling**: Implement fallback weights using `get_default_weights_for_category()` and `get_weight_labels()`
 5. **Normalization**: Always use `normalize_weights()` to ensure proper weight distribution
-6. **Adaptive Labels**: Generate role-specific labels with `get_weight_labels()`
+6. **Adaptive Labels**: Generate role-specific labels with `get_weight_labels()` for tenant customization
 7. **Confidence Scoring**: Consider confidence levels when using LLM-suggested weights
-8. **Testing**: Validate weight conversions with comprehensive test suites
-9. **Error Handling**: Implement retry mechanisms for weight suggestion failures
+8. **Testing**: Validate weight conversions with comprehensive test suites including migration scenarios
+9. **Error Handling**: Implement retry mechanisms for weight suggestion failures with safe dictionary access patterns
 10. **Bias Mitigation**: Ensure weight schemes don't introduce systematic bias in evaluation
+11. **Database Migration**: Follow the migration patterns from 009_intelligent_scoring_weights.py for version management
+12. **Frontend Integration**: Ensure weight suggestion API endpoints integrate properly with WeightSuggestionPanel and UniversalWeightsPanel components
 
 **Section sources**
 - [weight_mapper.py:179-246](file://app/backend/services/weight_mapper.py#L179-L246)
-- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+- [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
 - [weight_suggester.py:180-247](file://app/backend/services/weight_suggester.py#L180-L247)
+- [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
 
 ### Error Handling and Retry Integration Guidelines
 
@@ -1778,7 +1866,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 1. **Exponential Backoff**: Implement base delay of 2 seconds with exponential growth (2^n + random jitter)
 2. **Retry Configuration**: Allow configurable maximum retry attempts via environment variables
 3. **Error Categorization**: Distinguish between rate limiting (429), authentication (401), and server errors (5xx)
-4. **Fallback Mechanisms**: Provide graceful degradation for critical failures
+4. **Fallback Mechanisms**: Provide graceful degradation for critical failures with safe dictionary access patterns
 5. **Logging**: Implement comprehensive logging for error tracking and debugging
 6. **Timeout Handling**: Set appropriate timeouts to prevent resource exhaustion
 7. **Resource Management**: Use semaphores to prevent resource contention during retries
@@ -1789,6 +1877,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 12. **PII Redaction**: Ensure error handling doesn't compromise PII protection measures
 13. **Retry Parameters**: Configure GUARDRAIL_MAX_RETRIES, GUARDRAIL_RETRY_DELAY, and GUARDRAIL_PER_CALL_TIMEOUT
 14. **Event Emission**: Use structured event emission for consistent monitoring and alerting
+15. **Weight Management Error Handling**: Implement comprehensive error handling for weight suggestion and conversion failures
 
 **Section sources**
 - [hybrid_pipeline.py:1359-1500](file://app/backend/services/hybrid_pipeline.py#L1359-L1500)
@@ -1814,6 +1903,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 12. **Event Emission**: Use structured event emission for consistent monitoring and alerting
 13. **Retry Integration**: Implement exponential backoff retry mechanisms for reliability
 14. **Schema Validation**: Use Pydantic models for strict output validation
+15. **Weight Management Guardrails**: Implement anti-hallucination measures for weight suggestion and conversion systems
 
 **Section sources**
 - [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
@@ -1837,6 +1927,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 9. **Compliance**: Meet regulatory requirements for PII protection and data privacy
 10. **Monitoring**: Track redaction effectiveness and identify potential privacy risks
 11. **Integration Points**: Ensure PII redaction is applied consistently across all analysis components
+12. **Weight Management Privacy**: Ensure weight management systems don't expose sensitive information
 
 **Section sources**
 - [pii_redaction_service.py:34-66](file://app/backend/services/pii_redaction_service.py#L34-L66)
@@ -1858,6 +1949,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 9. **Threshold Tuning**: Calibrate validation thresholds based on domain requirements and quality targets
 10. **Continuous Improvement**: Regularly update validation strategies based on performance metrics
 11. **Integration Points**: Ensure evidence validation is applied consistently across all analysis components
+12. **Weight Management Validation**: Implement evidence validation for weight suggestion and conversion claims
 
 **Section sources**
 - [evidence_validation_service.py:56-70](file://app/backend/services/evidence_validation_service.py#L56-L70)
@@ -1882,6 +1974,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 12. **Performance Optimization**: Balance safety controls with system performance requirements
 13. **Integration Points**: Ensure guardrail integration is consistent across all analysis components
 14. **Testing and Validation**: Implement comprehensive testing for guardrail functionality
+15. **Weight Management Guardrails**: Implement comprehensive guardrail integration for weight management systems
 
 **Section sources**
 - [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-L1128)

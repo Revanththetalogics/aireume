@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Sparkles, Users, LayoutTemplate, UserCircle, LogOut, ChevronDown, GitCompare, Users2, Video, MessageSquareText, Settings, LayoutDashboard, Shield, Menu, X, ChevronRight, BarChart3 } from 'lucide-react'
+import { Sparkles, Users, LayoutTemplate, UserCircle, LogOut, ChevronDown, GitCompare, Users2, Video, MessageSquareText, Settings, LayoutDashboard, Shield, Menu, X, ChevronRight, BarChart3, Columns, Mail } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -10,6 +10,7 @@ const NAV_LINKS = [
     children: [
       { label: 'Analyze', path: '/analyze', icon: Sparkles },
       { label: 'Candidates', path: '/candidates', icon: Users },
+      { label: 'Pipeline', path: '/pipeline', icon: Columns },
       { label: 'Compare', path: '/compare', icon: GitCompare },
       { label: 'Analytics', path: '/analytics', icon: BarChart3 },
     ]
@@ -244,6 +245,15 @@ export default function NavBar() {
                 >
                   <Settings className="w-4 h-4 text-slate-500" />
                   Settings & Subscription
+                </button>
+
+                {/* Email Settings Link */}
+                <button
+                  onClick={() => { setUserMenuOpen(false); navigate('/admin/email-settings') }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand-50 transition-colors"
+                >
+                  <Mail className="w-4 h-4 text-slate-500" />
+                  Email Settings
                 </button>
 
                 <div className="px-3 my-1.5 border-t border-brand-50" />

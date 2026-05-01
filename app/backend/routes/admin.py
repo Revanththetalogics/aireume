@@ -18,7 +18,7 @@ from app.backend.models.db_models import (
     AuditLog, Tenant, User, SubscriptionPlan, UsageLog,
     FeatureFlag, TenantFeatureOverride,
     Webhook, WebhookDelivery,
-    PlatformConfig,
+    PlatformConfig, TenantEmailConfig,
 )
 from app.backend.services.audit_service import log_audit
 
@@ -1116,3 +1116,218 @@ def send_test_email(
     if not email_service.is_configured:
         return {"message": "SMTP not configured — email not sent", "recipient": recipient}
     return {"message": "Failed to send test email", "recipient": recipient}
+
+
+# --- Tenant Email Configuration ---------------------------------------------
+
+
+class EmailConfigRequest(BaseModel):
+    smtp_host: str
+    smtp_port: int = 587
+    smtp_user: Optional[str] = None
+    smtp_password: str
+    smtp_from: str
+    from_name: Optional[str] = None
+    reply_to: Optional[str] = None
+    encryption_type: str = "tls"  # tls | ssl | none
+
+
+def _mask_smtp_password(pw: str) -> str:
+    """Mask password showing only first and last char, or dots if too short."""
+    if not pw:
+        return ""
+    if len(pw) <= 4:
+        return "****"
+    return pw[0] + "*" * (len(pw) - 2) + pw[-1]
+
+
+@router.post("/email-config")
+def upsert_email_config(
+    body: EmailConfigRequest,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Create or update the tenant SMTP email configuration.
+
+    Passwords are encrypted with Fernet before storage.
+    """
+    from app.backend.services.email_service import encrypt_password
+
+    config = db.query(TenantEmailConfig).filter(
+        TenantEmailConfig.tenant_id == admin.tenant_id
+    ).first()
+
+    encrypted_pw = encrypt_password(body.smtp_password)
+
+    if config:
+        config.smtp_host = body.smtp_host
+        config.smtp_port = body.smtp_port
+        config.smtp_user = body.smtp_user
+        config.smtp_password = encrypted_pw
+        config.smtp_from = body.smtp_from
+        config.from_name = body.from_name
+        config.reply_to = body.reply_to
+        config.encryption_type = body.encryption_type
+        config.is_active = True
+        config.configured_by = admin.id
+        config.updated_at = datetime.now(timezone.utc)
+    else:
+        config = TenantEmailConfig(
+            tenant_id=admin.tenant_id,
+            smtp_host=body.smtp_host,
+            smtp_port=body.smtp_port,
+            smtp_user=body.smtp_user,
+            smtp_password=encrypted_pw,
+            smtp_from=body.smtp_from,
+            from_name=body.from_name,
+            reply_to=body.reply_to,
+            encryption_type=body.encryption_type,
+            is_active=True,
+            configured_by=admin.id,
+        )
+        db.add(config)
+
+    db.commit()
+    db.refresh(config)
+
+    log_audit(
+        db, actor=admin, action="email_config.upsert",
+        resource_type="tenant_email_config", resource_id=config.id,
+        details={"smtp_host": body.smtp_host, "smtp_from": body.smtp_from},
+    )
+
+    return {
+        "id": config.id,
+        "smtp_host": config.smtp_host,
+        "smtp_port": config.smtp_port,
+        "smtp_user": config.smtp_user,
+        "smtp_password": _mask_smtp_password(body.smtp_password),
+        "smtp_from": config.smtp_from,
+        "from_name": config.from_name,
+        "reply_to": config.reply_to,
+        "encryption_type": config.encryption_type,
+        "is_active": config.is_active,
+        "configured_by": config.configured_by,
+        "last_test_at": _dt_to_iso(config.last_test_at),
+        "last_test_success": config.last_test_success,
+        "created_at": _dt_to_iso(config.created_at),
+        "updated_at": _dt_to_iso(config.updated_at),
+    }
+
+
+@router.get("/email-config")
+def get_email_config(
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Get the email configuration for the current admin's tenant.
+
+    Password is masked in the response.
+    """
+    config = db.query(TenantEmailConfig).filter(
+        TenantEmailConfig.tenant_id == admin.tenant_id
+    ).first()
+
+    if not config:
+        return {"configured": False}
+
+    return {
+        "configured": True,
+        "id": config.id,
+        "smtp_host": config.smtp_host,
+        "smtp_port": config.smtp_port,
+        "smtp_user": config.smtp_user,
+        "smtp_password": _mask_smtp_password(config.smtp_password),
+        "smtp_from": config.smtp_from,
+        "from_name": config.from_name,
+        "reply_to": config.reply_to,
+        "encryption_type": config.encryption_type,
+        "is_active": config.is_active,
+        "configured_by": config.configured_by,
+        "last_test_at": _dt_to_iso(config.last_test_at),
+        "last_test_success": config.last_test_success,
+        "created_at": _dt_to_iso(config.created_at),
+        "updated_at": _dt_to_iso(config.updated_at),
+    }
+
+
+@router.post("/email-config/test")
+def test_email_config(
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Send a test email using the tenant's saved SMTP configuration.
+
+    Updates last_test_at and last_test_success on the config record.
+    """
+    from app.backend.services.email_service import get_tenant_email_service
+
+    config = db.query(TenantEmailConfig).filter(
+        TenantEmailConfig.tenant_id == admin.tenant_id
+    ).first()
+
+    if not config:
+        raise HTTPException(
+            status_code=404,
+            detail="No email configuration found for this tenant. Create one first.",
+        )
+
+    tenant_service = get_tenant_email_service(db, admin.tenant_id)
+    if not tenant_service:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load tenant email configuration. Check ENCRYPTION_KEY.",
+        )
+
+    recipient = admin.email
+    html = (
+        "<h2>Test Email from ARIA (Tenant SMTP)</h2>"
+        "<p>This is a test email sent using your tenant's SMTP configuration.</p>"
+        "<p>If you received this, your tenant email settings are working correctly.</p>"
+        "<hr><p style='color:gray;font-size:12px'>"
+        "Automated message from ARIA Resume Intelligence.</p>"
+    )
+    success = tenant_service.send_email(
+        to=recipient,
+        subject="ARIA - Tenant SMTP Test",
+        body_html=html,
+    )
+
+    config.last_test_at = datetime.now(timezone.utc)
+    config.last_test_success = success
+    db.commit()
+
+    if success:
+        return {"message": "Test email sent successfully", "recipient": recipient}
+    return {
+        "message": "Failed to send test email - check your SMTP credentials",
+        "recipient": recipient,
+    }
+
+
+@router.delete("/email-config")
+def delete_email_config(
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Remove the tenant email configuration (revert to system default)."""
+    config = db.query(TenantEmailConfig).filter(
+        TenantEmailConfig.tenant_id == admin.tenant_id
+    ).first()
+
+    if not config:
+        raise HTTPException(
+            status_code=404,
+            detail="No email configuration found for this tenant.",
+        )
+
+    log_audit(
+        db, actor=admin, action="email_config.delete",
+        resource_type="tenant_email_config", resource_id=config.id,
+        details={"smtp_host": config.smtp_host, "smtp_from": config.smtp_from},
+    )
+
+    db.delete(config)
+    db.commit()
+
+    return {"message": "Email configuration removed - system default will be used"}

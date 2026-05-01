@@ -618,6 +618,16 @@ export async function getCandidate(id) {
   return res.data
 }
 
+export async function getCandidateTimeline(id) {
+  const res = await api.get(`/candidates/${id}/timeline`)
+  return res.data
+}
+
+export async function getCandidatePipeline() {
+  const res = await api.get('/candidates/pipeline')
+  return res.data
+}
+
 export async function updateCandidateName(candidateId, name) {
   const response = await api.put(`/candidates/${candidateId}/name`, { name })
   return response.data
@@ -1010,6 +1020,13 @@ export async function getDashboardActivity() {
   return res.data
 }
 
+// ─── JD Skill Tags ──────────────────────────────────────────────────────────
+
+export async function getJDSkillTags(jdId) {
+  const res = await api.get(`/jd/${jdId}/skill-tags`)
+  return res.data
+}
+
 // ─── JD Candidates & Shortlisting ──────────────────────────────────────────
 
 export async function getJDCandidates(jdId, { sortBy = 'fit_score', sortOrder = 'desc', status = '' } = {}) {
@@ -1052,6 +1069,28 @@ export async function getNotificationConfig() {
 
 export async function sendTestEmail(email) {
   const response = await api.post('/admin/notifications/test', { email })
+  return response.data
+}
+
+// ─── Tenant Email Configuration ───────────────────────────────────────────────
+
+export async function getEmailConfig() {
+  const response = await api.get('/admin/email-config')
+  return response.data
+}
+
+export async function saveEmailConfig(data) {
+  const response = await api.post('/admin/email-config', data)
+  return response.data
+}
+
+export async function testEmailConfig() {
+  const response = await api.post('/admin/email-config/test')
+  return response.data
+}
+
+export async function deleteEmailConfig() {
+  const response = await api.delete('/admin/email-config')
   return response.data
 }
 

@@ -3,43 +3,29 @@
 <cite>
 **Referenced Files in This Document**
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
-- [fit_scorer.py](file://app/backend/services/fit_scorer.py)
-- [domain_service.py](file://app/backend/services/domain_service.py)
 - [eligibility_service.py](file://app/backend/services/eligibility_service.py)
-- [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
-- [analysis_service.py](file://app/backend/services/analysis_service.py)
-- [gap_detector.py](file://app/backend/services/gap_detector.py)
-- [parser_service.py](file://app/backend/services/parser_service.py)
-- [llm_service.py](file://app/backend/services/llm_service.py)
-- [analyze.py](file://app/backend/routes/analyze.py)
-- [main.py](file://app/backend/main.py)
-- [db_models.py](file://app/backend/models/db_models.py)
-- [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
-- [weight_mapper.py](file://app/backend/services/weight_mapper.py)
-- [007_narrative_status.py](file://alembic/versions/007_narrative_status.py)
-- [video_service.py](file://app/backend/services/video_service.py)
-- [candidates.py](file://app/backend/routes/candidates.py)
-- [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
+- [domain_service.py](file://app/backend/services/domain_service.py)
+- [fit_scorer.py](file://app/backend/services/fit_scorer.py)
 - [skill_matcher.py](file://app/backend/services/skill_matcher.py)
-- [risk_calculator.py](file://app/backend/services/risk_calculator.py)
-- [constants.py](file://app/backend/services/constants.py)
-- [test_skill_taxonomy.py](file://app/backend/tests/test_skill_taxonomy.py)
+- [analyze.py](file://app/backend/routes/analyze.py)
+- [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
+- [test_eligibility_service.py](file://app/backend/tests/test_eligibility_service.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- **Enhanced Two-Pass Validation System**: Implemented domain co-occurrence validation for high-collision skills in match_skills() to prevent false positives
-- **Improved Error Handling**: Enhanced exception management for deterministic engine failures with better fallback mechanisms
-- **Refined Risk Signal Calculations**: Upgraded risk penalty calculation logic with improved severity scoring
-- **Structured Skill Taxonomy**: Added comprehensive domain-clustered skill taxonomy for precise subcategory validation
-- **Hard Collision Skill Management**: Introduced HIGH_COLLISION_SKILLS list with domain-specific validation requirements
+- **Added similarity-based domain matching**: Implemented `_compute_domain_similarity` function that mirrors eligibility service implementation for cosine similarity calculations
+- **Updated Python phase processing**: Modified domain matching logic to use similarity calculations instead of simple domain name matching
+- **Enhanced eligibility gates**: Integrated similarity-based domain matching into the eligibility checking system with configurable thresholds
+- **Improved domain detection accuracy**: Added sophisticated vector-based similarity calculations for better domain classification
+- **Added comprehensive testing**: Included unit tests for similarity calculations and eligibility service integration
 
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [System Architecture](#system-architecture)
 3. [Core Components](#core-components)
 4. [Hybrid Pipeline Implementation](#hybrid-pipeline-implementation)
-5. [Enhanced Skills Registry System](#enhanced-skills-registry-system)
+5. [Enhanced Domain Matching System](#enhanced-domain-matching-system)
 6. [Background Processing](#background-processing)
 7. [Status Tracking and Polling](#status-tracking-and-polling)
 8. [API Integration](#api-integration)
@@ -52,7 +38,7 @@
 
 The Hybrid Pipeline represents a sophisticated resume analysis system that combines the speed and reliability of pure Python processing with the contextual understanding of Large Language Models (LLMs). This architecture optimizes for both performance and accuracy by implementing a two-phase analysis approach: a fast Python-based scoring phase followed by an LLM-powered narrative generation phase.
 
-**Updated** The system has undergone significant enhancements to address false positive skill matching through a sophisticated two-pass validation system. The new domain co-occurrence validation prevents high-collision skills like "railway" from being incorrectly matched when extracted from raw text without proper domain context. Additionally, improved error handling provides better exception management for deterministic engine failures, while refined risk signal calculations offer more accurate penalty assessments.
+**Updated** The system has undergone significant enhancements to address domain matching accuracy through the introduction of similarity-based domain matching. The new `_compute_domain_similarity` function implements cosine similarity calculations between job description and candidate domain score vectors, mirroring the eligibility service's approach. This enhancement provides more nuanced domain classification beyond simple name matching, enabling better discrimination between related domains like embedded systems and hardware engineering.
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
@@ -125,9 +111,8 @@ RuleBased -.-> Agent
 
 **Diagram sources**
 - [analyze.py:1-1201](file://app/backend/routes/analyze.py#L1-L1201)
-- [hybrid_pipeline.py:1-1814](file://app/backend/services/hybrid_pipeline.py#L1-L1814)
-- [agent_pipeline.py:1-650](file://app/backend/services/agent_pipeline.py#L1-L650)
-- [candidates.py:150-262](file://app/backend/routes/candidates.py#L150-L262)
+- [hybrid_pipeline.py:1-1875](file://app/backend/services/hybrid_pipeline.py#L1-L1875)
+- [domain_service.py:1-80](file://app/backend/services/domain_service.py#L1-L80)
 
 The architecture implements several key design principles:
 
@@ -145,7 +130,9 @@ The architecture implements several key design principles:
 - **Data Truncation Protection**: Automatic truncation of candidate profile data to prevent database constraint violations
 - **Circuit Breaker Integration**: Hybrid pipeline serves as fallback for hallucination detection in agent pipeline
 - **Enhanced Rule-Based Parsing**: Improved skill extraction with bidirectional substring matching and fuzzy logic
-- **Domain Co-Occurrence Validation**: Sophisticated two-pass validation system prevents false positives for high-collision skills
+- **Structured-First Approach**: Tiered confidence model prioritizing structured skills over text-scanned skills
+- **Sophisticated Collision Detection**: Automated high-collision skill validation preventing false positives
+- **Similarity-Based Domain Matching**: Enhanced domain classification using cosine similarity calculations
 
 ## Core Components
 
@@ -196,14 +183,15 @@ The scoring engine implements three-tier evaluation:
 
 ### Enhanced Domain Detection
 
-**Updated** The domain detection service provides confidence-based domain classification with cross-validation between job descriptions and candidate profiles.
+**Updated** The domain detection service provides confidence-based domain classification with cross-validation between job descriptions and candidate profiles using similarity calculations.
 
 ```mermaid
 flowchart TD
 JD[Job Description] --> JD_Detect[JD Domain Detection]
 Resume[Resume Skills/Text] --> Resume_Detect[Resume Domain Detection]
-JD_Detect --> Cross_Check{Cross-Validation}
-Resume_Detect --> Cross_Check
+JD_Detect --> Similarity[Similarity Calculation]
+Resume_Detect --> Similarity
+Similarity --> Cross_Check{Cross-Validation}
 Cross_Check --> Confidence{Confidence ≥ 0.3?}
 Confidence --> |Yes| Final_Domain[Final Domain Assignment]
 Confidence --> |No| Unknown[Unknown Domain]
@@ -219,7 +207,8 @@ The domain detection system provides:
 - Minimum confidence threshold (0.3) for reliable assignments
 - Per-domain match density calculations
 - Structured confidence scoring for transparency
-- Cross-validation between JD and resume domains
+- Cross-validation between JD and resume domains using cosine similarity
+- **New**: Similarity-based domain matching with configurable thresholds
 
 ### Gap Detection Engine
 
@@ -269,6 +258,11 @@ The enhanced skills registry provides:
 
 **Domain-Clustered Taxonomy**: Organized skills into 17 specialized domains including programming languages, web development, databases, cloud platforms, AI/ML, data engineering, and more.
 
+**Tiered Confidence Model**: 
+- Tier 0: Structured skills from candidate profiles (HIGH confidence, always accepted)
+- Tier 1: Alias-expanded skills with bidirectional matching
+- Tier 2: Text-scanned skills (LOW confidence, require domain validation)
+
 **Two-Pass Validation System**: 
 - Pass 1 validates structured skills from candidate profiles (always accepted)
 - Pass 2 validates text-extracted skills with domain co-occurrence requirements
@@ -282,7 +276,7 @@ The enhanced skills registry provides:
 
 ### Two-Phase Architecture
 
-**Updated** The hybrid pipeline now operates as a streamlined orchestrator that delegates complex scoring to the new deterministic framework while maintaining the original two-phase approach with enhanced validation systems.
+**Updated** The hybrid pipeline now operates as a streamlined orchestrator that delegates complex scoring to the new deterministic framework while maintaining the original two-phase approach with enhanced validation systems and similarity-based domain matching.
 
 ```mermaid
 sequenceDiagram
@@ -306,18 +300,16 @@ Hybrid->>Python : _run_python_phase()
 Python->>Python : parse_jd_rules()
 Python->>Python : parse_resume_rules()
 Python->>Skills : match_skills()
+Skills->>Skills : Tiered confidence model with structured-first approach
 Skills->>Skills : Two-pass validation with domain co-occurrence
 Skills-->>Python : Validated skill matches
 Python->>Python : score_education_rules()
 Python->>Python : score_experience_rules()
 Python->>Python : domain_architecture_rules()
-Python->>Deterministic : compute_deterministic_score()
-Deterministic->>Deterministic : check_eligibility()
-Deterministic->>Deterministic : compute_fit_score()
-Deterministic-->>Python : deterministic_score
-Truncate -->>Python : Check Role/Company Length
-Truncate-->>Python : Truncated Data
-Python-->>Hybrid : Python Scores
+Python->>Python : compute_deterministic_score()
+Python->>Python : _compute_domain_similarity()
+Python->>Python : check_eligibility()
+Python-->>Hybrid : Deterministic Scores
 Hybrid->>Background : Start LLM Task
 Background->>LLM : explain_with_llm()
 LLM->>UltraShort : Validate Response Length
@@ -327,7 +319,7 @@ LLM-->>Background : Valid LLM Results
 Background->>Merge : _merge_llm_into_result()
 Merge-->>Background : Merged Analysis
 Background->>Route : Update DB with Merged Result
-Route-->>Client : Immediate Python Results
+Route-->>Client : Immediate Deterministic Results
 Note over Client,Background : Frontend polls /api/analysis/{id}/narrative
 Note over Background,Fallback : Enhanced fallback mechanisms for empty analysis results
 Note over Agent,CB : Circuit breaker monitors hallucination rate
@@ -336,9 +328,9 @@ Note over Agent,RuleBased : When threshold exceeded, use hybrid pipeline rules
 
 **Diagram sources**
 - [analyze.py:442-667](file://app/backend/routes/analyze.py#L442-L667)
-- [hybrid_pipeline.py:1222-1357](file://app/backend/services/hybrid_pipeline.py#L1222-L1357)
-- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
-- [agent_pipeline.py:350-420](file://app/backend/services/agent_pipeline.py#L350-L420)
+- [hybrid_pipeline.py:1263-1418](file://app/backend/services/hybrid_pipeline.py#L1263-L1418)
+- [hybrid_pipeline.py:1470-1642](file://app/backend/services/hybrid_pipeline.py#L1470-L1642)
+- [eligibility_service.py:53-123](file://app/backend/services/eligibility_service.py#L53-L123)
 
 ### Phase 1: Python Processing (1-2 seconds)
 
@@ -352,6 +344,7 @@ Note over Agent,RuleBased : When threshold exceeded, use hybrid pipeline rules
 - **Skill Separation**: Distinguishes required skills from nice-to-have skills
 
 **Enhanced Skill Matching Engine:**
+- **Tiered Confidence Model**: Implements structured-first approach with three tiers of skill validation
 - **Bidirectional Substring Matching**: Improved algorithm prevents false positives like "Java" matching "JavaScript"
 - **Fuzzy Matching**: Enhanced rapidfuzz integration with 88% threshold for approximate string matching
 - **Alias Expansion**: Comprehensive alias handling with proper normalization
@@ -373,6 +366,13 @@ Note over Agent,RuleBased : When threshold exceeded, use hybrid pipeline rules
 - Core skill match minimum (30% threshold)
 - Relevant experience validation
 - Structured rejection reasons with confidence scores
+
+**Enhanced Domain Similarity Matching:**
+**New** The system now computes domain similarity using cosine similarity between JD and candidate domain score vectors:
+- Vector-based similarity calculation using `_compute_domain_similarity`
+- Fallback to binary name comparison when score vectors are unavailable
+- Configurable similarity threshold (0.2) for domain mismatch detection
+- Integration with eligibility checking system
 
 **Feature Scoring (Weighted Combination):**
 - Configurable weight distribution for features
@@ -466,86 +466,127 @@ The hybrid pipeline implements intelligent environment detection to optimize LLM
 - [hybrid_pipeline.py:1350-1365](file://app/backend/services/hybrid_pipeline.py#L1350-L1365)
 - [hybrid_pipeline.py:1167-1235](file://app/backend/services/hybrid_pipeline.py#L1167-L1235)
 
-## Enhanced Skills Registry System
+## Enhanced Domain Matching System
 
-### Comprehensive Domain-Clustered Skill Taxonomy
+### Cosine Similarity Implementation
 
-**Updated** The enhanced skills registry now features a sophisticated domain-clustered taxonomy with 17 specialized domains and comprehensive validation systems.
-
-**Programming Languages Domain**:
-- Core Imperative: Python, Java, C++, C#, C, Go, Rust, Kotlin, Swift, Ruby, PHP, Perl, Ada, Assembly
-- Functional: Haskell, Erlang, Elixir, Clojure, F#, Lisp, Scheme, OCaml, PureScript, Elm, Scala
-- Scripting: Bash, PowerShell, Groovy, Lua, Perl
-- Specialized: R, MATLAB, Julia, SAS, SPSS, Minitab, Stata
-- Blockchain: Solidity, Vyper, Move, Cairo
-
-**Web Development Domains**:
-- Frontend: React, Vue.js, Angular, Next.js, Nuxt.js, Svelte, Astro, Remix, Gatsby, and supporting libraries
-- Backend: Node.js, Python (FastAPI, Django, Flask), Java (Spring Boot), Go (Gin, Echo), Ruby (Rails), PHP (Laravel)
-- Databases: Relational (PostgreSQL, MySQL, MongoDB, Redis, Elasticsearch, Cassandra, DynamoDB)
-- Cloud Platforms: AWS, Google Cloud Platform, Microsoft Azure, DigitalOcean, Alibaba Cloud, Railway, Vercel
-
-**AI/ML and Data Engineering**:
-- Core AI/ML: Machine Learning, Deep Learning, Neural Networks, Natural Language Processing, Computer Vision
-- Frameworks: PyTorch, TensorFlow, Scikit-learn, Hugging Face, LangChain, LlamaIndex
-- Data Engineering: Apache Spark, Pandas, NumPy, Apache Kafka, Airflow, DBT
-
-### Enhanced Two-Pass Validation System
-
-**Updated** The new two-pass validation system in match_skills() prevents false positives by requiring domain co-occurrence context for high-collision skills:
+**Updated** The new `_compute_domain_similarity` function implements sophisticated cosine similarity calculations between job description and candidate domain score vectors, mirroring the eligibility service's approach.
 
 ```mermaid
 flowchart TD
-Input[Input Skills] --> Normalize[Normalize Skill Names]
-Normalize --> Pass1[Pass 1: Structured Skills]
-Pass1 --> Accept1[Accept All Structured Skills]
-Accept1 --> Pass2[Pass 2: Text-Extracted Skills]
-Pass2 --> CheckCollision{High-Collision Skill?}
-CheckCollision --> |No| Accept2[Accept Skill]
-CheckCollision --> |Yes| CheckContext[Check Domain Context]
-CheckContext --> HasContext{Has Supporting Context?}
-HasContext --> |Yes| Accept2
-HasContext --> |No| Reject[Reject Skill]
-Accept2 --> Aggregate[Aggregate Results]
-Reject --> Aggregate
-Aggregate --> Score[Calculate Scores]
-Score --> Output[Final Skill Set]
+JD_Domain[JD Domain Scores] --> VectorCalc[Vector Calculation]
+JD_Domain --> BinaryCheck{Scores Available?}
+BinaryCheck --> |Yes| VectorCalc
+BinaryCheck --> |No| BinaryCompare[Binary Name Comparison]
+VectorCalc --> DotProduct[Dot Product Calculation]
+VectorCalc --> Magnitude[Magnitude Calculation]
+DotProduct --> Similarity[Similarity = Dot/(|JD||Candidate|)]
+Magnitude --> Similarity
+BinaryCompare --> Similarity
+Similarity --> Threshold{Similarity ≥ 0.2?}
+Threshold --> |Yes| Accept[Accept Domain Match]
+Threshold --> |No| Reject[Reject Domain Match]
 ```
 
 **Diagram sources**
-- [skill_matcher.py:735-852](file://app/backend/services/skill_matcher.py#L735-L852)
+- [hybrid_pipeline.py:55-81](file://app/backend/services/hybrid_pipeline.py#L55-L81)
+- [eligibility_service.py:23-50](file://app/backend/services/eligibility_service.py#L23-L50)
 
-The validation system handles:
-- **Pass 1**: All structured skills from candidate profiles are accepted without validation
-- **Pass 2**: Text-extracted skills undergo domain co-occurrence validation
-- **High-Collision Skills**: Skills like "railway", "rtos", "r", "go", "c" require supporting context
-- **Domain Context**: Skills must have at least one supporting skill from the same subcategory
+The similarity calculation provides:
 
-**Enhanced Bidirectional Substring Matching**: The system now implements improved bidirectional substring matching that prevents common false positives:
-- "Java" will not match "JavaScript" 
-- "SQL" will not match "SQLAlchemy"
-- Proper normalization ensures accurate matching while maintaining flexibility
+**Vector-Based Similarity**: 
+- Computes cosine similarity using score vectors from domain detection
+- Handles empty score vectors with binary fallback comparison
+- Rounds results to 3 decimal places for consistency
 
-**High-Collision Skill Management**: The system identifies and validates high-collision skills that require domain context:
-- **Critical**: railway, rtos, r, go, c
-- **High**: swift, ruby, scala, spark, rocket, phoenix  
-- **Medium**: julia, nim, elixir, erlang, kotlin, terraform
+**Mathematical Foundation**:
+- Dot product calculation: Σ(JD_score × Candidate_score) for all domains
+- Magnitude calculation: √Σ(score²) for each domain vector
+- Similarity: dot_product / (jd_magnitude × candidate_magnitude)
 
-**Domain Co-Occurrence Validation**: Skills are validated against subcategory context using the domain-clustered taxonomy:
-- "railway" requires cloud platform context (AWS, GCP, Azure, Vercel, etc.)
-- "rtos" requires embedded systems context (FreeRTOS, ARM, microcontroller, etc.)
-- Prevents false positives when skills appear in business context without technical domain
+**Configurable Threshold**:
+- Default similarity threshold: 0.2 for domain mismatch detection
+- Used in eligibility checking to prevent inappropriate matches
+- Allows fine-tuning for different domain relationships
 
-**Enhanced Testing Framework**: Comprehensive test coverage validates the two-pass validation system:
-- Prevents false positives for high-collision skills without proper context
-- Ensures structured skills are always accepted
-- Validates domain-specific acceptance patterns
-- Tests edge cases and boundary conditions
+### Eligibility Integration
+
+**Updated** The similarity-based domain matching is integrated into the eligibility checking system with structured threshold validation.
+
+```mermaid
+flowchart TD
+DomainDetection[Domain Detection] --> SimilarityCalc[Similarity Calculation]
+SimilarityCalc --> ThresholdCheck{Similarity ≥ 0.2?}
+ThresholdCheck --> |Yes| Eligible[Mark as Eligible]
+ThresholdCheck --> |No| Ineligible[Mark as Ineligible]
+Eligible --> CoreSkills[Check Core Skills ≥ 0.3]
+Ineligible --> CoreSkills
+CoreSkills --> ExperienceCheck[Check Relevant Experience > 0]
+ExperienceCheck --> FinalDecision[Final Eligibility Decision]
+```
+
+**Diagram sources**
+- [eligibility_service.py:53-123](file://app/backend/services/eligibility_service.py#L53-L123)
+- [hybrid_pipeline.py:1321-1351](file://app/backend/services/hybrid_pipeline.py#L1321-L1351)
+
+The eligibility integration provides:
+
+**Multi-Level Validation**:
+- Domain similarity threshold (0.2) for related domain detection
+- Core skill match threshold (0.3) for minimum qualification
+- Relevant experience validation for practical suitability
+
+**Structured Reasoning**:
+- Detailed eligibility reasons with confidence scores
+- Domain similarity metrics for transparency
+- Threshold-based decision making with clear rationale
+
+**Enhanced Domain Classification**:
+- Better discrimination between related domains (embedded vs hardware)
+- Improved accuracy in domain mismatch detection
+- Consistent behavior between Python phase and eligibility checking
+
+### Similarity Calculation Functions
+
+**Updated** The system now includes two complementary similarity calculation functions:
+
+**Python Phase Similarity (`_compute_domain_similarity`)**:
+- Used in Python phase for domain matching calculations
+- Mirrors eligibility service implementation for consistency
+- Returns similarity scores for deterministic scoring
+
+**Eligibility Service Similarity (`_compute_domain_similarity_for_eligibility`)**:
+- Dedicated function for eligibility checking
+- Integrated with eligibility engine for hard rejection gates
+- Provides structured similarity metrics for decision making
+
+**Shared Implementation**:
+- Both functions use identical mathematical approach
+- Consistent threshold values (0.2) for domain mismatch detection
+- Binary fallback mechanism for score vector unavailability
+- Symmetric similarity calculations (sim(A,B) = sim(B,A))
+
+**Enhanced Testing Framework**: Comprehensive test coverage validates the similarity calculations and eligibility integration:
+
+**Similarity Calculation Tests**:
+- Identical score vectors: similarity > 0.8
+- Related domains: medium similarity (0.3-0.9)
+- Unrelated domains: low similarity (< 0.2)
+- Binary fallback: name match returns confidence, mismatch returns 0.0
+- Zero magnitude vectors: returns 0.0
+- Symmetric property validation
+
+**Eligibility Integration Tests**:
+- Similarity threshold validation (0.2)
+- Domain mismatch detection with structured reasons
+- Core skill and experience validation integration
+- Confidence score preservation in eligibility results
 
 **Section sources**
-- [skill_matcher.py:340-529](file://app/backend/services/skill_matcher.py#L340-L529)
-- [skill_matcher.py:735-852](file://app/backend/services/skill_matcher.py#L735-L852)
-- [test_skill_taxonomy.py:90-194](file://app/backend/tests/test_skill_taxonomy.py#L90-L194)
+- [hybrid_pipeline.py:55-81](file://app/backend/services/hybrid_pipeline.py#L55-L81)
+- [eligibility_service.py:23-50](file://app/backend/services/eligibility_service.py#L23-L50)
+- [test_hybrid_pipeline.py:37-89](file://app/backend/tests/test_hybrid_pipeline.py#L37-L89)
+- [test_eligibility_service.py:13-74](file://app/backend/tests/test_eligibility_service.py#L13-L74)
 
 ## Background Processing
 
@@ -627,8 +668,8 @@ Analysis --> DB[Database Persistence]
 ```
 
 **Diagram sources**
-- [hybrid_pipeline.py:1860-1902](file://app/backend/services/hybrid_pipeline.py#L1860-L1902)
-- [hybrid_pipeline.py:1971-1976](file://app/backend/services/hybrid_pipeline.py#L1971-L1976)
+- [hybrid_pipeline.py:1421-1463](file://app/backend/services/hybrid_pipeline.py#L1421-L1463)
+- [hybrid_pipeline.py:1534-1555](file://app/backend/services/hybrid_pipeline.py#L1534-L1555)
 
 **Enhanced Fallback Mechanisms**: When analysis_result becomes empty or missing critical fields, the system automatically uses python_result as the base for narrative merge, ensuring complete report data remains available.
 
@@ -651,8 +692,8 @@ Analysis --> DB[Database Persistence]
 **Enhanced Streaming Error Handling**: The streaming operations now feature improved timeout management and graceful degradation, handling LLM timeouts and errors more robustly.
 
 **Section sources**
-- [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
-- [db_models.py:129-148](file://app/backend/models/db_models.py#L129-L148)
+- [hybrid_pipeline.py:1470-1642](file://app/backend/services/hybrid_pipeline.py#L1470-L1642)
+- [analyze.py:1118-1168](file://app/backend/routes/analyze.py#L1118-L1168)
 
 ## Status Tracking and Polling
 
@@ -663,7 +704,7 @@ Analysis --> DB[Database Persistence]
 ```mermaid
 stateDiagram-v2
 [*] --> Pending
-Pending --> Processing : Background Task Started
+Pending --> Processing : Background LLM Task Started
 Processing --> Ready : LLM Success
 Processing --> Failed : LLM Timeout/Error
 Ready --> [*]
@@ -717,14 +758,14 @@ Failed --> [*]
 **Enhanced Ultra-Short Response Detection**: The system now includes comprehensive ultra-short response detection to prevent malformed JSON parsing errors. When LLM responses are empty, whitespace-only, or ultra-short (< 20 characters), the system automatically retries with higher temperature (0.3) to generate valid JSON narratives. This enhancement ensures robust error handling and prevents system crashes from degenerate LLM outputs.
 
 **Section sources**
-- [hybrid_pipeline.py:1896-2038](file://app/backend/services/hybrid_pipeline.py#L1896-L2038)
+- [hybrid_pipeline.py:1599-1642](file://app/backend/services/hybrid_pipeline.py#L1599-L1642)
 - [analyze.py:1118-1168](file://app/backend/routes/analyze.py#L1118-L1168)
 
 ## API Integration
 
 ### RESTful Endpoint Design
 
-**Updated** The API provides comprehensive endpoints for both synchronous and asynchronous processing with enhanced deterministic scoring:
+**Updated** The API provides comprehensive endpoints for both synchronous and asynchronous processing with enhanced deterministic scoring and similarity-based domain matching:
 
 **Core Endpoints:**
 - `POST /api/analyze`: Single resume analysis with immediate Python scores
@@ -733,7 +774,7 @@ Failed --> [*]
 - `GET /api/analysis/{id}/narrative`: LLM narrative retrieval with status tracking
 
 **Response Structure:**
-The system maintains backward compatibility while extending functionality with deterministic scoring:
+The system maintains backward compatibility while extending functionality with deterministic scoring and enhanced domain matching:
 
 ```json
 {
@@ -777,17 +818,47 @@ The system maintains backward compatibility while extending functionality with d
       "total_experience": 8.0
     },
     "caps_applied": []
+  },
+  "jd_domain": {
+    "domain": "backend",
+    "confidence": 0.85,
+    "scores": {
+      "backend": 0.85,
+      "embedded": 0.10,
+      "devops": 0.05
+    }
+  },
+  "candidate_domain": {
+    "domain": "backend",
+    "confidence": 0.90,
+    "scores": {
+      "backend": 0.90,
+      "embedded": 0.08,
+      "mobile": 0.02
+    }
+  },
+  "eligibility": {
+    "eligible": true,
+    "reason": null,
+    "details": {}
+  },
+  "deterministic_features": {
+    "core_skill_match": 0.90,
+    "secondary_skill_match": 0.85,
+    "domain_match": 0.88,
+    "relevant_experience": 0.85,
+    "total_experience": 8.0
   }
 }
 ```
 
 ### Streaming Support
 
-**Updated** The SSE streaming implementation provides real-time feedback with enhanced deterministic scoring:
+**Updated** The SSE streaming implementation provides real-time feedback with enhanced deterministic scoring and similarity-based domain matching:
 
 **Event Types:**
 - `{"stage": "parsing", "result": {...Python scores...}}`
-- `{"stage": "scoring", "result": {...Complete Python analysis with deterministic scores...}}`
+- `{"stage": "scoring", "result": {...Complete Python analysis with deterministic scores and domain similarity...}}`
 - `{"stage": "complete", "result": {...Final analysis with LLM...}}`
 
 **Enhanced Error Handling:**
@@ -830,7 +901,7 @@ The system maintains backward compatibility while extending functionality with d
 
 ### Comprehensive Test Coverage
 
-**Updated** The testing suite covers all aspects of the hybrid pipeline with extensive unit and integration tests, including the new deterministic scoring framework and enhanced skills validation:
+**Updated** The testing suite covers all aspects of the hybrid pipeline with extensive unit and integration tests, including the new similarity-based domain matching and enhanced skills validation:
 
 **Test Categories:**
 - **Component Tests**: Individual function testing for each pipeline component
@@ -838,11 +909,15 @@ The system maintains backward compatibility while extending functionality with d
 - **Performance Tests**: Load testing and benchmarking
 - **Regression Tests**: Ensuring backward compatibility
 - **Deterministic Scoring Tests**: Testing new scoring engine with eligibility gates
-- **Skills Validation Tests**: Testing two-pass validation system and domain co-occurrence logic
+- **Skills Validation Tests**: Testing tiered confidence model and domain co-occurrence logic
+- **Tiered Confidence Model Tests**: Testing structured-first approach and validation hierarchy
+- **Similarity Calculation Tests**: Testing cosine similarity implementation and domain matching
+- **Eligibility Integration Tests**: Testing similarity-based domain matching in eligibility checking
 
 **Key Test Areas:**
 - **JD Parsing**: Validates role title extraction, experience requirements, and domain classification
 - **Enhanced Skill Matching**: Tests bidirectional substring matching and fuzzy matching algorithms
+- **Tiered Confidence Validation**: Tests structured skills acceptance and text-scanned skill validation
 - **Two-Pass Validation**: Tests domain co-occurrence validation for high-collision skills
 - **Gap Analysis**: Verifies date parsing, interval merging, and gap severity classification
 - **Background Processing**: Validates LLM fallback mechanisms and database integration
@@ -858,10 +933,15 @@ The system maintains backward compatibility while extending functionality with d
 - **Deterministic Scoring**: Tests new scoring engine with eligibility gates and hard caps
 - **Eligibility Validation**: Tests structured rejection reasons and confidence thresholds
 - **Risk Management**: Tests penalty calculation and recommendation enforcement
+- **Tiered Confidence Model**: Tests structured-first approach and validation hierarchy
+- **High-Collision Skill Validation**: Tests sophisticated collision detection and domain-aware validation
+- **Similarity Calculation**: Tests cosine similarity implementation and threshold validation
+- **Domain Matching Integration**: Tests similarity-based domain matching in eligibility checking
+- **match_skills API Tests**: Tests simplified function signature with named parameters
 
 ### Enhanced Mock-Based Testing
 
-**Updated** The test suite extensively uses mocking to isolate components and simulate various failure scenarios, including deterministic scoring failures:
+**Updated** The test suite extensively uses mocking to isolate components and simulate various failure scenarios, including deterministic scoring failures and similarity calculation errors:
 
 **Mock Strategies:**
 - **LLM Mocks**: Simulate LLM responses and timeouts with environment-aware behavior
@@ -869,6 +949,7 @@ The system maintains backward compatibility while extending functionality with d
 - **External Service Mocks**: Simulate Ollama and file system operations
 - **Network Mocks**: Test error handling and retry logic with cloud detection
 - **Deterministic Engine Mocks**: Test fallback mechanisms when scoring fails
+- **Similarity Calculation Mocks**: Test domain matching logic with various similarity scenarios
 
 **Status Tracking Tests:**
 - **Background Task Lifecycle**: Validates task registration, completion, and cleanup
@@ -919,15 +1000,35 @@ The system maintains backward compatibility while extending functionality with d
 - **Decision Explanation Testing**: Tests structured explanations with confidence scores
 
 **Enhanced Skills Validation Tests:**
+- **Tiered Confidence Model Testing**: Tests structured-first approach and validation hierarchy
 - **Two-Pass Validation Testing**: Tests domain co-occurrence validation for high-collision skills
 - **Structured Skills Acceptance**: Tests that structured skills are always accepted
 - **Domain Context Validation**: Tests proper acceptance of skills with supporting context
 - **False Positive Prevention**: Tests prevention of high-collision skill false positives
 - **Boundary Condition Testing**: Tests edge cases and validation thresholds
 
+**Enhanced Similarity Calculation Tests:**
+- **Cosine Similarity Implementation**: Tests mathematical accuracy of similarity calculations
+- **Threshold Validation**: Tests similarity threshold (0.2) for domain mismatch detection
+- **Binary Fallback Testing**: Tests fallback mechanism when score vectors are unavailable
+- **Symmetric Property Testing**: Tests mathematical symmetry in similarity calculations
+- **Edge Case Validation**: Tests zero vectors, identical vectors, and unrelated domains
+
+**Enhanced Eligibility Integration Tests:**
+- **Domain Similarity Integration**: Tests similarity-based domain matching in eligibility checking
+- **Threshold Validation**: Tests eligibility gates with similarity thresholds
+- **Structured Reasoning**: Tests detailed eligibility reasons and confidence scores
+- **Feature Integration**: Tests similarity calculation integration with other eligibility features
+
+**Enhanced match_skills API Tests:**
+- **Simplified API Validation**: Tests new 5-parameter function signature with named parameters
+- **Raw Text Fallback Scan**: Tests enhanced validation with text_scanned_skills and structured_skills parameters
+- **Parameter Clarity**: Validates that all function calls use named parameters for better readability
+- **Backward Compatibility**: Ensures existing functionality remains intact with new API design
+
 **Section sources**
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
-- [test_skill_taxonomy.py:1-194](file://app/backend/tests/test_skill_taxonomy.py#L1-L194)
+- [test_eligibility_service.py:1-74](file://app/backend/tests/test_eligibility_service.py#L1-L74)
 
 ## Performance Considerations
 
@@ -941,6 +1042,7 @@ The system maintains backward compatibility while extending functionality with d
 - Efficient string processing with proper memory cleanup
 - Deterministic scoring computed in-memory without external dependencies
 - Enhanced skills taxonomy optimized for validation performance
+- **New**: Similarity calculation vectors cached for reuse across processing
 
 **Computational Efficiency:**
 - Early termination for obvious cases (e.g., zero-length inputs)
@@ -948,6 +1050,7 @@ The system maintains backward compatibility while extending functionality with d
 - Minimal object creation during processing loops
 - Deterministic feature scoring with hard caps reduces complexity
 - Two-pass validation optimized to minimize unnecessary processing
+- **New**: Vector-based similarity calculations optimized for performance
 
 **Caching Mechanisms:**
 - JD parsing cache prevents redundant processing
@@ -955,6 +1058,7 @@ The system maintains backward compatibility while extending functionality with d
 - Candidate profile caching enables quick re-analysis
 - Deterministic scoring results cached for repeated use
 - Domain taxonomy cached for validation operations
+- **New**: Similarity calculation results cached for domain matching
 
 **Environment-Aware Optimizations:**
 - Dynamic parameter adjustment based on deployment type
@@ -1025,17 +1129,31 @@ The system maintains backward compatibility while extending functionality with d
 - **Configurable Weights**: Pre-computed weight distributions reduce runtime overhead
 - **Structured Explanations**: Cached explanations improve response times
 - **Risk Penalties**: Pre-calculated penalties minimize runtime computation
+- **Similarity Calculations**: Cached similarity results improve eligibility checking performance
 
 **Enhanced Skills Validation Performance:**
 - **Domain Taxonomy Caching**: Skills taxonomy cached for validation operations
-- **Two-Pass Optimization**: Minimizes unnecessary validation processing
+- **Tiered Confidence Model**: Minimizes unnecessary validation processing
 - **High-Collision Skill Filtering**: Reduces validation overhead for common skills
 - **Subcategory Context Building**: Efficient subcategory profile construction for validation
+- **Similarity-Based Matching**: Vector-based similarity calculations optimized for performance
 
 **Enhanced Risk Calculation Performance:**
 - **Structured Signals**: Pre-computed risk signals minimize runtime calculation
 - **Penalty Lookup**: Cached penalty calculations reduce overhead
 - **Diminishing Returns**: Optimized penalty application for performance
+
+**Enhanced Similarity Calculation Performance:**
+- **Vector Caching**: Domain score vectors cached for reuse across processing
+- **Mathematical Optimization**: Optimized cosine similarity calculations
+- **Threshold Validation**: Efficient similarity threshold checking
+- **Binary Fallback**: Minimal overhead for fallback comparison logic
+
+**Enhanced Eligibility Integration Performance:**
+- **Cached Similarity Results**: Similarity calculations cached for eligibility checking
+- **Threshold Validation**: Efficient domain mismatch detection
+- **Structured Reasoning**: Cached eligibility decisions improve response times
+- **Feature Integration**: Seamless integration with other eligibility features
 
 ## Troubleshooting Guide
 
@@ -1138,6 +1256,30 @@ The system maintains backward compatibility while extending functionality with d
 - **Solutions**: Check risk severity penalties configuration, validate risk signal generation, review recommendation thresholds
 - **Monitoring**: Watch for risk signal counts and penalty calculations
 
+**Enhanced Tiered Confidence Model Issues:**
+- **Symptoms**: Incorrect skill acceptance/rejection patterns
+- **Causes**: Misconfigured validation hierarchy, taxonomy errors
+- **Solutions**: Verify tier configuration, validate skill taxonomy, check validation logic
+- **Monitoring**: Watch for tier validation warnings and skill matching patterns
+
+**Enhanced match_skills API Issues:**
+- **Symptoms**: Function signature errors, parameter confusion
+- **Causes**: Mixed positional and named parameter usage, missing parameter names
+- **Solutions**: Ensure all match_skills calls use named parameters for clarity
+- **Monitoring**: Validate function signature compliance in all test cases
+
+**Enhanced Similarity Calculation Issues:**
+- **Symptoms**: Incorrect domain matching, similarity threshold violations
+- **Causes**: Mathematical calculation errors, threshold configuration issues
+- **Solutions**: Validate similarity calculation logic, check threshold values, review vector operations
+- **Monitoring**: Watch for similarity calculation warnings and threshold violations
+
+**Enhanced Eligibility Integration Issues:**
+- **Symptoms**: Domain mismatch detection failures, eligibility gate errors
+- **Causes**: Similarity threshold misconfiguration, eligibility logic errors
+- **Solutions**: Validate similarity thresholds, check eligibility gate logic, review domain matching integration
+- **Monitoring**: Watch for eligibility integration warnings and domain mismatch detection patterns
+
 ### Enhanced Diagnostic Tools
 
 **Health Monitoring:**
@@ -1227,6 +1369,7 @@ The system maintains backward compatibility while extending functionality with d
 - **Decision Explanation Validation**: Ensuring structured explanations are properly generated
 
 **Enhanced Skills Validation Diagnostics:**
+- **Tiered Confidence Model Logs**: Monitoring structured-first approach effectiveness
 - **Two-Pass Validation Logs**: Monitoring domain co-occurrence validation effectiveness
 - **High-Collision Skill Validation**: Tracking validation of critical skills like railway, rtos, r, go, c
 - **Domain Context Detection**: Ensuring proper subcategory context recognition
@@ -1239,6 +1382,25 @@ The system maintains backward compatibility while extending functionality with d
 - **Recommendation Threshold Monitoring**: Validating recommendation threshold enforcement
 - **Severity Penalty Validation**: Ensuring proper risk severity penalty application
 
+**Enhanced Similarity Calculation Diagnostics:**
+- **Cosine Similarity Logs**: Monitoring mathematical accuracy of similarity calculations
+- **Threshold Validation Logs**: Tracking similarity threshold (0.2) effectiveness
+- **Binary Fallback Monitoring**: Ensuring fallback mechanism works correctly
+- **Vector Operation Validation**: Validating domain score vector operations
+- **Symmetric Property Monitoring**: Ensuring mathematical symmetry in similarity calculations
+
+**Enhanced Eligibility Integration Diagnostics:**
+- **Domain Similarity Integration Logs**: Monitoring similarity-based domain matching effectiveness
+- **Threshold Validation Monitoring**: Tracking eligibility gates with similarity thresholds
+- **Structured Reasoning Validation**: Ensuring detailed eligibility reasons are properly generated
+- **Feature Integration Monitoring**: Validating seamless integration with other eligibility features
+
+**Enhanced match_skills API Diagnostics:**
+- **Function Signature Compliance**: Monitoring adherence to 5-parameter named parameter design
+- **Raw Text Fallback Validation**: Ensuring proper validation with text_scanned_skills and structured_skills parameters
+- **API Clarity Metrics**: Tracking improved readability through named parameter usage
+- **Backward Compatibility Validation**: Ensuring existing functionality remains intact
+
 **Section sources**
 - [hybrid_pipeline.py:135-147](file://app/backend/services/hybrid_pipeline.py#L135-L147)
 - [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
@@ -1247,7 +1409,9 @@ The system maintains backward compatibility while extending functionality with d
 
 **Updated** The Hybrid Pipeline represents a mature, production-ready solution that successfully balances computational efficiency with intelligent analysis through significant architectural enhancements. The system has been streamlined from 700+ lines to approximately 200 lines by delegating complex scoring responsibilities to a new centralized deterministic framework.
 
-**Enhanced Two-Pass Validation System**: The most significant improvement is the implementation of a sophisticated two-pass validation system in match_skills() that prevents false positives by requiring domain co-occurrence context for high-collision skills. This addresses critical issues where skills like "railway" could be incorrectly matched from business context without proper technical domain validation.
+**Enhanced Tiered Confidence Model**: The most significant improvement is the implementation of a sophisticated tiered confidence model that prioritizes structured skills over text-scanned skills while implementing strict validation for each tier. This addresses critical issues where skills like "railway" could be incorrectly matched from business context without proper technical domain validation.
+
+**Enhanced Two-Pass Validation System**: The new two-pass validation system in match_skills() prevents false positives by requiring domain co-occurrence context for high-collision skills. This addresses critical issues where skills like "railway" could be incorrectly matched from business context without proper technical domain validation.
 
 **Enhanced Deterministic Scoring Engine**: The new centralized scoring system in fit_scorer.py provides robust, deterministic candidate evaluation with hard caps and structured risk management. This eliminates the complexity of the previous weighting system while ensuring consistent and predictable results.
 
@@ -1260,6 +1424,14 @@ The system maintains backward compatibility while extending functionality with d
 **Enhanced Rule-Based Parsing**: The system now features improved skill extraction algorithms with enhanced bidirectional substring matching that prevents false positives like "Java" matching "JavaScript". The fuzzy matching capabilities with 88% threshold provide robust error tolerance while maintaining precision.
 
 **Enhanced Ultra-Short Response Detection**: The system now includes comprehensive ultra-short response detection to prevent malformed JSON parsing errors and improve system reliability. When LLM responses are empty, whitespace-only, or ultra-short (< 20 characters), the system automatically retries with higher temperature (0.3) to generate valid JSON narratives. This enhancement ensures robust error handling and prevents system crashes from degenerate LLM outputs.
+
+**Enhanced match_skills API**: The function signature has been simplified to accept 5 parameters with named parameters for better clarity and maintainability. This change improves code readability and reduces the likelihood of parameter ordering errors.
+
+**Enhanced Raw Text Fallback Scan**: The enhanced validation system now properly utilizes both text_scanned_skills and structured_skills parameters to provide more accurate domain context validation for text-extracted skills.
+
+**Enhanced Similarity-Based Domain Matching**: **New** The system now implements sophisticated cosine similarity calculations for domain matching, providing more nuanced discrimination between related domains. This enhancement improves accuracy in domain classification and eligibility checking.
+
+**Enhanced Eligibility Integration**: **New** The similarity-based domain matching is seamlessly integrated into the eligibility checking system, providing structured reasoning for domain mismatch decisions with confidence scores.
 
 **Enhanced Reliability Features:**
 - **Simplified Python Phase**: Reduced complexity while maintaining core functionality
@@ -1284,6 +1456,10 @@ The system maintains backward compatibility while extending functionality with d
 - **Enhanced Domain Detection**: Confidence-based domain classification with cross-validation
 - **Enhanced Skills Validation**: Sophisticated two-pass validation preventing false positives
 - **Enhanced Risk Calculation**: Improved penalty calculation with structured risk signals
+- **Tiered Confidence Model**: Structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API**: Enhanced function signature with named parameters for clarity
+- **Enhanced Similarity Calculation**: Sophisticated cosine similarity implementation for domain matching
+- **Enhanced Eligibility Integration**: Seamless integration of similarity-based domain matching
 
 **Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results through deterministic framework
@@ -1310,6 +1486,10 @@ The system maintains backward compatibility while extending functionality with d
 - **Enhanced Domain Detection** improving accuracy of role matching and evaluation
 - **Enhanced Skills Validation** preventing false positives through domain co-occurrence requirements
 - **Enhanced Risk Calculation** providing accurate penalty assessments
+- **Tiered Confidence Model** structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API** improved function signature with named parameters
+- **Enhanced Similarity-Based Domain Matching** providing more accurate domain classification
+- **Enhanced Eligibility Integration** seamless integration of similarity calculations
 
 The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes. The comprehensive status tracking and polling architecture ensure reliable operation in production environments while maintaining responsive user experiences.
 
@@ -1329,11 +1509,15 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Administrative Awareness**: Warning logs alert administrators to potential data loss
 - **Ultra-Short Response Protection**: Automated validation prevents malformed JSON parsing errors
 - **Circuit Breaker Effectiveness**: Seamless fallback ensures system stability under hallucination conditions
-- **Enhanced Deterministic Scoring**: Consistent and predictable results through hard caps and eligibility gates
+- **Enhanced Deterministic Scoring**: Consistent results through hard caps and eligibility gates
 - **Enhanced Eligibility Validation**: Structured rejection reasons improve system accuracy
 - **Enhanced Domain Detection**: Confidence-based classification improves matching accuracy
 - **Enhanced Skills Validation**: Sophisticated two-pass validation prevents false positives
 - **Enhanced Risk Calculation**: Accurate penalty calculations improve recommendation quality
+- **Tiered Confidence Model**: Structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API**: Simplified function signature with named parameters improves clarity
+- **Enhanced Similarity-Based Domain Matching**: More accurate domain classification improves eligibility checking
+- **Enhanced Eligibility Integration**: Seamless integration of similarity calculations improves system reliability
 
 **Enhanced Data Persistence Benefits:**
 - **Reliable Report Availability**: Complete analysis data remains accessible even when LLM processing fails
@@ -1347,6 +1531,10 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Circuit Breaker Reliability**: Seamless fallback ensures system stability under hallucination conditions
 - **Enhanced Deterministic Scoring Reliability**: Consistent results through hard caps and eligibility gates
 - **Enhanced Skills Validation Reliability**: Sophisticated validation prevents false positives consistently
+- **Enhanced Risk Calculation Reliability**: Accurate penalty calculations improve recommendation quality
+- **Tiered Confidence Model Reliability**: Structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API Reliability**: Simplified function signature with named parameters ensures consistency
+- **Enhanced Similarity Calculation Reliability**: Accurate cosine similarity calculations improve domain matching
 
 **Enhanced Streaming Benefits:**
 - **Robust Timeout Handling**: Improved timeout management and graceful degradation
@@ -1389,15 +1577,26 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 **Enhanced Skills Validation Benefits:**
 - **Accuracy**: Sophisticated two-pass validation prevents false positives
 - **Reliability**: Domain co-occurrence requirements ensure context-appropriate matches
-- **Performance**: Optimized validation reduces processing overhead
+- **Performance**: Optimized validation reduces processing overhead significantly
 - **Quality**: Enhanced taxonomy provides comprehensive skill coverage
 - **Scalability**: Efficient validation scales with growing skill databases
+- **Tiered Confidence Model**: Structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API**: Simplified function signature with named parameters improves clarity
 
-**Enhanced Risk Calculation Benefits:**
-- **Accuracy**: Structured risk signal detection improves penalty calculations
-- **Reliability**: Standardized risk severity penalties ensure consistent application
-- **Performance**: Pre-computed penalties reduce runtime overhead
-- **Quality**: Comprehensive risk assessment improves recommendation accuracy
+**Enhanced Similarity Calculation Benefits:**
+- **Accuracy**: Sophisticated cosine similarity provides more nuanced domain matching
+- **Reliability**: Mathematical foundation ensures consistent results
+- **Performance**: Optimized calculations minimize processing overhead
+- **Quality**: Better discrimination between related domains improves system accuracy
+- **Scalability**: Efficient vector operations scale with domain taxonomy growth
+- **Integration**: Seamless integration with eligibility checking system
+
+**Enhanced Eligibility Integration Benefits:**
+- **Accuracy**: Similarity-based domain matching improves eligibility decisions
+- **Reliability**: Structured reasoning with confidence scores
+- **Performance**: Cached similarity results improve processing speed
+- **Quality**: More accurate domain mismatch detection
+- **Integration**: Seamless integration with other eligibility features
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -1418,6 +1617,10 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Administrative Transparency**: Warning logs provide visibility into data truncation events
 - **Ultra-Short Response Protection**: Comprehensive validation prevents malformed JSON parsing errors
 - **Circuit Breaker Integration**: Critical fallback mechanism ensures system stability
+- **Tiered Confidence Model**: Structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API**: Simplified function signature with named parameters improves code clarity
+- **Enhanced Similarity-Based Domain Matching**: More accurate domain classification improves system performance
+- **Enhanced Eligibility Integration**: Seamless integration of similarity calculations improves system reliability
 
 **Enhanced Data Merging Benefits:**
 - **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
@@ -1434,45 +1637,10 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced Deterministic Scoring Reliability**: Consistent results through hard caps and eligibility gates
 - **Enhanced Skills Validation Reliability**: Sophisticated validation prevents false positives consistently
 - **Enhanced Risk Calculation Reliability**: Accurate penalty calculations improve recommendation quality
-
-**Enhanced Streaming Error Handling Benefits:**
-- **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
-- **Graceful Degradation**: Automatic fallback to Python scoring maintains system functionality
-- **Connection Resilience**: Better handling of network issues and connection drops
-- **Progressive Feedback**: Immediate user feedback during processing with fallback mechanisms
-- **System Reliability**: Enhanced error handling maintains stable operation during real-time streaming
-- **Deterministic Scoring Integration**: Real-time scoring with structured explanations
-
-**Enhanced Data Truncation Benefits:**
-- **Database Integrity Protection**: Automatic 255-character truncation prevents constraint violations in PostgreSQL database
-- **Administrative Oversight**: Warning logs alert administrators when truncation occurs to prevent unexpected data loss
-- **Dual Implementation Coverage**: Protection implemented in both hybrid pipeline service and analyze route ensures comprehensive coverage
-- **Minimal Performance Impact**: Automatic truncation adds negligible overhead while providing significant database protection
-- **Data Quality Assurance**: Prevention of database errors through proactive data validation
-- **Early Problem Detection**: Warning logs help identify potential data quality issues before they cause system failures
-
-**Enhanced Ultra-Short Response Detection Benefits:**
-- **Systematic Error Prevention**: Automated validation prevents malformed JSON parsing errors and system crashes
-- **Robust Error Recovery**: Intelligent retry mechanism with higher temperature (0.3) handles edge cases effectively
-- **Performance Optimization**: Minimal overhead while providing comprehensive response validation and recovery
-- **Diagnostic Efficiency**: Comprehensive logging enables rapid troubleshooting and performance monitoring
-- **User Experience Enhancement**: Seamless handling of LLM failures improves overall system reliability
-- **Data Quality Assurance**: Ensures only valid JSON narratives are processed, merged, and stored
-
-**Enhanced Circuit Breaker Benefits:**
-- **Systematic Stability**: Automatic fallback prevents hallucination propagation and maintains system accuracy
-- **Robust Error Recovery**: Seamless switch to rule-based parsing ensures continued system functionality
-- **Performance Optimization**: Minimal overhead while providing critical system stability
-- **Diagnostic Efficiency**: Comprehensive monitoring enables rapid identification and resolution of hallucination patterns
-- **User Experience Enhancement**: Transparent fallback without user intervention
-- **Data Quality Assurance**: Ensures only validated results are used for candidate evaluation
-
-**Enhanced Deterministic Scoring Benefits:**
-- **Systematic Consistency**: Predictable results through hard caps and eligibility gates
-- **Robust Accuracy**: Structured rejection reasons improve system reliability
-- **Performance Optimization**: Eliminates complex calculations for ineligible candidates
-- **Transparency Enhancement**: Structured explanations with confidence scores improve user understanding
-- **Scalability Improvement**: Deterministic scoring reduces computational overhead for large-scale operations
+- **Tiered Confidence Model Reliability**: Structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API Reliability**: Simplified function signature with named parameters ensures consistent usage
+- **Enhanced Similarity Calculation Reliability**: Accurate cosine similarity calculations improve domain matching
+- **Enhanced Eligibility Integration Reliability**: Seamless integration of similarity calculations improves system accuracy
 
 **Enhanced Skills Validation Benefits:**
 - **Systematic Accuracy**: Sophisticated two-pass validation prevents false positives consistently
@@ -1480,12 +1648,34 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Performance Optimization**: Efficient validation reduces processing overhead significantly
 - **Quality Enhancement**: Comprehensive taxonomy provides superior skill coverage and matching
 - **Scalability Improvement**: Optimized validation scales effectively with growing skill databases
+- **Tiered Confidence Model Enhancement**: Structured-first approach with comprehensive validation hierarchy
 
 **Enhanced Risk Calculation Benefits:**
 - **Systematic Accuracy**: Structured risk signal detection improves penalty calculations
 - **Robust Reliability**: Standardized risk severity penalties ensure consistent application
 - **Performance Optimization**: Pre-computed penalties reduce runtime overhead substantially
 - **Quality Enhancement**: Comprehensive risk assessment improves recommendation accuracy significantly
+
+**Enhanced Similarity Calculation Benefits:**
+- **Systematic Accuracy**: Sophisticated cosine similarity provides more nuanced domain matching
+- **Robust Reliability**: Mathematical foundation ensures consistent similarity calculations
+- **Performance Optimization**: Optimized vector operations reduce computational overhead
+- **Quality Enhancement**: Better discrimination between related domains improves eligibility accuracy
+- **Integration Enhancement**: Seamless integration with eligibility checking system
+
+**Enhanced Eligibility Integration Benefits:**
+- **Systematic Accuracy**: Similarity-based domain matching improves eligibility decision accuracy
+- **Robust Reliability**: Structured reasoning with confidence scores ensures consistent results
+- **Performance Optimization**: Cached similarity results improve processing speed significantly
+- **Quality Enhancement**: More accurate domain mismatch detection improves system reliability
+- **Integration Enhancement**: Seamless integration with other eligibility features
+
+**Enhanced match_skills API Benefits:**
+- **Systematic Clarity**: Simplified function signature with named parameters improves code readability
+- **Enhanced Validation**: Proper utilization of text_scanned_skills and structured_skills parameters improves validation accuracy
+- **Backward Compatibility**: Existing functionality preserved while improving API design
+- **Error Reduction**: Named parameters reduce likelihood of parameter ordering errors
+- **Maintainability**: Clear parameter names improve code maintainability and debugging
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -1495,9 +1685,13 @@ The system's architecture represents a mature balance between functionality and 
 - **Error Resilience**: Database write failures and merge function errors don't compromise report completeness
 - **User Experience**: Recruiters always receive complete analysis data, preventing confusion from 'PENDING' state displays
 - **Data Integrity**: Maintains the integrity of analysis history even when LLM processing encounters issues
-- **Deterministic Scoring Reliability**: Consistent results through hard caps and eligibility gates ensure predictable performance
+- **Deterministic Scoring Reliability**: Consistent results through hard caps and eligibility gates
 - **Skills Validation Reliability**: Sophisticated validation prevents false positives consistently
 - **Risk Calculation Reliability**: Accurate penalty calculations improve recommendation quality
+- **Tiered Confidence Model Reliability**: Structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API Reliability**: Simplified function signature with named parameters ensures consistent and readable code
+- **Enhanced Similarity Calculation Reliability**: Accurate cosine similarity calculations improve domain matching consistently
+- **Enhanced Eligibility Integration Reliability**: Seamless integration of similarity calculations improves system accuracy consistently
 
 **Enhanced Streaming Error Handling Benefits:**
 - **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
@@ -1544,12 +1738,34 @@ The system's architecture represents a mature balance between functionality and 
 - **Performance Optimization**: Efficient validation reduces processing overhead significantly
 - **Quality Enhancement**: Comprehensive taxonomy provides superior skill coverage and matching
 - **Scalability Improvement**: Optimized validation scales effectively with growing skill databases
+- **Tiered Confidence Model Enhancement**: Structured-first approach with comprehensive validation hierarchy
 
 **Enhanced Risk Calculation Benefits:**
 - **Systematic Accuracy**: Structured risk signal detection improves penalty calculations
 - **Robust Reliability**: Standardized risk severity penalties ensure consistent application
 - **Performance Optimization**: Pre-computed penalties reduce runtime overhead substantially
 - **Quality Enhancement**: Comprehensive risk assessment improves recommendation accuracy significantly
+
+**Enhanced Similarity Calculation Benefits:**
+- **Systematic Accuracy**: Sophisticated cosine similarity provides more nuanced domain matching
+- **Robust Reliability**: Mathematical foundation ensures consistent similarity calculations
+- **Performance Optimization**: Optimized vector operations reduce computational overhead
+- **Quality Enhancement**: Better discrimination between related domains improves eligibility accuracy
+- **Integration Enhancement**: Seamless integration with eligibility checking system
+
+**Enhanced Eligibility Integration Benefits:**
+- **Systematic Accuracy**: Similarity-based domain matching improves eligibility decision accuracy
+- **Robust Reliability**: Structured reasoning with confidence scores ensures consistent results
+- **Performance Optimization**: Cached similarity results improve processing speed significantly
+- **Quality Enhancement**: More accurate domain mismatch detection improves system reliability
+- **Integration Enhancement**: Seamless integration with other eligibility features
+
+**Enhanced match_skills API Benefits:**
+- **Systematic Clarity**: Simplified function signature with named parameters improves code readability
+- **Enhanced Validation**: Proper parameter usage improves domain context validation accuracy
+- **Backward Compatibility**: Existing functionality preserved while improving API design
+- **Error Reduction**: Named parameters reduce misuse and confusion
+- **Maintainability**: Clear parameter names improve code maintainability and debugging
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -1570,6 +1786,10 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Administrative Transparency**: Warning logs provide visibility into data truncation events
 - **Ultra-Short Response Protection**: Comprehensive validation prevents malformed JSON parsing errors
 - **Circuit Breaker Integration**: Critical fallback mechanism ensures system stability
+- **Tiered Confidence Model**: Structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API**: Simplified function signature with named parameters improves code clarity
+- **Enhanced Similarity-Based Domain Matching**: More accurate domain classification improves system performance
+- **Enhanced Eligibility Integration**: Seamless integration of similarity calculations improves system reliability
 
 **Enhanced Data Merging Benefits:**
 - **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
@@ -1586,6 +1806,10 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced Deterministic Scoring Reliability**: Consistent results through hard caps and eligibility gates
 - **Enhanced Skills Validation Reliability**: Sophisticated validation prevents false positives consistently
 - **Enhanced Risk Calculation Reliability**: Accurate penalty calculations improve recommendation quality
+- **Tiered Confidence Model Reliability**: Structured-first approach with comprehensive validation hierarchy
+- **Enhanced match_skills API Reliability**: Simplified function signature with named parameters ensures consistent usage
+- **Enhanced Similarity Calculation Reliability**: Accurate cosine similarity calculations improve domain matching
+- **Enhanced Eligibility Integration Reliability**: Seamless integration of similarity calculations improves system accuracy
 
 **Enhanced Skills Validation Benefits:**
 - **Sophisticated Two-Pass Validation**: Prevents false positives through domain co-occurrence requirements
@@ -1593,11 +1817,33 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Performance Optimization**: Efficient validation reduces processing overhead significantly
 - **Quality Enhancement**: Systematic validation prevents high-collision skill false positives
 - **Scalability Improvement**: Optimized validation scales with growing skill databases
+- **Tiered Confidence Model Enhancement**: Structured-first approach with comprehensive validation hierarchy
 
 **Enhanced Risk Calculation Benefits:**
 - **Structured Risk Signal Detection**: Comprehensive risk assessment improves penalty accuracy
 - **Standardized Penalty Application**: Consistent risk severity penalties ensure fair scoring
-- **Performance Optimization**: Pre-computed penalties reduce runtime overhead
-- **Quality Enhancement**: Accurate risk calculations improve recommendation reliability
+- **Performance Optimization**: Pre-computed penalties reduce runtime overhead substantially
+- **Quality Enhancement**: Accurate risk calculations improve recommendation reliability significantly
+
+**Enhanced Similarity Calculation Benefits:**
+- **Sophisticated Cosine Similarity**: Mathematical foundation provides more nuanced domain matching
+- **Robust Reliability**: Accurate similarity calculations improve eligibility decision accuracy
+- **Performance Optimization**: Optimized vector operations reduce computational overhead
+- **Quality Enhancement**: Better discrimination between related domains improves system accuracy
+- **Integration Enhancement**: Seamless integration with eligibility checking system
+
+**Enhanced Eligibility Integration Benefits:**
+- **Sophisticated Domain Matching**: Similarity-based domain matching improves eligibility decision accuracy
+- **Robust Reliability**: Structured reasoning with confidence scores ensures consistent results
+- **Performance Optimization**: Cached similarity results improve processing speed significantly
+- **Quality Enhancement**: More accurate domain mismatch detection improves system reliability
+- **Integration Enhancement**: Seamless integration with other eligibility features
+
+**Enhanced match_skills API Benefits:**
+- **Simplified Function Signature**: 5-parameter design with named parameters improves clarity
+- **Enhanced Validation Accuracy**: Proper parameter usage improves domain context validation
+- **Improved Code Readability**: Named parameters make function calls self-documenting
+- **Reduced Error Likelihood**: Clear parameter names reduce misuse and confusion
+- **Backward Compatibility**: Existing functionality preserved while improving API design
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.

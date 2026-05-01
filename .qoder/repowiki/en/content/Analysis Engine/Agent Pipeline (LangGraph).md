@@ -3,11 +3,14 @@
 <cite>
 **Referenced Files in This Document**
 - [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
+- [skill_matcher.py](file://app/backend/services/skill_matcher.py)
+- [onet_validator.py](file://app/backend/services/onet/onet_validator.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [llm_service.py](file://app/backend/services/llm_service.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
 - [main.py](file://app/backend/main.py)
 - [test_agent_pipeline.py](file://app/backend/tests/test_agent_pipeline.py)
+- [test_onet_integration.py](file://app/backend/tests/test_onet_integration.py)
 - [pii_redaction_service.py](file://app/backend/services/pii_redaction_service.py)
 - [guardrail_service.py](file://app/backend/services/guardrail_service.py)
 - [weight_mapper.py](file://app/backend/services/weight_mapper.py)
@@ -17,11 +20,12 @@
 
 ## Update Summary
 **Changes Made**
-- Streamlined agent pipeline by removing complex scoring logic in favor of new deterministic framework based on Applied Changes
-- Simplified scorer node to focus on interview question generation while delegating numerical scoring to deterministic components
-- Enhanced weight mapping system with new universal schema supporting 7-weight categories
-- Integrated comprehensive guardrail system with ensemble voting and cross-node consistency checks
-- Improved calibration context integration for RAG learning capabilities
+- Enhanced agent pipeline integration with new structured skills approach, passing both structured and text-scanned skills to the matching system
+- Improved integration with enhanced skill matching validation mechanisms and ONET validation system
+- Added comprehensive O*NET occupation-aware validation for skill matching with high-collision skill filtering
+- Implemented sophisticated three-tier skill matching architecture with structured, text-scanned, and fuzzy matching
+- Enhanced anti-hallucination guardrails with occupation-aware skill validation
+- Integrated ONET validation into the agent pipeline result assembly for enriched skill analysis
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -46,7 +50,7 @@
 ## Introduction
 This document describes the LangGraph-based multi-agent analysis pipeline that powers complex, step-by-step reasoning workflows for resume and job description evaluation. The pipeline integrates with Ollama models to enable structured extraction, matching, scoring, and comprehensive interview kit generation. It emphasizes deterministic, schema-bound outputs, robust fallbacks, and graceful degradation when LLM calls fail. The system is designed to support both non-streaming batch processing and streaming SSE responses, while complementing a hybrid approach that combines Python-first determinism with a single LLM narrative.
 
-**Updated** Streamlined by removing complex scoring logic in favor of new deterministic framework based on Applied Changes. The pipeline now focuses on interview question generation while delegating numerical scoring to deterministic components, resulting in more reliable and consistent results.
+**Updated** Enhanced with sophisticated three-tier skill matching architecture that integrates structured skills, text-scanned skills, and fuzzy matching with comprehensive O*NET occupation-aware validation for improved accuracy and reduced false positives.
 
 ## Project Structure
 The agent pipeline is implemented as a LangGraph StateGraph with three sequential nodes:
@@ -74,7 +78,8 @@ end
 ## Core Components
 - StateGraph and State: The pipeline defines a strongly-typed state interface that carries inputs, intermediate outputs, and accumulated errors across nodes.
 - LLM singletons: Fast and reasoning LLM clients are created once and reused to reduce connection overhead and improve throughput.
-- **Updated** Simplified scoring framework: Removed complex scoring logic in favor of deterministic scoring through fit_scorer.py and weight_mapper.py integration.
+- **Updated** Enhanced skill matching system: Three-tier architecture with structured skills (Tier 0), text-scanned skills (Tier 2), and fuzzy matching with O*NET validation for improved accuracy.
+- **Updated** O*NET integration: Occupation-aware skill validation that filters high-collision skills and prevents false positives through authoritative skill validation.
 - **Updated** Enhanced interview kit generation: Sophisticated scoring prompts that incorporate comprehensive role and candidate context for targeted question generation.
 - Anti-hallucination guardrails: Comprehensive systems to prevent hallucinations including cache versioning, circuit breakers, and rule-based fallbacks.
 - PII redaction integration: Automatic removal of personally identifiable information to eliminate bias from personal identifiers in resume analysis.
@@ -84,9 +89,9 @@ end
 - Timeout management: Consistent timeout handling using `_llm_request_timeout` constant for predictable LLM behavior.
 - Node implementations:
   - jd_parser: Extracts structured job requirements from raw job descriptions with hallucination detection.
-  - resume_analyser: Parses candidate profiles, identifies skills, and computes education and timeline scores with PII redaction.
+  - resume_analyser: Parses candidate profiles, identifies skills using enhanced three-tier matching, and computes education and timeline scores with PII redaction.
   - **Updated** scorer: Generates comprehensive interview questions with fallback mechanisms, delegating numerical scoring to deterministic components.
-- Result assembly: Converts the final state into a unified response compatible with the existing API schema.
+- Result assembly: Converts the final state into a unified response compatible with the existing API schema, including O*NET validation enrichment.
 - JSON serialization: Comprehensive handling of datetime, date, and Decimal objects for proper serialization.
 
 **Section sources**
@@ -98,9 +103,9 @@ end
 - [agent_pipeline.py:1068-1158](file://app/backend/services/agent_pipeline.py#L1068-L1158)
 
 ## Architecture Overview
-The agent pipeline orchestrates three specialized agents with comprehensive anti-hallucination guardrails and cloud-aware configuration management:
+The agent pipeline orchestrates three specialized agents with comprehensive anti-hallucination guardrails, enhanced skill matching, and cloud-aware configuration management:
 - Agent 1 (jd_parser): Parses job descriptions into canonical fields with hallucination detection and rule-based fallback.
-- Agent 2 (resume_analyser): Builds a candidate profile with PII redaction, matches skills, and evaluates education and timeline.
+- Agent 2 (resume_analyser): Builds a candidate profile with PII redaction, matches skills using three-tier architecture with O*NET validation, and evaluates education and timeline.
 - **Updated** Agent 3 (scorer): Generates comprehensive interview questions with fallback mechanisms, while delegating numerical scoring to deterministic components.
 
 ```mermaid
@@ -123,6 +128,9 @@ Graph->>RA : "invoke(state)"
 RA->>RA : "PII redaction service"
 RA->>O1 : "ainvoke(prompt) with enhanced truncation"
 O1-->>RA : "structured JSON"
+RA->>RA : "Enhanced skill matching with O*NET validation"
+RA->>RA : "Three-tier skill matching : structured + text-scanned + fuzzy"
+RA->>RA : "Filter high-collision skills using O*NET"
 RA-->>Graph : "candidate_profile + skill_analysis + edu_timeline_analysis + errors"
 Graph->>SC : "invoke(state)"
 SC->>SC : "Enhanced scoring prompt with role/candidate context"
@@ -131,7 +139,7 @@ O2-->>SC : "structured JSON with interview questions"
 SC->>SC : "Generate fallback questions if LLM fails"
 SC->>SC : "Delegate numerical scoring to deterministic components"
 SC-->>Graph : "final_scores + interview_questions + errors"
-Graph-->>Client : "assemble_result(final_state)"
+Graph-->>Client : "assemble_result(final_state) with O*NET enrichment"
 ```
 
 **Diagram sources**
@@ -217,10 +225,15 @@ ReturnState --> End
 - [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
 
 ### Node: resume_analyser
-- Purpose: Combine resume parsing, skill matching, education scoring, and timeline analysis into a single LLM call with PII redaction.
+- Purpose: Combine resume parsing, enhanced skill matching with O*NET validation, education scoring, and timeline analysis into a single LLM call with PII redaction.
 - Behavior:
   - Uses a fast LLM with a comprehensive prompt that includes role, domain, seniority, required skills, resume text, and employment timeline.
   - Integrates PII redaction service to eliminate bias from names, emails, phones, and other personal identifiers.
+  - **Updated** Implements three-tier skill matching architecture:
+    - Tier 0: Structured skills (from Skills section) - always accepted with highest confidence
+    - Tier 1: Candidate skills (parser output) - accepted with validation
+    - Tier 2: Text-scanned skills (low confidence) - promoted only with strict domain-context validation
+  - **Updated** Integrates O*NET validation to filter high-collision skills and prevent false positives
   - Splits the flat combined output into three sub-dictionaries: candidate_profile, skill_analysis, and edu_timeline_analysis.
   - Applies defaults for missing or null fields to ensure schema completeness.
   - On LLM failure, returns typed-null defaults for all three sub-dictionaries and appends an error.
@@ -233,8 +246,11 @@ BuildPrompt --> PII["PII redaction service"]
 PII --> CallLLM["Call fast LLM"]
 CallLLM --> Parse["Parse JSON with fallback"]
 Parse --> Split["Split into CP/SA/ETA dicts"]
-Split --> Defaults["Apply defaults for missing fields"]
-Defaults --> ReturnState["Return {candidate_profile, skill_analysis, edu_timeline_analysis, errors}"]
+Split --> EnhancedSkills["Enhanced skill matching with O*NET validation"]
+EnhancedSkills --> ThreeTier["Three-tier matching: structured + text-scanned + fuzzy"]
+ThreeTier --> FilterHighCollision["Filter high-collision skills using O*NET"]
+FilterHighCollision --> ApplyDefaults["Apply defaults for missing fields"]
+ApplyDefaults --> ReturnState["Return {candidate_profile, skill_analysis, edu_timeline_analysis, errors}"]
 ReturnState --> End(["Exit"])
 ```
 
@@ -243,6 +259,60 @@ ReturnState --> End(["Exit"])
 
 **Section sources**
 - [agent_pipeline.py:581-654](file://app/backend/services/agent_pipeline.py#L581-L654)
+
+### Enhanced Skill Matching Architecture
+**Updated** The resume analyser now implements a sophisticated three-tier skill matching system:
+
+#### Tier 0: Structured Skills (Highest Confidence)
+- Skills extracted from dedicated Skills sections in resumes
+- Always accepted regardless of collision status
+- Highest confidence level for validation
+
+#### Tier 1: Candidate Skills (Parser Output)
+- Skills extracted from resume parsing with moderate confidence
+- Subject to validation against job requirements and domain context
+
+#### Tier 2: Text-Scanned Skills (Lowest Confidence)
+- Skills extracted through full-text scanning with lowest confidence
+- **Strict validation required**: Must pass domain-context validation to be accepted
+- High-collision skills require 2+ context skills from same subcategory
+- Non-collision skills require 1+ context skill from same domain
+
+#### O*NET Validation Integration
+- Validates matched skills against authoritative O*NET data
+- Filters high-collision skills that O*NET deems invalid for the target occupation
+- Prevents false positives like "railway" for data engineering roles
+- Provides occupation match ratio and hot technology indicators
+
+```mermaid
+flowchart TD
+A["Candidate Skills"] --> B["Tier 0: Structured Skills"]
+A --> C["Tier 1: Candidate Skills"]
+A --> D["Tier 2: Text-Scanned Skills"]
+B --> E["Accept All"]
+C --> F["Validate Against JD + Domain Context"]
+D --> G["Strict Domain Validation"]
+G --> H{"High-collision skill?"}
+H --> |Yes| I["Require 2+ context skills from same subcategory"]
+H --> |No| J["Require 1+ context skill from same domain"]
+I --> K["Validate via O*NET"]
+J --> K
+F --> L["Validate via O*NET"]
+E --> M["Combined Candidate Set"]
+K --> M
+L --> M
+M --> N["Match Against JD Requirements"]
+N --> O["O*NET Validation & Filtering"]
+O --> P["Final Matched Skills"]
+```
+
+**Diagram sources**
+- [skill_matcher.py:816-956](file://app/backend/services/skill_matcher.py#L816-L956)
+- [skill_matcher.py:31-71](file://app/backend/services/skill_matcher.py#L31-L71)
+
+**Section sources**
+- [skill_matcher.py:816-956](file://app/backend/services/skill_matcher.py#L816-L956)
+- [skill_matcher.py:31-71](file://app/backend/services/skill_matcher.py#L31-L71)
 
 ### Node: scorer
 - Purpose: Generate comprehensive interview questions with fallback mechanisms, while delegating numerical scoring to deterministic components.
@@ -279,6 +349,7 @@ ReturnState --> End(["Exit"])
 
 ### Result Assembly and Backward Compatibility
 - The final state is transformed into a unified result dictionary that preserves backward compatibility with the existing AnalysisResponse schema while adding new fields produced by the LangGraph pipeline.
+- **Updated** Enhanced with O*NET validation enrichment including occupation details, match ratios, and hot skills identification.
 - Ensures that the frontend's "Stability" bar continues to render by mapping timeline to stability in the score breakdown.
 
 **Section sources**
@@ -340,13 +411,13 @@ The system generates comprehensive fallback questions when LLM calls fail or pro
 - **Difficulty Calibration**: Use domain and seniority to calibrate question difficulty
 
 #### Behavioral Questions (3 questions, STAR format)
-- **Timeline Gap Address**: Address the biggest risk signal from gap/timeline assessment
+- **Timeline Gap Address**: Address the biggest risk signal from gap/timeline assessment: {gap_interpretation}
 - **Seniority-Specific Challenges**: Target senior roles (leadership/mentorship), mid roles (ownership), junior roles (learning agility)
 - **Role Transition**: Probe motivation for moving from current role to target role
 
 #### Culture-Fit Questions (2 questions)
 - **Motivation**: Why this specific role given candidate's career trajectory
-- **Work-Style Alignment**: Question tied to role context (startup vs. enterprise, remote vs. on-site)
+- **Work-Style Alignment**: Question tied to role context (fast-paced startup vs. structured enterprise, remote vs. on-site)
 
 ### Schema Validation for Interview Questions
 The system implements strict schema validation for interview questions:
@@ -511,6 +582,49 @@ def _sanitize_jd_output(data: dict, original_text: str) -> dict:
     return data
 ```
 
+### **Updated** O*NET Validation Integration
+The pipeline now integrates comprehensive O*NET validation to prevent hallucinations and false positives:
+
+```python
+def match_skills_with_onet(
+    candidate_skills, jd_skills, jd_text="", jd_nice_to_have=None, job_title=None,
+    structured_skills=None, text_scanned_skills=None
+):
+    """Enhanced skill matching with O*NET occupation context.
+    
+    Falls back to standard match_skills if O*NET data is unavailable
+    or no job_title is provided.
+    """
+    result = match_skills(candidate_skills, jd_skills, jd_nice_to_have,
+                          structured_skills=structured_skills,
+                          text_scanned_skills=text_scanned_skills)
+
+    validator = _get_onet_validator()
+    if validator is not None and validator.available and job_title:
+        try:
+            onet_result = validator.validate_skills_batch(
+                [m for m in result.get("matched_skills", [])],
+                job_title,
+            )
+            result["onet_validation"] = onet_result
+
+            # Filter: remove high-collision skills that O*NET says are NOT valid for this occupation
+            if onet_result.get("skill_validations"):
+                invalid_high_collision = set()
+                for skill_name, validation in onet_result["skill_validations"].items():
+                    norm = _normalize_skill(skill_name)
+                    if norm in HIGH_COLLISION_SKILLS and not validation.get("valid", True):
+                        invalid_high_collision.add(skill_name)
+                if invalid_high_collision:
+                    result["matched_skills"] = [s for s in result["matched_skills"]
+                                                if s not in invalid_high_collision]
+                    result["onet_filtered"] = list(invalid_high_collision)
+        except Exception as e:
+            logger.warning("O*NET validation failed (non-fatal): %s", e)
+
+    return result
+```
+
 ### Benefits of Enhanced Anti-Hallucination Guardrails
 - **Comprehensive Protection**: Multiple layers of hallucination prevention including cache versioning, skill validation, and circuit breakers
 - **Automatic Fallback**: Seamless transition to rule-based parsing when hallucination thresholds are exceeded
@@ -518,12 +632,14 @@ def _sanitize_jd_output(data: dict, original_text: str) -> dict:
 - **Bias Elimination**: Skill validation prevents hallucinations that could lead to incorrect job requirements
 - **Reliability**: Circuit breaker prevents cascading failures when hallucinations become frequent
 - **Audit Trail**: Hallucination counter provides visibility into guardrail effectiveness
+- **Enhanced Accuracy**: O*NET validation prevents false positives and improves skill matching precision
 
 **Section sources**
 - [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
 - [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
 - [agent_pipeline.py:246-304](file://app/backend/services/agent_pipeline.py#L246-L304)
 - [agent_pipeline.py:262-268](file://app/backend/services/agent_pipeline.py#L262-L268)
+- [skill_matcher.py:31-71](file://app/backend/services/skill_matcher.py#L31-L71)
 
 ## PII Redaction Integration
 
@@ -823,6 +939,14 @@ The `_json_default` function is used in multiple locations to ensure proper seri
    missing_skills=json.dumps(missing_skills[:8], default=_json_default)
    ```
 
+3. **O*NET Validation Enrichment**:
+   ```python
+   onet_hot_skills=json.dumps([
+       s["skill"] for s in onet.get("validated", [])
+       if s.get("is_hot")
+   ], default=_json_default)
+   ```
+
 ### Supported Data Types
 The JSON serialization handler supports the following non-JSON-serializable types:
 
@@ -841,10 +965,13 @@ The JSON serialization handler supports the following non-JSON-serializable type
 - [agent_pipeline.py:49-55](file://app/backend/services/agent_pipeline.py#L49-L55)
 - [agent_pipeline.py:620](file://app/backend/services/agent_pipeline.py#L620)
 - [agent_pipeline.py:866](file://app/backend/services/agent_pipeline.py#L866)
+- [agent_pipeline.py:1140-1144](file://app/backend/services/agent_pipeline.py#L1140-L1144)
 
 ## Dependency Analysis
 - LangGraph integration: Uses StateGraph with typed state and node callbacks.
 - LLM integration: ChatOllama singletons configured with deterministic settings and long-lived connections.
+- **Updated** Enhanced skill matching system: Three-tier architecture with structured skills, text-scanned skills, and O*NET validation integration.
+- **Updated** O*NET validation integration: Occupation-aware skill validation with high-collision filtering and false positive prevention.
 - **Updated** Simplified scoring framework: Removed complex scoring logic in favor of deterministic components through fit_scorer.py and weight_mapper.py.
 - **Updated** Enhanced interview kit generation: Sophisticated scoring prompts with comprehensive role and candidate context.
 - Anti-hallucination guardrails: Comprehensive systems including cache versioning, circuit breakers, and skill validation.
@@ -865,6 +992,8 @@ graph TB
 AP["agent_pipeline.py"] --> LC["LangGraph StateGraph"]
 AP --> CO["ChatOllama (fast)"]
 AP --> CR["ChatOllama (reasoning)"]
+AP --> SM["skill_matcher.py"]
+AP --> ON["ONET Validator"]
 AP --> JSH["JSON Serialization Handler"]
 AP --> TT["Timeout Manager"]
 AP --> CD["Cloud Detection"]
@@ -924,6 +1053,10 @@ MS["main.py"] --> AR
   - JD cache avoids repeated LLM calls for identical job descriptions with automatic cache versioning.
 - Streaming:
   - The hybrid pipeline supports SSE streaming to provide progressive updates while the LLM narrative is generated.
+- **Updated** Enhanced skill matching performance:
+  - Three-tier architecture reduces false positives and improves matching accuracy.
+  - O*NET validation filters high-collision skills efficiently.
+  - Text-scanned skills promotion requires strict domain validation to prevent performance degradation.
 - **Updated** Simplified scoring framework:
   - Removed complex scoring logic in favor of deterministic components through fit_scorer.py
   - Reduced computational overhead by delegating numerical scoring to Python-based calculations
@@ -943,6 +1076,7 @@ MS["main.py"] --> AR
   - Circuit breaker prevents cascading failures from hallucinations
   - Skill validation ensures extracted information matches original job descriptions
   - Rule-based fallback maintains system reliability when hallucinations exceed thresholds
+  - O*NET validation prevents false positives and improves accuracy
 - **Updated** PII redaction integration:
   - Automatic removal of personally identifiable information eliminates bias
   - Enterprise-grade detection with fallback to regex patterns
@@ -958,9 +1092,11 @@ MS["main.py"] --> AR
   - Centralized timeout configuration prevents resource exhaustion and improves reliability.
   - Consistent timeout handling across all LLM instances ensures predictable performance.
   - Environment-based configuration allows for flexible tuning without code changes.
+  - Enhanced timeout handling works seamlessly with increased token limits in cloud deployments.
 - **Updated** JSON serialization optimization:
   - Efficient handling of complex data types reduces serialization overhead.
   - Minimal memory footprint for serialized objects.
+  - Enhanced support for O*NET validation data structures.
 - **Updated** Enhanced cloud deployment support:
   - Improved authentication logging and debugging capabilities
   - Better error handling for cloud-specific configurations
@@ -977,6 +1113,11 @@ MS["main.py"] --> AR
   - Invalid recommendations are corrected based on fit score thresholds.
 - Error aggregation:
   - Errors from all nodes are accumulated in the state's errors list for centralized diagnostics.
+- **Updated** Enhanced skill matching issues:
+  - Verify three-tier skill matching is working correctly with structured, text-scanned, and fuzzy skills.
+  - Check O*NET validation integration and occupation-aware filtering.
+  - Monitor high-collision skill filtering effectiveness.
+  - Ensure text-scanned skills promotion follows strict domain validation rules.
 - **Updated** Simplified scoring framework issues:
   - Verify weight mapping is working correctly with new universal schema.
   - Check deterministic scoring components are properly integrated.
@@ -991,6 +1132,7 @@ MS["main.py"] --> AR
   - Check cache versioning is working correctly with prompt changes.
   - Ensure skill validation is properly comparing against original job descriptions.
   - Monitor circuit breaker triggering and rule-based fallback activation.
+  - Verify O*NET validation is properly filtering high-collision skills.
 - **Updated** PII redaction problems:
   - Verify PII redaction service is properly integrated and accessible.
   - Check fallback to regex patterns when Presidio is unavailable.
@@ -1019,11 +1161,13 @@ MS["main.py"] --> AR
   - Ensure all data passed to JSON serialization includes proper type conversion using `_json_default`.
   - Verify that datetime, date, and Decimal objects are properly handled in all pipeline components.
   - Check for circular references or self-referencing objects that might cause serialization errors.
+  - Monitor O*NET validation data serialization with enhanced JSON handling.
 - **Updated** Performance issues with enhanced guardrails:
   - Monitor cloud deployment performance with larger token limits (3000/4000 tokens).
   - Verify that context windows (12288/8192) are appropriate for your workload.
   - Check that cloud authentication logging is functioning properly for debugging.
   - Review hallucination detection performance and circuit breaker effectiveness.
+  - Monitor O*NET validation performance and filtering effectiveness.
 
 **Section sources**
 - [agent_pipeline.py:127-138](file://app/backend/services/agent_pipeline.py#L127-L138)
@@ -1032,14 +1176,14 @@ MS["main.py"] --> AR
 - [guardrail_service.py:205-215](file://app/backend/services/guardrail_service.py#L205-L215)
 
 ## Conclusion
-The LangGraph-based multi-agent analysis pipeline provides a robust, schema-bound, and deterministic approach to complex, multi-step reasoning workflows. By leveraging Ollama models with careful configuration, typed state management, comprehensive fallbacks, and centralized timeout handling, it ensures reliable operation under varied conditions. The enhanced anti-hallucination guardrails including cache versioning, circuit breaker mechanisms, and deterministic LLM behavior with fixed seeds provide comprehensive protection against hallucinations and ensure reliable analysis results. The PII redaction integration eliminates bias from personal identifiers, while the increased truncation limits from 2000 to 8000 characters capture complete context for accurate analysis. The enhanced cloud-aware configuration management with significantly increased token limits (3000/4000 tokens vs 1500/2000) and expanded context windows (12288/8192 vs 6144/4096) provides cost-efficient operations for cloud deployments while maintaining optimal performance. The enhanced timeout management with the `_llm_request_timeout` constant provides predictable behavior and improved reliability across all LLM interactions. The enhanced JSON serialization handling for datetime objects, dates, and Decimal values further strengthens the pipeline's reliability and compatibility with diverse data types. The enhanced cloud authentication logging and debugging capabilities provide better visibility into cloud deployment configurations. The enhanced interview kit generation system creates highly targeted, non-generic questions based on comprehensive role and candidate context, with sophisticated fallback mechanisms for technical, behavioral, and culture-fit questions. **Updated** The simplified scoring framework removes complex scoring logic in favor of deterministic components, resulting in more reliable and consistent results while improving performance. While the hybrid pipeline offers a complementary approach with streaming and narrative synthesis, the LangGraph pipeline remains ideal for scenarios requiring strict schema-bound outputs and resilient error handling with comprehensive anti-hallucination protection and sophisticated interview kit generation.
+The LangGraph-based multi-agent analysis pipeline provides a robust, schema-bound, and deterministic approach to complex, multi-step reasoning workflows. By leveraging Ollama models with careful configuration, typed state management, comprehensive fallbacks, and centralized timeout handling, it ensures reliable operation under varied conditions. The enhanced anti-hallucination guardrails including cache versioning, circuit breaker mechanisms, and deterministic LLM behavior with fixed seeds provide comprehensive protection against hallucinations and ensure reliable analysis results. The PII redaction integration eliminates bias from personal identifiers, while the increased truncation limits from 2000 to 8000 characters capture complete context for accurate analysis. The enhanced cloud-aware configuration management with significantly increased token limits (3000/4000 tokens vs 1500/2000) and expanded context windows (12288/8192 vs 6144/4096) provides cost-efficient operations for cloud deployments while maintaining optimal performance. The enhanced timeout management with the `_llm_request_timeout` constant provides predictable behavior and improved reliability across all LLM interactions. The enhanced JSON serialization handling for datetime objects, dates, and Decimal values further strengthens the pipeline's reliability and compatibility with diverse data types. The enhanced cloud authentication logging and debugging capabilities provide better visibility into cloud deployment configurations. The enhanced interview kit generation system creates highly targeted, non-generic questions based on comprehensive role and candidate context, with sophisticated fallback mechanisms for technical, behavioral, and culture-fit questions. **Updated** The enhanced three-tier skill matching architecture with O*NET validation provides superior accuracy and reduces false positives through occupation-aware skill validation. The simplified scoring framework removes complex scoring logic in favor of deterministic components, resulting in more reliable and consistent results while improving performance. While the hybrid pipeline offers a complementary approach with streaming and narrative synthesis, the LangGraph pipeline remains ideal for scenarios requiring strict schema-bound outputs and resilient error handling with comprehensive anti-hallucination protection, sophisticated interview kit generation, and enhanced skill matching with O*NET validation.
 
 ## Appendices
 
 ### Workflow Definition and Execution
 - The pipeline is defined as a StateGraph with three sequential nodes and compiled once at module load.
 - Execution proceeds from job description parsing to candidate analysis and finally to scoring and interview question generation.
-- **Updated** Enhanced with anti-hallucination guardrails, PII redaction integration, and simplified scoring framework.
+- **Updated** Enhanced with anti-hallucination guardrails, PII redaction integration, simplified scoring framework, and enhanced skill matching with O*NET validation.
 
 **Section sources**
 - [agent_pipeline.py:1022-1037](file://app/backend/services/agent_pipeline.py#L1022-L1037)
@@ -1047,7 +1191,7 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 ### State Persistence and Error Recovery
 - State includes an errors accumulator for centralized diagnostics.
 - The hybrid pipeline demonstrates persistent storage of analysis results and candidate profiles in the database.
-- **Updated** Enhanced error recovery with anti-hallucination guardrails, rule-based fallback mechanisms, and comprehensive interview kit fallback generation.
+- **Updated** Enhanced error recovery with anti-hallucination guardrails, rule-based fallback mechanisms, comprehensive interview kit fallback generation, and O*NET validation error handling.
 
 **Section sources**
 - [agent_pipeline.py:225](file://app/backend/services/agent_pipeline.py#L225)
@@ -1056,7 +1200,7 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 ### Performance Monitoring
 - The main application exposes health checks and diagnostic endpoints for Ollama status and model readiness.
 - Logging captures pipeline stages and errors for operational visibility.
-- **Updated** Enhanced monitoring includes hallucination detection metrics, PII redaction statistics, and interview kit generation performance.
+- **Updated** Enhanced monitoring includes hallucination detection metrics, PII redaction statistics, interview kit generation performance, O*NET validation effectiveness, and three-tier skill matching accuracy.
 
 **Section sources**
 - [main.py:354-399](file://app/backend/main.py#L354-L399)
@@ -1064,7 +1208,7 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 
 ### Example: Running the Agent Pipeline
 - The public API entry point constructs initial state, invokes the compiled graph, and assembles the final result.
-- **Updated** Enhanced with anti-hallucination guardrails, PII redaction integration, and simplified scoring framework.
+- **Updated** Enhanced with anti-hallucination guardrails, PII redaction integration, simplified scoring framework, and O*NET validation enrichment.
 
 **Section sources**
 - [agent_pipeline.py:1163-1190](file://app/backend/services/agent_pipeline.py#L1163-L1190)
@@ -1102,6 +1246,7 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
    - Verify cache versioning responds to prompt changes
    - Check circuit breaker threshold (5 hallucinations per hour) is appropriate
    - Ensure skill validation is properly configured against original job descriptions
+   - Verify O*NET validation is properly filtering high-collision skills
 
 6. **PII Redaction Service Setup**:
    - Install Presidio libraries for enterprise-grade detection (recommended)
@@ -1119,25 +1264,35 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
    - Monitor performance impact with increased character limits
    - Ensure complete context capture without losing important information
 
-9. **Monitoring and Adjustment**:
-   - Monitor LLM response times and adjust `LLM_NARRATIVE_TIMEOUT` accordingly
-   - Consider network latency and model complexity when tuning timeout values
-   - Test with representative workloads to determine optimal timeout settings
-   - Verify cloud authentication by checking Ollama Cloud status
-   - Monitor enhanced cloud authentication logs for debugging and troubleshooting
-   - Track hallucination detection effectiveness and adjust thresholds as needed
-   - Monitor PII redaction performance and accuracy metrics
-   - Review interview kit generation effectiveness and adjust question generation as needed
+9. **Enhanced Skill Matching Configuration**:
+   - Verify three-tier skill matching architecture is properly configured
+   - Check O*NET validation integration and database connectivity
+   - Monitor high-collision skill filtering effectiveness
+   - Ensure text-scanned skills promotion follows strict domain validation rules
 
-10. **Fallback Mechanisms**:
+10. **Monitoring and Adjustment**:
+    - Monitor LLM response times and adjust `LLM_NARRATIVE_TIMEOUT` accordingly
+    - Consider network latency and model complexity when tuning timeout values
+    - Test with representative workloads to determine optimal timeout settings
+    - Verify cloud authentication by checking Ollama Cloud status
+    - Monitor enhanced cloud authentication logs for debugging and troubleshooting
+    - Track hallucination detection effectiveness and adjust thresholds as needed
+    - Monitor PII redaction performance and accuracy metrics
+    - Review interview kit generation effectiveness and adjust question generation as needed
+    - Monitor O*NET validation performance and filtering effectiveness
+    - Track three-tier skill matching accuracy improvements
+
+11. **Fallback Mechanisms**:
     - Timeout exceptions trigger graceful fallback to typed-null defaults
     - Hallucination detection triggers rule-based fallback when thresholds are exceeded
+    - O*NET validation failures gracefully fall back to standard skill matching
     - Error messages are captured in the state's errors list for diagnostics
     - Pipeline continues operation even when individual LLM calls timeout or hallucinate
     - Enhanced error handling works with increased token limits and context windows
     - Interview kit fallback generation ensures meaningful questions even when LLM fails
+    - O*NET validation fallback maintains system reliability when database is unavailable
 
-11. **Performance Optimization**:
+12. **Performance Optimization**:
     - Leverage increased token limits (3000/4000) for more verbose and accurate outputs
     - Utilize expanded context windows (12288/8192) for complex reasoning tasks
     - Monitor cloud deployment performance with enhanced configuration
@@ -1145,6 +1300,8 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
     - Ensure anti-hallucination guardrails don't introduce significant performance overhead
     - Verify interview kit generation doesn't impact overall pipeline performance
     - Monitor simplified scoring framework performance improvements
+    - Track O*NET validation performance and filtering effectiveness
+    - Optimize three-tier skill matching for best balance of accuracy and performance
 
 **Section sources**
 - [agent_pipeline.py:74-86](file://app/backend/services/agent_pipeline.py#L74-L86)
@@ -1153,6 +1310,7 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 - [agent_pipeline.py:357-473](file://app/backend/services/agent_pipeline.py#L357-L473)
 - [agent_pipeline.py:581-654](file://app/backend/services/agent_pipeline.py#L581-L654)
 - [agent_pipeline.py:731-955](file://app/backend/services/agent_pipeline.py#L731-L955)
+- [skill_matcher.py:31-71](file://app/backend/services/skill_matcher.py#L31-L71)
 
 ### JSON Serialization Best Practices
 **Updated** Guidelines for handling complex data types in the pipeline with enhanced cloud deployment support:
@@ -1164,10 +1322,46 @@ The LangGraph-based multi-agent analysis pipeline provides a robust, schema-boun
 5. **Validate deserialization** on the receiving end to ensure data integrity
 6. **Work seamlessly with cloud deployments** that support larger token limits and context windows
 7. **Utilize enhanced error handling** for serialization issues in cloud environments
-8. **Ensure compatibility** with anti-hallucination guardrails, PII redaction processes, and interview kit generation
+8. **Ensure compatibility** with anti-hallucination guardrails, PII redaction processes, interview kit generation, and O*NET validation
 9. **Monitor performance improvements** from simplified scoring framework integration
+10. **Handle O*NET validation data** with proper JSON serialization for hot skills and validation results
 
 **Section sources**
 - [agent_pipeline.py:49-55](file://app/backend/services/agent_pipeline.py#L49-L55)
 - [agent_pipeline.py:620](file://app/backend/services/agent_pipeline.py#L620)
 - [agent_pipeline.py:866](file://app/backend/services/agent_pipeline.py#L866)
+- [agent_pipeline.py:1140-1144](file://app/backend/services/agent_pipeline.py#L1140-L1144)
+
+### O*NET Integration Best Practices
+**Updated** Guidelines for implementing and optimizing O*NET validation in the agent pipeline:
+
+1. **Database Setup**:
+   - Ensure O*NET cache database is properly initialized and populated
+   - Verify database connectivity and file permissions
+   - Monitor database performance and query optimization
+
+2. **Validation Configuration**:
+   - Configure job title resolution and skill validation thresholds
+   - Monitor validation accuracy and false positive rates
+   - Track high-collision skill filtering effectiveness
+
+3. **Performance Optimization**:
+   - Monitor O*NET validation query performance
+   - Optimize database queries for skill validation
+   - Implement caching strategies for frequently accessed skills
+
+4. **Error Handling**:
+   - Handle O*NET database unavailability gracefully
+   - Monitor validation failures and fallback mechanisms
+   - Track validation performance metrics
+
+5. **Integration Testing**:
+   - Test O*NET validation with various job titles and skill combinations
+   - Verify high-collision skill filtering effectiveness
+   - Monitor false positive prevention for common scenarios
+
+**Section sources**
+- [skill_matcher.py:18-28](file://app/backend/services/skill_matcher.py#L18-L28)
+- [skill_matcher.py:31-71](file://app/backend/services/skill_matcher.py#L31-L71)
+- [onet_validator.py:18-53](file://app/backend/services/onet/onet_validator.py#L18-L53)
+- [test_onet_integration.py:300-350](file://app/backend/tests/test_onet_integration.py#L300-L350)

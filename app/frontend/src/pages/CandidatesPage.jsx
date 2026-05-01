@@ -177,15 +177,17 @@ export default function CandidatesPage() {
   const [loading, setLoading]       = useState(true)
   const [selectedId, setSelectedId] = useState(null)
   const [statusFilter, setStatusFilter] = useState(initialStatus)
+  const [skillFilter, setSkillFilter] = useState('')
   const [toast, setToast]           = useState(null)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkLoading, setBulkLoading] = useState(false)
 
-  const fetchCandidates = async (s = search, p = page, st = statusFilter) => {
+  const fetchCandidates = async (s = search, p = page, st = statusFilter, sk = skillFilter) => {
     setLoading(true)
     try {
       const params = { search: s, page: p, page_size: 20 }
       if (st) params.status = st
+      if (sk) params.skill = sk
       const data = await getCandidates(params)
       setCandidates(data.candidates)
       setTotal(data.total)
@@ -206,8 +208,14 @@ export default function CandidatesPage() {
       setSearchParams({}, { replace: true })
     }
     setPage(1)
-    fetchCandidates(search, 1, statusFilter)
+    fetchCandidates(search, 1, statusFilter, skillFilter)
   }, [statusFilter])
+
+  // Re-fetch when skill filter changes
+  useEffect(() => {
+    setPage(1)
+    fetchCandidates(search, 1, statusFilter, skillFilter)
+  }, [skillFilter])
 
   const handleSearch = (e) => {
     e.preventDefault()
@@ -276,8 +284,8 @@ export default function CandidatesPage() {
           <div>
             <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Candidates</h2>
             <p className="text-slate-500 text-sm mt-1 font-medium">
-              {statusFilter
-                ? `Showing ${total} candidate${total !== 1 ? 's' : ''} with status: ${STATUS_CONFIG[statusFilter]?.label || statusFilter}`
+              {statusFilter || skillFilter
+                ? `Showing ${total} candidate${total !== 1 ? 's' : ''}${statusFilter ? ` with status: ${STATUS_CONFIG[statusFilter]?.label || statusFilter}` : ''}${skillFilter ? ` matching skill: "${skillFilter}"` : ''}`
                 : `${total} candidates tracked in your workspace`}
             </p>
           </div>
@@ -297,26 +305,40 @@ export default function CandidatesPage() {
           </form>
         </div>
 
-        {/* Status Filter Bar */}
-        <div className="flex items-center gap-3 bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm px-4 py-3 card-animate">
+        {/* Status & Skill Filter Bar */}
+        <div className="flex items-center gap-3 bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm px-4 py-3 card-animate flex-wrap">
           <Filter className="w-4 h-4 text-slate-500" />
-          <span className="text-sm font-semibold text-slate-700">Status:</span>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-1.5 text-xs rounded-lg font-medium bg-slate-100 text-slate-600 border-0 focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="">All</option>
-            {STATUS_OPTIONS.map(s => (
-              <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
-            ))}
-          </select>
-          {statusFilter && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-semibold text-slate-700">Status:</span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-1.5 text-xs rounded-lg font-medium bg-slate-100 text-slate-600 border-0 focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="">All</option>
+              {STATUS_OPTIONS.map(s => (
+                <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-semibold text-slate-700">Skill:</span>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-brand-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                value={skillFilter}
+                onChange={(e) => setSkillFilter(e.target.value)}
+                placeholder="Filter by skill..."
+                className="pl-8 pr-3 py-1.5 text-xs ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 rounded-lg bg-white w-40 placeholder-slate-400"
+              />
+            </div>
+          </div>
+          {(statusFilter || skillFilter) && (
             <button
-              onClick={() => setStatusFilter('')}
+              onClick={() => { setStatusFilter(''); setSkillFilter('') }}
               className="text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
             >
-              Clear filter
+              Clear filters
             </button>
           )}
         </div>
@@ -331,8 +353,8 @@ export default function CandidatesPage() {
               <Users className="w-8 h-8 text-brand-300" />
             </div>
             <p className="text-slate-500 font-medium">
-              {statusFilter
-                ? `No candidates with status "${STATUS_CONFIG[statusFilter]?.label || statusFilter}".`
+              {statusFilter || skillFilter
+                ? `No candidates matching current filters.`
                 : 'No candidates yet. Analyze some resumes to get started.'}
             </p>
           </div>
@@ -386,6 +408,7 @@ export default function CandidatesPage() {
                   <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Status</th>
                   <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Applications</th>
                   <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Best Score</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Top Skills</th>
                   <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Added</th>
                   <th className="px-4 py-3.5"></th>
                 </tr>
@@ -407,7 +430,14 @@ export default function CandidatesPage() {
                         <span className="inline-block w-4 h-4" />
                       )}
                     </td>
-                    <td className="px-4 py-3.5 font-bold text-brand-900">{c.name || '—'}</td>
+                    <td className="px-4 py-3.5">
+                      <button
+                        onClick={() => navigate(`/candidates/${c.id}`)}
+                        className="font-bold text-brand-900 hover:text-brand-700 hover:underline transition-colors text-left"
+                      >
+                        {c.name || '—'}
+                      </button>
+                    </td>
                     <td className="px-4 py-3.5 text-slate-500 font-medium">{c.email || '—'}</td>
                     <td className="px-4 py-3.5">
                       {c.latest_result_id ? (
@@ -423,10 +453,28 @@ export default function CandidatesPage() {
                       <span className="text-brand-700 font-bold">{c.result_count}</span>
                     </td>
                     <td className="px-4 py-3.5"><ScoreBadge score={c.best_score} /></td>
+                    <td className="px-4 py-3.5">
+                      {c.matched_skills && c.matched_skills.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {c.matched_skills.slice(0, 3).map((skill, i) => (
+                            <span key={i} className="px-1.5 py-0.5 bg-green-50 text-green-700 text-[10px] rounded font-semibold ring-1 ring-green-100">
+                              {skill}
+                            </span>
+                          ))}
+                          {c.matched_skills.length > 3 && (
+                            <span className="px-1.5 py-0.5 bg-slate-50 text-slate-400 text-[10px] rounded font-medium ring-1 ring-slate-100">
+                              +{c.matched_skills.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3.5 text-slate-400 text-xs font-medium">{new Date(c.created_at).toLocaleDateString()}</td>
                     <td className="px-4 py-3.5">
                       <button
-                        onClick={() => setSelectedId(c.id)}
+                        onClick={() => navigate(`/candidates/${c.id}`)}
                         className="text-xs text-brand-600 hover:text-brand-700 font-bold flex items-center gap-1 hover:underline"
                       >
                         View <ChevronRight className="w-3.5 h-3.5" />

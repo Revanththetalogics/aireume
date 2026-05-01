@@ -20,6 +20,8 @@ const ReportPage   = lazy(() => import('./pages/ReportPage'))
 const LoginPage    = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const CandidatesPage = lazy(() => import('./pages/CandidatesPage'))
+const CandidateProfilePage = lazy(() => import('./pages/CandidateProfilePage'))
+const KanbanBoard    = lazy(() => import('./pages/KanbanBoard'))
 const ComparePage  = lazy(() => import('./pages/ComparePage'))
 const TemplatesPage = lazy(() => import('./pages/TemplatesPage'))
 const BatchPage    = lazy(() => import('./pages/BatchPage'))
@@ -29,6 +31,7 @@ const VideoPage    = lazy(() => import('./pages/VideoPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
 const AnalyticsPage  = lazy(() => import('./pages/AnalyticsPage'))
+const EmailSettings = lazy(() => import('./pages/admin/EmailSettings'))
 
 function PageLoader() {
   return (
@@ -68,6 +71,8 @@ function App() {
           {/* Existing routes */}
           <Route path="/report"     element={<Shell><ReportPage /></Shell>} />
           <Route path="/candidates" element={<Shell><CandidatesPage /></Shell>} />
+          <Route path="/candidates/:id" element={<Shell><CandidateProfilePage /></Shell>} />
+          <Route path="/pipeline"    element={<Shell><KanbanBoard /></Shell>} />
           <Route path="/compare"    element={<Shell><ComparePage /></Shell>} />
           <Route path="/team"       element={<Shell><TeamPage /></Shell>} />
           <Route path="/transcript" element={<Shell><TranscriptPage /></Shell>} />
@@ -75,6 +80,7 @@ function App() {
           <Route path="/analytics"  element={<Shell><AnalyticsPage /></Shell>} />
           <Route path="/settings"   element={<Shell><SettingsPage /></Shell>} />
           <Route path="/admin" element={<PlatformAdminRoute><Shell><AdminDashboardPage /></Shell></PlatformAdminRoute>} />
+          <Route path="/admin/email-settings" element={<Shell><EmailSettings /></Shell>} />
 
           {/* Backward compatibility redirects */}
           <Route path="/batch"      element={<Navigate to="/analyze" replace />} />

@@ -5,12 +5,23 @@
 - [eligibility_service.py](file://app/backend/services/eligibility_service.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [fit_scorer.py](file://app/backend/services/fit_scorer.py)
+- [domain_service.py](file://app/backend/services/domain_service.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [candidates.py](file://app/backend/routes/candidates.py)
 - [test_eligibility_service.py](file://app/backend/tests/test_eligibility_service.py)
+- [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
 - [016_deterministic_scoring_fields.py](file://alembic/versions/016_deterministic_scoring_fields.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Enhanced domain matching algorithm with cosine similarity calculations replacing binary matching
+- Added new threshold-based system (0.2) for domain similarity rejection
+- Improved domain similarity computation with vector operations
+- Added backward compatibility support for string-based domain arguments
+- Updated eligibility criteria to use similarity-based domain matching
+- Enhanced domain similarity testing with comprehensive test coverage
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -26,6 +37,8 @@
 ## Introduction
 
 The Eligibility Engine is a deterministic filtering system that serves as the first line of screening in the ARIA (AI Resume Intelligence) platform. It applies hard-reject gates to candidates before any machine learning scoring occurs, ensuring that only qualified candidates proceed through the more computationally expensive analysis phases.
+
+**Updated**: The engine now features an enhanced domain matching algorithm using cosine similarity calculations, replacing the previous binary matching approach. This provides more nuanced domain compatibility assessment with a threshold-based rejection system (0.2) for domain similarity.
 
 The engine operates as a gatekeeper, evaluating candidates against three primary criteria: domain compatibility, core skill match quality, and relevant work experience. It provides structured rejection reasons and maintains detailed audit trails for compliance and transparency.
 
@@ -43,6 +56,7 @@ subgraph "Service Layer"
 HybridPipeline[Hybrid Pipeline]
 EligibilityService[Eligibility Service]
 FitScorer[Fit Scorer]
+DomainService[Domain Service]
 end
 subgraph "Data Layer"
 DB[(Database)]
@@ -55,6 +69,7 @@ HybridPipeline --> EligibilityService
 HybridPipeline --> FitScorer
 EligibilityService --> DB
 FitScorer --> DB
+DomainService --> DB
 DB --> Models
 DB --> Schemas
 ```
@@ -81,7 +96,7 @@ class EligibilityResult {
 +dict details
 }
 class EligibilityService {
-+check_eligibility(jd_domain, candidate_domain, core_skill_match, relevant_experience, jd_domain_confidence, candidate_domain_confidence) EligibilityResult
++check_eligibility(jd_domain, candidate_domain, core_skill_match, relevant_experience) EligibilityResult
 }
 EligibilityService --> EligibilityResult : "returns"
 ```
@@ -90,11 +105,34 @@ EligibilityService --> EligibilityResult : "returns"
 - [eligibility_service.py:10-14](file://app/backend/services/eligibility_service.py#L10-L14)
 - [eligibility_service.py:17-79](file://app/backend/services/eligibility_service.py#L17-L79)
 
+### Enhanced Domain Matching Algorithm
+
+**Updated**: The domain compatibility check now uses cosine similarity calculations for more sophisticated domain matching:
+
+```mermaid
+flowchart TD
+Start([Domain Detection]) --> ExtractScores{Extract Score Vectors}
+ExtractScores --> HasScores{Both Domains Have Scores?}
+HasScores --> |Yes| ComputeCosine[Compute Cosine Similarity]
+HasScores --> |No| BinaryFallback[Fallback to Binary Comparison]
+ComputeCosine --> SimilarityThreshold{Similarity < 0.2?}
+BinaryFallback --> BinaryResult{Domains Match?}
+BinaryResult --> |Yes| ConfidenceReturn[Return Confidence Score]
+BinaryResult --> |No| ZeroReturn[Return 0.0]
+SimilarityThreshold --> |Yes| Reject[Reject: Domain Mismatch]
+SimilarityThreshold --> |No| Pass[Pass Domain Check]
+ConfidenceReturn --> Pass
+ZeroReturn --> Reject
+```
+
+**Diagram sources**
+- [eligibility_service.py:23-50](file://app/backend/services/eligibility_service.py#L23-L50)
+
 ### Deterministic Screening Criteria
 
-The engine applies three primary rejection gates:
+The engine applies three primary rejection gates with enhanced domain compatibility:
 
-1. **Domain Mismatch Gate**: Rejects candidates when job domain and candidate domain are incompatible
+1. **Enhanced Domain Mismatch Gate**: Uses cosine similarity (threshold: 0.2) to assess domain compatibility
 2. **Core Skill Threshold**: Rejects candidates with insufficient core skill matches  
 3. **Experience Requirement**: Rejects candidates with zero relevant experience
 
@@ -115,7 +153,10 @@ participant DB as "Database"
 Client->>Routes : POST /api/candidates/{id}/analyze-jd
 Routes->>Pipeline : run_hybrid_pipeline()
 Pipeline->>Pipeline : _run_python_phase()
+Pipeline->>Pipeline : detect_domain_from_jd()
+Pipeline->>Pipeline : detect_domain_from_resume()
 Pipeline->>Eligibility : check_eligibility()
+Eligibility->>Eligibility : _compute_domain_similarity_for_eligibility()
 Eligibility-->>Pipeline : EligibilityResult
 Pipeline->>Pipeline : compute_deterministic_score()
 Pipeline->>DB : Store screening result
@@ -134,13 +175,14 @@ The integration ensures that eligibility decisions are made before any LLM proce
 
 ### Eligibility Service Implementation
 
-The core eligibility checking logic implements three-tier screening:
+**Updated**: The core eligibility checking logic now implements enhanced three-tier screening with cosine similarity-based domain matching:
 
-#### Domain Compatibility Check
-The domain mismatch gate requires both domains to be confidently detected and compatible:
-- Only triggers when both `jd_domain_confidence >= 0.3` and `candidate_domain_confidence >= 0.3`
-- Rejects candidates when `jd_domain != candidate_domain`
-- Provides detailed breakdown of confidence levels and domain classifications
+#### Enhanced Domain Compatibility Check
+The domain mismatch gate now uses cosine similarity with a threshold-based rejection system:
+- Computes cosine similarity between JD and candidate domain score vectors
+- Uses threshold of 0.2 for domain similarity rejection
+- Falls back to binary name comparison when score vectors are unavailable
+- Provides detailed breakdown of similarity scores and confidence levels
 
 #### Core Skill Evaluation
 The core skill threshold enforces minimum competency standards:
@@ -157,13 +199,40 @@ The experience gate ensures meaningful professional background:
 **Section sources**
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 
+### Enhanced Domain Similarity Computation
+
+**New**: The `_compute_domain_similarity_for_eligibility` function implements sophisticated vector-based similarity calculation:
+
+```mermaid
+flowchart TD
+Input[JD Domain + Candidate Domain] --> Extract[Extract Score Vectors]
+Extract --> CheckEmpty{Empty Score Vectors?}
+CheckEmpty --> |Yes| BinaryCompare[Binary Name Comparison]
+CheckEmpty --> |No| VectorOps[Vector Operations]
+VectorOps --> UnionDomains[Union All Domains]
+VectorOps --> DotProduct[Calculate Dot Product]
+VectorOps --> Magnitude[Calculate Vector Magnitudes]
+DotProduct --> CosineSim[cosine_similarity = dot/(|A||B|)]
+Magnitude --> CosineSim
+BinaryCompare --> BinaryResult{Name Match?}
+BinaryResult --> |Yes| ReturnJDConf[Return JD Confidence]
+BinaryResult --> |No| ReturnZero[Return 0.0]
+CosineSim --> Round[Round to 3 Decimal Places]
+ReturnJDConf --> Output
+ReturnZero --> Output
+Round --> Output
+```
+
+**Diagram sources**
+- [eligibility_service.py:23-50](file://app/backend/services/eligibility_service.py#L23-L50)
+
 ### Deterministic Scoring Integration
 
 The eligibility results directly influence the deterministic scoring system:
 
 ```mermaid
 flowchart TD
-Start([Eligibility Check]) --> DomainCheck{Domain Compatible?}
+Start([Eligibility Check]) --> DomainCheck{Domain Similarity ≥ 0.2?}
 DomainCheck --> |No| Reject1[Reject: Domain Mismatch]
 DomainCheck --> |Yes| SkillCheck{Core Skills ≥ 30%?}
 SkillCheck --> |No| Reject2[Reject: Low Core Skills]
@@ -242,6 +311,8 @@ Eligibility[eligibility_service.py]
 DomainService[domain_service.py]
 FitScorer[fit_scorer.py]
 Constants[constants.py]
+TestEligibility[test_eligibility_service.py]
+TestHybridPipeline[test_hybrid_pipeline.py]
 end
 subgraph "External Dependencies"
 SQLAlchemy[SQLAlchemy ORM]
@@ -254,6 +325,8 @@ Eligibility --> Constants
 Eligibility --> SQLAlchemy
 Eligibility --> FastAPI
 Eligibility --> Pydantic
+TestEligibility --> Eligibility
+TestHybridPipeline --> Eligibility
 ```
 
 **Diagram sources**
@@ -271,19 +344,22 @@ The engine's design minimizes coupling to external systems, making it maintainab
 The Eligibility Engine is designed for optimal performance through several mechanisms:
 
 ### Computational Efficiency
-- **Constant-time operations**: All eligibility checks use simple comparisons and arithmetic
+- **Vector operations**: Cosine similarity calculations use efficient dot product and magnitude computations
 - **Early termination**: The first failing gate immediately rejects candidates
 - **Minimal memory footprint**: Uses lightweight data structures and avoids complex data transformations
+- **Backward compatibility**: String-based domain arguments fall back to binary comparison for simplicity
 
 ### Resource Optimization
 - **Pre-filtering**: Eliminates candidates before expensive LLM processing
 - **Cached domain detection**: Leverages pre-computed domain confidence scores
 - **Efficient scoring**: Deterministic calculations avoid iterative optimization
+- **Threshold-based rejection**: Reduces unnecessary similarity computations
 
 ### Scalability Features
 - **Parallel processing**: Eligibility checks are independent and can be parallelized
 - **Database persistence**: Results are cached for quick retrieval in subsequent analyses
 - **Configurable thresholds**: Gate parameters can be tuned for different use cases
+- **Vector similarity scaling**: Cosine similarity handles varying domain vector sizes efficiently
 
 ## Troubleshooting Guide
 
@@ -292,12 +368,12 @@ The Eligibility Engine is designed for optimal performance through several mecha
 #### Eligibility Gate Failures
 **Issue**: Candidates being incorrectly rejected despite meeting requirements
 **Causes**:
-- Low domain confidence scores (< 0.3)
+- Low domain similarity scores (< 0.2)
 - Insufficient core skill match ratios
 - Zero relevant experience values
 
 **Solutions**:
-- Verify domain detection accuracy by checking confidence thresholds
+- Verify domain detection accuracy by checking similarity threshold
 - Adjust scoring weights to account for domain-specific requirements
 - Review experience calculation logic for edge cases
 
@@ -325,17 +401,32 @@ The Eligibility Engine is designed for optimal performance through several mecha
 - Ensure proper error handling in eligibility calculation
 - Validate response schema includes eligibility fields
 
+#### Backward Compatibility Issues
+**Issue**: Legacy string-based domain arguments causing unexpected behavior
+**Solution**:
+- Verify that string domains are properly converted to dictionary format
+- Check confidence fallback values for string-based domains
+- Ensure consistent behavior between string and dictionary domain inputs
+
 **Section sources**
 - [test_eligibility_service.py:8-124](file://app/backend/tests/test_eligibility_service.py#L8-L124)
 
 ## Conclusion
 
-The Eligibility Engine represents a sophisticated yet efficient screening mechanism that forms the foundation of the ARIA platform's candidate evaluation system. Its deterministic approach ensures consistent, transparent decision-making while maintaining high performance standards.
+The Eligibility Engine represents a sophisticated yet efficient screening mechanism that forms the foundation of the ARIA platform's candidate evaluation system. Its enhanced domain matching algorithm with cosine similarity calculations provides more nuanced compatibility assessment while maintaining high performance standards.
+
+**Updated**: Key improvements include:
+- **Enhanced domain matching**: Cosine similarity calculations replace binary matching for more accurate domain compatibility assessment
+- **Threshold-based rejection**: 0.2 similarity threshold provides balanced domain compatibility enforcement
+- **Vector operations**: Efficient dot product and magnitude calculations for similarity computation
+- **Backward compatibility**: String-based domain arguments continue to work with binary fallback logic
+- **Comprehensive testing**: Extensive test coverage for similarity calculations and eligibility scenarios
 
 Key strengths include:
 - **Predictable behavior**: Deterministic rules eliminate ambiguity in screening decisions
 - **Performance optimization**: Early rejection reduces computational overhead
 - **Audit capability**: Comprehensive tracking enables compliance and improvement
 - **Integration flexibility**: Seamless incorporation into existing analysis pipelines
+- **Advanced similarity matching**: Vector-based domain assessment improves accuracy
 
 The engine's design supports both current operational needs and future scalability requirements, making it a cornerstone component of the platform's intelligent screening capabilities.

@@ -61,6 +61,7 @@ class Tenant(Base):
     results      = relationship("ScreeningResult", back_populates="tenant")
     team_members = relationship("TeamMember", back_populates="tenant")
     usage_logs   = relationship("UsageLog", back_populates="tenant")
+    email_config = relationship("TenantEmailConfig", backref="tenant", uselist=False)
 
 
 class User(Base):
@@ -160,6 +161,7 @@ class ScreeningResult(Base):
     core_skill_score    = Column(Float, nullable=True)           # Core skill match ratio
     eligibility_status  = Column(Boolean, nullable=True)         # Whether candidate passed eligibility gates
     eligibility_reason  = Column(String(100), nullable=True)     # Rejection reason if ineligible
+    status_updated_at   = Column(DateTime(timezone=True), nullable=True)  # When status was last changed
 
     tenant        = relationship("Tenant", back_populates="results")
     candidate     = relationship("Candidate", back_populates="results")
@@ -427,4 +429,26 @@ class PlatformConfig(Base):
     description = Column(String(500), nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
     updated_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class TenantEmailConfig(Base):
+    """Per-tenant SMTP email configuration for outbound notifications."""
+    __tablename__ = "tenant_email_configs"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    tenant_id       = Column(Integer, ForeignKey("tenants.id"), unique=True, nullable=False)
+    smtp_host       = Column(String(255), nullable=False)
+    smtp_port       = Column(Integer, default=587)
+    smtp_user       = Column(String(255), nullable=True)
+    smtp_password   = Column(String(500), nullable=True)          # Fernet-encrypted
+    smtp_from       = Column(String(255), nullable=False)
+    from_name       = Column(String(255), nullable=True)
+    reply_to        = Column(String(255), nullable=True)
+    encryption_type = Column(String(10), default="tls")           # tls, ssl, none
+    is_active       = Column(Boolean, default=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at      = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    configured_by   = Column(Integer, ForeignKey("users.id"), nullable=True)
+    last_test_at    = Column(DateTime(timezone=True), nullable=True)
+    last_test_success = Column(Boolean, nullable=True)
 

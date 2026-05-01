@@ -47,6 +47,7 @@ def _json_default(obj):
 def list_candidates(
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    skill: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -83,6 +84,20 @@ def list_candidates(
         query = query.filter(
             (Candidate.name.ilike(q)) | (Candidate.email.ilike(q))
         )
+
+    # Skill filter: find candidates whose screening results contain that skill
+    if skill:
+        skill_like = f"%{skill}%"
+        candidate_ids_with_skill = (
+            db.query(ScreeningResult.candidate_id)
+            .filter(
+                ScreeningResult.tenant_id == current_user.tenant_id,
+                ScreeningResult.analysis_result.like(skill_like),
+            )
+            .distinct()
+            .subquery()
+        )
+        query = query.filter(Candidate.id.in_(candidate_ids_with_skill))
 
     total      = query.count()
     candidates = (
@@ -135,6 +150,15 @@ def list_candidates(
             latest_status = latest.status or "pending"
             latest_result_id = latest.id
 
+        # Extract top 5 matched skills from latest screening result
+        matched_skills = []
+        if candidate_results:
+            try:
+                latest_analysis = json.loads(candidate_results[0].analysis_result)
+                matched_skills = latest_analysis.get("matched_skills", [])[:5]
+            except Exception:
+                pass
+
         result.append({
             "id":              c.id,
             "name":            c.name,
@@ -145,6 +169,7 @@ def list_candidates(
             "best_score":      best_score,
             "latest_status":   latest_status,
             "latest_result_id": latest_result_id,
+            "matched_skills":  matched_skills,
             # Enriched profile fields
             "current_role":    c.current_role,
             "current_company": c.current_company,
@@ -153,6 +178,123 @@ def list_candidates(
         })
 
     return {"candidates": result, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/pipeline")
+def get_candidate_pipeline(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return candidates grouped by their latest screening status for Kanban view.
+
+    Each candidate appears once, in the column matching the status of their
+    most recent ScreeningResult. Cards are ordered by status_updated_at DESC
+    (most recently moved first), falling back to result timestamp.
+    """
+    columns = {status: [] for status in _VALID_STATUSES}
+    counts = {status: 0 for status in _VALID_STATUSES}
+
+    candidates = (
+        db.query(Candidate)
+        .filter(Candidate.tenant_id == current_user.tenant_id)
+        .all()
+    )
+
+    if not candidates:
+        return {"columns": columns, "counts": counts}
+
+    candidate_ids = [c.id for c in candidates]
+
+    # Fetch all screening results for these candidates in a single query
+    all_results = (
+        db.query(ScreeningResult)
+        .filter(
+            ScreeningResult.candidate_id.in_(candidate_ids),
+            ScreeningResult.tenant_id == current_user.tenant_id,
+        )
+        .all()
+    )
+
+    # Group results by candidate and collect template IDs
+    results_by_candidate: dict = {}
+    template_ids: set = set()
+    for r in all_results:
+        results_by_candidate.setdefault(r.candidate_id, []).append(r)
+        if r.role_template_id:
+            template_ids.add(r.role_template_id)
+
+    # Fetch JD names in one query
+    templates = {}
+    if template_ids:
+        for rt in db.query(RoleTemplate).filter(RoleTemplate.id.in_(template_ids)).all():
+            templates[rt.id] = rt.name
+
+    # Build candidate cards grouped by latest status
+    cards_by_status = {status: [] for status in _VALID_STATUSES}
+
+    for c in candidates:
+        cand_results = results_by_candidate.get(c.id, [])
+
+        # Best fit_score across ALL results for this candidate
+        best_score = None
+        for r in cand_results:
+            try:
+                analysis = json.loads(r.analysis_result)
+                fit_score = analysis.get("fit_score")
+                if fit_score is not None:
+                    if best_score is None or fit_score > best_score:
+                        best_score = fit_score
+            except Exception:
+                pass
+
+        latest_status = "pending"
+        latest_result_id = None
+        latest_matched_skills = []
+        latest_jd_name = None
+        sort_key = datetime.min.replace(tzinfo=timezone.utc)
+
+        if cand_results:
+            # Latest result = highest timestamp (ties broken by higher id)
+            sorted_results = sorted(
+                cand_results,
+                key=lambda r: (r.timestamp or datetime.min.replace(tzinfo=timezone.utc), r.id or 0),
+                reverse=True,
+            )
+            latest = sorted_results[0]
+            latest_status = latest.status or "pending"
+            latest_result_id = latest.id
+            sort_key = latest.status_updated_at or latest.timestamp or datetime.min.replace(tzinfo=timezone.utc)
+
+            try:
+                analysis = json.loads(latest.analysis_result)
+                latest_matched_skills = analysis.get("matched_skills", [])[:3]
+            except Exception:
+                pass
+
+            if latest.role_template_id and latest.role_template_id in templates:
+                latest_jd_name = templates[latest.role_template_id]
+
+        card = {
+            "id": c.id,
+            "name": c.name,
+            "email": c.email,
+            "best_score": best_score,
+            "current_role": c.current_role,
+            "latest_result_id": latest_result_id,
+            "matched_skills": latest_matched_skills,
+            "jd_name": latest_jd_name,
+        }
+
+        cards_by_status[latest_status].append((sort_key, card))
+        counts[latest_status] += 1
+
+    # Sort each column by status_updated_at DESC, fallback to timestamp DESC
+    for status in _VALID_STATUSES:
+        cards_by_status[status].sort(key=lambda x: x[0], reverse=True)
+        columns[status] = [card for _, card in cards_by_status[status]]
+
+    return {"columns": columns, "counts": counts}
 
 
 @router.patch("/{candidate_id}")
@@ -193,6 +335,13 @@ def get_candidate(
         .order_by(ScreeningResult.timestamp.desc())
         .all()
     )
+
+    # ── Fetch RoleTemplate names for JD lookup ──────────────────────────────
+    template_ids = {r.role_template_id for r in results if r.role_template_id}
+    templates = {}
+    if template_ids:
+        for rt in db.query(RoleTemplate).filter(RoleTemplate.id.in_(template_ids)).all():
+            templates[rt.id] = rt.name
 
     history = []
     for r in results:
@@ -313,6 +462,11 @@ def get_candidate(
             None
         )
 
+        # Resolve JD name from RoleTemplate
+        jd_name = None
+        if r.role_template_id and r.role_template_id in templates:
+            jd_name = templates[r.role_template_id]
+
         # Build result with EXACT same structure as analysis result
         # This ensures ReportPage receives consistent data regardless of source
         result_item = {
@@ -323,6 +477,11 @@ def get_candidate(
             "timestamp":            r.timestamp,
             "candidate_id":         r.candidate_id,
             "candidate_name":       candidate_name,
+            # JD and role metadata
+            "role_template_id":     r.role_template_id,
+            "jd_name":              jd_name,
+            "deterministic_score":  r.deterministic_score,
+            "status_updated_at":    r.status_updated_at,
 
             # Narrative status fields (for UI polling)
             "narrative_status":     r.narrative_status or "pending",
@@ -341,21 +500,57 @@ def get_candidate(
         # must always win.
         result_item["candidate_name"] = candidate_name
 
+        # Ensure jd_name and deterministic_score from DB columns win over
+        # any stale values that may have been in merged_data
+        result_item["jd_name"] = jd_name
+        result_item["deterministic_score"] = r.deterministic_score
+        result_item["status_updated_at"] = r.status_updated_at
+        result_item["role_template_id"] = r.role_template_id
+
         history.append(result_item)
 
-    # Skills snapshot from stored profile
-    skills_snapshot = []
-    if candidate.parsed_skills:
+    # ── Parse full profile fields from candidate JSON columns ────────────────
+    def _safe_json_parse(raw, default=None):
+        """Safely parse a JSON column, returning default on failure."""
+        if not raw:
+            return default
         try:
-            skills_snapshot = json.loads(candidate.parsed_skills)[:15]
-        except Exception as e:
-            logger.warning("Non-critical: Failed to parse parsed_skills: %s", e)
+            return json.loads(raw)
+        except Exception:
+            return default
+
+    full_parsed_skills = _safe_json_parse(candidate.parsed_skills, [])
+    parsed_education  = _safe_json_parse(candidate.parsed_education, [])
+    parsed_work_exp   = _safe_json_parse(candidate.parsed_work_exp, [])
+
+    # Extract professional_summary, certifications, languages from
+    # parser_snapshot_json (preferred) or fall back to latest analysis_result
+    professional_summary = None
+    certifications = []
+    languages = []
+
+    snap = _safe_json_parse(candidate.parser_snapshot_json, {})
+    if snap:
+        professional_summary = snap.get("professional_summary") or snap.get("career_summary")
+        certifications = snap.get("certifications", [])
+        languages = snap.get("languages", [])
+
+    # Fallback: try the most recent screening result's analysis for these fields
+    if not professional_summary and history:
+        professional_summary = history[0].get("professional_summary") or history[0].get("candidate_profile", {}).get("career_summary")
+    if not certifications and history:
+        certifications = history[0].get("certifications", [])
+    if not languages and history:
+        languages = history[0].get("languages", [])
+
+    # Skills snapshot from stored profile (top 15 for list views)
+    skills_snapshot = full_parsed_skills[:15] if full_parsed_skills else []
 
     contact_info: dict = {}
     if getattr(candidate, "parser_snapshot_json", None):
         try:
-            snap = json.loads(candidate.parser_snapshot_json)
-            contact_info = dict(snap.get("contact_info") or {})
+            snap_ci = json.loads(candidate.parser_snapshot_json)
+            contact_info = dict(snap_ci.get("contact_info") or {})
         except Exception as e:
             logger.warning("Non-critical: Failed to parse parser_snapshot_json: %s", e)
             contact_info = {}
@@ -374,6 +569,27 @@ def get_candidate(
         if candidate.phone is not None:
             contact_info["phone"] = candidate.phone
 
+    # Build structured screening_results for the profile page
+    screening_results = []
+    for item in history:
+        screening_results.append({
+            "id":                item.get("id"),
+            "role_template_id":  item.get("role_template_id"),
+            "jd_name":           item.get("jd_name"),
+            "fit_score":         item.get("fit_score"),
+            "deterministic_score": item.get("deterministic_score"),
+            "recommendation":    item.get("final_recommendation", "Pending"),
+            "status":            item.get("status", "pending"),
+            "status_updated_at": item.get("status_updated_at"),
+            "matched_skills":    item.get("matched_skills", []),
+            "missing_skills":    item.get("missing_skills", []),
+            "strengths":         item.get("strengths", []),
+            "weaknesses":        item.get("weaknesses", []),
+            "interview_questions": item.get("interview_questions"),
+            "narrative":         item.get("fit_summary") or item.get("recommendation_rationale"),
+            "created_at":        item.get("timestamp"),
+        })
+
     return {
         "id":                candidate.id,
         "name":              candidate.name,
@@ -387,11 +603,116 @@ def get_candidate(
         "current_company":   candidate.current_company,
         "total_years_exp":   candidate.total_years_exp,
         "profile_quality":   candidate.profile_quality,
+        # Full parsed profile (for Candidate Profile Page)
+        "parsed_skills":     full_parsed_skills,
+        "parsed_education":  parsed_education,
+        "parsed_work_exp":   parsed_work_exp,
+        "professional_summary": professional_summary,
+        "certifications":    certifications,
+        "languages":         languages,
+        # Resume file info
+        "resume_filename":   candidate.resume_filename,
+        "has_resume":        candidate.resume_file_data is not None,
+        # Snapshot & profile flags (backward compat)
         "skills_snapshot":   skills_snapshot,
         "has_stored_profile": bool(candidate.raw_resume_text),
         "has_full_parser_snapshot": bool(getattr(candidate, "parser_snapshot_json", None)),
+        # Screening results — history (full detail, backward compat) + structured
         "history":           history,
+        "screening_results": screening_results,
     }
+
+
+@router.get("/{candidate_id}/timeline")
+def get_candidate_timeline(
+    candidate_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return status change history for a candidate, ordered by timestamp DESC.
+
+    Constructs timeline events from screening results. Each result generates:
+      - An "Analyzed" event (when screening was created, with score detail)
+      - A "Status: <status>" event (from status_updated_at, if available)
+
+    If an initial status other than "pending" exists, a status event is also
+    emitted at the analysis timestamp (covering cases where status_updated_at
+    was not backfilled for legacy records).
+    """
+    candidate = db.query(Candidate).filter(
+        Candidate.id == candidate_id,
+        Candidate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    results = (
+        db.query(ScreeningResult)
+        .filter(
+            ScreeningResult.candidate_id == candidate_id,
+            ScreeningResult.tenant_id == current_user.tenant_id,
+        )
+        .order_by(ScreeningResult.timestamp.desc())
+        .all()
+    )
+
+    # Fetch RoleTemplate names in one query
+    template_ids = {r.role_template_id for r in results if r.role_template_id}
+    templates = {}
+    if template_ids:
+        for rt in db.query(RoleTemplate).filter(RoleTemplate.id.in_(template_ids)).all():
+            templates[rt.id] = rt.name
+
+    events = []
+
+    for r in results:
+        jd_name = templates.get(r.role_template_id) if r.role_template_id else None
+
+        # Extract fit_score for the "Analyzed" event detail
+        score_detail = None
+        try:
+            analysis = json.loads(r.analysis_result) if r.analysis_result else {}
+            fit_score = r.deterministic_score or analysis.get("fit_score")
+            if fit_score is not None:
+                score_detail = f"Score: {fit_score}"
+        except Exception:
+            pass
+
+        # Event 1: Analysis was created
+        events.append({
+            "event":     "Analyzed",
+            "jd_name":   jd_name,
+            "timestamp": r.timestamp,
+            "details":   score_detail,
+        })
+
+        # Event 2: Status change (if status_updated_at exists and differs from timestamp)
+        status = r.status or "pending"
+        if r.status_updated_at:
+            events.append({
+                "event":     f"Status: {status}",
+                "jd_name":   jd_name,
+                "timestamp": r.status_updated_at,
+                "details":   None,
+            })
+        elif status != "pending":
+            # Legacy record: status was changed but status_updated_at wasn't set.
+            # Emit a status event at the analysis timestamp as best-effort.
+            events.append({
+                "event":     f"Status: {status}",
+                "jd_name":   jd_name,
+                "timestamp": r.timestamp,
+                "details":   "Estimated (no status_updated_at recorded)",
+            })
+
+    # Sort all events by timestamp DESC (most recent first)
+    events.sort(
+        key=lambda e: e["timestamp"] or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+
+    return {"timeline": events}
 
 
 @router.post("/{candidate_id}/analyze-jd")
@@ -753,6 +1074,55 @@ def bulk_update_status(
     db.commit()
 
     return {"updated": updated}
+
+
+@jd_router.get("/{jd_id}/skill-tags")
+def get_jd_skill_tags(
+    jd_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return aggregated skill tags across all candidates analyzed for a JD.
+
+    Response: {"skills": [...], "domain": str, "candidate_count": int}
+    """
+    from app.backend.services.skill_matcher import infer_domain_from_skills
+
+    # Verify JD belongs to tenant
+    jd = db.query(RoleTemplate).filter(
+        RoleTemplate.id == jd_id,
+        RoleTemplate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not jd:
+        raise HTTPException(status_code=404, detail="Job description not found")
+
+    # Get all active screening results for this JD
+    results = db.query(ScreeningResult).filter(
+        ScreeningResult.role_template_id == jd_id,
+        ScreeningResult.tenant_id == current_user.tenant_id,
+        ScreeningResult.is_active == True,
+    ).all()
+
+    # Aggregate matched skills across all candidates
+    skill_counts: dict = {}
+    for r in results:
+        try:
+            analysis = json.loads(r.analysis_result) if r.analysis_result else {}
+            for skill in analysis.get("matched_skills", []):
+                if skill and isinstance(skill, str):
+                    skill_counts[skill] = skill_counts.get(skill, 0) + 1
+        except Exception:
+            pass
+
+    # Sort by frequency descending, take top skills
+    sorted_skills = sorted(skill_counts, key=skill_counts.get, reverse=True)[:20]
+    domain = infer_domain_from_skills(sorted_skills) if sorted_skills else "General"
+
+    return {
+        "skills": sorted_skills,
+        "domain": domain,
+        "candidate_count": len(results),
+    }
 
 
 @jd_router.get("/{jd_id}/stats")

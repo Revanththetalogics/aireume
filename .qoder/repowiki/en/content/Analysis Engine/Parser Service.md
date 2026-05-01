@@ -5,7 +5,7 @@
 - [parser_service.py](file://app/backend/services/parser_service.py)
 - [llm_contact_extractor.py](file://app/backend/services/llm_contact_extractor.py)
 - [llm_service.py](file://app/backend/services/llm_service.py)
-- [test_parser_service.py](file://app/backend/tests/test_parser_service.py)
+- [test_parser_overhaul.py](file://app/backend/tests/test_parser_overhaul.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
 - [candidates.py](file://app/backend/routes/candidates.py)
 - [gap_detector.py](file://app/backend/services/gap_detector.py)
@@ -15,23 +15,19 @@
 - [requirements.txt](file://requirements.txt)
 - [main.py](file://app/backend/main.py)
 - [metrics.py](file://app/backend/services/metrics.py)
+- [skill_matcher.py](file://app/backend/services/skill_matcher.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced DOCX parsing with comprehensive multi-stage extraction pipeline including headers, textboxes, tables, paragraphs, and XML fallback for corrupted files
-- Integrated new LLM contact extraction service with async processing and intelligent merging strategy
-- Implemented sophisticated fallback mechanisms for all resume formats (PDF, DOCX, DOC, RTF, ODT)
-- Enhanced error handling with comprehensive logging and structured error reporting
-- Added retry mechanisms for PDF extraction failures
-- Implemented performance monitoring with Prometheus metrics
-- Enhanced observability with structured logging and request correlation IDs
-- Added comprehensive fallback strategies for all extraction methods
-- Enhanced spaCy NER integration with tiered name extraction approach
-- **Updated**: Enhanced name extraction with expanded skip_phrases dictionary containing 30+ professional titles and job-related phrases
-- **Updated**: Improved phone number detection with multi-pattern regex approach and year validation to prevent false positives
-- **Updated**: Expanded SKIP_WORDS collection with additional words for better contact information distinction
-- **Updated**: Enhanced skip_phrases dictionary in _name_from_header_line function with commonly misinterpreted section headers
+- **Comprehensive Resume Parser Overhaul**: Complete rewrite with new dateparser integration for sophisticated date extraction
+- **New Field Extraction**: Added certifications, languages, and professional summary extraction capabilities
+- **Enhanced Skills Normalization**: Implemented comprehensive SKILL_ALIASES system for skill name standardization
+- **Sophisticated Work Experience Parsing**: Advanced title/company parsing with deputed pattern support and improved delimiter handling
+- **Expanded Education Extraction**: Enhanced field-of-study detection and institution recognition
+- **Improved Error Handling**: Comprehensive logging, structured error reporting, and retry mechanisms
+- **Performance Monitoring**: Prometheus metrics collection and observability features
+- **LLM Integration**: Enhanced contact extraction with intelligent merging strategy
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -48,9 +44,9 @@
 12. [Appendices](#appendices)
 
 ## Introduction
-This document describes the resume parsing service that extracts structured data from PDF and DOCX formats. It explains the text processing pipeline, including OCR capabilities, formatting preservation, and data normalization. It also covers supported file formats, parsing accuracy characteristics, fallback strategies for malformed documents, examples of extracted data schemas, parsing configuration options, integration patterns with the analysis engine, and enhanced error handling with comprehensive logging and observability features.
+This document describes the comprehensive resume parsing service that extracts structured data from PDF and DOCX formats. The service features a complete overhaul with new dateparser integration, certifications extraction, languages extraction, professional summary extraction, enhanced skills normalization, and sophisticated work experience parsing capabilities. It explains the text processing pipeline, including OCR capabilities, formatting preservation, and data normalization. It also covers supported file formats, parsing accuracy characteristics, fallback strategies for malformed documents, examples of extracted data schemas, parsing configuration options, integration patterns with the analysis engine, and enhanced error handling with comprehensive logging and observability features.
 
-**Updated**: The service now features enhanced DOCX parsing capabilities with a comprehensive multi-stage extraction pipeline and a robust zipfile fallback system for corrupted files, along with integration of a new LLM contact extraction service for improved accuracy in contact information extraction. Sophisticated fallback mechanisms have been implemented for all resume formats including PDF (PyMuPDF, pdfplumber), DOCX (headers, textboxes, tables, paragraphs, XML fallback), DOC (antiword, LibreOffice conversion, ASCII extraction), RTF (striprtf), and ODT (odfpy). **Enhanced**: Name extraction now includes an expanded skip_phrases dictionary with 30+ professional titles and improved phone number detection with multi-pattern regex and year validation.
+**Updated**: The service now features a comprehensive resume parser overhaul with sophisticated date extraction using dateparser, new field extraction capabilities for certifications, languages, and professional summaries, enhanced skills normalization through SKILL_ALIASES, and advanced work experience parsing with improved title/company separation and deputed pattern handling.
 
 ## Project Structure
 The parser service is implemented as a dedicated module and integrated into the broader analysis pipeline. Key integration points include:
@@ -104,7 +100,7 @@ S4 --> LOGGING
 **Diagram sources**
 - [analyze.py:449-649](file://app/backend/routes/analyze.py#L449-L649)
 - [candidates.py:192-303](file://app/backend/routes/candidates.py#L192-L303)
-- [parser_service.py:193-202](file://app/backend/services/parser_service.py#L193-L202)
+- [parser_service.py:1935-1942](file://app/backend/services/parser_service.py#L1935-L1942)
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
 - [hybrid_pipeline.py:1-12](file://app/backend/services/hybrid_pipeline.py#L1-L12)
 - [db_models.py:97-147](file://app/backend/models/db_models.py#L97-L147)
@@ -112,15 +108,18 @@ S4 --> LOGGING
 
 **Section sources**
 - [analyze.py:1-200](file://app/backend/routes/analyze.py#L1-L200)
-- [parser_service.py:1-1255](file://app/backend/services/parser_service.py#L1-L1255)
+- [parser_service.py:1-1942](file://app/backend/services/parser_service.py#L1-L1942)
 - [gap_detector.py:1-219](file://app/backend/services/gap_detector.py#L1-L219)
 - [hybrid_pipeline.py:1-200](file://app/backend/services/hybrid_pipeline.py#L1-L200)
 - [db_models.py:1-250](file://app/backend/models/db_models.py#L1-L250)
 
 ## Core Components
-- **ResumeParser**: Implements extraction and parsing for PDF, DOCX, DOC, RTF, ODT, and TXT; extracts contact info, skills, education, and work experience; normalizes text and enforces scanned-PDF guardrails.
-- **Enhanced DOCX Parser**: Comprehensive multi-stage extraction pipeline with headers, textboxes, tables, paragraphs, and XML fallback for corrupted files.
-- **Sophisticated Fallback Mechanisms**: Multi-stage extraction pipelines for all supported formats with comprehensive error handling and logging.
+- **ResumeParser**: Implements extraction and parsing for PDF, DOCX, DOC, RTF, ODT, and TXT; extracts contact info, skills, education, work experience, certifications, languages, and professional summary; normalizes text and enforces scanned-PDF guardrails.
+- **Enhanced Date Extraction**: Sophisticated date parsing using dateparser with support for month abbreviations, "till date", "to date", "ongoing", and "continuing" keywords.
+- **New Field Extraction**: Comprehensive extraction of certifications, languages with proficiency levels, and professional summaries.
+- **Enhanced Skills Normalization**: Advanced skill name standardization using SKILL_ALIASES for consistent skill representation.
+- **Sophisticated Work Experience Parsing**: Improved title/company separation with deputed pattern support and enhanced delimiter handling.
+- **Expanded Education Extraction**: Enhanced field-of-study detection and institution recognition with support for various degree formats.
 - **LLM Contact Extractor**: Async service that uses Ollama/Gemma for accurate contact information extraction with intelligent merging strategy.
 - **GapDetector**: Computes employment timeline, total effective years, gaps, overlaps, and short stints from parsed work experience.
 - **Hybrid pipeline**: Orchestrates JD parsing, candidate profile assembly, skill matching, education scoring, and LLM narrative generation.
@@ -130,21 +129,23 @@ S4 --> LOGGING
 
 Key capabilities:
 - Text extraction from PDF using PyMuPDF with pdfplumber fallback; DOCX via python-docx; TXT via UTF-8 decoding.
-- Heuristic-based parsing for skills, education, and work experience with robust fallbacks.
+- Heuristic-based parsing for skills, education, work experience with robust fallbacks.
 - Name enrichment from email and relaxed heuristics when header parsing fails.
 - Stored parser snapshots and deduplication to accelerate re-analysis.
+- **Enhanced**: Sophisticated date extraction using dateparser for flexible date formats.
+- **Enhanced**: New field extraction for certifications, languages, and professional summaries.
+- **Enhanced**: Comprehensive skills normalization through SKILL_ALIASES system.
+- **Enhanced**: Advanced work experience parsing with improved title/company separation.
+- **Enhanced**: Expanded education extraction with enhanced field-of-study detection.
 - **Enhanced**: Tiered name extraction using spaCy NER for improved accuracy.
 - **Enhanced**: Comprehensive logging with structured error reporting for better observability.
 - **Enhanced**: Performance monitoring with Prometheus metrics collection.
 - **Enhanced**: Multi-stage DOCX extraction with zipfile fallback system for corrupted files.
 - **Enhanced**: Async LLM contact extraction with intelligent merging strategy.
 - **Enhanced**: Sophisticated fallback mechanisms for all resume formats with comprehensive error handling.
-- **Enhanced**: **Expanded skip_phrases dictionary**: 30+ professional titles and job-related phrases excluded from name extraction.
-- **Enhanced**: **Multi-pattern phone detection**: Enhanced regex patterns with year validation to prevent false positives.
-- **Enhanced**: **Expanded skip words**: Additional words for better contact information distinction.
 
 **Section sources**
-- [parser_service.py:130-1255](file://app/backend/services/parser_service.py#L130-L1255)
+- [parser_service.py:130-1942](file://app/backend/services/parser_service.py#L130-L1942)
 - [llm_contact_extractor.py:1-165](file://app/backend/services/llm_contact_extractor.py#L1-L165)
 - [gap_detector.py:103-219](file://app/backend/services/gap_detector.py#L103-L219)
 - [hybrid_pipeline.py:467-751](file://app/backend/services/hybrid_pipeline.py#L467-L751)
@@ -158,6 +159,7 @@ The parser service integrates with the analysis pipeline as follows:
 - Results are persisted and exposed via endpoints.
 - **Enhanced**: All operations are instrumented with logging and metrics collection.
 - **Enhanced**: LLM contact extraction provides enhanced accuracy for contact information.
+- **Enhanced**: New field extraction capabilities for comprehensive candidate profiling.
 
 ```mermaid
 sequenceDiagram
@@ -172,7 +174,7 @@ participant DB as "Database"
 Client->>Route : POST /analyze (multipart/form-data)
 Route->>Parser : parse_resume(file_bytes, filename)
 Parser->>Metrics : Record RESUME_PARSE_DURATION
-Parser-->>Route : parsed_data (raw_text, contact_info, skills, education, work_experience)
+Parser-->>Route : parsed_data (raw_text, contact_info, skills, education, work_experience, certifications, languages, professional_summary)
 Route->>LLM : extract_contact_with_llm(raw_text)
 LLM-->>Route : enhanced contact_info
 Route->>Gap : analyze_gaps(parsed_data.work_experience)
@@ -185,7 +187,7 @@ Route-->>Client : analysis_result
 
 **Diagram sources**
 - [analyze.py:449-649](file://app/backend/routes/analyze.py#L449-L649)
-- [parser_service.py:1201-1255](file://app/backend/services/parser_service.py#L1201-L1255)
+- [parser_service.py:1935-1942](file://app/backend/services/parser_service.py#L1935-L1942)
 - [llm_contact_extractor.py:23-131](file://app/backend/services/llm_contact_extractor.py#L23-L131)
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
 - [hybrid_pipeline.py:1-12](file://app/backend/services/hybrid_pipeline.py#L1-L12)
@@ -205,8 +207,11 @@ The ResumeParser class performs:
 - Structured extraction of:
   - Contact info: name, email, phone, LinkedIn
   - Work experience: company, title, start/end dates, description
-  - Education: degrees, institutions, years
+  - Education: degrees, institutions, years, fields of study
   - Skills: section-based extraction, full-text scanning, and fallback lists
+  - **New**: Certifications: professional certifications and licenses
+  - **New**: Languages: multilingual capabilities with proficiency levels
+  - **New**: Professional summary: career overview and key qualifications
 
 **Enhanced**: Implements comprehensive error handling with structured logging and retry mechanisms.
 
@@ -225,138 +230,235 @@ class ResumeParser {
 +_extract_education(text) List
 +_extract_skills(text) List
 +_extract_name(text) str
++_extract_certifications(text) List
++_extract_languages(text) List
++_extract_professional_summary(text) str
 }
 ```
 
 **Diagram sources**
-- [parser_service.py:198-1255](file://app/backend/services/parser_service.py#L198-L1255)
+- [parser_service.py:286-1942](file://app/backend/services/parser_service.py#L286-L1942)
 
 **Section sources**
-- [parser_service.py:220-238](file://app/backend/services/parser_service.py#L220-L238)
-- [parser_service.py:239-492](file://app/backend/services/parser_service.py#L239-L492)
-- [parser_service.py:498-737](file://app/backend/services/parser_service.py#L498-L737)
-- [parser_service.py:1014-1037](file://app/backend/services/parser_service.py#L1014-L1037)
-- [parser_service.py:750-828](file://app/backend/services/parser_service.py#L750-L828)
+- [parser_service.py:286-326](file://app/backend/services/parser_service.py#L286-L326)
+- [parser_service.py:327-825](file://app/backend/services/parser_service.py#L327-L825)
+- [parser_service.py:827-839](file://app/backend/services/parser_service.py#L827-L839)
+- [parser_service.py:938-1046](file://app/backend/services/parser_service.py#L938-L1046)
+- [parser_service.py:1083-1152](file://app/backend/services/parser_service.py#L1083-L1152)
+- [parser_service.py:1299-1359](file://app/backend/services/parser_service.py#L1299-L1359)
+- [parser_service.py:1361-1395](file://app/backend/services/parser_service.py#L1361-L1395)
+- [parser_service.py:1397-1461](file://app/backend/services/parser_service.py#L1397-L1461)
+- [parser_service.py:1463-1500](file://app/backend/services/parser_service.py#L1463-L1500)
 
-### Enhanced DOCX Extraction Pipeline
-**New Section**: The DOCX extraction now features a comprehensive multi-stage pipeline designed to maximize content recovery from various DOCX file formats:
+### Sophisticated Date Extraction with Dateparser Integration
+**New Section**: The enhanced date extraction system now features comprehensive date parsing capabilities using dateparser:
 
-- **Stage 1: Headers** - Extracts contact information from document headers (often contains name, email, phone)
-- **Stage 2: Textboxes and Shapes** - Uses docx2txt for complex layouts with textboxes and custom shapes
-- **Stage 3: Tables** - Extracts structured data from tables (commonly contains contact information)
-- **Stage 4: Paragraphs** - Standard paragraph extraction for main content
-- **Stage 5: XML Fallback** - Direct XML parsing for corrupted or unusual DOCX files
+- **Month Abbreviation Normalization**: Converts "AUG." to "AUG" for consistent parsing
+- **Present Keyword Recognition**: Handles "till date", "to date", "ongoing", "continuing", "current position" as present
+- **Flexible Date Range Extraction**: Supports various date formats including MM/YYYY, YYYY/MM, Month YYYY, bare years
+- **Year-Only Fallback**: Extracts two-year ranges when only years are provided
+- **Dateparser Integration**: Uses dateparser for robust date parsing with configurable settings
 
 **Enhanced**: Implements comprehensive fallback strategies with structured logging for all extraction methods.
 
 ```mermaid
 flowchart TD
-Start(["_extract_docx_multistage(file_bytes)"]) --> TryDocx["Try python-docx"]
-TryDocx --> Headers["Extract headers (Stage 1)"]
-Headers --> Textboxes["Extract textboxes (Stage 2)"]
-Textboxes --> Tables["Extract tables (Stage 3)"]
-Tables --> Paragraphs["Extract paragraphs (Stage 4)"]
-Paragraphs --> Success{"Any text extracted?"}
-Success --> |Yes| Combine["Combine with source priority"]
-Success --> |No| XMLFallback["XML Fallback (Stage 5)"]
-XMLFallback --> XMLExtract["Parse word/document.xml"]
-XMLExtract --> XMLSuccess{"XML extraction success?"}
-XMLSuccess --> |Yes| Combine
-XMLSuccess --> |No| Error["Raise ValueError"]
-Combine --> Deduplicate["Final deduplication pass"]
-Deduplicate --> Return(["Return extracted text"])
+Start(["_extract_date_range(line)"]) --> Normalize["_normalize_date_text(line)"]
+Normalize --> PatternMatch{"Pattern match found?"}
+PatternMatch --> |Yes| ParseDates["Parse start and end dates with dateparser"]
+PatternMatch --> |No| YearFallback["Look for two bare years"]
+YearFallback --> |Found| ReturnYears["Return (first_year, last_year)"]
+YearFallback --> |Not Found| PresentFallback["Check for present keywords"]
+PresentFallback --> |Found| ReturnPresent["Return (year, 'present')"]
+PresentFallback --> |Not Found| ReturnNone["Return None"]
+ParseDates --> ReturnParsed["Return (start_str, end_str)"]
 ```
 
 **Diagram sources**
-- [parser_service.py:343-492](file://app/backend/services/parser_service.py#L343-L492)
+- [parser_service.py:146-174](file://app/backend/services/parser_service.py#L146-L174)
+- [parser_service.py:104-108](file://app/backend/services/parser_service.py#L104-L108)
 
 **Section sources**
-- [parser_service.py:343-492](file://app/backend/services/parser_service.py#L343-L492)
+- [parser_service.py:96-174](file://app/backend/services/parser_service.py#L96-L174)
+- [test_parser_overhaul.py:33-142](file://app/backend/tests/test_parser_overhaul.py#L33-L142)
 
-### Enhanced DOC Extraction Pipeline
-**New Section**: The DOC extraction features a sophisticated multi-stage pipeline for legacy Word documents:
+### New Field Extraction Capabilities
+**New Section**: The parser now extracts three new comprehensive field categories:
 
-- **Stage 1: Antiword** - Attempts extraction using antiword if available
-- **Stage 2: LibreOffice Conversion** - Converts DOC to DOCX using LibreOffice headless conversion
-- **Stage 3: ASCII Fallback** - Best-effort ASCII extraction with character cleaning
+#### Certifications Extraction
+- **Section Detection**: Recognizes "CERTIFICATIONS", "CERTIFICATES", "PROFESSIONAL CERTIFICATIONS", "LICENSES AND CERTIFICATIONS", "ACCREDITATIONS"
+- **Content Extraction**: Strips bullet points, dashes, and numbering from certification entries
+- **Format Support**: Handles both single-line and multi-line certification listings
+
+#### Languages Extraction
+- **Section Detection**: Recognizes "LANGUAGES", "LANGUAGE SKILLS", "LANGUAGE PROFICIENCY", "LINGUISTIC SKILLS"
+- **Proficiency Detection**: Identifies proficiency levels: native, fluent, proficient, intermediate, advanced, basic, beginner, elementary, conversational, professional, working proficiency, mother tongue, bilingual
+- **Format Support**: Handles comma-separated and parenthesized proficiency notation
+
+#### Professional Summary Extraction
+- **Section Detection**: Recognizes "PROFESSIONAL SUMMARY", "SUMMARY", "CAREER SUMMARY", "EXECUTIVE SUMMARY", "OBJECTIVE", "CAREER OBJECTIVE", "PROFILE", "PROFESSIONAL PROFILE", "ABOUT ME", "OVERVIEW"
+- **Content Preservation**: Maintains formatting and structure within summary sections
+- **Truncation**: Limits summary to 500 characters for optimal processing
 
 **Enhanced**: Implements comprehensive fallback strategies with structured logging for all extraction methods.
 
 ```mermaid
 flowchart TD
-Start(["_extract_doc_multistage(file_bytes)"]) --> Antiword["Try antiword"]
-Antiword --> Success1{"Text extracted?"}
-Success1 --> |Yes| Combine["Combine with source priority"]
-Success1 --> |No| LibreOffice["Try LibreOffice conversion"]
-LibreOffice --> Success2{"Text extracted?"}
-Success2 --> |Yes| Combine
-Success2 --> |No| ASCIIFallback["ASCII fallback extraction"]
-ASCIIFallback --> Success3{"Text extracted?"}
-Success3 --> |Yes| Combine
-Success3 --> |No| Error["Raise ValueError"]
-Combine --> Deduplicate["Final deduplication pass"]
-Deduplicate --> Return(["Return extracted text"])
+CertStart(["_extract_certifications(text)"]) --> CertHeaders["Detect certification headers"]
+CertHeaders --> IterateCert["Iterate through lines"]
+IterateCert --> CheckCert{"Certification section?"}
+CheckCert --> |Yes| ExtractCert["Extract certification text"]
+ExtractCert --> StripFormatting["Strip formatting and bullets"]
+StripFormatting --> AddToList["Add to certifications list"]
+AddToList --> IterateCert
+CheckCert --> |No| CheckNext{"Next section header?"}
+CheckNext --> |Yes| ExitCert["Exit certification section"]
+CheckNext --> |No| IterateCert
+ExitCert --> ReturnCert(["Return certifications list"])
+LangStart(["_extract_languages(text)"]) --> LangHeaders["Detect language headers"]
+LangHeaders --> IterateLang["Iterate through lines"]
+IterateLang --> CheckLang{"Language section?"}
+CheckLang --> |Yes| ExtractLang["Extract language text"]
+ExtractLang --> DetectProficiency["Detect proficiency level"]
+DetectProficiency --> ParseFormat["Parse comma/paren format"]
+ParseFormat --> AddToLang["Add to languages list"]
+AddToLang --> IterateLang
+CheckLang --> |No| CheckNextLang{"Next section header?"}
+CheckNextLang --> |Yes| ExitLang["Exit language section"]
+CheckNextLang --> |No| IterateLang
+ExitLang --> ReturnLang(["Return languages list"])
+SummaryStart(["_extract_professional_summary(text)"]) --> SummaryHeaders["Detect summary headers"]
+SummaryHeaders --> IterateSum["Iterate through lines"]
+IterateSum --> CheckSum{"Summary section?"}
+CheckSum --> |Yes| ExtractSum["Extract summary text"]
+ExtractSum --> CheckBlank{"Blank line?"}
+CheckBlank --> |Yes| AddBlank["Add blank line marker"]
+CheckBlank --> |No| AddText["Add text to summary"]
+AddText --> IterateSum
+AddBlank --> IterateSum
+CheckSum --> |No| CheckNextSum{"Next section header?"}
+CheckNextSum --> |Yes| ExitSum["Exit summary section"]
+CheckNextSum --> |No| IterateSum
+ExitSum --> Truncate["Truncate to 500 chars"]
+Truncate --> ReturnSum(["Return summary"])
 ```
 
 **Diagram sources**
-- [parser_service.py:498-594](file://app/backend/services/parser_service.py#L498-L594)
+- [parser_service.py:1361-1395](file://app/backend/services/parser_service.py#L1361-L1395)
+- [parser_service.py:1397-1461](file://app/backend/services/parser_service.py#L1397-L1461)
+- [parser_service.py:1463-1500](file://app/backend/services/parser_service.py#L1463-L1500)
 
 **Section sources**
-- [parser_service.py:498-594](file://app/backend/services/parser_service.py#L498-L594)
+- [parser_service.py:1361-1500](file://app/backend/services/parser_service.py#L1361-L1500)
+- [test_parser_overhaul.py:238-323](file://app/backend/tests/test_parser_overhaul.py#L238-L323)
 
-### Enhanced RTF Extraction Pipeline
-**New Section**: The RTF extraction features a two-stage pipeline:
+### Enhanced Skills Normalization with SKILL_ALIASES
+**New Section**: The skills extraction system now features comprehensive normalization through SKILL_ALIASES:
 
-- **Stage 1: striprtf Library** - Uses specialized library for RTF parsing
-- **Stage 2: Regex Fallback** - Regex-based RTF stripping for basic RTF files
+- **Alias Resolution**: Maps variant spellings and abbreviations to canonical skill names
+- **Case Preservation**: Preserves original casing for canonical forms (e.g., "Python" stays "Python")
+- **Punctuation Handling**: Normalizes punctuation and spacing differences
+- **Duplicate Elimination**: Automatically removes duplicate skills after normalization
+- **Special Cases**: Handles special cases like "c++" and "c#" that should not be normalized
+
+**Enhanced**: Implements comprehensive fallback strategy with structured logging for all extraction failures.
+
+```mermaid
+flowchart TD
+SkillStart(["_extract_skills(text)"]) --> Section["Find skills section"]
+Section --> Split["Split by delimiters"]
+Split --> Registry["Scan with skills registry (flashtext)"]
+Registry --> Merge["Merge section + scanned, dedupe"]
+Merge --> Fallback{"Empty and registry failed?"}
+Fallback --> |Yes| LogWarn["Log warning about registry unavailability"]
+LogWarn --> Broad["Scan with KNOWN_SKILLS_BROAD"]
+Fallback --> |No| Normalize["Normalize with SKILL_ALIASES"]
+Broad --> Normalize
+Normalize --> Aliases["Resolve skill aliases"]
+Aliases --> Deduplicate["Remove duplicates and preserve order"]
+Deduplicate --> Return(["Return normalized skills"])
+```
+
+**Diagram sources**
+- [parser_service.py:1083-1152](file://app/backend/services/parser_service.py#L1083-L1152)
+- [skill_matcher.py:598-650](file://app/backend/services/skill_matcher.py#L598-L650)
+
+**Section sources**
+- [parser_service.py:1083-1152](file://app/backend/services/parser_service.py#L1083-L1152)
+- [skill_matcher.py:295-735](file://app/backend/services/skill_matcher.py#L295-L735)
+- [test_parser_overhaul.py:329-369](file://app/backend/tests/test_parser_overhaul.py#L329-L369)
+
+### Sophisticated Work Experience Parsing
+**Updated Section**: The work experience extraction now features advanced parsing capabilities:
+
+- **Enhanced Title/Company Separation**: Improved delimiter handling including pipes, tabs, and company keywords
+- **Deputed Pattern Support**: Handles "deputed @ company" and "deputed at company" patterns
+- **Keyword Disambiguation**: Distinguishes between titles and companies using keyword patterns
+- **Dateparser Integration**: Uses sophisticated date extraction for flexible date format support
+- **Description Accumulation**: Enhanced description parsing with improved line detection
 
 **Enhanced**: Implements comprehensive fallback strategies with structured logging for all extraction methods.
 
 ```mermaid
 flowchart TD
-Start(["_extract_rtf(file_bytes)"]) --> StripRTF["Try striprtf library"]
-StripRTF --> Success1{"Text extracted?"}
-Success1 --> |Yes| Combine["Combine with source priority"]
-Success1 --> |No| RegexFallback["Regex-based fallback"]
-RegexFallback --> Success2{"Text extracted?"}
-Success2 --> |Yes| Combine
-Success2 --> |No| Error["Raise ValueError"]
-Combine --> Deduplicate["Final deduplication pass"]
-Deduplicate --> Return(["Return extracted text"])
+ExpStart(["_extract_work_experience(text)"]) --> Lines["Split into lines"]
+Lines --> Iterate{"For each line"}
+Iterate --> DateMatch{"Date pattern match?"}
+DateMatch --> |Yes| NewJob["Start new job entry"]
+DateMatch --> |No| Accumulate{"In job block?"}
+Accumulate --> |Yes| AppendDesc["Append description"]
+Accumulate --> |No| Remember["Remember as potential role line"]
+NewJob --> ExtractTitleCompany["Extract title/company from line"]
+ExtractTitleCompany --> SplitTitleCompany["_split_title_company(parts)"]
+SplitTitleCompany --> CreateJob["Create job entry with title and company"]
+CreateJob --> Iterate
+AppendDesc --> Iterate
+Remember --> Iterate
+Iterate --> EndExp(["Return jobs list"])
 ```
 
 **Diagram sources**
-- [parser_service.py:611-664](file://app/backend/services/parser_service.py#L611-L664)
+- [parser_service.py:938-1046](file://app/backend/services/parser_service.py#L938-L1046)
+- [parser_service.py:860-936](file://app/backend/services/parser_service.py#L860-L936)
 
 **Section sources**
-- [parser_service.py:611-664](file://app/backend/services/parser_service.py#L611-L664)
+- [parser_service.py:938-1046](file://app/backend/services/parser_service.py#L938-L1046)
+- [parser_service.py:860-936](file://app/backend/services/parser_service.py#L860-L936)
+- [test_parser_overhaul.py:375-414](file://app/backend/tests/test_parser_overhaul.py#L375-L414)
 
-### Enhanced ODT Extraction Pipeline
-**New Section**: The ODT extraction features a two-stage pipeline for OpenDocument Text files:
+### Enhanced Education Extraction
+**Updated Section**: The education extraction now features expanded capabilities:
 
-- **Stage 1: odfpy Library** - Uses specialized library for ODT parsing
-- **Stage 2: ZIP/XML Fallback** - Direct XML extraction from ZIP container
+- **Enhanced Field-of-Study Detection**: Improved extraction of field names from degree descriptions
+- **Institution Recognition**: Better identification of universities and educational institutions
+- **Multiple Degree Formats**: Support for various degree naming conventions and abbreviations
+- **Year Extraction**: Enhanced year detection from education entries
+- **Known Institution Support**: Recognition of common abbreviations like MIT, IIT, IIM
 
 **Enhanced**: Implements comprehensive fallback strategies with structured logging for all extraction methods.
 
 ```mermaid
 flowchart TD
-Start(["_extract_odt(file_bytes)"]) --> ODFPY["Try odfpy library"]
-ODFPY --> Success1{"Text extracted?"}
-Success1 --> |Yes| Combine["Combine with source priority"]
-Success1 --> |No| XMLFallback["ZIP/XML fallback"]
-XMLFallback --> Success2{"Text extracted?"}
-Success2 --> |Yes| Combine
-Success2 --> |No| Error["Raise ValueError"]
-Combine --> Deduplicate["Final deduplication pass"]
-Deduplicate --> Return(["Return extracted text"])
+EduStart(["_extract_education(text)"]) --> EduHeaders["Find education section"]
+EduHeaders --> Lines["Split into lines"]
+Lines --> ForEach{"For each line"}
+ForEach --> Degree{"Degree pattern match?"}
+Degree --> |Yes| ExtractFields["Extract year/university/field"]
+ExtractFields --> Add["Append to education list"]
+Degree --> |No| Next["Next line"]
+Add --> ForEach
+Next --> ForEach
+ForEach --> EndEdu(["Return education list"])
 ```
 
 **Diagram sources**
-- [parser_service.py:666-737](file://app/backend/services/parser_service.py#L666-L737)
+- [parser_service.py:1299-1359](file://app/backend/services/parser_service.py#L1299-L1359)
+- [parser_service.py:1194-1297](file://app/backend/services/parser_service.py#L1194-L1297)
 
 **Section sources**
-- [parser_service.py:666-737](file://app/backend/services/parser_service.py#L666-L737)
+- [parser_service.py:1299-1359](file://app/backend/services/parser_service.py#L1299-L1359)
+- [parser_service.py:1194-1297](file://app/backend/services/parser_service.py#L1194-L1297)
+- [test_parser_overhaul.py:148-232](file://app/backend/tests/test_parser_overhaul.py#L148-L232)
 
 ### LLM Contact Extraction Integration
 **New Section**: The parser now integrates with a dedicated LLM contact extraction service for enhanced accuracy:
@@ -387,18 +489,18 @@ FilenameTier --> Return["Return enriched data"]
 ```
 
 **Diagram sources**
-- [parser_service.py:1080-1155](file://app/backend/services/parser_service.py#L1080-L1155)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 
 **Section sources**
-- [parser_service.py:1080-1155](file://app/backend/services/parser_service.py#L1080-L1155)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 
 ### Enhanced Name Extraction with Expanded Skip Phrases Dictionary
 **Updated Section**: The name extraction algorithm now includes sophisticated filtering mechanisms to prevent false positive name detection:
 
 - **SKIP_WORDS Collection**: Comprehensive set of 25+ words that indicate non-name content (resume, curriculum, vitae, cv, profile, summary, objective, contact, address, details, information, page, updated, date, experience, education, skills, employment, work, projects, references, certifications, awards, publications, languages, interests, hobbies, activities, achievements)
-- **skip_phrases Dictionary**: Contains 30+ professional titles and job-related phrases that are definitively not names, including newly added section headers like 'key expertise', 'key skills', 'core competencies', 'top skills', 'technical experience', 'embedded experience', 'professional experience', 'work experience', 'career highlights', 'summary', 'objective', 'personal details', 'contact information', and 'contact details'
+- **Expanded skip_phrases Dictionary**: Contains 30+ professional titles and job-related phrases that are definitively not names, including newly added section headers like 'key expertise', 'key skills', 'core competencies', 'top skills', 'technical experience', 'embedded experience', 'professional experience', 'work experience', 'career highlights', 'summary', 'objective', 'personal details', 'contact information', and 'contact details'
 - **Multi-stage Filtering**: Applies skip_words, skip_phrases, and job title pattern checks before accepting potential names
 
 **Enhanced**: Implements comprehensive filtering to distinguish between actual names and contact information or job titles.
@@ -431,10 +533,10 @@ Loop --> End(["Return empty if none found"])
 ```
 
 **Diagram sources**
-- [parser_service.py:994-1042](file://app/backend/services/parser_service.py#L994-L1042)
+- [parser_service.py:1530-1578](file://app/backend/services/parser_service.py#L1530-L1578)
 
 **Section sources**
-- [parser_service.py:975-1042](file://app/backend/services/parser_service.py#L975-L1042)
+- [parser_service.py:1530-1578](file://app/backend/services/parser_service.py#L1530-L1578)
 
 ### Enhanced Phone Number Detection
 **Updated Section**: The phone number extraction algorithm now uses a sophisticated multi-pattern approach with validation to prevent false positives:
@@ -465,10 +567,10 @@ LoopPatterns --> End(["Return contact info"])
 ```
 
 **Diagram sources**
-- [parser_service.py:1052-1072](file://app/backend/services/parser_service.py#L1052-L1072)
+- [parser_service.py:1595-1614](file://app/backend/services/parser_service.py#L1595-L1614)
 
 **Section sources**
-- [parser_service.py:1052-1072](file://app/backend/services/parser_service.py#L1052-L1072)
+- [parser_service.py:1595-1614](file://app/backend/services/parser_service.py#L1595-L1614)
 
 ### Text Extraction and Normalization
 - PDF: PyMuPDF primary; pdfplumber fallback; scanned-PDF guard raises actionable error if text length below threshold.
@@ -517,15 +619,15 @@ Normalize --> Return(["Return normalized text"])
 ```
 
 **Diagram sources**
-- [parser_service.py:220-238](file://app/backend/services/parser_service.py#L220-L238)
-- [parser_service.py:239-492](file://app/backend/services/parser_service.py#L239-L492)
-- [parser_service.py:498-737](file://app/backend/services/parser_service.py#L498-L737)
+- [parser_service.py:308-326](file://app/backend/services/parser_service.py#L308-L326)
+- [parser_service.py:327-825](file://app/backend/services/parser_service.py#L327-L825)
+- [parser_service.py:827-839](file://app/backend/services/parser_service.py#L827-L839)
 - [parser_service.py:238-240](file://app/backend/services/parser_service.py#L238-L240)
 
 **Section sources**
-- [parser_service.py:220-238](file://app/backend/services/parser_service.py#L220-L238)
-- [parser_service.py:239-492](file://app/backend/services/parser_service.py#L239-L492)
-- [parser_service.py:498-737](file://app/backend/services/parser_service.py#L498-L737)
+- [parser_service.py:308-326](file://app/backend/services/parser_service.py#L308-L326)
+- [parser_service.py:327-825](file://app/backend/services/parser_service.py#L327-L825)
+- [parser_service.py:827-839](file://app/backend/services/parser_service.py#L827-L839)
 - [parser_service.py:238-240](file://app/backend/services/parser_service.py#L238-L240)
 
 ### Contact Information Extraction
@@ -552,13 +654,13 @@ LinkedIn --> Out(["Return {name?, email?, phone?, linkedin?}"])
 ```
 
 **Diagram sources**
-- [parser_service.py:1014-1037](file://app/backend/services/parser_service.py#L1014-L1037)
-- [parser_service.py:1080-1155](file://app/backend/services/parser_service.py#L1080-L1155)
+- [parser_service.py:1580-1620](file://app/backend/services/parser_service.py#L1580-L1620)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 
 **Section sources**
-- [parser_service.py:1014-1037](file://app/backend/services/parser_service.py#L1014-L1037)
-- [parser_service.py:1080-1155](file://app/backend/services/parser_service.py#L1080-L1155)
+- [parser_service.py:1580-1620](file://app/backend/services/parser_service.py#L1580-L1620)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 
 ### Work Experience Extraction
@@ -582,10 +684,10 @@ Iterate --> EndExp(["Return jobs list"])
 ```
 
 **Diagram sources**
-- [parser_service.py:750-828](file://app/backend/services/parser_service.py#L750-L828)
+- [parser_service.py:938-1046](file://app/backend/services/parser_service.py#L938-L1046)
 
 **Section sources**
-- [parser_service.py:750-828](file://app/backend/services/parser_service.py#L750-L828)
+- [parser_service.py:938-1046](file://app/backend/services/parser_service.py#L938-L1046)
 
 ### Skills Extraction
 - Section-based extraction using multiple skill headers.
@@ -603,16 +705,18 @@ Registry --> Merge["Merge section + scanned, dedupe"]
 Merge --> Fallback{"Empty and registry failed?"}
 Fallback --> |Yes| LogWarn["Log warning about registry unavailability"]
 LogWarn --> Broad["Scan with KNOWN_SKILLS_BROAD"]
-Fallback --> |No| Done["Return skills"]
-Broad --> Done
+Fallback --> |No| Normalize["Normalize with SKILL_ALIASES"]
+Broad --> Normalize
+Normalize --> Deduplicate["Remove duplicates and preserve order"]
+Deduplicate --> Return(["Return skills"])
 ```
 
 **Diagram sources**
-- [parser_service.py:865-918](file://app/backend/services/parser_service.py#L865-L918)
+- [parser_service.py:1083-1152](file://app/backend/services/parser_service.py#L1083-L1152)
 - [hybrid_pipeline.py:139-200](file://app/backend/services/hybrid_pipeline.py#L139-L200)
 
 **Section sources**
-- [parser_service.py:865-918](file://app/backend/services/parser_service.py#L865-L918)
+- [parser_service.py:1083-1152](file://app/backend/services/parser_service.py#L1083-L1152)
 - [hybrid_pipeline.py:139-200](file://app/backend/services/hybrid_pipeline.py#L139-L200)
 
 ### Education Extraction
@@ -625,7 +729,7 @@ StartEdu(["_extract_education(text)"]) --> Section["Find education section"]
 Section --> Lines["Split into lines"]
 Lines --> ForEach{"For each line"}
 ForEach --> Degree{"Degree pattern match?"}
-Degree --> |Yes| Fields["Extract year/university"]
+Degree --> |Yes| Fields["Extract year/university/field"]
 Fields --> Add["Append to education list"]
 Degree --> |No| Next["Next line"]
 Add --> ForEach
@@ -634,10 +738,10 @@ ForEach --> EndEdu(["Return education list"])
 ```
 
 **Diagram sources**
-- [parser_service.py:920-964](file://app/backend/services/parser_service.py#L920-L964)
+- [parser_service.py:1299-1359](file://app/backend/services/parser_service.py#L1299-L1359)
 
 **Section sources**
-- [parser_service.py:920-964](file://app/backend/services/parser_service.py#L920-L964)
+- [parser_service.py:1299-1359](file://app/backend/services/parser_service.py#L1299-L1359)
 
 ### Gap Detection
 - Converts dates to YYYY-MM, merges overlapping intervals, computes total effective years.
@@ -734,7 +838,7 @@ The parser service implements comprehensive logging with structured error report
 
 **Section sources**
 - [parser_service.py:1-14](file://app/backend/services/parser_service.py#L1-L14)
-- [parser_service.py:1080-1155](file://app/backend/services/parser_service.py#L1080-L1155)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [main.py:17-55](file://app/backend/main.py#L17-L55)
 
 ## Performance Monitoring and Metrics
@@ -765,7 +869,7 @@ The parser service implements comprehensive logging with structured error report
 
 **Section sources**
 - [metrics.py:1-35](file://app/backend/services/metrics.py#L1-L35)
-- [parser_service.py:1201-1255](file://app/backend/services/parser_service.py#L1201-L1255)
+- [parser_service.py:1935-1942](file://app/backend/services/parser_service.py#L1935-L1942)
 
 ## Dependency Analysis
 External libraries and their roles:
@@ -801,6 +905,7 @@ HP --> LC["langchain-ollama"]
 GD["gap_detector.py"] --> DU["dateutil.relativedelta"]
 METRICS["metrics.py"] --> PC["prometheus_client"]
 MAIN["main.py"] --> JF["JsonFormatter"]
+SM["skill_matcher.py"] --> SA["SKILL_ALIASES"]
 ```
 
 **Diagram sources**
@@ -810,6 +915,7 @@ MAIN["main.py"] --> JF["JsonFormatter"]
 - [gap_detector.py:12-23](file://app/backend/services/gap_detector.py#L12-L23)
 - [metrics.py:8](file://app/backend/services/metrics.py#L8)
 - [main.py:27-38](file://app/backend/main.py#L27-L38)
+- [skill_matcher.py:295-295](file://app/backend/services/skill_matcher.py#L295-L295)
 
 **Section sources**
 - [requirements.txt:1-54](file://requirements.txt#L1-L54)
@@ -825,6 +931,8 @@ MAIN["main.py"] --> JF["JsonFormatter"]
 - **Enhanced**: **Graceful degradation**: System continues operating with reduced functionality when dependencies unavailable.
 - **Enhanced**: **Async processing**: LLM contact extraction uses async HTTP client for non-blocking operations.
 - **Enhanced**: **Expanded skip phrase filtering**: Reduces false positives in name extraction by excluding professional titles, job-related phrases, and commonly misinterpreted section headers.
+- **Enhanced**: **Dateparser integration**: Provides robust date parsing with support for various formats and keywords.
+- **Enhanced**: **Skills normalization**: Reduces duplicate skills and standardizes skill representations.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -843,6 +951,8 @@ Common issues and resolutions:
 - **Enhanced**: **Phone number false positives**: Multi-pattern validation with year checking prevents matching dates as phone numbers.
 - **Enhanced**: **Logging issues**: Structured logging provides consistent error reporting across environments.
 - **Enhanced**: **Performance problems**: Prometheus metrics help identify bottlenecks in parsing operations.
+- **Enhanced**: **Date parsing failures**: dateparser integration provides robust fallback for various date formats.
+- **Enhanced**: **Skills normalization issues**: SKILL_ALIASES ensures consistent skill representation across different formats.
 
 **Section sources**
 - [parser_service.py:237](file://app/backend/services/parser_service.py#L237)
@@ -851,7 +961,7 @@ Common issues and resolutions:
 - [main.py:262-327](file://app/backend/main.py#L262-L327)
 
 ## Conclusion
-The parser service provides a robust, deterministic foundation for extracting structured resume data from PDF and DOCX formats. It integrates tightly with gap detection and a hybrid scoring pipeline, enabling accurate and efficient candidate analysis. Its enhanced error handling, comprehensive logging, retry mechanisms, and performance monitoring deliver resilience, observability, and scalability for production use. The tiered name extraction approach, comprehensive multi-stage extraction pipelines with sophisticated fallback mechanisms, and integration with LLM contact extraction ensure reliable operation even with corrupted files and complex resume layouts. **Enhanced**: The expansion of the skip_phrases dictionary, improved phone number detection, and expanded SKIP_WORDS collection significantly improves the accuracy of contact information extraction by preventing false positives and better distinguishing between names, professional titles, and contact details. The newly added section headers like 'key expertise', 'key skills', 'core competencies', 'top skills', 'technical experience', 'embedded experience', 'professional experience', 'work experience', 'career highlights', 'summary', 'objective', 'personal details', 'contact information', and 'contact details' in the skip_phrases dictionary prevent these commonly misinterpreted section headers from being mistakenly identified as candidate names.
+The parser service provides a robust, deterministic foundation for extracting structured resume data from PDF and DOCX formats. It integrates tightly with gap detection and a hybrid scoring pipeline, enabling accurate and efficient candidate analysis. Its enhanced error handling, comprehensive logging, retry mechanisms, and performance monitoring deliver resilience, observability, and scalability for production use. The tiered name extraction approach, comprehensive multi-stage extraction pipelines with sophisticated fallback mechanisms, and integration with LLM contact extraction ensure reliable operation even with corrupted files and complex resume layouts. **Enhanced**: The comprehensive resume parser overhaul with new dateparser integration, certifications extraction, languages extraction, professional summary extraction, enhanced skills normalization, and sophisticated work experience parsing capabilities significantly improves the accuracy and completeness of extracted candidate information. The expanded SKILL_ALIASES system ensures consistent skill representation, while the new field extraction capabilities provide comprehensive candidate profiling. The enhanced date parsing and work experience extraction handle complex resume layouts and various formatting conventions, making the system more robust and accurate for diverse resume formats.
 
 ## Appendices
 
@@ -864,7 +974,7 @@ The parser service provides a robust, deterministic foundation for extracting st
 - **TXT/MD/CSV/Plain**: Multi-encoding decode attempts.
 
 **Section sources**
-- [parser_service.py:210-238](file://app/backend/services/parser_service.py#L210-L238)
+- [parser_service.py:298-306](file://app/backend/services/parser_service.py#L298-L306)
 
 ### Parsing Configuration Options
 - **Scoring weights**: Provided via request form; forwarded to hybrid pipeline.
@@ -874,13 +984,15 @@ The parser service provides a robust, deterministic foundation for extracting st
 - **Enhanced**: **Logging Configuration**: Structured logging with environment-specific formatting.
 - **Enhanced**: **LLM Contact Extraction**: Configurable timeout and model selection.
 - **Enhanced**: **Name Extraction Filters**: Expanded skip phrases dictionary and expanded SKIP_WORDS collection.
+- **Enhanced**: **Dateparser Configuration**: Flexible date parsing with keyword support.
+- **Enhanced**: **Skills Normalization**: Comprehensive SKILL_ALIASES system for consistent skill representation.
 
 **Section sources**
 - [analyze.py:506-649](file://app/backend/routes/analyze.py#L506-L649)
 - [candidates.py:192-303](file://app/backend/routes/candidates.py#L192-L303)
 
 ### Data Schemas and Storage
-- **Candidate fields**: Stores raw text, skills, education, work experience, gap analysis, and parser snapshot JSON.
+- **Candidate fields**: Stores raw text, skills, education, work experience, gap analysis, parser snapshot JSON, certifications, languages, and professional summary.
 - **ScreeningResult**: Persists analysis results and parsed data.
 - **AnalysisResponse**: Standardized response schema for clients.
 
@@ -907,6 +1019,8 @@ The parser service provides a robust, deterministic foundation for extracting st
 - **Skills Registry Failures**: Fallback to broad skill list when dynamic registry unavailable
 - **LLM Contact Extraction Failures**: Async processing with timeout handling and fallbacks
 - **Encoding Failures**: Multiple encoding attempts with structured error reporting
+- **Date Parsing Failures**: dateparser integration provides robust fallback for various formats
+- **Skills Normalization Failures**: SKILL_ALIASES system ensures consistent skill representation
 
 #### Performance Monitoring
 - **RESUME_PARSE_DURATION**: Histogram for parsing operation timing
@@ -926,10 +1040,17 @@ The parser service provides a robust, deterministic foundation for extracting st
 - **Multi-stage Filtering**: Applies skip_words, skip_phrases, and job title pattern checks
 - **Phone Number Validation**: Multi-pattern regex with digit and year validation
 - **False Positive Prevention**: Sophisticated filtering prevents matching job titles and section headers as names
+- **Dateparser Integration**: Robust date parsing with keyword support for flexible formats
+
+#### New Field Extraction Features
+- **Certifications Extraction**: Comprehensive certification and license recognition
+- **Languages Extraction**: Multilingual capability with proficiency level detection
+- **Professional Summary Extraction**: Career overview and key qualification extraction
+- **Enhanced Education Extraction**: Improved field-of-study and institution recognition
 
 **Section sources**
 - [parser_service.py:1-14](file://app/backend/services/parser_service.py#L1-L14)
-- [parser_service.py:1080-1155](file://app/backend/services/parser_service.py#L1080-L1155)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 - [metrics.py:1-35](file://app/backend/services/metrics.py#L1-L35)
 - [main.py:17-55](file://app/backend/main.py#L17-L55)

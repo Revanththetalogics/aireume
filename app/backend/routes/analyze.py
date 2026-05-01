@@ -1959,6 +1959,7 @@ def update_status(
         raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {allowed_statuses}")
 
     result.status = new_status
+    result.status_updated_at = datetime.utcnow()
     db.commit()
     return {"id": result_id, "status": new_status}
 

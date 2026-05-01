@@ -23,6 +23,7 @@
 - [014_billing_system.py](file://alembic/versions/014_billing_system.py)
 - [015_add_resume_file_storage.py](file://alembic/versions/015_add_resume_file_storage.py)
 - [016_deterministic_scoring_fields.py](file://alembic/versions/016_deterministic_scoring_fields.py)
+- [017_interview_kit_enhancement.py](file://alembic/versions/017_interview_kit_enhancement.py)
 - [main.py](file://app/backend/main.py)
 - [auth.py](file://app/backend/middleware/auth.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
@@ -32,6 +33,7 @@
 - [admin.py](file://app/backend/routes/admin.py)
 - [candidates.py](file://app/backend/routes/candidates.py)
 - [upload.py](file://app/backend/routes/upload.py)
+- [interview_kit.py](file://app/backend/routes/interview_kit.py)
 - [queue_manager.py](file://app/backend/services/queue_manager.py)
 - [analysis_service.py](file://app/backend/services/analysis_service.py)
 - [weight_suggester.py](file://app/backend/services/weight_suggester.py)
@@ -45,11 +47,13 @@
 
 ## Update Summary
 **Changes Made**
-- Added documentation for new deterministic scoring fields in screening_results table: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), and eligibility_reason (String 100)
-- Updated ScreeningResult model documentation with deterministic scoring capabilities
-- Enhanced migration documentation to include the 016_deterministic_scoring_fields.py migration
-- Added eligibility service integration documentation
-- Updated data validation rules to include deterministic scoring constraints
+- Added documentation for new Interview Kit Evaluation Framework database schema
+- Added InterviewEvaluation and OverallAssessment table designs with proper foreign key relationships
+- Enhanced ScreeningResult model with evaluation relationships
+- Updated migration documentation to include the 017_interview_kit_enhancement.py migration
+- Added comprehensive indexing strategies for interview evaluation tables
+- Documented tenant isolation support for evaluation framework
+- Added Interview Kit API endpoints and data validation rules
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -66,17 +70,17 @@
 ## Introduction
 This document describes the database design for Resume AI by ThetaLogics. It covers the entity relationship model, field definitions, indexes, constraints, multi-tenant architecture, subscription and usage tracking, the Alembic migration system, data validation rules, business logic constraints, referential integrity, data access patterns, caching strategies, performance considerations, data lifecycle and retention, backup strategies, and representative queries and reporting scenarios.
 
-**Updated** Enhanced with comprehensive audit logging, feature flag management, webhook system, billing configuration management, native resume file storage capabilities, and deterministic scoring framework with eligibility gating
+**Updated** Enhanced with comprehensive audit logging, feature flag management, webhook system, billing configuration management, native resume file storage capabilities, deterministic scoring framework with eligibility gating, and Interview Kit Evaluation Framework for structured interview scoring and assessment
 
 ## Project Structure
-The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements included connection pooling for PostgreSQL, token revocation support, strategic indexing for improved query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, and deterministic scoring with eligibility gating.
+The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements included connection pooling for PostgreSQL, token revocation support, strategic indexing for improved query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
 
 ```mermaid
 graph TB
 subgraph "Application"
 A["FastAPI App<br/>main.py"]
 B["Auth Middleware<br/>auth.py"]
-C["Routes<br/>subscription.py / analyze.py / auth.py / queue_api.py / admin.py / candidates.py"]
+C["Routes<br/>subscription.py / analyze.py / auth.py / queue_api.py / admin.py / candidates.py / interview_kit.py"]
 D["Queue Manager<br/>queue_manager.py"]
 E["Analysis Service<br/>analysis_service.py"]
 F["Audit Service<br/>audit_service.py"]
@@ -86,32 +90,37 @@ I["Upload Routes<br/>upload.py"]
 J["Eligibility Service<br/>eligibility_service.py"]
 K["Fit Scorer<br/>fit_scorer.py"]
 L["Hybrid Pipeline<br/>hybrid_pipeline.py"]
+M["Interview Kit API<br/>interview_kit.py"]
 end
 subgraph "Database Layer"
-M["SQLAlchemy Engine & Session<br/>database.py"]
-N["Declarative Models<br/>db_models.py"]
-O["Alembic Env & Script<br/>env.py / script.py.mako"]
-P["Enhanced Models<br/>AuditLog, FeatureFlag, Webhook, PlatformConfig"]
-Q["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016"]
-R["Deterministic Scoring<br/>deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason"]
-S["Resume File Storage<br/>resume_filename, resume_file_data"]
+N["SQLAlchemy Engine & Session<br/>database.py"]
+O["Declarative Models<br/>db_models.py"]
+P["Alembic Env & Script<br/>env.py / script.py.mako"]
+Q["Enhanced Models<br/>AuditLog, FeatureFlag, Webhook, PlatformConfig, InterviewEvaluation, OverallAssessment"]
+R["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016 / 017"]
+S["Deterministic Scoring<br/>deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason"]
+T["Resume File Storage<br/>resume_filename, resume_file_data"]
+U["Interview Evaluation Framework<br/>interview_evaluations, overall_assessments"]
 end
 A --> B
 A --> C
 C --> D
 D --> E
 C --> I
-I --> M
-A --> M
-M --> N
-M --> O
-M --> R
-M --> S
+I --> N
+A --> N
+N --> O
 N --> P
-O --> P
+N --> R
+N --> S
+N --> T
+N --> U
 O --> Q
+P --> Q
+P --> R
 L --> J
 L --> K
+M --> N
 ```
 
 **Diagram sources**
@@ -123,13 +132,14 @@ L --> K
 - [admin.py:1-800](file://app/backend/routes/admin.py#L1-L800)
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
+- [interview_kit.py:1-221](file://app/backend/routes/interview_kit.py#L1-L221)
 - [queue_manager.py:1-612](file://app/backend/services/queue_manager.py#L1-L612)
 - [analysis_service.py:1-121](file://app/backend/services/analysis_service.py#L1-L121)
 - [audit_service.py:1-40](file://app/backend/services/audit_service.py#L1-L40)
 - [feature_flag_service.py:1-94](file://app/backend/services/feature_flag_service.py#L1-L94)
 - [webhook_service.py:1-138](file://app/backend/services/webhook_service.py#L1-L138)
 - [database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [db_models.py:11-380](file://app/backend/models/db_models.py#L11-L380)
+- [db_models.py:11-431](file://app/backend/models/db_models.py#L11-L431)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 - [script.py.mako:1-29](file://alembic/script.py.mako#L1-L29)
 - [008_analysis_queue_system.py:1-347](file://alembic/versions/008_analysis_queue_system.py#L1-L347)
@@ -138,6 +148,7 @@ L --> K
 - [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 - [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
+- [017_interview_kit_enhancement.py:1-61](file://alembic/versions/017_interview_kit_enhancement.py#L1-L61)
 - [eligibility_service.py:1-80](file://app/backend/services/eligibility_service.py#L1-L80)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
@@ -148,7 +159,7 @@ L --> K
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Core Components
-This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, native resume file storage capabilities, and the new deterministic scoring framework with eligibility gating.
+This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, native resume file storage capabilities, the new deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
 
 - Tenant
   - Purpose: Multi-tenant container with subscription and usage tracking.
@@ -177,12 +188,27 @@ This section documents the core entities and their attributes relevant to the mu
   - Purpose: Stores analysis outputs for a candidate/job combination with deterministic scoring framework.
   - Key fields: id, tenant_id (FK), candidate_id (FK), role_template_id (FK), resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
   - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
+  - **Updated** Interview evaluation relationships: evaluations (one-to-many), overall_assessment (one-to-many).
   - Indexes: candidate_id, timestamp; relationships: tenant, candidate, role_template, comments, training_examples.
 
 - RoleTemplate
   - Purpose: Job description templates with scoring weights and tags.
   - Key fields: id, tenant_id (FK), name, jd_text, scoring_weights (JSON), tags, timestamps.
   - Relationships: tenant, results, transcript_analyses.
+
+- InterviewEvaluation
+  - Purpose: Per-question recruiter evaluation with rating and notes for structured interview scoring.
+  - Key fields: id, result_id (FK), user_id (FK), question_category (String 30), question_index (Integer), rating (String 10), notes (Text), created_at, updated_at.
+  - **New** Unique constraint: (result_id, user_id, question_category, question_index).
+  - Relationships: result (ScreeningResult), evaluator (User).
+  - Indexes: result_id, user_id, question_category, question_index.
+
+- OverallAssessment
+  - Purpose: Recruiter's overall assessment and recommendation for hiring manager scorecard.
+  - Key fields: id, result_id (FK), user_id (FK), overall_assessment (Text), recruiter_recommendation (String 10), created_at, updated_at.
+  - **New** Unique constraint: (result_id, user_id).
+  - Relationships: result (ScreeningResult), evaluator (User).
+  - Indexes: result_id, user_id.
 
 - UsageLog
   - Purpose: Audit trail of actions and quantities per tenant/user.
@@ -241,10 +267,10 @@ This section documents the core entities and their attributes relevant to the mu
   - JobMetrics: Performance and quality metrics for monitoring queue operations.
 
 **Section sources**
-- [db_models.py:11-380](file://app/backend/models/db_models.py#L11-L380)
+- [db_models.py:11-431](file://app/backend/models/db_models.py#L11-L431)
 
 ## Architecture Overview
-The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations. Recent enhancements included token revocation support, strategic indexing for improved performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, and deterministic scoring framework with eligibility gating.
+The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations. Recent enhancements included token revocation support, strategic indexing for improved performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment.
 
 ```mermaid
 erDiagram
@@ -261,12 +287,16 @@ USERS ||--o{ TEAM_MEMBERS : "member_of"
 USERS ||--o{ COMMENTS : "authored"
 USERS ||--o{ USAGE_LOGS : "performed"
 USERS ||--o{ PLATFORM_CONFIGS : "updates"
+USERS ||--o{ INTERVIEW_EVALUATIONS : "creates"
+USERS ||--o{ OVERALL_ASSESSMENTS : "creates"
 CANDIDATES ||--o{ SCREENING_RESULTS : "analyzed"
 CANDIDATES ||--o{ TRANSCRIPT_ANALYSES : "analyzed"
 ROLE_TEMPLATES ||--o{ SCREENING_RESULTS : "used_in"
 ROLE_TEMPLATES ||--o{ TRANSCRIPT_ANALYSES : "used_in"
 SCREENING_RESULTS ||--o{ COMMENTS : "commented_on"
 SCREENING_RESULTS ||--o{ TRAINING_EXAMPLES : "generates"
+SCREENING_RESULTS ||--o{ INTERVIEW_EVALUATIONS : "evaluated_by"
+SCREENING_RESULTS ||--o{ OVERALL_ASSESSMENTS : "assessed_by"
 REVOKED_TOKENS ||--|| USERS : "tracks"
 AUDIT_LOGS ||--|| USERS : "recorded_by"
 FEATURE_FLAGS ||--o{ TENANT_FEATURE_OVERRIDES : "overridden_by"
@@ -280,35 +310,35 @@ ANALYSIS_RESULTS ||--o{ JOB_METRICS : "generates"
 ANALYSIS_ARTIFACTS ||--o{ ANALYSIS_JOBS : "consumed_by"
 CANDIDATES ||--|| RESUME_FILES : "stores"
 SCREENING_RESULTS ||--|| DETERMINISTIC_SCORES : "contains"
+INTERVIEW_EVALUATIONS ||--|| SCREENING_RESULTS : "evaluates"
+OVERALL_ASSESSMENTS ||--|| SCREENING_RESULTS : "assesses"
 ELIGIBILITY_SERVICE ||--|| SCREENING_RESULTS : "evaluates"
 FIT_SCORER ||--|| SCREENING_RESULTS : "computes"
 ```
 
 **Diagram sources**
-- [db_models.py:11-380](file://app/backend/models/db_models.py#L11-L380)
+- [db_models.py:11-431](file://app/backend/models/db_models.py#L11-L431)
 
 ## Detailed Component Analysis
 
 ### Multi-Tenant Architecture and Isolation
-- Tenant isolation is achieved by requiring tenant_id on all entities participating in multi-tenant operations (e.g., Users, Candidates, ScreeningResults, RoleTemplates, UsageLogs, Webhooks, RateLimitConfigs).
+- Tenant isolation is achieved by requiring tenant_id on all entities participating in multi-tenant operations (e.g., Users, Candidates, ScreeningResults, RoleTemplates, UsageLogs, Webhooks, RateLimitConfigs, InterviewEvaluations, OverallAssessments).
 - Route handlers filter queries by tenant_id to prevent cross-tenant data leakage.
 - Usage enforcement ensures actions are permitted within plan limits per tenant.
 - **Updated** Enhanced Tenant model now includes suspension capabilities and comprehensive billing integration fields.
+- **Updated** Interview Kit evaluation framework maintains strict tenant isolation with per-user evaluation constraints.
 
 ```mermaid
 sequenceDiagram
 participant Client as "Client"
-participant Route as "analyze.py"
+participant Route as "interview_kit.py"
 participant Sub as "subscription.py"
 participant Admin as "admin.py"
 participant DB as "Database"
-Client->>Route : POST /api/analyze
-Route->>Sub : _check_and_increment_usage(tenant_id, user_id, quantity)
-Sub->>DB : SELECT Tenant + SubscriptionPlan
-Sub->>Sub : _ensure_monthly_reset()
-Sub->>Sub : _get_plan_limits()
-Sub->>DB : INSERT UsageLog + UPDATE Tenant.analyses_count_this_month
-Route->>DB : CREATE ScreeningResult with deterministic scoring fields
+Client->>Route : PUT /api/results/{result_id}/evaluations
+Route->>Route : _verify_result_access(result_id, current_user, db)
+Route->>DB : Check tenant_id matches current_user.tenant_id
+Route->>DB : UPSERT InterviewEvaluation with unique constraint
 Client->>Admin : POST /api/admin/tenants/{id}/suspend
 Admin->>DB : UPDATE Tenant SET suspended_at, suspended_reason, subscription_status
 Admin->>DB : INSERT AuditLog with action "tenant.suspend"
@@ -316,16 +346,56 @@ Admin-->>Client : Suspension confirmed
 ```
 
 **Diagram sources**
+- [interview_kit.py:28-80](file://app/backend/routes/interview_kit.py#L28-L80)
 - [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
 - [subscription.py:72-92](file://app/backend/routes/subscription.py#L72-L92)
 - [subscription.py:427-476](file://app/backend/routes/subscription.py#L427-L476)
 - [admin.py:301-329](file://app/backend/routes/admin.py#L301-L329)
 
 **Section sources**
+- [interview_kit.py:28-80](file://app/backend/routes/interview_kit.py#L28-L80)
 - [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
 - [subscription.py:72-92](file://app/backend/routes/subscription.py#L72-L92)
 - [subscription.py:427-476](file://app/backend/routes/subscription.py#L427-L476)
 - [admin.py:301-329](file://app/backend/routes/admin.py#L301-L329)
+
+### Interview Kit Evaluation Framework
+- **New** Comprehensive Interview Kit Evaluation Framework for structured interview scoring and assessment.
+- **New** InterviewEvaluation table stores per-question evaluations with category, index, rating, and notes.
+- **New** OverallAssessment table captures recruiter's overall recommendation and final assessment.
+- **New** Strict tenant isolation with unique constraints preventing cross-user and cross-question duplication.
+- **New** Interview Kit API endpoints for CRUD operations on evaluations and overall assessments.
+- **New** Scorecard generation that aggregates evaluation data and creates hiring manager reports.
+- **New** Data validation with category and rating constraints for consistent scoring.
+
+```mermaid
+sequenceDiagram
+participant Client as "Recruiter"
+participant API as "interview_kit.py"
+participant Eval as "InterviewEvaluation"
+participant OA as "OverallAssessment"
+participant DB as "Database"
+Client->>API : PUT /api/results/{result_id}/evaluations
+API->>DB : UPSERT InterviewEvaluation (unique : result_id,user_id,category,index)
+DB->>Eval : Create/Update evaluation record
+Eval->>DB : Store rating and notes
+Client->>API : PUT /api/results/{result_id}/evaluations/overall
+API->>DB : UPSERT OverallAssessment (unique : result_id,user_id)
+DB->>OA : Store overall assessment and recommendation
+Client->>API : GET /api/results/{result_id}/scorecard
+API->>DB : Aggregate evaluations and create scorecard
+DB->>API : Return structured scorecard with dimensions
+API-->>Client : Complete interview evaluation report
+```
+
+**Diagram sources**
+- [interview_kit.py:39-221](file://app/backend/routes/interview_kit.py#L39-L221)
+- [017_interview_kit_enhancement.py:23-53](file://alembic/versions/017_interview_kit_enhancement.py#L23-L53)
+
+**Section sources**
+- [interview_kit.py:39-221](file://app/backend/routes/interview_kit.py#L39-L221)
+- [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
+- [017_interview_kit_enhancement.py:23-53](file://alembic/versions/017_interview_kit_enhancement.py#L23-L53)
 
 ### Subscription and Usage Management
 - SubscriptionPlan defines pricing and limits via JSON fields (limits, features).
@@ -559,7 +629,7 @@ Auth-->>Client : Clear cookies and return success
 ### Migration System and Schema Evolution
 - Alembic env registers models and binds metadata to the configured DATABASE_URL.
 - Migrations are idempotent and guard against pre-existing tables/columns.
-- **Updated** Version history with new administrative, notification, file storage, and deterministic scoring features:
+- **Updated** Version history with new administrative, notification, file storage, deterministic scoring, and interview evaluation features:
   - 001: Enrich candidates with profile fields; add jd_cache and skills tables.
   - 002: Add parser_snapshot_json to candidates.
   - 003: Enhance subscription_plans, add tenant usage fields, create usage_logs, seed plans, link existing tenants to default plan.
@@ -576,6 +646,7 @@ Auth-->>Client : Clear cookies and return success
   - 014: **New** Billing system with platform configuration management.
   - 015: **New** Resume file storage with resume_filename and resume_file_data columns.
   - 016: **New** Deterministic scoring fields (deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason) added to screening_results.
+  - 017: **New** Interview Kit Evaluation Framework with interview_evaluations and overall_assessments tables.
 
 ```mermaid
 graph LR
@@ -595,6 +666,7 @@ M --> N["013: Webhooks and notifications"]
 N --> O["014: Billing system"]
 O --> P["015: Resume file storage"]
 P --> Q["016: Deterministic scoring fields"]
+Q --> R["017: Interview Kit Evaluation Framework"]
 ```
 
 **Diagram sources**
@@ -615,6 +687,7 @@ P --> Q["016: Deterministic scoring fields"]
 - [014_billing_system.py:33-56](file://alembic/versions/014_billing_system.py#L33-L56)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 - [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
+- [017_interview_kit_enhancement.py:1-61](file://alembic/versions/017_interview_kit_enhancement.py#L1-L61)
 
 **Section sources**
 - [env.py:1-51](file://alembic/env.py#L1-L51)
@@ -635,6 +708,7 @@ P --> Q["016: Deterministic scoring fields"]
 - [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 - [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
+- [017_interview_kit_enhancement.py:1-61](file://alembic/versions/017_interview_kit_enhancement.py#L1-L61)
 
 ### Data Validation Rules and Business Logic Constraints
 - Tenant isolation: All sensitive routes filter by tenant_id.
@@ -650,6 +724,8 @@ P --> Q["016: Deterministic scoring fields"]
 - **Updated** Billing security: Configuration values stored securely with audit trails.
 - **Updated** Resume file storage: Native database storage eliminates external dependencies and improves security.
 - **Updated** Deterministic scoring: Eligibility gating applies hard caps (domain match < 0.3 → cap 35, core skill < 0.3 → cap 40) with integer scoring in range 0-100.
+- **Updated** Interview evaluation validation: Category must be one of {technical, behavioral, culture_fit}; rating must be one of {strong, adequate, weak}; recommendation must be one of {advance, hold, reject}.
+- **Updated** Interview evaluation uniqueness: Prevents duplicate evaluations for the same question by the same user.
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -662,6 +738,8 @@ P --> Q["016: Deterministic scoring fields"]
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
+- [interview_kit.py:450-488](file://app/backend/routes/interview_kit.py#L450-L488)
+- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-L488)
 
 ### Referential Integrity and Indexes
 - Foreign keys:
@@ -671,7 +749,11 @@ P --> Q["016: Deterministic scoring fields"]
   - Candidate.tenant_id -> Tenant.id
   - ScreeningResult.tenant_id -> Tenant.id
   - ScreeningResult.candidate_id -> Candidate.id
-  - RoleTemplate.tenant_id -> Tenant.id
+  - ScreeningResult.role_template_id -> RoleTemplate.id
+  - InterviewEvaluation.result_id -> ScreeningResult.id (CASCADE)
+  - InterviewEvaluation.user_id -> User.id (CASCADE)
+  - OverallAssessment.result_id -> ScreeningResult.id (CASCADE)
+  - OverallAssessment.user_id -> User.id (CASCADE)
   - UsageLog.tenant_id -> Tenant.id (CASCADE), user_id -> User.id (SET NULL)
   - AuditLog.actor_user_id -> User.id (SET NULL)
   - FeatureFlag.id -> FeatureFlag.id (self-reference for flag relationships)
@@ -689,6 +771,8 @@ P --> Q["016: Deterministic scoring fields"]
   - Tenants(subscription_status), Tenants(stripe_customer_id)
   - UsageLogs(tenant_id, action), UsageLogs(tenant_id, created_at), UsageLogs(created_at)
   - ScreeningResults(candidate_id), ScreeningResults(timestamp)
+  - InterviewEvaluations(result_id), InterviewEvaluations(user_id), InterviewEvaluations(question_category), InterviewEvaluations(question_index)
+  - OverallAssessments(result_id), OverallAssessments(user_id)
   - RevokedTokens(id), RevokedTokens(jti)
   - AuditLogs(action), AuditLogs(created_at)
   - FeatureFlags(key)
@@ -702,6 +786,7 @@ P --> Q["016: Deterministic scoring fields"]
   - JobMetrics(total_time_ms), JobMetrics(tenant_id, created_at)
   - **Updated** ScreeningResults(deterministic_score), ScreeningResults(eligibility_status), ScreeningResults(core_skill_score)
   - **Updated** Candidate.resume_filename, Candidate.resume_file_data (nullable)
+  - **Updated** Unique constraints for InterviewEvaluations and OverallAssessments
 
 **Section sources**
 - [db_models.py:34-59](file://app/backend/models/db_models.py#L34-L59)
@@ -729,6 +814,7 @@ P --> Q["016: Deterministic scoring fields"]
 - [014_billing_system.py:36-56](file://alembic/versions/014_billing_system.py#L36-L56)
 - [015_add_resume_file_storage.py:29-48](file://alembic/versions/015_add_resume_file_storage.py#L29-L48)
 - [016_deterministic_scoring_fields.py:33-73](file://alembic/versions/016_deterministic_scoring_fields.py#L33-L73)
+- [017_interview_kit_enhancement.py:23-53](file://alembic/versions/017_interview_kit_enhancement.py#L23-L53)
 
 ### Data Access Patterns, Caching, and Performance
 - Data access patterns:
@@ -742,6 +828,8 @@ P --> Q["016: Deterministic scoring fields"]
   - **Updated** Webhook delivery tracking: Separate tables for delivery attempts with indexing for monitoring.
   - **Updated** Resume file storage: Direct database access eliminates network latency and external dependencies.
   - **Updated** Deterministic scoring: Efficient querying by deterministic_score, eligibility_status, and core_skill_score for filtering and reporting.
+  - **Updated** Interview evaluation aggregation: Efficient grouping by category and index for scorecard generation.
+  - **Updated** Interview evaluation caching: Results cached in memory for scorecard generation.
 - Caching strategies:
   - JdCache stores parsed job descriptions keyed by hash to avoid repeated parsing.
   - Candidate enrichment fields reduce repeated parsing costs.
@@ -751,8 +839,9 @@ P --> Q["016: Deterministic scoring fields"]
   - **Updated** Audit log service provides structured logging for compliance.
   - **Updated** Resume files stored directly in database eliminate need for external caching.
   - **Updated** Eligibility decisions cached in hybrid pipeline to avoid repeated computations.
+  - **Updated** Interview evaluation data cached in memory for scorecard aggregation.
 - Performance considerations:
-  - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp, deterministic_score, eligibility_status).
+  - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp, deterministic_score, eligibility_status, question_category, question_index).
   - Prefer batch operations for inserts (bulk insert for plans).
   - Avoid N+1 queries by using joined eager loading where appropriate.
   - Connection pooling reduces connection overhead for PostgreSQL deployments.
@@ -762,6 +851,7 @@ P --> Q["016: Deterministic scoring fields"]
   - **Updated** Platform configuration provides centralized access to billing settings.
   - **Updated** Native resume storage reduces I/O complexity and improves reliability.
   - **Updated** Deterministic scoring computation optimized with early gating and capped scoring.
+  - **Updated** Interview evaluation framework optimized with unique constraints and efficient aggregation queries.
 
 **Section sources**
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
@@ -778,11 +868,12 @@ P --> Q["016: Deterministic scoring fields"]
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
+- [interview_kit.py:140-221](file://app/backend/routes/interview_kit.py#L140-L221)
 
 ### Data Lifecycle, Retention, and Backup
 - Data lifecycle:
   - Candidates: enriched once and reused for subsequent analyses; parser snapshots retained for auditability; resume files stored natively for direct access.
-  - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights; deterministic scoring fields provide permanent record of decision rationale.
+  - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights; deterministic scoring fields provide permanent record of decision rationale; interview evaluations and overall assessments provide structured interview scoring data.
   - AnalysisArtifacts: temporary storage of parsed data with expiration for deduplication and reuse.
   - AnalysisJobs: queue management with automatic cleanup of failed or cancelled jobs.
   - AnalysisResults: immutable storage of completed analyses with quality assurance.
@@ -795,6 +886,8 @@ P --> Q["016: Deterministic scoring fields"]
   - **Updated** PlatformConfigs: configuration history with change tracking.
   - **Updated** Resume files: stored directly in database with automatic cleanup policies.
   - **Updated** Deterministic scoring data: permanent storage of eligibility decisions and scoring rationale.
+  - **Updated** Interview evaluation data: structured scoring data with unique constraints for data integrity.
+  - **Updated** Overall assessment data: hiring manager recommendations with unique constraints.
 - Retention:
   - No explicit retention policies are defined in code; implement administrative controls to archive or purge historical data.
   - AnalysisArtifacts have automatic expiration (30 days) for cleanup.
@@ -804,12 +897,15 @@ P --> Q["016: Deterministic scoring fields"]
   - **Updated** PlatformConfigs changes should be maintained for audit trails.
   - **Updated** Resume files: consider storage quotas and automatic cleanup for large deployments.
   - **Updated** Deterministic scoring data: retain for compliance and decision transparency.
+  - **Updated** Interview evaluation data: retain for interview process documentation and compliance.
+  - **Updated** Overall assessment data: retain for hiring decision transparency and legal compliance.
 - Backup:
   - Use database-native backups (e.g., pg_dump for PostgreSQL, SQLite backup mechanisms) and regular snapshots.
   - Consider logical backups for portable deployments.
   - **Updated** Ensure backup includes new audit and configuration tables for full disaster recovery.
   - **Updated** Resume file storage requires consideration of binary data backup strategies.
   - **Updated** Deterministic scoring fields require backup for compliance and analytics continuity.
+  - **Updated** Interview evaluation and overall assessment tables require backup for compliance and legal requirements.
 
 ### Sample Queries and Reporting Scenarios
 - Monthly usage by tenant
@@ -841,6 +937,12 @@ P --> Q["016: Deterministic scoring fields"]
   - Query: select eligibility_reason, count(*) as rejection_count, avg(deterministic_score) as avg_score_when_rejected from screening_results where eligibility_status = false and tenant_id = ? group by eligibility_reason order by rejection_count desc.
 - **Updated** Domain match analysis
   - Query: select case when domain_match_score >= 0.7 then 'High' when domain_match_score >= 0.4 then 'Medium' else 'Low' end as match_level, count(*) as count, avg(deterministic_score) as avg_score from screening_results where domain_match_score is not null and tenant_id = ? group by match_level order by count desc.
+- **Updated** Interview evaluation scoring patterns
+  - Query: select question_category, rating, count(*) as count, avg(rating) as avg_rating from interview_evaluations ie join screening_results sr on ie.result_id = sr.id where sr.tenant_id = ? group by question_category, rating order by question_category, rating.
+- **Updated** Hiring manager recommendations
+  - Query: select recruiter_recommendation, count(*) as count, avg(rating) as avg_rating from overall_assessments oa join screening_results sr on oa.result_id = sr.id where sr.tenant_id = ? group by recruiter_recommendation order by count desc.
+- **Updated** Interview evaluation completeness
+  - Query: select sr.id, count(ie.id) as evaluations_completed, (select count(*) from analysis_result where sr.id = result_id) as total_questions from screening_results sr left join interview_evaluations ie on sr.id = ie.result_id where sr.tenant_id = ? group by sr.id order by evaluations_completed desc.
 
 **Section sources**
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
@@ -855,9 +957,10 @@ P --> Q["016: Deterministic scoring fields"]
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
+- [interview_kit.py:268-400](file://app/backend/routes/interview_kit.py#L268-L400)
 
 ## Dependency Analysis
-The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements included connection pooling configuration, token revocation support, queue system implementation, intelligent scoring capabilities, platform administration, webhook notifications, billing configuration management, native resume file storage with download functionality, and deterministic scoring framework with eligibility gating.
+The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements included connection pooling configuration, token revocation support, queue system implementation, intelligent scoring capabilities, platform administration, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
 
 ```mermaid
 graph TB
@@ -879,6 +982,7 @@ UP["upload.py<br/>routes"] --> D
 EL["eligibility_service.py<br/>services"] --> D
 FS["fit_scorer.py<br/>services"] --> D
 HP["hybrid_pipeline.py<br/>services"] --> D
+IK["interview_kit.py<br/>routes"] --> D
 D --> CP["Connection Pooling<br/>PostgreSQL"]
 D --> RT["Revoked Tokens<br/>Token Management"]
 D --> QS["Queue System<br/>Scalable Processing"]
@@ -888,6 +992,7 @@ D --> WH["Webhooks<br/>Event Notifications"]
 D --> PC["Platform Config<br/>Billing Management"]
 D --> RF["Resume Files<br/>Native Storage"]
 D --> DS["Deterministic Scoring<br/>Eligibility Gating"]
+D --> IE["Interview Evaluations<br/>Structured Scoring"]
 ```
 
 **Diagram sources**
@@ -911,13 +1016,14 @@ D --> DS["Deterministic Scoring<br/>Eligibility Gating"]
 - [eligibility_service.py:1-80](file://app/backend/services/eligibility_service.py#L1-L80)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
+- [interview_kit.py:1-221](file://app/backend/routes/interview_kit.py#L1-L221)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Performance Considerations
-- Indexing: Ensure tenant_id, email, resume_file_hash, candidate_id, timestamp, deterministic_score, eligibility_status are indexed for fast filtering and deduplication.
+- Indexing: Ensure tenant_id, email, resume_file_hash, candidate_id, timestamp, deterministic_score, eligibility_status, question_category, question_index are indexed for fast filtering and deduplication.
 - Query patterns: Use composite indexes for common filters (tenant_id + action, tenant_id + created_at).
 - Caching: Reuse JdCache and candidate enrichment to minimize parsing overhead.
 - Concurrency: Use SQLAlchemy sessions per request and avoid long transactions.
@@ -931,6 +1037,8 @@ D --> DS["Deterministic Scoring<br/>Eligibility Gating"]
 - **Updated** Platform configuration performance: Centralized access to billing settings reduces configuration overhead.
 - **Updated** Resume file storage performance: Direct database storage eliminates network latency and reduces infrastructure complexity.
 - **Updated** Deterministic scoring performance: Early gating reduces computational overhead; capped scoring ensures consistent performance.
+- **Updated** Interview evaluation performance: Unique constraints prevent duplicate writes; efficient aggregation queries for scorecards.
+- **Updated** Overall assessment performance: Unique constraints ensure single assessment per user per result; efficient retrieval for scorecards.
 
 ## Troubleshooting Guide
 - Database connectivity
@@ -971,6 +1079,12 @@ D --> DS["Deterministic Scoring<br/>Eligibility Gating"]
   - Inconsistent eligibility decisions: Check eligibility_service thresholds and domain detection confidence.
   - Performance: Deterministic scoring computation can be optimized by ensuring proper indexing on eligibility_status and deterministic_score.
   - Data quality: Verify that eligibility_reason contains meaningful values for compliance reporting.
+- **Updated** Interview evaluation issues
+  - Evaluation creation failures: Check unique constraint violations for duplicate evaluations.
+  - Scorecard generation errors: Verify interview_questions structure in analysis_result JSON.
+  - Tenant isolation failures: Check that result_id belongs to current user's tenant.
+  - Data validation errors: Verify category, rating, and recommendation values meet validation constraints.
+  - Performance: Interview evaluation queries can be optimized with proper indexing on question_category and question_index.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -988,9 +1102,11 @@ D --> DS["Deterministic Scoring<br/>Eligibility Gating"]
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
+- [interview_kit.py:28-80](file://app/backend/routes/interview_kit.py#L28-L80)
+- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-L488)
 
 ## Conclusion
-The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, native resume file storage with download functionality, and deterministic scoring framework with eligibility gating. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model now provides comprehensive deterministic scoring with eligibility gating, structured decision rationale, and detailed scoring breakdowns. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. The deterministic scoring system with hard gating rules ensures fair and transparent candidate evaluation processes. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
+The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model now provides comprehensive deterministic scoring with eligibility gating, structured decision rationale, and detailed scoring breakdowns. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. The Interview Kit Evaluation Framework introduces sophisticated interview scoring capabilities with per-question evaluations, overall assessments, and automated scorecard generation. The deterministic scoring system with hard gating rules ensures fair and transparent candidate evaluation processes. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
 
 ## Appendices
 
@@ -1012,9 +1128,18 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - ScreeningResult
   - Fields: id, tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
   - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
+  - **Updated** Interview evaluation relationships: evaluations (one-to-many), overall_assessment (one-to-many).
   - Indexes: candidate_id, timestamp.
 - RoleTemplate
   - Fields: id, tenant_id, name, jd_text, scoring_weights (JSON), tags, timestamps.
+- InterviewEvaluation
+  - Fields: id, result_id (FK), user_id (FK), question_category (String 30), question_index (Integer), rating (String 10), notes (Text), created_at, updated_at.
+  - **New** Unique constraint: (result_id, user_id, question_category, question_index).
+  - Indexes: result_id, user_id, question_category, question_index.
+- OverallAssessment
+  - Fields: id, result_id (FK), user_id (FK), overall_assessment (Text), recruiter_recommendation (String 10), created_at, updated_at.
+  - **New** Unique constraint: (result_id, user_id).
+  - Indexes: result_id, user_id.
 - UsageLog
   - Fields: id, tenant_id (CASCADE), user_id (SET NULL), action, quantity, details (JSON), created_at.
   - Indexes: tenant_id+action, tenant_id+created_at, created_at.
@@ -1057,7 +1182,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
   - Indexes: job_id, tenant_id, created_at, total_time_ms.
 
 **Section sources**
-- [db_models.py:11-380](file://app/backend/models/db_models.py#L11-L380)
+- [db_models.py:11-431](file://app/backend/models/db_models.py#L11-L431)
 - [001_enrich_candidates_add_caches.py:75-110](file://alembic/versions/001_enrich_candidates_add_caches.py#L75-L110)
 - [003_subscription_system.py:66-117](file://alembic/versions/003_subscription_system.py#L66-L117)
 - [004_narrative_json.py:8](file://alembic/versions/004_narrative_json.py#L8)
@@ -1069,6 +1194,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [014_billing_system.py:33-56](file://alembic/versions/014_billing_system.py#L33-L56)
 - [015_add_resume_file_storage.py:29-48](file://alembic/versions/015_add_resume_file_storage.py#L29-L48)
 - [016_deterministic_scoring_fields.py:33-73](file://alembic/versions/016_deterministic_scoring_fields.py#L33-L73)
+- [017_interview_kit_enhancement.py:23-53](file://alembic/versions/017_interview_kit_enhancement.py#L23-L53)
 - [eligibility_service.py:10-14](file://app/backend/services/eligibility_service.py#L10-L14)
 
 ### Appendix B: Migration History
@@ -1088,6 +1214,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - 014: **New** Billing system with platform configuration management.
 - 015: **New** Resume file storage with resume_filename and resume_file_data columns.
 - 016: **New** Deterministic scoring fields (deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason) added to screening_results.
+- 017: **New** Interview Kit Evaluation Framework with interview_evaluations and overall_assessments tables.
 
 **Section sources**
 - [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
@@ -1106,3 +1233,4 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [014_billing_system.py:1-67](file://alembic/versions/014_billing_system.py#L1-L67)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 - [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
+- [017_interview_kit_enhancement.py:1-61](file://alembic/versions/017_interview_kit_enhancement.py#L1-L61)

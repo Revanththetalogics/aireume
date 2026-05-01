@@ -2,6 +2,8 @@
 Role Templates — CRUD for saved JD templates scoped per tenant.
 """
 import json
+import logging
+import re
 from datetime import datetime, date
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,7 +14,37 @@ from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import RoleTemplate, User
 from app.backend.models.schemas import TemplateCreate, TemplateOut
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/templates", tags=["templates"])
+
+
+def _auto_generate_tags(jd_text: str) -> str:
+    """Auto-generate skill-based tags from JD text.
+
+    Returns a JSON string: {"domain": str, "skills": [str], "seniority": str}
+    Wrapped in try/except by callers so tagging failures never block template creation.
+    """
+    from app.backend.services.hybrid_pipeline import parse_jd_rules
+    from app.backend.services.skill_matcher import extract_top_skills, infer_domain_from_skills
+
+    jd = parse_jd_rules(jd_text)
+    required = jd.get("required_skills", [])
+    nice_to_have = jd.get("nice_to_have_skills", [])
+    top_skills = extract_top_skills(required, nice_to_have)
+    domain = infer_domain_from_skills(required + nice_to_have)
+
+    # Infer seniority from JD text
+    text_lower = jd_text[:1000].lower()
+    seniority = "Mid"  # default
+    if any(w in text_lower for w in ("principal", "staff", "distinguished", "fellow")):
+        seniority = "Lead"
+    elif any(w in text_lower for w in ("senior", "sr.", "sr ", "lead ", "architect", "head of")):
+        seniority = "Senior"
+    elif any(w in text_lower for w in ("junior", "jr.", "jr ", "associate", "graduate", "entry", "intern")):
+        seniority = "Entry"
+
+    return json.dumps({"domain": domain, "skills": top_skills, "seniority": seniority})
 
 
 def _json_default(obj):
@@ -66,16 +98,30 @@ def create_template(
             existing.scoring_weights = json.dumps(body.scoring_weights, default=_json_default)
         if body.tags:
             existing.tags = body.tags
+        # Auto-generate tags if existing template has none
+        if not existing.tags and body.jd_text:
+            try:
+                existing.tags = _auto_generate_tags(body.jd_text)
+            except Exception as e:
+                logger.warning("Auto-tagging failed for existing template %s: %s", existing.id, e)
         db.commit()
         db.refresh(existing)
         return existing
+
+    # Auto-generate tags from JD text when no explicit tags provided
+    auto_tags = body.tags
+    if not auto_tags and body.jd_text:
+        try:
+            auto_tags = _auto_generate_tags(body.jd_text)
+        except Exception as e:
+            logger.warning("Auto-tagging failed for new template: %s", e)
 
     template = RoleTemplate(
         tenant_id=current_user.tenant_id,
         name=body.name,
         jd_text=body.jd_text,
         scoring_weights=json.dumps(body.scoring_weights, default=_json_default) if body.scoring_weights else None,
-        tags=body.tags,
+        tags=auto_tags,
     )
     db.add(template)
     db.commit()

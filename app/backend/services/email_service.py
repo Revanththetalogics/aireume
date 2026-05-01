@@ -4,15 +4,41 @@ Email notification service for admin alerts.
 Supports quota warnings, subscription expiry notices, and suspension
 notifications.  Uses smtplib for delivery with graceful degradation
 when SMTP is not configured.
+
+Tenant-specific SMTP configuration is also supported — each tenant can
+override the global SMTP settings with their own credentials, stored
+encrypted in the ``tenant_email_configs`` table.
 """
 import logging
 import os
 import smtplib
+import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+# ── Encryption utilities ────────────────────────────────────────────────────
+
+def _get_fernet():
+    """Return a Fernet instance from the ENCRYPTION_KEY env var."""
+    from cryptography.fernet import Fernet
+    key = os.getenv("ENCRYPTION_KEY")
+    if not key:
+        raise ValueError("ENCRYPTION_KEY environment variable not set")
+    return Fernet(key.encode() if isinstance(key, str) else key)
+
+
+def encrypt_password(password: str) -> str:
+    """Encrypt a plaintext password using Fernet symmetric encryption."""
+    return _get_fernet().encrypt(password.encode()).decode()
+
+
+def decrypt_password(encrypted: str) -> str:
+    """Decrypt a Fernet-encrypted password back to plaintext."""
+    return _get_fernet().decrypt(encrypted.encode()).decode()
 
 
 class EmailService:
@@ -133,3 +159,132 @@ class EmailService:
 
 # Module-level singleton for convenience
 email_service = EmailService()
+
+
+# ── Tenant-specific email service ──────────────────────────────────────────
+
+class TenantEmailService:
+    """Send emails using tenant-specific SMTP credentials.
+
+    Unlike :class:`EmailService` which reads from env vars, this class
+    is initialised with explicit SMTP parameters loaded from the
+    ``tenant_email_configs`` table.
+    """
+
+    def __init__(
+        self,
+        smtp_host: str,
+        smtp_port: int,
+        smtp_user: Optional[str],
+        smtp_password: Optional[str],
+        smtp_from: str,
+        from_name: Optional[str] = None,
+        reply_to: Optional[str] = None,
+        encryption_type: str = "tls",
+    ) -> None:
+        self.smtp_host = smtp_host
+        self.smtp_port = smtp_port
+        self.smtp_user = smtp_user
+        self.smtp_password = smtp_password
+        self.smtp_from = smtp_from
+        self.from_name = from_name
+        self.reply_to = reply_to
+        self.encryption_type = encryption_type  # tls | ssl | none
+
+    @property
+    def is_configured(self) -> bool:
+        """Return ``True`` when the minimum SMTP settings are present."""
+        return bool(self.smtp_host and self.smtp_from)
+
+    def send_email(self, to: str, subject: str, body_html: str) -> bool:
+        """Send an HTML email using the tenant's SMTP configuration.
+
+        Returns ``True`` on success, ``False`` on failure.
+        """
+        if not self.is_configured:
+            logger.warning(
+                "Tenant email not sent — SMTP not configured (host=%s, from=%s)",
+                self.smtp_host,
+                self.smtp_from,
+            )
+            return False
+
+        from_addr = self.smtp_from
+        if self.from_name:
+            from_addr = f"{self.from_name} <{self.smtp_from}>"
+
+        msg = MIMEMultipart("alternative")
+        msg["From"] = from_addr
+        msg["To"] = to
+        msg["Subject"] = subject
+        if self.reply_to:
+            msg["Reply-To"] = self.reply_to
+        msg.attach(MIMEText(body_html, "html"))
+
+        try:
+            if self.encryption_type == "ssl":
+                # SMTP_SSL — entire connection is TLS from the start
+                context = ssl.create_default_context()
+                with smtplib.SMTP_SSL(
+                    self.smtp_host, self.smtp_port, context=context
+                ) as server:
+                    if self.smtp_user and self.smtp_password:
+                        server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.smtp_from, to, msg.as_string())
+            elif self.encryption_type == "none":
+                # Plain SMTP — no encryption at all
+                with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                    server.ehlo()
+                    if self.smtp_user and self.smtp_password:
+                        server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.smtp_from, to, msg.as_string())
+            else:
+                # Default: STARTTLS (upgrade plain connection to TLS)
+                with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+                    if self.smtp_user and self.smtp_password:
+                        server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.smtp_from, to, msg.as_string())
+
+            logger.info("Tenant email sent to %s: %s", to, subject)
+            return True
+        except Exception:
+            logger.exception("Failed to send tenant email to %s: %s", to, subject)
+            return False
+
+
+def get_tenant_email_service(db, tenant_id: int) -> Optional[TenantEmailService]:
+    """Load tenant email config from DB, return TenantEmailService or ``None``.
+
+    Returns ``None`` when the tenant has no active config, which signals
+    the caller to fall back to the global :data:`email_service`.
+    """
+    from app.backend.models.db_models import TenantEmailConfig
+
+    config = (
+        db.query(TenantEmailConfig)
+        .filter_by(tenant_id=tenant_id, is_active=True)
+        .first()
+    )
+    if config and config.smtp_host and config.smtp_password:
+        try:
+            password = decrypt_password(config.smtp_password)
+            return TenantEmailService(
+                smtp_host=config.smtp_host,
+                smtp_port=config.smtp_port,
+                smtp_user=config.smtp_user,
+                smtp_password=password,
+                smtp_from=config.smtp_from,
+                from_name=config.from_name,
+                reply_to=config.reply_to,
+                encryption_type=config.encryption_type or "tls",
+            )
+        except Exception:
+            logger.warning(
+                "Failed to decrypt tenant %d email config — falling back to global",
+                tenant_id,
+                exc_info=True,
+            )
+    return None

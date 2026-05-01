@@ -1,7 +1,36 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LayoutTemplate, Plus, Trash2, Edit2, X, Save, Sparkles, TrendingUp, Filter, Users, ChevronRight } from 'lucide-react'
 import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getAllJDStats } from '../lib/api'
+
+/**
+ * Parse template.tags into a structured object.
+ * New format: JSON string {"domain": "Backend", "skills": ["Python", ...], "seniority": "Senior"}
+ * Legacy format: plain comma-separated string like "technical, sales"
+ */
+function parseTags(raw) {
+  if (!raw) return { domain: null, seniority: null, skills: [], legacy: [] }
+  if (typeof raw !== 'string') return { domain: null, seniority: null, skills: [], legacy: [] }
+
+  // Try JSON parse first
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') {
+      return {
+        domain: parsed.domain || null,
+        seniority: parsed.seniority || null,
+        skills: Array.isArray(parsed.skills) ? parsed.skills : [],
+        legacy: [],
+      }
+    }
+  } catch {
+    // Not JSON — treat as legacy comma-separated string
+  }
+
+  // Legacy: comma-separated string
+  const parts = raw.split(',').map(s => s.trim()).filter(Boolean)
+  return { domain: null, seniority: null, skills: [], legacy: parts }
+}
 
 function TemplateModal({ template, onSave, onClose }) {
   const [name, setName] = useState(template?.name || '')
@@ -93,6 +122,8 @@ export default function JDLibraryPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [filterCategory, setFilterCategory] = useState('all')
+  const [filterDomain, setFilterDomain] = useState('all')
+  const [filterSkill, setFilterSkill] = useState('all')
   const [sortBy, setSortBy] = useState('recent')
   const [jdStats, setJdStats] = useState({})
 
@@ -147,7 +178,24 @@ export default function JDLibraryPage() {
     })
   }
 
-  // Get unique categories
+  // Extract unique domains and skills from structured tags
+  const parsedTemplates = useMemo(() =>
+    templates.map(t => ({ ...t, _parsed: parseTags(t.tags) })),
+    [templates]
+  )
+
+  const uniqueDomains = useMemo(() => {
+    const domains = new Set(parsedTemplates.map(t => t._parsed.domain).filter(Boolean))
+    return ['all', ...Array.from(domains).sort()]
+  }, [parsedTemplates])
+
+  const uniqueSkills = useMemo(() => {
+    const skills = new Set()
+    parsedTemplates.forEach(t => t._parsed.skills.forEach(s => skills.add(s)))
+    return ['all', ...Array.from(skills).sort()]
+  }, [parsedTemplates])
+
+  // Legacy categories (for old-style tags)
   const categories = ['all', ...new Set(
     templates
       .map(t => t.tags?.toLowerCase().trim())
@@ -155,9 +203,16 @@ export default function JDLibraryPage() {
   )]
 
   // Filter and sort templates
-  let filteredTemplates = templates
-  if (filterCategory !== 'all') {
-    filteredTemplates = templates.filter(t => 
+  let filteredTemplates = parsedTemplates
+  if (filterDomain !== 'all') {
+    filteredTemplates = filteredTemplates.filter(t => t._parsed.domain === filterDomain)
+  }
+  if (filterSkill !== 'all') {
+    filteredTemplates = filteredTemplates.filter(t => t._parsed.skills.includes(filterSkill))
+  }
+  // Legacy category filter (only applies when domain/skill filters are at 'all')
+  if (filterCategory !== 'all' && filterDomain === 'all' && filterSkill === 'all') {
+    filteredTemplates = filteredTemplates.filter(t =>
       t.tags?.toLowerCase().includes(filterCategory.toLowerCase())
     )
   }
@@ -209,7 +264,40 @@ export default function JDLibraryPage() {
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-slate-500" />
               <span className="text-sm font-semibold text-slate-700">Filter:</span>
-              <div className="flex gap-1">
+            </div>
+            {/* Domain dropdown */}
+            {uniqueDomains.length > 2 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-slate-500">Domain</span>
+                <select
+                  value={filterDomain}
+                  onChange={(e) => setFilterDomain(e.target.value)}
+                  className="px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-100 text-slate-600 border-0 focus:ring-2 focus:ring-brand-500"
+                >
+                  {uniqueDomains.map(d => (
+                    <option key={d} value={d}>{d === 'all' ? 'All Domains' : d}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {/* Skill dropdown */}
+            {uniqueSkills.length > 2 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-slate-500">Skill</span>
+                <select
+                  value={filterSkill}
+                  onChange={(e) => setFilterSkill(e.target.value)}
+                  className="px-2.5 py-1 text-xs rounded-lg font-medium bg-slate-100 text-slate-600 border-0 focus:ring-2 focus:ring-brand-500"
+                >
+                  {uniqueSkills.map(s => (
+                    <option key={s} value={s}>{s === 'all' ? 'All Skills' : s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {/* Legacy category buttons — only show if there are legacy tags and no structured filters active */}
+            {filterDomain === 'all' && filterSkill === 'all' && categories.length > 1 && uniqueDomains.length <= 2 && (
+              <div className="flex items-center gap-1">
                 {categories.map(cat => (
                   <button
                     key={cat}
@@ -224,7 +312,16 @@ export default function JDLibraryPage() {
                   </button>
                 ))}
               </div>
-            </div>
+            )}
+            {/* Clear filters link */}
+            {(filterDomain !== 'all' || filterSkill !== 'all' || filterCategory !== 'all') && (
+              <button
+                onClick={() => { setFilterDomain('all'); setFilterSkill('all'); setFilterCategory('all') }}
+                className="text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
             <div className="flex items-center gap-2 ml-auto">
               <span className="text-sm font-semibold text-slate-700">Sort:</span>
               <select
@@ -281,9 +378,30 @@ export default function JDLibraryPage() {
                       <h3 className="font-extrabold text-brand-900 tracking-tight truncate">{t.name}</h3>
                       {t.tags && (
                         <div className="flex flex-wrap gap-1 mt-1.5">
-                          {t.tags.split(',').map(tag => tag.trim()).filter(Boolean).slice(0, 2).map((tag, i) => (
-                            <span 
-                              key={i} 
+                          {t._parsed.domain && (
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-lg font-semibold ring-1 ring-blue-100">
+                              {t._parsed.domain}
+                            </span>
+                          )}
+                          {t._parsed.seniority && (
+                            <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-lg font-semibold ring-1 ring-purple-100">
+                              {t._parsed.seniority}
+                            </span>
+                          )}
+                          {t._parsed.skills.slice(0, 3).map((skill, i) => (
+                            <span key={i} className="px-2 py-0.5 bg-green-50 text-green-700 text-xs rounded-lg font-semibold ring-1 ring-green-100">
+                              {skill}
+                            </span>
+                          ))}
+                          {t._parsed.skills.length > 3 && (
+                            <span className="px-2 py-0.5 bg-slate-50 text-slate-500 text-xs rounded-lg font-medium ring-1 ring-slate-100">
+                              +{t._parsed.skills.length - 3}
+                            </span>
+                          )}
+                          {/* Legacy tags fallback */}
+                          {t._parsed.legacy.slice(0, 2).map((tag, i) => (
+                            <span
+                              key={i}
                               className="px-2 py-0.5 bg-brand-50 text-brand-700 text-xs rounded-lg font-semibold ring-1 ring-brand-100 capitalize"
                             >
                               {tag}

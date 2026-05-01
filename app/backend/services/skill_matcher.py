@@ -1011,6 +1011,109 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
     }
 
 
+def extract_top_skills(required_skills: list, nice_to_have: list, limit: int = 7) -> list:
+    """Return top N skills sorted by specificity (fewer taxonomy categories = more specific).
+
+    Required skills are always ranked above nice-to-have skills.  Specificity is
+    determined by counting how many top-level taxonomy domains contain the skill — a
+    skill that only appears in one domain (e.g. "pytorch") is more specific than one
+    that appears in many (e.g. "go").
+
+    Returns a plain list of skill name strings (canonical form).
+    """
+    # Build a skill → domain-count map (lazily computed once)
+    if not hasattr(extract_top_skills, "_domain_count_cache"):
+        cache: Dict[str, int] = {}
+        for domain_name, subcats in SKILL_TAXONOMY.items():
+            for _subcat, skill_list in subcats.items():
+                for s in skill_list:
+                    norm = _normalize_skill(s)
+                    cache[norm] = cache.get(norm, 0) + 1
+        extract_top_skills._domain_count_cache = cache
+
+    domain_count = extract_top_skills._domain_count_cache
+
+    def _specificity(skill: str) -> int:
+        """Lower is more specific."""
+        return domain_count.get(_normalize_skill(skill), 999)
+
+    def _sort_key(item):
+        """(tier, specificity).  tier 0 = required, tier 1 = nice-to-have."""
+        skill, tier = item
+        return (tier, _specificity(skill))
+
+    tagged = [(s, 0) for s in required_skills if s] + [(s, 1) for s in nice_to_have if s]
+    # Deduplicate keeping first (required) occurrence
+    seen = set()
+    unique = []
+    for skill, tier in tagged:
+        norm = _normalize_skill(skill)
+        if norm not in seen:
+            seen.add(norm)
+            unique.append((skill, tier))
+
+    unique.sort(key=_sort_key)
+    return [skill for skill, _tier in unique[:limit]]
+
+
+# Domain label mapping from SKILL_TAXONOMY top-level keys
+_TAXONOMY_DOMAIN_LABELS = {
+    "programming_languages": "Backend",
+    "web_frontend":         "Frontend",
+    "web_backend":          "Backend",
+    "databases":            "Backend",
+    "cloud_platforms":      "DevOps",
+    "aws_services":         "DevOps",
+    "devops_infrastructure": "DevOps",
+    "embedded_systems":     "Backend",
+    "mobile":               "Frontend",
+    "ai_ml":                "Data Engineering",
+    "data_engineering":     "Data Engineering",
+    "data_science_analytics": "Data Engineering",
+    "architecture_design":  "Backend",
+    "security":             "DevOps",
+    "testing":              "QA",
+    "blockchain":           "Backend",
+    "gaming_graphics":      "Frontend",
+    "networking":           "DevOps",
+    "project_management":   "Management",
+    "business_erp":         "Finance",
+    "design_ux":            "Frontend",
+    "soft_skills":          "Management",
+}
+
+
+def infer_domain_from_skills(skills: list) -> str:
+    """Map a list of skill names to the dominant domain label.
+
+    Uses SKILL_TAXONOMY to determine which domain category has the most skill
+    matches.  Returns one of: "Backend", "Frontend", "Full Stack",
+    "Data Engineering", "DevOps", "QA", "Finance", "Management", "General".
+    """
+    if not skills:
+        return "General"
+
+    domain_hits: Dict[str, int] = {}
+    for skill in skills:
+        norm = _normalize_skill(skill)
+        for domain_name, subcats in SKILL_TAXONOMY.items():
+            for _subcat, skill_list in subcats.items():
+                if norm in {_normalize_skill(s) for s in skill_list}:
+                    label = _TAXONOMY_DOMAIN_LABELS.get(domain_name, "General")
+                    domain_hits[label] = domain_hits.get(label, 0) + 1
+
+    if not domain_hits:
+        return "General"
+
+    # Check for full-stack signal: significant frontend AND backend presence
+    has_frontend = domain_hits.get("Frontend", 0) >= 2
+    has_backend = domain_hits.get("Backend", 0) >= 2
+    if has_frontend and has_backend:
+        return "Full Stack"
+
+    return max(domain_hits, key=domain_hits.get)
+
+
 def validate_skills_against_text(skills: List[str], text: str) -> List[str]:
     """Filter out skills not found in the original text (hallucination guard)."""
     if not skills or not text:

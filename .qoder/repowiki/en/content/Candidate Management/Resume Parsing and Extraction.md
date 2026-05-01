@@ -10,16 +10,19 @@
 - [db_models.py](file://app/backend/models/db_models.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [test_parser_service.py](file://app/backend/tests/test_parser_service.py)
+- [test_parser_overhaul.py](file://app/backend/tests/test_parser_overhaul.py)
 - [002_parser_snapshot_json.py](file://alembic/versions/002_parser_snapshot_json.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced name extraction algorithms with comprehensive skip_phrases validation for job titles and professional roles
-- Improved phone number detection logic with multi-pattern approach and year validation to prevent false positives
-- Expanded SKIP_WORDS collection for better resume section header recognition and filtering
-- Refined contact information extraction with stricter validation rules and enhanced pattern matching
-- Strengthened name validation logic with comprehensive skip_phrases collection covering 40+ professional domains
+- Added comprehensive certifications extraction with standardized format parsing
+- Implemented robust languages extraction with proficiency detection and structured output
+- Enhanced professional summary extraction with truncation and multi-format support
+- Expanded education parsing with degree pattern recognition and field-of-study extraction
+- Improved work experience parsing with enhanced title/company disambiguation
+- Updated parser snapshot generation to include new extraction fields
+- Enhanced skills normalization with comprehensive alias mapping
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -34,18 +37,18 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the resume parsing and extraction workflows powering the system. It covers the parser service architecture supporting PDF and DOCX formats, text extraction algorithms, and structured data parsing for contact information, work experience, education, and skills. The system now features enhanced contact extraction accuracy through integrated LLM-based extraction using the Gemma model, providing superior accuracy for international names, creative layouts, and edge cases. It also documents the parsing pipeline stages, error handling for malformed documents and scanned PDFs, fallback mechanisms, parser snapshot generation, and JSON serialization format. Practical examples, edge-case handling, and performance optimization strategies are included, along with configuration and customization possibilities.
+This document explains the resume parsing and extraction workflows powering the system. It covers the parser service architecture supporting PDF and DOCX formats, text extraction algorithms, and structured data parsing for contact information, work experience, education, skills, certifications, languages, and professional summaries. The system now features enhanced extraction capabilities with comprehensive field parsing, improved validation logic, and robust fallback mechanisms. The parser includes new extraction modules for certifications, languages, and professional summaries, along with enhanced education parsing that recognizes degree patterns and extracts field-of-study information. The system maintains strong error handling for malformed documents and supports comprehensive snapshot generation for auditing and re-analysis.
 
-**Updated** Enhanced with integrated LLM-based contact extraction using Gemma model for superior accuracy and refined extraction strategies with improved validation logic.
+**Updated** Enhanced with new extraction capabilities for certifications, languages, and professional summaries, plus comprehensive education parsing with degree pattern recognition and field extraction.
 
 ## Project Structure
 The resume parsing pipeline spans several modules:
-- Parser service: extracts raw text from resumes and parses structured fields with enhanced LLM integration.
+- Parser service: extracts raw text from resumes and parses structured fields including new certification, language, and summary extraction.
 - LLM contact extractor: specialized module for LLM-based contact information extraction.
 - Hybrid pipeline: augments parsed profiles with skills discovery and scoring.
 - Routes: orchestrate parsing, caching, deduplication, and persistence.
 - Models: define database schema and Pydantic output models.
-- Tests: validate parsing behavior and edge cases including LLM integration.
+- Tests: validate parsing behavior and edge cases including new extraction features.
 
 ```mermaid
 graph TB
@@ -54,7 +57,7 @@ A["analyze.py<br/>POST /api/analyze"]
 B["candidates.py<br/>GET /api/candidates/{id}"]
 end
 subgraph "Services"
-C["parser_service.py<br/>parse_resume, ResumeParser<br/>enrich_parsed_resume_async"]
+C["parser_service.py<br/>parse_resume, ResumeParser<br/>enhanced extraction methods"]
 D["llm_contact_extractor.py<br/>extract_contact_with_llm<br/>merge_contact_info"]
 E["hybrid_pipeline.py<br/>run_hybrid_pipeline, skills registry"]
 end
@@ -89,10 +92,11 @@ B --> G
 - [db_models.py:97-126](file://app/backend/models/db_models.py#L97-L126)
 
 ## Core Components
-- ResumeParser: central class extracting raw text from PDF/DOCX/TXT and structuring contact info, work experience, education, and skills.
-- parse_resume: convenience function instantiating ResumeParser and returning structured output with enhanced name enrichment.
-- enrich_parsed_resume: fills missing name using a four-tier fallback system (NER detection, email-based extraction, relaxed header scanning, filename-based extraction).
-- enrich_parsed_resume_async: async version that integrates LLM-based contact extraction as the primary enhancement strategy.
+- ResumeParser: central class extracting raw text from PDF/DOCX/TXT and structuring contact info, work experience, education, skills, certifications, languages, and professional summaries.
+- parse_resume: convenience function instantiating ResumeParser and returning structured output with enhanced field extraction.
+- Enhanced extraction methods: new methods for certifications, languages, and professional summary extraction with comprehensive validation.
+- Improved education parsing: enhanced degree pattern recognition and field-of-study extraction.
+- Enhanced work experience parsing: improved title/company disambiguation and date parsing.
 - LLM contact extractor: specialized module using Gemma model for accurate contact information extraction from resume headers.
 - merge_contact_info: intelligent merging strategy that leverages LLM strengths while preserving regex accuracy for standard formats.
 - Hybrid pipeline: enhances parsed data with skills discovery and scoring.
@@ -100,25 +104,26 @@ B --> G
 
 Key responsibilities:
 - Text extraction: PDF via PyMuPDF with pdfplumber fallback; DOCX via python-docx; TXT via decoding.
-- Structured parsing: work experience, skills, education, contact info.
-- Enhanced contact extraction: LLM-based extraction with JSON parsing, validation, and intelligent merging strategy.
-- Enhanced name extraction: robust four-tier fallback system for maximum accuracy with comprehensive validation.
+- Structured parsing: work experience, skills, education, contact info, certifications, languages, professional summaries.
+- Enhanced extraction: comprehensive field parsing with validation and fallback mechanisms.
 - Snapshot storage: full parser output serialized to JSON for auditing and re-analysis.
 - Error handling: scanned PDF detection, unsupported formats, and graceful fallbacks.
 
-**Updated** Enhanced contact extraction with integrated LLM-based extraction using Gemma model for superior accuracy and refined extraction strategies with improved validation logic.
+**Updated** Enhanced with new extraction capabilities for certifications, languages, and professional summaries, plus comprehensive education parsing with degree pattern recognition.
 
 **Section sources**
-- [parser_service.py:130-202](file://app/backend/services/parser_service.py#L130-L202)
-- [parser_service.py:583-610](file://app/backend/services/parser_service.py#L583-L610)
-- [parser_service.py:612-653](file://app/backend/services/parser_service.py#L612-L653)
-- [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
+- [parser_service.py:1392-1491](file://app/backend/services/parser_service.py#L1392-L1491)
+- [parser_service.py:1492-1500](file://app/backend/services/parser_service.py#L1492-L1500)
+- [parser_service.py:1179-1361](file://app/backend/services/parser_service.py#L1179-L1361)
+- [parser_service.py:1397-1461](file://app/backend/services/parser_service.py#L1397-L1461)
+- [parser_service.py:1463-1500](file://app/backend/services/parser_service.py#L1463-L1500)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 - [hybrid_pipeline.py:604-637](file://app/backend/services/hybrid_pipeline.py#L604-L637)
 - [analyze.py:109-145](file://app/backend/routes/analyze.py#L109-L145)
 
 ## Architecture Overview
-End-to-end flow from upload to analysis and persistence with enhanced LLM integration:
+End-to-end flow from upload to analysis and persistence with enhanced extraction capabilities:
 
 ```mermaid
 sequenceDiagram
@@ -132,7 +137,7 @@ participant DB as "db_models.py"
 Client->>Route : "Upload resume + optional JD"
 Route->>Route : "Validate file size/type"
 Route->>Parser : "parse_resume(file_bytes, filename)"
-Parser-->>Route : "parsed_data"
+Parser-->>Route : "parsed_data with new fields"
 Route->>LLM : "extract_contact_with_llm(raw_text, timeout=8.0)"
 LLM-->>Route : "llm_contact (if available)"
 Route->>Parser : "merge_contact_info(contact, llm_contact)"
@@ -142,13 +147,13 @@ Gap-->>Route : "gap_analysis"
 Route->>Hybrid : "run_hybrid_pipeline(resume_text, job_description, parsed_data, gap_analysis)"
 Hybrid-->>Route : "analysis_result"
 Route->>DB : "_store_candidate_profile(...), persist ScreeningResult"
-Route-->>Client : "AnalysisResponse"
+Route-->>Client : "AnalysisResponse with certifications, languages, summary"
 ```
 
 **Diagram sources**
 - [analyze.py:354-400](file://app/backend/routes/analyze.py#L354-L400)
 - [parser_service.py:656-662](file://app/backend/services/parser_service.py#L656-L662)
-- [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 - [hybrid_pipeline.py:604-637](file://app/backend/services/hybrid_pipeline.py#L604-L637)
 - [analyze.py:118-145](file://app/backend/routes/analyze.py#L118-L145)
@@ -156,8 +161,113 @@ Route-->>Client : "AnalysisResponse"
 
 ## Detailed Component Analysis
 
+### Enhanced Field Extraction Pipeline
+The system now features comprehensive extraction capabilities for certifications, languages, and professional summaries:
+
+**Certifications Extraction**
+- Identifies certifications section headers (CERTIFICATIONS, CERTIFIED, LICENSES)
+- Extracts individual certification entries with standardized formatting
+- Filters out very short entries (< 4 characters) to avoid noise
+- Returns list of certification names for structured data
+
+**Languages Extraction**
+- Recognizes language section headers (LANGUAGES, LANGUAGE SKILLS, PROFICIENCY)
+- Extracts language-proficiency pairs with multiple format support
+- Handles both dash-separated: "English - Fluent" and comma-separated: "English (Native), Hindi (Fluent)"
+- Supports comprehensive proficiency vocabulary: native, fluent, proficient, intermediate, advanced, basic, beginner, elementary, conversational, professional, working proficiency, mother tongue, bilingual
+- Returns structured list with language and proficiency fields
+
+**Professional Summary Extraction**
+- Supports multiple summary headers: PROFESSIONAL SUMMARY, SUMMARY, CAREER SUMMARY, EXECUTIVE SUMMARY, OBJECTIVE, CAREER OBJECTIVE, PROFILE, PROFESSIONAL PROFILE, ABOUT ME, OVERVIEW
+- Extracts contiguous text until next section header
+- Allows one blank line within summary content
+- Truncates extracted text to 500 characters maximum
+- Returns clean, formatted summary text
+
+```mermaid
+flowchart TD
+Start(["Field Extraction Request"]) --> Cert["Extract Certifications"]
+Cert --> Lang["Extract Languages"]
+Lang --> Summary["Extract Professional Summary"]
+Summary --> Education["Enhanced Education Parsing"]
+Education --> WorkExp["Improved Work Experience Parsing"]
+WorkExp --> Skills["Skills Discovery & Normalization"]
+Skills --> Complete["Complete Extraction"]
+```
+
+**Diagram sources**
+- [parser_service.py:1392-1491](file://app/backend/services/parser_service.py#L1392-L1491)
+- [parser_service.py:1397-1461](file://app/backend/services/parser_service.py#L1397-L1461)
+- [parser_service.py:1463-1500](file://app/backend/services/parser_service.py#L1463-L1500)
+- [parser_service.py:1179-1361](file://app/backend/services/parser_service.py#L1179-L1361)
+
+**Section sources**
+- [parser_service.py:1392-1491](file://app/backend/services/parser_service.py#L1392-L1491)
+- [parser_service.py:1397-1461](file://app/backend/services/parser_service.py#L1397-L1461)
+- [parser_service.py:1463-1500](file://app/backend/services/parser_service.py#L1463-L1500)
+
+### Enhanced Education Parsing with Degree Pattern Recognition
+The education extraction system now features comprehensive degree pattern recognition and field-of-study extraction:
+
+**Degree Pattern Recognition**
+- Supports major degree types: Bachelor, Master, PhD, MBA, Associate, Diploma, Certificate, Higher Secondary, Secondary, PG Diploma
+- Handles degree qualifiers: Engineering, Science, Arts, Commerce, Technology, Business Administration, Computer Applications, Law, Medicine, Education, Philosophy, Fine Arts, Social Work, Public Health, Public Administration, Divinity, Architecture, Design, Music, Nursing, Pharmacy, Agriculture
+- Recognizes both "Bachelor of Engineering" and "B.E." formats
+- Extracts years from degree lines with robust pattern matching
+
+**Field-of-Study Extraction**
+- Pattern 1: "Bachelor/Master of QUALIFIER [in] FIELD" - extracts "Electronics and Instrumentation" from "Bachelor of Engineering Electronics and Instrumentation"
+- Pattern 2: "degree [of QUALIFIER] in FIELD" - extracts "Computer Science" from "M.S. in Computer Science"
+- Pattern 3: "degree of FIELD" - extracts "Commerce" from "Bachelor of Commerce"
+- Pattern 4: Degree followed by field text - removes years and institution references
+- Pattern 5: Common field keywords - extracts specific fields like "Computer Science", "Electrical Engineering"
+
+**Institution Recognition**
+- Recognizes known institution abbreviations: MIT, IIT, NIT, IIIT, BITS, ISB, IIM, Yale, Harvard, Stanford, Princeton, Oxford, Cambridge, LSE, ETH, Caltech, UCLA, USC, NYU, CMU
+- Handles institution suffixes: University, College, Institute, School, Academy, Polytechnic, Conservatory, Seminary, Centre, Center, Foundation
+- Supports "from/at" institution patterns
+
+```mermaid
+flowchart TD
+EducationStart(["Education Extraction"]) --> Header["Find Education Header"]
+Header --> Line["Process Each Line"]
+Line --> Degree["Detect Degree Pattern"]
+Degree --> Field["Extract Field of Study"]
+Field --> Institution["Extract Institution"]
+Institution --> Year["Extract Year"]
+Year --> Append["Append to Education List"]
+Append --> NextLine["Next Line"]
+NextLine --> |More Lines| Line
+NextLine --> |End Section| Complete["Complete Education Extraction"]
+```
+
+**Diagram sources**
+- [parser_service.py:1179-1361](file://app/backend/services/parser_service.py#L1179-L1361)
+
+**Section sources**
+- [parser_service.py:1179-1361](file://app/backend/services/parser_service.py#L1179-L1361)
+
+### Enhanced Work Experience Parsing
+The work experience parsing system includes improved title and company disambiguation:
+
+**Title/Company Disambiguation**
+- Enhanced splitting logic for patterns like "Senior Engineer TRIGENT SOFTWARE LTD. deputed @ AMETEK"
+- Supports pipe delimiter: "Software Engineer | Google LLC"
+- Supports tab delimiter: "Manager\tAmazon Inc"
+- Company keyword detection: identifies "Ltd", "Inc", "Corp", "Pvt", "LLC" as company indicators
+- Title keyword detection: identifies "Engineer", "Manager", "Developer" as title indicators
+
+**Date Range Enhancement**
+- Improved date normalization with period stripping and keyword replacement
+- Supports "Till Date", "Ongoing", "To Date", "Continuing" keywords
+- Enhanced year-only range detection
+- Better handling of slash format dates
+
+**Section sources**
+- [test_parser_overhaul.py:375-414](file://app/backend/tests/test_parser_overhaul.py#L375-L414)
+
 ### Enhanced Contact Extraction Pipeline
-The system now features a sophisticated contact extraction pipeline that combines multiple strategies for maximum accuracy:
+The system features a sophisticated contact extraction pipeline that combines multiple strategies for maximum accuracy:
 
 **Primary LLM-Based Extraction (Enhanced Accuracy)**
 - Uses Gemma model via Ollama for superior accuracy with international names, creative layouts, and edge cases.
@@ -216,12 +326,12 @@ Success --> End(["Contact enrichment complete"])
 ```
 
 **Diagram sources**
-- [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 
 **Section sources**
 - [parser_service.py:1014-1037](file://app/backend/services/parser_service.py#L1014-L1037)
-- [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 
 ### ResumeParser: Text Extraction and Structured Parsing
@@ -235,8 +345,11 @@ Success --> End(["Contact enrichment complete"])
 - Structured parsing:
   - Work experience: detects date patterns and infers company/title from surrounding lines; accumulates descriptions.
   - Skills: section-based extraction with broad fallback using a skills registry and regex scanning.
-  - Education: identifies degree-related lines and extracts university/year.
+  - Education: identifies degree-related lines and extracts university/year with enhanced field extraction.
   - Contact info: name, email, phone, LinkedIn; enhanced extraction with LLM integration and improved validation.
+  - Certifications: extracts certification names from dedicated sections.
+  - Languages: extracts language-proficiency pairs with structured output.
+  - Professional summary: extracts comprehensive summary text with truncation.
 
 ```mermaid
 classDiagram
@@ -250,6 +363,9 @@ class ResumeParser {
 +_extract_education(text) list
 +_extract_name(text) str
 +_extract_contact_info(text) dict
++_extract_certifications(text) list
++_extract_languages(text) list
++_extract_professional_summary(text) str
 +enrich_parsed_resume_async(data, filename) None
 +enrich_parsed_resume(data, filename) None
 }
@@ -280,6 +396,9 @@ ResumeParser --> ParserUtils : "uses"
 - [parser_service.py:368-421](file://app/backend/services/parser_service.py#L368-L421)
 - [parser_service.py:423-467](file://app/backend/services/parser_service.py#L423-L467)
 - [parser_service.py:469-540](file://app/backend/services/parser_service.py#L469-L540)
+- [parser_service.py:1392-1491](file://app/backend/services/parser_service.py#L1392-L1491)
+- [parser_service.py:1397-1461](file://app/backend/services/parser_service.py#L1397-L1461)
+- [parser_service.py:1463-1500](file://app/backend/services/parser_service.py#L1463-L1500)
 
 ### Enhanced Name Extraction and Enrichment System
 The system now implements a robust four-tier fallback mechanism for name extraction with LLM integration and comprehensive validation:
@@ -348,7 +467,7 @@ Success --> End(["Name enrichment complete"])
 ```
 
 **Diagram sources**
-- [parser_service.py:1080-1126](file://app/backend/services/parser_service.py#L1080-L1126)
+- [parser_service.py:1798-1860](file://app/backend/services/parser_service.py#L1798-L1860)
 - [parser_service.py:583-610](file://app/backend/services/parser_service.py#L583-L610)
 - [parser_service.py:612-653](file://app/backend/services/parser_service.py#L612-L653)
 
@@ -439,6 +558,7 @@ Skills extraction combines:
 - Section-based extraction from a skills header region.
 - Full-text scanning using a skills registry and optional keyword extraction processor.
 - Fallback to a broad skills list when processors are unavailable.
+- Enhanced normalization with comprehensive alias mapping for technology skills.
 
 ```mermaid
 flowchart TD
@@ -446,8 +566,9 @@ Start(["Start skills extraction"]) --> FindSection["Find skills section"]
 FindSection --> Found{"Section found?"}
 Found --> |Yes| Split["Split by delimiters"]
 Found --> |No| ScanText["Scan full text with skills registry"]
-Split --> Merge["Merge and deduplicate"]
-ScanText --> Merge
+Split --> Normalize["Normalize with SKILL_ALIASES"]
+ScanText --> Normalize
+Normalize --> Merge["Merge and deduplicate"]
 Merge --> End(["Return skills list"])
 ```
 
@@ -464,6 +585,7 @@ Merge --> End(["Return skills list"])
 - Full parser output is serialized to JSON and stored in the Candidate row for auditing and re-analysis.
 - Limits: maximum serialized size enforced to keep rows bounded.
 - Restoration: routes reconstruct parsed data from snapshot or denormalized columns.
+- Enhanced snapshot includes new fields: certifications, languages, professional_summary.
 
 ```mermaid
 flowchart TD
@@ -493,7 +615,7 @@ Store --> Restore["Restore in routes when needed"]
   - Gap analysis (JSON object)
   - Current role/company and total years experience
   - Profile quality and timestamps
-  - Full parser snapshot (JSON)
+  - Full parser snapshot (JSON) with new extraction fields
 
 ```mermaid
 flowchart TD
@@ -515,19 +637,22 @@ Store --> End(["Done"])
 - [db_models.py:97-126](file://app/backend/models/db_models.py#L97-L126)
 
 ### Example Parsing Workflows
-- PDF resume with skills, work experience, and education:
+- PDF resume with skills, work experience, education, certifications, languages, and professional summary:
   - Extract text via PyMuPDF with pdfplumber fallback.
   - Detect skills section and scan full text for additional skills.
   - Parse work experience entries with inferred company/title and descriptions.
-  - Extract education degrees and years.
+  - Extract education degrees with field-of-study and years.
+  - Extract certifications from dedicated sections.
+  - Extract languages with proficiency levels.
+  - Extract professional summary with truncation.
   - Populate contact info using LLM-based extraction with regex fallbacks and enhanced validation.
 - DOCX resume:
   - Read paragraphs and table cells to build raw text.
-  - Apply the same structured parsing logic as PDF with enhanced contact extraction and improved name validation.
+  - Apply the same structured parsing logic as PDF with enhanced extraction capabilities.
 - TXT/other formats:
   - Decode with multiple encodings and return raw text for downstream parsing.
 
-**Updated** Enhanced contact extraction workflow now uses LLM-based extraction as the primary strategy with comprehensive fallback mechanisms and improved validation logic.
+**Updated** Enhanced with new extraction capabilities for certifications, languages, and professional summaries, plus comprehensive education parsing with degree pattern recognition.
 
 **Section sources**
 - [parser_service.py:188-196](file://app/backend/services/parser_service.py#L188-L196)
@@ -541,6 +666,7 @@ Store --> End(["Done"])
   - Graceful ValueError raised with supported formats list.
 - Skills extraction fallback:
   - If skills registry processor is unavailable, falls back to a broad skills list.
+  - Enhanced normalization with comprehensive alias mapping.
 - Enhanced contact extraction:
   - LLM-based extraction handles international names, creative layouts, and edge cases.
   - Regex extraction provides fallback for standard formats with improved validation.
@@ -553,14 +679,22 @@ Store --> End(["Done"])
   - Comprehensive skip_phrases collection prevents matching professional roles as names.
   - Multi-pattern phone number detection prevents year matching false positives.
   - Expanded SKIP_WORDS collection improves section header recognition accuracy.
+- New field extraction:
+  - Certifications extraction handles various section formats and standardizes output.
+  - Languages extraction supports multiple proficiency formats and structured output.
+  - Professional summary extraction handles multiple header formats and truncation.
+  - Education parsing recognizes complex degree patterns and extracts field information.
 
-**Updated** Enhanced contact extraction with comprehensive LLM integration covering international names, creative layouts, and edge cases with robust fallback mechanisms and improved validation logic.
+**Updated** Enhanced with comprehensive fallback mechanisms for new extraction capabilities including certifications, languages, and professional summaries.
 
 **Section sources**
 - [parser_service.py:224-230](file://app/backend/services/parser_service.py#L224-L230)
 - [parser_service.py:170-173](file://app/backend/services/parser_service.py#L170-L173)
 - [parser_service.py:414-421](file://app/backend/services/parser_service.py#L414-L421)
 - [parser_service.py:583-610](file://app/backend/services/parser_service.py#L583-L610)
+- [parser_service.py:1392-1491](file://app/backend/services/parser_service.py#L1392-L1491)
+- [parser_service.py:1397-1461](file://app/backend/services/parser_service.py#L1397-L1461)
+- [parser_service.py:1463-1500](file://app/backend/services/parser_service.py#L1463-L1500)
 
 ## Dependency Analysis
 - Parser service depends on:
@@ -631,6 +765,7 @@ Routes --> DB["db_models.py"]
   - LLM extraction limited to first 1000 characters to optimize token usage.
 - Skills discovery:
   - Uses a skills registry and optional processor to balance accuracy and performance.
+  - Enhanced normalization with comprehensive alias mapping.
 - Enhanced contact extraction:
   - LLM extraction prioritized for accuracy with regex fallbacks for performance.
   - spaCy NER is lazy-loaded and cached for optimal performance.
@@ -638,8 +773,12 @@ Routes --> DB["db_models.py"]
   - Async LLM calls prevent blocking the main thread.
   - Multi-pattern phone detection optimized with early exit on match.
   - Comprehensive validation reduces false positives and improves accuracy.
+- New field extraction:
+  - Optimized regex patterns for certifications, languages, and professional summaries.
+  - Efficient section header detection with minimal backtracking.
+  - Structured output generation with minimal memory overhead.
 
-**Updated** Enhanced performance considerations with LLM integration including async HTTP clients, token optimization, and strategic fallback ordering with improved validation logic.
+**Updated** Enhanced performance considerations with new extraction capabilities including optimized regex patterns and efficient section header detection.
 
 [No sources needed since this section provides general guidance]
 
@@ -668,7 +807,7 @@ Common issues and resolutions:
   - Resolution: Enhanced four-tier fallback system should resolve most cases; verify email presence and filename validity.
 - spaCy not available:
   - Symptom: NER extraction disabled.
-  - Resolution: Install spaCy model (en_core_web_sm) for improved accuracy; system will fall back to other tiers.
+  - Resolution: Install spaCy model (en: en_core_web_sm) for improved accuracy; system will fall back to other tiers.
 - LLM timeout errors:
   - Symptom: Timed out after X.Xs.
   - Resolution: Increase timeout value or check Ollama service performance.
@@ -678,20 +817,34 @@ Common issues and resolutions:
 - Professional role misidentified:
   - Symptom: Job titles matched as candidate names.
   - Resolution: Comprehensive skip_phrases validation prevents role names from being extracted.
+- Certifications extraction issues:
+  - Symptom: Certifications not extracted or empty list returned.
+  - Resolution: Verify certifications section exists; check for proper formatting; ensure section headers are recognized.
+- Languages extraction issues:
+  - Symptom: Languages not extracted or proficiency not detected.
+  - Resolution: Verify language section formatting; check for supported proficiency keywords; ensure proper separation syntax.
+- Professional summary extraction issues:
+  - Symptom: Summary not extracted or truncated unexpectedly.
+  - Resolution: Verify summary section header exists; check for proper formatting; ensure summary content follows header.
+- Education parsing issues:
+  - Symptom: Education entries missing field information or institution recognition problems.
+  - Resolution: Verify degree format; check for proper institution naming; ensure degree patterns are recognized.
 
-**Updated** Enhanced troubleshooting guidance for the new LLM integration including timeout handling, Ollama service requirements, and improved validation logic for phone numbers and name extraction.
+**Updated** Enhanced troubleshooting guidance for new extraction capabilities including certifications, languages, professional summaries, and enhanced education parsing.
 
 **Section sources**
 - [parser_service.py:224-230](file://app/backend/services/parser_service.py#L224-L230)
 - [parser_service.py:170-173](file://app/backend/services/parser_service.py#L170-L173)
 - [parser_service.py:414-421](file://app/backend/services/parser_service.py#L414-L421)
 - [parser_service.py:583-610](file://app/backend/services/parser_service.py#L583-L610)
-- [llm_contact_extractor.py:120-130](file://app/backend/services/llm_contact_extractor.py#L120-L130)
+- [parser_service.py:1392-1491](file://app/backend/services/parser_service.py#L1392-L1491)
+- [parser_service.py:1397-1461](file://app/backend/services/parser_service.py#L1397-L1461)
+- [parser_service.py:1463-1500](file://app/backend/services/parser_service.py#L1463-L1500)
 
 ## Conclusion
-The resume parsing pipeline integrates robust text extraction, structured parsing, and a comprehensive skills discovery layer to deliver a complete candidate profile. It includes strong error handling, deduplication, caching, and snapshot storage for auditing and re-analysis. The enhanced contact extraction system provides maximum accuracy through integrated LLM-based extraction using the Gemma model, combined with a four-tier fallback mechanism covering spaCy NER, email-based extraction, relaxed header scanning, and filename-based parsing. The system now features comprehensive validation logic with expanded SKIP_WORDS collections, advanced skip_phrases validation for professional roles, and improved phone number detection with year validation. The modular design allows customization of skills discovery and LLM integration while maintaining performance and reliability.
+The resume parsing pipeline integrates robust text extraction, structured parsing, and comprehensive field extraction capabilities to deliver a complete candidate profile. It includes strong error handling, deduplication, caching, and snapshot storage for auditing and re-analysis. The enhanced extraction system provides maximum accuracy through integrated LLM-based extraction using the Gemma model, combined with a four-tier fallback mechanism covering spaCy NER, email-based extraction, relaxed header scanning, and filename-based parsing. The system now features comprehensive validation logic with expanded SKIP_WORDS collections, advanced skip_phrases validation for professional roles, and improved phone number detection with year validation. The addition of new extraction capabilities for certifications, languages, and professional summaries, along with enhanced education parsing featuring degree pattern recognition and field-of-study extraction, makes the system highly versatile for diverse resume formats and international candidates. The modular design allows customization of skills discovery, LLM integration, and extraction strategies while maintaining performance and reliability.
 
-**Updated** Enhanced conclusion reflecting the robust LLM integration with Gemma model, improved accuracy guarantees through sophisticated extraction strategies, and comprehensive validation logic for enhanced parsing reliability.
+**Updated** Enhanced conclusion reflecting the comprehensive extraction capabilities including certifications, languages, professional summaries, and enhanced education parsing with degree pattern recognition.
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -704,6 +857,9 @@ The resume parsing pipeline integrates robust text extraction, structured parsin
   - skills: array of strings
   - education: array of objects with degree, field, university, year
   - contact_info: object with name, email, phone, linkedin
+  - certifications: array of strings
+  - languages: array of objects with language, proficiency
+  - professional_summary: string
 
 Storage and retrieval:
 - Stored in Candidate.parser_snapshot_json as a JSON string.
@@ -724,20 +880,27 @@ Storage and retrieval:
   - Modify deduplication thresholds and actions in the routes logic.
 - Parser behavior:
   - Add or refine date patterns and section headers in ResumeParser for varied resume layouts.
+  - Customize regex patterns for new extraction fields as needed.
 - Enhanced contact extraction:
   - LLM model availability affects extraction accuracy; configure Ollama service for optimal results.
   - Email-based extraction can be customized by modifying the email parsing regex.
   - Filename-based extraction validation rules can be adjusted for specific naming conventions.
   - LLM extraction timeout can be tuned for different network conditions.
   - Phone number detection patterns can be customized for regional variations.
+- New field extraction customization:
+  - Certifications extraction: modify section header patterns and filtering criteria.
+  - Languages extraction: extend proficiency vocabulary and format support.
+  - Professional summary extraction: adjust truncation limits and header recognition.
+  - Education parsing: expand degree pattern recognition and field extraction rules.
 - Storage limits:
   - Tune raw text cap and snapshot JSON cap to balance fidelity and performance.
 - Validation customization:
   - Expand SKIP_WORDS collection for additional section headers.
   - Add professional roles to skip_phrases collection for improved name validation.
   - Customize phone number patterns for specific regional formats.
+  - Adjust proficiency detection patterns for new language skills.
 
-**Updated** Added configuration options for the enhanced LLM integration including Ollama service settings, extraction timeout tuning, and validation customization for improved parsing accuracy.
+**Updated** Added configuration options for the enhanced extraction capabilities including new field extraction customization and validation rules.
 
 **Section sources**
 - [hybrid_pipeline.py:69-182](file://app/backend/services/hybrid_pipeline.py#L69-L182)
