@@ -258,48 +258,6 @@ export default function CandidatesPage() {
     }
   }
 
-  // ── Selection helpers ──
-  const selectableIds = displayedCandidates.filter(c => c.latest_result_id).map(c => c.latest_result_id)
-
-  const toggleSelect = (resultId) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(resultId)) next.delete(resultId)
-      else next.add(resultId)
-      return next
-    })
-  }
-
-  const toggleAll = () => {
-    if (selectedIds.size === selectableIds.length && selectableIds.length > 0) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(selectableIds))
-    }
-  }
-
-  const clearSelection = () => setSelectedIds(new Set())
-
-  // ── Bulk actions ──
-  const handleBulkAction = async (status) => {
-    if (selectedIds.size === 0) return
-    setBulkLoading(true)
-    try {
-      await Promise.all([...selectedIds].map(id => updateResultStatus(id, status)))
-      setCandidates(prev =>
-        prev.map(c =>
-          selectedIds.has(c.latest_result_id) ? { ...c, latest_status: status } : c
-        )
-      )
-      setToast(`${selectedIds.size} candidate${selectedIds.size !== 1 ? 's' : ''} updated to ${STATUS_CONFIG[status]?.label || status}`)
-      setSelectedIds(new Set())
-    } catch {
-      setToast('Failed to update some statuses')
-    } finally {
-      setBulkLoading(false)
-    }
-  }
-
   // ── Sort handler ──
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -363,6 +321,48 @@ export default function CandidatesPage() {
     return sortOrder === 'asc'
       ? <ArrowUp className="w-3 h-3 inline ml-0.5" />
       : <ArrowDown className="w-3 h-3 inline ml-0.5" />
+  }
+
+  // ── Selection helpers ──
+  const selectableIds = displayedCandidates.filter(c => c.latest_result_id).map(c => c.latest_result_id)
+
+  const toggleSelect = (resultId) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(resultId)) next.delete(resultId)
+      else next.add(resultId)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (selectedIds.size === selectableIds.length && selectableIds.length > 0) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(selectableIds))
+    }
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
+
+  // ── Bulk actions ──
+  const handleBulkAction = async (status) => {
+    if (selectedIds.size === 0) return
+    setBulkLoading(true)
+    try {
+      await Promise.all([...selectedIds].map(id => updateResultStatus(id, status)))
+      setCandidates(prev =>
+        prev.map(c =>
+          selectedIds.has(c.latest_result_id) ? { ...c, latest_status: status } : c
+        )
+      )
+      setToast(`${selectedIds.size} candidate${selectedIds.size !== 1 ? 's' : ''} updated to ${STATUS_CONFIG[status]?.label || status}`)
+      setSelectedIds(new Set())
+    } catch {
+      setToast('Failed to update some statuses')
+    } finally {
+      setBulkLoading(false)
+    }
   }
 
   return (
