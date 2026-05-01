@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Users, ChevronRight, X, FileText, Eye, Filter, ChevronDown, CheckCircle2, XCircle, ArrowUp, ArrowDown } from 'lucide-react'
+import { Search, Users, ChevronRight, X, FileText, Eye, Filter, ChevronDown, CheckCircle2, XCircle, ArrowUp, ArrowDown, List, LayoutGrid, Columns, Mail, Loader2 } from 'lucide-react'
 import { getCandidates, getCandidate, viewCandidateResume, downloadCandidateResume, updateResultStatus } from '../lib/api'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
@@ -185,6 +185,142 @@ function CandidateDetail({ candidateId, onClose }) {
   )
 }
 
+/** Inline profile preview for Split Panel view — lighter than full CandidateProfilePage */
+function SplitProfilePreview({ profile, onStatusChange, navigate }) {
+  const firstResult = profile.history && profile.history.length > 0 ? profile.history[0] : null
+  const matchedSkills = firstResult?.matched_skills || []
+  const missingSkills = firstResult?.missing_skills || []
+  const strengths = firstResult?.strengths || []
+  const weaknesses = firstResult?.weaknesses || []
+  const narrative = firstResult?.narrative_summary || firstResult?.narrative || ''
+  const professionalSummary = profile.professional_summary || profile.summary || firstResult?.professional_summary || ''
+  const scoreBreakdown = firstResult?.score_breakdown || firstResult?.category_scores || null
+  const fitScore = firstResult?.fit_score ?? profile.best_score ?? null
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={`w-12 h-12 rounded-full flex items-center justify-center text-white text-lg font-bold shrink-0 ${getAvatarColor(profile.name)}`}>
+            {getInitials(profile.name)}
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-xl font-extrabold text-gray-900 truncate">{safeStr(profile.name) || 'Unknown'}</h3>
+            {profile.email && <p className="text-sm text-gray-500 truncate">{safeStr(profile.email)}</p>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <ScoreBadge score={fitScore} />
+          {firstResult?.id && (
+            <StatusPill
+              status={firstResult.status || profile.latest_status || 'pending'}
+              onChange={(newStatus) => onStatusChange(firstResult.id, newStatus)}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* View Full Profile link */}
+      <button
+        onClick={() => navigate(`/candidates/${profile.id}`)}
+        className="text-sm text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 hover:underline"
+      >
+        View Full Profile <ChevronRight className="w-4 h-4" />
+      </button>
+
+      {/* Professional Summary */}
+      {professionalSummary && (
+        <div>
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Professional Summary</h4>
+          <p className="text-sm text-gray-700 leading-relaxed">{safeStr(professionalSummary)}</p>
+        </div>
+      )}
+
+      {/* Score Breakdown Bar */}
+      {scoreBreakdown && typeof scoreBreakdown === 'object' && (
+        <div>
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Score Breakdown</h4>
+          <div className="space-y-2">
+            {Object.entries(scoreBreakdown).map(([key, val]) => {
+              const numVal = typeof val === 'number' ? val : (typeof val?.score === 'number' ? val.score : 0)
+              return (
+                <div key={key} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-600 w-28 truncate" title={key}>{key}</span>
+                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${numVal >= 70 ? 'bg-green-500' : numVal >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, Math.max(0, numVal))}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-bold text-gray-700 w-8 text-right">{numVal}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Matched / Missing Skills */}
+      {(matchedSkills.length > 0 || missingSkills.length > 0) && (
+        <div>
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Skills</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {matchedSkills.map((skill, i) => (
+              <span key={`m${i}`} className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-medium">{safeStr(skill)}</span>
+            ))}
+            {missingSkills.map((skill, i) => (
+              <span key={`x${i}`} className="text-xs bg-red-100 text-red-700 rounded-full px-2 py-0.5 font-medium">{safeStr(skill)}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Strengths / Weaknesses */}
+      {(strengths.length > 0 || weaknesses.length > 0) && (
+        <div className="grid grid-cols-2 gap-4">
+          {strengths.length > 0 && (
+            <div>
+              <h4 className="text-xs font-bold text-green-600 uppercase tracking-wide mb-1">Strengths</h4>
+              <ul className="space-y-1">
+                {strengths.slice(0, 5).map((s, i) => (
+                  <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                    <CheckCircle2 className="w-3 h-3 text-green-500 mt-0.5 shrink-0" />
+                    <span>{safeStr(s)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {weaknesses.length > 0 && (
+            <div>
+              <h4 className="text-xs font-bold text-red-600 uppercase tracking-wide mb-1">Weaknesses</h4>
+              <ul className="space-y-1">
+                {weaknesses.slice(0, 5).map((w, i) => (
+                  <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                    <XCircle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
+                    <span>{safeStr(w)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Narrative Summary */}
+      {narrative && (
+        <div>
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Narrative Summary</h4>
+          <blockquote className="text-sm text-gray-700 leading-relaxed border-l-3 border-indigo-300 pl-4 italic bg-indigo-50/50 py-2 rounded-r-lg">
+            {safeStr(narrative)}
+          </blockquote>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function CandidatesPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -204,6 +340,18 @@ export default function CandidatesPage() {
   const [sortBy, setSortBy] = useState('created_at')
   const [sortOrder, setSortOrder] = useState('desc')
   const [scoreFilter, setScoreFilter] = useState('all')
+  const [viewMode, setViewMode] = useState(() => {
+    try { return localStorage.getItem('candidates-view-mode') || 'table' } catch { return 'table' }
+  })
+  const [splitSelectedId, setSplitSelectedId] = useState(null)
+  const [splitProfile, setSplitProfile] = useState(null)
+  const [splitLoading, setSplitLoading] = useState(false)
+
+  const handleViewModeChange = useCallback((mode) => {
+    setViewMode(mode)
+    try { localStorage.setItem('candidates-view-mode', mode) } catch { /* ignore */ }
+    if (mode !== 'split') { setSplitSelectedId(null); setSplitProfile(null) }
+  }, [])
 
   const fetchCandidates = async (s = search, p = page, st = statusFilter, sk = skillFilter) => {
     setLoading(true)
@@ -434,6 +582,30 @@ export default function CandidatesPage() {
               <option value="below50">Below 50 (Weak)</option>
             </select>
           </div>
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-1 ml-auto">
+            <button
+              onClick={() => handleViewModeChange('table')}
+              className={`p-1.5 rounded-lg transition-colors ${viewMode === 'table' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+              title="Table view"
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleViewModeChange('cards')}
+              className={`p-1.5 rounded-lg transition-colors ${viewMode === 'cards' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+              title="Cards view"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleViewModeChange('split')}
+              className={`p-1.5 rounded-lg transition-colors ${viewMode === 'split' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+              title="Split panel view"
+            >
+              <Columns className="w-4 h-4" />
+            </button>
+          </div>
           {(statusFilter || skillFilter || scoreFilter !== 'all') && (
             <button
               onClick={() => { setStatusFilter(''); setSkillFilter(''); setScoreFilter('all') }}
@@ -461,8 +633,8 @@ export default function CandidatesPage() {
           </div>
         ) : (
           <>
-            {/* Bulk Action Bar */}
-            {selectedIds.size > 0 && (
+            {/* Bulk Action Bar — only in table view */}
+            {viewMode === 'table' && selectedIds.size > 0 && (
               <div className="sticky top-20 z-20 flex items-center gap-3 bg-brand-900 text-white px-5 py-3 rounded-2xl shadow-brand-lg card-animate">
                 <span className="text-sm font-bold">
                   {selectedIds.size} selected
@@ -492,6 +664,9 @@ export default function CandidatesPage() {
                 </button>
               </div>
             )}
+
+            {/* ── TABLE VIEW ── */}
+            {viewMode === 'table' && (
             <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden card-animate">
             <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[1100px]">
@@ -636,6 +811,163 @@ export default function CandidatesPage() {
               </div>
             )}
           </div>
+            )}
+
+            {/* ── CARDS VIEW ── */}
+            {viewMode === 'cards' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {displayedCandidates.map(c => {
+                  const statusCfg = STATUS_CONFIG[c.latest_status] || STATUS_CONFIG.pending
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => navigate(`/candidates/${c.id}`)}
+                      className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow cursor-pointer"
+                    >
+                      {/* Top row: Avatar + Name + Score */}
+                      <div className="flex items-center gap-2.5 mb-3">
+                        <span className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${getAvatarColor(c.name)}`}>
+                          {getInitials(c.name)}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-gray-900 truncate">{c.name || '—'}</p>
+                        </div>
+                        <ScoreBadge score={c.best_score} />
+                      </div>
+
+                      {/* Email */}
+                      {c.email && (
+                        <div className="flex items-center gap-1.5 mb-2 min-w-0">
+                          <Mail className="w-3 h-3 text-gray-400 shrink-0" />
+                          <span className="text-xs text-gray-500 truncate">{c.email}</span>
+                        </div>
+                      )}
+
+                      {/* Status badge */}
+                      <div className="mb-2" onClick={e => e.stopPropagation()}>
+                        {c.latest_result_id ? (
+                          <StatusPill
+                            status={c.latest_status || 'pending'}
+                            onChange={(newStatus) => handleStatusChange(c.latest_result_id, newStatus)}
+                          />
+                        ) : (
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ring-1 ${statusCfg.color}`}>{statusCfg.label}</span>
+                        )}
+                      </div>
+
+                      {/* Skills */}
+                      {c.matched_skills && c.matched_skills.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-3">
+                          {c.matched_skills.slice(0, 3).map((skill, i) => (
+                            <span key={i} className="text-xs bg-gray-100 rounded-full px-2 py-0.5 text-gray-700 font-medium">{skill}</span>
+                          ))}
+                          {c.matched_skills.length > 3 && (
+                            <span className="text-xs bg-gray-100 rounded-full px-2 py-0.5 text-gray-500 font-medium">+{c.matched_skills.length - 3}</span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Bottom: Applications + date */}
+                      <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-gray-100">
+                        <span>Applications: {c.result_count ?? 0}</span>
+                        <span>{c.created_at ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* ── SPLIT PANEL VIEW ── */}
+            {viewMode === 'split' && (
+              <div className="flex h-[calc(100vh-200px)] bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                {/* Left panel — candidate list */}
+                <div className="w-80 lg:w-96 shrink-0 border-r border-gray-200 overflow-y-auto">
+                  {displayedCandidates.map(c => {
+                    const isActive = splitSelectedId === c.id
+                    const statusCfg = STATUS_CONFIG[c.latest_status] || STATUS_CONFIG.pending
+                    const statusDotColor = c.latest_status === 'hired' ? 'bg-emerald-500'
+                      : c.latest_status === 'shortlisted' ? 'bg-green-500'
+                      : c.latest_status === 'rejected' ? 'bg-red-500'
+                      : c.latest_status === 'in-review' ? 'bg-amber-500'
+                      : 'bg-slate-400'
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          setSplitSelectedId(c.id)
+                          setSplitLoading(true)
+                          setSplitProfile(null)
+                          getCandidate(c.id)
+                            .then(data => setSplitProfile(data))
+                            .catch(() => setSplitProfile(null))
+                            .finally(() => setSplitLoading(false))
+                        }}
+                        className={`flex items-center gap-2.5 px-4 py-3 cursor-pointer transition-colors border-l-3 ${
+                          isActive ? 'bg-indigo-50 border-l-indigo-600' : 'border-l-transparent hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${getAvatarColor(c.name)}`}>
+                          {getInitials(c.name)}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-gray-900 truncate text-sm">{c.name || '—'}</p>
+                        </div>
+                        <ScoreBadge score={c.best_score} />
+                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor}`} title={statusCfg.label} />
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Right panel — inline profile preview */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  {!splitSelectedId ? (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                      <Users className="w-12 h-12 mb-3 text-gray-300" />
+                      <p className="text-sm font-medium">Select a candidate to preview their profile</p>
+                    </div>
+                  ) : splitLoading ? (
+                    <div className="flex items-center justify-center h-full">
+                      <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+                    </div>
+                  ) : !splitProfile ? (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                      <p className="text-sm font-medium">Failed to load candidate profile</p>
+                    </div>
+                  ) : (
+                    <SplitProfilePreview
+                      profile={splitProfile}
+                      onStatusChange={handleStatusChange}
+                      navigate={navigate}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Pagination — shared for table & cards; split uses infinite scroll in left panel */}
+            {viewMode !== 'split' && total > 20 && (
+              <div className="flex items-center justify-between p-4 mt-4">
+                <p className="text-xs text-slate-500 font-medium">Page {page} of {Math.ceil(total / 20)}</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-3 py-1.5 text-xs ring-1 ring-brand-200 rounded-xl disabled:opacity-40 hover:bg-brand-50 font-semibold text-brand-700 transition-colors"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    onClick={() => setPage(p => p + 1)}
+                    disabled={page >= Math.ceil(total / 20)}
+                    className="px-3 py-1.5 text-xs ring-1 ring-brand-200 rounded-xl disabled:opacity-40 hover:bg-brand-50 font-semibold text-brand-700 transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </main>
