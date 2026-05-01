@@ -3,7 +3,8 @@ import { useNavigate, Link } from 'react-router-dom'
 import {
   Clock, CheckCircle, Users, FileText, ArrowRight, RefreshCw,
   Zap, GitCompareArrows, LayoutTemplate, AlertCircle, Loader2,
-  ChevronRight, UserCheck, HourglassIcon, XCircle, Award, Columns
+  ChevronRight, UserCheck, HourglassIcon, XCircle, Award, Columns,
+  Upload, Plus, Play, TrendingUp, TrendingDown, AlertTriangle
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { getDashboardSummary, getDashboardActivity } from '../lib/api'
@@ -42,13 +43,22 @@ function scoreBadgeClasses(score) {
   return 'bg-red-100 text-red-700 ring-red-200'
 }
 
-/** Status bar segment colors */
-const STATUS_COLORS = {
-  shortlisted: '#22c55e',
-  pending: '#f59e0b',
-  rejected: '#ef4444',
-  'in-review': '#3b82f6',
-  hired: '#8b5cf6',
+/** Status bar segment Tailwind bg classes (Improvement #1) */
+const STATUS_BG = {
+  pending: 'bg-gray-300',
+  'in-review': 'bg-blue-400',
+  shortlisted: 'bg-green-400',
+  rejected: 'bg-red-400',
+  hired: 'bg-purple-400',
+}
+
+/** Human-readable status labels */
+const STATUS_LABELS = {
+  pending: 'Pending',
+  'in-review': 'In Review',
+  shortlisted: 'Shortlisted',
+  rejected: 'Rejected',
+  hired: 'Hired',
 }
 
 // ─── Loading Skeleton ─────────────────────────────────────────────────────────
@@ -82,7 +92,7 @@ function LoadingSkeleton() {
   )
 }
 
-// ─── Stacked Status Bar ───────────────────────────────────────────────────────
+// ─── Stacked Status Bar (Improvement #1 — Tailwind classes) ──────────────────
 
 function StackedStatusBar({ breakdown = {}, total = 0 }) {
   if (!total) return null
@@ -94,14 +104,48 @@ function StackedStatusBar({ breakdown = {}, total = 0 }) {
       {segments.map(([status, count]) => (
         <div
           key={status}
-          className="h-full transition-all duration-500"
-          style={{
-            width: `${(count / total) * 100}%`,
-            backgroundColor: STATUS_COLORS[status] || '#94a3b8',
-          }}
-          title={`${status}: ${count}`}
+          className={`h-full transition-all duration-500 ${STATUS_BG[status] || 'bg-gray-300'}`}
+          style={{ width: `${(count / total) * 100}%` }}
+          title={`${STATUS_LABELS[status] || status}: ${count}`}
         />
       ))}
+    </div>
+  )
+}
+
+// ─── Score Ring Gauge (Improvement #3 — SVG circle) ──────────────────────────
+
+function ScoreRingGauge({ score, size = 80, strokeWidth = 6 }) {
+  if (score == null) return <span className="text-3xl font-extrabold text-slate-400">—</span>
+
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference * (1 - Math.min(score, 100) / 100)
+
+  let strokeColor = '#ef4444' // red-500 (Poor <30)
+  if (score >= 70) strokeColor = '#22c55e'       // green-500 (Strong)
+  else if (score >= 50) strokeColor = '#f59e0b'   // amber-500 (Good)
+  else if (score >= 30) strokeColor = '#fca5a5'   // red-300 (Weak)
+
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2} cy={size / 2} r={radius}
+          fill="none" stroke="#e2e8f0" strokeWidth={strokeWidth}
+        />
+        <circle
+          cx={size / 2} cy={size / 2} r={radius}
+          fill="none" stroke={strokeColor} strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          className="transition-all duration-700"
+        />
+      </svg>
+      <span className="absolute text-lg font-extrabold text-slate-900">
+        {Math.round(score)}
+      </span>
     </div>
   )
 }
@@ -123,6 +167,49 @@ function RecommendationTag({ recommendation }) {
       {safeStr(recommendation) || '—'}
     </span>
   )
+}
+
+// ─── Activity Helpers (Improvement #5) ────────────────────────────────────────
+
+/** Derive action label and icon from an activity item */
+function getActionInfo(item) {
+  const rec = (item.recommendation || '').toLowerCase()
+  if (rec.includes('shortlist') || rec.includes('strong') || rec.includes('recommend')) {
+    return { label: 'Shortlisted', Icon: UserCheck, colorCls: 'text-green-600 bg-green-50' }
+  }
+  if (rec.includes('reject') || rec.includes('not recommend') || rec.includes('weak')) {
+    return { label: 'Rejected', Icon: XCircle, colorCls: 'text-red-600 bg-red-50' }
+  }
+  return { label: 'Analyzed', Icon: FileText, colorCls: 'text-brand-600 bg-brand-50' }
+}
+
+/** Group activities by time period: Today / Yesterday / This Week / Earlier */
+function groupActivitiesByTime(activities) {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfYesterday = new Date(startOfToday)
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1)
+  const startOfWeek = new Date(startOfToday)
+  startOfWeek.setDate(startOfWeek.getDate() - 7)
+
+  const today = [], yesterday = [], thisWeek = [], earlier = []
+
+  for (const item of activities) {
+    const ts = new Date(item.timestamp)
+    if (isNaN(ts.getTime())) { earlier.push(item); continue }
+    if (ts >= startOfToday) today.push(item)
+    else if (ts >= startOfYesterday) yesterday.push(item)
+    else if (ts >= startOfWeek) thisWeek.push(item)
+    else earlier.push(item)
+  }
+
+  const groups = []
+  if (today.length) groups.push({ label: 'Today', items: today })
+  if (yesterday.length) groups.push({ label: 'Yesterday', items: yesterday })
+  if (thisWeek.length) groups.push({ label: 'This Week', items: thisWeek })
+  if (earlier.length) groups.push({ label: 'Earlier', items: earlier })
+
+  return groups
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -197,39 +284,85 @@ export default function DashboardNew() {
     (sum, jd) => sum + ((jd.status_breakdown || {}).hired ?? 0), 0
   )
 
+  // Improvement #2: Sort JDs by urgency — most pending first, then most candidates
+  const sortedPipelineByJd = [...pipelineByJd].sort((a, b) => {
+    const aPending = (a.status_breakdown || {}).pending ?? 0
+    const bPending = (b.status_breakdown || {}).pending ?? 0
+    if (bPending !== aPending) return bPending - aPending
+    return (b.total_candidates ?? 0) - (a.total_candidates ?? 0)
+  })
+
+  // Improvement #5: Group activities by time period
+  const activityGroups = groupActivitiesByTime(activities)
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-extrabold text-brand-900 tracking-tight">
-            Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}
-          </h1>
-          <p className="text-slate-500 text-sm mt-0.5 font-medium">
-            Your recruiting command center
-          </p>
+      {/* ── Improvement #4 & #6: Compact Header + Quick Actions ──────────── */}
+      <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
+        <h1 className="text-lg font-semibold text-brand-900 whitespace-nowrap">
+          Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}
+        </h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => navigate('/upload')}
+            className="bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center gap-2 text-sm font-medium text-gray-700 transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            Upload Resumes
+          </button>
+          <button
+            onClick={() => navigate('/jd-library')}
+            className="bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center gap-2 text-sm font-medium text-gray-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Create New JD
+          </button>
+          <button
+            onClick={() => navigate('/candidates')}
+            className="bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center gap-2 text-sm font-medium text-gray-700 transition-colors"
+          >
+            <UserCheck className="w-4 h-4" />
+            Review Next Candidate
+          </button>
+          <button
+            onClick={() => navigate('/analyze')}
+            className="bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center gap-2 text-sm font-medium text-gray-700 transition-colors"
+          >
+            <Play className="w-4 h-4" />
+            Run Batch Analysis
+          </button>
         </div>
-        {loading && (
-          <Loader2 className="w-5 h-5 text-brand-500 animate-spin" />
-        )}
+        {loading && <Loader2 className="w-5 h-5 text-brand-500 animate-spin shrink-0" />}
       </div>
 
-      {/* ── Action Items Bar ───────────────────────────────────────────────── */}
+      {/* ── Action Items Bar (Improvement #2 — ring on Pending > 50) ─────── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
         {/* Pending Review */}
         <button
           onClick={() => navigate('/candidates?status=pending')}
-          className="bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl shadow-sm p-5 text-left transition-colors group"
+          className={`bg-amber-50 hover:bg-amber-100 border rounded-xl shadow-sm p-5 text-left transition-colors group ${
+            pendingCount > 50
+              ? 'border-amber-300 ring-2 ring-orange-400'
+              : 'border-amber-200'
+          }`}
         >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-3xl font-extrabold text-amber-700">{pendingCount}</p>
               <p className="text-sm font-semibold text-amber-600 mt-1">Pending Review</p>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-amber-200/60 flex items-center justify-center">
-              <Clock className="w-5 h-5 text-amber-700" />
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${
+              pendingCount > 50 ? 'bg-orange-200/60' : 'bg-amber-200/60'
+            }`}>
+              <Clock className={`w-5 h-5 ${pendingCount > 50 ? 'text-orange-700' : 'text-amber-700'}`} />
             </div>
           </div>
+          {pendingCount > 50 && (
+            <p className="text-xs font-semibold text-orange-600 mt-2 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" />
+              Needs attention
+            </p>
+          )}
           <div className="flex items-center gap-1 mt-3 text-xs text-amber-600 font-medium">
             View candidates
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
@@ -311,15 +444,18 @@ export default function DashboardNew() {
         </button>
       </div>
 
-      {/* ── Pipeline Summary ───────────────────────────────────────────────── */}
+      {/* ── Pipeline Summary (Improvements #1 & #2 — progress bars, urgency, sorting) */}
       <div className="mb-8">
         <h2 className="text-lg font-bold text-brand-900 mb-4">Pipeline Summary</h2>
-        {pipelineByJd.length > 0 ? (
+        {sortedPipelineByJd.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {pipelineByJd.map((jd) => {
+            {sortedPipelineByJd.map((jd) => {
               const total = jd.total_candidates ?? 0
               const breakdown = jd.status_breakdown || {}
               const avgScore = jd.avg_fit_score
+              const pendingInJd = breakdown.pending ?? 0
+              const segments = Object.entries(breakdown).filter(([, c]) => c > 0)
+
               return (
                 <div
                   key={jd.jd_id}
@@ -343,18 +479,28 @@ export default function DashboardNew() {
                   {/* Stacked status bar */}
                   <StackedStatusBar breakdown={breakdown} total={total} />
 
-                  {/* Status legend */}
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2.5">
-                    {Object.entries(breakdown).filter(([, c]) => c > 0).map(([status, count]) => (
-                      <span key={status} className="flex items-center gap-1 text-xs text-slate-500">
-                        <span
-                          className="w-2 h-2 rounded-full inline-block"
-                          style={{ backgroundColor: STATUS_COLORS[status] || '#94a3b8' }}
-                        />
-                        {count} {status.replace('-', ' ')}
-                      </span>
-                    ))}
+                  {/* Improvement #1: Compact legend with · separator */}
+                  <div className="mt-2 text-xs text-slate-500 flex flex-wrap items-center">
+                    {segments.flatMap(([status, count], i) => {
+                      const el = (
+                        <span key={status} className="inline-flex items-center gap-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${STATUS_BG[status] || 'bg-gray-300'}`} />
+                          {count} {STATUS_LABELS[status] || status}
+                        </span>
+                      )
+                      return i < segments.length - 1
+                        ? [el, <span key={`sep-${i}`} className="mx-1 text-slate-300">·</span>]
+                        : [el]
+                    })}
                   </div>
+
+                  {/* Improvement #2: Urgency indicator */}
+                  {pendingInJd > 0 && (
+                    <p className="text-xs font-medium text-orange-600 mt-2 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      {pendingInJd} pending review
+                    </p>
+                  )}
 
                   <div className="flex items-center gap-4 mt-4">
                     <Link
@@ -394,7 +540,7 @@ export default function DashboardNew() {
 
       {/* ── Two-Column Layout: Activity + Metrics ──────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Left — Activity Feed */}
+        {/* Left — Activity Feed (Improvement #5 — time groupings, clickable, action type) */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-brand-900">Recent Activity</h2>
@@ -408,50 +554,64 @@ export default function DashboardNew() {
           </div>
 
           {activities.length > 0 ? (
-            <div className="space-y-1 max-h-96 overflow-y-auto pr-1">
-              {activities.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    if (item.result_id) {
-                      navigate(`/report?id=${item.result_id}`)
-                    }
-                  }}
-                  className={`w-full text-left flex items-center gap-3 p-3 rounded-xl transition-colors ${
-                    item.result_id
-                      ? 'hover:bg-slate-50 cursor-pointer'
-                      : 'cursor-default'
-                  }`}
-                >
-                  {/* Icon */}
-                  <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
-                    <FileText className="w-4 h-4 text-brand-600" />
-                  </div>
+            <div className="space-y-0 max-h-96 overflow-y-auto pr-1">
+              {activityGroups.map(group => (
+                <div key={group.label}>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 pt-3 pb-1 sticky top-0 bg-white z-10">
+                    {group.label}
+                  </p>
+                  {group.items.map((item, idx) => {
+                    const { label: actionLabel, Icon: ActionIcon, colorCls } = getActionInfo(item)
+                    const hasLink = !!(item.candidate_id || item.result_id)
+                    return (
+                      <button
+                        key={`${group.label}-${idx}`}
+                        onClick={() => {
+                          if (item.candidate_id) {
+                            navigate(`/candidates/${item.candidate_id}`)
+                          } else if (item.result_id) {
+                            navigate(`/report?id=${item.result_id}`)
+                          }
+                        }}
+                        className={`w-full text-left flex items-center gap-3 p-3 rounded-xl transition-colors ${
+                          hasLink ? 'hover:bg-slate-50 cursor-pointer' : 'cursor-default'
+                        }`}
+                      >
+                        {/* Icon with action-based color */}
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${colorCls}`}>
+                          <ActionIcon className="w-4 h-4" />
+                        </div>
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-900 truncate">
-                        {safeStr(item.candidate_name) || 'Candidate'}
-                      </span>
-                      {item.fit_score != null && (
-                        <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-bold ring-1 ${scoreBadgeClasses(item.fit_score)}`}>
-                          {item.fit_score}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-slate-400 truncate">{safeStr(item.jd_name) || 'JD'}</span>
-                      <span className="text-xs text-slate-300">•</span>
-                      <span className="text-xs text-slate-400 shrink-0">{timeAgo(item.timestamp)}</span>
-                    </div>
-                  </div>
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                              {actionLabel}
+                            </span>
+                            <span className="text-sm font-semibold text-slate-900 truncate">
+                              {safeStr(item.candidate_name) || 'Candidate'}
+                            </span>
+                            {item.fit_score != null && (
+                              <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-bold ring-1 ${scoreBadgeClasses(item.fit_score)}`}>
+                                {item.fit_score}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-slate-400 truncate">{safeStr(item.jd_name) || 'JD'}</span>
+                            <span className="text-xs text-slate-300">·</span>
+                            <span className="text-xs text-slate-400 shrink-0">{timeAgo(item.timestamp)}</span>
+                          </div>
+                        </div>
 
-                  {/* Recommendation tag */}
-                  {item.recommendation && (
-                    <RecommendationTag recommendation={item.recommendation} />
-                  )}
-                </button>
+                        {/* Recommendation tag */}
+                        {item.recommendation && (
+                          <RecommendationTag recommendation={item.recommendation} />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
               ))}
             </div>
           ) : (
@@ -463,44 +623,36 @@ export default function DashboardNew() {
           )}
         </div>
 
-        {/* Right — Weekly Metrics */}
+        {/* Right — Weekly Metrics (Improvements #3 & #7 — ring gauge, trend indicators) */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
           <h2 className="text-lg font-bold text-brand-900 mb-5">Weekly Metrics</h2>
 
           <div className="grid grid-cols-2 gap-4 mb-6">
-            {/* Analyses This Week */}
+            {/* Analyses This Week — Improvement #7: color-coded */}
             <div className="bg-slate-50 rounded-xl p-4">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Analyses This Week</p>
-              <p className="text-3xl font-extrabold text-brand-900">
+              <p className={`text-3xl font-extrabold ${
+                (weeklyMetrics.analyses_this_week ?? 0) > 0 ? 'text-green-700' : 'text-slate-400'
+              }`}>
                 {weeklyMetrics.analyses_this_week ?? 0}
               </p>
             </div>
 
-            {/* Avg Fit Score */}
-            <div className="bg-slate-50 rounded-xl p-4">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Avg Fit Score</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-3xl font-extrabold text-brand-900">
-                  {weeklyMetrics.avg_fit_score != null ? Math.round(weeklyMetrics.avg_fit_score) : '—'}
-                </p>
-                {weeklyMetrics.avg_fit_score != null && (
-                  <span className={`text-sm font-bold ${
-                    weeklyMetrics.avg_fit_score >= 72
-                      ? 'text-green-600'
-                      : weeklyMetrics.avg_fit_score >= 45
-                      ? 'text-amber-600'
-                      : 'text-red-600'
-                  }`}>
-                    {weeklyMetrics.avg_fit_score >= 72 ? '●' : weeklyMetrics.avg_fit_score >= 45 ? '●' : '●'}
-                  </span>
-                )}
-              </div>
+            {/* Improvement #3: Avg Fit Score — Ring Gauge */}
+            <div className="bg-slate-50 rounded-xl p-4 flex flex-col items-center justify-center">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Avg Fit Score</p>
+              <ScoreRingGauge score={weeklyMetrics.avg_fit_score} />
             </div>
 
-            {/* Shortlist Rate */}
+            {/* Improvement #7: Shortlist Rate — color-coded */}
             <div className="bg-slate-50 rounded-xl p-4">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Shortlist Rate</p>
-              <p className="text-3xl font-extrabold text-brand-900">
+              <p className={`text-3xl font-extrabold ${
+                weeklyMetrics.shortlist_rate == null ? 'text-slate-400' :
+                weeklyMetrics.shortlist_rate >= 40 ? 'text-green-700' :
+                weeklyMetrics.shortlist_rate >= 20 ? 'text-amber-700' :
+                'text-red-700'
+              }`}>
                 {weeklyMetrics.shortlist_rate != null
                   ? `${Math.round(weeklyMetrics.shortlist_rate)}%`
                   : '—'}
@@ -527,7 +679,6 @@ export default function DashboardNew() {
                 )
                 const grandTotal = Object.values(totals).reduce((s, c) => s + c, 0)
                 const pipelineSegments = Object.entries(totals).filter(([, c]) => c > 0)
-                const pipelineLabels = { pending: 'Pending', 'in-review': 'In Review', shortlisted: 'Shortlisted', rejected: 'Rejected', hired: 'Hired' }
                 return (
                   <>
                     <p className="text-2xl font-extrabold text-brand-900 mb-2">
@@ -538,12 +689,9 @@ export default function DashboardNew() {
                         {pipelineSegments.map(([status, count]) => (
                           <div
                             key={status}
-                            className="h-full transition-all duration-500"
-                            style={{
-                              width: `${(count / grandTotal) * 100}%`,
-                              backgroundColor: STATUS_COLORS[status] || '#94a3b8',
-                            }}
-                            title={`${pipelineLabels[status] || status}: ${count}`}
+                            className={`h-full transition-all duration-500 ${STATUS_BG[status] || 'bg-gray-300'}`}
+                            style={{ width: `${(count / grandTotal) * 100}%` }}
+                            title={`${STATUS_LABELS[status] || status}: ${count}`}
                           />
                         ))}
                       </div>
@@ -551,11 +699,8 @@ export default function DashboardNew() {
                     <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
                       {Object.entries(totals).map(([status, count]) => (
                         <span key={status} className="flex items-center gap-1 text-[10px] text-slate-500">
-                          <span
-                            className="w-1.5 h-1.5 rounded-full inline-block"
-                            style={{ backgroundColor: STATUS_COLORS[status] || '#94a3b8' }}
-                          />
-                          {pipelineLabels[status] || status} {count}
+                          <span className={`w-1.5 h-1.5 rounded-full inline-block ${STATUS_BG[status] || 'bg-gray-300'}`} />
+                          {STATUS_LABELS[status] || status} {count}
                         </span>
                       ))}
                     </div>
@@ -592,31 +737,6 @@ export default function DashboardNew() {
             </div>
           )}
         </div>
-      </div>
-
-      {/* ── Quick Actions ──────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-3">
-        <button
-          onClick={() => navigate('/analyze')}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold border-2 border-brand-200 text-brand-700 hover:bg-brand-50 hover:border-brand-300 transition-colors"
-        >
-          <Zap className="w-4 h-4" />
-          New Analysis
-        </button>
-        <button
-          onClick={() => navigate('/compare')}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold border-2 border-brand-200 text-brand-700 hover:bg-brand-50 hover:border-brand-300 transition-colors"
-        >
-          <GitCompareArrows className="w-4 h-4" />
-          Compare Candidates
-        </button>
-        <Link
-          to="/jd-library"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold border-2 border-brand-200 text-brand-700 hover:bg-brand-50 hover:border-brand-300 transition-colors"
-        >
-          <LayoutTemplate className="w-4 h-4" />
-          JD Library
-        </Link>
       </div>
     </div>
   )
