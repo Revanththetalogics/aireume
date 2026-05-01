@@ -1,0 +1,94 @@
+﻿python : C:\Users\DELL\AppData\Local\Programs\Python\Python313\Lib\site-package
+s\pytest_asyncio\plugin.py:207: PytestDeprecationWarning: The configuration 
+option "asyncio_default_fixture_loop_scope" is unset.
+At line:1 char:56
++ ... taLogics" ; python -m pytest app/backend/tests/ -v --tb=short -q 2>&1 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\DELL\A...cope" is unset. 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+The event loop scope for asynchronous fixtures will default to the fixture 
+caching scope. Future versions of pytest-asyncio will default the loop scope 
+for asynchronous fixtures to function scope. Set the default fixture loop 
+scope explicitly in order to avoid unexpected behavior in the future. Valid 
+fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts =============================
+platform win32 -- Python 3.13.9, pytest-8.3.4, pluggy-1.6.0
+rootdir: C:\Users\DELL\Projects\Resume AI by ThetaLogics
+plugins: anyio-4.12.0, langsmith-0.7.17, asyncio-0.25.3, cov-6.0.0, timeout-2.4.0, respx-0.22.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None
+collected 994 items
+
+app\backend\tests\test_admin_api.py ...........................          [  2%]
+app\backend\tests\test_admin_metrics.py ......                           [  3%]
+app\backend\tests\test_agent_pipeline.py ............................... [  6%]
+.....................                                                    [  8%]
+app\backend\tests\test_analysis_service.py ....                          [  8%]
+app\backend\tests\test_api.py .......................                    [ 11%]
+app\backend\tests\test_audit_service.py ......                           [ 11%]
+app\backend\tests\test_auth.py ....................                      [ 13%]
+app\backend\tests\test_billing.py ..........................             [ 16%]
+app\backend\tests\test_candidate_dedup.py .............................. [ 19%]
+.......                                                                  [ 20%]
+app\backend\tests\test_deterministic_integration.py ....                 [ 20%]
+app\backend\tests\test_domain_service.py ..............                  [ 22%]
+app\backend\tests\test_eligibility_service.py .......................    [ 24%]
+app\backend\tests\test_email_service.py ................                 [ 25%]
+app\backend\tests\test_feature_flags.py ............                     [ 27%]
+app\backend\tests\test_fit_scorer.py ..................                  [ 28%]
+app\backend\tests\test_gap_detector.py ................................. [ 32%]
+...............                                                          [ 33%]
+app\backend\tests\test_guardrail_service.py ............................ [ 36%]
+............................................                             [ 41%]
+app\backend\tests\test_hybrid_pipeline.py .............................. [ 44%]
+........................................................                 [ 49%]
+app\backend\tests\test_interview_kit.py ..................               [ 51%]
+app\backend\tests\test_llm_json_parse.py ..                              [ 51%]
+app\backend\tests\test_llm_service.py .......................            [ 54%]
+app\backend\tests\test_onet_integration.py ...........................s. [ 56%]
+.........                                                                [ 57%]
+app\backend\tests\test_parser_overhaul.py .............................. [ 60%]
+....................                                                     [ 62%]
+app\backend\tests\test_parser_service.py ............................... [ 65%]
+..                                                                       [ 66%]
+app\backend\tests\test_phase1_regression.py ..............               [ 67%]
+app\backend\tests\test_quota_enforcement.py ..........                   [ 68%]
+app\backend\tests\test_rate_limiting.py .....                            [ 69%]
+app\backend\tests\test_risk_calculator.py .........                      [ 70%]
+app\backend\tests\test_routes_phase1.py ............................     [ 72%]
+app\backend\tests\test_routes_phase2.py ................................ [ 76%]
+......                                                                   [ 76%]
+app\backend\tests\test_skill_taxonomy.py ......................          [ 78%]
+app\backend\tests\test_subscription.py ........................          [ 81%]
+app\backend\tests\test_tenant_suspension.py .....                        [ 81%]
+app\backend\tests\test_transcript_api.py ............................... [ 84%]
+.                                                                        [ 85%]
+app\backend\tests\test_transcript_service.py ........................... [ 87%]
+......                                                                   [ 88%]
+app\backend\tests\test_usage_enforcement.py .........................    [ 90%]
+app\backend\tests\test_video_downloader.py ............................. [ 93%]
+..                                                                       [ 93%]
+app\backend\tests\test_video_routes.py ...............                   [ 95%]
+app\backend\tests\test_video_service.py ............................     [ 98%]
+app\backend\tests\test_webhooks.py .................                     [100%]
+
+============================== warnings summary ===============================
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+  C:\Users\DELL\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.10/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+app\backend\services\queue_manager.py:43
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\services\queue_manager.py:43: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========== 993 passed, 1 skipped, 8 warnings in 1762.46s (0:29:22) ===========

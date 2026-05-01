@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Users, ChevronRight, X, FileText, Eye, Filter, ChevronDown, CheckCircle2, XCircle } from 'lucide-react'
+import { Search, Users, ChevronRight, X, FileText, Eye, Filter, ChevronDown, CheckCircle2, XCircle, ArrowUp, ArrowDown } from 'lucide-react'
 import { getCandidates, getCandidate, viewCandidateResume, downloadCandidateResume, updateResultStatus } from '../lib/api'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
@@ -21,12 +21,31 @@ const STATUS_CONFIG = {
   hired:       { label: 'Hired',       color: 'bg-emerald-100 text-emerald-700 ring-emerald-200' },
 }
 
+const AVATAR_COLORS = [
+  'bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500',
+  'bg-teal-500', 'bg-orange-500', 'bg-cyan-500', 'bg-rose-500',
+  'bg-violet-500', 'bg-emerald-500',
+]
+
+function getInitials(name) {
+  if (!name) return '??'
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return parts[0].slice(0, 2).toUpperCase()
+}
+
+function getAvatarColor(name) {
+  let hash = 0
+  for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+
 function ScoreBadge({ score }) {
   if (score == null) return <span className="text-slate-400 text-xs font-medium">—</span>
-  let color = 'text-red-700 bg-red-50 ring-red-200'
-  if (score >= 70) color = 'text-green-700 bg-green-50 ring-green-200'
-  else if (score >= 45) color = 'text-amber-700 bg-amber-50 ring-amber-200'
-  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${color}`}>{score}</span>
+  let color = 'bg-red-100 text-red-700'
+  if (score >= 70) color = 'bg-green-100 text-green-700'
+  else if (score >= 50) color = 'bg-amber-100 text-amber-700'
+  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${color}`}>{score}</span>
 }
 
 function StatusPill({ status, onChange }) {
@@ -167,6 +186,7 @@ function CandidateDetail({ candidateId, onClose }) {
 }
 
 export default function CandidatesPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const initialStatus = searchParams.get('status') || ''
 
@@ -181,6 +201,9 @@ export default function CandidatesPage() {
   const [toast, setToast]           = useState(null)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkLoading, setBulkLoading] = useState(false)
+  const [sortBy, setSortBy] = useState('created_at')
+  const [sortOrder, setSortOrder] = useState('desc')
+  const [scoreFilter, setScoreFilter] = useState('all')
 
   const fetchCandidates = async (s = search, p = page, st = statusFilter, sk = skillFilter) => {
     setLoading(true)
@@ -236,7 +259,7 @@ export default function CandidatesPage() {
   }
 
   // ── Selection helpers ──
-  const selectableIds = candidates.filter(c => c.latest_result_id).map(c => c.latest_result_id)
+  const selectableIds = displayedCandidates.filter(c => c.latest_result_id).map(c => c.latest_result_id)
 
   const toggleSelect = (resultId) => {
     setSelectedIds(prev => {
@@ -277,6 +300,71 @@ export default function CandidatesPage() {
     }
   }
 
+  // ── Sort handler ──
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(column)
+      setSortOrder('desc')
+    }
+  }
+
+  // ── Filtered + sorted candidates ──
+  const displayedCandidates = useMemo(() => {
+    let list = [...candidates]
+
+    // Score filter
+    if (scoreFilter !== 'all') {
+      list = list.filter(c => {
+        const s = c.best_score
+        if (s == null) return scoreFilter === 'below50'
+        if (scoreFilter === '70plus') return s >= 70
+        if (scoreFilter === '50to69') return s >= 50 && s <= 69
+        if (scoreFilter === 'below50') return s < 50
+        return true
+      })
+    }
+
+    // Sort
+    list.sort((a, b) => {
+      let valA, valB
+      switch (sortBy) {
+        case 'name':
+          valA = (a.name || '').toLowerCase()
+          valB = (b.name || '').toLowerCase()
+          break
+        case 'best_score':
+          valA = a.best_score ?? -1
+          valB = b.best_score ?? -1
+          break
+        case 'result_count':
+          valA = a.result_count ?? 0
+          valB = b.result_count ?? 0
+          break
+        case 'created_at':
+          valA = a.created_at ? new Date(a.created_at).getTime() : 0
+          valB = b.created_at ? new Date(b.created_at).getTime() : 0
+          break
+        default:
+          return 0
+      }
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return list
+  }, [candidates, sortBy, sortOrder, scoreFilter])
+
+  // Sort indicator icon for a column header
+  const SortIcon = ({ column }) => {
+    if (sortBy !== column) return null
+    return sortOrder === 'asc'
+      ? <ArrowUp className="w-3 h-3 inline ml-0.5" />
+      : <ArrowDown className="w-3 h-3 inline ml-0.5" />
+  }
+
   return (
     <div>
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -284,8 +372,8 @@ export default function CandidatesPage() {
           <div>
             <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Candidates</h2>
             <p className="text-slate-500 text-sm mt-1 font-medium">
-              {statusFilter || skillFilter
-                ? `Showing ${total} candidate${total !== 1 ? 's' : ''}${statusFilter ? ` with status: ${STATUS_CONFIG[statusFilter]?.label || statusFilter}` : ''}${skillFilter ? ` matching skill: "${skillFilter}"` : ''}`
+              {statusFilter || skillFilter || scoreFilter !== 'all'
+                ? `Showing ${total} candidate${total !== 1 ? 's' : ''}${statusFilter ? ` with status: ${STATUS_CONFIG[statusFilter]?.label || statusFilter}` : ''}${skillFilter ? ` matching skill: "${skillFilter}"` : ''}${scoreFilter !== 'all' ? ` — ${scoreFilter === '70plus' ? '70+ (Strong)' : scoreFilter === '50to69' ? '50-69 (Moderate)' : 'Below 50 (Weak)'}` : ''}`
                 : `${total} candidates tracked in your workspace`}
             </p>
           </div>
@@ -333,9 +421,22 @@ export default function CandidatesPage() {
               />
             </div>
           </div>
-          {(statusFilter || skillFilter) && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-semibold text-slate-700">Score:</span>
+            <select
+              value={scoreFilter}
+              onChange={(e) => setScoreFilter(e.target.value)}
+              className="px-3 py-1.5 text-xs rounded-lg font-medium bg-slate-100 text-slate-600 border-0 focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="all">All Scores</option>
+              <option value="70plus">70+ (Strong)</option>
+              <option value="50to69">50-69 (Moderate)</option>
+              <option value="below50">Below 50 (Weak)</option>
+            </select>
+          </div>
+          {(statusFilter || skillFilter || scoreFilter !== 'all') && (
             <button
-              onClick={() => { setStatusFilter(''); setSkillFilter('') }}
+              onClick={() => { setStatusFilter(''); setSkillFilter(''); setScoreFilter('all') }}
               className="text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
             >
               Clear filters
@@ -353,7 +454,7 @@ export default function CandidatesPage() {
               <Users className="w-8 h-8 text-brand-300" />
             </div>
             <p className="text-slate-500 font-medium">
-              {statusFilter || skillFilter
+              {statusFilter || skillFilter || scoreFilter !== 'all'
                 ? `No candidates matching current filters.`
                 : 'No candidates yet. Analyze some resumes to get started.'}
             </p>
@@ -392,7 +493,8 @@ export default function CandidatesPage() {
               </div>
             )}
             <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden card-animate">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[900px]">
               <thead className="bg-brand-50 border-b border-brand-100">
                 <tr>
                   <th className="px-4 py-3.5 text-left w-10">
@@ -403,22 +505,46 @@ export default function CandidatesPage() {
                       className="w-4 h-4 rounded border-brand-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
                     />
                   </th>
-                  <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Name</th>
+                  <th
+                    onClick={() => handleSort('name')}
+                    className={`px-4 py-3.5 text-left text-xs uppercase tracking-wide min-w-[180px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'name' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                  >
+                    Name <SortIcon column="name" />
+                  </th>
                   <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Email</th>
                   <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Status</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Applications</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Best Score</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Top Skills</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Added</th>
+                  <th
+                    onClick={() => handleSort('result_count')}
+                    className={`px-4 py-3.5 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'result_count' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                  >
+                    Applications <SortIcon column="result_count" />
+                  </th>
+                  <th
+                    onClick={() => handleSort('best_score')}
+                    className={`px-4 py-3.5 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'best_score' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                  >
+                    Best Score <SortIcon column="best_score" />
+                  </th>
+                  <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide min-w-[140px]">Top Skills</th>
+                  <th
+                    onClick={() => handleSort('created_at')}
+                    className={`px-4 py-3.5 text-left text-xs uppercase tracking-wide min-w-[80px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'created_at' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                  >
+                    Added <SortIcon column="created_at" />
+                  </th>
                   <th className="px-4 py-3.5"></th>
                 </tr>
               </thead>
               <tbody>
-                {candidates.map(c => (
-                  <tr key={c.id} className={`border-b border-brand-50 hover:bg-brand-50/40 transition-colors ${
-                    selectedIds.has(c.latest_result_id) ? 'bg-brand-50/60' : ''
-                  }`}>
-                    <td className="px-4 py-3.5">
+                {displayedCandidates.map(c => (
+                  <tr
+                    key={c.id}
+                    onClick={() => navigate(`/candidates/${c.id}`)}
+                    className={`border-b border-brand-50 cursor-pointer hover:bg-gray-50 transition-colors ${
+                      selectedIds.has(c.latest_result_id) ? 'bg-brand-50/60' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
                       {c.latest_result_id ? (
                         <input
                           type="checkbox"
@@ -431,15 +557,17 @@ export default function CandidatesPage() {
                       )}
                     </td>
                     <td className="px-4 py-3.5">
-                      <button
-                        onClick={() => navigate(`/candidates/${c.id}`)}
-                        className="font-bold text-brand-900 hover:text-brand-700 hover:underline transition-colors text-left"
-                      >
-                        {c.name || '—'}
-                      </button>
+                      <div className="flex items-center gap-2.5">
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${getAvatarColor(c.name)}`}>
+                          {getInitials(c.name)}
+                        </span>
+                        <span className="font-bold text-brand-900 hover:text-brand-700 transition-colors">
+                          {c.name || '—'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-3.5 text-slate-500 font-medium">{c.email || '—'}</td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
                       {c.latest_result_id ? (
                         <StatusPill
                           status={c.latest_status || 'pending'}
@@ -455,14 +583,14 @@ export default function CandidatesPage() {
                     <td className="px-4 py-3.5"><ScoreBadge score={c.best_score} /></td>
                     <td className="px-4 py-3.5">
                       {c.matched_skills && c.matched_skills.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-1 max-h-[3rem] overflow-hidden">
                           {c.matched_skills.slice(0, 3).map((skill, i) => (
-                            <span key={i} className="px-1.5 py-0.5 bg-green-50 text-green-700 text-[10px] rounded font-semibold ring-1 ring-green-100">
+                            <span key={i} className="px-1.5 py-0.5 bg-green-50 text-green-700 text-xs rounded font-semibold ring-1 ring-green-100 whitespace-nowrap">
                               {skill}
                             </span>
                           ))}
                           {c.matched_skills.length > 3 && (
-                            <span className="px-1.5 py-0.5 bg-slate-50 text-slate-400 text-[10px] rounded font-medium ring-1 ring-slate-100">
+                            <span className="px-1.5 py-0.5 bg-slate-50 text-slate-400 text-xs rounded font-medium ring-1 ring-slate-100 whitespace-nowrap">
                               +{c.matched_skills.length - 3}
                             </span>
                           )}
@@ -471,19 +599,21 @@ export default function CandidatesPage() {
                         <span className="text-xs text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3.5 text-slate-400 text-xs font-medium">{new Date(c.created_at).toLocaleDateString()}</td>
+                    <td className="px-4 py-3.5 text-slate-400 text-xs font-medium whitespace-nowrap">
+                      {c.created_at
+                        ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : '—'}
+                    </td>
                     <td className="px-4 py-3.5">
-                      <button
-                        onClick={() => navigate(`/candidates/${c.id}`)}
-                        className="text-xs text-brand-600 hover:text-brand-700 font-bold flex items-center gap-1 hover:underline"
-                      >
+                      <span className="text-xs text-brand-600 hover:text-brand-700 font-bold flex items-center gap-1 hover:underline">
                         View <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
+                      </span>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
             {total > 20 && (
               <div className="flex items-center justify-between p-4 border-t border-brand-50">
                 <p className="text-xs text-slate-500 font-medium">Page {page} of {Math.ceil(total / 20)}</p>

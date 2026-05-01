@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Columns, User, Briefcase } from 'lucide-react'
+import { Columns, User, Briefcase, ChevronDown, ChevronRight } from 'lucide-react'
 import { getCandidatePipeline, updateResultStatus } from '../lib/api'
 
 /** Coerce any value to a render-safe string. */
@@ -66,6 +66,19 @@ const COLUMN_CONFIG = {
   },
 }
 
+/** Sort candidates within a column by best_score descending */
+function sortColumnsByScore(cols) {
+  const sorted = {}
+  for (const status of Object.keys(cols)) {
+    sorted[status] = [...(cols[status] || [])].sort((a, b) => {
+      const sa = a.best_score ?? a.fit_score ?? a.score ?? -1
+      const sb = b.best_score ?? b.fit_score ?? b.score ?? -1
+      return sb - sa
+    })
+  }
+  return sorted
+}
+
 function ScoreBadge({ score }) {
   if (score == null) return <span className="text-slate-400 text-xs font-medium">—</span>
   let color = 'text-red-700 bg-red-50 ring-red-200'
@@ -88,6 +101,34 @@ function Toast({ message, type = 'error', onDone }) {
   )
 }
 
+function ConfirmDialog({ candidateName, targetLabel, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-brand-lg ring-1 ring-brand-100 p-6 max-w-sm w-full mx-4 card-animate">
+        <h3 className="text-lg font-bold text-brand-900 mb-2">Confirm Move</h3>
+        <p className="text-sm text-slate-600 mb-5">
+          Move <span className="font-semibold text-brand-900">{candidateName || 'this candidate'}</span> to{' '}
+          <span className="font-semibold">{targetLabel}</span>?
+        </p>
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition-colors"
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function KanbanBoard() {
   const navigate = useNavigate()
   const [columns, setColumns] = useState({})
@@ -96,12 +137,24 @@ export default function KanbanBoard() {
   const [dragOverColumn, setDragOverColumn] = useState(null)
   const [draggingId, setDraggingId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [collapsedCols, setCollapsedCols] = useState(
+    () => JSON.parse(localStorage.getItem('kanban-collapsed') || '{}')
+  )
+  const [confirmDialog, setConfirmDialog] = useState(null)
+
+  const toggleCollapse = (status) => {
+    setCollapsedCols(prev => {
+      const next = { ...prev, [status]: !prev[status] }
+      localStorage.setItem('kanban-collapsed', JSON.stringify(next))
+      return next
+    })
+  }
 
   const fetchPipeline = useCallback(async () => {
     setLoading(true)
     try {
       const data = await getCandidatePipeline()
-      setColumns(data.columns || {})
+      setColumns(sortColumnsByScore(data.columns || {}))
       setCounts(data.counts || {})
     } catch {
       setToast({ message: 'Failed to load pipeline', type: 'error' })
@@ -137,12 +190,42 @@ export default function KanbanBoard() {
   }
 
   const handleDragLeave = (e) => {
-    // Only clear if we're actually leaving the column container
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX
     const y = e.clientY
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
       setDragOverColumn(null)
+    }
+  }
+
+  const executeDrop = async (payload, targetStatus) => {
+    const { id, latest_result_id, sourceStatus } = payload
+    if (!id || !latest_result_id || sourceStatus === targetStatus) return
+
+    const candidate = columns[sourceStatus]?.find(c => c.id === id)
+    if (!candidate) return
+
+    const previousColumns = { ...columns }
+    const previousCounts = { ...counts }
+
+    setColumns(prev => {
+      const next = { ...prev }
+      next[sourceStatus] = next[sourceStatus].filter(c => c.id !== id)
+      next[targetStatus] = [...(next[targetStatus] || []), { ...candidate }]
+      return sortColumnsByScore(next)
+    })
+    setCounts(prev => ({
+      ...prev,
+      [sourceStatus]: Math.max(0, (prev[sourceStatus] || 0) - 1),
+      [targetStatus]: (prev[targetStatus] || 0) + 1,
+    }))
+
+    try {
+      await updateResultStatus(latest_result_id, targetStatus)
+    } catch {
+      setColumns(previousColumns)
+      setCounts(previousCounts)
+      setToast({ message: 'Failed to update status. Please try again.', type: 'error' })
     }
   }
 
@@ -161,37 +244,23 @@ export default function KanbanBoard() {
       return
     }
 
-    const { id, latest_result_id, sourceStatus } = payload
-    if (!id || !latest_result_id || sourceStatus === targetStatus) return
+    const { id, sourceStatus } = payload
+    if (!id || sourceStatus === targetStatus) return
 
-    // Find the candidate in the source column
-    const candidate = columns[sourceStatus]?.find(c => c.id === id)
-    if (!candidate) return
-
-    // Optimistic update: move card immediately
-    const previousColumns = { ...columns }
-    const previousCounts = { ...counts }
-
-    setColumns(prev => {
-      const next = { ...prev }
-      next[sourceStatus] = next[sourceStatus].filter(c => c.id !== id)
-      next[targetStatus] = [...(next[targetStatus] || []), { ...candidate }]
-      return next
-    })
-    setCounts(prev => ({
-      ...prev,
-      [sourceStatus]: Math.max(0, (prev[sourceStatus] || 0) - 1),
-      [targetStatus]: (prev[targetStatus] || 0) + 1,
-    }))
-
-    try {
-      await updateResultStatus(latest_result_id, targetStatus)
-    } catch {
-      // Rollback on failure
-      setColumns(previousColumns)
-      setCounts(previousCounts)
-      setToast({ message: 'Failed to update status. Please try again.', type: 'error' })
+    // Destructive move — show confirmation
+    if (targetStatus === 'rejected' || targetStatus === 'hired') {
+      const candidate = columns[sourceStatus]?.find(c => c.id === id)
+      setConfirmDialog({
+        candidateName: candidate?.name || 'this candidate',
+        targetLabel: COLUMN_CONFIG[targetStatus]?.label || targetStatus,
+        payload,
+        targetStatus,
+      })
+      return
     }
+
+    // Non-destructive — proceed immediately
+    executeDrop(payload, targetStatus)
   }
 
   if (loading) {
@@ -221,11 +290,14 @@ export default function KanbanBoard() {
             const items = columns[status] || []
             const count = counts[status] || 0
             const isDropTarget = dragOverColumn === status
+            const isCollapsed = !!collapsedCols[status]
 
             return (
               <div
                 key={status}
-                className={`flex-shrink-0 w-72 flex flex-col rounded-2xl border transition-colors duration-200 ${
+                className={`flex-shrink-0 flex flex-col rounded-2xl border transition-all duration-200 ${
+                  isCollapsed ? 'w-20' : 'w-72'
+                } ${
                   isDropTarget
                     ? `${cfg.dropHighlight} border-2`
                     : 'bg-white/80 backdrop-blur-md border-brand-100'
@@ -234,77 +306,103 @@ export default function KanbanBoard() {
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, status)}
               >
-                {/* Column Header */}
-                <div className={`px-4 py-3 rounded-t-2xl border-b ${cfg.headerBg} ${cfg.headerBorder} flex items-center justify-between`}>
-                  <span className={`text-sm font-bold ${cfg.headerText}`}>{cfg.label}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${cfg.badgeBg} ${cfg.badgeText} ring-1 ${cfg.ring}`}>
+                {/* Column Header — clickable to toggle collapse */}
+                <div
+                  className={`px-4 py-3 rounded-t-2xl border-b ${cfg.headerBg} ${cfg.headerBorder} flex items-center justify-between cursor-pointer select-none hover:opacity-80 transition-opacity`}
+                  onClick={() => toggleCollapse(status)}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isCollapsed ? (
+                      <ChevronRight className={`w-4 h-4 flex-shrink-0 ${cfg.headerText}`} />
+                    ) : (
+                      <ChevronDown className={`w-4 h-4 flex-shrink-0 ${cfg.headerText}`} />
+                    )}
+                    {!isCollapsed && (
+                      <span className={`text-sm font-bold ${cfg.headerText} truncate`}>{cfg.label}</span>
+                    )}
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${cfg.badgeBg} ${cfg.badgeText} ring-1 ${cfg.ring} flex-shrink-0`}>
                     {count}
                   </span>
                 </div>
 
-                {/* Card List */}
-                <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
-                  {items.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <div className={`w-10 h-10 rounded-xl ${cfg.headerBg} ring-1 ${cfg.ring} flex items-center justify-center mb-2`}>
-                        <User className={`w-5 h-5 ${cfg.badgeText}`} />
-                      </div>
-                      <p className="text-xs text-slate-400 font-medium">No candidates</p>
-                    </div>
-                  ) : (
-                    items.map(candidate => (
-                      <div
-                        key={candidate.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, candidate, status)}
-                        onDragEnd={handleDragEnd}
-                        onClick={() => navigate(`/candidates/${candidate.id}`)}
-                        className={`bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-3 cursor-pointer hover:shadow-brand transition-shadow select-none ${
-                          draggingId === candidate.id ? 'opacity-50' : ''
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-bold text-brand-900 truncate">
-                              {safeStr(candidate.name) || 'Unknown'}
-                            </p>
-                            {candidate.current_role && (
-                              <p className="text-xs text-slate-500 font-medium truncate flex items-center gap-1 mt-0.5">
-                                <Briefcase className="w-3 h-3 text-slate-400" />
-                                {safeStr(candidate.current_role)}
-                              </p>
-                            )}
-                          </div>
-                          <ScoreBadge score={candidate.best_score} />
+                {/* Card List — hidden when collapsed */}
+                {!isCollapsed && (
+                  <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+                    {items.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-center">
+                        <div className={`w-10 h-10 rounded-xl ${cfg.headerBg} ring-1 ${cfg.ring} flex items-center justify-center mb-2`}>
+                          <User className={`w-5 h-5 ${cfg.badgeText}`} />
                         </div>
-
-                        {candidate.matched_skills && candidate.matched_skills.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-2">
-                            {candidate.matched_skills.slice(0, 3).map((skill, i) => (
-                              <span
-                                key={i}
-                                className="px-1.5 py-0.5 bg-green-50 text-green-700 text-[10px] rounded font-semibold ring-1 ring-green-100"
-                              >
-                                {safeStr(skill)}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-
-                        {candidate.jd_name && (
-                          <p className="text-[11px] text-slate-400 font-medium truncate">
-                            {safeStr(candidate.jd_name)}
-                          </p>
-                        )}
+                        <p className="text-xs text-slate-400 font-medium">No candidates</p>
                       </div>
-                    ))
-                  )}
-                </div>
+                    ) : (
+                      items.map(candidate => (
+                        <div
+                          key={candidate.id}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, candidate, status)}
+                          onDragEnd={handleDragEnd}
+                          onClick={() => navigate(`/candidates/${candidate.id}`)}
+                          className={`bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-3 cursor-pointer hover:shadow-brand transition-shadow select-none ${
+                            draggingId === candidate.id ? 'opacity-50' : ''
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-brand-900 truncate">
+                                {safeStr(candidate.name) || 'Unknown'}
+                              </p>
+                              {candidate.current_role && (
+                                <p className="text-xs text-slate-500 font-medium truncate flex items-center gap-1 mt-0.5">
+                                  <Briefcase className="w-3 h-3 text-slate-400" />
+                                  {safeStr(candidate.current_role)}
+                                </p>
+                              )}
+                            </div>
+                            <ScoreBadge score={candidate.best_score} />
+                          </div>
+
+                          {candidate.matched_skills && candidate.matched_skills.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-2">
+                              {candidate.matched_skills.slice(0, 3).map((skill, i) => (
+                                <span
+                                  key={i}
+                                  className="px-1.5 py-0.5 bg-green-50 text-green-700 text-[10px] rounded font-semibold ring-1 ring-green-100"
+                                >
+                                  {safeStr(skill)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {candidate.jd_name && (
+                            <p className="text-[11px] text-slate-400 font-medium truncate">
+                              {safeStr(candidate.jd_name)}
+                            </p>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
       </main>
+
+      {confirmDialog && (
+        <ConfirmDialog
+          candidateName={confirmDialog.candidateName}
+          targetLabel={confirmDialog.targetLabel}
+          onConfirm={() => {
+            executeDrop(confirmDialog.payload, confirmDialog.targetStatus)
+            setConfirmDialog(null)
+          }}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
 
       {toast && (
         <Toast

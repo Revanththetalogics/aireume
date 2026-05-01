@@ -623,8 +623,10 @@ export async function getCandidateTimeline(id) {
   return res.data
 }
 
-export async function getCandidatePipeline() {
-  const res = await api.get('/candidates/pipeline')
+export async function getCandidatePipeline(jdId = null) {
+  const params = {}
+  if (jdId) params.jd_id = jdId
+  const res = await api.get('/candidates/pipeline', { params })
   return res.data
 }
 

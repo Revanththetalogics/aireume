@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import {
   Clock, CheckCircle, Users, FileText, ArrowRight, RefreshCw,
   Zap, GitCompareArrows, LayoutTemplate, AlertCircle, Loader2,
-  ChevronRight, UserCheck, HourglassIcon
+  ChevronRight, UserCheck, HourglassIcon, XCircle, Award, Columns
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { getDashboardSummary, getDashboardActivity } from '../lib/api'
@@ -37,9 +37,9 @@ function timeAgo(timestamp) {
 /** Score badge color classes (aligned with ScoreGauge thresholds) */
 function scoreBadgeClasses(score) {
   if (score == null) return 'bg-slate-100 text-slate-500 ring-slate-200'
-  if (score >= 72) return 'bg-green-50 text-green-700 ring-green-200'
-  if (score >= 45) return 'bg-amber-50 text-amber-700 ring-amber-200'
-  return 'bg-red-50 text-red-700 ring-red-200'
+  if (score >= 70) return 'bg-green-100 text-green-700 ring-green-200'
+  if (score >= 50) return 'bg-amber-100 text-amber-700 ring-amber-200'
+  return 'bg-red-100 text-red-700 ring-red-200'
 }
 
 /** Status bar segment colors */
@@ -189,6 +189,14 @@ export default function DashboardNew() {
   const shortlistedCount = actionItems.shortlisted_count ?? 0
   const inProgressCount = actionItems.in_progress_analyses ?? 0
 
+  // Sum rejected & hired across all JDs in pipeline
+  const rejectedCount = pipelineByJd.reduce(
+    (sum, jd) => sum + ((jd.status_breakdown || {}).rejected ?? 0), 0
+  )
+  const hiredCount = pipelineByJd.reduce(
+    (sum, jd) => sum + ((jd.status_breakdown || {}).hired ?? 0), 0
+  )
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
@@ -207,7 +215,7 @@ export default function DashboardNew() {
       </div>
 
       {/* ── Action Items Bar ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
         {/* Pending Review */}
         <button
           onClick={() => navigate('/candidates?status=pending')}
@@ -227,6 +235,20 @@ export default function DashboardNew() {
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
           </div>
         </button>
+
+        {/* In Progress */}
+        <div className="bg-blue-50 border border-blue-200 rounded-xl shadow-sm p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-3xl font-extrabold text-blue-700">{inProgressCount}</p>
+              <p className="text-sm font-semibold text-blue-600 mt-1">In Progress</p>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-blue-200/60 flex items-center justify-center">
+              <HourglassIcon className="w-5 h-5 text-blue-700" />
+            </div>
+          </div>
+          <p className="text-xs text-blue-500 mt-3 font-medium">Analyses currently running</p>
+        </div>
 
         {/* Shortlisted */}
         <button
@@ -248,19 +270,45 @@ export default function DashboardNew() {
           </div>
         </button>
 
-        {/* In Progress */}
-        <div className="bg-blue-50 border border-blue-200 rounded-xl shadow-sm p-5">
+        {/* Hired */}
+        <button
+          onClick={() => navigate('/candidates?status=hired')}
+          className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl shadow-sm p-5 text-left transition-colors group"
+        >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-3xl font-extrabold text-blue-700">{inProgressCount}</p>
-              <p className="text-sm font-semibold text-blue-600 mt-1">In Progress</p>
+              <p className="text-3xl font-extrabold text-indigo-700">{hiredCount}</p>
+              <p className="text-sm font-semibold text-indigo-600 mt-1">Hired</p>
             </div>
-            <div className="w-11 h-11 rounded-xl bg-blue-200/60 flex items-center justify-center">
-              <HourglassIcon className="w-5 h-5 text-blue-700" />
+            <div className="w-11 h-11 rounded-xl bg-indigo-200/60 flex items-center justify-center">
+              <Award className="w-5 h-5 text-indigo-700" />
             </div>
           </div>
-          <p className="text-xs text-blue-500 mt-3 font-medium">Analyses currently running</p>
-        </div>
+          <div className="flex items-center gap-1 mt-3 text-xs text-indigo-600 font-medium">
+            View candidates
+            <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </button>
+
+        {/* Rejected */}
+        <button
+          onClick={() => navigate('/candidates?status=rejected')}
+          className="bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl shadow-sm p-5 text-left transition-colors group"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-3xl font-extrabold text-red-700">{rejectedCount}</p>
+              <p className="text-sm font-semibold text-red-600 mt-1">Rejected</p>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-red-200/60 flex items-center justify-center">
+              <XCircle className="w-5 h-5 text-red-700" />
+            </div>
+          </div>
+          <div className="flex items-center gap-1 mt-3 text-xs text-red-600 font-medium">
+            View candidates
+            <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </button>
       </div>
 
       {/* ── Pipeline Summary ───────────────────────────────────────────────── */}
@@ -308,13 +356,22 @@ export default function DashboardNew() {
                     ))}
                   </div>
 
-                  <Link
-                    to={`/jd-library/${jd.jd_id}/candidates`}
-                    className="inline-flex items-center gap-1 mt-4 text-xs font-semibold text-brand-600 hover:text-brand-700"
-                  >
-                    View Candidates
-                    <ChevronRight className="w-3 h-3" />
-                  </Link>
+                  <div className="flex items-center gap-4 mt-4">
+                    <Link
+                      to={`/jd-library/${jd.jd_id}/candidates`}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700"
+                    >
+                      View Candidates
+                      <ChevronRight className="w-3 h-3" />
+                    </Link>
+                    <Link
+                      to={`/jd-library/${jd.jd_id}/candidates?view=kanban`}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                    >
+                      <Columns className="w-3 h-3" />
+                      View Pipeline
+                    </Link>
+                  </div>
                 </div>
               )
             })}
@@ -450,12 +507,67 @@ export default function DashboardNew() {
               </p>
             </div>
 
-            {/* Placeholder for balance */}
-            <div className="bg-slate-50 rounded-xl p-4 flex items-center justify-center">
-              <div className="text-center">
-                <Users className="w-6 h-6 text-slate-300 mx-auto mb-1" />
-                <p className="text-xs text-slate-400 font-medium">Active Pipeline</p>
-              </div>
+            {/* Active Pipeline mini-summary */}
+            <div className="bg-slate-50 rounded-xl p-4">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                Active Pipeline
+              </p>
+              {(() => {
+                const totals = pipelineByJd.reduce(
+                  (acc, jd) => {
+                    const b = jd.status_breakdown || {}
+                    acc.pending += b.pending ?? 0
+                    acc['in-review'] += b['in-review'] ?? 0
+                    acc.shortlisted += b.shortlisted ?? 0
+                    acc.rejected += b.rejected ?? 0
+                    acc.hired += b.hired ?? 0
+                    return acc
+                  },
+                  { pending: 0, 'in-review': 0, shortlisted: 0, rejected: 0, hired: 0 }
+                )
+                const grandTotal = Object.values(totals).reduce((s, c) => s + c, 0)
+                const pipelineSegments = Object.entries(totals).filter(([, c]) => c > 0)
+                const pipelineLabels = { pending: 'Pending', 'in-review': 'In Review', shortlisted: 'Shortlisted', rejected: 'Rejected', hired: 'Hired' }
+                return (
+                  <>
+                    <p className="text-2xl font-extrabold text-brand-900 mb-2">
+                      {grandTotal} <span className="text-sm font-semibold text-slate-400">candidates</span>
+                    </p>
+                    {grandTotal > 0 && (
+                      <div className="flex w-full h-3 rounded-full overflow-hidden bg-slate-200 mb-2">
+                        {pipelineSegments.map(([status, count]) => (
+                          <div
+                            key={status}
+                            className="h-full transition-all duration-500"
+                            style={{
+                              width: `${(count / grandTotal) * 100}%`,
+                              backgroundColor: STATUS_COLORS[status] || '#94a3b8',
+                            }}
+                            title={`${pipelineLabels[status] || status}: ${count}`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
+                      {Object.entries(totals).map(([status, count]) => (
+                        <span key={status} className="flex items-center gap-1 text-[10px] text-slate-500">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full inline-block"
+                            style={{ backgroundColor: STATUS_COLORS[status] || '#94a3b8' }}
+                          />
+                          {pipelineLabels[status] || status} {count}
+                        </span>
+                      ))}
+                    </div>
+                    <Link
+                      to="/pipeline"
+                      className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-indigo-600 hover:text-indigo-700"
+                    >
+                      View Full Pipeline <ArrowRight className="w-2.5 h-2.5" />
+                    </Link>
+                  </>
+                )
+              })()}
             </div>
           </div>
 

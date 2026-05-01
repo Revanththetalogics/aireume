@@ -182,6 +182,7 @@ def list_candidates(
 
 @router.get("/pipeline")
 def get_candidate_pipeline(
+    jd_id: Optional[int] = Query(None, description="Filter by JD (role_template_id)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -191,6 +192,9 @@ def get_candidate_pipeline(
     Each candidate appears once, in the column matching the status of their
     most recent ScreeningResult. Cards are ordered by status_updated_at DESC
     (most recently moved first), falling back to result timestamp.
+
+    When jd_id is provided, only screening results where role_template_id = jd_id
+    are considered. Candidates with no matching results are excluded.
     """
     columns = {status: [] for status in _VALID_STATUSES}
     counts = {status: 0 for status in _VALID_STATUSES}
@@ -207,14 +211,13 @@ def get_candidate_pipeline(
     candidate_ids = [c.id for c in candidates]
 
     # Fetch all screening results for these candidates in a single query
-    all_results = (
-        db.query(ScreeningResult)
-        .filter(
-            ScreeningResult.candidate_id.in_(candidate_ids),
-            ScreeningResult.tenant_id == current_user.tenant_id,
-        )
-        .all()
+    results_query = db.query(ScreeningResult).filter(
+        ScreeningResult.candidate_id.in_(candidate_ids),
+        ScreeningResult.tenant_id == current_user.tenant_id,
     )
+    if jd_id is not None:
+        results_query = results_query.filter(ScreeningResult.role_template_id == jd_id)
+    all_results = results_query.all()
 
     # Group results by candidate and collect template IDs
     results_by_candidate: dict = {}
