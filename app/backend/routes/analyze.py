@@ -43,6 +43,7 @@ from app.backend.services.hybrid_pipeline import (
     parse_jd_rules,
     shutdown_background_tasks,
 )
+from app.backend.services.skill_matcher import JD_CACHE_VERSION
 from app.backend.routes.subscription import _ensure_monthly_reset, _get_plan_limits, record_usage
 from app.backend.services.billing.quota import check_quota
 
@@ -150,15 +151,24 @@ def _json_default(obj):
 # ─── JD cache helpers ─────────────────────────────────────────────────────────
 
 def _get_or_cache_jd(db: Session, job_description: str) -> dict:
-    """Parse the JD or return the cached result. Shared across all workers via DB."""
+    """Parse the JD or return the cached result. Shared across all workers via DB.
+
+    Cached entries are automatically invalidated when JD_CACHE_VERSION changes,
+    ensuring stale skill-extraction results are never reused after logic updates.
+    """
     jd_hash = hashlib.md5(job_description[:2000].encode()).hexdigest()
     cached = db.query(JdCache).filter(JdCache.hash == jd_hash).first()
     if cached:
         try:
-            return json.loads(cached.result_json)
+            parsed = json.loads(cached.result_json)
+            if parsed.get("_cache_version") == JD_CACHE_VERSION:
+                return parsed
+            log.info("JD cache invalidated (version mismatch: cached=%s current=%s)",
+                     parsed.get("_cache_version"), JD_CACHE_VERSION)
         except Exception as e:
             log.warning("Non-critical: Failed to parse cached JD JSON, re-parsing: %s", e)
     jd_analysis = parse_jd_rules(job_description)
+    jd_analysis["_cache_version"] = JD_CACHE_VERSION
     try:
         db.merge(JdCache(hash=jd_hash, result_json=json.dumps(jd_analysis, default=_json_default)))
         db.commit()

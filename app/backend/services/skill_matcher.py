@@ -872,6 +872,10 @@ class SkillsRegistry:
         return self._skills
 
 
+# Bump this version whenever skill-extraction logic changes (aliases, boundaries,
+# MASTER_SKILLS list, etc.).  Old JD-cache entries will be auto-invalidated.
+JD_CACHE_VERSION: str = "2"
+
 # Module-level singleton
 skills_registry = SkillsRegistry()
 
