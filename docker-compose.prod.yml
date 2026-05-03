@@ -95,8 +95,8 @@ services:
       # For local Ollama, use: qwen3.5:4b
       - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-gemma4:31b-cloud}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
-      # 180s recommended for gemma4:31b-cloud (faster than 480B models)
-      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-180}
+      # 500s recommended for gemma4:31b-cloud (faster than 480B models)
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
       # Backend entrypoint waits for Ollama + pulls model into RAM before uvicorn.
       # Automatically skipped when using Ollama Cloud.
       - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}

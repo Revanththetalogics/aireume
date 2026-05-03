@@ -66,8 +66,8 @@ services:
       # Excellent for video malpractice detection, resume analysis, and transcript evaluation
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
       - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-gemma4:31b-cloud}
-      # 180s recommended for gemma4:31b-cloud (faster than 480B models)
-      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-180}
+      # 500s recommended for gemma4:31b-cloud (faster than 480B models)
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
       - DATABASE_URL=postgresql://aria:aria_secret@postgres:5432/aria_db
       - JWT_SECRET_KEY=change-this-in-production-use-a-long-random-string
       - ENVIRONMENT=development

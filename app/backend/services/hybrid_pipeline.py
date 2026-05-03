@@ -152,7 +152,7 @@ def _get_llm():
         try:
             from langchain_ollama import ChatOllama
             _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-            _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+            _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
             _is_cloud = _is_ollama_cloud(_base_url)
             
             # Optional: Enforce cloud-only mode (uncomment to enable)
@@ -903,7 +903,7 @@ No markdown, no code fences."""
             log.warning("LLM returned empty response, retrying with higher temperature as fallback...")
         from langchain_ollama import ChatOllama
         _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+        _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
         _is_cloud_retry = _is_ollama_cloud(_base_url)
 
         # num_predict: Cloud models need significantly more tokens for verbose output
@@ -1884,7 +1884,7 @@ async def _background_llm_narrative(
     llm_result: Optional[Dict[str, Any]] = None
 
     try:
-        _bg_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+        _bg_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
         sem = get_ollama_semaphore()
         if sem.locked():
             log.info("Waiting for Ollama slot (another request in progress)...")
@@ -1992,7 +1992,7 @@ async def run_hybrid_pipeline(
         return _merge_llm_into_result(python_result, fallback)
 
     # Legacy synchronous mode (for batch processing and tests without DB persistence)
-    _LLM_TIMEOUT = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+    _LLM_TIMEOUT = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
 
     try:
         sem = get_ollama_semaphore()
@@ -2109,7 +2109,7 @@ async def astream_hybrid_pipeline(
     # Phase 2 — LLM with heartbeat pings to keep Cloudflare/Nginx alive
     llm_queue: asyncio.Queue = asyncio.Queue()
 
-    _LLM_TIMEOUT_STREAM = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150"))
+    _LLM_TIMEOUT_STREAM = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
 
     async def _llm_task():
         try:

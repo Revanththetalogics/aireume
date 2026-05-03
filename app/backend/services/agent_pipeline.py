@@ -124,7 +124,7 @@ _reasoning_llm: Optional[ChatOllama] = None
 # Cache is invalidated automatically when the prompt changes (prompt_version hash).
 _jd_cache: Dict[str, dict] = {}
 
-_llm_request_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150")) + 30
+_llm_request_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500")) + 30
 
 # Guardrail Tier 2+4: Feature flags
 _GUARDRAIL_ENSEMBLE_ENABLED = os.getenv("GUARDRAIL_ENSEMBLE_ENABLED", "false").lower() == "true"

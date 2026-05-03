@@ -225,7 +225,7 @@ class LLMService:
         }
 
         headers = get_ollama_headers(self.base_url)
-        _timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "150")) + 30
+        _timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500")) + 30
         async with httpx.AsyncClient(timeout=_timeout) as client:  # respects LLM_NARRATIVE_TIMEOUT env var
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
