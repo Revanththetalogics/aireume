@@ -1007,6 +1007,14 @@ def download_candidate_resume(
     filename = candidate.resume_filename or f"resume_{candidate_id}"
     lower_name = filename.lower()
 
+    # For .doc files with a converted PDF, serve the PDF inline for browser viewing
+    if lower_name.endswith(".doc") and candidate.resume_converted_pdf_data:
+        return Response(
+            content=candidate.resume_converted_pdf_data,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "inline"},
+        )
+
     # Determine MIME type
     if lower_name.endswith(".pdf"):
         media_type = "application/pdf"

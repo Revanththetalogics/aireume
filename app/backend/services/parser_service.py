@@ -586,13 +586,14 @@ class ResumeParser:
     def _extract_doc_multistage(self, file_bytes: bytes) -> str:
         """
         Multi-stage DOC (legacy Word) extraction pipeline.
-        
+
         Stage 1: Try antiword if available (best for .doc files)
-        Stage 2: Try LibreOffice headless conversion to DOCX
-        Stage 3: Best-effort ASCII extraction
+        Stage 2: Try LibreOffice headless conversion to PDF + pdfplumber
+        Stage 3: Try LibreOffice headless conversion to DOCX
+        Stage 4: Best-effort ASCII extraction
         """
         text_parts = []
-        
+
         # Stage 1: Try antiword if available
         try:
             result = subprocess.run(
@@ -608,47 +609,55 @@ class ResumeParser:
                     logger.info("DOC extraction completed via antiword")
         except (subprocess.SubprocessError, FileNotFoundError, Exception) as e:
             logger.debug("antiword not available or failed: %s", e)
-        
-        # Stage 2: Try LibreOffice conversion
+
+        # Stage 2: Try LibreOffice PDF conversion + pdfplumber (best quality on Windows)
+        if not text_parts:
+            try:
+                from app.backend.services.doc_converter import convert_to_pdf, extract_text_from_pdf_bytes
+                pdf_bytes = convert_to_pdf(file_bytes, "resume.doc")
+                if pdf_bytes:
+                    text = extract_text_from_pdf_bytes(pdf_bytes)
+                    if text.strip():
+                        text_parts.append((text, "libreoffice_pdf"))
+                        logger.info("DOC extraction completed via LibreOffice PDF conversion")
+            except Exception as e:
+                logger.debug("LibreOffice PDF conversion not available or failed: %s", e)
+
+        # Stage 3: Try LibreOffice DOCX conversion
         if not text_parts:
             try:
                 with tempfile.NamedTemporaryFile(suffix='.doc', delete=False) as tmp_in:
                     tmp_in.write(file_bytes)
                     tmp_in_path = tmp_in.name
-                
+
                 with tempfile.TemporaryDirectory() as tmp_dir:
-                    # Convert DOC to DOCX using LibreOffice
                     result = subprocess.run(
-                        ['soffice', '--headless', '--convert-to', 'docx', 
+                        ['soffice', '--headless', '--convert-to', 'docx',
                          '--outdir', tmp_dir, tmp_in_path],
                         capture_output=True,
                         timeout=30
                     )
-                    
+
                     if result.returncode == 0:
-                        # Find the converted file
                         converted_files = [f for f in os.listdir(tmp_dir) if f.endswith('.docx')]
                         if converted_files:
                             docx_path = os.path.join(tmp_dir, converted_files[0])
                             with open(docx_path, 'rb') as f:
                                 docx_bytes = f.read()
-                            # Extract using DOCX pipeline
                             text = self._extract_docx_multistage(docx_bytes)
                             if text.strip():
-                                text_parts.append((text, "libreoffice_conversion"))
-                                logger.info("DOC extraction completed via LibreOffice conversion")
-                
+                                text_parts.append((text, "libreoffice_docx"))
+                                logger.info("DOC extraction completed via LibreOffice DOCX conversion")
+
                 os.unlink(tmp_in_path)
             except (subprocess.SubprocessError, FileNotFoundError, Exception) as e:
-                logger.debug("LibreOffice conversion not available or failed: %s", e)
-        
-        # Stage 3: Best-effort ASCII extraction
+                logger.debug("LibreOffice DOCX conversion not available or failed: %s", e)
+
+        # Stage 4: Best-effort ASCII extraction
         if not text_parts:
             try:
                 raw = file_bytes.decode("latin-1", errors="ignore")
-                # Remove non-printable characters except newline/tab
                 cleaned = re.sub(r"[^\x20-\x7E\n\t]", " ", raw)
-                # Collapse multiple spaces but keep newlines
                 cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
                 lines = [l.strip() for l in cleaned.splitlines() if len(l.strip()) > 4]
                 text = "\n".join(lines)
@@ -657,13 +666,13 @@ class ResumeParser:
                     logger.info("DOC extraction completed via ASCII fallback")
             except Exception as e:
                 logger.warning("ASCII fallback failed: %s", e)
-        
+
         if not text_parts:
             raise ValueError(
                 "Unable to extract text from this legacy Word document (.doc). "
                 "Please convert to DOCX or PDF and try again."
             )
-        
+
         # Combine and deduplicate
         final_lines = []
         final_seen: Set[str] = set()
@@ -676,7 +685,7 @@ class ResumeParser:
                 if normalized not in final_seen and len(line) > 1:
                     final_seen.add(normalized)
                     final_lines.append(line)
-        
+
         text = '\n'.join(final_lines)
         logger.info(f"Multi-stage DOC extraction: extracted {len(final_lines)} unique lines")
         return text
@@ -1118,15 +1127,11 @@ class ResumeParser:
 
         # ── Step 2: full-text scan with flashtext (MASTER_SKILLS) ────────────
         try:
-            from app.backend.services.skill_matcher import skills_registry
-            processor = skills_registry.get_processor()
-            if processor:
-                scanned = processor.extract_keywords(text)
-                # Merge — prefer section-extracted, then add scanned extras
-                existing = {s.lower() for s in skills}
-                skills.extend(s for s in scanned if s.lower() not in existing)
-            else:
-                raise ImportError
+            from app.backend.services.skill_matcher import _extract_skills_from_text
+            scanned = _extract_skills_from_text(text)
+            # Merge — prefer section-extracted, then add scanned extras
+            existing = {s.lower() for s in skills}
+            skills.extend(s for s in scanned if s.lower() not in existing)
         except Exception as e:
             # Final fallback: original KNOWN_SKILLS_BROAD list
             logger.warning("Skills registry unavailable, using fallback KNOWN_SKILLS_BROAD list: %s", e)

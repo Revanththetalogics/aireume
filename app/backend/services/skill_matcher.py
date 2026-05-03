@@ -684,6 +684,20 @@ def _build_collision_skills():
 
 HIGH_COLLISION_SKILLS = _build_collision_skills()
 
+# Aliases that must NEVER be registered in the flashtext processor for free-text
+# scanning because they are common English words that cause massive false positives.
+# These aliases are still valid in structured skills sections (regex splitting).
+_BANNED_FREETEXT_ALIASES: set = {
+    "go",      # "go-to", "going", "ago" → falsely matches golang
+    "c",       # "because", "C-level", "cloud" → falsely matches C language
+    "r",       # "for", "your", "senior" → falsely matches R language
+    "js",      # "json", "jsx" → falsely matches JavaScript (use "javascript")
+    "ts",      # "ts" inside words → falsely matches TypeScript
+    "py",      # "py" inside words → falsely matches Python
+    "rb",      # "ruby" abbreviation too short
+    "tf",      # "terraform" abbreviation inside words
+}
+
 
 def _get_skill_domains(skill: str) -> set:
     """Return set of top-level domain names this skill belongs to in SKILL_TAXONOMY."""
@@ -759,17 +773,26 @@ class SkillsRegistry:
         self._loaded = False
 
     def _build_processor(self, skills: List[str]):
-        """Build flashtext KeywordProcessor from a skills list."""
+        """Build flashtext KeywordProcessor from a skills list.
+
+        Filters out _BANNED_FREETEXT_ALIASES to prevent common-English-word
+        false positives (e.g. \"go\" in \"go-to\" matching golang).
+        """
         try:
             from flashtext import KeywordProcessor
             kp = KeywordProcessor(case_sensitive=False)
-            kp.add_keywords_from_list(skills)
-            # Also add all known aliases
+            # Filter banned aliases from direct skill list (DB-loaded aliases
+            # may include them even if SKILL_ALIASES has been cleaned)
+            safe_skills = [s for s in skills if s.lower() not in _BANNED_FREETEXT_ALIASES]
+            kp.add_keywords_from_list(safe_skills)
+            # Also add all known aliases, except banned short aliases
             for canonical, aliases in SKILL_ALIASES.items():
                 for alias in aliases:
+                    if alias.lower() in _BANNED_FREETEXT_ALIASES:
+                        continue
                     kp.add_keyword(alias, canonical)
             self._processor = kp
-            self._skills = skills
+            self._skills = safe_skills
         except ImportError:
             self._processor = None
             self._skills = skills
@@ -854,14 +877,50 @@ skills_registry = SkillsRegistry()
 
 
 def _extract_skills_from_text(text: str) -> List[str]:
-    """Extract skills from text using flashtext processor or regex fallback."""
+    """Extract skills from text using flashtext processor or regex fallback.
+
+    Validates word boundaries to prevent false positives like matching
+    \"go\" inside \"go-to\" or \"going\".
+    """
     processor = skills_registry.get_processor()
     if processor:
-        found = processor.extract_keywords(text)
-        return list(dict.fromkeys(found))   # deduplicate, preserve order
-    # Regex fallback
+        try:
+            found = processor.extract_keywords(text, span_info=True)
+        except TypeError:
+            # Fallback for older flashtext versions without span_info
+            found = [(kw, None, None) for kw in processor.extract_keywords(text)]
+
+        text_lower = text.lower()
+        verified = []
+        for item in found:
+            if isinstance(item, tuple):
+                keyword, start, end = item
+            else:
+                keyword, start, end = item, None, None
+
+            # Validate word boundaries to prevent false positives.
+            # Flashtext matches substrings, so "go" matches inside "go-to",
+            # "going", "ago", etc. We reject matches where the skill is
+            # preceded by an alphanumeric character or followed by an
+            # alphanumeric character or hyphen.
+            if start is not None and end is not None:
+                if start > 0 and text_lower[start - 1].isalnum():
+                    continue
+                if end < len(text_lower) and (text_lower[end].isalnum() or text_lower[end] == '-'):
+                    continue
+
+            verified.append(keyword)
+
+        return list(dict.fromkeys(verified))
+
+    # Regex fallback with hyphen-aware strict boundaries
     text_lower = text.lower()
-    return [s for s in skills_registry.get_all_skills() if re.search(r'\b' + re.escape(s) + r'\b', text_lower)]
+    result = []
+    for s in skills_registry.get_all_skills():
+        pattern = r'(?:^|[^a-z0-9])' + re.escape(s.lower()) + r'(?:$|[^a-z0-9-])'
+        if re.search(pattern, text_lower):
+            result.append(s)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

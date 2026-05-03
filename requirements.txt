@@ -9,6 +9,8 @@ pydantic==2.10.6
 python-dateutil==2.9.0
 
 # Hybrid parsing — fast, deterministic, no large model downloads
+# NOTE: LibreOffice (soffice) is a REQUIRED system dependency for .doc to PDF conversion.
+# Install via: apt-get install -y libreoffice (Debian/Ubuntu) or download from libreoffice.org (Windows)
 rapidfuzz>=3.6
 flashtext>=2.7
 PyMuPDF>=1.24

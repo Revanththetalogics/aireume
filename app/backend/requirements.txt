@@ -26,6 +26,8 @@ python-docx==1.1.2
 pymupdf==1.25.1
 
 # Document Processing
+# NOTE: LibreOffice (soffice) is a REQUIRED system dependency for .doc to PDF conversion.
+# Install via: apt-get install -y libreoffice (Debian/Ubuntu) or download from libreoffice.org (Windows)
 docx2txt==0.8
 striprtf==0.0.26
 odfpy==1.4.1

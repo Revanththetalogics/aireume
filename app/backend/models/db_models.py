@@ -114,6 +114,7 @@ class Candidate(Base):
     resume_file_hash   = Column(String(64),  nullable=True, index=True)  # MD5(file bytes)
     resume_filename    = Column(String(255), nullable=True)              # Original filename
     resume_file_data   = Column(LargeBinary, nullable=True)              # Original file bytes (BYTEA)
+    resume_converted_pdf_data = Column(LargeBinary, nullable=True)       # PDF conversion of .doc for browser viewing
     raw_resume_text    = Column(Text,        nullable=True)
     parsed_skills      = Column(Text,        nullable=True)   # JSON array
     parsed_education   = Column(Text,        nullable=True)   # JSON array

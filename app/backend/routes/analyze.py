@@ -35,6 +35,7 @@ from app.backend.models.schemas import (
     DuplicateCandidateInfo,
 )
 from app.backend.services.parser_service import parse_resume, extract_jd_text
+from app.backend.services.doc_converter import convert_to_pdf
 from app.backend.services.gap_detector import analyze_gaps
 from app.backend.services.hybrid_pipeline import (
     run_hybrid_pipeline,
@@ -226,6 +227,7 @@ def _store_candidate_profile(
     profile_quality: str,
     file_content: bytes | None = None,
     filename: str | None = None,
+    converted_pdf_content: bytes | None = None,
 ) -> None:
     """Write parsed profile data into the Candidate row."""
     work_exp = parsed_data.get("work_experience", [])
@@ -234,6 +236,8 @@ def _store_candidate_profile(
         candidate.resume_filename = filename
     if file_content:
         candidate.resume_file_data = file_content
+    if converted_pdf_content:
+        candidate.resume_converted_pdf_data = converted_pdf_content
     candidate.raw_resume_text    = parsed_data.get("raw_text", "")[:100000]  # cap at 100k chars
     candidate.parser_snapshot_json = _parser_snapshot_json(parsed_data)
     candidate.parsed_skills      = json.dumps(parsed_data.get("skills", []), default=_json_default)
@@ -274,6 +278,7 @@ def _get_or_create_candidate(
     action: str | None = None,
     file_content: bytes | None = None,
     filename: str | None = None,
+    converted_pdf_content: bytes | None = None,
 ) -> tuple[int, bool]:
     """
     3-layer deduplication. Returns (candidate_id, is_duplicate).
@@ -317,7 +322,7 @@ def _get_or_create_candidate(
     if existing is not None:
         # Update profile when explicitly requested
         if action == "update_profile" and gap_analysis is not None:
-            _store_candidate_profile(existing, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename)
+            _store_candidate_profile(existing, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content)
         return existing.id, True
 
     # Create new candidate
@@ -331,7 +336,7 @@ def _get_or_create_candidate(
     db.flush()  # get the new id
 
     if gap_analysis is not None:
-        _store_candidate_profile(candidate, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename)
+        _store_candidate_profile(candidate, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content)
 
     return candidate.id, False
 
@@ -411,6 +416,27 @@ def _check_scoring_weights_size(scoring_weights: str | None) -> None:
         )
 
 
+async def _parse_resume_with_doc_conversion(content: bytes, filename: str) -> tuple[dict, bytes | None]:
+    """Parse resume with automatic DOC-to-PDF conversion for better accuracy.
+
+    Returns:
+        (parsed_data, converted_pdf_bytes or None)
+    """
+    ext = os.path.splitext(filename.lower())[1]
+    pdf_bytes = None
+
+    if ext == ".doc":
+        pdf_bytes = await asyncio.to_thread(convert_to_pdf, content, filename)
+        if pdf_bytes:
+            log.info("DOC converted to PDF (%d bytes), parsing from PDF for better accuracy", len(pdf_bytes))
+            parsed_data = await asyncio.to_thread(parse_resume, pdf_bytes, "converted.pdf")
+            return parsed_data, pdf_bytes
+        log.warning("DOC-to-PDF conversion failed for %s, falling back to legacy parser", filename)
+
+    parsed_data = await asyncio.to_thread(parse_resume, content, filename)
+    return parsed_data, pdf_bytes
+
+
 async def _process_single_resume(
     content: bytes,
     filename: str,
@@ -421,7 +447,7 @@ async def _process_single_resume(
     """Core analysis logic — parse in thread, run hybrid pipeline, return result."""
     # Parse resume in thread pool (blocks event loop otherwise for large PDFs)
     try:
-        parsed_data = await asyncio.to_thread(parse_resume, content, filename)
+        parsed_data, _ = await _parse_resume_with_doc_conversion(content, filename)
     except ValueError as e:
         # Scanned PDF or unreadable file — return graceful error
         return {
@@ -463,6 +489,7 @@ async def _process_single_resume(
 
     result["_parsed_data"]  = parsed_data
     result["_gap_analysis"] = gap_analysis
+    result["_pdf_bytes"]    = pdf_bytes  # DOC-to-PDF conversion result (if applicable)
     return result
 
 
@@ -710,7 +737,7 @@ async def analyze_endpoint(
 
     # Parse resume first - handle parse errors gracefully
     try:
-        parsed_data = await asyncio.to_thread(parse_resume, content, resume.filename)
+        parsed_data, pdf_bytes = await _parse_resume_with_doc_conversion(content, resume.filename)
     except ValueError as e:
         # Scanned PDF or unreadable file — return graceful error
         log.warning(f"Resume parse failed for {resume.filename}: {e}")
@@ -721,6 +748,7 @@ async def analyze_endpoint(
             "work_experience": [],
             "contact_info": {},
         }
+        pdf_bytes = None
         # Continue with fallback - will set analysis_quality to "low"
     except Exception as e:
         log.warning(f"Resume parse error for {resume.filename}: {e}")
@@ -731,6 +759,7 @@ async def analyze_endpoint(
             "work_experience": [],
             "contact_info": {},
         }
+        pdf_bytes = None
 
     gap_analysis = analyze_gaps(parsed_data.get("work_experience", []))
     jd_analysis  = _get_or_cache_jd(db, job_description)
@@ -744,6 +773,7 @@ async def analyze_endpoint(
         action=action,
         file_content=content,
         filename=resume.filename,
+        converted_pdf_content=pdf_bytes,
     )
 
     db_result = ScreeningResult(
@@ -911,7 +941,7 @@ async def analyze_stream_endpoint(
 
     # Parse resume and JD in thread pool before entering the generator
     try:
-        parsed_data = await asyncio.to_thread(parse_resume, content, resume.filename)
+        parsed_data, pdf_bytes = await _parse_resume_with_doc_conversion(content, resume.filename)
     except Exception as parse_exc:
         error_msg = str(parse_exc)
         async def _error_stream():
@@ -934,6 +964,7 @@ async def analyze_stream_endpoint(
         action=action,
         file_content=content,
         filename=resume.filename,
+        converted_pdf_content=pdf_bytes,
     )
     
     # Create placeholder result to get the ID
@@ -1848,6 +1879,7 @@ async def batch_analyze_endpoint(
         # Extract internal data
         parsed_data  = raw.pop("_parsed_data", {})
         gap_analysis = raw.pop("_gap_analysis", {})
+        pdf_bytes    = raw.pop("_pdf_bytes", None)
         file_hash    = hashlib.md5(content).hexdigest()
 
         candidate_id, _ = _get_or_create_candidate(
@@ -1855,6 +1887,9 @@ async def batch_analyze_endpoint(
             file_hash=file_hash,
             gap_analysis=gap_analysis,
             profile_quality=raw.get("analysis_quality", "medium"),
+            file_content=content,
+            filename=filename,
+            converted_pdf_content=pdf_bytes,
         )
 
         db_result = ScreeningResult(

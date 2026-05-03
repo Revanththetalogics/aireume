@@ -578,7 +578,12 @@ function _ts() {
 
 export async function downloadCandidateResume(candidateId, filename) {
   const res = await api.get(`/candidates/${candidateId}/resume`, { responseType: 'blob' })
-  _triggerDownload(res.data, filename, res.headers['content-type'] || 'application/octet-stream')
+  const type = res.headers['content-type'] || 'application/octet-stream'
+  // If server converted .doc to PDF, ensure downloaded file has .pdf extension
+  if (type === 'application/pdf' && filename && !filename.toLowerCase().endsWith('.pdf')) {
+    filename = filename.replace(/\.[^.]+$/, '') + '.pdf'
+  }
+  _triggerDownload(res.data, filename, type)
 }
 
 export async function viewCandidateResume(candidateId) {
