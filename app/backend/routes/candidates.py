@@ -20,7 +20,7 @@ from typing import Optional
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import Candidate, ScreeningResult, User, RoleTemplate
+from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest
 
 logger = logging.getLogger(__name__)
@@ -387,7 +387,8 @@ def get_candidate(
             # Only merge narrative-specific fields, not core analysis fields
             narrative_fields = {
                 "ai_enhanced", "fit_summary", "strengths", "concerns", "weaknesses",
-                "recommendation_rationale", "explainability", "interview_questions"
+                "recommendation_rationale", "explainability", "interview_questions",
+                "candidate_profile_summary"
             }
             for field in narrative_fields:
                 if field in narrative_data:
@@ -589,6 +590,7 @@ def get_candidate(
             "strengths":         item.get("strengths", []),
             "weaknesses":        item.get("weaknesses", []),
             "interview_questions": item.get("interview_questions"),
+            "candidate_profile_summary": item.get("candidate_profile_summary"),
             "narrative":         item.get("fit_summary") or item.get("recommendation_rationale"),
             "created_at":        item.get("timestamp"),
         })
@@ -611,6 +613,7 @@ def get_candidate(
         "parsed_education":  parsed_education,
         "parsed_work_exp":   parsed_work_exp,
         "professional_summary": professional_summary,
+        "ai_professional_summary": candidate.ai_professional_summary,
         "certifications":    certifications,
         "languages":         languages,
         # Resume file info
@@ -716,6 +719,112 @@ def get_candidate_timeline(
     )
 
     return {"timeline": events}
+
+
+# ─── Candidate Notes ────────────────────────────────────────────────────────────
+
+
+@router.get("/{candidate_id}/notes")
+def get_candidate_notes(
+    candidate_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return all notes for a candidate, newest first."""
+    candidate = db.query(Candidate).filter(
+        Candidate.id == candidate_id,
+        Candidate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    notes = (
+        db.query(CandidateNote)
+        .filter(
+            CandidateNote.candidate_id == candidate_id,
+            CandidateNote.tenant_id == current_user.tenant_id,
+        )
+        .order_by(CandidateNote.created_at.desc())
+        .all()
+    )
+
+    result = []
+    for note in notes:
+        author = db.query(User).filter(User.id == note.user_id).first()
+        result.append({
+            "id": note.id,
+            "text": note.text,
+            "user_email": author.email if author else None,
+            "user_name": author.email.split("@")[0] if author and author.email else None,
+            "created_at": note.created_at,
+            "is_own": note.user_id == current_user.id,
+        })
+
+    return result
+
+
+@router.post("/{candidate_id}/notes")
+def add_candidate_note(
+    candidate_id: int,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add a note to a candidate."""
+    candidate = db.query(Candidate).filter(
+        Candidate.id == candidate_id,
+        Candidate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    text = body.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Note text cannot be empty")
+    if len(text) > 2000:
+        raise HTTPException(status_code=422, detail="Note text cannot exceed 2000 characters")
+
+    note = CandidateNote(
+        candidate_id=candidate_id,
+        user_id=current_user.id,
+        tenant_id=current_user.tenant_id,
+        text=text,
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+
+    return {
+        "id": note.id,
+        "text": note.text,
+        "user_email": current_user.email,
+        "user_name": current_user.email.split("@")[0] if current_user.email else None,
+        "created_at": note.created_at,
+        "is_own": True,
+    }
+
+
+@router.delete("/{candidate_id}/notes/{note_id}")
+def delete_candidate_note(
+    candidate_id: int,
+    note_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a note. Only the note author can delete their own notes."""
+    note = db.query(CandidateNote).filter(
+        CandidateNote.id == note_id,
+        CandidateNote.candidate_id == candidate_id,
+        CandidateNote.tenant_id == current_user.tenant_id,
+    ).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if note.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own notes")
+
+    db.delete(note)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/{candidate_id}/analyze-jd")

@@ -128,9 +128,28 @@ class Candidate(Base):
     # Full parse_resume() output as JSON (contact_info, raw_text, skills, …) — audit / re-analyze
     parser_snapshot_json = Column(Text, nullable=True)
 
+    # AI-generated professional summary for the candidate profile
+    ai_professional_summary = Column(Text, nullable=True)
+
     tenant               = relationship("Tenant", back_populates="candidates")
     results              = relationship("ScreeningResult", back_populates="candidate")
     transcript_analyses  = relationship("TranscriptAnalysis", back_populates="candidate")
+
+
+class CandidateNote(Base):
+    __tablename__ = "candidate_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    candidate_id = Column(Integer, ForeignKey("candidates.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    candidate = relationship("Candidate", backref="notes")
+    user = relationship("User")
+    tenant = relationship("Tenant")
 
 
 class ScreeningResult(Base):

@@ -635,6 +635,23 @@ export async function updateCandidateName(candidateId, name) {
   return response.data
 }
 
+// ─── Candidate Notes ─────────────────────────────────────────────────────────
+
+export async function getCandidateNotes(candidateId) {
+  const res = await api.get(`/candidates/${candidateId}/notes`)
+  return res.data
+}
+
+export async function addCandidateNote(candidateId, text) {
+  const res = await api.post(`/candidates/${candidateId}/notes`, { text })
+  return res.data
+}
+
+export async function deleteCandidateNote(candidateId, noteId) {
+  const res = await api.delete(`/candidates/${candidateId}/notes/${noteId}`)
+  return res.data
+}
+
 // ─── Email Generation ─────────────────────────────────────────────────────────
 
 export async function generateEmail(candidateId, type) {

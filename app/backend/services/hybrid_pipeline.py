@@ -770,6 +770,7 @@ CAREER: {career_snippet}
 
 Return ONLY valid JSON:
 {{
+  "candidate_profile_summary": "A 3-4 sentence recruiter-focused summary of this candidate. Describe their professional background, years of experience, key technical strengths, and how they fit (or don't fit) this specific role. Write in third person, professional tone. Example: 'John is a senior backend engineer with 8 years of experience in distributed systems and cloud infrastructure. He demonstrates strong proficiency in Python, Go, and AWS services. His experience aligns well with the Senior Software Engineer role, though he lacks frontend development exposure required for this position.'",
   "fit_summary": "2-3 sentence executive summary for hiring manager",
   "strengths": ["specific strength tied to role requirements"],
   "concerns": ["specific concern tied to role gaps"],
@@ -1003,6 +1004,7 @@ No markdown, no code fences."""
 
     return {
         "ai_enhanced": True,  # Marks this as a real LLM-generated narrative
+        "candidate_profile_summary": data.get("candidate_profile_summary") or None,
         "fit_summary":            str(data.get("fit_summary", "")),
         "strengths":              _ensure_str_list(data.get("strengths", [])),
         "concerns":               concerns,
@@ -1274,9 +1276,30 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
         },
     ]
 
+    # Build fallback candidate_profile_summary from deterministic data
+    cp = python_result.get("candidate_profile", {})
+    jd_a = python_result.get("jd_analysis", {})
+    sk_a = python_result.get("skill_analysis", {})
+    sc = python_result.get("scores", {})
+
+    _fallback_name = cp.get("name", "This candidate")
+    _fallback_years = cp.get("total_effective_years", 0) or 0
+    _fallback_domain = jd_a.get("domain", "their field")
+    _fallback_matched = len(sk_a.get("matched_skills", []))
+    _fallback_total = len(jd_a.get("required_skills", []))
+    _fallback_rec = sc.get("final_recommendation", "Review")
+    _fallback_role = jd_a.get("role_title", "this role")
+
+    fallback_summary = (
+        f"{_fallback_name} has {_fallback_years:.1f} years of experience in {_fallback_domain}. "
+        f"Matched {_fallback_matched} of {_fallback_total} required skills. "
+        f"Recommendation: {_fallback_rec} for {_fallback_role}."
+    )
+
     # Return with both 'concerns' (new) and 'weaknesses' (backward compat)
     return {
         "ai_enhanced": False,  # Marks this as a fallback narrative, not LLM-generated
+        "candidate_profile_summary": fallback_summary,
         "fit_summary": fit_summary,
         "strengths":   strengths,
         "concerns":    concerns,
@@ -1699,6 +1722,7 @@ def _merge_llm_into_result(python_result: Dict[str, Any], llm_result: Dict[str, 
 
     merged.update({
         "ai_enhanced":            llm_result.get("ai_enhanced", False),  # True for LLM, False for fallback
+        "candidate_profile_summary": llm_result.get("candidate_profile_summary"),
         "fit_summary":            llm_result.get("fit_summary", ""),
         "strengths":              llm_result.get("strengths", []),
         "concerns":               final_concerns,
@@ -1732,7 +1756,7 @@ async def _background_llm_narrative(
     """
     # Import here to avoid circular imports
     from app.backend.db.database import SessionLocal
-    from app.backend.models.db_models import ScreeningResult
+    from app.backend.models.db_models import ScreeningResult, Candidate
 
     # Helper to write status to DB
     async def _write_status(status: str, error: Optional[str] = None) -> bool:
@@ -1805,6 +1829,24 @@ async def _background_llm_narrative(
                             # Continue even if merge fails - narrative_json is still saved
                         
                         db.commit()
+
+                        # Cache candidate_profile_summary to Candidate.ai_professional_summary
+                        summary = narrative.get("candidate_profile_summary")
+                        if summary and result.candidate_id:
+                            try:
+                                candidate = db.query(Candidate).filter(
+                                    Candidate.id == result.candidate_id
+                                ).first()
+                                if candidate:
+                                    candidate.ai_professional_summary = summary
+                                    db.commit()
+                            except Exception as cache_err:
+                                log.warning(
+                                    "Failed to cache ai_professional_summary for candidate_id=%s: %s",
+                                    result.candidate_id,
+                                    str(cache_err)[:200],
+                                )
+
                         log.info(
                             "Wrote narrative_json (status=%s) to screening_result_id=%s",
                             status,
