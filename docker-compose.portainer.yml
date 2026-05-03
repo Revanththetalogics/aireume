@@ -1,0 +1,164 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: resume-screener-postgres
+    command: >
+      postgres
+      -c shared_buffers=1536MB
+      -c effective_cache_size=4GB
+      -c work_mem=64MB
+      -c maintenance_work_mem=256MB
+      -c max_connections=200
+      -c wal_buffers=64MB
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aria}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-aria_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aria} -d ${POSTGRES_DB:-aria_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: resume-screener-ollama
+    environment:
+      - OLLAMA_NUM_THREAD=8
+      - OLLAMA_NUM_PARALLEL=4
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+      - OLLAMA_KEEP_ALIVE=-1
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  backend:
+    image: revanth2245/resume-backend:latest
+    container_name: resume-screener-backend
+    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 6 --timeout-graceful-shutdown 30
+    stop_grace_period: 60s
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aria_db}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - ENVIRONMENT=production
+      - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-gemma4:31b-cloud}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
+      - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
+    depends_on:
+      - postgres
+      - ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    image: revanth2245/resume-frontend:latest
+    container_name: resume-screener-frontend
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  nginx:
+    image: revanth2245/resume-nginx:latest
+    container_name: resume-screener-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - frontend
+      - backend
+    stop_grace_period: 30s
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ollama-warmup:
+    image: ollama/ollama:latest
+    container_name: resume-screener-ollama-warmup
+    depends_on:
+      - ollama
+    entrypoint: >
+      /bin/sh -c "
+        echo '============================================';
+        echo '  ARIA — Ollama Model Warmup';
+        echo '============================================';
+        echo '';
+        echo '  Waiting for Ollama...';
+        until ollama list > /dev/null 2>&1; do
+          echo '  Waiting for Ollama...';
+          sleep 3;
+        done;
+        echo '  ✓  Ollama is up';
+        echo '';
+        echo '  Loading qwen3.5:4b into RAM...';
+        ollama run qwen3.5:4b 'warmup' --nowordwrap;
+        echo '  ✓  qwen3.5:4b is HOT in RAM';
+        echo '  ✓  Warmup complete — exiting (KEEP_ALIVE=-1 keeps model loaded)';
+        echo '============================================';
+      "
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    restart: "no"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: resume-screener-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      --rolling-restart
+      --interval 60
+      --cleanup
+      resume-screener-backend
+      resume-screener-frontend
+      resume-screener-nginx
+    environment:
+      - WATCHTOWER_INCLUDE_STOPPED=false
+      - WATCHTOWER_NO_PULL=false
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    container_name: resume-screener-certbot
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h; done'"
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  postgres_data:
+  certbot_certs:
+  certbot_www:
+
+networks:
+  default:
+    name: aria_network
+    driver: bridge

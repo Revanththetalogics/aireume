@@ -53,6 +53,7 @@ export default function BatchPage() {
   // Streaming analysis state (replaces old results state)
   const [streamingResults, setStreamingResults] = useState([])
   const [streamingFailed, setStreamingFailed]   = useState([])
+  const [processingFiles, setProcessingFiles]   = useState([])
   const [analysisProgress, setAnalysisProgress] = useState({ completed: 0, total: 0 })
   const [isAnalyzing, setIsAnalyzing]           = useState(false)
   const [analysisDone, setAnalysisDone]         = useState(false)
@@ -118,6 +119,7 @@ export default function BatchPage() {
     setIsLoading(true)
     setStreamingResults([])
     setStreamingFailed([])
+    setProcessingFiles([])
     setAnalysisDone(false)
     setIsAnalyzing(false)
     setAnalysisProgress({ completed: 0, total: 0 })
@@ -147,10 +149,19 @@ export default function BatchPage() {
         },
 
         // Analysis streaming callbacks (NEW)
+        onProcessing: (index, total, filename) => {
+          setIsUploading(false)
+          setIsAnalyzing(true)
+          setProcessingFiles(prev => {
+            if (prev.some(f => f.filename === filename)) return prev
+            return [...prev, { filename, index }]
+          })
+        },
         onResult: (index, total, filename, result, screeningResultId) => {
           setIsUploading(false)
           setIsAnalyzing(true)
           setAnalysisProgress({ completed: index, total })
+          setProcessingFiles(prev => prev.filter(f => f.filename !== filename))
           setStreamingResults(prev => {
             const updated = [...prev, { filename, result, screeningResultId }]
             // Sort by fit_score descending for live ranking
@@ -167,11 +178,13 @@ export default function BatchPage() {
           setIsUploading(false)
           setIsAnalyzing(true)
           setAnalysisProgress(prev => ({ completed: prev.completed, total: total || prev.total }))
+          setProcessingFiles(prev => prev.filter(f => f.filename !== filename))
           setStreamingFailed(prev => [...prev, { filename, error }])
         },
         onDone: (total, successful, failedCount) => {
           setAnalysisDone(true)
           setIsAnalyzing(false)
+          setProcessingFiles([])
           setAnalysisProgress({ completed: total, total })
         },
       })
@@ -222,6 +235,7 @@ export default function BatchPage() {
   const handleNewBatch = () => {
     setStreamingResults([])
     setStreamingFailed([])
+    setProcessingFiles([])
     setAnalysisDone(false)
     setIsAnalyzing(false)
     setAnalysisProgress({ completed: 0, total: 0 })
@@ -472,6 +486,24 @@ export default function BatchPage() {
                     />
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Processing Files — shows which resumes are actively being analyzed */}
+            {processingFiles.length > 0 && !analysisDone && (
+              <div className="p-4 bg-amber-50 ring-1 ring-amber-200 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-sm font-bold text-amber-900">
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                  Currently analyzing...
+                </div>
+                <div className="space-y-1.5">
+                  {processingFiles.map((f) => (
+                    <div key={f.filename} className="flex items-center gap-2 text-sm text-amber-800">
+                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                      <span className="truncate">{f.filename}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

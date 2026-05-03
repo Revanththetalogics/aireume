@@ -421,6 +421,7 @@ export async function analyzeBatchChunked(files, jobDescription, jobFile = null,
  * @param {Function} callbacks.onOverallProgress - Called with overall upload progress
  * @param {Function} callbacks.onFileComplete - Called when a file upload completes
  * @param {Function} callbacks.onFileError - Called when a file upload fails
+ * @param {Function} callbacks.onProcessing - Called with (index, total, filename) when a file starts processing
  * @param {Function} callbacks.onResult - Called with (index, total, filename, result, screeningResultId) for each successful analysis
  * @param {Function} callbacks.onFailed - Called with (index, total, filename, error) for each failed analysis
  * @param {Function} callbacks.onDone - Called with (total, successful, failedCount) when complete
@@ -429,6 +430,7 @@ export async function analyzeBatchChunked(files, jobDescription, jobFile = null,
 export async function analyzeBatchStream(files, jobDescription, jdFile = null, scoringWeights = null, callbacks = {}, templateId = null) {
   const {
     onFileProgress, onOverallProgress, onFileComplete, onFileError,  // upload callbacks
+    onProcessing, // (index, total, filename) => void
     onResult,    // (index, total, filename, result, screeningResultId) => void
     onFailed,    // (index, total, filename, error) => void
     onDone,      // (total, successful, failedCount) => void
@@ -517,7 +519,9 @@ export async function analyzeBatchStream(files, jobDescription, jdFile = null, s
       try {
         const evt = JSON.parse(data)
 
-        if (evt.event === 'result' && onResult) {
+        if (evt.event === 'processing' && onProcessing) {
+          onProcessing(evt.index, evt.total, evt.filename)
+        } else if (evt.event === 'result' && onResult) {
           onResult(evt.index, evt.total, evt.filename, evt.result, evt.screening_result_id)
         } else if (evt.event === 'failed' && onFailed) {
           onFailed(evt.index, evt.total, evt.filename, evt.error)

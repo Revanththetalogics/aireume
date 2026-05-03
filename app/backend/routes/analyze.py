@@ -1588,6 +1588,16 @@ async def batch_analyze_stream_endpoint(
             )
             yield f"data: {json.dumps(evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
 
+        # Emit processing events so the UI knows which files have started
+        for idx, (_, filename, _) in enumerate(file_data):
+            processing_evt = BatchStreamEvent(
+                event="processing",
+                index=idx + 1,
+                total=total,
+                filename=filename,
+            )
+            yield f"data: {json.dumps(processing_evt.model_dump(exclude_none=True), default=_json_default)}\n\n"
+
         # Create tagged tasks
         tasks = [
             _process_and_tag(idx, c, f, uid, job_description, parsed_weights, db)

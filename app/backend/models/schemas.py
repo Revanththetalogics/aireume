@@ -186,7 +186,7 @@ class BatchAnalysisResponse(BaseModel):
 
 class BatchStreamEvent(BaseModel):
     """SSE event payload for the /api/analyze/batch-stream endpoint."""
-    event: str  # "result", "failed", "done"
+    event: str  # "processing", "result", "failed", "done"
     index: int
     total: int
     filename: Optional[str] = None
