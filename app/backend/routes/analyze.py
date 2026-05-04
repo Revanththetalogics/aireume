@@ -456,8 +456,9 @@ async def _process_single_resume(
 ) -> dict:
     """Core analysis logic — parse in thread, run hybrid pipeline, return result."""
     # Parse resume in thread pool (blocks event loop otherwise for large PDFs)
+    pdf_bytes = None
     try:
-        parsed_data, _ = await _parse_resume_with_doc_conversion(content, filename)
+        parsed_data, pdf_bytes = await _parse_resume_with_doc_conversion(content, filename)
     except ValueError as e:
         # Scanned PDF or unreadable file — return graceful error
         return {
