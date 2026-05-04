@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { GitCompare, Trophy, Check, Download, ChevronDown, ChevronUp, MessageCircle } from 'lucide-react'
+import { GitCompare, Trophy, Check, Download, ChevronDown, ChevronUp, MessageCircle, Gavel, Zap, AlertTriangle, FileText, Target } from 'lucide-react'
 import { getHistory, compareResults, exportCsv } from '../lib/api'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
@@ -35,6 +35,23 @@ function QualityBadge({ quality }) {
     <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase ${styles[quality] || styles.medium}`}>
       {quality || 'medium'}
     </span>
+  )
+}
+
+function VerdictBadge({ verdict, confidence }) {
+  const styles = {
+    Shortlist: 'bg-green-100 text-green-800 ring-green-200',
+    Reject: 'bg-red-100 text-red-800 ring-red-200',
+    Consider: 'bg-amber-100 text-amber-800 ring-amber-200',
+  }
+  const color = styles[verdict] || 'bg-slate-100 text-slate-700 ring-slate-200'
+  return (
+    <div className={`inline-flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl ring-1 ${color}`}>
+      <span className="text-xs font-bold uppercase">{verdict || 'N/A'}</span>
+      {confidence > 0 && (
+        <span className="text-[10px] font-medium opacity-75">{Math.round(confidence * 100)}% confidence</span>
+      )}
+    </div>
   )
 }
 
@@ -342,6 +359,111 @@ export default function ComparePage() {
                         <p className="text-xs text-slate-400 italic">No questions available</p>
                       )}
                     </div>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+
+            {/* Fit Summaries */}
+            <CollapsibleSection title="AI Fit Summaries" icon={FileText} defaultOpen={true}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+                {comparison.candidates.map(c => (
+                  <div key={c.id} className="bg-brand-50/50 rounded-xl p-4 ring-1 ring-brand-100">
+                    <h5 className="text-sm font-bold text-brand-900 mb-2">{c.candidate_name}</h5>
+                    {c.fit_summary ? (
+                      <p className="text-xs text-slate-700 leading-relaxed">{safeStr(c.fit_summary)}</p>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">No summary available</p>
+                    )}
+                    {c.recommendation_rationale && (
+                      <p className="text-[11px] text-slate-500 mt-2 italic border-t border-brand-100 pt-2">
+                        {safeStr(c.recommendation_rationale)}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+
+            {/* Hiring Decision */}
+            <CollapsibleSection title="Hiring Decision" icon={Gavel} defaultOpen={true}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+                {comparison.candidates.map(c => (
+                  <div key={c.id} className="bg-brand-50/50 rounded-xl p-4 ring-1 ring-brand-100">
+                    <div className="flex items-center justify-between mb-3">
+                      <h5 className="text-sm font-bold text-brand-900">{c.candidate_name}</h5>
+                      <VerdictBadge
+                        verdict={c.hiring_decision?.verdict}
+                        confidence={c.hiring_decision?.confidence}
+                      />
+                    </div>
+                    {c.hiring_decision?.action_items?.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-bold text-brand-700 uppercase tracking-wide">Next Steps</p>
+                        {c.hiring_decision.action_items.map((item, i) => (
+                          <div key={i} className="flex items-start gap-1.5">
+                            <Target className="w-3 h-3 text-brand-500 mt-0.5 shrink-0" />
+                            <p className="text-xs text-slate-700">{safeStr(item)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+
+            {/* Dealbreakers */}
+            <CollapsibleSection title="Dealbreakers" icon={AlertTriangle}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+                {comparison.candidates.map(c => (
+                  <div key={c.id} className={`rounded-xl p-4 ring-1 ${c.dealbreakers?.length > 0 ? 'bg-red-50/70 ring-red-200' : 'bg-green-50/70 ring-green-200'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {c.dealbreakers?.length > 0 ? (
+                        <AlertTriangle className="w-4 h-4 text-red-600" />
+                      ) : (
+                        <Check className="w-4 h-4 text-green-600" />
+                      )}
+                      <h5 className="text-sm font-bold text-brand-900">{c.candidate_name}</h5>
+                    </div>
+                    {c.dealbreakers?.length > 0 ? (
+                      <ul className="space-y-1">
+                        {c.dealbreakers.map((d, i) => (
+                          <li key={i} className="text-xs text-red-700 flex items-start gap-1.5">
+                            <span className="text-red-500 mt-0.5">•</span>
+                            {safeStr(d)}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-green-700 font-medium">No dealbreakers identified</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+
+            {/* Differentiators */}
+            <CollapsibleSection title="Differentiators" icon={Zap}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+                {comparison.candidates.map(c => (
+                  <div key={c.id} className="bg-amber-50/50 rounded-xl p-4 ring-1 ring-amber-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap className="w-4 h-4 text-amber-600" />
+                      <h5 className="text-sm font-bold text-brand-900">{c.candidate_name}</h5>
+                    </div>
+                    {c.differentiators?.length > 0 ? (
+                      <ul className="space-y-1">
+                        {c.differentiators.map((d, i) => (
+                          <li key={i} className="text-xs text-amber-800 flex items-start gap-1.5">
+                            <span className="text-amber-500 mt-0.5">★</span>
+                            {safeStr(d)}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">No differentiators listed</p>
+                    )}
                   </div>
                 ))}
               </div>

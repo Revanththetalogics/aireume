@@ -66,6 +66,24 @@ OUTPUT VALID JSON ONLY (no markdown, no explanation outside JSON):
     "role_excellence": 0.10-0.20,
     "risk": -0.05 to -0.15
   }},
+  "weight_evidence": {{
+    "core_competencies": ["Verbatim JD phrase justifying this weight"],
+    "experience": ["Verbatim JD phrase justifying this weight"],
+    "domain_fit": ["Verbatim JD phrase justifying this weight"],
+    "education": ["Verbatim JD phrase justifying this weight"],
+    "career_trajectory": ["Verbatim JD phrase justifying this weight"],
+    "role_excellence": ["Verbatim JD phrase justifying this weight"],
+    "risk": ["Verbatim JD phrase justifying this weight"]
+  }},
+  "weight_delta_reasons": {{
+    "core_competencies": "Why this differs from default (1 sentence)",
+    "experience": "Why this differs from default (1 sentence)",
+    "domain_fit": "Why this differs from default (1 sentence)",
+    "education": "Why this differs from default (1 sentence)",
+    "career_trajectory": "Why this differs from default (1 sentence)",
+    "role_excellence": "Why this differs from default (1 sentence)",
+    "risk": "Why this differs from default (1 sentence)"
+  }},
   "role_excellence_label": "What this measures for this specific role",
   "reasoning": "Brief explanation of why these weights (2-3 sentences)",
   "confidence": 0.0-1.0
@@ -80,6 +98,8 @@ GUIDELINES:
 - HR roles: Higher education (certifications), role_excellence = strategic impact
 - Startup culture: Lower career_trajectory (job hopping OK)
 - Enterprise culture: Higher career_trajectory (stability valued)
+- weight_evidence: Use VERBATIM phrases from the JD (exact words) to justify each weight. Never paraphrase.
+- weight_delta_reasons: Compare your suggested weight to the default (Core Comp 30%, Exp 20%, Domain 20%, Edu 10%, Career 10%, Role Excel 10%, Risk -10%). Explain WHY you changed it in one sentence per dimension. If you kept it the same, say "Aligned with default — [reason]".
 """
 
 
@@ -166,6 +186,15 @@ def suggest_weights_for_jd(jd_text: str, timeout: int = 30) -> Optional[Dict[str
         result.setdefault("key_requirements", [])
         result.setdefault("role_excellence_label", "Role-Specific Excellence")
         result.setdefault("confidence", 0.75)
+        
+        # Ensure weight_evidence and weight_delta_reasons exist with defaults
+        result.setdefault("weight_evidence", {})
+        result.setdefault("weight_delta_reasons", {})
+        for key in required_weight_keys:
+            if key not in result["weight_evidence"]:
+                result["weight_evidence"][key] = []
+            if key not in result["weight_delta_reasons"]:
+                result["weight_delta_reasons"][key] = ""
         
         log.info(f"Weight suggestion successful: {result['role_category']} role, "
                 f"confidence: {result['confidence']}")
@@ -299,6 +328,8 @@ def create_fallback_suggestion(jd_text: str, role_category: str = "technical") -
         "seniority_level": "unknown",
         "key_requirements": [],
         "suggested_weights": get_default_weights_for_category(detected_category),
+        "weight_evidence": {},
+        "weight_delta_reasons": {},
         "role_excellence_label": get_role_excellence_label(detected_category),
         "reasoning": f"Using default weights for {detected_category} role (LLM unavailable)",
         "confidence": 0.50,

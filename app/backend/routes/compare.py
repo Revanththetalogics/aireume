@@ -112,6 +112,13 @@ def compare_candidates(
             interview_questions = {}
         technical_questions = interview_questions.get("technical", []) if isinstance(interview_questions.get("technical"), list) else []
 
+        # Extract narrative fields for richer comparison
+        fit_summary = analysis.get("fit_summary", "") or ""
+        recommendation_rationale = analysis.get("recommendation_rationale", "") or ""
+        dealbreakers = (analysis.get("dealbreakers", []) if isinstance(analysis.get("dealbreakers"), list) else [])[:3]
+        differentiators = (analysis.get("differentiators", []) if isinstance(analysis.get("differentiators"), list) else [])[:3]
+        hiring_decision = analysis.get("hiring_decision", {}) or {}
+
         comparison.append({
             "id":                   r.id,
             "timestamp":            r.timestamp,
@@ -136,6 +143,16 @@ def compare_candidates(
             "current_role":         current_role,
             "current_company":      current_company,
             "total_years_exp":      total_years_exp,
+            # NEW: Narrative quality fields for head-to-head comparison
+            "fit_summary":          fit_summary,
+            "recommendation_rationale": recommendation_rationale,
+            "dealbreakers":         dealbreakers,
+            "differentiators":      differentiators,
+            "hiring_decision":      {
+                "verdict": hiring_decision.get("verdict", "") if isinstance(hiring_decision, dict) else "",
+                "confidence": hiring_decision.get("confidence", 0.0) if isinstance(hiring_decision, dict) else 0.0,
+                "action_items": (hiring_decision.get("action_items", []) if isinstance(hiring_decision, dict) else [])[:2],
+            },
         })
 
     # Determine category winners

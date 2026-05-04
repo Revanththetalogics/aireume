@@ -1,6 +1,16 @@
 import { useState } from 'react'
-import { Sparkles, TrendingUp, AlertCircle, Check, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Sparkles, TrendingUp, AlertCircle, Check, Loader2, ChevronDown, ChevronUp, ArrowUp, ArrowDown, Minus, Quote } from 'lucide-react'
 import api from '../lib/api'
+
+const DEFAULT_WEIGHTS = {
+  core_competencies: 0.30,
+  experience: 0.20,
+  domain_fit: 0.20,
+  education: 0.10,
+  career_trajectory: 0.10,
+  role_excellence: 0.10,
+  risk: -0.10
+}
 
 export default function WeightSuggestionPanel({ 
   jobDescription, 
@@ -12,6 +22,7 @@ export default function WeightSuggestionPanel({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [expanded, setExpanded] = useState(true)
+  const [showEvidence, setShowEvidence] = useState(false)
 
   const fetchSuggestion = async () => {
     if (!jobDescription || jobDescription.trim().length < 50) {
@@ -88,6 +99,36 @@ export default function WeightSuggestionPanel({
       risk: 'Risk Assessment'
     }
     return labels[key] || key
+  }
+
+  const getDelta = (key, value) => {
+    const defaultVal = DEFAULT_WEIGHTS[key] || 0
+    const diff = value - defaultVal
+    if (Math.abs(diff) < 0.01) return { type: 'same', diff: 0, label: 'Same' }
+    if (diff > 0) return { type: 'up', diff, label: `+${Math.round(diff * 100)}%` }
+    return { type: 'down', diff, label: `${Math.round(diff * 100)}%` }
+  }
+
+  const getDeltaColor = (type) => {
+    if (type === 'up') return 'text-green-600 bg-green-50 border-green-200'
+    if (type === 'down') return 'text-red-600 bg-red-50 border-red-200'
+    return 'text-slate-500 bg-slate-50 border-slate-200'
+  }
+
+  const getDeltaIcon = (type) => {
+    if (type === 'up') return <ArrowUp className="w-3 h-3" />
+    if (type === 'down') return <ArrowDown className="w-3 h-3" />
+    return <Minus className="w-3 h-3" />
+  }
+
+  const hasAnyEvidence = () => {
+    if (!suggestion?.weight_evidence) return false
+    return Object.values(suggestion.weight_evidence).some(arr => Array.isArray(arr) && arr.length > 0)
+  }
+
+  const hasAnyDeltaReasons = () => {
+    if (!suggestion?.weight_delta_reasons) return false
+    return Object.values(suggestion.weight_delta_reasons).some(r => r && r.trim().length > 0)
   }
 
   return (
@@ -171,6 +212,32 @@ export default function WeightSuggestionPanel({
             </div>
           )}
 
+          {/* Delta Preview Banner */}
+          {hasAnyDeltaReasons() && (
+            <div className="p-3 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl">
+              <p className="text-xs font-semibold text-amber-800 mb-1.5">AI Adjustments vs. Defaults</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(suggestion.suggested_weights)
+                  .filter(([key]) => key !== 'risk')
+                  .map(([key, value]) => {
+                    const delta = getDelta(key, value)
+                    if (delta.type === 'same') return null
+                    return (
+                      <span
+                        key={key}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border ${getDeltaColor(delta.type)}`}
+                        title={suggestion.weight_delta_reasons?.[key] || ''}
+                      >
+                        {getDeltaIcon(delta.type)}
+                        {formatWeightLabel(key)} {delta.label}
+                      </span>
+                    )
+                  })
+                  .filter(Boolean)}
+              </div>
+            </div>
+          )}
+
           {/* Weights Visualization */}
           {suggestion.suggested_weights && (
             <div>
@@ -182,31 +249,68 @@ export default function WeightSuggestionPanel({
                   Suggested Weights
                   {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </button>
+                {hasAnyEvidence() && (
+                  <button
+                    onClick={() => setShowEvidence(!showEvidence)}
+                    className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+                  >
+                    <Quote className="w-3 h-3" />
+                    {showEvidence ? 'Hide Evidence' : 'Show Evidence'}
+                  </button>
+                )}
               </div>
 
               {expanded && (
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   {Object.entries(suggestion.suggested_weights)
                     .filter(([key]) => key !== 'risk')
                     .sort(([, a], [, b]) => b - a)
-                    .map(([key, value]) => (
-                      <div key={key} className="space-y-1">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="font-medium text-slate-700">
-                            {key === 'role_excellence' && suggestion.role_excellence_label
-                              ? suggestion.role_excellence_label
-                              : formatWeightLabel(key)}
-                          </span>
-                          <span className="font-bold text-indigo-700">{Math.round(value * 100)}%</span>
+                    .map(([key, value]) => {
+                      const delta = getDelta(key, value)
+                      const evidence = suggestion.weight_evidence?.[key] || []
+                      const deltaReason = suggestion.weight_delta_reasons?.[key] || ''
+                      return (
+                        <div key={key} className="space-y-1.5">
+                          <div className="flex justify-between items-center text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-slate-700">
+                                {key === 'role_excellence' && suggestion.role_excellence_label
+                                  ? suggestion.role_excellence_label
+                                  : formatWeightLabel(key)}
+                              </span>
+                              <span
+                                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded border ${getDeltaColor(delta.type)}`}
+                                title={deltaReason}
+                              >
+                                {getDeltaIcon(delta.type)}
+                                {delta.label}
+                              </span>
+                            </div>
+                            <span className="font-bold text-indigo-700">{Math.round(value * 100)}%</span>
+                          </div>
+                          <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full transition-all duration-500"
+                              style={{ width: `${value * 100}%` }}
+                            />
+                          </div>
+                          {/* Evidence */}
+                          {showEvidence && evidence.length > 0 && (
+                            <div className="pl-2 border-l-2 border-indigo-200 space-y-1">
+                              {evidence.map((quote, idx) => (
+                                <p key={idx} className="text-[11px] text-slate-500 italic leading-relaxed">
+                                  "{quote}"
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          {/* Delta Reason (when no evidence or as supplement) */}
+                          {!showEvidence && deltaReason && (
+                            <p className="text-[11px] text-slate-500 leading-relaxed">{deltaReason}</p>
+                          )}
                         </div>
-                        <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full transition-all duration-500"
-                            style={{ width: `${value * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   
                   {/* Risk Penalty */}
                   {suggestion.suggested_weights.risk && (
@@ -221,6 +325,15 @@ export default function WeightSuggestionPanel({
                           style={{ width: `${Math.abs(suggestion.suggested_weights.risk) * 100}%` }}
                         />
                       </div>
+                      {showEvidence && suggestion.weight_evidence?.risk?.length > 0 && (
+                        <div className="pl-2 border-l-2 border-red-200 space-y-1">
+                          {suggestion.weight_evidence.risk.map((quote, idx) => (
+                            <p key={idx} className="text-[11px] text-slate-500 italic leading-relaxed">
+                              "{quote}"
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

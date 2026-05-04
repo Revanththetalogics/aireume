@@ -771,10 +771,18 @@ CAREER: {career_snippet}
 Return ONLY valid JSON:
 {{
   "candidate_profile_summary": "A 3-4 sentence recruiter-focused summary of this candidate. Describe their professional background, years of experience, key technical strengths, and how they fit (or don't fit) this specific role. Write in third person, professional tone. Example: 'John is a senior backend engineer with 8 years of experience in distributed systems and cloud infrastructure. He demonstrates strong proficiency in Python, Go, and AWS services. His experience aligns well with the Senior Software Engineer role, though he lacks frontend development exposure required for this position.'",
-  "fit_summary": "2-3 sentence executive summary for hiring manager",
-  "strengths": ["specific strength tied to role requirements"],
-  "concerns": ["specific concern tied to role gaps"],
-  "recommendation_rationale": "why this recommendation, referencing scores",
+  "fit_summary": "2-3 sentence executive summary for hiring manager. Be decisive — say whether this candidate is worth interviewing and why.",
+  "strengths": ["specific strength tied to role requirements. Reference actual skills and scores."],
+  "concerns": ["specific concern tied to role gaps. Reference actual missing skills or risk flags."],
+  "dealbreakers": ["If the candidate fails any MUST-HAVE requirement from the role, list it here with evidence. If no dealbreakers, return empty array."],
+  "differentiators": ["What makes this candidate UNIQUE compared to a typical applicant — positive OR negative. Be specific. Examples: 'Only candidate with Fortune 500 SaaS experience' or 'Unusually short tenure in last 3 roles (avg 11 months)'"],
+  "recommendation_rationale": "why this recommendation, referencing scores and dealbreakers if any",
+  "hiring_decision": {{
+    "verdict": "Shortlist|Reject|Consider",
+    "confidence": 0.0-1.0,
+    "key_factors": ["top 3 factors that drove this decision"],
+    "action_items": ["what the hiring manager should do next: e.g., 'Schedule technical interview focusing on system design', 'Request portfolio of past pre-sales decks', 'Verify enterprise SaaS exposure with references'"]
+  }},
   "explainability": {{
     "skill_rationale": "skill match quality explanation",
     "experience_rationale": "experience alignment explanation",
@@ -801,6 +809,15 @@ Return ONLY valid JSON:
     ]
   }}
 }}
+
+NARRATIVE QUALITY RULES:
+1. NEVER hallucinate skills not in MATCHED SKILLS or MISSING SKILLS lists.
+2. NEVER invent candidate background details (company names, project names, degrees).
+3. If you don't have enough information, say so explicitly rather than guessing.
+4. Use the EXACT skill names from MATCHED/MISSING SKILLS — don't paraphrase.
+5. dealbreakers must be based ONLY on MISSING SKILLS or RISK FLAGS, not speculation.
+6. differentiators must be grounded in the actual candidate data provided.
+7. hiring_decision.action_items must be SPECIFIC and ACTIONABLE — never generic like 'conduct interview'.
 
 INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
 1. TECHNICAL QUESTIONS (5 questions):
@@ -1002,6 +1019,11 @@ No markdown, no code fences."""
 
     iq = data.get("interview_questions", {})
 
+    # Parse new narrative quality fields with safe defaults
+    hiring_decision = data.get("hiring_decision", {})
+    if not isinstance(hiring_decision, dict):
+        hiring_decision = {}
+
     return {
         "ai_enhanced": True,  # Marks this as a real LLM-generated narrative
         "candidate_profile_summary": data.get("candidate_profile_summary") or None,
@@ -1009,7 +1031,15 @@ No markdown, no code fences."""
         "strengths":              _ensure_str_list(data.get("strengths", [])),
         "concerns":               concerns,
         "weaknesses":             weaknesses,
+        "dealbreakers":           _ensure_str_list(data.get("dealbreakers", [])),
+        "differentiators":        _ensure_str_list(data.get("differentiators", [])),
         "recommendation_rationale": str(data.get("recommendation_rationale", "")),
+        "hiring_decision": {
+            "verdict": hiring_decision.get("verdict", ""),
+            "confidence": hiring_decision.get("confidence", 0.0),
+            "key_factors": _ensure_str_list(hiring_decision.get("key_factors", [])),
+            "action_items": _ensure_str_list(hiring_decision.get("action_items", [])),
+        },
         "explainability":         data.get("explainability", {}),
         "interview_questions": {
             "candidate_briefing": iq.get("candidate_briefing", {}),
@@ -1304,10 +1334,22 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
         "strengths":   strengths,
         "concerns":    concerns,
         "weaknesses":  concerns,  # Backward compatibility alias
+        "dealbreakers": concerns,  # Fallback: concerns become dealbreakers
+        "differentiators": strengths,  # Fallback: strengths become differentiators
         "recommendation_rationale": (
             f"Candidate scored {score}/100. {len(matched)}/{req} required skills matched. "
             f"Automated narrative unavailable — manual review recommended."
         ),
+        "hiring_decision": {
+            "verdict": recommendation,
+            "confidence": 0.5,
+            "key_factors": [
+                f"Fit score: {score}/100",
+                f"Skills: {len(matched)}/{req} matched",
+                f"Experience: {actual_y}/100",
+            ],
+            "action_items": ["Review full resume manually", "Verify missing skills in interview"],
+        },
         "explainability": explainability,
         "interview_questions": {
             "candidate_briefing": candidate_briefing,
