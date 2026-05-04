@@ -140,11 +140,14 @@ MAX_BATCH_SIZE = 50
 # ─── JSON serialization helper ────────────────────────────────────────────────
 
 def _json_default(obj):
-    """Handle non-serializable types for json.dumps (datetime, date, Decimal)."""
+    """Handle non-serializable types for json.dumps (datetime, date, Decimal, bytes)."""
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     if isinstance(obj, Decimal):
         return float(obj)
+    if isinstance(obj, bytes):
+        import base64
+        return base64.b64encode(obj).decode("ascii")
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
@@ -453,8 +456,15 @@ async def _process_single_resume(
     job_description: str,
     scoring_weights: dict | None,
     db: Session | None = None,
+    skip_llm_narrative: bool = False,
 ) -> dict:
-    """Core analysis logic — parse in thread, run hybrid pipeline, return result."""
+    """Core analysis logic — parse in thread, run hybrid pipeline, return result.
+
+    Args:
+        skip_llm_narrative: If True, skips the slow LLM narrative generation
+            and returns Python scores with a fallback narrative. Used for batch
+            mode where narratives are generated on-demand when viewing reports.
+    """
     # Parse resume in thread pool (blocks event loop otherwise for large PDFs)
     pdf_bytes = None
     try:
@@ -485,14 +495,36 @@ async def _process_single_resume(
             log.warning("Non-critical: JD cache fetch failed: %s", e)
 
     try:
-        result = await run_hybrid_pipeline(
-            resume_text=parsed_data["raw_text"],
-            job_description=job_description,
-            parsed_data=parsed_data,
-            gap_analysis=gap_analysis,
-            scoring_weights=scoring_weights,
-            jd_analysis=jd_analysis,
-        )
+        if skip_llm_narrative:
+            # Fast path: Python scoring only (~1-2s). LLM narrative is deferred
+            # to on-demand generation when the user views the full report.
+            from app.backend.services.hybrid_pipeline import (
+                _run_python_phase,
+                _build_fallback_narrative,
+                _merge_llm_into_result,
+            )
+            result = _run_python_phase(
+                resume_text=parsed_data["raw_text"],
+                job_description=job_description,
+                parsed_data=parsed_data,
+                gap_analysis=gap_analysis,
+                scoring_weights=scoring_weights,
+                jd_analysis=jd_analysis,
+            )
+            fallback = _build_fallback_narrative(result)
+            result = _merge_llm_into_result(result, fallback)
+            result["narrative_pending"] = True
+            log.info("Fast batch path for %s: fit_score=%s (LLM deferred)",
+                     filename, result.get("fit_score"))
+        else:
+            result = await run_hybrid_pipeline(
+                resume_text=parsed_data["raw_text"],
+                job_description=job_description,
+                parsed_data=parsed_data,
+                gap_analysis=gap_analysis,
+                scoring_weights=scoring_weights,
+                jd_analysis=jd_analysis,
+            )
     except Exception as e:
         log.warning("Pipeline error for %s: %s", filename, e)
         result = _fallback_result(gap_analysis)
@@ -1331,9 +1363,9 @@ async def batch_analyze_chunked_endpoint(
     # Pre-parse JD once
     _get_or_cache_jd(db, job_description)
 
-    # Process all resumes with semaphore-wrapped calls
+    # Process all resumes with semaphore-wrapped calls (fast path: defer LLM narrative)
     tasks = [
-        _process_with_semaphore(content, filename, job_description, weights, db)
+        _process_with_semaphore(content, filename, job_description, weights, db, skip_llm_narrative=True)
         for content, filename, _ in file_data
     ]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1607,8 +1639,11 @@ async def batch_analyze_stream_endpoint(
         jd: str, weights: dict | None, db_session: Session,
     ) -> tuple[dict, bytes, str, str]:
         """Wrapper that returns result alongside file metadata."""
-        await asyncio.sleep(0.3 * index)  # Stagger to avoid LLM thundering herd
-        result = await _process_with_semaphore(content, filename, jd, weights, db_session)
+        await asyncio.sleep(0.3 * index)  # Stagger to avoid thundering herd
+        result = await _process_with_semaphore(
+            content, filename, jd, weights, db_session,
+            skip_llm_narrative=True,  # Batch mode: fast Python scoring, defer LLM
+        )
         return result, content, filename, upload_id
 
     total = len(file_data) + len(failed_items)
@@ -1770,10 +1805,14 @@ async def _process_with_semaphore(
     job_description: str,
     scoring_weights: dict | None,
     db: Session | None = None,
+    skip_llm_narrative: bool = False,
 ) -> dict:
     """Wrap resume processing with semaphore for concurrency control."""
     async with _BATCH_SEMAPHORE:
-        return await _process_single_resume(content, filename, job_description, scoring_weights, db)
+        return await _process_single_resume(
+            content, filename, job_description, scoring_weights, db,
+            skip_llm_narrative=skip_llm_narrative,
+        )
 
 
 @router.post("/analyze/batch", response_model=BatchAnalysisResponse)
@@ -1867,9 +1906,9 @@ async def batch_analyze_endpoint(
     if not file_data:
         raise HTTPException(status_code=400, detail="No valid resume files provided")
 
-    # Process all resumes with semaphore-wrapped calls for concurrency control
+    # Process all resumes with semaphore-wrapped calls for concurrency control (fast path)
     tasks = [
-        _process_with_semaphore(content, filename, job_description, weights, db)
+        _process_with_semaphore(content, filename, job_description, weights, db, skip_llm_narrative=True)
         for content, filename in file_data
     ]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)

@@ -4,7 +4,8 @@ import { useDropzone } from 'react-dropzone'
 import { 
   Upload, FileText, X, Loader2, AlertCircle, CheckCircle, 
   Sparkles, ChevronRight, BookOpen, LayoutTemplate, Link2, 
-  FileUp, Type, Save, Clock, Trophy, Eye, Download, CheckCircle2, ArrowLeft
+  FileUp, Type, Save, Clock, Trophy, Eye, Download, CheckCircle2, ArrowLeft,
+  FileCheck, XCircle, Hourglass
 } from 'lucide-react'
 import { 
   analyzeResumeStream, 
@@ -127,6 +128,8 @@ export default function AnalyzePage() {
   const [streamingFailed, setStreamingFailed] = useState([])
   const [analysisProgress, setAnalysisProgress] = useState({ completed: 0, total: 0 })
   const [analysisDone, setAnalysisDone] = useState(false)
+  const [fileStatuses, setFileStatuses] = useState([])
+  const [batchStartTime, setBatchStartTime] = useState(null)
 
   // UI State
   const [currentStep, setCurrentStep] = useState(1)
@@ -406,6 +409,13 @@ export default function AnalyzePage() {
         setStreamingFailed([])
         setAnalysisDone(false)
         setAnalysisProgress({ completed: 0, total: 0 })
+        setBatchStartTime(Date.now())
+        // Initialize per-file status tracking
+        setFileStatuses(files.map((f, i) => ({
+          filename: f.name,
+          status: 'queued',
+          index: i + 1,
+        })))
 
         await analyzeBatchStream(
           files,
@@ -413,6 +423,15 @@ export default function AnalyzePage() {
           jdMode === 'file' ? jdFile : null,
           weights,
           {
+            onProcessing: (index, total, filename) => {
+              setIsAnalyzing(true)
+              setAnalysisProgress(prev => ({ ...prev, total }))
+              setFileStatuses(prev => prev.map(fs =>
+                fs.filename === filename
+                  ? { ...fs, status: 'processing', startTime: Date.now() }
+                  : fs.status === 'queued' ? fs : fs
+              ))
+            },
             onResult: (index, total, filename, result, screeningResultId) => {
               setIsAnalyzing(true)
               setAnalysisProgress({ completed: index, total })
@@ -420,6 +439,11 @@ export default function AnalyzePage() {
                 const updated = [...prev, { filename, result, screeningResultId }]
                 return updated.sort((a, b) => (b.result?.fit_score || 0) - (a.result?.fit_score || 0))
               })
+              setFileStatuses(prev => prev.map(fs =>
+                fs.filename === filename
+                  ? { ...fs, status: 'completed', result, screeningResultId, endTime: Date.now() }
+                  : fs
+              ))
               if (screeningResultId) {
                 try { sessionStorage.setItem(`report_${screeningResultId}`, JSON.stringify(result)) } catch {}
               }
@@ -428,6 +452,11 @@ export default function AnalyzePage() {
               setIsAnalyzing(true)
               setAnalysisProgress(prev => ({ completed: prev.completed, total: total || prev.total }))
               setStreamingFailed(prev => [...prev, { filename, error }])
+              setFileStatuses(prev => prev.map(fs =>
+                fs.filename === filename
+                  ? { ...fs, status: 'failed', error, endTime: Date.now() }
+                  : fs
+              ))
             },
             onDone: (total, successful, failedCount) => {
               setAnalysisDone(true)
@@ -473,6 +502,8 @@ export default function AnalyzePage() {
     setAnalysisDone(false)
     setIsAnalyzing(false)
     setAnalysisProgress({ completed: 0, total: 0 })
+    setFileStatuses([])
+    setBatchStartTime(null)
     setFiles([])
     setCurrentStep(3)
   }
@@ -880,14 +911,30 @@ export default function AnalyzePage() {
 
           {/* Analysis Progress Section */}
           {(isAnalyzing || analysisDone || streamingResults.length > 0) && (
-            <div className="p-4 bg-indigo-50 ring-1 ring-indigo-200 rounded-2xl space-y-3">
+            <div className="p-4 bg-indigo-50 ring-1 ring-indigo-200 rounded-2xl space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-indigo-900">
-                  {analysisDone
-                    ? `Analysis Complete: ${streamingResults.length} successful${streamingFailed.length ? `, ${streamingFailed.length} failed` : ''}`
-                    : `Analyzing: ${analysisProgress.completed} of ${analysisProgress.total}...`
-                  }
-                </h3>
+                <div>
+                  <h3 className="text-sm font-bold text-indigo-900">
+                    {analysisDone
+                      ? `Analysis Complete: ${streamingResults.length} successful${streamingFailed.length ? `, ${streamingFailed.length} failed` : ''}`
+                      : `Analyzing: ${analysisProgress.completed} of ${analysisProgress.total}...`
+                    }
+                  </h3>
+                  {/* Time estimate */}
+                  {!analysisDone && batchStartTime && analysisProgress.completed > 0 && (
+                    <p className="text-xs text-indigo-600 mt-0.5">
+                      {(() => {
+                        const elapsed = Date.now() - batchStartTime
+                        const avgPerFile = elapsed / analysisProgress.completed
+                        const remaining = analysisProgress.total - analysisProgress.completed
+                        const etaMs = avgPerFile * remaining
+                        if (etaMs < 5000) return 'Almost done...'
+                        if (etaMs < 60000) return `~${Math.ceil(etaMs / 1000)}s remaining`
+                        return `~${Math.ceil(etaMs / 60000)}min remaining`
+                      })()}
+                    </p>
+                  )}
+                </div>
                 {!analysisDone && (
                   <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
                 )}
@@ -901,6 +948,49 @@ export default function AnalyzePage() {
                     className="bg-indigo-500 h-full transition-all duration-500 ease-out"
                     style={{ width: `${analysisProgress.total > 0 ? (analysisProgress.completed / analysisProgress.total) * 100 : 0}%` }}
                   />
+                </div>
+              )}
+
+              {/* Per-file status cards */}
+              {fileStatuses.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {fileStatuses.map((fs) => {
+                    const isQueued = fs.status === 'queued'
+                    const isProcessing = fs.status === 'processing'
+                    const isCompleted = fs.status === 'completed'
+                    const isFailed = fs.status === 'failed'
+                    return (
+                      <div
+                        key={fs.filename}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-300 ${
+                          isQueued ? 'bg-slate-100 text-slate-500 ring-1 ring-slate-200' :
+                          isProcessing ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 shadow-sm' :
+                          isCompleted ? 'bg-green-50 text-green-800 ring-1 ring-green-200' :
+                          'bg-red-50 text-red-700 ring-1 ring-red-200'
+                        }`}
+                      >
+                        <div className="shrink-0">
+                          {isQueued && <Hourglass className="w-4 h-4" />}
+                          {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
+                          {isCompleted && <FileCheck className="w-4 h-4 text-green-600" />}
+                          {isFailed && <XCircle className="w-4 h-4 text-red-600" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate">{fs.filename}</p>
+                          {isCompleted && fs.result?.fit_score != null && (
+                            <p className="text-[10px] opacity-80">
+                              Score: <span className="font-bold">{fs.result.fit_score}</span>
+                              {' · '}
+                              {fs.result.final_recommendation || '—'}
+                            </p>
+                          )}
+                          {isFailed && fs.error && (
+                            <p className="text-[10px] opacity-80 truncate">{fs.error}</p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
