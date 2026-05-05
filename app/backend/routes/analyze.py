@@ -510,7 +510,7 @@ async def _process_single_resume(
         )
         # Preserve internal _scores before merge (needed for background LLM spawn)
         _scores = result.get("_scores", {})
-        fallback = _build_fallback_narrative(result)
+        fallback = _build_fallback_narrative(result, result.get("skill_analysis", {}))
         result = _merge_llm_into_result(result, fallback)
         result["_scores"] = _scores
         result["narrative_pending"] = True

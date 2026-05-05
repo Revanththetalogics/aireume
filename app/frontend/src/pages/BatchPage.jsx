@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, X, Loader2, Trophy, AlertTriangle, Download, BookOpen, LayoutTemplate, BookmarkPlus, Check, Sparkles } from 'lucide-react'
-import { analyzeBatchStream, exportCsv, exportExcel, getTemplates, createTemplate } from '../lib/api'
+import { analyzeBatchStream, exportCsv, exportExcel, getTemplates, createTemplate, getNarrative } from '../lib/api'
 import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
 
 function FitBadge({ score }) {
@@ -22,6 +22,39 @@ function RecommendBadge({ rec }) {
     Pending:   'bg-slate-50 text-slate-600 ring-slate-200',
   }
   return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ring-1 ${styles[rec] || 'bg-slate-50 text-slate-600 ring-slate-200'}`}>{rec || '—'}</span>
+}
+
+function NarrativeStatusBadge({ result }) {
+  const status = result?.narrative_status
+  const isPending = status === 'pending' || status === 'processing' || result?.narrative_pending === true
+
+  if (isPending) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-md ring-1 ring-brand-200">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        AI…
+      </span>
+    )
+  }
+
+  if (status === 'ready' && result?.ai_enhanced) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 px-1.5 py-0.5 rounded-md ring-1 ring-green-200" title="AI-enhanced narrative">
+        <Sparkles className="w-3 h-3" />
+        AI
+      </span>
+    )
+  }
+
+  if (status === 'failed') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-md ring-1 ring-amber-200" title="Standard analysis (AI enhancement unavailable)">
+        Std
+      </span>
+    )
+  }
+
+  return null
 }
 
 export default function BatchPage() {
@@ -78,6 +111,62 @@ export default function BatchPage() {
       setUsageCheck(null)
     }
   }, [files.length, checkBeforeAnalysis])
+
+  // Poll for narrative completion on batch results
+  useEffect(() => {
+    if (!analysisDone || !streamingResults.length) return
+
+    const pendingIds = streamingResults
+      .filter(item => item.screeningResultId && (
+        item.result?.narrative_pending === true ||
+        item.result?.narrative_status === 'pending' ||
+        item.result?.narrative_status === 'processing'
+      ))
+      .map(item => item.screeningResultId)
+
+    if (!pendingIds.length) return
+
+    let pollCount = 0
+    const maxPolls = 120 // 6 minutes max
+
+    const poll = async () => {
+      pollCount++
+      if (pollCount > maxPolls) return
+
+      const stillPending = []
+
+      for (const id of pendingIds) {
+        try {
+          const data = await getNarrative(id)
+          if (data.status === 'ready' || data.status === 'failed') {
+            setStreamingResults(prev => prev.map(item => {
+              if (item.screeningResultId !== id) return item
+              const updatedResult = {
+                ...item.result,
+                ...(data.narrative || {}),
+                narrative_status: data.status,
+                narrative_pending: false,
+                ai_enhanced: data.status === 'ready',
+              }
+              try { sessionStorage.setItem(`report_${id}`, JSON.stringify(updatedResult)) } catch {}
+              return { ...item, result: updatedResult }
+            }))
+          } else {
+            stillPending.push(id)
+          }
+        } catch (e) {
+          stillPending.push(id)
+        }
+      }
+
+      if (stillPending.length && pollCount < maxPolls) {
+        setTimeout(poll, 3000)
+      }
+    }
+
+    const timer = setTimeout(poll, 2000)
+    return () => clearTimeout(timer)
+  }, [analysisDone])
 
   const onDrop = useCallback((accepted) => {
     setFiles(prev => [...prev, ...accepted].slice(0, 50))
@@ -592,12 +681,15 @@ export default function BatchPage() {
                           }`}>{r?.risk_level || '—'}</span>
                         </td>
                         <td className="px-4 py-3.5">
-                          <button
-                            onClick={() => navigate(`/report?id=${id}`)}
-                            className="text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
-                          >
-                            View Report
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <NarrativeStatusBadge result={r} />
+                            <button
+                              onClick={() => navigate(`/report?id=${id}`, { state: { from: '/batch', result: r } })}
+                              className="text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
+                            >
+                              View Report
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
