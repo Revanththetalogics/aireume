@@ -94,11 +94,10 @@ function md5Fallback(data) {
   }
 
   function wordToHex(lValue) {
-    let wordToHexValue = '', wordToHexValueTemp = ''
+    let wordToHexValue = ''
     for (let lCount = 0; lCount <= 3; lCount++) {
-      wordToHexValueTemp = (lValue >>> (lCount * 8)) & 255
-      wordToHexValue += '0' + wordToHexValueTemp.toString(16)
-      wordToHexValue = wordToHexValue.substr(wordToHexValue.length - 2, 2)
+      const byteValue = (lValue >>> (lCount * 8)) & 255
+      wordToHexValue += ('0' + byteValue.toString(16)).slice(-2)
     }
     return wordToHexValue
   }
@@ -344,10 +343,16 @@ export class ChunkedUploader {
       let fileHash = null
       try {
         fileHash = await calculateMD5(this.file)
+        // Safety: only send hash if it looks like a valid 32-char MD5
+        if (!fileHash || fileHash.length !== 32) {
+          console.warn('MD5 hash invalid length, skipping integrity check:', fileHash)
+          fileHash = null
+        }
       } catch (e) {
         console.warn('MD5 calculation failed, skipping integrity check:', e)
+        fileHash = null
       }
-      
+
       const response = await api.post('/upload/finalize', {
         upload_id: this.uploadId,
         filename: this.file.name,
