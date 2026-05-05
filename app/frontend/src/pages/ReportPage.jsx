@@ -100,6 +100,7 @@ export default function ReportPage() {
   const [narrativePolling, setNarrativePolling] = useState(false)
   const [jdContext, setJdContext] = useState(null)
   const [resumeActionLoading, setResumeActionLoading] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
 
   /** Resolve name from all possible result paths — returns null if unknown */
   const resolveName = (r) =>
@@ -231,8 +232,6 @@ export default function ReportPage() {
       setTimeout(() => setCopied(false), 2500)
     }).catch(() => window.prompt('Copy this report link:', shareUrl))
   }
-
-  const [isDownloading, setIsDownloading] = useState(false)
 
   const handleDownload = async () => {
     if (isDownloading) return
