@@ -1696,7 +1696,7 @@ def _run_python_phase(
         # Top-level fields for AnalysisResponse schema
         "fit_score":            deterministic_score,
         "job_role":             jd["role_title"],
-        "final_recommendation": fit_r["final_recommendation"],
+        "final_recommendation": all_scores["final_recommendation"],
         "risk_level":           fit_r["risk_level"],
         "risk_signals":         fit_r["risk_signals"],
         "score_breakdown":      fit_r["score_breakdown"],
@@ -1929,19 +1929,37 @@ async def _background_llm_narrative(
     narrative_status = "pending"
     narrative_error: Optional[str] = None
     llm_result: Optional[Dict[str, Any]] = None
+    _start_time: Optional[float] = None
+
+    log.info(
+        "Background LLM task started for screening_result_id=%s (timeout=%ss)",
+        screening_result_id,
+        os.getenv("LLM_NARRATIVE_TIMEOUT", "500"),
+    )
 
     try:
         _bg_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
         sem = get_ollama_semaphore()
         if sem.locked():
-            log.info("Waiting for Ollama slot (another request in progress)...")
+            log.info(
+                "Waiting for Ollama slot for screening_result_id=%s (another request in progress)...",
+                screening_result_id,
+            )
         async with sem:
+            log.info("Acquired Ollama slot for screening_result_id=%s", screening_result_id)
             # Write 'processing' status before starting LLM call
             await _write_status("processing")
 
-            start = time.monotonic()
+            _start_time = time.monotonic()
             llm_result = await asyncio.wait_for(explain_with_llm(llm_context), timeout=_bg_timeout)
-            LLM_CALL_DURATION.observe(time.monotonic() - start)
+            elapsed = time.monotonic() - _start_time
+            LLM_CALL_DURATION.observe(elapsed)
+            log.info(
+                "LLM call completed for screening_result_id=%s in %.1fs (response keys: %s)",
+                screening_result_id,
+                elapsed,
+                list(llm_result.keys()) if isinstance(llm_result, dict) else "N/A",
+            )
 
         # Success path
         narrative_status = "ready"
@@ -1956,9 +1974,11 @@ async def _background_llm_narrative(
         await _write_status("failed", "Analysis was cancelled")
         return
     except asyncio.TimeoutError:
+        elapsed = (time.monotonic() - _start_time) if _start_time is not None else _bg_timeout
         log.warning(
-            "Background LLM narrative timed out for screening_result_id=%s",
+            "Background LLM narrative timed out for screening_result_id=%s after %.0fs",
             screening_result_id,
+            elapsed,
         )
         LLM_FALLBACK_TOTAL.inc()
         narrative_status = "failed"
@@ -1978,7 +1998,14 @@ async def _background_llm_narrative(
 
     # Write final result to DB with retry
     if llm_result:
-        await _write_narrative_with_retry(llm_result, narrative_status, narrative_error)
+        write_ok = await _write_narrative_with_retry(llm_result, narrative_status, narrative_error)
+        if not write_ok:
+            log.error(
+                "Critical: failed to persist narrative for screening_result_id=%s. "
+                "Attempting status-only write.",
+                screening_result_id,
+            )
+            await _write_status(narrative_status, narrative_error)
 
 
 async def run_hybrid_pipeline(
