@@ -1669,7 +1669,12 @@ def _run_python_phase(
         log.warning("Deterministic engine failed, falling back to legacy fit_score: %s", e)
 
     all_scores["fit_score"] = deterministic_score
-    all_scores["final_recommendation"] = fit_r["final_recommendation"]
+    # Use the deterministic decision (which respects caps) when available,
+    # otherwise fall back to the legacy recommendation.
+    all_scores["final_recommendation"] = (
+        decision_explanation.get("decision", fit_r["final_recommendation"])
+        if decision_explanation else fit_r["final_recommendation"]
+    )
 
     rationales = _build_score_rationales(all_scores, profile, jd, skill_a, exp_r, edu_s, dom_r, gap_analysis)
     risk_summary = _build_risk_summary(fit_r["risk_signals"], gap_analysis, exp_r, profile, jd)
