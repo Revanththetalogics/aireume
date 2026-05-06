@@ -7,20 +7,35 @@ import math
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import require_platform_admin
+from app.backend.middleware.auth import (
+    require_platform_admin,
+    require_super_admin,
+    require_support,
+    require_security_admin,
+    require_billing_admin,
+    require_readonly_platform,
+)
 from app.backend.models.db_models import (
     AuditLog, Tenant, User, SubscriptionPlan, UsageLog,
     FeatureFlag, TenantFeatureOverride,
     Webhook, WebhookDelivery,
     PlatformConfig, TenantEmailConfig,
+    SecurityEvent, ImpersonationSession, ErasureLog,
+    PlanFeature,
 )
 from app.backend.services.audit_service import log_audit
+from app.backend.services.impersonation_service import (
+    create_impersonation_session,
+    list_active_sessions,
+    revoke_impersonation_session_by_id,
+)
+from app.backend.services.security_event_service import get_security_events
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -1331,3 +1346,453 @@ def delete_email_config(
     db.commit()
 
     return {"message": "Email configuration removed - system default will be used"}
+
+
+# ─── Security Events ───────────────────────────────────────────────────────────
+
+class SecurityEventItem(BaseModel):
+    id: int
+    event_type: str
+    tenant_id: Optional[int] = None
+    user_id: Optional[int] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    details: Optional[dict] = None
+    created_at: Optional[str] = None
+
+
+class SecurityEventResponse(BaseModel):
+    items: list[SecurityEventItem]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+@router.get("/security-events", response_model=SecurityEventResponse)
+def get_security_events_list(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    event_type: Optional[str] = Query(None),
+    tenant_id: Optional[int] = Query(None),
+    user_id: Optional[int] = Query(None),
+    ip_address: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    admin: User = Depends(require_security_admin),
+    db: Session = Depends(get_db),
+):
+    """Query security events with filters and pagination."""
+    from_dt = None
+    to_dt = None
+    if date_from:
+        try:
+            from_dt = datetime.fromisoformat(date_from)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_from format. Use ISO 8601.")
+    if date_to:
+        try:
+            to_dt = datetime.fromisoformat(date_to)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_to format. Use ISO 8601.")
+
+    items, total = get_security_events(
+        db,
+        event_type=event_type,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        ip_address=ip_address,
+        date_from=from_dt,
+        date_to=to_dt,
+        limit=per_page,
+        offset=(page - 1) * per_page,
+    )
+
+    pages = math.ceil(total / per_page) if total > 0 else 0
+
+    return SecurityEventResponse(
+        items=[
+            SecurityEventItem(
+                id=e.id,
+                event_type=e.event_type,
+                tenant_id=e.tenant_id,
+                user_id=e.user_id,
+                ip_address=e.ip_address,
+                user_agent=e.user_agent,
+                details=_parse_audit_details(e.details),
+                created_at=_dt_to_iso(e.created_at),
+            )
+            for e in items
+        ],
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )
+
+
+# ─── Impersonation ─────────────────────────────────────────────────────────────
+
+class ImpersonationSessionItem(BaseModel):
+    id: int
+    admin_user_id: int
+    target_user_id: int
+    target_email: Optional[str] = None
+    admin_email: Optional[str] = None
+    expires_at: Optional[str] = None
+    created_at: Optional[str] = None
+    ip_address: Optional[str] = None
+
+
+@router.post("/impersonate/{user_id}")
+def impersonate_user(
+    user_id: int,
+    request: Request,
+    admin: User = Depends(require_support),
+    db: Session = Depends(get_db),
+):
+    """Create an impersonation session for a target user. Returns a one-time token."""
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    ip = request.client.host if request.client else ""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        ip = forwarded.split(",")[0].strip()
+
+    raw_token = create_impersonation_session(
+        db,
+        admin_user_id=admin.id,
+        target_user_id=target.id,
+        ip_address=ip,
+        ttl_minutes=15,
+    )
+
+    log_audit(
+        db,
+        actor=admin,
+        action="impersonation.start",
+        resource_type="user",
+        resource_id=target.id,
+        details={"target_email": target.email, "ip": ip},
+    )
+
+    from app.backend.services.security_event_service import record_impersonation
+    record_impersonation(db, admin_id=admin.id, target_id=target.id, ip_address=ip, started=True)
+
+    return {
+        "message": "Impersonation session created",
+        "impersonation_token": raw_token,
+        "target_user": {"id": target.id, "email": target.email, "tenant_id": target.tenant_id},
+        "expires_in_minutes": 15,
+    }
+
+
+@router.get("/impersonate/sessions")
+def list_impersonation_sessions(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """List all active impersonation sessions."""
+    sessions = list_active_sessions(db)
+    return [
+        ImpersonationSessionItem(
+            id=s.id,
+            admin_user_id=s.admin_user_id,
+            target_user_id=s.target_user_id,
+            target_email=s.target_user.email if s.target_user else None,
+            admin_email=s.admin_user.email if s.admin_user else None,
+            expires_at=_dt_to_iso(s.expires_at),
+            created_at=_dt_to_iso(s.created_at),
+            ip_address=s.ip_address,
+        )
+        for s in sessions
+    ]
+
+
+@router.delete("/impersonate/sessions/{session_id}")
+def revoke_impersonation(
+    session_id: int,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Revoke an active impersonation session."""
+    session = db.query(ImpersonationSession).filter(ImpersonationSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    success = revoke_impersonation_session_by_id(db, session_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Session already revoked or expired")
+
+    log_audit(
+        db,
+        actor=admin,
+        action="impersonation.revoke",
+        resource_type="impersonation_session",
+        resource_id=session_id,
+        details={"target_user_id": session.target_user_id},
+    )
+
+    return {"message": "Impersonation session revoked", "session_id": session_id}
+
+
+# ─── GDPR Data Erasure ─────────────────────────────────────────────────────────
+
+class ErasureRequest(BaseModel):
+    confirm: bool
+
+
+class ErasureLogItem(BaseModel):
+    id: int
+    tenant_id: int
+    actor_email: Optional[str] = None
+    status: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    records_affected: int
+    created_at: Optional[str] = None
+
+
+@router.post("/tenants/{tenant_id}/anonymize")
+def anonymize_tenant(
+    tenant_id: int,
+    body: ErasureRequest,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Request GDPR data erasure for a tenant. Requires explicit confirmation."""
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail="Confirmation required. Set confirm=true.")
+
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Auto-suspend if not already
+    if tenant.suspended_at is None:
+        tenant.suspended_at = datetime.now(timezone.utc)
+        tenant.suspended_reason = "GDPR data erasure (preparation)"
+        db.commit()
+
+    from app.backend.services.erasure_service import request_erasure, execute_erasure
+
+    log = request_erasure(db, tenant_id=tenant_id, actor_user_id=admin.id)
+
+    # Execute immediately (can be made async in future)
+    try:
+        records_affected = execute_erasure(db, erasure_log_id=log.id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erasure failed: {str(exc)}")
+
+    log_audit(
+        db,
+        actor=admin,
+        action="tenant.anonymize",
+        resource_type="tenant",
+        resource_id=tenant_id,
+        details={"erasure_log_id": log.id, "records_affected": records_affected},
+    )
+
+    return {
+        "message": "Tenant data erasure completed",
+        "tenant_id": tenant_id,
+        "erasure_log_id": log.id,
+        "records_affected": records_affected,
+        "status": "completed",
+    }
+
+
+@router.get("/tenants/{tenant_id}/anonymize")
+def list_erasure_logs(
+    tenant_id: int,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """List erasure logs for a tenant."""
+    logs = (
+        db.query(ErasureLog)
+        .filter(ErasureLog.tenant_id == tenant_id)
+        .order_by(ErasureLog.created_at.desc())
+        .all()
+    )
+    return [
+        ErasureLogItem(
+            id=log.id,
+            tenant_id=log.tenant_id,
+            actor_email=log.actor.email if log.actor else None,
+            status=log.status,
+            started_at=_dt_to_iso(log.started_at),
+            completed_at=_dt_to_iso(log.completed_at),
+            records_affected=log.records_affected,
+            created_at=_dt_to_iso(log.created_at),
+        )
+        for log in logs
+    ]
+
+
+@router.get("/tenants/{tenant_id}/anonymize/{erasure_log_id}")
+def get_erasure_detail(
+    tenant_id: int,
+    erasure_log_id: int,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Get details of a specific erasure request."""
+    log = (
+        db.query(ErasureLog)
+        .filter(ErasureLog.id == erasure_log_id, ErasureLog.tenant_id == tenant_id)
+        .first()
+    )
+    if not log:
+        raise HTTPException(status_code=404, detail="Erasure log not found")
+
+    return ErasureLogItem(
+        id=log.id,
+        tenant_id=log.tenant_id,
+        actor_email=log.actor.email if log.actor else None,
+        status=log.status,
+        started_at=_dt_to_iso(log.started_at),
+        completed_at=_dt_to_iso(log.completed_at),
+        records_affected=log.records_affected,
+        created_at=_dt_to_iso(log.created_at),
+    )
+
+
+# ─── Plan-Feature Entitlement Management ───────────────────────────────────────
+
+class PlanFeatureItem(BaseModel):
+    id: int
+    plan_id: int
+    feature_flag_id: int
+    feature_key: Optional[str] = None
+    feature_name: Optional[str] = None
+    enabled: bool
+    created_at: Optional[str] = None
+
+
+@router.get("/plans/{plan_id}/features")
+def get_plan_feature_mappings(
+    plan_id: int,
+    admin: User = Depends(require_billing_admin),
+    db: Session = Depends(get_db),
+):
+    """List all feature flag mappings for a subscription plan."""
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    mappings = (
+        db.query(PlanFeature)
+        .filter(PlanFeature.plan_id == plan_id)
+        .all()
+    )
+    return [
+        PlanFeatureItem(
+            id=m.id,
+            plan_id=m.plan_id,
+            feature_flag_id=m.feature_flag_id,
+            feature_key=m.feature_flag.key if m.feature_flag else None,
+            feature_name=m.feature_flag.display_name if m.feature_flag else None,
+            enabled=m.enabled,
+            created_at=_dt_to_iso(m.created_at),
+        )
+        for m in mappings
+    ]
+
+
+@router.put("/plans/{plan_id}/features/{feature_flag_id}")
+def update_plan_feature_mapping(
+    plan_id: int,
+    feature_flag_id: int,
+    body: dict,  # { "enabled": bool }
+    admin: User = Depends(require_billing_admin),
+    db: Session = Depends(get_db),
+):
+    """Enable or disable a feature for a specific subscription plan."""
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    flag = db.query(FeatureFlag).filter(FeatureFlag.id == feature_flag_id).first()
+    if not flag:
+        raise HTTPException(status_code=404, detail="Feature flag not found")
+
+    mapping = (
+        db.query(PlanFeature)
+        .filter(PlanFeature.plan_id == plan_id, PlanFeature.feature_flag_id == feature_flag_id)
+        .first()
+    )
+
+    enabled = body.get("enabled", True)
+    if mapping:
+        mapping.enabled = enabled
+    else:
+        mapping = PlanFeature(
+            plan_id=plan_id,
+            feature_flag_id=feature_flag_id,
+            enabled=enabled,
+        )
+        db.add(mapping)
+
+    db.commit()
+    db.refresh(mapping)
+
+    # Invalidate cache for all tenants on this plan
+    from app.backend.services.feature_flag_service import invalidate_cache
+    tenants = db.query(Tenant).filter(Tenant.plan_id == plan_id).all()
+    for t in tenants:
+        invalidate_cache(tenant_id=t.id, feature_key=flag.key)
+
+    log_audit(
+        db, actor=admin, action="plan_feature.update",
+        resource_type="plan_feature", resource_id=mapping.id,
+        details={"plan_id": plan_id, "feature_flag_id": feature_flag_id, "enabled": enabled},
+    )
+
+    return PlanFeatureItem(
+        id=mapping.id,
+        plan_id=mapping.plan_id,
+        feature_flag_id=mapping.feature_flag_id,
+        feature_key=flag.key,
+        feature_name=flag.display_name,
+        enabled=mapping.enabled,
+        created_at=_dt_to_iso(mapping.created_at),
+    )
+
+
+@router.delete("/plans/{plan_id}/features/{feature_flag_id}")
+def delete_plan_feature_mapping(
+    plan_id: int,
+    feature_flag_id: int,
+    admin: User = Depends(require_billing_admin),
+    db: Session = Depends(get_db),
+):
+    """Remove a plan-feature mapping (reverts to global flag default)."""
+    mapping = (
+        db.query(PlanFeature)
+        .filter(PlanFeature.plan_id == plan_id, PlanFeature.feature_flag_id == feature_flag_id)
+        .first()
+    )
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+
+    flag = db.query(FeatureFlag).filter(FeatureFlag.id == feature_flag_id).first()
+
+    db.delete(mapping)
+    db.commit()
+
+    # Invalidate cache for all tenants on this plan
+    from app.backend.services.feature_flag_service import invalidate_cache
+    tenants = db.query(Tenant).filter(Tenant.plan_id == plan_id).all()
+    for t in tenants:
+        invalidate_cache(tenant_id=t.id, feature_key=flag.key if flag else None)
+
+    log_audit(
+        db, actor=admin, action="plan_feature.delete",
+        resource_type="plan_feature", resource_id=None,
+        details={"plan_id": plan_id, "feature_flag_id": feature_flag_id},
+    )
+
+    return {"message": "Plan-feature mapping removed", "plan_id": plan_id, "feature_flag_id": feature_flag_id}

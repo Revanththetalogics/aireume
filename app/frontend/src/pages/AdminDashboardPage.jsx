@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Shield,
   Users,
@@ -28,7 +29,11 @@ import {
   CreditCard,
   SlidersHorizontal,
   AlertCircle,
-  Mail
+  Mail,
+  ShieldAlert,
+  UserCheck,
+  Trash2,
+  Layers
 } from 'lucide-react'
 import {
   getAdminTenants,
@@ -382,6 +387,7 @@ function SuspendModal({ tenant, onClose, onConfirm }) {
 }
 
 export default function AdminDashboardPage() {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('overview')
   const [tenantsData, setTenantsData] = useState(null)
   const [auditData, setAuditData] = useState(null)
@@ -801,6 +807,61 @@ export default function AdminDashboardPage() {
                 ) : (
                   <p className="text-sm text-slate-500">No tenants found.</p>
                 )}
+              </div>
+
+              {/* Enterprise Admin Quick Links */}
+              <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6">
+                <h3 className="font-extrabold text-brand-900 tracking-tight mb-4">Enterprise Tools</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <button
+                    onClick={() => navigate('/admin/security-events')}
+                    className="flex items-center gap-3 p-4 rounded-2xl bg-brand-50 hover:bg-brand-100 ring-1 ring-brand-200 transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center shrink-0">
+                      <ShieldAlert className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-brand-900">Security Events</p>
+                      <p className="text-xs text-slate-500">Login monitoring & alerts</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => navigate('/admin/impersonation')}
+                    className="flex items-center gap-3 p-4 rounded-2xl bg-brand-50 hover:bg-brand-100 ring-1 ring-brand-200 transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center shrink-0">
+                      <UserCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-brand-900">Impersonation</p>
+                      <p className="text-xs text-slate-500">Secure login-as-user</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => navigate('/admin/erasure')}
+                    className="flex items-center gap-3 p-4 rounded-2xl bg-brand-50 hover:bg-brand-100 ring-1 ring-brand-200 transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0">
+                      <Trash2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-brand-900">GDPR Erasure</p>
+                      <p className="text-xs text-slate-500">Tenant data anonymization</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => navigate('/admin/plan-features')}
+                    className="flex items-center gap-3 p-4 rounded-2xl bg-brand-50 hover:bg-brand-100 ring-1 ring-brand-200 transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center shrink-0">
+                      <Layers className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-brand-900">Plan Features</p>
+                      <p className="text-xs text-slate-500">Feature entitlement mapping</p>
+                    </div>
+                  </button>
+                </div>
               </div>
             </>
           ) : (

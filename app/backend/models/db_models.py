@@ -27,6 +27,7 @@ class SubscriptionPlan(Base):
     updated_at   = Column(DateTime(timezone=True), onupdate=func.now())
 
     tenants = relationship("Tenant", back_populates="plan")
+    plan_features = relationship("PlanFeature", back_populates="plan", cascade="all, delete-orphan")
 
 
 class Tenant(Base):
@@ -74,12 +75,18 @@ class User(Base):
     role            = Column(String(50), nullable=False, default="recruiter")  # admin / recruiter / viewer
     is_active       = Column(Boolean, default=True)
     is_platform_admin = Column(Boolean, nullable=False, default=False)
+    platform_role   = Column(String(50), nullable=True)  # super_admin | billing_admin | support | security_admin | readonly
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant       = relationship("Tenant", back_populates="users")
     team_member  = relationship("TeamMember", back_populates="user", uselist=False)
     comments     = relationship("Comment", back_populates="author")
     usage_logs   = relationship("UsageLog", back_populates="user")
+
+    @property
+    def is_platform_admin_compat(self) -> bool:
+        """Backward compatibility: any non-null platform_role counts as platform admin."""
+        return self.is_platform_admin or (self.platform_role is not None)
 
 
 class UsageLog(Base):
@@ -376,6 +383,7 @@ class FeatureFlag(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     overrides = relationship("TenantFeatureOverride", back_populates="feature_flag")
+    plan_features = relationship("PlanFeature", back_populates="feature_flag", cascade="all, delete-orphan")
 
 class TenantFeatureOverride(Base):
     """Per-tenant feature flag overrides."""
@@ -471,4 +479,72 @@ class TenantEmailConfig(Base):
     configured_by   = Column(Integer, ForeignKey("users.id"), nullable=True)
     last_test_at    = Column(DateTime(timezone=True), nullable=True)
     last_test_success = Column(Boolean, nullable=True)
+
+
+class ImpersonationSession(Base):
+    """Tracks active admin impersonation sessions for support/debugging."""
+    __tablename__ = "impersonation_sessions"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    admin_user_id   = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    target_user_id  = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash      = Column(String(64), unique=True, nullable=False, index=True)
+    expires_at      = Column(DateTime(timezone=True), nullable=False)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    revoked_at      = Column(DateTime(timezone=True), nullable=True)
+    ip_address      = Column(String(45), nullable=True)
+
+    admin_user  = relationship("User", foreign_keys=[admin_user_id])
+    target_user = relationship("User", foreign_keys=[target_user_id])
+
+
+class SecurityEvent(Base):
+    """Security monitoring events: logins, failures, suspicious activity."""
+    __tablename__ = "security_events"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    event_type  = Column(String(50), nullable=False)
+    ip_address  = Column(String(45), nullable=True)
+    user_agent  = Column(String(500), nullable=True)
+    details     = Column(Text, nullable=True)
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship("Tenant")
+    user   = relationship("User")
+
+
+class PlanFeature(Base):
+    """Maps subscription plans to feature flag entitlements."""
+    __tablename__ = "plan_features"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    plan_id          = Column(Integer, ForeignKey("subscription_plans.id", ondelete="CASCADE"), nullable=False)
+    feature_flag_id  = Column(Integer, ForeignKey("feature_flags.id", ondelete="CASCADE"), nullable=False)
+    enabled          = Column(Boolean, nullable=False, default=True)
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+
+    plan         = relationship("SubscriptionPlan", back_populates="plan_features")
+    feature_flag = relationship("FeatureFlag", back_populates="plan_features")
+
+    __table_args__ = (UniqueConstraint("plan_id", "feature_flag_id", name="uq_plan_feature"),)
+
+
+class ErasureLog(Base):
+    """Audit trail for GDPR data erasure requests."""
+    __tablename__ = "erasure_logs"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    tenant_id        = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    actor_user_id    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    status           = Column(String(20), nullable=False, default="requested")
+    started_at       = Column(DateTime(timezone=True), nullable=True)
+    completed_at     = Column(DateTime(timezone=True), nullable=True)
+    records_affected = Column(Integer, nullable=False, default=0)
+    details          = Column(Text, nullable=True)
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship("Tenant")
+    actor  = relationship("User")
 

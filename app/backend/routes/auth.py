@@ -19,6 +19,12 @@ from app.backend.models.db_models import Tenant, User, RevokedToken
 from app.backend.models.schemas import (
     RegisterRequest, LoginRequest, TokenResponse, RefreshRequest
 )
+from app.backend.services.security_event_service import (
+    record_login_success,
+    record_login_failure,
+    record_suspicious_activity,
+    is_suspicious,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -54,7 +60,25 @@ def _tenant_dict(tenant: Tenant) -> dict:
 
 
 def _user_dict(user: User) -> dict:
-    return {"id": user.id, "email": user.email, "role": user.role, "tenant_id": user.tenant_id}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "role": user.role,
+        "tenant_id": user.tenant_id,
+        "is_platform_admin": user.is_platform_admin or (user.platform_role is not None),
+        "platform_role": user.platform_role,
+    }
+
+
+def _get_client_ip(request: Request) -> str:
+    """Extract client IP from request headers or connection info."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip
+    return request.client.host if request.client else ""
 
 
 def _create_auth_response(user: User, tenant: Tenant, access_token: str, refresh_token: str) -> JSONResponse:
@@ -146,10 +170,21 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
+    ip = _get_client_ip(request)
+    user_agent = request.headers.get("User-Agent")
+
     user = db.query(User).filter(User.email == body.email, User.is_active == True).first()
     if not user or not _verify_password(body.password, user.hashed_password):
+        # Record failed login
+        record_login_failure(db, email=body.email, ip_address=ip, user_agent=user_agent, reason="Invalid credentials")
+        # Check for brute-force
+        if is_suspicious(db, ip_address=ip, email=body.email, window_minutes=30, threshold=5):
+            record_suspicious_activity(db, ip_address=ip, email=body.email, details={"reason": "brute_force_detected"})
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Record successful login
+    record_login_success(db, user=user, ip_address=ip, user_agent=user_agent)
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 

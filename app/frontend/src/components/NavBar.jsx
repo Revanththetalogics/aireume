@@ -228,7 +228,7 @@ export default function NavBar() {
                 </div>
 
                 {/* Admin Link (conditional) */}
-                {user?.is_platform_admin && (
+                {(user?.is_platform_admin || !!user?.platform_role) && (
                   <button
                     onClick={() => { setUserMenuOpen(false); navigate('/admin') }}
                     className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand-50 transition-colors"

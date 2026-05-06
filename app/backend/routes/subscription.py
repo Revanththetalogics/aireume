@@ -71,6 +71,7 @@ class FullSubscriptionResponse(BaseModel):
     usage: UsageResponse
     available_plans: list[PlanResponse]
     days_until_reset: int
+    enabled_features: list[str] = []
 
 
 class UsageCheckResponse(BaseModel):
@@ -258,11 +259,16 @@ def get_my_subscription(
         SubscriptionPlan.is_active == True
     ).order_by(SubscriptionPlan.sort_order).all()
     
+    # Resolve enabled features for the tenant
+    from app.backend.services.feature_flag_service import get_enabled_features_for_tenant
+    enabled_features = get_enabled_features_for_tenant(db, tenant.id)
+
     return FullSubscriptionResponse(
         current_plan=current_plan,
         usage=usage,
         available_plans=[_plan_to_response(p) for p in all_plans],
         days_until_reset=_calculate_days_until_reset(tenant),
+        enabled_features=enabled_features,
     )
 
 

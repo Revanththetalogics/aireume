@@ -32,6 +32,10 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
 const AnalyticsPage  = lazy(() => import('./pages/AnalyticsPage'))
 const EmailSettings = lazy(() => import('./pages/admin/EmailSettings'))
+const SecurityEventsPage = lazy(() => import('./pages/admin/SecurityEventsPage'))
+const ImpersonationPage = lazy(() => import('./pages/admin/ImpersonationPage'))
+const ErasurePage = lazy(() => import('./pages/admin/ErasurePage'))
+const PlanFeaturesPage = lazy(() => import('./pages/admin/PlanFeaturesPage'))
 
 function PageLoader() {
   return (
@@ -80,7 +84,11 @@ function App() {
           <Route path="/analytics"  element={<Shell><AnalyticsPage /></Shell>} />
           <Route path="/settings"   element={<Shell><SettingsPage /></Shell>} />
           <Route path="/admin" element={<PlatformAdminRoute><Shell><AdminDashboardPage /></Shell></PlatformAdminRoute>} />
-          <Route path="/admin/email-settings" element={<Shell><EmailSettings /></Shell>} />
+          <Route path="/admin/email-settings" element={<PlatformAdminRoute><Shell><EmailSettings /></Shell></PlatformAdminRoute>} />
+          <Route path="/admin/security-events" element={<PlatformAdminRoute><Shell><SecurityEventsPage /></Shell></PlatformAdminRoute>} />
+          <Route path="/admin/impersonation" element={<PlatformAdminRoute><Shell><ImpersonationPage /></Shell></PlatformAdminRoute>} />
+          <Route path="/admin/erasure" element={<PlatformAdminRoute><Shell><ErasurePage /></Shell></PlatformAdminRoute>} />
+          <Route path="/admin/plan-features" element={<PlatformAdminRoute><Shell><PlanFeaturesPage /></Shell></PlatformAdminRoute>} />
 
           {/* Backward compatibility redirects */}
           <Route path="/batch"      element={<Navigate to="/analyze" replace />} />

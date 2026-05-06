@@ -1122,4 +1122,51 @@ export async function deleteEmailConfig() {
   return response.data
 }
 
+// ─── Enterprise Platform Admin API (Phase 1-4) ────────────────────────────────
+
+export async function getSecurityEvents(params = {}) {
+  const response = await api.get('/admin/security-events', { params })
+  return response.data
+}
+
+export async function impersonateUser(userId) {
+  const response = await api.post(`/admin/impersonate/${userId}`)
+  return response.data
+}
+
+export async function listImpersonationSessions() {
+  const response = await api.get('/admin/impersonate/sessions')
+  return response.data
+}
+
+export async function revokeImpersonationSession(sessionId) {
+  const response = await api.delete(`/admin/impersonate/sessions/${sessionId}`)
+  return response.data
+}
+
+export async function requestErasure(tenantId) {
+  const response = await api.post(`/admin/tenants/${tenantId}/anonymize`, { confirm: true })
+  return response.data
+}
+
+export async function getErasureLogs(tenantId) {
+  const response = await api.get(`/admin/tenants/${tenantId}/anonymize`)
+  return response.data
+}
+
+export async function getAdminPlanFeatures(planId) {
+  const response = await api.get(`/admin/plans/${planId}/features`)
+  return response.data
+}
+
+export async function updatePlanFeature(planId, featureFlagId, enabled) {
+  const response = await api.put(`/admin/plans/${planId}/features/${featureFlagId}`, { enabled })
+  return response.data
+}
+
+export async function deletePlanFeature(planId, featureFlagId) {
+  const response = await api.delete(`/admin/plans/${planId}/features/${featureFlagId}`)
+  return response.data
+}
+
 export default api
