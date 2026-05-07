@@ -1159,6 +1159,57 @@ export async function getAdminPlanFeatures(planId) {
   return response.data
 }
 
+// ─── Rate Limit Admin API ──────────────────────────────────────────
+
+export async function getAdminRateLimits(params = {}) {
+  const response = await api.get('/admin/rate-limits', { params })
+  return response.data
+}
+
+export async function getTenantRateLimit(tenantId) {
+  const response = await api.get(`/admin/tenants/${tenantId}/rate-limit`)
+  return response.data
+}
+
+export async function updateTenantRateLimit(tenantId, data) {
+  const response = await api.put(`/admin/tenants/${tenantId}/rate-limit`, data)
+  return response.data
+}
+
+export async function deleteTenantRateLimit(tenantId) {
+  const response = await api.delete(`/admin/tenants/${tenantId}/rate-limit`)
+  return response.data
+}
+
+// ─── Tenant CRUD Admin API ──────────────────────────────────────────
+
+export async function createTenant(data) {
+  const response = await api.post('/admin/tenants', data)
+  return response.data
+}
+
+export async function updateTenant(tenantId, data) {
+  const response = await api.put(`/admin/tenants/${tenantId}`, data)
+  return response.data
+}
+
+export async function deleteTenant(tenantId) {
+  const response = await api.delete('/admin/tenants/' + tenantId, { params: { confirm: true } })
+  return response.data
+}
+
+// ─── Tenant User Management API ─────────────────────────────────────
+
+export async function addUserToTenant(tenantId, data) {
+  const response = await api.post(`/admin/tenants/${tenantId}/users`, data)
+  return response.data
+}
+
+export async function removeUserFromTenant(tenantId, userId) {
+  const response = await api.delete(`/admin/tenants/${tenantId}/users/${userId}`)
+  return response.data
+}
+
 export async function updatePlanFeature(planId, featureFlagId, enabled) {
   const response = await api.put(`/admin/plans/${planId}/features/${featureFlagId}`, { enabled })
   return response.data

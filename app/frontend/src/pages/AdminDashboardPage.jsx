@@ -33,7 +33,12 @@ import {
   ShieldAlert,
   UserCheck,
   Trash2,
-  Layers
+  Layers,
+  Plus,
+  UserPlus,
+  Edit,
+  TrendingUp,
+  DollarSign,
 } from 'lucide-react'
 import {
   getAdminTenants,
@@ -41,6 +46,8 @@ import {
   suspendTenant,
   reactivateTenant,
   adminChangeTenantPlan,
+  adminAdjustUsage,
+  getAdminTenantUsageHistory,
   getAdminAuditLogs,
   getAvailablePlans,
   getAdminFeatureFlags,
@@ -59,6 +66,19 @@ import {
   getBillingProviders,
   getNotificationConfig,
   sendTestEmail,
+  getAdminRateLimits,
+  getTenantRateLimit,
+  updateTenantRateLimit,
+  deleteTenantRateLimit,
+  createTenant,
+  updateTenant,
+  deleteTenant,
+  addUserToTenant,
+  removeUserFromTenant,
+} from '../lib/api'
+import {
+  getSecurityEvents,
+  getImpersonationSessions,
 } from '../lib/api'
 
 const TABS = [
@@ -129,16 +149,34 @@ function TenantDetailModal({ tenantId, onClose, onAction }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [activeDetailTab, setActiveDetailTab] = useState('overview')
+  const [usageHistory, setUsageHistory] = useState([])
+  const [usageLoading, setUsageLoading] = useState(false)
+  const [showAdjustUsage, setShowAdjustUsage] = useState(false)
+  const [adjustForm, setAdjustForm] = useState({ analyses_count: '', storage_used_bytes: '' })
+  const [adjustSaving, setAdjustSaving] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     getAdminTenantDetail(tenantId)
-      .then((data) => { if (!cancelled) setDetail(data) })
+      .then((data) => {
+        if (!cancelled) setDetail(data)
+      })
       .catch((err) => { if (!cancelled) setError(err.response?.data?.detail || 'Failed to load tenant') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [tenantId])
+
+  useEffect(() => {
+    if (activeDetailTab === 'usage' && tenantId) {
+      setUsageLoading(true)
+      getAdminTenantUsageHistory(tenantId, 50)
+        .then((data) => setUsageHistory(data))
+        .catch(() => setUsageHistory([]))
+        .finally(() => setUsageLoading(false))
+    }
+  }, [activeDetailTab, tenantId])
 
   const formatBytes = (bytes) => {
     if (!bytes) return '0 B'
@@ -148,9 +186,15 @@ function TenantDetailModal({ tenantId, onClose, onAction }) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
   }
 
+  const DETAIL_TABS = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'usage', label: 'Usage History' },
+    { id: 'actions', label: 'Actions' },
+  ]
+
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6 card-animate">
+      <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto p-6 card-animate">
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-extrabold text-brand-900 tracking-tight text-lg">Tenant Details</h3>
           <button onClick={onClose} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
@@ -168,84 +212,243 @@ function TenantDetailModal({ tenantId, onClose, onAction }) {
             <p className="text-red-700 text-sm">{error}</p>
           </div>
         ) : detail ? (
-          <div className="space-y-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <h4 className="font-bold text-brand-900 text-xl">{detail.name}</h4>
-                <p className="text-sm text-slate-500 mt-0.5">{detail.slug}</p>
-              </div>
-              <StatusBadge status={detail.subscription_status} />
+          <div>
+            {/* Tabs */}
+            <div className="flex gap-2 mb-5 border-b border-brand-100">
+              {DETAIL_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveDetailTab(tab.id)}
+                  className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors ${
+                    activeDetailTab === tab.id
+                      ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-600'
+                      : 'text-slate-500 hover:text-brand-700'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
-                <p className="text-xs text-slate-500 font-medium">Plan</p>
-                <p className="text-sm font-bold text-brand-900 mt-0.5">{detail.plan_display_name || detail.plan_name || 'None'}</p>
-              </div>
-              <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
-                <p className="text-xs text-slate-500 font-medium">Analyses This Month</p>
-                <p className="text-sm font-bold text-brand-900 mt-0.5">{detail.analyses_count_this_month}</p>
-              </div>
-              <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
-                <p className="text-xs text-slate-500 font-medium">Storage Used</p>
-                <p className="text-sm font-bold text-brand-900 mt-0.5">{formatBytes(detail.storage_used_bytes)}</p>
-              </div>
-              <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
-                <p className="text-xs text-slate-500 font-medium">Created</p>
-                <p className="text-sm font-bold text-brand-900 mt-0.5">{detail.created_at ? new Date(detail.created_at).toLocaleDateString() : '—'}</p>
-              </div>
-              <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
-                <p className="text-xs text-slate-500 font-medium">Users</p>
-                <p className="text-sm font-bold text-brand-900 mt-0.5">{detail.users?.length || 0}</p>
-              </div>
-              {detail.suspended_at && (
-                <div className="p-3 bg-red-50/50 rounded-xl ring-1 ring-red-100">
-                  <p className="text-xs text-red-500 font-medium">Suspended</p>
-                  <p className="text-sm font-bold text-red-700 mt-0.5">{new Date(detail.suspended_at).toLocaleDateString()}</p>
+            {/* Overview Tab */}
+            {activeDetailTab === 'overview' && (
+              <div className="space-y-6">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h4 className="font-bold text-brand-900 text-xl">{detail.name}</h4>
+                    <p className="text-sm text-slate-500 mt-0.5">{detail.slug}</p>
+                  </div>
+                  <StatusBadge status={detail.subscription_status} />
                 </div>
-              )}
-            </div>
 
-            {detail.suspended_reason && (
-              <div className="p-3 bg-red-50/50 rounded-xl ring-1 ring-red-100">
-                <p className="text-xs text-red-500 font-medium">Suspension Reason</p>
-                <p className="text-sm text-red-700 mt-0.5">{detail.suspended_reason}</p>
-              </div>
-            )}
-
-            {detail.users && detail.users.length > 0 && (
-              <div>
-                <h5 className="font-bold text-slate-800 text-sm mb-2">Users</h5>
-                <div className="divide-y divide-brand-50 ring-1 ring-brand-100 rounded-xl overflow-hidden">
-                  {detail.users.map((u) => (
-                    <div key={u.id} className="flex items-center justify-between px-4 py-2.5 bg-white">
-                      <span className="text-sm text-slate-700">{u.email}</span>
-                      <span className="text-xs font-medium text-slate-500 capitalize">{u.role}</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
+                    <p className="text-xs text-slate-500 font-medium">Plan</p>
+                    <p className="text-sm font-bold text-brand-900 mt-0.5">{detail.plan_display_name || detail.plan_name || 'None'}</p>
+                  </div>
+                  <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
+                    <p className="text-xs text-slate-500 font-medium">Analyses This Month</p>
+                    <p className="text-sm font-bold text-brand-900 mt-0.5">{detail.analyses_count_this_month}</p>
+                  </div>
+                  <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
+                    <p className="text-xs text-slate-500 font-medium">Storage Used</p>
+                    <p className="text-sm font-bold text-brand-900 mt-0.5">{formatBytes(detail.storage_used_bytes)}</p>
+                  </div>
+                  <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
+                    <p className="text-xs text-slate-500 font-medium">Created</p>
+                    <p className="text-sm font-bold text-brand-900 mt-0.5">{detail.created_at ? new Date(detail.created_at).toLocaleDateString() : '—'}</p>
+                  </div>
+                  <div className="p-3 bg-brand-50/50 rounded-xl ring-1 ring-brand-100">
+                    <p className="text-xs text-slate-500 font-medium">Users</p>
+                    <p className="text-sm font-bold text-brand-900 mt-0.5">{detail.users?.length || 0}</p>
+                  </div>
+                  {detail.suspended_at && (
+                    <div className="p-3 bg-red-50/50 rounded-xl ring-1 ring-red-100">
+                      <p className="text-xs text-red-500 font-medium">Suspended</p>
+                      <p className="text-sm font-bold text-red-700 mt-0.5">{new Date(detail.suspended_at).toLocaleDateString()}</p>
                     </div>
-                  ))}
+                  )}
                 </div>
+
+                {detail.suspended_reason && (
+                  <div className="p-3 bg-red-50/50 rounded-xl ring-1 ring-red-100">
+                    <p className="text-xs text-red-500 font-medium">Suspension Reason</p>
+                    <p className="text-sm text-red-700 mt-0.5">{detail.suspended_reason}</p>
+                  </div>
+                )}
+
+                {detail.users && detail.users.length > 0 && (
+                  <div>
+                    <h5 className="font-bold text-slate-800 text-sm mb-2">Users</h5>
+                    <div className="divide-y divide-brand-50 ring-1 ring-brand-100 rounded-xl overflow-hidden">
+                      {detail.users.map((u) => (
+                        <div key={u.id} className="flex items-center justify-between px-4 py-2.5 bg-white">
+                          <span className="text-sm text-slate-700">{u.email}</span>
+                          <span className="text-xs font-medium text-slate-500 capitalize">{u.role}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              {detail.subscription_status === 'suspended' ? (
+            {/* Usage History Tab */}
+            {activeDetailTab === 'usage' && (
+              <div>
+                {usageLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+                  </div>
+                ) : usageHistory.length === 0 ? (
+                  <div className="p-8 text-center">
+                    <Activity className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm text-slate-500">No usage history found.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {usageHistory.map((log) => (
+                      <div key={log.id} className="p-3 bg-brand-50/30 rounded-xl ring-1 ring-brand-50">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-brand-900">{log.action}</p>
+                            <p className="text-xs text-slate-500">{log.user_email || 'System'}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-brand-700">{log.quantity}</p>
+                            <p className="text-xs text-slate-400">{new Date(log.created_at).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Actions Tab */}
+            {activeDetailTab === 'actions' && (
+              <div className="space-y-3">
                 <button
-                  onClick={() => onAction('reactivate', detail.id)}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 text-sm font-semibold rounded-xl hover:bg-green-100 transition-colors"
+                  onClick={() => setShowAdjustUsage(true)}
+                  className="w-full flex items-center gap-3 p-4 rounded-xl bg-brand-50 hover:bg-brand-100 ring-1 ring-brand-200 transition-colors text-left"
                 >
-                  <PlayCircle className="w-4 h-4" /> Reactivate
+                  <SlidersHorizontal className="w-5 h-5 text-brand-600" />
+                  <div>
+                    <p className="text-sm font-bold text-brand-900">Adjust Usage Counters</p>
+                    <p className="text-xs text-slate-500">Override analyses or storage limits</p>
+                  </div>
                 </button>
-              ) : (
+
+                {detail.subscription_status === 'suspended' ? (
+                  <button
+                    onClick={() => onAction('reactivate', detail.id)}
+                    className="w-full flex items-center gap-3 p-4 rounded-xl bg-green-50 hover:bg-green-100 ring-1 ring-green-200 transition-colors text-left"
+                  >
+                    <PlayCircle className="w-5 h-5 text-green-600" />
+                    <div>
+                      <p className="text-sm font-bold text-green-900">Reactivate Tenant</p>
+                      <p className="text-xs text-green-600">Restore access and services</p>
+                    </div>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onAction('suspend', detail.id)}
+                    className="w-full flex items-center gap-3 p-4 rounded-xl bg-red-50 hover:bg-red-100 ring-1 ring-red-200 transition-colors text-left"
+                  >
+                    <Ban className="w-5 h-5 text-red-600" />
+                    <div>
+                      <p className="text-sm font-bold text-red-900">Suspend Tenant</p>
+                      <p className="text-xs text-red-600">Disable access temporarily</p>
+                    </div>
+                  </button>
+                )}
+
                 <button
-                  onClick={() => onAction('suspend', detail.id)}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 text-sm font-semibold rounded-xl hover:bg-red-100 transition-colors"
+                  onClick={() => { onClose(); setTimeout(() => onAction('change-plan', detail.id), 100) }}
+                  className="w-full flex items-center gap-3 p-4 rounded-xl bg-brand-50 hover:bg-brand-100 ring-1 ring-brand-200 transition-colors text-left"
                 >
-                  <Ban className="w-4 h-4" /> Suspend
+                  <CreditCard className="w-5 h-5 text-brand-600" />
+                  <div>
+                    <p className="text-sm font-bold text-brand-900">Change Subscription Plan</p>
+                    <p className="text-xs text-slate-500">Upgrade or downgrade plan</p>
+                  </div>
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         ) : null}
+
+        {/* Adjust Usage Modal */}
+        {showAdjustUsage && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-md p-6 card-animate">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="font-extrabold text-brand-900 tracking-tight text-lg">Adjust Usage</h3>
+                <button onClick={() => setShowAdjustUsage(false)} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">Analyses Count</label>
+                  <input
+                    type="number"
+                    value={adjustForm.analyses_count}
+                    onChange={(e) => setAdjustForm({ ...adjustForm, analyses_count: e.target.value })}
+                    placeholder={detail.analyses_count_this_month}
+                    className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Current: {detail.analyses_count_this_month}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">Storage Used (bytes)</label>
+                  <input
+                    type="number"
+                    value={adjustForm.storage_used_bytes}
+                    onChange={(e) => setAdjustForm({ ...adjustForm, storage_used_bytes: e.target.value })}
+                    placeholder={detail.storage_used_bytes}
+                    className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Current: {formatBytes(detail.storage_used_bytes)}</p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowAdjustUsage(false)}
+                  className="px-4 py-2 ring-1 ring-brand-200 text-sm font-semibold text-brand-700 rounded-xl hover:bg-brand-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setAdjustSaving(true)
+                    try {
+                      const payload = {}
+                      if (adjustForm.analyses_count) payload.analyses_count = parseInt(adjustForm.analyses_count, 10)
+                      if (adjustForm.storage_used_bytes) payload.storage_used_bytes = parseInt(adjustForm.storage_used_bytes, 10)
+                      await adminAdjustUsage(detail.id, payload)
+                      setShowAdjustUsage(false)
+                      // Refresh detail
+                      getAdminTenantDetail(tenantId).then(setDetail)
+                    } catch (err) {
+                      alert(err.response?.data?.detail || 'Failed to adjust usage')
+                    } finally {
+                      setAdjustSaving(false)
+                    }
+                  }}
+                  disabled={adjustSaving || (!adjustForm.analyses_count && !adjustForm.storage_used_bytes)}
+                  className="px-4 py-2 btn-brand text-white text-sm font-bold rounded-xl disabled:opacity-60"
+                >
+                  {adjustSaving ? 'Saving...' : 'Adjust Usage'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -458,6 +661,29 @@ export default function AdminDashboardPage() {
   const [testEmailSending, setTestEmailSending] = useState(false)
   const [testEmailResult, setTestEmailResult] = useState(null)
 
+  // Rate Limits state
+  const [rateLimitsData, setRateLimitsData] = useState(null)
+  const [rateLimitsLoading, setRateLimitsLoading] = useState(false)
+  const [rateLimitsError, setRateLimitsError] = useState('')
+  const [rateLimitSearch, setRateLimitSearch] = useState('')
+  const [rateLimitPage, setRateLimitPage] = useState(1)
+  const [rateLimitPerPage] = useState(20)
+  const [editRateLimitTenant, setEditRateLimitTenant] = useState(null)
+  const [editRateLimitForm, setEditRateLimitForm] = useState({ requests_per_minute: 60, llm_concurrent_max: 2 })
+  const [editRateLimitSaving, setEditRateLimitSaving] = useState(false)
+
+  // Tenant CRUD state
+  const [showCreateTenant, setShowCreateTenant] = useState(false)
+  const [createTenantForm, setCreateTenantForm] = useState({ name: '', slug: '', contact_email: '', plan_id: '' })
+  const [createTenantSaving, setCreateTenantSaving] = useState(false)
+  const [editTenantObj, setEditTenantObj] = useState(null)
+  const [editTenantForm, setEditTenantForm] = useState({ name: '', slug: '', contact_email: '', subscription_status: '' })
+  const [editTenantSaving, setEditTenantSaving] = useState(false)
+
+  // Recent Activity state
+  const [recentActivity, setRecentActivity] = useState([])
+  const [activityLoading, setActivityLoading] = useState(false)
+
   const fetchTenants = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -632,6 +858,76 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (activeTab === 'notifications') fetchNotificationConfig()
   }, [activeTab, fetchNotificationConfig])
+
+  const fetchRateLimits = useCallback(async () => {
+    setRateLimitsLoading(true)
+    setRateLimitsError('')
+    try {
+      const params = {
+        page: rateLimitPage,
+        per_page: rateLimitPerPage,
+      }
+      if (rateLimitSearch.trim()) params.search = rateLimitSearch.trim()
+      const data = await getAdminRateLimits(params)
+      setRateLimitsData(data)
+    } catch (err) {
+      setRateLimitsError(err.response?.data?.detail || 'Failed to load rate limits')
+    } finally {
+      setRateLimitsLoading(false)
+    }
+  }, [rateLimitPage, rateLimitPerPage, rateLimitSearch])
+
+  useEffect(() => {
+    if (activeTab === 'rate-limits') fetchRateLimits()
+  }, [activeTab, fetchRateLimits])
+
+  const fetchRecentActivity = useCallback(async () => {
+    setActivityLoading(true)
+    try {
+      const [auditLogs, securityEvents] = await Promise.allSettled([
+        getAdminAuditLogs({ page: 1, per_page: 10 }),
+        getSecurityEvents({ page: 1, per_page: 5 }),
+      ])
+
+      const activities = []
+      if (auditLogs.status === 'fulfilled' && auditLogs.value.items) {
+        auditLogs.value.items.forEach((log) => {
+          activities.push({
+            id: `audit-${log.id}`,
+            type: 'audit',
+            action: log.action,
+            actor: log.actor_email,
+            resource: `${log.resource_type}#${log.resource_id}`,
+            timestamp: log.created_at,
+          })
+        })
+      }
+      if (securityEvents.status === 'fulfilled' && securityEvents.value.items) {
+        securityEvents.value.items.forEach((evt) => {
+          activities.push({
+            id: `security-${evt.id}`,
+            type: 'security',
+            action: evt.event_type,
+            actor: evt.ip_address || 'System',
+            resource: `User #${evt.user_id}`,
+            timestamp: evt.created_at,
+          })
+        })
+      }
+
+      // Sort by timestamp descending
+      activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      setRecentActivity(activities.slice(0, 15))
+    } catch (err) {
+      console.error('Failed to fetch recent activity:', err)
+    } finally {
+      setActivityLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'overview') fetchRecentActivity()
+  }, [activeTab, fetchRecentActivity])
 
   const handleSort = (key) => {
     if (sortBy === key) {
@@ -809,6 +1105,56 @@ export default function AdminDashboardPage() {
                 )}
               </div>
 
+              {/* Recent Activity Feed */}
+              <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-extrabold text-brand-900 tracking-tight">Recent Activity</h3>
+                  <Activity className="w-5 h-5 text-brand-600" />
+                </div>
+
+                {activityLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+                  </div>
+                ) : recentActivity.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-4">No recent activity</p>
+                ) : (
+                  <div className="space-y-3 max-h-80 overflow-y-auto">
+                    {recentActivity.map((activity) => (
+                      <div
+                        key={activity.id}
+                        className={`p-3 rounded-xl ring-1 transition-colors ${
+                          activity.type === 'security'
+                            ? 'bg-red-50/50 ring-red-100 hover:bg-red-50'
+                            : 'bg-brand-50/50 ring-brand-100 hover:bg-brand-50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${
+                                activity.type === 'security'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-brand-100 text-brand-700'
+                              }`}>
+                                {activity.type}
+                              </span>
+                              <span className="text-xs text-slate-400 truncate">{activity.action}</span>
+                            </div>
+                            <p className="text-sm text-slate-700 truncate">
+                              <span className="font-semibold">{activity.actor}</span> → {activity.resource}
+                            </p>
+                          </div>
+                          <span className="text-xs text-slate-400 whitespace-nowrap">
+                            {new Date(activity.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Enterprise Admin Quick Links */}
               <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6">
                 <h3 className="font-extrabold text-brand-900 tracking-tight mb-4">Enterprise Tools</h3>
@@ -873,6 +1219,18 @@ export default function AdminDashboardPage() {
       {/* Tenants Tab */}
       {activeTab === 'tenants' && (
         <div className="space-y-4 card-animate">
+          {/* Header with Create Button */}
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-extrabold text-brand-900">Tenant Management</h2>
+            <button
+              onClick={() => setShowCreateTenant(true)}
+              className="flex items-center gap-2 px-4 py-2 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"
+            >
+              <Plus className="w-4 h-4" />
+              Create Tenant
+            </button>
+          </div>
+
           {/* Filters */}
           <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-4">
             <div className="flex flex-col sm:flex-row gap-3">
@@ -958,6 +1316,21 @@ export default function AdminDashboardPage() {
                           </td>
                           <td className="px-5 py-3.5 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setEditTenantObj(t)
+                                  setEditTenantForm({
+                                    name: t.name,
+                                    slug: t.slug,
+                                    contact_email: t.contact_email || '',
+                                    subscription_status: t.subscription_status,
+                                  })
+                                }}
+                                className="p-1.5 rounded-lg hover:bg-brand-100 text-slate-400 hover:text-brand-600 transition-colors"
+                                title="Edit"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
                               <button
                                 onClick={() => setDetailTenantId(t.id)}
                                 className="p-1.5 rounded-lg hover:bg-brand-100 text-slate-400 hover:text-brand-600 transition-colors"
@@ -1151,12 +1524,217 @@ export default function AdminDashboardPage() {
 
       {/* Rate Limits Tab */}
       {activeTab === 'rate-limits' && (
-        <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-12 text-center card-animate">
-          <Settings className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h3 className="font-extrabold text-brand-900 tracking-tight text-lg mb-2">Rate Limit Configuration</h3>
-          <p className="text-sm text-slate-500 max-w-md mx-auto">
-            Rate limit configuration is coming soon. This section will allow you to manage custom rate limits per tenant.
-          </p>
+        <div className="space-y-4 card-animate">
+          {/* Filters */}
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={rateLimitSearch}
+                  onChange={(e) => { setRateLimitSearch(e.target.value); setRateLimitPage(1) }}
+                  placeholder="Search by tenant name or slug..."
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
+            {rateLimitsLoading && !rateLimitsData ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+              </div>
+            ) : rateLimitsError ? (
+              <div className="p-8 text-center">
+                <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-2" />
+                <p className="text-sm text-red-600">{rateLimitsError}</p>
+                <button
+                  onClick={fetchRateLimits}
+                  className="mt-3 px-4 py-2 btn-brand text-white text-sm font-bold rounded-xl"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : rateLimitsData?.items?.length === 0 ? (
+              <div className="p-8 text-center">
+                <SlidersHorizontal className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm text-slate-500">No rate limit configurations found.</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-brand-50">
+                        <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wide">Tenant</th>
+                        <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wide">Requests/Min</th>
+                        <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wide">LLM Concurrent</th>
+                        <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wide">Status</th>
+                        <th className="text-right px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wide">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-brand-50">
+                      {rateLimitsData?.items?.map((item) => (
+                        <tr key={item.id} className="hover:bg-brand-50/30 transition-colors">
+                          <td className="px-5 py-3.5">
+                            <p className="font-bold text-brand-900">{item.tenant_name}</p>
+                            <p className="text-xs text-slate-500">{item.tenant_slug}</p>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="text-sm font-semibold text-brand-900">{item.requests_per_minute}</span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="text-sm font-semibold text-brand-900">{item.llm_concurrent_max}</span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="px-2 py-0.5 bg-green-50 text-green-700 text-xs font-bold rounded-full ring-1 ring-green-200">
+                              Configured
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setEditRateLimitTenant(item)
+                                  setEditRateLimitForm({
+                                    requests_per_minute: item.requests_per_minute,
+                                    llm_concurrent_max: item.llm_concurrent_max,
+                                  })
+                                }}
+                                className="p-1.5 rounded-lg hover:bg-brand-100 text-slate-400 hover:text-brand-600 transition-colors"
+                                title="Edit"
+                              >
+                                <Settings className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (confirm('Delete this rate limit configuration? Tenant will use defaults (60 req/min, 2 LLM concurrent).')) {
+                                    try {
+                                      await deleteTenantRateLimit(item.tenant_id)
+                                      fetchRateLimits()
+                                    } catch (err) {
+                                      alert(err.response?.data?.detail || 'Failed to delete')
+                                    }
+                                  }
+                                }}
+                                className="p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                {rateLimitsData && rateLimitsData.pages > 1 && (
+                  <div className="flex items-center justify-between px-5 py-3 border-t border-brand-50">
+                    <p className="text-xs text-slate-500">
+                      Showing {(rateLimitsData.page - 1) * rateLimitsData.per_page + 1} -{' '}
+                      {Math.min(rateLimitsData.page * rateLimitsData.per_page, rateLimitsData.total)} of {rateLimitsData.total}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setRateLimitPage((p) => Math.max(1, p - 1))}
+                        disabled={rateLimitPage <= 1}
+                        className="p-1.5 rounded-lg hover:bg-brand-50 text-slate-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs text-slate-600 font-medium px-2">
+                        Page {rateLimitsData.page} of {rateLimitsData.pages}
+                      </span>
+                      <button
+                        onClick={() => setRateLimitPage((p) => Math.min(rateLimitsData.pages, p + 1))}
+                        disabled={rateLimitPage >= rateLimitsData.pages}
+                        className="p-1.5 rounded-lg hover:bg-brand-50 text-slate-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Rate Limit Modal */}
+      {editRateLimitTenant && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-md p-6 card-animate">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-extrabold text-brand-900 tracking-tight text-lg">Edit Rate Limit</h3>
+              <button onClick={() => setEditRateLimitTenant(null)} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-500 mb-4">
+              Configure rate limits for <span className="font-semibold text-slate-700">{editRateLimitTenant.tenant_name}</span>
+            </p>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">Requests per Minute</label>
+                <input
+                  type="number"
+                  value={editRateLimitForm.requests_per_minute}
+                  onChange={(e) => setEditRateLimitForm({ ...editRateLimitForm, requests_per_minute: parseInt(e.target.value, 10) || 0 })}
+                  min="1"
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+                <p className="text-xs text-slate-400 mt-1">Default: 60 requests/minute</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">LLM Concurrent Requests</label>
+                <input
+                  type="number"
+                  value={editRateLimitForm.llm_concurrent_max}
+                  onChange={(e) => setEditRateLimitForm({ ...editRateLimitForm, llm_concurrent_max: parseInt(e.target.value, 10) || 0 })}
+                  min="1"
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+                <p className="text-xs text-slate-400 mt-1">Default: 2 concurrent LLM requests</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setEditRateLimitTenant(null)}
+                className="px-4 py-2 ring-1 ring-brand-200 text-sm font-semibold text-brand-700 rounded-xl hover:bg-brand-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setEditRateLimitSaving(true)
+                  try {
+                    await updateTenantRateLimit(editRateLimitTenant.tenant_id, editRateLimitForm)
+                    setEditRateLimitTenant(null)
+                    fetchRateLimits()
+                  } catch (err) {
+                    alert(err.response?.data?.detail || 'Failed to update rate limit')
+                  } finally {
+                    setEditRateLimitSaving(false)
+                  }
+                }}
+                disabled={editRateLimitSaving || editRateLimitForm.requests_per_minute < 1 || editRateLimitForm.llm_concurrent_max < 1}
+                className="px-4 py-2 btn-brand text-white text-sm font-bold rounded-xl disabled:opacity-60"
+              >
+                {editRateLimitSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1575,54 +2153,84 @@ export default function AdminDashboardPage() {
                 )}
               </div>
 
-              {/* Usage Trends */}
+              {/* Usage Trends - Visual Chart */}
               <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6">
                 <h3 className="font-extrabold text-brand-900 tracking-tight mb-4">Daily Analyses (Last 30 Days)</h3>
                 {trendsData?.analyses?.length > 0 ? (
-                  <div className="max-h-64 overflow-y-auto">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-white">
-                        <tr className="border-b border-brand-50">
-                          <th className="text-left px-4 py-2 text-xs font-bold text-slate-500 uppercase">Date</th>
-                          <th className="text-right px-4 py-2 text-xs font-bold text-slate-500 uppercase">Count</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-brand-50">
-                        {trendsData.analyses.map((d) => (
-                          <tr key={d.date} className="hover:bg-brand-50/30">
-                            <td className="px-4 py-2 text-slate-700">{d.date}</td>
-                            <td className="px-4 py-2 text-right font-medium text-brand-900">{d.count}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div>
+                    {/* Bar Chart Visualization */}
+                    <div className="flex items-end gap-1 h-48 mb-4">
+                      {(() => {
+                        const maxCount = Math.max(...trendsData.analyses.map(d => d.count), 1)
+                        return trendsData.analyses.map((d, idx) => {
+                          const height = (d.count / maxCount) * 100
+                          return (
+                            <div
+                              key={d.date}
+                              className="flex-1 bg-brand-500 hover:bg-brand-600 transition-colors rounded-t-sm relative group"
+                              style={{ height: `${Math.max(height, 2)}%` }}
+                              title={`${d.date}: ${d.count} analyses`}
+                            >
+                              <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-brand-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                                {d.count}
+                              </div>
+                            </div>
+                          )
+                        })
+                      })()}
+                    </div>
+
+                    {/* X-axis labels */}
+                    <div className="flex gap-1 text-xs text-slate-400">
+                      {trendsData.analyses.filter((_, i) => i % 5 === 0).map((d) => (
+                        <div key={d.date} className="flex-1 text-center truncate">
+                          {new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-2 text-sm text-slate-600">
+                      <TrendingUp className="w-4 h-4 text-green-600" />
+                      <span>Total: <strong>{trendsData.analyses.reduce((sum, d) => sum + d.count, 0).toLocaleString()}</strong> analyses</span>
+                      <span className="mx-2">•</span>
+                      <span>Avg: <strong>{Math.round(trendsData.analyses.reduce((sum, d) => sum + d.count, 0) / trendsData.analyses.length).toLocaleString()}</strong>/day</span>
+                    </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-500">No usage data available.</p>
+                  <p className="text-sm text-slate-500">No trend data available.</p>
                 )}
               </div>
 
-              {/* Signup Trends */}
+              {/* Tenant Signups Trend */}
               <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6">
-                <h3 className="font-extrabold text-brand-900 tracking-tight mb-4">Daily Signups (Last 30 Days)</h3>
+                <h3 className="font-extrabold text-brand-900 tracking-tight mb-4">New Tenant Signups (Last 30 Days)</h3>
                 {trendsData?.signups?.length > 0 ? (
-                  <div className="max-h-64 overflow-y-auto">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-white">
-                        <tr className="border-b border-brand-50">
-                          <th className="text-left px-4 py-2 text-xs font-bold text-slate-500 uppercase">Date</th>
-                          <th className="text-right px-4 py-2 text-xs font-bold text-slate-500 uppercase">New Signups</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-brand-50">
-                        {trendsData.signups.map((d) => (
-                          <tr key={d.date} className="hover:bg-brand-50/30">
-                            <td className="px-4 py-2 text-slate-700">{d.date}</td>
-                            <td className="px-4 py-2 text-right font-medium text-brand-900">{d.count}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div>
+                    <div className="flex items-end gap-1 h-40 mb-4">
+                      {(() => {
+                        const maxCount = Math.max(...trendsData.signups.map(d => d.count), 1)
+                        return trendsData.signups.map((d) => {
+                          const height = (d.count / maxCount) * 100
+                          return (
+                            <div
+                              key={d.date}
+                              className="flex-1 bg-blue-500 hover:bg-blue-600 transition-colors rounded-t-sm relative group"
+                              style={{ height: `${Math.max(height, 2)}%` }}
+                              title={`${d.date}: ${d.count} signups`}
+                            >
+                              <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-brand-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                                {d.count}
+                              </div>
+                            </div>
+                          )
+                        })
+                      })()}
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-2 text-sm text-slate-600">
+                      <Building2 className="w-4 h-4 text-blue-600" />
+                      <span>Total: <strong>{trendsData.signups.reduce((sum, d) => sum + d.count, 0)}</strong> new tenants</span>
+                    </div>
                   </div>
                 ) : (
                   <p className="text-sm text-slate-500">No signup data available.</p>
@@ -1861,6 +2469,195 @@ export default function AdminDashboardPage() {
           onClose={() => setSuspendTenantObj(null)}
           onConfirm={(tenantId, reason) => handleAction('suspend', tenantId, reason)}
         />
+      )}
+
+      {/* Create Tenant Modal */}
+      {showCreateTenant && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-md p-6 card-animate">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-extrabold text-brand-900 tracking-tight text-lg">Create New Tenant</h3>
+              <button onClick={() => setShowCreateTenant(false)} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">Tenant Name <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={createTenantForm.name}
+                  onChange={(e) => setCreateTenantForm({ ...createTenantForm, name: e.target.value })}
+                  placeholder="Acme Corporation"
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">Slug <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={createTenantForm.slug}
+                  onChange={(e) => setCreateTenantForm({ ...createTenantForm, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                  placeholder="acme-corp"
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+                <p className="text-xs text-slate-400 mt-1">Lowercase, hyphens allowed</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">Contact Email</label>
+                <input
+                  type="email"
+                  value={createTenantForm.contact_email}
+                  onChange={(e) => setCreateTenantForm({ ...createTenantForm, contact_email: e.target.value })}
+                  placeholder="admin@acme.com"
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">Subscription Plan</label>
+                <select
+                  value={createTenantForm.plan_id}
+                  onChange={(e) => setCreateTenantForm({ ...createTenantForm, plan_id: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                >
+                  <option value="">No plan (free tier)</option>
+                  {plans.map((plan) => (
+                    <option key={plan.id} value={plan.id}>{plan.display_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowCreateTenant(false)}
+                className="px-4 py-2 ring-1 ring-brand-200 text-sm font-semibold text-brand-700 rounded-xl hover:bg-brand-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!createTenantForm.name || !createTenantForm.slug) {
+                    alert('Name and slug are required')
+                    return
+                  }
+                  setCreateTenantSaving(true)
+                  try {
+                    const payload = {
+                      name: createTenantForm.name,
+                      slug: createTenantForm.slug,
+                      contact_email: createTenantForm.contact_email || null,
+                      plan_id: createTenantForm.plan_id ? parseInt(createTenantForm.plan_id, 10) : null,
+                    }
+                    await createTenant(payload)
+                    setShowCreateTenant(false)
+                    setCreateTenantForm({ name: '', slug: '', contact_email: '', plan_id: '' })
+                    fetchTenants()
+                  } catch (err) {
+                    alert(err.response?.data?.detail || 'Failed to create tenant')
+                  } finally {
+                    setCreateTenantSaving(false)
+                  }
+                }}
+                disabled={createTenantSaving || !createTenantForm.name || !createTenantForm.slug}
+                className="px-4 py-2 btn-brand text-white text-sm font-bold rounded-xl disabled:opacity-60"
+              >
+                {createTenantSaving ? 'Creating...' : 'Create Tenant'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Tenant Modal */}
+      {editTenantObj && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-md p-6 card-animate">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-extrabold text-brand-900 tracking-tight text-lg">Edit Tenant</h3>
+              <button onClick={() => setEditTenantObj(null)} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">Tenant Name</label>
+                <input
+                  type="text"
+                  value={editTenantForm.name}
+                  onChange={(e) => setEditTenantForm({ ...editTenantForm, name: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">Slug</label>
+                <input
+                  type="text"
+                  value={editTenantForm.slug}
+                  onChange={(e) => setEditTenantForm({ ...editTenantForm, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">Contact Email</label>
+                <input
+                  type="email"
+                  value={editTenantForm.contact_email}
+                  onChange={(e) => setEditTenantForm({ ...editTenantForm, contact_email: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1.5">Subscription Status</label>
+                <select
+                  value={editTenantForm.subscription_status}
+                  onChange={(e) => setEditTenantForm({ ...editTenantForm, subscription_status: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                >
+                  <option value="active">Active</option>
+                  <option value="trialing">Trialing</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setEditTenantObj(null)}
+                className="px-4 py-2 ring-1 ring-brand-200 text-sm font-semibold text-brand-700 rounded-xl hover:bg-brand-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setEditTenantSaving(true)
+                  try {
+                    await updateTenant(editTenantObj.id, editTenantForm)
+                    setEditTenantObj(null)
+                    fetchTenants()
+                  } catch (err) {
+                    alert(err.response?.data?.detail || 'Failed to update tenant')
+                  } finally {
+                    setEditTenantSaving(false)
+                  }
+                }}
+                disabled={editTenantSaving}
+                className="px-4 py-2 btn-brand text-white text-sm font-bold rounded-xl disabled:opacity-60"
+              >
+                {editTenantSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

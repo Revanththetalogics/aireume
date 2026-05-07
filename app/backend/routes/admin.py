@@ -27,7 +27,7 @@ from app.backend.models.db_models import (
     Webhook, WebhookDelivery,
     PlatformConfig, TenantEmailConfig,
     SecurityEvent, ImpersonationSession, ErasureLog,
-    PlanFeature,
+    PlanFeature, RateLimitConfig,
 )
 from app.backend.services.audit_service import log_audit
 from app.backend.services.impersonation_service import (
@@ -53,6 +53,27 @@ class ChangePlanRequest(BaseModel):
 class AdjustUsageRequest(BaseModel):
     analyses_count: Optional[int] = None
     storage_used_bytes: Optional[int] = None
+
+
+class CreateTenantRequest(BaseModel):
+    name: str
+    slug: str
+    contact_email: Optional[str] = None
+    plan_id: Optional[int] = None
+
+
+class UpdateTenantRequest(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    contact_email: Optional[str] = None
+    subscription_status: Optional[str] = None
+
+
+class AddUserToTenantRequest(BaseModel):
+    email: str
+    role: str = "user"
+    is_platform_admin: bool = False
+    platform_role: Optional[str] = None
 
 
 class TenantListItem(BaseModel):
@@ -501,6 +522,248 @@ def get_tenant_usage_history(
         }
         for ul in logs
     ]
+
+
+# ─── Tenant CRUD Operations ─────────────────────────────────────────────
+
+@router.post("/tenants")
+def create_tenant(
+    body: CreateTenantRequest,
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Create a new tenant organization."""
+    # Validate slug uniqueness
+    existing = db.query(Tenant).filter(Tenant.slug == body.slug).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Tenant slug '{body.slug}' already exists")
+
+    # Validate plan if provided
+    if body.plan_id:
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == body.plan_id).first()
+        if not plan:
+            raise HTTPException(status_code=400, detail=f"Plan {body.plan_id} not found")
+
+    tenant = Tenant(
+        name=body.name,
+        slug=body.slug,
+        contact_email=body.contact_email,
+        plan_id=body.plan_id,
+        subscription_status="active",
+    )
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+
+    # Create default rate limit config
+    default_rate_limit = RateLimitConfig(
+        tenant_id=tenant.id,
+        requests_per_minute=60,
+        llm_concurrent_max=2,
+    )
+    db.add(default_rate_limit)
+    db.commit()
+
+    log_audit(
+        db, actor=admin, action="tenant.create",
+        resource_type="tenant", resource_id=tenant.id,
+        details={"name": tenant.name, "slug": tenant.slug},
+    )
+
+    return {
+        "message": "Tenant created successfully",
+        "id": tenant.id,
+        "name": tenant.name,
+        "slug": tenant.slug,
+    }
+
+
+@router.put("/tenants/{tenant_id}")
+def update_tenant(
+    tenant_id: int,
+    body: UpdateTenantRequest,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Update tenant details."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Validate slug uniqueness if changing
+    if body.slug and body.slug != tenant.slug:
+        existing = db.query(Tenant).filter(Tenant.slug == body.slug).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Tenant slug '{body.slug}' already exists")
+
+    # Update fields
+    updates = {}
+    if body.name is not None:
+        tenant.name = body.name
+        updates["name"] = body.name
+    if body.slug is not None:
+        tenant.slug = body.slug
+        updates["slug"] = body.slug
+    if body.contact_email is not None:
+        tenant.contact_email = body.contact_email
+        updates["contact_email"] = body.contact_email
+    if body.subscription_status is not None:
+        tenant.subscription_status = body.subscription_status
+        updates["subscription_status"] = body.subscription_status
+
+    db.commit()
+    db.refresh(tenant)
+
+    log_audit(
+        db, actor=admin, action="tenant.update",
+        resource_type="tenant", resource_id=tenant_id,
+        details=updates,
+    )
+
+    return {
+        "message": "Tenant updated successfully",
+        "id": tenant.id,
+        "name": tenant.name,
+        "slug": tenant.slug,
+    }
+
+
+@router.delete("/tenants/{tenant_id}")
+def delete_tenant(
+    tenant_id: int,
+    confirm: bool = Query(False),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete a tenant and all associated data. Requires explicit confirmation."""
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Confirmation required. Set confirm=true.")
+
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    tenant_name = tenant.name
+    tenant_slug = tenant.slug
+
+    # Delete tenant (cascade will remove associated data)
+    db.delete(tenant)
+    db.commit()
+
+    log_audit(
+        db, actor=admin, action="tenant.delete",
+        resource_type="tenant", resource_id=tenant_id,
+        details={"name": tenant_name, "slug": tenant_slug},
+    )
+
+    return {"message": f"Tenant '{tenant_name}' deleted successfully"}
+
+
+# ─── Tenant User Management ─────────────────────────────────────────────
+
+@router.post("/tenants/{tenant_id}/users")
+def add_user_to_tenant(
+    tenant_id: int,
+    body: AddUserToTenantRequest,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Add an existing user to a tenant or create a new user account."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Check if user already exists
+    existing_user = db.query(User).filter(User.email == body.email).first()
+    if existing_user:
+        # Update tenant assignment
+        old_tenant_id = existing_user.tenant_id
+        existing_user.tenant_id = tenant_id
+        existing_user.role = body.role
+        if body.is_platform_admin:
+            existing_user.is_platform_admin = True
+            existing_user.platform_role = body.platform_role or "support"
+        db.commit()
+
+        log_audit(
+            db, actor=admin, action="user.update_tenant",
+            resource_type="user", resource_id=existing_user.id,
+            details={
+                "email": body.email,
+                "old_tenant_id": old_tenant_id,
+                "new_tenant_id": tenant_id,
+                "role": body.role,
+            },
+        )
+
+        return {
+            "message": "User tenant assignment updated",
+            "user_id": existing_user.id,
+            "email": existing_user.email,
+        }
+
+    # Create new user with temporary password
+    import secrets
+    from app.backend.services.auth_service import get_password_hash
+
+    temp_password = secrets.token_urlsafe(12)
+    hashed_pw = get_password_hash(temp_password)
+
+    new_user = User(
+        email=body.email,
+        password_hash=hashed_pw,
+        tenant_id=tenant_id,
+        role=body.role,
+        is_active=True,
+        is_platform_admin=body.is_platform_admin,
+        platform_role=body.platform_role if body.is_platform_admin else None,
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    log_audit(
+        db, actor=admin, action="user.create",
+        resource_type="user", resource_id=new_user.id,
+        details={
+            "email": body.email,
+            "tenant_id": tenant_id,
+            "role": body.role,
+        },
+    )
+
+    return {
+        "message": "User created and added to tenant",
+        "user_id": new_user.id,
+        "email": new_user.email,
+        "temporary_password": temp_password,
+        "note": "User must change password on first login",
+    }
+
+
+@router.delete("/tenants/{tenant_id}/users/{user_id}")
+def remove_user_from_tenant(
+    tenant_id: int,
+    user_id: int,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Remove a user from a tenant (soft delete by deactivating)."""
+    user = db.query(User).filter(User.id == user_id, User.tenant_id == tenant_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found in this tenant")
+
+    # Deactivate user instead of deleting
+    user.is_active = False
+    db.commit()
+
+    log_audit(
+        db, actor=admin, action="user.deactivate",
+        resource_type="user", resource_id=user_id,
+        details={"email": user.email, "tenant_id": tenant_id},
+    )
+
+    return {"message": f"User '{user.email}' deactivated"}
 
 
 # ─── 8. Audit Logs ──────────────────────────────────────────────────────────────
@@ -1796,3 +2059,202 @@ def delete_plan_feature_mapping(
     )
 
     return {"message": "Plan-feature mapping removed", "plan_id": plan_id, "feature_flag_id": feature_flag_id}
+
+
+# ─── Rate Limit Configuration ────────────────────────────────────────────────
+
+class RateLimitConfigItem(BaseModel):
+    id: int
+    tenant_id: int
+    tenant_name: Optional[str] = None
+    tenant_slug: Optional[str] = None
+    requests_per_minute: int
+    llm_concurrent_max: int
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class RateLimitConfigUpdate(BaseModel):
+    requests_per_minute: Optional[int] = None
+    llm_concurrent_max: Optional[int] = None
+
+
+@router.get("/rate-limits")
+def list_rate_limit_configs(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    search: Optional[str] = Query(None),
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """List all tenant rate limit configurations with pagination and search."""
+    query = db.query(RateLimitConfig, Tenant).join(
+        Tenant, RateLimitConfig.tenant_id == Tenant.id
+    )
+
+    if search:
+        search_filter = f"%{search.lower()}%"
+        query = query.filter(
+            (Tenant.name.ilike(search_filter)) | (Tenant.slug.ilike(search_filter))
+        )
+
+    total = query.count()
+    configs = query.order_by(Tenant.name).offset((page - 1) * per_page).limit(per_page).all()
+
+    pages = math.ceil(total / per_page) if total > 0 else 0
+
+    return {
+        "items": [
+            {
+                "id": config.id,
+                "tenant_id": config.tenant_id,
+                "tenant_name": tenant.name,
+                "tenant_slug": tenant.slug,
+                "requests_per_minute": config.requests_per_minute,
+                "llm_concurrent_max": config.llm_concurrent_max,
+                "created_at": _dt_to_iso(config.created_at),
+                "updated_at": _dt_to_iso(config.updated_at),
+            }
+            for config, tenant in configs
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": pages,
+    }
+
+
+@router.get("/tenants/{tenant_id}/rate-limit")
+def get_tenant_rate_limit(
+    tenant_id: int,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Get rate limit configuration for a specific tenant."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    config = db.query(RateLimitConfig).filter(
+        RateLimitConfig.tenant_id == tenant_id
+    ).first()
+
+    if not config:
+        return {
+            "configured": False,
+            "tenant_id": tenant_id,
+            "tenant_name": tenant.name,
+            "defaults": {
+                "requests_per_minute": 60,
+                "llm_concurrent_max": 2,
+            }
+        }
+
+    return {
+        "configured": True,
+        "id": config.id,
+        "tenant_id": config.tenant_id,
+        "tenant_name": tenant.name,
+        "tenant_slug": tenant.slug,
+        "requests_per_minute": config.requests_per_minute,
+        "llm_concurrent_max": config.llm_concurrent_max,
+        "created_at": _dt_to_iso(config.created_at),
+        "updated_at": _dt_to_iso(config.updated_at),
+    }
+
+
+@router.put("/tenants/{tenant_id}/rate-limit")
+def update_tenant_rate_limit(
+    tenant_id: int,
+    body: RateLimitConfigUpdate,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Create or update rate limit configuration for a tenant."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Validate inputs
+    if body.requests_per_minute is not None and body.requests_per_minute < 1:
+        raise HTTPException(status_code=400, detail="requests_per_minute must be >= 1")
+    if body.llm_concurrent_max is not None and body.llm_concurrent_max < 1:
+        raise HTTPException(status_code=400, detail="llm_concurrent_max must be >= 1")
+
+    config = db.query(RateLimitConfig).filter(
+        RateLimitConfig.tenant_id == tenant_id
+    ).first()
+
+    if config:
+        # Update existing
+        if body.requests_per_minute is not None:
+            config.requests_per_minute = body.requests_per_minute
+        if body.llm_concurrent_max is not None:
+            config.llm_concurrent_max = body.llm_concurrent_max
+        config.updated_at = datetime.now(timezone.utc)
+    else:
+        # Create new with defaults
+        config = RateLimitConfig(
+            tenant_id=tenant_id,
+            requests_per_minute=body.requests_per_minute or 60,
+            llm_concurrent_max=body.llm_concurrent_max or 2,
+        )
+        db.add(config)
+
+    db.commit()
+    db.refresh(config)
+
+    # Invalidate rate limit cache in middleware
+    from app.backend.middleware.rate_limit import RateLimitMiddleware
+    if RateLimitMiddleware._instance:
+        RateLimitMiddleware._instance.config_cache.pop(tenant_id, None)
+
+    log_audit(
+        db, actor=admin, action="rate_limit.update",
+        resource_type="rate_limit_config", resource_id=config.id,
+        details={
+            "tenant_id": tenant_id,
+            "requests_per_minute": config.requests_per_minute,
+            "llm_concurrent_max": config.llm_concurrent_max,
+        },
+    )
+
+    return {
+        "message": "Rate limit configuration updated",
+        "id": config.id,
+        "tenant_id": config.tenant_id,
+        "requests_per_minute": config.requests_per_minute,
+        "llm_concurrent_max": config.llm_concurrent_max,
+        "updated_at": _dt_to_iso(config.updated_at),
+    }
+
+
+@router.delete("/tenants/{tenant_id}/rate-limit")
+def delete_tenant_rate_limit(
+    tenant_id: int,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete tenant rate limit configuration (revert to defaults)."""
+    config = db.query(RateLimitConfig).filter(
+        RateLimitConfig.tenant_id == tenant_id
+    ).first()
+
+    if not config:
+        raise HTTPException(status_code=404, detail="Rate limit configuration not found")
+
+    db.delete(config)
+    db.commit()
+
+    # Invalidate cache
+    from app.backend.middleware.rate_limit import RateLimitMiddleware
+    if RateLimitMiddleware._instance:
+        RateLimitMiddleware._instance.config_cache.pop(tenant_id, None)
+
+    log_audit(
+        db, actor=admin, action="rate_limit.delete",
+        resource_type="rate_limit_config", resource_id=config.id,
+        details={"tenant_id": tenant_id},
+    )
+
+    return {"message": "Rate limit configuration deleted, tenant will use defaults"}
