@@ -1663,10 +1663,14 @@ def _run_python_phase(
             relevant_experience=deterministic_features["relevant_experience"],
         )
 
-        deterministic_score = compute_deterministic_score(deterministic_features, eligibility, scoring_weights)
+        # Pass the new_weights (converted schema) to deterministic scorer
+        # This ensures custom/AI weights are properly used
+        deterministic_score = compute_deterministic_score(deterministic_features, eligibility, new_weights)
         decision_explanation = explain_decision(deterministic_features, eligibility)
     except Exception as e:
         log.warning("Deterministic engine failed, falling back to legacy fit_score: %s", e)
+        import traceback
+        log.debug("Deterministic engine traceback: %s", traceback.format_exc())
 
     all_scores["fit_score"] = deterministic_score
     # Use the deterministic decision (which respects caps) when available,

@@ -125,24 +125,70 @@ def compute_deterministic_score(features: dict, eligibility, weights: Optional[D
             - relevant_experience: float (0-1, normalized)
             - total_experience: float (years)
         eligibility: EligibilityResult from eligibility_service
-        weights: Optional dict with keys matching feature names (core_skill_match,
-            secondary_skill_match, domain_match, relevant_experience). Defaults to
-            40/15/25/20 split when None.
+        weights: Optional dict supporting multiple schemas:
+            - New schema: {core_competencies, experience, domain_fit, education, ...}
+            - Legacy schema: {skills, experience, stability, education}
+            - Internal schema: {skills, experience, architecture, education, timeline, domain, risk}
+            - Direct schema: {core_skill_match, secondary_skill_match, domain_match, relevant_experience}
+            Defaults to 40/15/25/20 split when None or when keys don't match.
 
     Returns:
         Integer score 0-100 with deterministic caps applied
     """
     # Default weight split for deterministic features
+    w_core = 0.40
+    w_secondary = 0.15
+    w_domain = 0.25
+    w_experience = 0.20
+    
     if weights is not None:
-        w_core = weights.get("core_skill_match", 0.40)
-        w_secondary = weights.get("secondary_skill_match", 0.15)
-        w_domain = weights.get("domain_match", 0.25)
-        w_experience = weights.get("relevant_experience", 0.20)
-    else:
-        w_core = 0.40
-        w_secondary = 0.15
-        w_domain = 0.25
-        w_experience = 0.20
+        # Priority 1: Direct mapping (already in deterministic schema)
+        if "core_skill_match" in weights:
+            w_core = weights.get("core_skill_match", 0.40)
+            w_secondary = weights.get("secondary_skill_match", 0.15)
+            w_domain = weights.get("domain_match", 0.25)
+            w_experience = weights.get("relevant_experience", 0.20)
+        # Priority 2: New 7-weight schema (core_competencies, domain_fit, experience)
+        elif "core_competencies" in weights:
+            # Map new schema to deterministic features
+            w_core = weights.get("core_competencies", 0.30)  # core skills
+            w_secondary = weights.get("role_excellence", 0.10) * 0.5  # partial contribution
+            w_domain = weights.get("domain_fit", 0.20)  # domain fit
+            w_experience = weights.get("experience", 0.20)  # experience
+            # Normalize to sum to 1.0
+            total = w_core + w_secondary + w_domain + w_experience
+            if total > 0:
+                w_core = w_core / total
+                w_secondary = w_secondary / total
+                w_domain = w_domain / total
+                w_experience = w_experience / total
+        # Priority 3: Internal 7-weight schema (skills, domain, experience)
+        elif "skills" in weights and "architecture" in weights:
+            # Map internal schema to deterministic features
+            w_core = weights.get("skills", 0.30)  # core skills
+            w_secondary = weights.get("architecture", 0.15) * 0.5  # partial contribution
+            w_domain = weights.get("domain", 0.10)  # domain fit
+            w_experience = weights.get("experience", 0.20)  # experience
+            # Normalize to sum to 1.0
+            total = w_core + w_secondary + w_domain + w_experience
+            if total > 0:
+                w_core = w_core / total
+                w_secondary = w_secondary / total
+                w_domain = w_domain / total
+                w_experience = w_experience / total
+        # Priority 4: Legacy 4-weight schema (skills, experience, stability, education)
+        elif "skills" in weights and "stability" in weights:
+            w_core = weights.get("skills", 0.40)
+            w_secondary = 0.05  # minimal secondary in legacy
+            w_domain = weights.get("stability", 0.15) * 0.5  # partial contribution
+            w_experience = weights.get("experience", 0.35)
+            # Normalize to sum to 1.0
+            total = w_core + w_secondary + w_domain + w_experience
+            if total > 0:
+                w_core = w_core / total
+                w_secondary = w_secondary / total
+                w_domain = w_domain / total
+                w_experience = w_experience / total
 
     # Base score from weighted features
     score = (
