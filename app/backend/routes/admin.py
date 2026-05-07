@@ -67,6 +67,7 @@ class UpdateTenantRequest(BaseModel):
     slug: Optional[str] = None
     contact_email: Optional[str] = None
     subscription_status: Optional[str] = None
+    scoring_weights: Optional[dict] = None  # Tenant-level default scoring weights
 
 
 class AddUserToTenantRequest(BaseModel):
@@ -610,6 +611,9 @@ def update_tenant(
     if body.subscription_status is not None:
         tenant.subscription_status = body.subscription_status
         updates["subscription_status"] = body.subscription_status
+    if body.scoring_weights is not None:
+        tenant.scoring_weights = json.dumps(body.scoring_weights)
+        updates["scoring_weights"] = body.scoring_weights
 
     db.commit()
     db.refresh(tenant)

@@ -54,6 +54,9 @@ class Tenant(Base):
     suspended_at    = Column(DateTime(timezone=True), nullable=True)
     suspended_reason = Column(Text, nullable=True)
     metadata_json   = Column(Text, nullable=False, default="{}")
+    
+    # Tenant-level default scoring weights (JSON string)
+    scoring_weights = Column(Text, nullable=True)  # JSON: custom weights for this tenant
 
     plan         = relationship("SubscriptionPlan", back_populates="tenants")
     users        = relationship("User", back_populates="tenant")

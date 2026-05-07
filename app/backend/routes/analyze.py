@@ -699,6 +699,16 @@ async def analyze_endpoint(
             weights = json.loads(scoring_weights)
         except Exception as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
+    
+    # If no explicit weights provided, load tenant default weights
+    if not weights:
+        try:
+            tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+            if tenant and tenant.scoring_weights:
+                weights = json.loads(tenant.scoring_weights)
+                log.info("Loaded tenant default weights for tenant %s", current_user.tenant_id)
+        except Exception as e:
+            log.warning("Non-critical: Failed to load tenant weights, using defaults: %s", e)
 
     file_hash = hashlib.md5(content).hexdigest()
 

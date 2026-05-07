@@ -54,12 +54,14 @@ def upgrade() -> None:
             ),
         )
 
-    # Backfill existing platform admins
-    op.execute("""
-        UPDATE users
-        SET platform_role = 'super_admin'
-        WHERE is_platform_admin = true AND platform_role IS NULL
-    """)
+    # Backfill existing platform admins (only if is_platform_admin column exists)
+    user_cols_check = _column_names(insp, "users")
+    if "is_platform_admin" in user_cols_check:
+        op.execute("""
+            UPDATE users
+            SET platform_role = 'super_admin'
+            WHERE is_platform_admin = true AND platform_role IS NULL
+        """)
 
     # ── 2. Create impersonation_sessions ───────────────────────────────────────
     insp = _inspector()
@@ -131,6 +133,15 @@ def upgrade() -> None:
         op.create_index("ix_erasure_logs_tenant_id", "erasure_logs", ["tenant_id"])
         op.create_index("ix_erasure_logs_status", "erasure_logs", ["status"])
 
+    # ── 6. Add scoring_weights to tenants ──────────────────────────────────────
+    insp = _inspector()
+    tenant_cols = _column_names(insp, "tenants")
+    if "scoring_weights" not in tenant_cols:
+        op.add_column(
+            "tenants",
+            sa.Column("scoring_weights", sa.Text(), nullable=True),
+        )
+
 
 def downgrade() -> None:
     # Drop erasure_logs
@@ -159,3 +170,9 @@ def downgrade() -> None:
 
     # Remove platform_role from users
     op.drop_column("users", "platform_role")
+
+    # Remove scoring_weights from tenants
+    insp = _inspector()
+    tenant_cols = _column_names(insp, "tenants")
+    if "scoring_weights" in tenant_cols:
+        op.drop_column("tenants", "scoring_weights")
