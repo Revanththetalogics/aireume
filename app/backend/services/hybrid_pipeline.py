@@ -1621,7 +1621,9 @@ def _run_python_phase(
 
     # Convert incoming weights to new schema, then map to internal 7-key schema
     # (mirrors agent_pipeline.py scorer_node — frontend may send legacy or new keys)
+    log.info("Raw scoring_weights received: %s", scoring_weights)
     new_weights = convert_to_new_schema(scoring_weights)
+    log.info("Converted to new schema: %s", new_weights)
     internal_weights = {
         "skills":       new_weights.get("core_competencies", 0.30),
         "experience":   new_weights.get("experience", 0.20),
@@ -1631,8 +1633,10 @@ def _run_python_phase(
         "domain":       new_weights.get("domain_fit", 0.10),
         "risk":         new_weights.get("risk", 0.15),
     }
+    log.info("Internal weights for compute_fit_score: %s", internal_weights)
 
     fit_r = compute_fit_score(all_scores, internal_weights)
+    log.info("compute_fit_score result: fit_score=%s", fit_r["fit_score"])
 
     # ── Deterministic engine (domain → eligibility → deterministic score) ─────
     jd_domain = {"domain": "unknown", "confidence": 0.0, "scores": {}}
@@ -1665,13 +1669,16 @@ def _run_python_phase(
 
         # Pass the new_weights (converted schema) to deterministic scorer
         # This ensures custom/AI weights are properly used
+        log.info("Passing new_weights to compute_deterministic_score: %s", new_weights)
         deterministic_score = compute_deterministic_score(deterministic_features, eligibility, new_weights)
+        log.info("compute_deterministic_score result: %s (was fit_score: %s)", deterministic_score, fit_r["fit_score"])
         decision_explanation = explain_decision(deterministic_features, eligibility)
     except Exception as e:
         log.warning("Deterministic engine failed, falling back to legacy fit_score: %s", e)
         import traceback
         log.debug("Deterministic engine traceback: %s", traceback.format_exc())
 
+    log.info("Final score after deterministic engine: %s", deterministic_score)
     all_scores["fit_score"] = deterministic_score
     # Use the deterministic decision (which respects caps) when available,
     # otherwise fall back to the legacy recommendation.

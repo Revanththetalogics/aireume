@@ -976,8 +976,24 @@ async def analyze_stream_endpoint(
     if scoring_weights:
         try:
             weights = json.loads(scoring_weights)
+            log.info("Received custom weights from frontend: %s", weights)
         except Exception as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
+    
+    # If no explicit weights provided, load tenant default weights
+    if not weights:
+        try:
+            tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+            if tenant and tenant.scoring_weights:
+                weights = json.loads(tenant.scoring_weights)
+                log.info("Loaded tenant default weights for tenant %s: %s", current_user.tenant_id, weights)
+        except Exception as e:
+            log.warning("Non-critical: Failed to load tenant weights, using defaults: %s", e)
+    
+    if weights:
+        log.info("Final weights to be used for scoring: %s", weights)
+    else:
+        log.info("No custom weights provided, will use system defaults")
 
     file_hash = hashlib.md5(content).hexdigest()
     tenant_id = current_user.tenant_id
