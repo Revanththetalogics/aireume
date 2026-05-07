@@ -93,7 +93,8 @@ class TestTenantScoringWeights:
         
         # Create admin user
         from passlib.context import CryptContext
-        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        # Use sha256_crypt instead of bcrypt for better cross-platform compatibility
+        pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
         admin_user = User(
             tenant_id=1,
             email="admin@test.com",
