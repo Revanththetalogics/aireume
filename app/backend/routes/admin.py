@@ -548,7 +548,6 @@ def create_tenant(
     tenant = Tenant(
         name=body.name,
         slug=body.slug,
-        contact_email=body.contact_email,
         plan_id=body.plan_id,
         subscription_status="active",
     )
