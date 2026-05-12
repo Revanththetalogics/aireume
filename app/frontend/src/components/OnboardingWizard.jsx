@@ -437,10 +437,12 @@ export default function OnboardingWizard() {
 
   // Step is 1-indexed for the wizard (1–5)
   // currentStep from context: 0 = not started, 1-5 = wizard steps, 6 = completed
-  const step = currentStep > 0 && currentStep <= 5 ? currentStep : 0
+  // Treat step 0 (not started) as step 1 so the wizard renders immediately
+  // for existing users who have no aria_onboarding localStorage entry.
+  const step = currentStep > 5 ? 0 : (currentStep === 0 ? 1 : currentStep)
 
-  // If onboarding is already complete, don't render
-  if (currentStep === 0 || currentStep > 5) return null
+  // Only return null if onboarding is completed (step > 5)
+  if (currentStep > 5) return null
 
   const goToStep = (nextStep) => {
     // We update the context step directly

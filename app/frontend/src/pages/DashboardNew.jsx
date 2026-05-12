@@ -7,7 +7,7 @@ import {
   Upload, Plus, Play, TrendingUp, TrendingDown, AlertTriangle
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { OnboardingProvider } from '../contexts/OnboardingContext'
+
 import { getDashboardSummary, getDashboardActivity } from '../lib/api'
 import Skeleton from '../components/Skeleton'
 import GettingStarted from '../components/GettingStarted'
@@ -738,10 +738,4 @@ function DashboardContent() {
   )
 }
 
-export default function DashboardNew() {
-  return (
-    <OnboardingProvider>
-      <DashboardContent />
-    </OnboardingProvider>
-  )
-}
+export default DashboardContent
