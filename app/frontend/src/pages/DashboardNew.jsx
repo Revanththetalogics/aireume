@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
-  Clock, CheckCircle, Users, FileText, ArrowRight, RefreshCw,
-  Zap, GitCompareArrows, LayoutTemplate, AlertCircle, Loader2,
+  Clock, FileText, ArrowRight, RefreshCw,
+  LayoutTemplate, AlertCircle, Loader2,
   ChevronRight, UserCheck, HourglassIcon, XCircle, Award, Columns,
-  Upload, Plus, Play, TrendingUp, TrendingDown, AlertTriangle
+  Plus, AlertTriangle, Sparkles, GitCompare, Download
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -298,34 +298,39 @@ function DashboardContent() {
         <h1 className="text-lg font-semibold text-brand-900 whitespace-nowrap">
           Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}
         </h1>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="grid grid-cols-2 sm:flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+          {/* Primary CTA - filled */}
           <button
-            onClick={() => navigate('/upload')}
-            className="bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center gap-2 text-sm font-medium text-gray-700 transition-colors"
+            onClick={() => navigate('/analyze')}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors shadow-sm font-medium text-sm"
           >
-            <Upload className="w-4 h-4" />
-            Upload Resumes
+            <Sparkles className="w-4 h-4" />
+            Screen Resumes
           </button>
+
+          {/* Secondary actions - outlined */}
           <button
-            onClick={() => navigate('/jd-library')}
-            className="bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center gap-2 text-sm font-medium text-gray-700 transition-colors"
+            onClick={() => navigate('/templates')}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 bg-white text-gray-700 rounded-lg hover:bg-gray-50 hover:border-brand-300 transition-colors font-medium text-sm"
           >
             <Plus className="w-4 h-4" />
             Create New JD
           </button>
+
           <button
-            onClick={() => navigate('/candidates')}
-            className="bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center gap-2 text-sm font-medium text-gray-700 transition-colors"
+            onClick={() => navigate('/compare')}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 bg-white text-gray-700 rounded-lg hover:bg-gray-50 hover:border-brand-300 transition-colors font-medium text-sm"
           >
-            <UserCheck className="w-4 h-4" />
-            Review Next Candidate
+            <GitCompare className="w-4 h-4" />
+            Compare Candidates
           </button>
+
           <button
-            onClick={() => navigate('/analyze')}
-            className="bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center gap-2 text-sm font-medium text-gray-700 transition-colors"
+            onClick={() => navigate('/export')}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 bg-white text-gray-700 rounded-lg hover:bg-gray-50 hover:border-brand-300 transition-colors font-medium text-sm"
           >
-            <Play className="w-4 h-4" />
-            Run Batch Analysis
+            <Download className="w-4 h-4" />
+            Export Reports
           </button>
         </div>
         {loading && <Loader2 className="w-5 h-5 text-brand-500 animate-spin shrink-0" />}
