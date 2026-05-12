@@ -6,7 +6,7 @@ import logging
 import re
 from datetime import datetime, date
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
@@ -121,6 +121,79 @@ def create_template(
         name=body.name,
         jd_text=body.jd_text,
         scoring_weights=json.dumps(body.scoring_weights, default=_json_default) if body.scoring_weights else None,
+        tags=auto_tags,
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    return template
+
+
+@router.post("/from-file", response_model=TemplateOut)
+async def create_template_from_file(
+    name: str = Form(...),
+    jd_file: UploadFile = File(...),
+    tags: str | None = Form(None),
+    scoring_weights: str | None = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a template by uploading a JD file (PDF/DOCX/TXT)."""
+    from app.backend.services.parser_service import extract_jd_text
+
+    jd_bytes = await jd_file.read()
+    if not jd_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    try:
+        jd_text = extract_jd_text(jd_bytes, jd_file.filename)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to extract text from file: {e}")
+
+    if not jd_text or not jd_text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from the uploaded file")
+
+    # Parse scoring_weights from JSON string if provided
+    weights = None
+    if scoring_weights:
+        try:
+            weights = json.loads(scoring_weights)
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid scoring_weights JSON")
+
+    # Check if identical JD already exists for this tenant
+    existing = db.query(RoleTemplate).filter(
+        RoleTemplate.tenant_id == current_user.tenant_id,
+        RoleTemplate.jd_text == jd_text
+    ).first()
+
+    if existing:
+        if weights:
+            existing.scoring_weights = json.dumps(weights, default=_json_default)
+        if tags:
+            existing.tags = tags
+        if not existing.tags:
+            try:
+                existing.tags = _auto_generate_tags(jd_text)
+            except Exception as e:
+                logger.warning("Auto-tagging failed for existing template %s: %s", existing.id, e)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    # Auto-generate tags from JD text when no explicit tags provided
+    auto_tags = tags
+    if not auto_tags:
+        try:
+            auto_tags = _auto_generate_tags(jd_text)
+        except Exception as e:
+            logger.warning("Auto-tagging failed for new template from file: %s", e)
+
+    template = RoleTemplate(
+        tenant_id=current_user.tenant_id,
+        name=name,
+        jd_text=jd_text,
+        scoring_weights=json.dumps(weights, default=_json_default) if weights else None,
         tags=auto_tags,
     )
     db.add(template)

@@ -606,6 +606,19 @@ export async function createTemplate(data) {
   return res.data
 }
 
+export async function createTemplateFromFile(name, file, tags, scoringWeights) {
+  const formData = new FormData()
+  formData.append('name', name)
+  formData.append('jd_file', file)
+  if (tags) formData.append('tags', tags)
+  if (scoringWeights) formData.append('scoring_weights', JSON.stringify(scoringWeights))
+
+  const res = await api.post('/templates/from-file', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return res.data
+}
+
 export async function updateTemplate(id, data) {
   const res = await api.put(`/templates/${id}`, data)
   return res.data

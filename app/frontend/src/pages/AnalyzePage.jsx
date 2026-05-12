@@ -13,6 +13,7 @@ import {
   extractJdFromUrl, 
   getTemplates, 
   createTemplate,
+  createTemplateFromFile,
   getNarrative,
 } from '../lib/api'
 import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
@@ -473,12 +474,16 @@ export default function AnalyzePage() {
       // This prevents duplicate JD creation
       if (!loadedFromLibrary) {
         const templateName = `${roleCategory || 'General'} - ${new Date().toLocaleDateString()}`
-        await createTemplate({
-          name: templateName,
-          jd_text: jdMode === 'text' ? jdText : `[File: ${jdFile.name}]`,
-          scoring_weights: weights,
-          tags: roleCategory
-        })
+        if (jdMode === 'text') {
+          await createTemplate({
+            name: templateName,
+            jd_text: jdText,
+            scoring_weights: weights,
+            tags: roleCategory
+          })
+        } else {
+          await createTemplateFromFile(templateName, jdFile, roleCategory, weights)
+        }
       }
 
       // Run analysis - auto-detect single vs batch
