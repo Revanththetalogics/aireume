@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { BarChart3, RefreshCw } from 'lucide-react'
 import { getScreeningAnalytics } from '../lib/api'
+import Skeleton from '../components/Skeleton'
 
 const PERIOD_OPTIONS = [
   { value: 'last_7_days', label: 'Last 7 Days' },
@@ -256,8 +257,28 @@ export default function AnalyticsPage() {
 
       {/* ── Loading ─────────────────────────────────────────── */}
       {loading && !data && (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+        <div className="space-y-6">
+          {/* KPI cards skeleton */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Skeleton variant="card" count={4} />
+          </div>
+          {/* Charts skeleton */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Skeleton variant="card" height="22rem" />
+            <Skeleton variant="card" height="22rem" />
+          </div>
+          {/* Skill gaps skeleton */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Skeleton variant="card" height="22rem" />
+            <div className="bg-white rounded-xl shadow-sm border p-6 animate-pulse space-y-3">
+              <div className="h-5 bg-slate-200 rounded w-2/3" />
+              <Skeleton variant="bar" width="90%" />
+              <Skeleton variant="bar" width="75%" />
+              <Skeleton variant="bar" width="60%" />
+              <Skeleton variant="bar" width="50%" />
+              <Skeleton variant="bar" width="40%" />
+            </div>
+          </div>
         </div>
       )}
 

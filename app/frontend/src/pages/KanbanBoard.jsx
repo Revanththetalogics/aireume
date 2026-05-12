@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Columns, User, Briefcase, ChevronDown, ChevronRight } from 'lucide-react'
+import { Columns, User, Briefcase, ChevronDown, ChevronRight, Inbox } from 'lucide-react'
+import EmptyState from '../components/EmptyState'
 import { getCandidatePipeline, updateResultStatus } from '../lib/api'
+import { getScoreColor, PIPELINE_STAGES } from '../lib/constants'
 
 /** Coerce any value to a render-safe string. */
 function safeStr(v) {
@@ -10,8 +12,6 @@ function safeStr(v) {
   if (typeof v === 'number' || typeof v === 'boolean') return String(v)
   try { return JSON.stringify(v) } catch { return String(v) }
 }
-
-const COLUMN_ORDER = ['pending', 'in-review', 'shortlisted', 'rejected', 'hired']
 
 const COLUMN_CONFIG = {
   pending:     {
@@ -81,10 +81,8 @@ function sortColumnsByScore(cols) {
 
 function ScoreBadge({ score }) {
   if (score == null) return <span className="text-slate-400 text-xs font-medium">—</span>
-  let color = 'text-red-700 bg-red-50 ring-red-200'
-  if (score >= 70) color = 'text-green-700 bg-green-50 ring-green-200'
-  else if (score >= 50) color = 'text-amber-700 bg-amber-50 ring-amber-200'
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-bold ring-1 ${color}`}>{score}</span>
+  const color = getScoreColor(score)
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-bold ring-1 ${color.text} ${color.bg} ${color.ring}`}>{score}</span>
 }
 
 function Toast({ message, type = 'error', onDone }) {
@@ -285,7 +283,7 @@ export default function KanbanBoard() {
         </div>
 
         <div className="flex gap-4 overflow-x-auto pb-2 h-full">
-          {COLUMN_ORDER.map(status => {
+          {PIPELINE_STAGES.map(status => {
             const cfg = COLUMN_CONFIG[status]
             const items = columns[status] || []
             const count = counts[status] || 0
@@ -330,12 +328,12 @@ export default function KanbanBoard() {
                 {!isCollapsed && (
                   <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
                     {items.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-8 text-center">
-                        <div className={`w-10 h-10 rounded-xl ${cfg.headerBg} ring-1 ${cfg.ring} flex items-center justify-center mb-2`}>
-                          <User className={`w-5 h-5 ${cfg.badgeText}`} />
-                        </div>
-                        <p className="text-xs text-slate-400 font-medium">No candidates</p>
-                      </div>
+                      <EmptyState
+                        icon={Inbox}
+                        title="No candidates"
+                        description="Drag candidates here or change their status"
+                        className="py-8"
+                      />
                     ) : (
                       items.map(candidate => (
                         <div

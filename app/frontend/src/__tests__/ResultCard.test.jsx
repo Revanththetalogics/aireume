@@ -1,6 +1,24 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import ResultCard from '../components/ResultCard'
+
+// Make requestAnimationFrame fire callbacks synchronously so
+// StreamingText typewriter animation completes immediately in tests
+const originalRAF = window.requestAnimationFrame
+const originalCAF = window.cancelAnimationFrame
+
+beforeAll(() => {
+  vi.stubGlobal('requestAnimationFrame', (cb) => {
+    cb(Date.now())
+    return 0
+  })
+  vi.stubGlobal('cancelAnimationFrame', () => {})
+})
+
+afterAll(() => {
+  vi.stubGlobal('requestAnimationFrame', originalRAF)
+  vi.stubGlobal('cancelAnimationFrame', originalCAF)
+})
 
 const mockResult = {
   fit_score: 85,

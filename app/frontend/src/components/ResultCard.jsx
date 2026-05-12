@@ -6,6 +6,8 @@ import {
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import SkillsRadar from './SkillsRadar'
+import AnimatedScore from './AnimatedScore'
+import StreamingText from './StreamingText'
 import { generateEmail, getNarrative, getEvaluations, saveEvaluation } from '../lib/api'
 
 // ─── Small reusable components ────────────────────────────────────────────────
@@ -542,7 +544,9 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               </div>
               <div>
                 <h3 className="text-sm font-bold uppercase tracking-wide text-indigo-100 mb-1">Executive Summary</h3>
-                <p className="text-sm leading-relaxed text-white/95">{safeStr(fit_summary)}</p>
+                <p className="text-sm leading-relaxed text-white/95">
+                  <StreamingText text={safeStr(fit_summary)} isStreaming={isPolling} />
+                </p>
               </div>
             </div>
           </div>

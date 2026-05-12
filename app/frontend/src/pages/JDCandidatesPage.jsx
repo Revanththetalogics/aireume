@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Users, ArrowLeft, Filter, ChevronDown, CheckCircle2, XCircle,
@@ -6,6 +6,11 @@ import {
   List, Columns, Briefcase, ChevronRight
 } from 'lucide-react'
 import { getJDCandidates, bulkUpdateStatus, updateResultStatus, getCandidatePipeline } from '../lib/api'
+import { STATUS_OPTIONS, STATUS_CONFIG, getScoreColor, PIPELINE_STAGES } from '../lib/constants'
+import Skeleton from '../components/Skeleton'
+import CandidateCard from '../components/CandidateCard'
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { useOptimisticUpdate } from '../hooks/useOptimisticUpdate'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -15,18 +20,7 @@ function safeStr(v) {
   try { return JSON.stringify(v) } catch { return String(v) }
 }
 
-const STATUS_OPTIONS = ['pending', 'shortlisted', 'rejected', 'in-review', 'hired']
-
-const STATUS_CONFIG = {
-  pending:     { label: 'Pending',     color: 'bg-slate-100 text-slate-700 ring-slate-200' },
-  shortlisted: { label: 'Shortlisted', color: 'bg-green-100 text-green-700 ring-green-200' },
-  rejected:    { label: 'Rejected',    color: 'bg-red-100 text-red-700 ring-red-200' },
-  'in-review': { label: 'In Review',   color: 'bg-amber-100 text-amber-700 ring-amber-200' },
-  hired:       { label: 'Hired',       color: 'bg-emerald-100 text-emerald-700 ring-emerald-200' },
-}
-
 // ── Kanban column config (same as KanbanBoard.jsx) ──
-const KANBAN_COLUMN_ORDER = ['pending', 'in-review', 'shortlisted', 'rejected', 'hired']
 
 const KANBAN_COLUMN_CONFIG = {
   pending:     {
@@ -114,11 +108,9 @@ function relativeTime(dateStr) {
 
 function ScoreBadge({ score }) {
   if (score == null) return <span className="text-slate-400 text-xs font-medium">—</span>
-  let color = 'text-red-700 bg-red-50 ring-red-200'
-  if (score >= 70) color = 'text-green-700 bg-green-50 ring-green-200'
-  else if (score >= 40) color = 'text-amber-700 bg-amber-50 ring-amber-200'
+  const color = getScoreColor(score)
   return (
-    <span className={`inline-flex items-center justify-center min-w-[2.5rem] px-2 py-0.5 rounded-full text-xs font-bold ring-1 ${color}`}>
+    <span className={`inline-flex items-center justify-center min-w-[2.5rem] px-2 py-0.5 rounded-full text-xs font-bold ring-1 ${color.text} ${color.bg} ${color.ring}`}>
       {score}
     </span>
   )
@@ -126,10 +118,8 @@ function ScoreBadge({ score }) {
 
 function KanbanScoreBadge({ score }) {
   if (score == null) return <span className="text-slate-400 text-xs font-medium">—</span>
-  let color = 'text-red-700 bg-red-50 ring-red-200'
-  if (score >= 70) color = 'text-green-700 bg-green-50 ring-green-200'
-  else if (score >= 50) color = 'text-amber-700 bg-amber-50 ring-amber-200'
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-bold ring-1 ${color}`}>{score}</span>
+  const color = getScoreColor(score)
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-bold ring-1 ${color.text} ${color.bg} ${color.ring}`}>{score}</span>
 }
 
 function StatusPill({ status, onChange }) {
@@ -184,7 +174,7 @@ function SkillTag({ skill, type = 'matched' }) {
 
 // ── Funnel Progress Bar ──
 function FunnelProgressBar({ counts }) {
-  const total = KANBAN_COLUMN_ORDER.reduce((sum, s) => sum + (counts[s] || 0), 0)
+  const total = PIPELINE_STAGES.reduce((sum, s) => sum + (counts[s] || 0), 0)
   if (total === 0) return null
 
   return (
@@ -194,7 +184,7 @@ function FunnelProgressBar({ counts }) {
         <span className="ml-auto text-xs font-semibold text-slate-500">{total} total</span>
       </div>
       <div className="flex w-full h-5 rounded-full overflow-hidden ring-1 ring-brand-100">
-        {KANBAN_COLUMN_ORDER.map(status => {
+        {PIPELINE_STAGES.map(status => {
           const count = counts[status] || 0
           if (count === 0) return null
           const pct = (count / total) * 100
@@ -215,7 +205,7 @@ function FunnelProgressBar({ counts }) {
         })}
       </div>
       <div className="flex gap-4 mt-2 flex-wrap">
-        {KANBAN_COLUMN_ORDER.map(status => {
+        {PIPELINE_STAGES.map(status => {
           const count = counts[status] || 0
           const pct = total > 0 ? ((count / total) * 100).toFixed(0) : 0
           const cfg = KANBAN_COLUMN_CONFIG[status]
@@ -297,7 +287,7 @@ export default function JDCandidatesPage() {
   const [sortOrder, setSortOrder] = useState('desc')
 
   // Selection
-  const [selected, setSelected] = useState(new Set())
+  const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkLoading, setBulkLoading] = useState(false)
 
   // ── Kanban state ──
@@ -308,6 +298,8 @@ export default function JDCandidatesPage() {
   const [draggingId, setDraggingId] = useState(null)
   const [toast, setToast] = useState(null)
   const [confirmDialog, setConfirmDialog] = useState(null)
+  const [selectedIndex, setSelectedIndex] = useState(-1)
+  const searchInputRef = useRef(null)
 
   // ── List view fetch ──
   const fetchCandidates = useCallback(async () => {
@@ -333,7 +325,7 @@ export default function JDCandidatesPage() {
   useEffect(() => { fetchCandidates() }, [fetchCandidates])
 
   // Reset selection when filters change
-  useEffect(() => { setSelected(new Set()) }, [statusFilter, sortBy, sortOrder])
+  useEffect(() => { setSelectedIds(new Set()) }, [statusFilter, sortBy, sortOrder])
 
   // ── Kanban fetch ──
   const fetchKanban = useCallback(async () => {
@@ -357,7 +349,7 @@ export default function JDCandidatesPage() {
 
   // ── Selection helpers ──
   const toggleSelect = (id) => {
-    setSelected(prev => {
+    setSelectedIds(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -366,44 +358,58 @@ export default function JDCandidatesPage() {
   }
 
   const toggleAll = () => {
-    if (selected.size === candidates.length) {
-      setSelected(new Set())
+    if (selectedIds.size === candidates.length) {
+      setSelectedIds(new Set())
     } else {
-      setSelected(new Set(candidates.map(c => c.id || c.result_id)))
+      setSelectedIds(new Set(candidates.map(c => c.id || c.result_id)))
     }
   }
 
-  const clearSelection = () => setSelected(new Set())
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const { optimisticUpdate } = useOptimisticUpdate()
 
   // ── Status change (list view) ──
-  const handleStatusChange = async (resultId, newStatus) => {
-    try {
-      await updateResultStatus(resultId, newStatus)
-      setCandidates(prev =>
-        prev.map(c => (c.id || c.result_id) === resultId ? { ...c, status: newStatus } : c)
-      )
-    } catch {
-      // Silently fail — UI stays consistent
-    }
+  const handleStatusChange = (resultId, newStatus) => {
+    const prevStatus = candidates.find(c => (c.id || c.result_id) === resultId)?.status
+    optimisticUpdate({
+      items: candidates,
+      setItems: setCandidates,
+      itemId: resultId,
+      idField: (c) => c.id || c.result_id,
+      field: 'status',
+      newValue: newStatus,
+      apiCall: () => updateResultStatus(resultId, newStatus),
+      undoApiCall: () => updateResultStatus(resultId, prevStatus),
+      undoMessage: `Candidate marked as ${STATUS_CONFIG[newStatus]?.label || newStatus}`,
+    })
   }
 
   // ── Bulk actions ──
   const handleBulkAction = async (status) => {
-    if (selected.size === 0) return
+    if (selectedIds.size === 0) return
     setBulkLoading(true)
     try {
-      await bulkUpdateStatus(jdId, [...selected], status)
+      await bulkUpdateStatus(jdId, [...selectedIds], status)
       setCandidates(prev =>
         prev.map(c =>
-          selected.has(c.id || c.result_id) ? { ...c, status } : c
+          selectedIds.has(c.id || c.result_id) ? { ...c, status } : c
         )
       )
-      setSelected(new Set())
+      setSelectedIds(new Set())
     } catch {
       // Silently fail
     } finally {
       setBulkLoading(false)
     }
+  }
+
+  const handleBulkShortlist = async () => {
+    await handleBulkAction('shortlisted')
+  }
+
+  const handleBulkReject = async () => {
+    await handleBulkAction('rejected')
   }
 
   const handleSortChange = (newSortBy) => {
@@ -414,6 +420,24 @@ export default function JDCandidatesPage() {
       setSortOrder(newSortBy === 'name' ? 'asc' : 'desc')
     }
   }
+
+  // ── Keyboard shortcuts (list view only) ──
+  useKeyboardShortcuts({
+    items: candidates,
+    selectedIndex,
+    onSelect: setSelectedIndex,
+    onShortlist: (candidate) => {
+      const rid = candidate?.latest_result_id || candidate?.id || candidate?.result_id
+      if (rid) handleStatusChange(rid, 'shortlisted')
+    },
+    onReject: (candidate) => {
+      const rid = candidate?.latest_result_id || candidate?.id || candidate?.result_id
+      if (rid) handleStatusChange(rid, 'rejected')
+    },
+    onOpen: (candidate) => navigate('/report', { state: { result: candidate } }),
+    onSearch: () => searchInputRef.current?.focus(),
+    enabled: viewMode === 'list',
+  })
 
   const SortIcon = ({ field }) => {
     if (sortBy !== field) return null
@@ -537,7 +561,7 @@ export default function JDCandidatesPage() {
               </h2>
               <p className="text-slate-500 text-sm mt-1 font-medium">
                 {viewMode === 'kanban'
-                  ? `${KANBAN_COLUMN_ORDER.reduce((s, k) => s + (kanbanCounts[k] || 0), 0)} candidate${KANBAN_COLUMN_ORDER.reduce((s, k) => s + (kanbanCounts[k] || 0), 0) !== 1 ? 's' : ''} in pipeline`
+                  ? `${PIPELINE_STAGES.reduce((s, k) => s + (kanbanCounts[k] || 0), 0)} candidate${PIPELINE_STAGES.reduce((s, k) => s + (kanbanCounts[k] || 0), 0) !== 1 ? 's' : ''} in pipeline`
                   : `${candidates.length} candidate${candidates.length !== 1 ? 's' : ''} analyzed`
                 }
               </p>
@@ -578,6 +602,7 @@ export default function JDCandidatesPage() {
               <Filter className="w-4 h-4 text-slate-500" />
               <span className="text-sm font-semibold text-slate-700">Status:</span>
               <select
+                ref={searchInputRef}
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="px-3 py-1.5 text-xs rounded-lg font-medium bg-slate-100 text-slate-600 border-0 focus:ring-2 focus:ring-brand-500"
@@ -618,8 +643,8 @@ export default function JDCandidatesPage() {
         {viewMode === 'list' ? (
           /* ───── LIST VIEW ───── */
           loading ? (
-            <div className="flex justify-center py-16">
-              <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+            <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
+              <Skeleton variant="list" count={8} />
             </div>
           ) : error ? (
             <div className="text-center py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-red-100 shadow-brand card-animate">
@@ -639,155 +664,85 @@ export default function JDCandidatesPage() {
             </div>
           ) : (
             <>
-              {/* Bulk Action Bar */}
-              {selected.size > 0 && (
-                <div className="sticky top-20 z-20 flex items-center gap-3 bg-brand-900 text-white px-5 py-3 rounded-2xl shadow-brand-lg card-animate">
-                  <span className="text-sm font-bold">
-                    {selected.size} selected
-                  </span>
-                  <div className="flex-1" />
-                  <button
-                    onClick={() => handleBulkAction('shortlisted')}
-                    disabled={bulkLoading}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-60"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Shortlist Selected
+              {/* Select All Header */}
+              <div className="flex items-center gap-3 bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm px-4 py-3 card-animate">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === candidates.length && candidates.length > 0}
+                  onChange={toggleAll}
+                  className="w-4 h-4 rounded border-brand-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                />
+                <span className="text-sm font-semibold text-slate-700">
+                  {selectedIds.size > 0
+                    ? `${selectedIds.size} of ${candidates.length} selected`
+                    : `${candidates.length} candidate${candidates.length !== 1 ? 's' : ''}`
+                  }
+                </span>
+              </div>
+
+              {/* Candidate Cards */}
+              <div className="space-y-3">
+                {candidates.map((c, idx) => {
+                  const id = c.id || c.result_id
+                  return (
+                    <div key={id} className="flex items-start gap-3">
+                      <div className="pt-5 pl-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(id)}
+                          onChange={() => toggleSelect(id)}
+                          className="w-4 h-4 rounded border-brand-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                        />
+                      </div>
+                      <div className={`flex-1 min-w-0 ${selectedIndex === idx ? 'ring-2 ring-brand-500 rounded-xl' : ''}`}>
+                        <CandidateCard
+                          candidate={{
+                            id,
+                            name: c.candidate_name || c.name,
+                            email: c.email,
+                            title: c.title || c.current_role,
+                            fit_score: c.fit_score ?? c.score,
+                            status: c.status || 'pending',
+                            skills: (c.matched_skills || c.skills_matched || c.skills || []).map(s =>
+                              typeof s === 'string' ? { name: s, score: 80 } : s
+                            ),
+                            highlights: (c.highlights || []).map(h =>
+                              typeof h === 'string' ? { text: h, type: 'strength' } : h
+                            ),
+                            job_title: jdName,
+                          }}
+                          onStatusChange={handleStatusChange}
+                          onSelect={(card) => navigate('/report', { state: { resultId: card.id } })}
+                          selected={selectedIndex === idx}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Floating Bulk Actions Bar */}
+              {selectedIds.size > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-xl border border-slate-200 px-6 py-3 flex items-center gap-4 z-50">
+                  <span className="text-sm font-medium text-slate-700">{selectedIds.size} selected</span>
+                  <button onClick={handleBulkShortlist} disabled={bulkLoading} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 disabled:opacity-60">
+                    Shortlist All
                   </button>
-                  <button
-                    onClick={() => handleBulkAction('rejected')}
-                    disabled={bulkLoading}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-60"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    Reject Selected
+                  <button onClick={handleBulkReject} disabled={bulkLoading} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 disabled:opacity-60">
+                    Reject All
                   </button>
-                  <button
-                    onClick={clearSelection}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition-colors"
-                  >
-                    Clear Selection
+                  <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1.5 text-slate-500 text-sm hover:text-slate-700">
+                    Clear
                   </button>
                 </div>
               )}
-
-              {/* Candidate Table */}
-              <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden card-animate">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-brand-50 border-b border-brand-100">
-                      <tr>
-                        <th className="px-4 py-3.5 text-left w-10">
-                          <input
-                            type="checkbox"
-                            checked={selected.size === candidates.length && candidates.length > 0}
-                            onChange={toggleAll}
-                            className="w-4 h-4 rounded border-brand-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
-                          />
-                        </th>
-                        <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Rank</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Candidate</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Score</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Status</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Recommendation</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Skills</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Exp.</th>
-                        <th className="px-4 py-3.5 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Analyzed</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {candidates.map((c, idx) => {
-                        const id = c.id || c.result_id
-                        const matchedSkills = c.matched_skills || c.skills_matched || []
-                        const missingSkills = c.missing_skills || c.skills_missing || []
-                        const rec = c.final_recommendation || c.recommendation || ''
-                        const exp = c.total_experience_years ?? c.experience_years ?? c.years_experience
-                        const analyzedDate = c.created_at || c.analyzed_at || c.timestamp || c.date
-
-                        return (
-                          <tr
-                            key={id}
-                            className={`border-b border-brand-50 hover:bg-brand-50/40 transition-colors ${
-                              selected.has(id) ? 'bg-brand-50/60' : ''
-                            }`}
-                          >
-                            <td className="px-4 py-3.5">
-                              <input
-                                type="checkbox"
-                                checked={selected.has(id)}
-                                onChange={() => toggleSelect(id)}
-                                className="w-4 h-4 rounded border-brand-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
-                              />
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-brand-50 ring-1 ring-brand-200 text-xs font-extrabold text-brand-700">
-                                {idx + 1}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <button
-                                onClick={() => navigate('/report', { state: { result: c } })}
-                                className="font-bold text-brand-900 hover:text-brand-600 hover:underline transition-colors text-left"
-                              >
-                                {safeStr(c.candidate_name || c.name) || '—'}
-                              </button>
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <ScoreBadge score={c.fit_score ?? c.score} />
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <StatusPill
-                                status={c.status || 'pending'}
-                                onChange={(newStatus) => handleStatusChange(id, newStatus)}
-                              />
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <span className={`text-xs font-bold ${
-                                rec === 'Shortlist' || rec === 'shortlist' ? 'text-green-700' :
-                                rec === 'Reject'    || rec === 'reject'    ? 'text-red-700'   : 'text-amber-700'
-                              }`}>
-                                {safeStr(rec) || '—'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <div className="flex flex-wrap gap-1 max-w-[220px]">
-                                {Array.isArray(matchedSkills) && matchedSkills.slice(0, 5).map((s, i) => (
-                                  <SkillTag key={i} skill={s} type="matched" />
-                                ))}
-                                {matchedSkills.length > 5 && (
-                                  <span className="px-2 py-0.5 text-xs font-semibold text-slate-500 bg-slate-50 rounded-md">
-                                    +{matchedSkills.length - 5} more
-                                  </span>
-                                )}
-                                {Array.isArray(missingSkills) && missingSkills.slice(0, 3).map((s, i) => (
-                                  <SkillTag key={`m${i}`} skill={s} type="missing" />
-                                ))}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <span className="text-xs font-semibold text-slate-600">
-                                {exp != null ? `${safeStr(exp)} yr${Number(exp) !== 1 ? 's' : ''}` : '—'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <span className="text-xs text-slate-400 font-medium">
-                                {relativeTime(analyzedDate)}
-                              </span>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             </>
           )
         ) : (
           /* ───── KANBAN VIEW ───── */
           kanbanLoading ? (
-            <div className="flex justify-center py-16">
-              <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+              <Skeleton variant="card" count={5} />
             </div>
           ) : (
             <div className="space-y-4">
@@ -796,7 +751,7 @@ export default function JDCandidatesPage() {
 
               {/* Kanban Columns */}
               <div className="flex gap-4 overflow-x-auto pb-2" style={{ minHeight: '60vh' }}>
-                {KANBAN_COLUMN_ORDER.map(status => {
+                {PIPELINE_STAGES.map(status => {
                   const cfg = KANBAN_COLUMN_CONFIG[status]
                   const items = kanbanColumns[status] || []
                   const count = kanbanCounts[status] || 0

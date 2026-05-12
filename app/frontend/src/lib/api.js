@@ -1038,6 +1038,11 @@ export async function getScorecard(resultId) {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
+export async function seedSampleData() {
+  const response = await api.post('/onboarding/seed-sample')
+  return response.data
+}
+
 export async function getDashboardSummary() {
   const res = await api.get('/dashboard/summary')
   return res.data

@@ -1,11 +1,14 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider } from './contexts/AuthContext'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { NotificationProvider } from './contexts/NotificationContext'
+import { OnboardingProvider, useOnboarding } from './contexts/OnboardingContext'
 import { SubscriptionProvider } from './hooks/useSubscription'
 import ProtectedRoute from './components/ProtectedRoute'
 import PlatformAdminRoute from './components/PlatformAdminRoute'
 import AppShell from './components/AppShell'
 import ErrorBoundary from './components/ErrorBoundary'
+import OnboardingWizard from './components/OnboardingWizard'
 
 // New pages
 const DashboardNew = lazy(() => import('./pages/DashboardNew'))
@@ -55,53 +58,73 @@ function Shell({ children }) {
   )
 }
 
+function OnboardingGate({ children }) {
+  const { isOnboardingComplete } = useOnboarding()
+  const { user } = useAuth()
+
+  if (user && !isOnboardingComplete) {
+    return <OnboardingWizard />
+  }
+
+  return children
+}
+
 function App() {
   return (
     <AuthProvider>
-      <ErrorBoundary>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-          {/* Public routes */}
-          <Route path="/login"      element={<LoginPage />} />
-          <Route path="/register"   element={<RegisterPage />} />
-          
-          {/* New routes */}
-          <Route path="/"           element={<Shell><DashboardNew /></Shell>} />
-          <Route path="/analyze"    element={<Shell><AnalyzePage /></Shell>} />
-          <Route path="/jd-library" element={<Shell><JDLibraryPage /></Shell>} />
-          <Route path="/jd-library/:id/handoff" element={<Shell><HandoffPackage /></Shell>} />
-          <Route path="/jd-library/:id/candidates" element={<Shell><JDCandidatesPage /></Shell>} />
-          
-          {/* Existing routes */}
-          <Route path="/report"     element={<Shell><ReportPage /></Shell>} />
-          <Route path="/candidates" element={<Shell><CandidatesPage /></Shell>} />
-          <Route path="/candidates/:id" element={<Shell><CandidateProfilePage /></Shell>} />
-          <Route path="/pipeline"    element={<Shell><KanbanBoard /></Shell>} />
-          <Route path="/compare"    element={<Shell><ComparePage /></Shell>} />
-          <Route path="/team"       element={<Shell><TeamPage /></Shell>} />
-          <Route path="/transcript" element={<Shell><TranscriptPage /></Shell>} />
-          <Route path="/video"      element={<Shell><VideoPage /></Shell>} />
-          <Route path="/analytics"  element={<Shell><AnalyticsPage /></Shell>} />
-          <Route path="/settings"   element={<Shell><SettingsPage /></Shell>} />
-          <Route path="/admin" element={<PlatformAdminRoute><Shell><AdminDashboardPage /></Shell></PlatformAdminRoute>} />
-          <Route path="/admin/email-settings" element={<PlatformAdminRoute><Shell><EmailSettings /></Shell></PlatformAdminRoute>} />
-          <Route path="/admin/security-events" element={<PlatformAdminRoute><Shell><SecurityEventsPage /></Shell></PlatformAdminRoute>} />
-          <Route path="/admin/impersonation" element={<PlatformAdminRoute><Shell><ImpersonationPage /></Shell></PlatformAdminRoute>} />
-          <Route path="/admin/erasure" element={<PlatformAdminRoute><Shell><ErasurePage /></Shell></PlatformAdminRoute>} />
-          <Route path="/admin/plan-features" element={<PlatformAdminRoute><Shell><PlanFeaturesPage /></Shell></PlatformAdminRoute>} />
+      <SubscriptionProvider>
+        <NotificationProvider>
+          <OnboardingProvider>
+            <ErrorBoundary>
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+              {/* Public routes */}
+              <Route path="/login"      element={<LoginPage />} />
+              <Route path="/register"   element={<RegisterPage />} />
+              
+              {/* Onboarding direct-access route */}
+              <Route path="/onboarding" element={<ProtectedRoute><OnboardingWizard /></ProtectedRoute>} />
+              
+              {/* New routes */}
+              <Route path="/"           element={<Shell><OnboardingGate><DashboardNew /></OnboardingGate></Shell>} />
+              <Route path="/analyze"    element={<Shell><OnboardingGate><AnalyzePage /></OnboardingGate></Shell>} />
+              <Route path="/jd-library" element={<Shell><OnboardingGate><JDLibraryPage /></OnboardingGate></Shell>} />
+              <Route path="/jd-library/:id/handoff" element={<Shell><OnboardingGate><HandoffPackage /></OnboardingGate></Shell>} />
+              <Route path="/jd-library/:id/candidates" element={<Shell><OnboardingGate><JDCandidatesPage /></OnboardingGate></Shell>} />
+              
+              {/* Existing routes */}
+              <Route path="/report"     element={<Shell><OnboardingGate><ReportPage /></OnboardingGate></Shell>} />
+              <Route path="/candidates" element={<Shell><OnboardingGate><CandidatesPage /></OnboardingGate></Shell>} />
+              <Route path="/candidates/:id" element={<Shell><OnboardingGate><CandidateProfilePage /></OnboardingGate></Shell>} />
+              <Route path="/pipeline"    element={<Shell><OnboardingGate><KanbanBoard /></OnboardingGate></Shell>} />
+              <Route path="/compare"    element={<Shell><OnboardingGate><ComparePage /></OnboardingGate></Shell>} />
+              <Route path="/team"       element={<Shell><OnboardingGate><TeamPage /></OnboardingGate></Shell>} />
+              <Route path="/transcript" element={<Shell><OnboardingGate><TranscriptPage /></OnboardingGate></Shell>} />
+              <Route path="/video"      element={<Shell><OnboardingGate><VideoPage /></OnboardingGate></Shell>} />
+              <Route path="/analytics"  element={<Shell><OnboardingGate><AnalyticsPage /></OnboardingGate></Shell>} />
+              <Route path="/settings"   element={<Shell><OnboardingGate><SettingsPage /></OnboardingGate></Shell>} />
+              <Route path="/admin" element={<PlatformAdminRoute><Shell><OnboardingGate><AdminDashboardPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
+              <Route path="/admin/email-settings" element={<PlatformAdminRoute><Shell><OnboardingGate><EmailSettings /></OnboardingGate></Shell></PlatformAdminRoute>} />
+              <Route path="/admin/security-events" element={<PlatformAdminRoute><Shell><OnboardingGate><SecurityEventsPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
+              <Route path="/admin/impersonation" element={<PlatformAdminRoute><Shell><OnboardingGate><ImpersonationPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
+              <Route path="/admin/erasure" element={<PlatformAdminRoute><Shell><OnboardingGate><ErasurePage /></OnboardingGate></Shell></PlatformAdminRoute>} />
+              <Route path="/admin/plan-features" element={<PlatformAdminRoute><Shell><OnboardingGate><PlanFeaturesPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
 
-          {/* Backward compatibility redirects */}
-          <Route path="/batch"      element={<Navigate to="/analyze" replace />} />
-          <Route path="/templates"  element={<Navigate to="/jd-library" replace />} />
-          
-          {/* Legacy route for old dashboard (kept for compatibility) */}
-          <Route path="/dashboard-old" element={<Shell><Dashboard /></Shell>} />
-          
-          {/* Catch all */}
-          <Route path="*"           element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
-      </ErrorBoundary>
+              {/* Backward compatibility redirects */}
+              <Route path="/batch"      element={<Navigate to="/analyze" replace />} />
+              <Route path="/templates"  element={<Navigate to="/jd-library" replace />} />
+              
+              {/* Legacy route for old dashboard (kept for compatibility) */}
+              <Route path="/dashboard-old" element={<Shell><OnboardingGate><Dashboard /></OnboardingGate></Shell>} />
+              
+              {/* Catch all */}
+              <Route path="*"           element={<Navigate to="/" replace />} />
+              </Routes>
+              </Suspense>
+            </ErrorBoundary>
+          </OnboardingProvider>
+        </NotificationProvider>
+      </SubscriptionProvider>
     </AuthProvider>
   )
 }

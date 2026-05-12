@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LayoutTemplate, Plus, Trash2, Edit2, X, Save, Sparkles, TrendingUp, Filter, Users, ChevronRight } from 'lucide-react'
+import { LayoutTemplate, Plus, Trash2, Edit2, X, Save, Sparkles, TrendingUp, Filter, Users, ChevronRight, Briefcase } from 'lucide-react'
+import EmptyState from '../components/EmptyState'
 import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getAllJDStats } from '../lib/api'
 
 /**
@@ -342,25 +343,30 @@ export default function JDLibraryPage() {
             <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : filteredTemplates.length === 0 ? (
-          <div className="text-center py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand card-animate">
-            <div className="w-16 h-16 rounded-2xl bg-brand-50 ring-1 ring-brand-200 flex items-center justify-center mx-auto mb-4">
-              <LayoutTemplate className="w-8 h-8 text-brand-300" />
+          filterCategory !== 'all' ? (
+            <div className="text-center py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand card-animate">
+              <div className="w-16 h-16 rounded-2xl bg-brand-50 ring-1 ring-brand-200 flex items-center justify-center mx-auto mb-4">
+                <LayoutTemplate className="w-8 h-8 text-brand-300" />
+              </div>
+              <p className="text-slate-500 font-medium mb-2">No JDs in this category</p>
+              <p className="text-xs text-slate-400 mb-5">Try a different filter or create a new JD</p>
+              <button
+                onClick={() => setModalOpen(true)}
+                className="px-5 py-2.5 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"
+              >
+                Create JD
+              </button>
             </div>
-            <p className="text-slate-500 font-medium mb-2">
-              {filterCategory !== 'all' ? 'No JDs in this category' : 'No saved job descriptions yet'}
-            </p>
-            <p className="text-xs text-slate-400 mb-5">
-              {filterCategory !== 'all' 
-                ? 'Try a different filter or create a new JD' 
-                : 'JDs are automatically saved when you run analyses, or create one manually'}
-            </p>
-            <button
-              onClick={() => setModalOpen(true)}
-              className="px-5 py-2.5 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"
-            >
-              Create JD
-            </button>
-          </div>
+          ) : (
+            <EmptyState
+              icon={Briefcase}
+              title="No jobs yet"
+              description="Create your first job description to start screening candidates with AI."
+              actionLabel="Create Job"
+              onAction={() => setModalOpen(true)}
+              className="py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand"
+            />
+          )
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredTemplates.map(t => {

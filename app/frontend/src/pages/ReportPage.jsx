@@ -10,6 +10,9 @@ import ResultCard from '../components/ResultCard'
 import InterviewScorecard from '../components/InterviewScorecard'
 import Timeline from '../components/Timeline'
 import { labelTrainingExample, updateResultStatus, updateCandidateName, getNarrative, viewCandidateResume, downloadCandidateResume } from '../lib/api'
+import AnimatedScore from '../components/AnimatedScore'
+import StreamingText from '../components/StreamingText'
+import Skeleton from '../components/Skeleton'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -218,6 +221,10 @@ export default function ReportPage() {
 
   if (!result) return null
 
+  const hasDeterministicData = result.fit_score != null
+  const isNarrativeReady = result.narrative_status === 'ready'
+  const isReportComplete = isNarrativeReady || result.narrative_status === 'failed' || !result.narrative_status
+
   const role      = (result.job_role && result.job_role !== 'Not specified') ? result.job_role : ''
   const timestamp = result.analyzed_at
     ? new Date(result.analyzed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -368,15 +375,17 @@ export default function ReportPage() {
         )}
 
         {/* Score gauge */}
-        <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4 flex flex-col items-center">
-          <ScoreGauge score={result.fit_score} />
-          {result.final_recommendation && (
-            <div className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-50 ring-1 ring-brand-200 text-brand-700 text-xs font-bold">
-              <CheckCircle className="w-3.5 h-3.5" />
-              {safeStr(result.final_recommendation)}
-            </div>
-          )}
-        </div>
+        {hasDeterministicData && (
+          <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-4 flex flex-col items-center">
+            <ScoreGauge score={result.fit_score} />
+            {result.final_recommendation && (
+              <div className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-50 ring-1 ring-brand-200 text-brand-700 text-xs font-bold">
+                <CheckCircle className="w-3.5 h-3.5" />
+                {safeStr(result.final_recommendation)}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Training label */}
         {result.result_id && (
@@ -477,14 +486,15 @@ export default function ReportPage() {
             )}
             <button
               onClick={handleShare}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl ring-1 ring-brand-200 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition-colors"
+              disabled={!isReportComplete}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl ring-1 ring-brand-200 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {copied ? <Check className="w-4 h-4 text-green-600" /> : <Share2 className="w-4 h-4" />}
               {copied ? 'Link Copied!' : 'Share'}
             </button>
             <button
               onClick={handleDownload}
-              disabled={isDownloading}
+              disabled={isDownloading || !isReportComplete}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white btn-brand shadow-brand-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isDownloading ? (
@@ -506,10 +516,12 @@ export default function ReportPage() {
         <div className="report-content flex-1 overflow-y-auto p-6 space-y-5 print:overflow-visible print:p-4">
 
           {/* Score Summary — visible in both screen and PDF */}
-          {result.fit_score != null && (
+          {!hasDeterministicData ? (
+            <Skeleton variant="card" />
+          ) : (
             <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-brand-sm p-5 flex items-center gap-6">
               <div className="flex flex-col items-center justify-center w-24 h-24 rounded-full bg-brand-50 ring-4 ring-brand-100 shrink-0">
-                <span className="text-3xl font-extrabold text-brand-700">{result.fit_score}</span>
+                <AnimatedScore score={result.fit_score} size="lg" animate={!isReportComplete} />
                 <span className="text-[10px] font-bold text-brand-400 uppercase tracking-wider">/ 100</span>
               </div>
               <div className="flex-1">
@@ -537,6 +549,16 @@ export default function ReportPage() {
                   )}
                 </div>
                 <p className="text-sm text-slate-500">Overall fit score based on skills, experience, education, and timeline analysis.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Loading skeletons for narrative and skills areas */}
+          {!hasDeterministicData && (
+            <div className="space-y-5">
+              <Skeleton variant="text" count={4} />
+              <div className="space-y-3">
+                <Skeleton variant="bar" count={5} />
               </div>
             </div>
           )}
@@ -605,7 +627,7 @@ export default function ReportPage() {
             )}
           </div>
 
-          <ResultCard result={result} defaultExpandEducation />
+          {hasDeterministicData && <ResultCard result={result} defaultExpandEducation />}
 
           {/* Interview Scorecard Section */}
           {result?.interview_questions && result.result_id && (

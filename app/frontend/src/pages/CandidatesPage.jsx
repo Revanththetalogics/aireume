@@ -1,7 +1,17 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, Users, ChevronRight, X, FileText, Eye, Filter, ChevronDown, CheckCircle2, XCircle, ArrowUp, ArrowDown, List, LayoutGrid, Columns, Mail, Loader2 } from 'lucide-react'
+import EmptyState from '../components/EmptyState'
 import { getCandidates, getCandidate, viewCandidateResume, downloadCandidateResume, updateResultStatus } from '../lib/api'
+import { STATUS_OPTIONS, STATUS_CONFIG, getScoreColor } from '../lib/constants'
+import Skeleton from '../components/Skeleton'
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { useOptimisticUpdate } from '../hooks/useOptimisticUpdate'
+import { usePrefetch } from '../hooks/usePrefetch'
+import CandidateCard from '../components/CandidateCard'
+import ScoreBadge from '../components/ScoreBadge'
+import RecommendationBadge from '../components/RecommendationBadge'
+import QuickActions from '../components/QuickActions'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -11,15 +21,7 @@ function safeStr(v) {
   try { return JSON.stringify(v) } catch { return String(v) }
 }
 
-const STATUS_OPTIONS = ['pending', 'shortlisted', 'rejected', 'in-review', 'hired']
 
-const STATUS_CONFIG = {
-  pending:     { label: 'Pending',     color: 'bg-slate-100 text-slate-700 ring-slate-200' },
-  shortlisted: { label: 'Shortlisted', color: 'bg-green-100 text-green-700 ring-green-200' },
-  rejected:    { label: 'Rejected',    color: 'bg-red-100 text-red-700 ring-red-200' },
-  'in-review': { label: 'In Review',   color: 'bg-amber-100 text-amber-700 ring-amber-200' },
-  hired:       { label: 'Hired',       color: 'bg-emerald-100 text-emerald-700 ring-emerald-200' },
-}
 
 const AVATAR_COLORS = [
   'bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500',
@@ -40,12 +42,10 @@ function getAvatarColor(name) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
 }
 
-function ScoreBadge({ score }) {
+function ScorePill({ score }) {
   if (score == null) return <span className="text-slate-400 text-xs font-medium">—</span>
-  let color = 'bg-red-100 text-red-700'
-  if (score >= 70) color = 'bg-green-100 text-green-700'
-  else if (score >= 50) color = 'bg-amber-100 text-amber-700'
-  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${color}`}>{score}</span>
+  const color = getScoreColor(score)
+  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${color.bg} ${color.text}`}>{score}</span>
 }
 
 function StatusPill({ status, onChange }) {
@@ -159,15 +159,12 @@ function CandidateDetail({ candidateId, onClose }) {
             <div key={r.id} className="flex items-center justify-between p-4 bg-brand-50/60 rounded-2xl ring-1 ring-brand-100">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <ScoreBadge score={r.fit_score} />
+                  <ScorePill score={r.fit_score} />
                   <span className={`text-xs font-bold ${
                     r.final_recommendation === 'Shortlist' ? 'text-green-700' :
                     r.final_recommendation === 'Reject'    ? 'text-red-700'   : 'text-amber-700'
                   }`}>{safeStr(r.final_recommendation)}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ring-1 ${
-                    r.status === 'hired'    ? 'bg-green-100 text-green-700 ring-green-200' :
-                    r.status === 'rejected' ? 'bg-red-100   text-red-700   ring-red-200'   : 'bg-slate-100 text-slate-600 ring-slate-200'
-                  }`}>{r.status}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ring-1 ${STATUS_CONFIG[r.status]?.color || STATUS_CONFIG.pending.color}`}>{r.status}</span>
                 </div>
                 <p className="text-xs text-slate-400 font-medium">{new Date(r.timestamp).toLocaleDateString()}</p>
               </div>
@@ -211,7 +208,7 @@ function SplitProfilePreview({ profile, onStatusChange, navigate }) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <ScoreBadge score={fitScore} />
+          <ScorePill score={fitScore} />
           {firstResult?.id && (
             <StatusPill
               status={firstResult.status || profile.latest_status || 'pending'}
@@ -346,6 +343,10 @@ export default function CandidatesPage() {
   const [splitSelectedId, setSplitSelectedId] = useState(null)
   const [splitProfile, setSplitProfile] = useState(null)
   const [splitLoading, setSplitLoading] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(-1)
+  const searchInputRef = useRef(null)
+
+  const { prefetchCandidate, cancelPrefetch } = usePrefetch()
 
   const handleViewModeChange = useCallback((mode) => {
     setViewMode(mode)
@@ -394,16 +395,21 @@ export default function CandidatesPage() {
     fetchCandidates(search, 1)
   }
 
-  const handleStatusChange = async (resultId, newStatus) => {
-    try {
-      await updateResultStatus(resultId, newStatus)
-      setCandidates(prev =>
-        prev.map(c => c.latest_result_id === resultId ? { ...c, latest_status: newStatus } : c)
-      )
-      setToast(`Status updated to ${STATUS_CONFIG[newStatus]?.label || newStatus}`)
-    } catch {
-      setToast('Failed to update status')
-    }
+  const { optimisticUpdate } = useOptimisticUpdate()
+
+  const handleStatusChange = (resultId, newStatus) => {
+    const prevStatus = candidates.find(c => c.latest_result_id === resultId)?.latest_status
+    optimisticUpdate({
+      items: candidates,
+      setItems: setCandidates,
+      itemId: resultId,
+      idField: 'latest_result_id',
+      field: 'latest_status',
+      newValue: newStatus,
+      apiCall: () => updateResultStatus(resultId, newStatus),
+      undoApiCall: () => updateResultStatus(resultId, prevStatus),
+      undoMessage: `Candidate marked as ${STATUS_CONFIG[newStatus]?.label || newStatus}`,
+    })
   }
 
   // ── Sort handler ──
@@ -462,6 +468,22 @@ export default function CandidatesPage() {
 
     return list
   }, [candidates, sortBy, sortOrder, scoreFilter])
+
+  // ── Keyboard shortcuts ──
+  useKeyboardShortcuts({
+    items: displayedCandidates,
+    selectedIndex,
+    onSelect: setSelectedIndex,
+    onShortlist: (candidate) => {
+      if (candidate?.latest_result_id) handleStatusChange(candidate.latest_result_id, 'shortlisted')
+    },
+    onReject: (candidate) => {
+      if (candidate?.latest_result_id) handleStatusChange(candidate.latest_result_id, 'rejected')
+    },
+    onOpen: (candidate) => navigate(`/candidates/${candidate.id}`),
+    onSearch: () => searchInputRef.current?.focus(),
+    enabled: true,
+  })
 
   // Sort indicator icon for a column header
   const SortIcon = ({ column }) => {
@@ -529,9 +551,10 @@ export default function CandidatesPage() {
             <div className="relative">
               <Search className="w-4 h-4 text-brand-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
+                ref={searchInputRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name or email..."
+                placeholder="Search by name or email... ⌘K"
                 className="pl-9 pr-4 py-2.5 text-sm ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 rounded-xl bg-white w-64 placeholder-slate-400"
               />
             </div>
@@ -617,20 +640,27 @@ export default function CandidatesPage() {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-16">
-            <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
+            <Skeleton variant="list" count={8} />
           </div>
         ) : candidates.length === 0 ? (
-          <div className="text-center py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand card-animate">
-            <div className="w-16 h-16 rounded-2xl bg-brand-50 ring-1 ring-brand-200 flex items-center justify-center mx-auto mb-4">
-              <Users className="w-8 h-8 text-brand-300" />
+          statusFilter || skillFilter || scoreFilter !== 'all' ? (
+            <div className="text-center py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand card-animate">
+              <div className="w-16 h-16 rounded-2xl bg-brand-50 ring-1 ring-brand-200 flex items-center justify-center mx-auto mb-4">
+                <Users className="w-8 h-8 text-brand-300" />
+              </div>
+              <p className="text-slate-500 font-medium">No candidates matching current filters.</p>
             </div>
-            <p className="text-slate-500 font-medium">
-              {statusFilter || skillFilter || scoreFilter !== 'all'
-                ? `No candidates matching current filters.`
-                : 'No candidates yet. Analyze some resumes to get started.'}
-            </p>
-          </div>
+          ) : (
+            <EmptyState
+              icon={Users}
+              title="No candidates yet"
+              description="Upload resumes to start building your candidate pipeline."
+              actionLabel="Upload Resumes"
+              actionHref="/analyze"
+              className="py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand"
+            />
+          )
         ) : (
           <>
             {/* Bulk Action Bar — only in table view */}
@@ -711,13 +741,15 @@ export default function CandidatesPage() {
                 </tr>
               </thead>
               <tbody>
-                {displayedCandidates.map(c => (
+                {displayedCandidates.map((c, idx) => (
                   <tr
                     key={c.id}
                     onClick={() => navigate(`/candidates/${c.id}`)}
+                    onMouseEnter={() => prefetchCandidate(c.id)}
+                    onMouseLeave={cancelPrefetch}
                     className={`border-b border-brand-50 cursor-pointer hover:bg-gray-50 transition-colors ${
                       selectedIds.has(c.latest_result_id) ? 'bg-brand-50/60' : ''
-                    }`}
+                    } ${selectedIndex === idx ? 'ring-2 ring-inset ring-brand-500 bg-brand-50/40' : ''}`}
                   >
                     <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
                       {c.latest_result_id ? (
@@ -744,9 +776,11 @@ export default function CandidatesPage() {
                     <td className="px-4 py-3.5 text-slate-500 font-medium">{c.email || '—'}</td>
                     <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
                       {c.latest_result_id ? (
-                        <StatusPill
-                          status={c.latest_status || 'pending'}
-                          onChange={(newStatus) => handleStatusChange(c.latest_result_id, newStatus)}
+                        <QuickActions
+                          candidateId={c.latest_result_id}
+                          currentStatus={c.latest_status || 'pending'}
+                          onStatusChange={handleStatusChange}
+                          compact
                         />
                       ) : (
                         <span className="text-xs text-slate-400">—</span>
@@ -755,7 +789,12 @@ export default function CandidatesPage() {
                     <td className="px-4 py-3.5">
                       <span className="text-brand-700 font-bold">{c.result_count}</span>
                     </td>
-                    <td className="px-4 py-3.5"><ScoreBadge score={c.best_score} /></td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <ScoreBadge score={c.best_score} size="sm" />
+                        <RecommendationBadge score={c.best_score} size="sm" />
+                      </div>
+                    </td>
                     <td className="px-4 py-3.5 max-w-[160px] overflow-hidden">
                       {c.matched_skills && c.matched_skills.length > 0 ? (
                         <div className="flex flex-wrap gap-1 max-h-[2.5rem] overflow-hidden">
@@ -816,65 +855,27 @@ export default function CandidatesPage() {
             {/* ── CARDS VIEW ── */}
             {viewMode === 'cards' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {displayedCandidates.map(c => {
-                  const statusCfg = STATUS_CONFIG[c.latest_status] || STATUS_CONFIG.pending
-                  return (
-                    <div
-                      key={c.id}
-                      onClick={() => navigate(`/candidates/${c.id}`)}
-                      className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow cursor-pointer"
-                    >
-                      {/* Top row: Avatar + Name + Score */}
-                      <div className="flex items-center gap-2.5 mb-3">
-                        <span className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${getAvatarColor(c.name)}`}>
-                          {getInitials(c.name)}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-gray-900 truncate">{c.name || '—'}</p>
-                        </div>
-                        <ScoreBadge score={c.best_score} />
-                      </div>
-
-                      {/* Email */}
-                      {c.email && (
-                        <div className="flex items-center gap-1.5 mb-2 min-w-0">
-                          <Mail className="w-3 h-3 text-gray-400 shrink-0" />
-                          <span className="text-xs text-gray-500 truncate">{c.email}</span>
-                        </div>
-                      )}
-
-                      {/* Status badge */}
-                      <div className="mb-2" onClick={e => e.stopPropagation()}>
-                        {c.latest_result_id ? (
-                          <StatusPill
-                            status={c.latest_status || 'pending'}
-                            onChange={(newStatus) => handleStatusChange(c.latest_result_id, newStatus)}
-                          />
-                        ) : (
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ring-1 ${statusCfg.color}`}>{statusCfg.label}</span>
-                        )}
-                      </div>
-
-                      {/* Skills */}
-                      {c.matched_skills && c.matched_skills.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-3">
-                          {c.matched_skills.slice(0, 3).map((skill, i) => (
-                            <span key={i} className="text-xs bg-gray-100 rounded-full px-2 py-0.5 text-gray-700 font-medium">{skill}</span>
-                          ))}
-                          {c.matched_skills.length > 3 && (
-                            <span className="text-xs bg-gray-100 rounded-full px-2 py-0.5 text-gray-500 font-medium">+{c.matched_skills.length - 3}</span>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Bottom: Applications + date */}
-                      <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-gray-100">
-                        <span>Applications: {c.result_count ?? 0}</span>
-                        <span>{c.created_at ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>
-                      </div>
-                    </div>
-                  )
-                })}
+                {displayedCandidates.map((c, idx) => (
+                  <CandidateCard
+                    key={c.id}
+                    candidate={{
+                      id: c.latest_result_id || c.id,
+                      name: c.name,
+                      email: c.email,
+                      title: c.title || c.current_title,
+                      fit_score: c.best_score,
+                      status: c.latest_status || 'pending',
+                      skills: (c.matched_skills || []).map(s => typeof s === 'string' ? { name: s, score: 100 } : s),
+                      highlights: [],
+                      job_title: c.job_title || c.role_template_name,
+                    }}
+                    onStatusChange={handleStatusChange}
+                    onSelect={() => navigate(`/candidates/${c.id}`)}
+                    selected={selectedIndex === idx}
+                    onMouseEnter={() => prefetchCandidate(c.id)}
+                    onMouseLeave={cancelPrefetch}
+                  />
+                ))}
               </div>
             )}
 
@@ -883,14 +884,10 @@ export default function CandidatesPage() {
               <div className="flex h-[calc(100vh-200px)] bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 {/* Left panel — candidate list */}
                 <div className="w-80 lg:w-96 shrink-0 border-r border-gray-200 overflow-y-auto">
-                  {displayedCandidates.map(c => {
+                  {displayedCandidates.map((c, idx) => {
                     const isActive = splitSelectedId === c.id
                     const statusCfg = STATUS_CONFIG[c.latest_status] || STATUS_CONFIG.pending
-                    const statusDotColor = c.latest_status === 'hired' ? 'bg-emerald-500'
-                      : c.latest_status === 'shortlisted' ? 'bg-green-500'
-                      : c.latest_status === 'rejected' ? 'bg-red-500'
-                      : c.latest_status === 'in-review' ? 'bg-amber-500'
-                      : 'bg-slate-400'
+                    const statusDotColor = STATUS_CONFIG[c.latest_status]?.dotColor || STATUS_CONFIG.pending.dotColor
                     return (
                       <div
                         key={c.id}
@@ -903,9 +900,11 @@ export default function CandidatesPage() {
                             .catch(() => setSplitProfile(null))
                             .finally(() => setSplitLoading(false))
                         }}
+                        onMouseEnter={() => prefetchCandidate(c.id)}
+                        onMouseLeave={cancelPrefetch}
                         className={`flex items-center gap-2.5 px-4 py-3 cursor-pointer transition-colors border-l-3 ${
                           isActive ? 'bg-indigo-50 border-l-indigo-600' : 'border-l-transparent hover:bg-gray-50'
-                        }`}
+                        } ${selectedIndex === idx ? 'ring-2 ring-inset ring-brand-500' : ''}` }
                       >
                         <span className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${getAvatarColor(c.name)}`}>
                           {getInitials(c.name)}
@@ -913,7 +912,7 @@ export default function CandidatesPage() {
                         <div className="flex-1 min-w-0">
                           <p className="font-bold text-gray-900 truncate text-sm">{c.name || '—'}</p>
                         </div>
-                        <ScoreBadge score={c.best_score} />
+                        <ScoreBadge score={c.best_score} size="sm" />
                         <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotColor}`} title={statusCfg.label} />
                       </div>
                     )

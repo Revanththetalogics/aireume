@@ -7,7 +7,10 @@ import {
   Upload, Plus, Play, TrendingUp, TrendingDown, AlertTriangle
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { OnboardingProvider } from '../contexts/OnboardingContext'
 import { getDashboardSummary, getDashboardActivity } from '../lib/api'
+import Skeleton from '../components/Skeleton'
+import GettingStarted from '../components/GettingStarted'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -59,37 +62,6 @@ const STATUS_LABELS = {
   shortlisted: 'Shortlisted',
   rejected: 'Rejected',
   hired: 'Hired',
-}
-
-// ─── Loading Skeleton ─────────────────────────────────────────────────────────
-
-function SkeletonCard({ className = '' }) {
-  return (
-    <div className={`bg-white rounded-xl shadow-sm border border-slate-100 p-6 animate-pulse ${className}`}>
-      <div className="h-4 bg-slate-200 rounded w-1/2 mb-3" />
-      <div className="h-8 bg-slate-200 rounded w-1/3" />
-    </div>
-  )
-}
-
-function LoadingSkeleton() {
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-6">
-        <div className="h-8 bg-slate-200 rounded w-64 mb-2 animate-pulse" />
-        <div className="h-4 bg-slate-200 rounded w-96 animate-pulse" />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <SkeletonCard />
-        <SkeletonCard />
-        <SkeletonCard />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 animate-pulse h-80" />
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 animate-pulse h-80" />
-      </div>
-    </div>
-  )
 }
 
 // ─── Stacked Status Bar (Improvement #1 — Tailwind classes) ──────────────────
@@ -214,7 +186,7 @@ function groupActivitiesByTime(activities) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DashboardNew() {
+function DashboardContent() {
   const navigate = useNavigate()
   const { user } = useAuth()
 
@@ -245,7 +217,26 @@ export default function DashboardNew() {
   }, [fetchData])
 
   // ─── Early returns ────────────────────────────────────────────────────────
-  if (loading && !summary) return <LoadingSkeleton />
+  if (loading && !summary) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header skeleton */}
+        <div className="mb-6 space-y-2">
+          <Skeleton variant="text" width="16rem" className="h-8" />
+          <Skeleton variant="text" width="24rem" />
+        </div>
+        {/* KPI cards skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <Skeleton variant="card" count={3} />
+        </div>
+        {/* Activity + Metrics skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <Skeleton variant="card" height="20rem" />
+          <Skeleton variant="card" height="20rem" />
+        </div>
+      </div>
+    )
+  }
 
   if (error && !summary) {
     return (
@@ -297,6 +288,11 @@ export default function DashboardNew() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* ── Getting Started Checklist ───────────────────────────────────── */}
+      <div className="mb-8">
+        <GettingStarted />
+      </div>
+
       {/* ── Improvement #4 & #6: Compact Header + Quick Actions ──────────── */}
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
         <h1 className="text-lg font-semibold text-brand-900 whitespace-nowrap">
@@ -739,5 +735,13 @@ export default function DashboardNew() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function DashboardNew() {
+  return (
+    <OnboardingProvider>
+      <DashboardContent />
+    </OnboardingProvider>
   )
 }
