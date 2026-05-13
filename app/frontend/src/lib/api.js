@@ -588,6 +588,13 @@ export async function exportExcel(ids = []) {
   _triggerDownload(res.data, `aria_export_${_ts()}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 }
 
+export async function downloadPdfReport(resultId) {
+  const response = await api.get(`/export/${resultId}/pdf-report`, {
+    responseType: 'blob',
+  })
+  return response
+}
+
 function _triggerDownload(blob, filename, type) {
   const url = URL.createObjectURL(new Blob([blob], { type }))
   const a = document.createElement('a')

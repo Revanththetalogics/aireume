@@ -306,3 +306,48 @@ async def get_handoff_package(
         },
         "total_shortlisted":     len(shortlisted_candidates),
     }
+
+
+# ─── Enterprise PDF Report ──────────────────────────────────────────────────
+
+@router.get("/{result_id}/pdf-report")
+def download_pdf_report(
+    result_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate and download an enterprise PDF report for a single screening result."""
+    from ..services.pdf_report_service import generate_pdf_report
+
+    # Verify user has access to this result (same tenant)
+    result = (
+        db.query(ScreeningResult)
+        .filter(
+            ScreeningResult.id == result_id,
+            ScreeningResult.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    pdf_bytes = generate_pdf_report(result_id, db, current_user.id)
+
+    candidate_name = "Candidate"
+    if result.analysis_result:
+        ar = (
+            json.loads(result.analysis_result)
+            if isinstance(result.analysis_result, str)
+            else result.analysis_result
+        )
+        candidate_name = ar.get("candidate_name", "Candidate").replace(" ", "_")
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename={candidate_name}_Assessment_Report.pdf"
+            )
+        },
+    )

@@ -53,11 +53,19 @@ class ScoreBreakdown(BaseModel):
     risk_penalty:     Optional[int] = None
 
 
+class ScoringCriteria(BaseModel):
+    """Per-question scoring guidance for interviewer evaluation."""
+    strong: str = ""    # Deep, specific, evidence-backed answer with measurable outcomes
+    adequate: str = ""  # General understanding, some relevant experience but lacks specifics
+    weak: str = ""      # Surface-level, theoretical only, or unable to provide concrete examples
+
+
 class InterviewQuestion(BaseModel):
     """Single interview question with evaluation guidance."""
     text: str
     what_to_listen_for: List[str] = []
     follow_ups: List[str] = []
+    scoring_criteria: Optional[ScoringCriteria] = None
 
 class CandidateBriefing(BaseModel):
     """Pre-interview snapshot for the recruiter."""

@@ -9,7 +9,7 @@ import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
 import InterviewScorecard from '../components/InterviewScorecard'
 import Timeline from '../components/Timeline'
-import { labelTrainingExample, updateResultStatus, updateCandidateName, getNarrative, viewCandidateResume, downloadCandidateResume } from '../lib/api'
+import { labelTrainingExample, updateResultStatus, updateCandidateName, getNarrative, viewCandidateResume, downloadCandidateResume, downloadPdfReport } from '../lib/api'
 import AnimatedScore from '../components/AnimatedScore'
 import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
@@ -240,9 +240,9 @@ export default function ReportPage() {
     }).catch(() => window.prompt('Copy this report link:', shareUrl))
   }
 
-  const handleDownload = async () => {
+  const fallbackClientSidePdf = async () => {
     if (isDownloading) return
-    
+
     setIsDownloading(true)
     try {
       // Get the report content element
@@ -258,15 +258,15 @@ export default function ReportPage() {
         margin: [10, 10, 10, 10],
         filename: `${candidateName || 'Candidate'}_Screening_Report.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { 
+        html2canvas: {
           scale: 2,
           useCORS: true,
           logging: false,
           letterRendering: true
         },
-        jsPDF: { 
-          unit: 'mm', 
-          format: 'a4', 
+        jsPDF: {
+          unit: 'mm',
+          format: 'a4',
           orientation: 'portrait'
         },
         pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
@@ -277,6 +277,35 @@ export default function ReportPage() {
     } catch (error) {
       console.error('PDF generation error:', error)
       alert('Failed to generate PDF. Please try again or use the browser print option (Ctrl+P).')
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  const handleDownload = async () => {
+    if (isDownloading) return
+
+    const resultId = result?.result_id
+    if (!resultId) {
+      fallbackClientSidePdf()
+      return
+    }
+
+    setIsDownloading(true)
+    try {
+      const response = await downloadPdfReport(resultId)
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${candidateName || 'Candidate'}_Assessment_Report.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Server PDF generation failed, falling back to client-side:', error)
+      fallbackClientSidePdf()
     } finally {
       setIsDownloading(false)
     }

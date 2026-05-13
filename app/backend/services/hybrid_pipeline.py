@@ -796,16 +796,16 @@ Return ONLY valid JSON:
       "context_notes": ["Why Q1 targets missing skill X", "Why Q4 probes the employment gap"]
     }},
     "technical_questions": [
-      {{"text": "scenario-based question", "what_to_listen_for": ["competence signal", "red flag"], "follow_ups": ["conditional follow-up"]}}
+      {{"text": "scenario-based question", "what_to_listen_for": ["competence signal", "red flag"], "follow_ups": ["conditional follow-up"], "scoring_criteria": {{"strong": "Provides specific, detailed example with measurable outcomes and evidence of hands-on depth", "adequate": "Shows general understanding and some relevant experience, but lacks specificity or measurable results", "weak": "Surface-level or theoretical answer only; unable to provide concrete examples or demonstrates no practical experience"}}}}
     ],
     "behavioral_questions": [
-      {{"text": "STAR-format question", "what_to_listen_for": ["leadership/ownership signal"], "follow_ups": ["probe deeper"]}}
+      {{"text": "STAR-format question", "what_to_listen_for": ["leadership/ownership signal"], "follow_ups": ["probe deeper"], "scoring_criteria": {{"strong": "Complete STAR response with specific situation, concrete actions, and quantified results showing ownership", "adequate": "Partial STAR structure with relevant experience but vague outcomes or limited personal accountability", "weak": "Generic or hypothetical answer with no real example, or unable to articulate specific actions taken"}}}}
     ],
     "culture_fit_questions": [
-      {{"text": "motivation/alignment question", "what_to_listen_for": ["genuine interest signal"], "follow_ups": ["follow-up"]}}
+      {{"text": "motivation/alignment question", "what_to_listen_for": ["genuine interest signal"], "follow_ups": ["follow-up"], "scoring_criteria": {{"strong": "Demonstrates genuine, well-researched motivation with specific alignment to role/company; self-aware about fit", "adequate": "Shows general interest but lacks specificity about why this role/company; some alignment evident", "weak": "Generic motivation (salary, location); no evidence of research or genuine connection to the role"}}}}
     ],
     "experience_deep_dive_questions": [
-      {{"text": "question probing specific past experience", "what_to_listen_for": ["concrete details", "measurable outcomes"], "follow_ups": ["probe for specifics"]}}
+      {{"text": "question probing specific past experience", "what_to_listen_for": ["concrete details", "measurable outcomes"], "follow_ups": ["probe for specifics"], "scoring_criteria": {{"strong": "Detailed walkthrough with clear scope, individual contribution, challenges overcome, and quantified business impact", "adequate": "Relevant experience described but vague on individual contribution or outcomes; mixes team and personal achievements", "weak": "Cannot articulate specific project details; relies on generalities or cannot distinguish personal contribution from team effort"}}}}
     ]
   }}
 }}
@@ -821,33 +821,45 @@ NARRATIVE QUALITY RULES:
 
 INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
 1. TECHNICAL QUESTIONS (5 questions):
-   a) For EACH missing skill: Create a scenario-based question that ties the skill to a specific job responsibility. Do NOT ask "Do you know X?" — instead ask how they would solve a real problem using that skill.
-   b) For 1-2 critical matched skills: Create depth-probing questions testing expertise level.
+   a) For EACH missing skill: Create a scenario-based question that EXPLICITLY names the missing skill and ties it to a specific job responsibility. Do NOT ask "Do you know X?" — instead use "Walk me through how you would..." or "Tell me about a time when you had to..." patterns that force the candidate to demonstrate hands-on depth, not just awareness.
+   b) For 1-2 critical matched skills: Create depth-probing questions testing expertise level BEYOND awareness. Use "Tell me about a time you pushed the limits of [skill]..." format.
    c) If architecture gaps exist: Include a system design question relevant to the domain.
    d) Calibrate difficulty by domain and seniority level.
-   For each question, include "what_to_listen_for": 2-3 bullet points describing what a strong answer demonstrates. Include "follow_ups": 1-2 conditional follow-up questions.
+   For each question, include:
+   - "what_to_listen_for": 2-3 bullet points describing what a strong answer demonstrates.
+   - "follow_ups": 1-2 conditional follow-up questions.
+   - "scoring_criteria": An object with "strong", "adequate", "weak" keys. Each value is a specific description for THIS question:
+     * "strong": What a deep, evidence-backed answer with measurable outcomes sounds like for this specific skill/topic.
+     * "adequate": What general understanding looks like — some relevant experience but lacks specifics or depth.
+     * "weak": What a surface-level, theoretical-only answer looks like — no concrete examples or practical experience.
 
 2. BEHAVIORAL QUESTIONS (4 questions, STAR format):
    a) Address the biggest risk signal from gap/timeline assessment.
    b) Target a seniority-specific challenge: senior→leadership/mentorship; mid→ownership; junior→learning agility.
    c) Probe the role transition motivation.
-   d) Include a collaboration/cross-functional teamwork question.
-   For each question, include "what_to_listen_for" and "follow_ups".
+   d) Map behavioral questions to JD-stated soft skills. If the role implies "leadership", "team collaboration", "communication", or "cross-functional coordination", the behavioral question must DIRECTLY assess that specific skill — not a generic teamwork question.
+   For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
 
 3. CULTURE-FIT QUESTIONS (3 questions):
    a) Motivation for THIS specific role given career trajectory.
    b) Work-style alignment tied to role context.
    c) Growth mindset and continuous learning approach.
-   For each question, include "what_to_listen_for" and "follow_ups".
+   For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
 
 4. EXPERIENCE DEEP-DIVE QUESTIONS (3 questions):
    a) Ask about the most relevant past project — scope, individual contribution, challenges, measurable outcomes.
    b) Ask about working outside comfort zone or taking on responsibilities beyond job title.
    c) Ask how their approach to a key responsibility has evolved over their career.
-   For each question, include "what_to_listen_for" and "follow_ups".
+   For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
 
 5. CANDIDATE BRIEFING (mandatory):
    Generate a "candidate_briefing" with: profile_snapshot (2-3 sentences), strengths_to_confirm (top 2-3), areas_to_probe (top 2-3), context_notes (why each notable question was generated).
+
+6. SCORING GUIDANCE (mandatory for ALL questions):
+   Every question MUST include a "scoring_criteria" object with three keys:
+   - "strong": A concrete description of what a top-tier answer sounds like for THIS SPECIFIC question. Must reference the JD skill/competency being assessed and include examples of measurable outcomes or evidence depth.
+   - "adequate": What a middling answer looks like — relevant but lacking specifics, depth, or evidence of hands-on experience.
+   - "weak": What a poor answer looks like — theoretical only, no concrete examples, or demonstrates the candidate lacks practical experience with the assessed skill/competency.
 
 DO NOT generate generic questions like "Tell me about yourself" or "What are your strengths?". Every question MUST reference specific skills, role responsibilities, or candidate context.
 
@@ -1006,7 +1018,7 @@ No markdown, no code fences."""
     weaknesses = _ensure_str_list(data.get("weaknesses", concerns))
 
     def _ensure_question_list(v) -> list:
-        """Normalize question entries to dicts with text/what_to_listen_for/follow_ups."""
+        """Normalize question entries to dicts with text/what_to_listen_for/follow_ups/scoring_criteria."""
         if not isinstance(v, list):
             return []
         result = []
@@ -1120,7 +1132,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What alternatives did you consider?",
                 "How did you measure the success of your solution?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides detailed walkthrough of a specific technical problem with clear individual contribution and quantified business impact",
+                "adequate": "Describes a relevant problem but vague on individual contribution or measurable outcomes",
+                "weak": "Generic or theoretical answer; unable to describe a specific technical problem they solved"
+            }
         },
         {
             "text": "Tell me about a time you had to learn a new technology quickly.",
@@ -1132,7 +1149,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What resources did you rely on most?",
                 "How long before you felt productive with the new technology?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides specific example with concrete learning strategy, timeline to productivity, and measurable outcome of applying the new technology",
+                "adequate": "Describes learning a new technology but lacks specifics on strategy or timeline to productivity",
+                "weak": "Vague about learning process; no concrete example or evidence of rapid skill acquisition"
+            }
         },
         {
             "text": "Walk me through how you approach debugging in a complex system.",
@@ -1144,7 +1166,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "Can you give a specific example of a particularly tricky bug?",
                 "How do you prioritize which issues to investigate first?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Describes a systematic debugging methodology with specific tools and a concrete example of diagnosing a complex issue",
+                "adequate": "Shows general debugging approach but lacks specifics on tools or methodology for complex systems",
+                "weak": "Only basic debugging experience; no systematic approach or evidence of handling complex system issues"
+            }
         },
         {
             "text": "Give an example of how you balance technical excellence with practical constraints.",
@@ -1156,7 +1183,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "How did stakeholders react to your approach?",
                 "Would you make the same trade-off again?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides specific example with clear articulation of trade-offs, stakeholder communication, and measurable impact of the decision",
+                "adequate": "Describes a relevant trade-off but lacks depth on business context or stakeholder communication",
+                "weak": "Theoretical answer; no concrete example of balancing technical and business constraints"
+            }
         },
         {
             "text": "How would you design a solution for a key responsibility of this role?",
@@ -1168,7 +1200,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What trade-offs would you consider in this design?",
                 "How would you handle failure scenarios?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Presents a well-structured design with clear requirements, thoughtful trade-offs, and consideration of scale and failure modes",
+                "adequate": "Describes a design approach but lacks depth on trade-offs, scalability, or failure handling",
+                "weak": "Generic or theoretical design discussion; no evidence of hands-on system design experience"
+            }
         },
     ]
     behavioral_q = [
@@ -1182,7 +1219,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What was the biggest obstacle and how did you overcome it?",
                 "How did you keep the team aligned and motivated?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Complete STAR response with specific project context, concrete leadership actions, and quantified outcomes showing ownership",
+                "adequate": "Partial STAR structure with relevant leadership experience but vague outcomes or limited personal accountability",
+                "weak": "Generic or hypothetical answer with no real example of leading a difficult project"
+            }
         },
         {
             "text": "Describe a situation where you had to learn a new technology quickly.",
@@ -1194,7 +1236,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What was your biggest frustration during the learning process?",
                 "How did you validate that you had learned enough to be effective?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides specific example with concrete learning strategy, timeline, and evidence of effective application under pressure",
+                "adequate": "Describes learning a new technology but lacks specifics on strategy or how they validated their knowledge",
+                "weak": "Vague about the learning process; no concrete example of rapid skill acquisition under pressure"
+            }
         },
         {
             "text": "Give an example of a time you resolved a conflict in a team.",
@@ -1206,7 +1253,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What was your personal role in de-escalating the situation?",
                 "What would you do differently if faced with a similar conflict?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides specific example demonstrating empathy, active listening, and a measurable positive resolution that preserved relationships",
+                "adequate": "Describes a conflict situation but resolution approach is vague or outcome is unclear",
+                "weak": "No concrete example of conflict resolution; theoretical or deflective answer"
+            }
         },
         {
             "text": "Describe a time when you had to collaborate with a cross-functional team to deliver a project.",
@@ -1218,7 +1270,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "How did you handle differing priorities between teams?",
                 "What was your approach to keeping everyone aligned?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides specific example of cross-functional collaboration with clear communication approach, alignment strategy, and measurable project outcome",
+                "adequate": "Describes cross-functional work but vague on how they handled differing priorities or communicated across disciplines",
+                "weak": "No concrete example of cross-functional collaboration; answer is generic about teamwork"
+            }
         },
     ]
     culture_q = [
@@ -1232,7 +1289,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What would success look like for you in this role?",
                 "What concerns do you have about this opportunity?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Demonstrates genuine, well-researched motivation with specific alignment to role/company; self-aware about fit",
+                "adequate": "Shows general interest but lacks specificity about why this role/company; some alignment evident",
+                "weak": "Generic motivation (salary, location); no evidence of research or genuine connection to the role"
+            }
         },
         {
             "text": "How do you keep up with new developments in your field?",
@@ -1244,7 +1306,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What's a recent trend you think is overhyped?",
                 "Can you share a time you applied something new you learned?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Describes specific learning habits with a concrete example of evaluating a trend and applying new knowledge with measurable impact",
+                "adequate": "Shows general learning habits but lacks specifics on critical evaluation or practical application",
+                "weak": "Vague about staying current; no evidence of proactive learning or critical thinking about trends"
+            }
         },
         {
             "text": "Describe a time when you received critical feedback. How did you respond and what did you learn?",
@@ -1256,7 +1323,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "How did that feedback change your approach going forward?",
                 "Do you actively seek out feedback now?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides specific example of receiving feedback, describing concrete actions taken to improve and measurable behavioral change",
+                "adequate": "Describes receiving feedback but response or improvement actions are vague or generic",
+                "weak": "Deflective or dismissive about feedback; no evidence of growth mindset or concrete improvement actions"
+            }
         },
     ]
 
@@ -1278,7 +1350,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What was the most difficult decision you had to make during that project?",
                 "How did you measure success?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides detailed walkthrough with clear scope, specific individual contribution, challenges faced, and quantified business outcomes",
+                "adequate": "Describes a relevant project but vague on individual contribution or outcomes; mixes team and personal achievements",
+                "weak": "Cannot articulate specific project details; relies on generalities or cannot distinguish personal contribution"
+            }
         },
         {
             "text": "Describe a time you took on responsibilities beyond your job description. What drove you to do it?",
@@ -1290,7 +1367,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What did you learn from that experience?",
                 "How did it shape your career direction?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides specific example with clear description of the stretch, how they adapted, and measurable growth or impact resulting from it",
+                "adequate": "Describes a stretch experience but vague on how they handled uncertainty or what they gained",
+                "weak": "No concrete example of stepping outside comfort zone; theoretical answer only"
+            }
         },
         {
             "text": "How has your professional approach changed from your first role to your current one?",
@@ -1302,7 +1384,12 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "follow_ups": [
                 "What was the single biggest lesson in your career so far?",
                 "What advice would you give your earlier self?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Demonstrates clear evolution with specific before/after examples, reflecting deep professional maturity and adaptation",
+                "adequate": "Shows some evolution but examples are vague or lack specificity about what changed and why",
+                "weak": "Cannot articulate how their approach has evolved; answer suggests stagnation or lack of self-reflection"
+            }
         },
     ]
 

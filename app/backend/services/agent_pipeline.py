@@ -704,16 +704,16 @@ OUTPUT SCHEMA:
       "context_notes": ["Why Q1 targets missing Kubernetes skill", "Why Q4 probes the 14-month gap"]
     }},
     "technical_questions": [
-      {{"text": "scenario-based question text", "what_to_listen_for": ["signal indicating competence", "red flag to watch for"], "follow_ups": ["conditional follow-up if candidate is vague"]}}
+      {{"text": "scenario-based question text", "what_to_listen_for": ["signal indicating competence", "red flag to watch for"], "follow_ups": ["conditional follow-up if candidate is vague"], "scoring_criteria": {{"strong": "Provides specific, detailed example with measurable outcomes and evidence of hands-on depth", "adequate": "Shows general understanding and some relevant experience, but lacks specificity or measurable results", "weak": "Surface-level or theoretical answer only; unable to provide concrete examples or demonstrates no practical experience"}}}}
     ],
     "behavioral_questions": [
-      {{"text": "STAR-format question text", "what_to_listen_for": ["signal of leadership/ownership/agility"], "follow_ups": ["probe deeper if response is generic"]}}
+      {{"text": "STAR-format question text", "what_to_listen_for": ["signal of leadership/ownership/agility"], "follow_ups": ["probe deeper if response is generic"], "scoring_criteria": {{"strong": "Complete STAR response with specific situation, concrete actions, and quantified results showing ownership", "adequate": "Partial STAR structure with relevant experience but vague outcomes or limited personal accountability", "weak": "Generic or hypothetical answer with no real example, or unable to articulate specific actions taken"}}}}
     ],
     "culture_fit_questions": [
-      {{"text": "motivation/alignment question text", "what_to_listen_for": ["genuine interest signal", "alignment with role context"], "follow_ups": ["follow-up based on their answer"]}}
+      {{"text": "motivation/alignment question text", "what_to_listen_for": ["genuine interest signal", "alignment with role context"], "follow_ups": ["follow-up based on their answer"], "scoring_criteria": {{"strong": "Demonstrates genuine, well-researched motivation with specific alignment to role/company; self-aware about fit", "adequate": "Shows general interest but lacks specificity about why this role/company; some alignment evident", "weak": "Generic motivation (salary, location); no evidence of research or genuine connection to the role"}}}}
     ],
     "experience_deep_dive_questions": [
-      {{"text": "question probing specific past experience", "what_to_listen_for": ["concrete details", "measurable outcomes"], "follow_ups": ["probe for specifics"]}}
+      {{"text": "question probing specific past experience", "what_to_listen_for": ["concrete details", "measurable outcomes"], "follow_ups": ["probe for specifics"], "scoring_criteria": {{"strong": "Detailed walkthrough with clear scope, individual contribution, challenges overcome, and quantified business impact", "adequate": "Relevant experience described but vague on individual contribution or outcomes; mixes team and personal achievements", "weak": "Cannot articulate specific project details; relies on generalities or cannot distinguish personal contribution from team effort"}}}}
     ]
   }}
 }}
@@ -726,30 +726,39 @@ risk_level: >=72→Low, >=45→Medium, else→High; recommendation: >=72→Short
 
 INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
 1. TECHNICAL QUESTIONS (5 questions):
-   a) For EACH missing skill: Create a scenario-based question that ties the skill to a specific job responsibility from the Key Responsibilities list. Do NOT ask "Do you know X?" — instead ask how they would solve a real problem using that skill in this role.
-   b) For 1-2 critical matched skills: Create a depth-probing question that tests expertise level. Reference their current role ({current_role}) vs. the role requirements.
+   a) For EACH missing skill from Required Skills: Create a scenario-based question that EXPLICITLY names the missing skill and ties it to a specific job responsibility from the Key Responsibilities list. Do NOT ask "Do you know X?" — instead use "Walk me through how you would..." or "Tell me about a time when you had to..." patterns that force the candidate to demonstrate hands-on depth.
+   b) For 1-2 critical matched skills: Create a depth-probing question that tests expertise level BEYOND awareness. Reference their current role ({current_role}) vs. the role requirements. Use "Tell me about a time you pushed the limits of [skill]..." format.
    c) If architecture_comment mentions system design gaps or the role requires architecture decisions: Include a system design question relevant to the domain.
    d) Use the domain ({domain}) and seniority ({seniority}) to calibrate difficulty.
-   For each technical question, include "what_to_listen_for": 2-3 bullet points describing what a strong answer demonstrates (specific technologies, patterns, depth indicators). Also include "follow_ups": 1-2 conditional follow-up questions (e.g., "If they claim hands-on experience, ask about specific cluster sizes or deployment strategies").
+   For each technical question, include:
+   - "what_to_listen_for": 2-3 bullet points describing what a strong answer demonstrates (specific technologies, patterns, depth indicators).
+   - "follow_ups": 1-2 conditional follow-up questions.
+   - "scoring_criteria": An object with "strong", "adequate", "weak" keys. Each value is a specific description for THIS question:
+     * "strong": What a deep, evidence-backed answer with measurable outcomes sounds like for this specific skill/topic.
+     * "adequate": What general understanding looks like — some relevant experience but lacks specifics or depth.
+     * "weak": What a surface-level, theoretical-only answer looks like — no concrete examples or practical experience.
 
 2. BEHAVIORAL QUESTIONS (4 questions, STAR format):
    a) Address the biggest risk signal from the gap/timeline assessment: {gap_interpretation}. If gaps exist, ask about the circumstance without being invasive.
    b) Target a seniority-specific challenge: for senior roles probe leadership/mentorship; for mid roles probe ownership; for junior roles probe learning agility.
    c) Probe the role transition: moving from {current_role} to {role_title} — what motivates this and what challenges do they anticipate?
-   d) Include a question about collaboration or cross-functional teamwork — how they've worked with non-technical stakeholders or handled disagreements about technical direction.
-   For each behavioral question, include "what_to_listen_for": 2-3 bullet points describing what a strong STAR response includes (specific outcomes, self-awareness, leadership signals). Also include "follow_ups": 1-2 probing follow-ups for when answers are vague or surface-level.
+   d) Map behavioral questions to JD-stated soft skills. If the Key Responsibilities or role context imply "leadership", "team collaboration", "communication", "cross-functional coordination", or other soft skills, the behavioral question must DIRECTLY assess that specific skill — not a generic teamwork question.
+   For each behavioral question, include:
+   - "what_to_listen_for": 2-3 bullet points describing what a strong STAR response includes (specific outcomes, self-awareness, leadership signals).
+   - "follow_ups": 1-2 probing follow-ups for when answers are vague or surface-level.
+   - "scoring_criteria": Strong/adequate/weak descriptions specific to this question's behavioral competency.
 
 3. CULTURE-FIT QUESTIONS (3 questions):
    a) Motivation for THIS specific role: Why this company/role given their career trajectory ({career_summary})?
    b) Work-style alignment: A question tied to the role context (e.g., fast-paced startup vs. structured enterprise, remote vs. on-site if implied by domain).
    c) Growth mindset and continuous learning: How they stay current in their field and adapt to changing requirements or technologies.
-   For each culture-fit question, include "what_to_listen_for": 2-3 bullet points indicating genuine motivation and alignment. Also include "follow_ups": 1 conditional follow-up.
+   For each culture-fit question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
 
 4. EXPERIENCE DEEP-DIVE QUESTIONS (3 questions):
    a) Pick the most relevant role from the candidate's career history ({career_summary}) and ask them to walk through a specific project or achievement in detail — scope, their individual contribution, challenges faced, and measurable outcomes.
    b) Ask about a situation where they had to work outside their comfort zone or take on responsibilities beyond their job title — this reveals adaptability and breadth.
    c) If the candidate has {years_actual}+ years of experience, ask how their approach to [a key responsibility from the JD] has evolved over their career — this reveals depth of expertise and maturity.
-   For each question, include "what_to_listen_for": 2-3 bullet points focused on specificity, measurable outcomes, and self-awareness. Include "follow_ups": 1-2 questions to probe for concrete details if the answer is vague.
+   For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
 
 5. CANDIDATE BRIEFING (mandatory):
    Generate a "candidate_briefing" object at the top of interview_questions:
@@ -757,6 +766,12 @@ INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
    - "strengths_to_confirm": Top 2-3 matched skills or experiences from the resume that the recruiter should validate during the interview.
    - "areas_to_probe": Top 2-3 gaps, risk signals, or concerns from the analysis that specific questions below target.
    - "context_notes": For each notable question, explain WHY it was generated (e.g., "Q3 targets a 14-month employment gap between roles", "Q5 probes Kubernetes depth because it's a critical missing skill").
+
+6. SCORING GUIDANCE (mandatory for ALL questions):
+   Every question MUST include a "scoring_criteria" object with three keys:
+   - "strong": A concrete description of what a top-tier answer sounds like for THIS SPECIFIC question. Must reference the JD skill/competency being assessed and include examples of measurable outcomes or evidence depth.
+   - "adequate": What a middling answer looks like — relevant but lacking specifics, depth, or evidence of hands-on experience.
+   - "weak": What a poor answer looks like — theoretical only, no concrete examples, or demonstrates the candidate lacks practical experience with the assessed skill/competency.
 
 DO NOT generate generic questions like "Tell me about yourself", "What are your strengths?", or "Where do you see yourself in 5 years?". Every question MUST reference specific skills, role responsibilities, or candidate resume context provided above."""
 
@@ -836,7 +851,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 f"Can you describe a specific project where you used {skill} or something similar?",
                 f"What would be your first step if you had to learn {skill} for this role?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": f"Describes a specific project where {skill} was used hands-on with measurable outcomes and demonstrates deep understanding of trade-offs",
+                "adequate": f"Shows general awareness of {skill} concepts and some related experience, but cannot provide specific examples or depth",
+                "weak": f"Only theoretical knowledge of {skill}; no practical experience or concrete examples provided"
+            }
         })
     if not tech_qs:
         tech_qs.append({
@@ -849,7 +869,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "What alternatives did you consider?",
                 "How did you measure the success of your solution?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides a detailed walkthrough with specific technical challenge, their individual contribution, and quantified business impact",
+                "adequate": "Describes a relevant problem but vague on individual contribution or measurable outcomes",
+                "weak": "Generic or theoretical answer; unable to describe a specific technical problem they solved"
+            }
         })
     if matched:
         tech_qs.append({
@@ -862,7 +887,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 f"What was the scale or complexity of the {matched[0]} project?",
                 "How did you optimize or extend the technology beyond standard patterns?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": f"Provides specific example of pushing {matched[0]} beyond standard use with measurable performance improvements or novel solutions",
+                "adequate": f"Shows working experience with {matched[0]} but examples are routine usage without pushing boundaries",
+                "weak": f"Only basic or theoretical knowledge of {matched[0]}; no evidence of depth or advanced usage"
+            }
         })
     if adjacent:
         tech_qs.append({
@@ -875,7 +905,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 f"Can you give an example of learning a technology similar to {adjacent[0]} quickly?",
                 "What resources or approach would you use to bridge the gap?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": f"Articulates a clear learning plan connecting {adjacent[0]} to the target stack with specific past examples of rapid skill acquisition",
+                "adequate": f"Understands the connection between {adjacent[0]} and the target but learning plan is vague or unrealistic",
+                "weak": f"Cannot explain how {adjacent[0]} relates to the role requirements; no concrete learning strategy"
+            }
         })
     if "architecture" in arch_comment.lower() or "system design" in arch_comment.lower() or "design" in arch_comment.lower():
         tech_qs.append({
@@ -888,7 +923,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "How would you evolve that design given 10x growth?",
                 "What would you do differently with hindsight?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Describes a specific system with clear requirements, documented trade-offs, and measurable impact of design decisions",
+                "adequate": "Describes a system design but trade-offs are surface-level or lacks measurable impact assessment",
+                "weak": "Theoretical or generic design discussion; no evidence of hands-on architecture experience"
+            }
         })
     tech_qs = tech_qs[:5]
     if len(tech_qs) < 3:
@@ -902,7 +942,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "What was the outcome of applying that new technique?",
                 "How do you decide which new technologies are worth investing time in?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": f"Provides a specific example of adopting a new {domain} technique/tool with measurable impact on their work",
+                "adequate": f"Describes general learning habits in {domain} but lacks a concrete example of applying new knowledge",
+                "weak": "Vague about how they stay current; no evidence of continuous learning or practical application"
+            }
         })
 
     # Context-aware fallback behavioral questions
@@ -918,7 +963,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "What did you learn about yourself during that period?",
                 "How has that experience shaped your approach to your career?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides honest, reflective answer with evidence of productive use of time and specific lessons learned",
+                "adequate": "Acknowledges the gap but explanation lacks depth or specificity about what they gained",
+                "weak": "Deflective or vague about the gap; no evidence of reflection or productive use of time"
+            }
         })
     else:
         beh_qs.append({
@@ -931,7 +981,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "What would success look like for you in this role after one year?",
                 "What concerns do you have about making this transition?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Articulates clear, specific motivation tied to career growth with realistic understanding of transition challenges",
+                "adequate": "Shows general interest in the role but motivation is vague or lacks career strategy",
+                "weak": "Generic motivation (e.g., 'looking for new challenges'); no evidence of thoughtful career planning"
+            }
         })
     beh_qs.extend([
         {
@@ -944,7 +999,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "How did you prioritize what to focus on?",
                 "What would you do differently if faced with the same situation again?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Complete STAR response with specific constraint, concrete prioritization strategy, and quantified outcome delivered under pressure",
+                "adequate": "Describes a relevant situation but outcome is vague or prioritization approach is unclear",
+                "weak": "Generic answer about working hard; no specific example or evidence of structured approach under pressure"
+            }
         },
         {
             "text": f"Describe a situation where you had to influence a decision or mentor someone in a {domain} context. What was the outcome?",
@@ -956,7 +1016,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "How did you handle resistance or disagreement?",
                 "What did you learn about effective leadership from that experience?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides specific example of influencing/mentoring with measurable positive outcome and demonstrates self-awareness about leadership approach",
+                "adequate": "Describes a leadership/influence situation but lacks specifics on methods used or measurable impact",
+                "weak": "No concrete example of leadership or influence; answer is hypothetical or theoretical"
+            }
         },
     ])
 
@@ -972,7 +1037,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "Can you give an example of thriving in that type of environment?",
                 "How do you adapt when the environment doesn't match your preference?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Demonstrates clear self-awareness about working style with specific example of thriving in a relevant environment",
+                "adequate": "Shows some self-awareness but example is vague or not clearly tied to the role's work environment",
+                "weak": "Generic answer about working style; no evidence of self-awareness or adaptability"
+            }
         },
         {
             "text": f"What specifically attracted you to {role_title}, and how does it align with the direction you see your career heading?",
@@ -984,7 +1054,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "What would you hope to achieve in this role over the next 2-3 years?",
                 "What other types of roles are you considering, and why this one?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Articulates specific, well-researched interest in the role with clear alignment to long-term career goals",
+                "adequate": "Shows general interest but lacks specificity about why this particular role fits their career trajectory",
+                "weak": "Generic motivation; no evidence of research about the role or thoughtful career planning"
+            }
         },
     ]
 
@@ -1000,7 +1075,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "What would you do differently if you could redo that project?",
                 "How did this project influence your approach to similar challenges?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides detailed walkthrough with clear scope, specific individual contribution, challenges faced, and quantified business outcomes",
+                "adequate": "Describes a relevant project but vague on individual contribution or outcomes; mixes team and personal achievements",
+                "weak": "Cannot articulate specific project details; relies on generalities or cannot distinguish personal contribution"
+            }
         },
         {
             "text": "Tell me about a time you had to work outside your comfort zone or take on responsibilities beyond your defined role.",
@@ -1012,7 +1092,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "What support did you seek, and from whom?",
                 "Would you volunteer for a similar challenge again?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Provides specific example with clear description of the stretch, how they adapted, and measurable growth or impact resulting from it",
+                "adequate": "Describes a stretch experience but vague on how they handled uncertainty or what they gained",
+                "weak": "No concrete example of stepping outside comfort zone; theoretical answer only"
+            }
         },
         {
             "text": f"How has your approach to {key_responsibilities[0] if key_responsibilities else 'your core work'} evolved over your career?",
@@ -1024,7 +1109,12 @@ async def scorer_node(state: PipelineState) -> dict:
             "follow_ups": [
                 "What was the biggest lesson that changed your approach?",
                 "How do you stay current with best practices in this area?"
-            ]
+            ],
+            "scoring_criteria": {
+                "strong": "Demonstrates clear evolution with specific before/after examples, reflecting deep professional maturity and adaptation",
+                "adequate": "Shows some evolution but examples are vague or lack specificity about what changed and why",
+                "weak": "Cannot articulate how their approach has evolved; answer suggests stagnation or lack of self-reflection"
+            }
         },
     ]
 
