@@ -307,43 +307,80 @@ def _sanitize_jd_output(data: dict, original_jd_text: str) -> dict:
 # ─── Stage 1: JD Parser ────────────────────────────────────────────────────────
 
 _JD_PARSER_PROMPT = """\
-You are a strict, literal job requirement extractor. Your job is to TRANSCRIBE, not interpret.
+You are an expert job description analyst with deep understanding of talent intelligence. Your task is to perform COMPREHENSIVE, CONTEXT-AWARE JD analysis.
 
 SYSTEM RULES:
-1. ONLY extract information explicitly stated in the JD text.
-2. Do NOT infer, guess, or assume skills not explicitly named.
-3. Do NOT add programming languages or tools unless the JD explicitly lists them.
-4. "Associate Director" is a SENIOR title — do NOT misread "Associate" as junior.
-5. If no specific technical skills are listed, output an empty required_skills array.
-6. Extract required_years from explicit statements (e.g., "5+ years" → 5, "minimum 3 years" → 3).
-7. Output ONLY valid JSON. No markdown, no explanations, no comments.
+1. Analyze the ENTIRE JD context before extracting any information.
+2. Identify the JOB FUNCTION based on role title, responsibilities, and required skills.
+3. Distinguish between MUST-HAVE skills (required for core responsibilities) and NICE-TO-HAVE skills (bonus/preferred).
+4. DO NOT extract generic soft skills (communication, collaboration, leadership, teamwork) as MUST-HAVE unless they are explicitly emphasized as critical requirements.
+5. Only extract skills that are ACTUALLY NEEDED for the role based on job function context.
+6. Extract core RESPONSIBILITIES that define what the candidate will do daily.
+7. Determine the correct SENIORITY level based on years required and title context.
+8. Extract required_years from explicit statements (e.g., "5+ years" → 5, "minimum 3 years" → 3).
+9. Output ONLY valid JSON. No markdown, no explanations, no comments.
+
+CRITICAL SKILL CLASSIFICATION RULES:
+
+MUST-HAVE SKILLS (required_skills):
+- Skills explicitly stated as "required", "must have", "essential", "mandatory"
+- Core technical skills needed to perform the job function (e.g., Python for backend engineer)
+- Skills mentioned in "Qualifications" or "Requirements" sections
+- Maximum 12 skills. If more, select only the most critical ones.
+- DO NOT include generic soft skills unless explicitly required.
+
+NICE-TO-HAVE SKILLS (nice_to_have_skills):
+- Skills stated as "preferred", "nice to have", "bonus", "plus", "desirable"
+- Skills mentioned after nice-to-have keywords
+- Additional skills that would be beneficial but not critical
+- Maximum 8 skills.
+- Can include soft skills if mentioned as preferred.
+
+GENERIC SOFT SKILLS TO EXCLUDE FROM REQUIRED:
+- communication, collaboration, teamwork, leadership, problem solving
+- analytical thinking, creativity, adaptability, time management
+- attention to detail, critical thinking, interpersonal skills
+(Only include these if JD explicitly states they are "critical" or "essential" requirements)
+
+JOB FUNCTION IDENTIFICATION:
+Analyze role title, responsibilities, and skills to determine job_function:
+- "account_based_marketing" — ABM, demand gen, B2B marketing roles
+- "backend_engineering" — Backend developers, API engineers
+- "frontend_engineering" — Frontend/UI developers
+- "data_science" — Data scientists, analysts, ML engineers
+- "devops_engineering" — DevOps, SRE, infrastructure engineers
+- "product_management" — Product managers, program managers
+- "sales" — Account executives, sales managers, business development
+- "management" — Engineering managers, directors, team leads
+- "other" — Everything else
 
 FEW-SHOT EXAMPLES:
 
-Correct extraction:
-JD: "We need a Senior Python Engineer with 5+ years of experience in Django and AWS."
-Output: {{"role_title": "Senior Python Engineer", "domain": "backend", "seniority": "senior", "required_skills": ["Python", "Django", "AWS"], "required_years": 5, "nice_to_have_skills": [], "key_responsibilities": []}}
+EXAMPLE 1 (Marketing Role - ABM):
+JD: "Account-Based Marketing Specialist. We're seeking an ABM specialist to develop and execute targeted account campaigns. Must have 3+ years experience with marketing automation platforms (Salesforce, HubSpot), demand generation, and segment analytics. You'll collaborate with sales to identify target accounts, create personalized campaigns, and track engagement metrics. Preferred: experience with Adobe Marketo, data analysis skills, and strong communication."
+Output: {{"role_title": "Account-Based Marketing Specialist", "job_function": "account_based_marketing", "domain": "marketing", "seniority": "mid", "required_skills": ["marketing automation", "salesforce", "demand generation", "segment analytics", "campaign management", "account targeting"], "required_years": 3, "nice_to_have_skills": ["adobe marketo", "data analysis", "communication", "hubspot"], "key_responsibilities": ["develop abm strategies", "identify target accounts", "create personalized campaigns", "collaborate with sales team", "track engagement metrics", "optimize campaign performance"]}}
 
-Correct extraction (advisory role):
-JD: "Associate Director – Technical Pre-Sales. 10+ years in enterprise SaaS. Strong communication skills required."
-Output: {{"role_title": "Associate Director – Technical Pre-Sales", "domain": "management", "seniority": "senior", "required_skills": ["communication"], "required_years": 10, "nice_to_have_skills": [], "key_responsibilities": []}}
+EXAMPLE 2 (Backend Engineering):
+JD: "Senior Backend Engineer. Build scalable APIs and microservices using Python and FastAPI. Must have 5+ years backend development experience, strong knowledge of PostgreSQL, Redis, and REST API design. Experience with Docker, Kubernetes, and AWS is a plus. You'll design system architecture, write clean code, and mentor junior developers."
+Output: {{"role_title": "Senior Backend Engineer", "job_function": "backend_engineering", "domain": "backend", "seniority": "senior", "required_skills": ["python", "fastapi", "postgresql", "redis", "rest api", "microservices", "system design"], "required_years": 5, "nice_to_have_skills": ["docker", "kubernetes", "aws", "mentoring"], "key_responsibilities": ["design and implement apis", "build scalable backend systems", "optimize database performance", "ensure system reliability", "mentor junior developers", "write clean maintainable code"]}}
 
-INCORRECT (Hallucination — do NOT do this):
-JD: "Technical advisor for enterprise SaaS."
-Output: {{"required_skills": ["golang", "kubernetes"]}} ← WRONG — these are NOT in the text
+EXAMPLE 3 (Role with soft skills mentioned but not required):
+JD: "Data Scientist. Analyze complex datasets and build predictive models. Required: Python, SQL, machine learning, statistics, 3+ years experience. Nice to have: deep learning, NLP, cloud platforms. We value collaboration and communication skills."
+Output: {{"role_title": "Data Scientist", "job_function": "data_science", "domain": "data_science", "seniority": "mid", "required_skills": ["python", "sql", "machine learning", "statistics", "data analysis"], "required_years": 3, "nice_to_have_skills": ["deep learning", "nlp", "cloud platforms", "collaboration", "communication"], "key_responsibilities": ["analyze complex datasets", "build predictive models", "create data visualizations", "present findings to stakeholders", "ensure data quality"]}}
 
 CURRENT JD:
 {jd_text}
 
 OUTPUT SCHEMA:
 {{
-  "role_title": "",
-  "domain": "backend|frontend|fullstack|data_science|ml_ai|devops|embedded|mobile|design|management|other",
+  "role_title": "Exact job title from JD",
+  "job_function": "account_based_marketing|backend_engineering|frontend_engineering|data_science|devops_engineering|product_management|sales|management|other",
+  "domain": "backend|frontend|fullstack|data_science|ml_ai|devops|embedded|mobile|design|marketing|sales|management|other",
   "seniority": "junior|mid|senior|lead|principal",
-  "required_skills": [],
-  "required_years": 0,
-  "nice_to_have_skills": [],
-  "key_responsibilities": []
+  "required_skills": ["skill1", "skill2", ...],  // Max 12, must-have only
+  "required_years": 0,  // Integer from explicit JD statement
+  "nice_to_have_skills": ["skill1", "skill2", ...],  // Max 8, preferred/bonus
+  "key_responsibilities": ["responsibility1", "responsibility2", ...]  // 5-8 core responsibilities
 }}"""
 
 # Guardrail: Phase 2 — cache versioning. Changing the prompt invalidates old cache entries.
@@ -356,7 +393,7 @@ _CIRCUIT_BREAKER_THRESHOLD = 5  # max hallucinations per hour before fallback to
 
 async def jd_parser_node(state: PipelineState) -> dict:
     fallback = {
-        "role_title": "", "domain": "other", "seniority": "mid",
+        "role_title": "", "job_function": "other", "domain": "other", "seniority": "mid",
         "required_skills": [], "required_years": 0,
         "nice_to_have_skills": [], "key_responsibilities": [],
     }

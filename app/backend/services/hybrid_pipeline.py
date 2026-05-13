@@ -233,6 +233,8 @@ _TITLE_RE = re.compile(
 
 def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
     """Parse a job description purely with Python rules. Returns structured dict."""
+    from services.constants import JOB_FUNCTION_KEYWORDS, GENERIC_SOFT_SKILLS
+    
     text_lower = jd_text.lower()
 
     # ── Role title ──────────────────────────────────────────────────────────
@@ -251,6 +253,23 @@ def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
         m = _TITLE_RE.search(jd_text[:500])
         if m:
             role_title = m.group(0).strip()
+
+    # ── Job function detection ─────────────────────────────────────────────
+    job_function = "other"
+    job_function_scores = {}
+    for jf, keywords in JOB_FUNCTION_KEYWORDS.items():
+        hits = sum(1 for kw in keywords if kw in text_lower)
+        if hits:
+            job_function_scores[jf] = hits
+    
+    # Also check role title for job function hints
+    title_lower = role_title.lower()
+    for jf, keywords in JOB_FUNCTION_KEYWORDS.items():
+        if any(kw in title_lower for kw in keywords):
+            job_function_scores[jf] = job_function_scores.get(jf, 0) + 3  # Boost title matches
+    
+    if job_function_scores:
+        job_function = max(job_function_scores, key=job_function_scores.get)
 
     # ── Years required ───────────────────────────────────────────────────────
     required_years = 0
@@ -303,8 +322,29 @@ def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
 
     required_skills  = _extract_skills_from_text(required_text)
     nice_have_skills = _extract_skills_from_text(nice_have_text)
+    
+    # Filter out generic soft skills from required (unless explicitly emphasized)
+    required_skills_filtered = [
+        skill for skill in required_skills
+        if skill.lower() not in GENERIC_SOFT_SKILLS
+    ]
+    
+    # If filtering removed too many skills, keep some if they appear multiple times
+    if len(required_skills_filtered) < 2 and len(required_skills) > 2:
+        # Soft skills mentioned frequently might be important
+        soft_skills_in_jd = [
+            skill for skill in required_skills
+            if skill.lower() in GENERIC_SOFT_SKILLS
+        ]
+        # Keep at most 1-2 soft skills if they're emphasized
+        required_skills_filtered = required_skills_filtered + soft_skills_in_jd[:2]
+    
     # Remove overlap
     nice_have_skills = [s for s in nice_have_skills if s not in required_skills]
+    
+    # Add soft skills to nice-to-have if they were filtered from required
+    filtered_soft_skills = set(required_skills) - set(required_skills_filtered)
+    nice_have_skills = list(set(nice_have_skills + list(filtered_soft_skills)))
 
     # ── Key responsibilities (first 5 bullet lines starting with verbs) ─────
     resp_lines = []
@@ -317,9 +357,10 @@ def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
 
     return {
         "role_title":        role_title or "Not specified",
+        "job_function":      job_function,
         "domain":            domain,
         "seniority":         seniority,
-        "required_skills":   required_skills,
+        "required_skills":   required_skills_filtered,
         "required_years":    required_years,
         "nice_to_have_skills": nice_have_skills,
         "key_responsibilities": resp_lines,

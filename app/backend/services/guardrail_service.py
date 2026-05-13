@@ -44,11 +44,12 @@ ENSEMBLE_VOTE_SEEDS = [42, 123, 456]
 
 class JDParseResult(BaseModel):
     role_title: str = ""
-    domain: str = Field(default="other", pattern=r"^(backend|frontend|fullstack|data_science|ml_ai|devops|embedded|mobile|design|management|other)$")
+    job_function: str = Field(default="other", pattern=r"^(account_based_marketing|backend_engineering|frontend_engineering|data_science|devops_engineering|product_management|sales|management|other)$")
+    domain: str = Field(default="other", pattern=r"^(backend|frontend|fullstack|data_science|ml_ai|devops|embedded|mobile|design|marketing|sales|management|other)$")
     seniority: str = Field(default="mid", pattern=r"^(junior|mid|senior|lead|principal)$")
-    required_skills: List[str] = Field(default_factory=list, max_length=50)
+    required_skills: List[str] = Field(default_factory=list, max_length=12)
     required_years: int = Field(default=0, ge=0, le=50)
-    nice_to_have_skills: List[str] = Field(default_factory=list, max_length=50)
+    nice_to_have_skills: List[str] = Field(default_factory=list, max_length=8)
     key_responsibilities: List[str] = Field(default_factory=list, max_length=30)
 
 

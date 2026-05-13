@@ -155,3 +155,222 @@ OLD_BACKEND_WEIGHTS = {
     "domain": 0.10,
     "risk": 0.15,
 }
+
+
+# ============================================================================
+# ENTERPRISE-GRADE JOB FUNCTION TAXONOMY (Phase 1 Enhancement)
+# ============================================================================
+
+# Job Function Skill Taxonomy: Maps job functions to core, adjacent, and irrelevant skills
+# This enables context-aware skill validation during matching
+JOB_FUNCTION_SKILL_TAXONOMY: Dict[str, Dict[str, List[str]]] = {
+    "account_based_marketing": {
+        "core_skills": [
+            "account-based marketing", "abm", "demand generation", "lead generation",
+            "marketing automation", "salesforce", "marketing analytics", "segment",
+            "target account identification", "personalization", "multi-channel campaigns"
+        ],
+        "adjacent_skills": [
+            "content marketing", "seo", "sem", "social media marketing",
+            "email marketing", "crm", "customer journey mapping", "attribution modeling",
+            "marketing strategy", "b2b marketing", "data analysis", "communication"
+        ],
+        "irrelevant_skills": [
+            "python", "java", "kubernetes", "react", "sql", "machine learning",
+            "embedded systems", "mobile development", "devops"
+        ],
+        "core_responsibilities": [
+            "develop abm strategies", "identify target accounts", "create personalized campaigns",
+            "collaborate with sales", "analyze campaign performance", "manage marketing automation",
+            "track account engagement", "optimize marketing funnel"
+        ]
+    },
+    "backend_engineering": {
+        "core_skills": [
+            "python", "java", "go", "node.js", "fastapi", "django", "spring boot",
+            "express", "postgresql", "mysql", "redis", "mongodb", "api development",
+            "rest api", "graphql", "microservices", "system design"
+        ],
+        "adjacent_skills": [
+            "docker", "kubernetes", "ci/cd", "aws", "gcp", "azure", "terraform",
+            "graphql", "grpc", "message queues", "caching", "database optimization",
+            "testing", "agile", "communication", "collaboration"
+        ],
+        "irrelevant_skills": [
+            "photoshop", "illustrator", "abm", "marketing automation", "salesforce",
+            "financial modeling", "hr management", "graphic design"
+        ],
+        "core_responsibilities": [
+            "design and implement apis", "build scalable backend systems", "optimize database queries",
+            "ensure system reliability", "write clean maintainable code", "collaborate with frontend",
+            "implement security best practices", "monitor system performance"
+        ]
+    },
+    "frontend_engineering": {
+        "core_skills": [
+            "react", "vue", "angular", "typescript", "javascript", "html", "css",
+            "next.js", "responsive design", "web accessibility", "state management",
+            "webpack", "vite", "tailwind", "sass"
+        ],
+        "adjacent_skills": [
+            "figma", "ui/ux design", "testing", "performance optimization", "seo",
+            "progressive web apps", "git", "agile", "communication", "collaboration"
+        ],
+        "irrelevant_skills": [
+            "python backend", "database administration", "network security",
+            "financial analysis", "hr policies", "marketing strategy"
+        ],
+        "core_responsibilities": [
+            "build responsive user interfaces", "implement pixel-perfect designs",
+            "optimize frontend performance", "ensure cross-browser compatibility",
+            "write reusable components", "collaborate with designers", "implement accessibility standards"
+        ]
+    },
+    "data_science": {
+        "core_skills": [
+            "python", "sql", "pandas", "numpy", "scikit-learn", "data analysis",
+            "statistics", "machine learning", "data visualization", "tableau",
+            "power bi", "feature engineering", "hypothesis testing"
+        ],
+        "adjacent_skills": [
+            "big data", "spark", "hadoop", "cloud platforms", "deep learning",
+            "nlp", "etl", "data engineering", "communication", "storytelling",
+            "business acumen", "a/b testing"
+        ],
+        "irrelevant_skills": [
+            "react", "angular", "mobile development", "graphic design",
+            "marketing automation", "sales management", "hr policies"
+        ],
+        "core_responsibilities": [
+            "analyze complex datasets", "build predictive models", "extract actionable insights",
+            "create data visualizations", "present findings to stakeholders", "design experiments",
+            "collaborate with engineering", "ensure data quality"
+        ]
+    },
+    "devops_engineering": {
+        "core_skills": [
+            "docker", "kubernetes", "terraform", "ansible", "jenkins", "ci/cd",
+            "aws", "gcp", "azure", "linux", "bash", "monitoring", "prometheus",
+            "grafana", "infrastructure as code"
+        ],
+        "adjacent_skills": [
+            "python", "go", "git", "networking", "security", "database administration",
+            "scripting", "automation", "agile", "collaboration", "incident response"
+        ],
+        "irrelevant_skills": [
+            "react", "marketing automation", "financial modeling", "graphic design",
+            "content writing", "sales strategy", "hr management"
+        ],
+        "core_responsibilities": [
+            "manage cloud infrastructure", "implement ci/cd pipelines", "ensure system reliability",
+            "automate deployment processes", "monitor system performance", "respond to incidents",
+            "optimize infrastructure costs", "implement security best practices"
+        ]
+    },
+    "product_management": {
+        "core_skills": [
+            "product strategy", "roadmap planning", "user research", "agile", "scrum",
+            "stakeholder management", "data analysis", "a/b testing", "user stories",
+            "prioritization", "market research", "competitive analysis"
+        ],
+        "adjacent_skills": [
+            "sql", "analytics tools", "wireframing", "communication", "leadership",
+            "project management", "technical understanding", "design thinking",
+            "customer development", "go-to-market strategy"
+        ],
+        "irrelevant_skills": [
+            "python programming", "database administration", "network configuration",
+            "graphic design tools", "video editing", "accounting"
+        ],
+        "core_responsibilities": [
+            "define product vision", "prioritize features", "gather user requirements",
+            "collaborate with engineering", "analyze product metrics", "conduct user research",
+            "manage stakeholder expectations", "drive product launches"
+        ]
+    },
+    "sales": {
+        "core_skills": [
+            "sales strategy", "crm", "salesforce", "pipeline management", "negotiation",
+            "lead generation", "account management", "b2b sales", "closing deals",
+            "sales forecasting", "prospecting", "relationship building"
+        ],
+        "adjacent_skills": [
+            "marketing", "communication", "presentation skills", "data analysis",
+            "social selling", "email outreach", "linkedin", "customer success",
+            "contract negotiation", "territory management"
+        ],
+        "irrelevant_skills": [
+            "python", "react", "kubernetes", "database design", "machine learning",
+            "graphic design", "video production", "accounting"
+        ],
+        "core_responsibilities": [
+            "drive revenue growth", "build client relationships", "manage sales pipeline",
+            "conduct product demos", "negotiate contracts", "exceed sales targets",
+            "collaborate with marketing", "provide market feedback"
+        ]
+    }
+}
+
+# Job Function Detection Keywords (maps JD keywords to job functions)
+JOB_FUNCTION_KEYWORDS: Dict[str, List[str]] = {
+    "account_based_marketing": [
+        "abm", "account-based marketing", "demand generation marketer",
+        "b2b marketer", "growth marketer", "field marketer"
+    ],
+    "backend_engineering": [
+        "backend engineer", "backend developer", "server-side developer",
+        "api developer", "software engineer backend", "platform engineer"
+    ],
+    "frontend_engineering": [
+        "frontend engineer", "frontend developer", "ui engineer",
+        "ui developer", "web developer", "javascript developer"
+    ],
+    "data_science": [
+        "data scientist", "data analyst", "machine learning engineer",
+        "analytics engineer", "business intelligence", "bi analyst"
+    ],
+    "devops_engineering": [
+        "devops engineer", "site reliability engineer", "sre",
+        "platform engineer", "infrastructure engineer", "cloud engineer"
+    ],
+    "product_management": [
+        "product manager", "senior product manager", "director of product",
+        "vp product", "head of product", "technical product manager"
+    ],
+    "sales": [
+        "account executive", "sales representative", "sales manager",
+        "business development", "ae", "sdr", "bdr", "sales director"
+    ]
+}
+
+# Generic Soft Skills (should NOT be in must-have unless explicitly emphasized)
+GENERIC_SOFT_SKILLS = {
+    "communication", "collaboration", "teamwork", "leadership", "problem solving",
+    "analytical thinking", "creativity", "adaptability", "time management",
+    "attention to detail", "critical thinking", "interpersonal skills",
+    "organizational skills", "multitasking", "work ethic", "initiative"
+}
+
+# Linguistic Cues for Skill Importance
+MUST_HAVE_CUES = [
+    "must have", "must-have", "required", "essential", "mandatory",
+    "non-negotiable", "critical", "core requirement", "key requirement",
+    "qualifications:", "requirements:", "must possess", "should have"
+]
+
+NICE_TO_HAVE_CUES = [
+    "nice to have", "nice-to-have", "preferred", "bonus", "plus",
+    "good to have", "desirable", "ideal candidate", "would be great",
+    "beneficial", "advantageous", "a plus"
+]
+
+# Enterprise Skill Classification Settings
+MAX_REQUIRED_SKILLS = 12
+MAX_NICE_TO_HAVE_SKILLS = 8
+MIN_REQUIRED_SKILLS = 3
+SOFT_SKILL_THRESHOLD = 0.30  # Max 30% of required skills can be soft skills
+
+# Confidence Thresholds
+HIGH_CONFIDENCE = 0.85
+MEDIUM_CONFIDENCE = 0.70
+LOW_CONFIDENCE_THRESHOLD = 0.70
