@@ -310,7 +310,7 @@ async def get_handoff_package(
 
 # ─── Enterprise PDF Report ──────────────────────────────────────────────────
 
-@router.get("/{result_id}/pdf-report")
+@router.get("/export/{result_id}/pdf-report")
 def download_pdf_report(
     result_id: int,
     current_user: User = Depends(get_current_user),
