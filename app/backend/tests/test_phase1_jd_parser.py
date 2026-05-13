@@ -9,6 +9,10 @@ Tests the enterprise-grade JD parsing improvements:
 """
 
 import pytest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from services.hybrid_pipeline import parse_jd_rules
 from services.constants import (
     JOB_FUNCTION_SKILL_TAXONOMY,

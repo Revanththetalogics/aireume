@@ -9,6 +9,10 @@ Tests for:
 """
 
 import pytest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from services.explainable_scorer import EvidenceChain, BiasDetector, ExplainableScorer
 
 

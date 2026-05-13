@@ -12,6 +12,9 @@ import pytest
 import os
 import json
 import tempfile
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from datetime import datetime, timedelta
 from services.continuous_learning import (
     OutcomeTracker,
