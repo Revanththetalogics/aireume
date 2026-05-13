@@ -1,9 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { getSubscription, checkUsage, getAvailablePlans } from '../lib/api.js'
+import { useAuth } from '../contexts/AuthContext'
 
 const SubscriptionContext = createContext(null)
 
 export function SubscriptionProvider({ children }) {
+  const { user, loading: authLoading } = useAuth()
   const [subscription, setSubscription] = useState(null)
   const [availablePlans, setAvailablePlans] = useState([])
   const [loading, setLoading] = useState(false)
@@ -99,11 +101,17 @@ export function SubscriptionProvider({ children }) {
     return limit - subscription.usage.analyses_used
   }, [subscription])
 
-  // Initial fetch on mount
+  // Initial fetch on mount — only when user is authenticated
   useEffect(() => {
+    if (authLoading || !user) {
+      // Clear subscription data when user logs out
+      setSubscription(null)
+      setAvailablePlans([])
+      return
+    }
     fetchSubscription()
     fetchAvailablePlans()
-  }, [fetchSubscription, fetchAvailablePlans])
+  }, [authLoading, user, fetchSubscription, fetchAvailablePlans])
 
   // Refresh subscription after analysis operations
   const refreshAfterAnalysis = useCallback(async (analysisCount = 1) => {

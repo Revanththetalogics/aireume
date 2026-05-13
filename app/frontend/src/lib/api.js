@@ -33,6 +33,10 @@ api.interceptors.request.use((config) => {
 // Auto-refresh on 401 - uses httpOnly cookies only
 // Skip refresh logic for auth endpoints to prevent login loops
 const AUTH_PATHS = ['/auth/me', '/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
+const PUBLIC_PATHS = ['/login', '/register']
+
+let isRefreshing = false
+let refreshFailedQueue = []
 
 api.interceptors.response.use(
   (res) => res,
@@ -43,13 +47,34 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !original._retry && !isAuthEndpoint) {
       original._retry = true
+
+      // If a refresh is already in progress, queue this request
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          refreshFailedQueue.push({ resolve, reject })
+        }).then(() => api(original)).catch(() => Promise.reject(error))
+      }
+
+      isRefreshing = true
       try {
         // Refresh endpoint reads from cookie - browser sends cookie automatically
         await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+        // Refresh succeeded - retry all queued requests
+        refreshFailedQueue.forEach(p => p.resolve())
+        refreshFailedQueue = []
         // Retry the original request - cookies are sent automatically
         return api(original)
       } catch {
-        window.location.href = '/login'
+        // Refresh failed - reject all queued requests
+        refreshFailedQueue.forEach(p => p.reject())
+        refreshFailedQueue = []
+        // Only redirect if not already on a public page (prevents infinite loop)
+        const currentPath = window.location.pathname
+        if (!PUBLIC_PATHS.some(p => currentPath.startsWith(p))) {
+          window.location.href = '/login'
+        }
+      } finally {
+        isRefreshing = false
       }
     }
     return Promise.reject(error)
