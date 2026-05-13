@@ -317,6 +317,9 @@ def download_pdf_report(
     db: Session = Depends(get_db),
 ):
     """Generate and download an enterprise PDF report for a single screening result."""
+    import logging
+    log = logging.getLogger(__name__)
+
     from ..services.pdf_report_service import generate_pdf_report
 
     # Verify user has access to this result (same tenant)
@@ -331,7 +334,14 @@ def download_pdf_report(
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
 
-    pdf_bytes = generate_pdf_report(result_id, db, current_user.id)
+    try:
+        pdf_bytes = generate_pdf_report(result_id, db, current_user.id)
+    except Exception as e:
+        log.exception("PDF report generation failed for result_id=%s: %s", result_id, str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF generation failed: {str(e)}"
+        )
 
     candidate_name = "Candidate"
     if result.analysis_result:

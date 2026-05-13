@@ -84,24 +84,33 @@ def generate_pdf_report(result_id: int, db: Session, current_user_id: int) -> by
         or contact_info.get("name")
         or "Unknown Candidate"
     )
-    if result.candidate and result.candidate.name:
-        candidate_name = result.candidate.name
+    try:
+        if result.candidate and result.candidate.name:
+            candidate_name = result.candidate.name
+    except Exception:
+        pass  # Lazy-loading may fail if session is detached
 
     current_role = ""
-    if result.candidate and result.candidate.current_role:
-        current_role = result.candidate.current_role
-    elif analysis.get("current_role"):
-        current_role = analysis.get("current_role")
-    elif parsed.get("current_role"):
-        current_role = parsed.get("current_role")
+    try:
+        if result.candidate and result.candidate.current_role:
+            current_role = result.candidate.current_role
+        elif analysis.get("current_role"):
+            current_role = analysis.get("current_role")
+        elif parsed.get("current_role"):
+            current_role = parsed.get("current_role")
+    except Exception:
+        current_role = analysis.get("current_role", "") or parsed.get("current_role", "")
 
     total_years = None
-    if result.candidate and result.candidate.total_years_exp is not None:
-        total_years = result.candidate.total_years_exp
-    elif analysis.get("total_years_exp") is not None:
-        total_years = analysis.get("total_years_exp")
-    elif parsed.get("total_years_exp") is not None:
-        total_years = parsed.get("total_years_exp")
+    try:
+        if result.candidate and result.candidate.total_years_exp is not None:
+            total_years = result.candidate.total_years_exp
+        elif analysis.get("total_years_exp") is not None:
+            total_years = analysis.get("total_years_exp")
+        elif parsed.get("total_years_exp") is not None:
+            total_years = parsed.get("total_years_exp")
+    except Exception:
+        total_years = analysis.get("total_years_exp") or parsed.get("total_years_exp")
 
     # ── 5. Scores & recommendations ───────────────────────────────────────
     fit_score = analysis.get("fit_score", 0) or 0
@@ -122,14 +131,18 @@ def generate_pdf_report(result_id: int, db: Session, current_user_id: int) -> by
 
     # ── 7. Role title ─────────────────────────────────────────────────────
     role_title = ""
-    if result.role_template and result.role_template.name:
-        role_title = result.role_template.name
-    elif analysis.get("role_title"):
-        role_title = analysis.get("role_title")
-    elif analysis.get("jd_name"):
-        role_title = analysis.get("jd_name")
-    elif parsed.get("role_title"):
-        role_title = parsed.get("role_title")
+    try:
+        if result.role_template and result.role_template.name:
+            role_title = result.role_template.name
+    except Exception:
+        pass
+    if not role_title:
+        role_title = (
+            analysis.get("role_title")
+            or analysis.get("jd_name")
+            or parsed.get("role_title")
+            or ""
+        )
 
     # ── 8. Score breakdown (with safe defaults) ──────────────────────────
     sb = analysis.get("score_breakdown", {})
@@ -151,9 +164,13 @@ def generate_pdf_report(result_id: int, db: Session, current_user_id: int) -> by
 
     # ── 11. Employment gaps ───────────────────────────────────────────────
     employment_gaps = analysis.get("employment_gaps") or []
-    if not employment_gaps and result.candidate and result.candidate.gap_analysis_json:
-        gap_data = _safe_json(result.candidate.gap_analysis_json)
-        employment_gaps = gap_data.get("gaps") or []
+    if not employment_gaps:
+        try:
+            if result.candidate and result.candidate.gap_analysis_json:
+                gap_data = _safe_json(result.candidate.gap_analysis_json)
+                employment_gaps = gap_data.get("gaps") or []
+        except Exception:
+            pass
 
     # ── 12. Interview evaluation summary ──────────────────────────────────
     eval_summary: dict[str, dict[str, Any]] = {}
