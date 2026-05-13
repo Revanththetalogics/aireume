@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { createContext, useContext } from 'react'
 import { SubscriptionProvider, useSubscription, useUsageCheck } from '../useSubscription'
 import * as api from '../../lib/api'
 
@@ -12,6 +13,27 @@ vi.mock('../../lib/api', () => ({
   getSubscription: vi.fn(),
   getAvailablePlans: vi.fn(),
   checkUsage: vi.fn(),
+}))
+
+// Create a mock Auth context to satisfy useAuth dependency
+const MockAuthContext = createContext(null)
+
+function MockAuthProvider({ children }) {
+  const mockAuthValue = {
+    user: { id: 1, email: 'test@example.com' },
+    loading: false,
+    tenant: { id: 1, name: 'Test Tenant' },
+  }
+  return (
+    <MockAuthContext.Provider value={mockAuthValue}>
+      {children}
+    </MockAuthContext.Provider>
+  )
+}
+
+// Mock the AuthContext module
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => useContext(MockAuthContext),
 }))
 
 // Mock subscription data
@@ -94,7 +116,11 @@ describe('useSubscription', () => {
 
   describe('initial state', () => {
     it('should start with null subscription', () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       expect(result.current.subscription).toBeNull()
@@ -102,7 +128,11 @@ describe('useSubscription', () => {
     })
 
     it('should fetch subscription on mount', async () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -116,14 +146,22 @@ describe('useSubscription', () => {
 
   describe('getUsageStats', () => {
     it('should return null when subscription not loaded', () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       expect(result.current.getUsageStats()).toBeNull()
     })
 
     it('should return usage stats when subscription loaded', async () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -146,14 +184,22 @@ describe('useSubscription', () => {
 
   describe('getCurrentPlan', () => {
     it('should return null when subscription not loaded', () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       expect(result.current.getCurrentPlan()).toBeNull()
     })
 
     it('should return current plan when subscription loaded', async () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -169,14 +215,22 @@ describe('useSubscription', () => {
 
   describe('isFeatureAvailable', () => {
     it('should return false when subscription not loaded', () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       expect(result.current.isFeatureAvailable('api_access')).toBe(false)
     })
 
     it('should return true for available features', async () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -201,7 +255,11 @@ describe('useSubscription', () => {
       }
       api.getSubscription.mockResolvedValue(freeSubscription)
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -224,7 +282,11 @@ describe('useSubscription', () => {
       }
       api.getSubscription.mockResolvedValue(unlimitedSubscription)
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -237,14 +299,22 @@ describe('useSubscription', () => {
 
   describe('getRemainingAnalyses', () => {
     it('should return 0 when subscription not loaded', () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       expect(result.current.getRemainingAnalyses()).toBe(0)
     })
 
     it('should return remaining count for limited plans', async () => {
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -262,7 +332,11 @@ describe('useSubscription', () => {
       }
       api.getSubscription.mockResolvedValue(unlimitedSubscription)
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -277,7 +351,11 @@ describe('useSubscription', () => {
     it('should call checkUsage API', async () => {
       api.checkUsage.mockResolvedValue(mockUsageAllowed)
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -294,7 +372,11 @@ describe('useSubscription', () => {
     it('should return allowed result', async () => {
       api.checkUsage.mockResolvedValue(mockUsageAllowed)
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -312,7 +394,11 @@ describe('useSubscription', () => {
     it('should handle API errors gracefully', async () => {
       api.checkUsage.mockRejectedValue(new Error('Network error'))
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -337,7 +423,11 @@ describe('useSubscription', () => {
           usage: { ...mockSubscription.usage, analyses_used: 50 }
         })
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -357,7 +447,11 @@ describe('useSubscription', () => {
     it('should use cache for subsequent calls', async () => {
       api.getSubscription.mockResolvedValue(mockSubscription)
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -378,7 +472,11 @@ describe('useSubscription', () => {
     it('should optimistically update usage', async () => {
       api.getSubscription.mockResolvedValue(mockSubscription)
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -401,7 +499,11 @@ describe('useSubscription', () => {
     it('should handle subscription fetch error', async () => {
       api.getSubscription.mockRejectedValue(new Error('API Error'))
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -415,7 +517,11 @@ describe('useSubscription', () => {
     it('should handle network error gracefully', async () => {
       api.getSubscription.mockRejectedValue({ message: 'Network error' })
 
-      const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+      const wrapper = ({ children }) => (
+        <MockAuthProvider>
+          <SubscriptionProvider>{children}</SubscriptionProvider>
+        </MockAuthProvider>
+      )
       const { result } = renderHook(() => useSubscription(), { wrapper })
 
       await waitFor(() => {
@@ -437,7 +543,11 @@ describe('useUsageCheck', () => {
   })
 
   it('should provide checkBeforeAnalysis function', async () => {
-    const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+    const wrapper = ({ children }) => (
+      <MockAuthProvider>
+        <SubscriptionProvider>{children}</SubscriptionProvider>
+      </MockAuthProvider>
+    )
     const { result } = renderHook(() => useUsageCheck(), { wrapper })
 
     await waitFor(() => {
@@ -452,7 +562,11 @@ describe('useUsageCheck', () => {
     // Mock checkUsage to return allowed
     api.checkUsage.mockResolvedValue(mockUsageAllowed)
     
-    const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+    const wrapper = ({ children }) => (
+      <MockAuthProvider>
+        <SubscriptionProvider>{children}</SubscriptionProvider>
+      </MockAuthProvider>
+    )
     const { result: subscriptionResult } = renderHook(() => useSubscription(), { wrapper })
     const { result } = renderHook(() => useUsageCheck(), { wrapper })
 
@@ -481,7 +595,11 @@ describe('useUsageCheck', () => {
     }
     api.getSubscription.mockResolvedValue(atLimitSubscription)
 
-    const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+    const wrapper = ({ children }) => (
+      <MockAuthProvider>
+        <SubscriptionProvider>{children}</SubscriptionProvider>
+      </MockAuthProvider>
+    )
     const { result } = renderHook(() => useUsageCheck(), { wrapper })
 
     await waitFor(() => {
@@ -501,7 +619,11 @@ describe('useUsageCheck', () => {
   it.skip('should fallback to server check when local check passes', async () => {
     api.checkUsage.mockResolvedValue({ allowed: true, current_usage: 25, limit: 100 })
 
-    const wrapper = ({ children }) => <SubscriptionProvider>{children}</SubscriptionProvider>
+    const wrapper = ({ children }) => (
+      <MockAuthProvider>
+        <SubscriptionProvider>{children}</SubscriptionProvider>
+      </MockAuthProvider>
+    )
     const { result } = renderHook(() => useUsageCheck(), { wrapper })
 
     await waitFor(() => {
