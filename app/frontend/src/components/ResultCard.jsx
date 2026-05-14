@@ -10,16 +10,9 @@ import SkillsRadar from './SkillsRadar'
 import AnimatedScore from './AnimatedScore'
 import StreamingText from './StreamingText'
 import { generateEmail, getNarrative, getEvaluations, saveEvaluation, recordOutcome, recordOutcomeFeedback } from '../lib/api'
+import { safeStr } from '../lib/utils'
 
 // ─── Small reusable components ────────────────────────────────────────────────
-
-/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
-function safeStr(v) {
-  if (v == null) return ''
-  if (typeof v === 'string') return v
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
-  try { return JSON.stringify(v) } catch { return String(v) }
-}
 
 function ScoreBar({ label, value, color }) {
   const barColor = {
@@ -66,7 +59,7 @@ function CopyButton({ text }) {
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
       className="p-1.5 rounded-lg hover:bg-brand-50 transition-colors text-slate-400 hover:text-brand-600"
-      title="Copy"
+      aria-label="Copy to clipboard"
     >
       {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
@@ -140,7 +133,7 @@ function EmailModal({ candidateId, resultId, onClose }) {
             </div>
             <h3 className="font-bold text-brand-900">Generate Email</h3>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
+          <button onClick={onClose} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors" aria-label="Close email dialog">
             <X className="w-5 h-5 text-slate-500" />
           </button>
         </div>

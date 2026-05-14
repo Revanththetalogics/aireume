@@ -9,16 +9,10 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 
 import { getDashboardSummary, getDashboardActivity } from '../lib/api'
+import { safeStr } from '../lib/utils'
+import { getScoreColor } from '../lib/constants'
 import Skeleton from '../components/Skeleton'
 import GettingStarted from '../components/GettingStarted'
-
-/** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
-function safeStr(v) {
-  if (v == null) return ''
-  if (typeof v === 'string') return v
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
-  try { return JSON.stringify(v) } catch { return String(v) }
-}
 
 /** Convert ISO timestamp to relative time string */
 function timeAgo(timestamp) {
@@ -38,21 +32,20 @@ function timeAgo(timestamp) {
   return new Date(timestamp).toLocaleDateString()
 }
 
-/** Score badge color classes (aligned with ScoreGauge thresholds) */
+/** Score badge color classes — delegates to shared getScoreColor from constants */
 function scoreBadgeClasses(score) {
-  if (score == null) return 'bg-slate-100 text-slate-500 ring-slate-200'
-  if (score >= 70) return 'bg-green-100 text-green-700 ring-green-200'
-  if (score >= 50) return 'bg-amber-100 text-amber-700 ring-amber-200'
-  return 'bg-red-100 text-red-700 ring-red-200'
+  const c = getScoreColor(score)
+  if (!c) return 'bg-slate-100 text-slate-500 ring-slate-200'
+  return `${c.bg} ${c.text} ${c.ring}`
 }
 
 /** Status bar segment Tailwind bg classes (Improvement #1) */
 const STATUS_BG = {
-  pending: 'bg-gray-300',
+  pending: 'bg-slate-300',
   'in-review': 'bg-blue-400',
   shortlisted: 'bg-green-400',
   rejected: 'bg-red-400',
-  hired: 'bg-purple-400',
+  hired: 'bg-brand-400',
 }
 
 /** Human-readable status labels */
@@ -76,7 +69,7 @@ function StackedStatusBar({ breakdown = {}, total = 0 }) {
       {segments.map(([status, count]) => (
         <div
           key={status}
-          className={`h-full transition-all duration-500 ${STATUS_BG[status] || 'bg-gray-300'}`}
+          className={`h-full transition-all duration-500 ${STATUS_BG[status] || 'bg-slate-300'}`}
           style={{ width: `${(count / total) * 100}%` }}
           title={`${STATUS_LABELS[status] || status}: ${count}`}
         />
@@ -310,8 +303,8 @@ function DashboardContent() {
 
           {/* Secondary actions - outlined */}
           <button
-            onClick={() => navigate('/templates')}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 bg-white text-gray-700 rounded-lg hover:bg-gray-50 hover:border-brand-300 transition-colors font-medium text-sm"
+            onClick={() => navigate('/jd-library')}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 hover:border-brand-300 transition-colors font-medium text-sm"
           >
             <Plus className="w-4 h-4" />
             Create New JD
@@ -319,18 +312,10 @@ function DashboardContent() {
 
           <button
             onClick={() => navigate('/compare')}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 bg-white text-gray-700 rounded-lg hover:bg-gray-50 hover:border-brand-300 transition-colors font-medium text-sm"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 hover:border-brand-300 transition-colors font-medium text-sm"
           >
             <GitCompare className="w-4 h-4" />
             Compare Candidates
-          </button>
-
-          <button
-            onClick={() => navigate('/export')}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 bg-white text-gray-700 rounded-lg hover:bg-gray-50 hover:border-brand-300 transition-colors font-medium text-sm"
-          >
-            <Download className="w-4 h-4" />
-            Export Reports
           </button>
         </div>
         {loading && <Loader2 className="w-5 h-5 text-brand-500 animate-spin shrink-0" />}
@@ -485,7 +470,7 @@ function DashboardContent() {
                     {segments.flatMap(([status, count], i) => {
                       const el = (
                         <span key={status} className="inline-flex items-center gap-1">
-                          <span className={`w-1.5 h-1.5 rounded-full ${STATUS_BG[status] || 'bg-gray-300'}`} />
+                          <span className={`w-1.5 h-1.5 rounded-full ${STATUS_BG[status] || 'bg-slate-300'}`} />
                           {count} {STATUS_LABELS[status] || status}
                         </span>
                       )
@@ -690,7 +675,7 @@ function DashboardContent() {
                         {pipelineSegments.map(([status, count]) => (
                           <div
                             key={status}
-                            className={`h-full transition-all duration-500 ${STATUS_BG[status] || 'bg-gray-300'}`}
+                            className={`h-full transition-all duration-500 ${STATUS_BG[status] || 'bg-slate-300'}`}
                             style={{ width: `${(count / grandTotal) * 100}%` }}
                             title={`${STATUS_LABELS[status] || status}: ${count}`}
                           />
@@ -700,7 +685,7 @@ function DashboardContent() {
                     <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
                       {Object.entries(totals).map(([status, count]) => (
                         <span key={status} className="flex items-center gap-1 text-[10px] text-slate-500">
-                          <span className={`w-1.5 h-1.5 rounded-full inline-block ${STATUS_BG[status] || 'bg-gray-300'}`} />
+                          <span className={`w-1.5 h-1.5 rounded-full inline-block ${STATUS_BG[status] || 'bg-slate-300'}`} />
                           {STATUS_LABELS[status] || status} {count}
                         </span>
                       ))}

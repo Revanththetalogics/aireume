@@ -10,6 +10,7 @@ import {
   createSkillTemplate,
   deleteSkillTemplate,
 } from '../lib/api'
+import { safeStr } from '../lib/utils'
 
 /**
  * SkillClassificationEditor
@@ -18,13 +19,6 @@ import {
  * before proceeding with analysis. Supports drag-and-drop, inline
  * editing, and promotion from excluded/suggested pools.
  */
-
-function safeStr(v) {
-  if (v == null) return ''
-  if (typeof v === 'string') return v
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
-  try { return JSON.stringify(v) } catch { return String(v) }
-}
 
 function ConfidenceDot({ confidence }) {
   const isHigh = confidence === 'high'

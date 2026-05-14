@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from app.backend.services.constants import (
     DEFAULT_WEIGHTS,
     RECOMMENDATION_THRESHOLDS,
+    combine_skill_ratios,
 )
 from app.backend.services.risk_calculator import compute_risk_penalty
 
@@ -192,7 +193,7 @@ def compute_fit_score(
             )
             required_ratio = required_ratio * prof_factor
 
-        skill_score = round((required_ratio * 0.70) + (nice_ratio * 0.30))
+        skill_score = combine_skill_ratios(required_ratio, nice_ratio)
 
         # ── Phase 3 scoring integration (trends + outcomes) ──────────────────
         phase3_ctx = phase3_context or {}
@@ -217,7 +218,7 @@ def compute_fit_score(
             required_ratio = min(100, required_ratio * avg_outcome)
 
         # Recompute skill_score after trend/outcome adjustments
-        skill_score = round((required_ratio * 0.70) + (nice_ratio * 0.30))
+        skill_score = combine_skill_ratios(required_ratio, nice_ratio)
 
         # For risk signals, use missing required skills only
         missing_required = [s for s in missing_skills if isinstance(s, str) and s.lower() in required_lower]

@@ -34,6 +34,7 @@ from app.backend.services.constants import (
     DOMAIN_KEYWORDS,
     DEGREE_SCORES,
     FIELD_RELEVANCE,
+    combine_skill_ratios,
 )
 from app.backend.services.domain_service import detect_domain_from_jd, detect_domain_from_resume
 from app.backend.services.eligibility_service import check_eligibility
@@ -1924,7 +1925,7 @@ def _run_python_phase(
         req_pct = required_match_pct
         if prof_factor is not None:
             req_pct = required_match_pct * prof_factor
-        skill_a["skill_score"] = round((req_pct * 0.70) + (nice_to_have_match_pct * 0.30))
+        skill_a["skill_score"] = combine_skill_ratios(req_pct, nice_to_have_match_pct)
     elif prof_factor is not None:
         skill_a["skill_score"] = round(required_match_pct * prof_factor)
 
@@ -1963,9 +1964,9 @@ def _run_python_phase(
 
     # Convert incoming weights to new schema, then map to internal 7-key schema
     # (mirrors agent_pipeline.py scorer_node — frontend may send legacy or new keys)
-    log.info("Raw scoring_weights received: %s", scoring_weights)
+    log.debug("Raw scoring_weights received: %s", scoring_weights)
     new_weights = convert_to_new_schema(scoring_weights)
-    log.info("Converted to new schema: %s", new_weights)
+    log.debug("Converted to new schema: %s", new_weights)
     internal_weights = {
         "skills":       new_weights.get("core_competencies", 0.30),
         "experience":   new_weights.get("experience", 0.20),
@@ -1975,7 +1976,7 @@ def _run_python_phase(
         "domain":       new_weights.get("domain_fit", 0.10),
         "risk":         new_weights.get("risk", 0.15),
     }
-    log.info("Internal weights for compute_fit_score: %s", internal_weights)
+    log.debug("Internal weights for compute_fit_score: %s", internal_weights)
 
     fit_r = compute_fit_score(all_scores, internal_weights, jd_analysis=jd, phase3_context=phase3_context, skill_match_result=skill_a)
     log.info("compute_fit_score result: fit_score=%s", fit_r["fit_score"])
@@ -2002,18 +2003,24 @@ def _run_python_phase(
             "total_experience": profile.get("total_effective_years", 0),
         }
 
-        eligibility = check_eligibility(
-            jd_domain=jd_domain,
-            candidate_domain=candidate_domain,
-            core_skill_match=deterministic_features["core_skill_match"],
-            relevant_experience=deterministic_features["relevant_experience"],
-        )
+        # Skip eligibility if domain detection failed
+        if jd_domain.get("domain") == "unknown" or candidate_domain.get("domain") == "unknown":
+            log.debug("Skipping eligibility check — domain detection incomplete")
+            from app.backend.services.eligibility_service import EligibilityResult
+            eligibility = EligibilityResult(eligible=True, reason="Domain detection incomplete — defaulting to eligible")
+        else:
+            eligibility = check_eligibility(
+                jd_domain=jd_domain,
+                candidate_domain=candidate_domain,
+                core_skill_match=deterministic_features["core_skill_match"],
+                relevant_experience=deterministic_features["relevant_experience"],
+            )
 
         # Pass the new_weights (converted schema) to deterministic scorer
         # This ensures custom/AI weights are properly used
-        log.info("Passing new_weights to compute_deterministic_score: %s", new_weights)
+        log.debug("Passing new_weights to compute_deterministic_score: %s", new_weights)
         deterministic_score = compute_deterministic_score(deterministic_features, eligibility, new_weights)
-        log.info("compute_deterministic_score result: %s (was fit_score: %s)", deterministic_score, fit_r["fit_score"])
+        log.debug("compute_deterministic_score result: %s (was fit_score: %s)", deterministic_score, fit_r["fit_score"])
         decision_explanation = explain_decision(deterministic_features, eligibility)
     except Exception as e:
         log.warning("Deterministic engine failed, falling back to legacy fit_score: %s", e)

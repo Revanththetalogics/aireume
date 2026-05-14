@@ -945,8 +945,11 @@ export async function getNarrative(analysisId) {
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth() {
-  const response = await api.get('/health')
-  return response.data
+  // Health endpoint is at /health (root level), not under /api/
+  // Use fetch directly since the axios instance prepends /api
+  const res = await fetch('/health', { credentials: 'include' })
+  if (!res.ok) throw new Error('Health check failed')
+  return res.json()
 }
 
 // ─── Subscription ───────────────────────────────────────────────────────────
@@ -1303,6 +1306,7 @@ export async function getAdminRateLimits(params = {}) {
 }
 
 export async function getTenantRateLimit(tenantId) {
+  // @future-use — imported in AdminDashboardPage but not yet wired to UI
   const response = await api.get(`/admin/tenants/${tenantId}/rate-limit`)
   return response.data
 }
@@ -1329,6 +1333,7 @@ export async function updateTenant(tenantId, data) {
   return response.data
 }
 
+// @future-use — imported in AdminDashboardPage but not yet wired to UI
 export async function deleteTenant(tenantId) {
   const response = await api.delete('/admin/tenants/' + tenantId, { params: { confirm: true } })
   return response.data
@@ -1336,11 +1341,13 @@ export async function deleteTenant(tenantId) {
 
 // ─── Tenant User Management API ─────────────────────────────────────
 
+// @future-use — imported in AdminDashboardPage but not yet wired to UI
 export async function addUserToTenant(tenantId, data) {
   const response = await api.post(`/admin/tenants/${tenantId}/users`, data)
   return response.data
 }
 
+// @future-use — imported in AdminDashboardPage but not yet wired to UI
 export async function removeUserFromTenant(tenantId, userId) {
   const response = await api.delete(`/admin/tenants/${tenantId}/users/${userId}`)
   return response.data

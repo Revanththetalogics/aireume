@@ -120,7 +120,14 @@ function App() {
               <Route path="/dashboard-old" element={<Shell><OnboardingGate><Dashboard /></OnboardingGate></Shell>} />
               
               {/* Catch all */}
-              <Route path="*"           element={<Navigate to="/" replace />} />
+              <Route path="*" element={
+                <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-500">
+                  <h1 className="text-6xl font-bold text-slate-300 mb-4">404</h1>
+                  <p className="text-lg font-medium mb-2">Page not found</p>
+                  <p className="text-sm mb-4">The page you're looking for doesn't exist.</p>
+                  <a href="/" className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600">Go Home</a>
+                </div>
+              } />
               </Routes>
               </Suspense>
             </ErrorBoundary>

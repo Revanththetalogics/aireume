@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { getSubscription, checkUsage, getAvailablePlans } from '../lib/api.js'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -15,7 +15,7 @@ export function SubscriptionProvider({ children }) {
   const fetchSubscription = useCallback(async (force = false) => {
     // Cache for 30 seconds unless forced
     const now = Date.now()
-    if (!force && now - lastFetch < 30000 && subscription) {
+    if (!force && now - lastFetch < 10000 && subscription) {
       return subscription
     }
 
@@ -101,6 +101,12 @@ export function SubscriptionProvider({ children }) {
     return limit - subscription.usage.analyses_used
   }, [subscription])
 
+  // Stable refs for callbacks to avoid infinite re-render loop
+  const fetchSubRef = useRef(fetchSubscription)
+  const fetchPlansRef = useRef(fetchAvailablePlans)
+  useEffect(() => { fetchSubRef.current = fetchSubscription }, [fetchSubscription])
+  useEffect(() => { fetchPlansRef.current = fetchAvailablePlans }, [fetchAvailablePlans])
+
   // Initial fetch on mount — only when user is authenticated
   useEffect(() => {
     if (authLoading || !user) {
@@ -109,9 +115,9 @@ export function SubscriptionProvider({ children }) {
       setAvailablePlans([])
       return
     }
-    fetchSubscription()
-    fetchAvailablePlans()
-  }, [authLoading, user, fetchSubscription, fetchAvailablePlans])
+    fetchSubRef.current()
+    fetchPlansRef.current()
+  }, [authLoading, user])
 
   // Refresh subscription after analysis operations
   const refreshAfterAnalysis = useCallback(async (analysisCount = 1) => {

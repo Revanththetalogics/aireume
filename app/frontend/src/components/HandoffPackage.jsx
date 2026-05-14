@@ -6,14 +6,7 @@ import {
 } from 'lucide-react'
 import html2pdf from 'html2pdf.js'
 import { getHandoffPackage } from '../lib/api'
-
-/** Coerce any value to a render-safe string. */
-function safeStr(v) {
-  if (v == null) return ''
-  if (typeof v === 'string') return v
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
-  try { return JSON.stringify(v) } catch { return String(v) }
-}
+import { safeStr } from '../lib/utils'
 
 // ── Sub-components ──────────────────────────────────────────────────────────────
 

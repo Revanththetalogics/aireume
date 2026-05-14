@@ -654,91 +654,12 @@ def _enrich_skills_with_confidence(
     return enriched
 
 
-# ─── Proficiency estimation ──────────────────────────────────────────────────
-
-PROFICIENCY_CUE_MAP: dict[str, list[str]] = {
-    "expert": [
-        "expert in", "deep knowledge of", "mastery of",
-        "extensive experience with", "8+ years", "10+ years",
-        "expert-level", "deep expertise",
-    ],
-    "advanced": [
-        "proficient in", "solid experience", "strong knowledge",
-        "strong background", "5+ years", "6+ years", "7+ years",
-        "proven track record with", "advanced knowledge",
-        "hands-on experience",
-    ],
-    "intermediate": [
-        "working knowledge of", "experience with", "good understanding",
-        "2+ years", "3+ years", "4+ years", "comfortable with",
-    ],
-    "basic": [
-        "basic understanding of", "exposure to", "awareness of",
-        "familiarity with", "knowledge of", "1+ year",
-        "some experience",
-    ],
-}
-
-_PROFICIENCY_RANK = {"basic": 0, "intermediate": 1, "advanced": 2, "expert": 3}
-
-_SENIORITY_DEFAULT_PROFICIENCY: dict[str, str] = {
-    "junior": "basic",
-    "mid": "intermediate",
-    "senior": "advanced",
-    "lead": "expert",
-    "principal": "expert",
-}
-
-
-def _estimate_skill_proficiency(
-    skill: str,
-    seniority: str,
-    jd_text: str,
-    is_nice_to_have: bool = False,
-) -> str:
-    """Estimate the expected proficiency level for a skill based on
-    linguistic cues in the JD text and the role's seniority.
-
-    Priority order:
-      1. Cue-based detection (±150 chars around skill mention)
-      2. Seniority-based default
-      3. Nice-to-have cap (one level below seniority default)
-
-    Returns one of: "basic", "intermediate", "advanced", "expert".
-    """
-    jd_lower = jd_text.lower()
-    skill_lower = skill.lower()
-    pos = jd_lower.find(skill_lower)
-
-    # --- Step 1: Try cue-based detection around the skill mention ---
-    if pos >= 0:
-        ctx_start = max(0, pos - 150)
-        ctx_end = min(len(jd_text), pos + len(skill_lower) + 150)
-        context = jd_lower[ctx_start:ctx_end]
-
-        for level in ("expert", "advanced", "intermediate", "basic"):
-            if any(cue in context for cue in PROFICIENCY_CUE_MAP[level]):
-                proficiency = level
-                break
-        else:
-            proficiency = None
-    else:
-        proficiency = None
-
-    # --- Step 2: Fall back to seniority-based default ---
-    if proficiency is None:
-        proficiency = _SENIORITY_DEFAULT_PROFICIENCY.get(seniority.lower(), "intermediate")
-
-    # --- Step 3: Nice-to-have cap — one level below seniority default ---
-    if is_nice_to_have:
-        seniority_default = _SENIORITY_DEFAULT_PROFICIENCY.get(
-            seniority.lower(), "intermediate"
-        )
-        cap_rank = max(_PROFICIENCY_RANK[seniority_default] - 1, 0)
-        if _PROFICIENCY_RANK[proficiency] > cap_rank:
-            proficiency = [k for k, v in _PROFICIENCY_RANK.items() if v == cap_rank][0]
-
-    return proficiency
+# ─── Proficiency estimation (moved to shared service) ────────────────────────
+from app.backend.services.skill_proficiency_service import (
+    PROFICIENCY_CUE_MAP,
+    _SENIORITY_DEFAULT_PROFICIENCY,
+    estimate_skill_proficiency as _estimate_skill_proficiency,
+)
 
 
 def _get_excluded_skills(
@@ -788,8 +709,8 @@ def _get_suggested_additions(
                 ]
                 if suggestions:
                     return suggestions[:8]
-    except Exception:
-        pass  # Fall back to taxonomy mapping
+    except Exception as e:
+        log.debug("O*NET lookup failed, falling back to taxonomy: %s", e)
 
     # ── Fallback: JOB_FUNCTION_SKILL_TAXONOMY mapping ──────────────────────
     taxonomy = JOB_FUNCTION_SKILL_TAXONOMY.get(job_function, {})
@@ -1213,16 +1134,14 @@ def _check_and_increment_usage(db: Session, tenant_id: int, user_id: int, quanti
     Uses atomic UPDATE to prevent race conditions:
     - For limited plans: UPDATE ... SET count = count + 1 WHERE count + quantity <= limit
     - Checks affected rows to determine if limit was reached
+    - Uses SAVEPOINT to isolate quota-check failure from the rest of the session
+      (avoids full rollback that would lose other pending session state)
     """
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         return False, "Tenant not found"
     
-    # Ensure monthly reset (this modifies tenant in memory, will be committed with usage)
-    _ensure_monthly_reset(tenant)
-    db.flush()  # Flush reset changes if any
-    
-    # Get plan limits
+    # Get plan limits (read-only, no side effects)
     plan = tenant.plan
     if not plan:
         plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
@@ -1234,35 +1153,47 @@ def _check_and_increment_usage(db: Session, tenant_id: int, user_id: int, quanti
     
     # If unlimited, just increment without check
     if analyses_limit is None or analyses_limit < 0:
+        _ensure_monthly_reset(tenant)
         success = record_usage(db, tenant_id, user_id, "resume_analysis", quantity)
         if not success:
             return False, "Failed to record usage"
         return True, ""
     
-    # Atomic increment with limit check using raw SQL UPDATE
-    # This prevents race conditions where two concurrent requests both read the same count
-    result = db.execute(
-        update(Tenant)
-        .where(
-            Tenant.id == tenant_id,
-            Tenant.analyses_count_this_month + quantity <= analyses_limit
+    # Atomic increment with limit check — the ONLY write path for the counter.
+    # _ensure_monthly_reset is applied inside a SAVEPOINT so that a quota
+    # failure only rolls back the savepoint, not the entire session.
+    savepoint = db.begin_nested()
+    try:
+        _ensure_monthly_reset(tenant)
+        db.flush()  # Apply reset to DB so atomic UPDATE sees current count
+        
+        result = db.execute(
+            update(Tenant)
+            .where(
+                Tenant.id == tenant_id,
+                Tenant.analyses_count_this_month + quantity <= analyses_limit
+            )
+            .values(
+                analyses_count_this_month=Tenant.analyses_count_this_month + quantity
+            )
+            .execution_options(synchronize_session=False)
         )
-        .values(
-            analyses_count_this_month=Tenant.analyses_count_this_month + quantity
-        )
-        .execution_options(synchronize_session=False)
-    )
-    
-    # Check if the update affected any rows
-    if result.rowcount == 0:
-        # Limit was reached - get current count for error message
-        db.rollback()
-        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-        if tenant:
-            _ensure_monthly_reset(tenant)
-            remaining = analyses_limit - tenant.analyses_count_this_month
-            return False, f"Monthly analysis limit exceeded. Remaining: {remaining}, Requested: {quantity}. Please upgrade your plan."
-        return False, "Monthly analysis limit exceeded. Please upgrade your plan."
+        
+        # Check if the update affected any rows
+        if result.rowcount == 0:
+            savepoint.rollback()
+            # Re-read tenant for accurate remaining count (post-savepoint rollback)
+            tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+            if tenant:
+                _ensure_monthly_reset(tenant)
+                remaining = analyses_limit - tenant.analyses_count_this_month
+                return False, f"Monthly analysis limit exceeded. Remaining: {remaining}, Requested: {quantity}. Please upgrade your plan."
+            return False, "Monthly analysis limit exceeded. Please upgrade your plan."
+        
+        savepoint.commit()
+    except Exception:
+        savepoint.rollback()
+        raise
     
     # Log the usage
     from app.backend.models.db_models import UsageLog
@@ -2647,11 +2578,11 @@ async def batch_analyze_endpoint(
     if not resumes:
         raise HTTPException(status_code=400, detail="At least one resume required")
     
-    # ─── VALIDATE BATCH SIZE FIRST (before reading any files) ─────────────────
+        # ─── VALIDATE BATCH SIZE FIRST (before reading any files) ─────────────────
     if len(resumes) > MAX_BATCH_SIZE:
         raise HTTPException(
             status_code=400, 
-            detail=f"Maximum batch size is {MAX_BATCH_SIZE} resumes"
+            detail=f"Maximum {MAX_BATCH_SIZE} resumes per batch. Received {len(resumes)}."
         )
     
     # Read and validate JD file if provided (before usage check)
@@ -3081,6 +3012,9 @@ def rescore_endpoint(
         det_features["secondary_skill_match"] = new_secondary_ratio
 
         # Re-run deterministic score with updated features
+        eligibility = None
+        jd_domain = {}
+        candidate_domain = {}
         try:
             from app.backend.services.eligibility_service import check_eligibility
             from app.backend.services.fit_scorer import compute_deterministic_score

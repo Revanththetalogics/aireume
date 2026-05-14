@@ -155,8 +155,8 @@ class CandidateNote(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     text = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     candidate = relationship("Candidate", backref="notes")
     user = relationship("User")
@@ -167,7 +167,7 @@ class ScreeningResult(Base):
     __tablename__ = "screening_results"
 
     id                 = Column(Integer, primary_key=True, index=True)
-    tenant_id          = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id          = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     candidate_id       = Column(Integer, ForeignKey("candidates.id"), nullable=True, index=True)
     role_template_id   = Column(Integer, ForeignKey("role_templates.id"), nullable=True)
     resume_text        = Column(Text, nullable=False)

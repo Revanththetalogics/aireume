@@ -341,13 +341,27 @@ instrumentator.instrument(app).expose(app, endpoint="/metrics")
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
 
-# Load CORS origins from environment variable (comma-separated)
-# Default includes common dev ports and production domain
+# Load CORS origins from environment variable (comma-separated).
+# In production, CORS_ORIGINS should be set explicitly to only real frontend
+# domains (e.g. "https://airesume.thetalogics.com"). The default below is
+# convenience for local development only — it includes localhost ports and
+# the staging domain so developers can spin up the API without extra config.
 cors_origins_str = os.getenv(
     "CORS_ORIGINS",
     "http://localhost:5173,http://localhost:3000,https://airesume-staging.thetalogics.com"
 )
 origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
+
+# Security: warn if any localhost origin is configured in production.
+# Production deployments must only allow real frontend domains.
+if os.getenv("ENVIRONMENT") == "production":
+    localhost_origins = [o for o in origins if "localhost" in o]
+    if localhost_origins:
+        log.warning(
+            "CORS_ORIGINS contains localhost in production: %s — "
+            "this should be overridden via env var to only real domains",
+            localhost_origins,
+        )
 
 app.add_middleware(
     CORSMiddleware,

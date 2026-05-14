@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
-import { adminResetUsage, adminChangePlan } from '../lib/api'
+import { adminResetUsage, adminChangePlan, getUserFriendlyError } from '../lib/api'
 
 function Section({ title, icon: Icon, children, description }) {
   return (
@@ -98,7 +98,7 @@ export default function SettingsPage() {
   } = useSubscription()
   const [activeTab, setActiveTab] = useState('subscription')
   const [saving, setSaving] = useState(false)
-  const [adminLoading, setAdminLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState(null)
 
   // Profile form state
   const [profile, setProfile] = useState({
@@ -119,29 +119,29 @@ export default function SettingsPage() {
 
   const handleResetUsage = async () => {
     if (!confirm('Reset usage counters? This is for testing only.')) return
-    setAdminLoading(true)
+    setActionLoading('resetUsage')
     try {
       await adminResetUsage()
       await fetchSubscription(true)
       alert('Usage counters reset successfully')
     } catch (err) {
-      alert('Failed to reset: ' + err.message)
+      alert('Failed to reset: ' + getUserFriendlyError(err))
     } finally {
-      setAdminLoading(false)
+      setActionLoading(null)
     }
   }
 
   const handleChangePlan = async (planId) => {
     if (!confirm(`Switch to ${planId} plan?`)) return
-    setAdminLoading(true)
+    setActionLoading(`changePlan-${planId}`)
     try {
       await adminChangePlan(planId)
       await fetchSubscription(true)
       alert(`Switched to ${planId} plan`)
     } catch (err) {
-      alert('Failed to change plan: ' + err.message)
+      alert('Failed to change plan: ' + getUserFriendlyError(err))
     } finally {
-      setAdminLoading(false)
+      setActionLoading(null)
     }
   }
 
@@ -310,11 +310,11 @@ export default function SettingsPage() {
                         <div className="flex gap-2 flex-wrap">
                           <button
                             onClick={handleResetUsage}
-                            disabled={adminLoading}
+                            disabled={actionLoading === 'resetUsage'}
                             className="flex items-center gap-2 px-3 py-2 bg-amber-50 text-amber-700 text-xs font-semibold rounded-xl hover:bg-amber-100 transition-colors disabled:opacity-50"
                           >
-                            <RefreshCw className={`w-3 h-3 ${adminLoading ? 'animate-spin' : ''}`} />
-                            Reset Usage
+                            <RefreshCw className={`w-3 h-3 ${actionLoading === 'resetUsage' ? 'animate-spin' : ''}`} />
+                            {actionLoading === 'resetUsage' ? 'Resetting...' : 'Reset Usage'}
                           </button>
                         </div>
                       </>
@@ -371,14 +371,14 @@ export default function SettingsPage() {
                             {user?.role === 'admin' ? (
                               <button
                                 onClick={() => handleChangePlan(plan.id)}
-                                disabled={isCurrent || adminLoading}
+                                disabled={isCurrent || actionLoading?.startsWith('changePlan')}
                                 className={`w-full mt-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
                                   isCurrent
                                     ? 'bg-brand-200 text-brand-700 cursor-default'
                                     : 'btn-brand text-white shadow-brand-sm disabled:opacity-50'
                                 }`}
                               >
-                                {isCurrent ? 'Current Plan' : adminLoading ? 'Changing...' : 'Switch Plan'}
+                                {isCurrent ? 'Current Plan' : actionLoading === `changePlan-${plan.id}` ? 'Changing...' : actionLoading?.startsWith('changePlan') ? 'Please wait...' : 'Switch Plan'}
                               </button>
                             ) : (
                               <button

@@ -78,7 +78,7 @@ import {
 } from '../lib/api'
 import {
   getSecurityEvents,
-  getImpersonationSessions,
+  listImpersonationSessions,
 } from '../lib/api'
 
 const TABS = [

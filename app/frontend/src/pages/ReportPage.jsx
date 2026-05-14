@@ -104,6 +104,7 @@ export default function ReportPage() {
   const [jdContext, setJdContext] = useState(null)
   const [resumeActionLoading, setResumeActionLoading] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [noResult, setNoResult] = useState(false)
 
   /** Resolve name from all possible result paths — returns null if unknown */
   const resolveName = (r) =>
@@ -146,8 +147,8 @@ export default function ReportPage() {
         }
       } catch { /* ignore */ }
     }
-    navigate('/', { replace: true })
-  }, [result, location.search, navigate])
+    setNoResult(true)
+  }, [result, location.search])
 
   // Poll for narrative completion if status is pending or processing
   useEffect(() => {
@@ -219,7 +220,20 @@ export default function ReportPage() {
     }
   }, [result?.analysis_id, result?.result_id, result?.narrative_status])
 
-  if (!result) return null
+  if (!result) {
+    if (noResult) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-500">
+          <p className="text-lg font-medium mb-2">No analysis results found</p>
+          <p className="text-sm mb-4">The analysis may have expired or was not completed.</p>
+          <button onClick={() => navigate('/analyze')} className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600">
+            Start New Analysis
+          </button>
+        </div>
+      )
+    }
+    return null
+  }
 
   const hasDeterministicData = result.fit_score != null
   const isNarrativeReady = result.narrative_status === 'ready'

@@ -15,11 +15,15 @@ from app.backend.models.db_models import User, ImpersonationSession
 _env = os.getenv("ENVIRONMENT", "development")
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 if not SECRET_KEY:
-    if _env == "production":
-        raise RuntimeError("JWT_SECRET_KEY environment variable must be set in production")
+    if _env in ("production", "staging"):
+        raise RuntimeError(
+            f"JWT_SECRET_KEY environment variable must be set in { _env }"
+        )
     SECRET_KEY = "dev-secret-DO-NOT-USE-IN-PRODUCTION"
     import logging
-    logging.getLogger(__name__).warning("Using default JWT secret — NOT safe for production")
+    logging.getLogger(__name__).warning(
+        "Using default JWT secret — NOT safe for production or staging"
+    )
 ALGORITHM = "HS256"
 
 bearer_scheme = HTTPBearer(auto_error=False)

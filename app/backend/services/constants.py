@@ -375,6 +375,15 @@ HIGH_CONFIDENCE = 0.85
 MEDIUM_CONFIDENCE = 0.70
 LOW_CONFIDENCE_THRESHOLD = 0.70
 
+# --- Skill Ratio Combination Weights ---
+REQUIRED_SKILL_WEIGHT = 0.70
+NICE_TO_HAVE_SKILL_WEIGHT = 0.30
+
+
+def combine_skill_ratios(required_ratio: float, nice_to_have_ratio: float) -> int:
+    """Combine required and nice-to-have skill match ratios using standard weights."""
+    return round((required_ratio * REQUIRED_SKILL_WEIGHT) + (nice_to_have_ratio * NICE_TO_HAVE_SKILL_WEIGHT))
+
 
 # --- Skill Synonyms (variant/abbreviation → canonical form) ---
 SKILL_SYNONYMS = {
