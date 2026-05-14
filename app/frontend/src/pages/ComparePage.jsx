@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { GitCompare, Trophy, Check, Download, ChevronDown, ChevronUp, MessageCircle, Gavel, Zap, AlertTriangle, FileText, Target } from 'lucide-react'
 import { getHistory, compareResults, exportCsv } from '../lib/api'
+import ComparisonMatrix from '../components/ComparisonMatrix'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -232,7 +233,7 @@ export default function ComparePage() {
                   {[
                     { label: 'Fit Score',    key: 'fit_score',                       winnerKey: 'overall',    isScore: false },
                     { label: 'Recommendation', key: 'final_recommendation',          winnerKey: null,         isScore: false },
-                    { label: 'Skill Match',  key: 'score_breakdown.skill_match',     winnerKey: 'skills',     isScore: true  },
+                    { label: 'Skill Match',  key: 'score_breakdown.skill_match.score', winnerKey: 'skills',     isScore: true  },
                     { label: 'Experience',   key: 'score_breakdown.experience_match',winnerKey: 'experience', isScore: true  },
                     { label: 'Education',    key: 'score_breakdown.education',       winnerKey: 'education',  isScore: true  },
                     { label: 'Stability',    key: 'score_breakdown.stability',       winnerKey: 'stability',  isScore: true  },
@@ -493,6 +494,13 @@ export default function ComparePage() {
                 ))}
               </div>
             </CollapsibleSection>
+
+            {/* Skill-Level Comparison */}
+            <ComparisonMatrix
+              candidateIds={comparison.candidates.map(c => c.candidate_id).filter(Boolean)}
+              screeningResultId={comparison.candidates[0]?.id}
+              teamGaps={[]}
+            />
           </div>
         )}
       </main>

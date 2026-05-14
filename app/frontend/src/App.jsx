@@ -29,6 +29,7 @@ const ComparePage  = lazy(() => import('./pages/ComparePage'))
 const TemplatesPage = lazy(() => import('./pages/TemplatesPage'))
 const BatchPage    = lazy(() => import('./pages/BatchPage'))
 const TeamPage       = lazy(() => import('./pages/TeamPage'))
+const TeamSkillsPage = lazy(() => import('./pages/TeamSkillsPage'))
 const TranscriptPage = lazy(() => import('./pages/TranscriptPage'))
 const VideoPage    = lazy(() => import('./pages/VideoPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
@@ -99,6 +100,7 @@ function App() {
               <Route path="/pipeline"    element={<Shell><OnboardingGate><KanbanBoard /></OnboardingGate></Shell>} />
               <Route path="/compare"    element={<Shell><OnboardingGate><ComparePage /></OnboardingGate></Shell>} />
               <Route path="/team"       element={<Shell><OnboardingGate><TeamPage /></OnboardingGate></Shell>} />
+              <Route path="/team-skills" element={<Shell><OnboardingGate><TeamSkillsPage /></OnboardingGate></Shell>} />
               <Route path="/transcript" element={<Shell><OnboardingGate><TranscriptPage /></OnboardingGate></Shell>} />
               <Route path="/video"      element={<Shell><OnboardingGate><VideoPage /></OnboardingGate></Shell>} />
               <Route path="/analytics"  element={<Shell><OnboardingGate><AnalyticsPage /></OnboardingGate></Shell>} />

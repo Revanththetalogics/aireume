@@ -4,9 +4,10 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, AreaChart, Area,
 } from 'recharts'
-import { BarChart3, RefreshCw } from 'lucide-react'
-import { getScreeningAnalytics } from '../lib/api'
+import { BarChart3, RefreshCw, TrendingUp } from 'lucide-react'
+import { getScreeningAnalytics, getSkillTrends, computeSkillTrends } from '../lib/api'
 import Skeleton from '../components/Skeleton'
+import SkillTrendChart from '../components/SkillTrendChart'
 
 const PERIOD_OPTIONS = [
   { value: 'last_7_days', label: 'Last 7 Days' },
@@ -193,6 +194,12 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // ─── Skill Trends State ─────────────────────────────────────
+  const [trendData, setTrendData] = useState(null)
+  const [trendLoading, setTrendLoading] = useState(true)
+  const [trendRoleCategory, setTrendRoleCategory] = useState(null)
+  const [computing, setComputing] = useState(false)
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -209,6 +216,37 @@ export default function AnalyticsPage() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  // ─── Skill Trends Fetch ─────────────────────────────────────
+  const fetchTrends = useCallback(async () => {
+    setTrendLoading(true)
+    try {
+      const params = { months: 6 }
+      if (trendRoleCategory) params.role_category = trendRoleCategory
+      const result = await getSkillTrends(params)
+      setTrendData(result)
+    } catch {
+      setTrendData(null)
+    } finally {
+      setTrendLoading(false)
+    }
+  }, [trendRoleCategory])
+
+  useEffect(() => {
+    fetchTrends()
+  }, [fetchTrends])
+
+  const handleComputeSnapshots = async () => {
+    setComputing(true)
+    try {
+      await computeSkillTrends()
+      await fetchTrends()
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setComputing(false)
+    }
+  }
 
   // Prepare pie chart data from recommendation_distribution
   const pieData = data?.recommendation_distribution
@@ -465,6 +503,24 @@ export default function AnalyticsPage() {
             totalAnalyzed={data.total_analyzed ?? 0}
             rates={data.pass_through_rates}
           />
+
+          {/* Row 6 — Skill Trends */}
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4 text-green-600" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-800">Skill Trends</h2>
+            </div>
+            <SkillTrendChart
+              data={trendData}
+              loading={trendLoading}
+              roleCategory={trendRoleCategory}
+              onRoleCategoryChange={setTrendRoleCategory}
+              onCompute={handleComputeSnapshots}
+              computing={computing}
+            />
+          </div>
         </>
       )}
     </div>

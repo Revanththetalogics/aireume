@@ -28,7 +28,7 @@ PIPELINE_RESULT = {
     "risk_signals": [],
     "final_recommendation": "Consider",
     "employment_gaps": [],
-    "score_breakdown": {"skill_match": 70, "experience_match": 65, "stability": 90, "education": 65},
+    "score_breakdown": {"skill_match": {"score": 70, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 65, "stability": 90, "education": 65},
     "matched_skills": ["python"],
     "missing_skills": [],
     "risk_level": "Low",

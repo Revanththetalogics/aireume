@@ -1,6 +1,6 @@
 from sqlalchemy import (
-    Column, Integer, String, DateTime, Text, Boolean, LargeBinary,
-    ForeignKey, Float, func, BigInteger, UniqueConstraint
+    Column, Integer, String, DateTime, Date, Text, Boolean, LargeBinary,
+    ForeignKey, Float, func, BigInteger, UniqueConstraint, Index
 )
 from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
@@ -218,6 +218,25 @@ class RoleTemplate(Base):
     tenant               = relationship("Tenant", back_populates="templates")
     results              = relationship("ScreeningResult", back_populates="role_template")
     transcript_analyses  = relationship("TranscriptAnalysis", back_populates="role_template")
+
+
+class SkillClassificationTemplate(Base):
+    """Saved skill classification templates scoped per tenant for reuse across JDs."""
+    __tablename__ = "skill_classification_templates"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    tenant_id           = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    name                = Column(String(255), nullable=False)
+    role_template_id    = Column(Integer, ForeignKey("role_templates.id"), nullable=True)
+    required_skills     = Column(Text, nullable=False, default="[]")       # JSON array
+    nice_to_have_skills = Column(Text, nullable=False, default="[]")       # JSON array
+    created_by          = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at          = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    tenant          = relationship("Tenant")
+    role_template   = relationship("RoleTemplate")
+    created_by_user = relationship("User")
 
 
 # ─── Team collaboration ───────────────────────────────────────────────────────
@@ -550,4 +569,105 @@ class ErasureLog(Base):
 
     tenant = relationship("Tenant")
     actor  = relationship("User")
+
+
+# ─── Historical learning system ────────────────────────────────────────────────
+
+class HiringOutcome(Base):
+    """Tracks hiring decisions for historical learning and model calibration."""
+    __tablename__ = "hiring_outcomes"
+
+    id                   = Column(Integer, primary_key=True, index=True)
+    tenant_id            = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
+    screening_result_id  = Column(Integer, ForeignKey("screening_results.id"), unique=True, nullable=False)
+    candidate_id         = Column(Integer, ForeignKey("candidates.id"), nullable=False, index=True)
+    role_template_id     = Column(Integer, ForeignKey("role_templates.id"), nullable=True, index=True)
+    decision             = Column(String(20), nullable=False)          # hired|rejected|withdrawn|no_decision
+    decision_stage       = Column(String(50), nullable=True)           # screening|phone_screen|interview|offer|onboarded
+    decision_date        = Column(DateTime, nullable=True)
+    decision_by_user_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    feedback_rating      = Column(Integer, nullable=True)              # 1-5
+    feedback_notes       = Column(Text, nullable=True)
+    source               = Column(String(20), server_default="manual") # manual|ats_webhook
+    metadata_json        = Column(Text, nullable=True)
+    created_at           = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at           = Column(DateTime(timezone=True), onupdate=func.now())
+
+    tenant            = relationship("Tenant")
+    screening_result  = relationship("ScreeningResult")
+    candidate         = relationship("Candidate")
+    role_template     = relationship("RoleTemplate")
+    decision_by_user  = relationship("User")
+
+    __table_args__ = (
+        Index("ix_hiring_outcomes_tenant_template", "tenant_id", "role_template_id"),
+        Index("ix_hiring_outcomes_tenant_decision_date", "tenant_id", "decision", "created_at"),
+    )
+
+
+class TeamSkillProfile(Base):
+    """Team-level skill profile for gap analysis and benchmarking."""
+    __tablename__ = "team_skill_profiles"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    tenant_id           = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
+    team_name           = Column(String(200), nullable=False)
+    skills_json         = Column(Text, nullable=True)                  # JSON array
+    job_functions       = Column(Text, nullable=True)                  # JSON array
+    member_count        = Column(Integer, nullable=True)
+    created_by_user_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at          = Column(DateTime(timezone=True), onupdate=func.now())
+
+    tenant          = relationship("Tenant")
+    created_by_user = relationship("User")
+
+
+class SkillTrendSnapshot(Base):
+    """Periodic snapshot of skill demand/supply trends for analytics."""
+    __tablename__ = "skill_trend_snapshots"
+
+    id                   = Column(Integer, primary_key=True, index=True)
+    tenant_id            = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
+    role_category        = Column(String(50), nullable=True)
+    skill_name           = Column(String(200), nullable=False)
+    period_date          = Column(Date, nullable=False)
+    jd_mention_count     = Column(Integer, default=0)
+    resume_present_count = Column(Integer, default=0)
+    hired_with_skill     = Column(Integer, default=0)
+    total_hired          = Column(Integer, default=0)
+    trend_direction      = Column(String(10), nullable=True)           # rising|falling|stable
+    growth_pct           = Column(Float, nullable=True)
+    created_at           = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship("Tenant")
+
+    __table_args__ = (
+        Index("ix_skill_trends_tenant_category_date", "tenant_id", "role_category", "period_date"),
+        Index("ix_skill_trends_tenant_skill_date", "tenant_id", "skill_name", "period_date"),
+    )
+
+
+class OutcomeSkillPattern(Base):
+    """Statistical correlation between skills and hiring outcomes."""
+    __tablename__ = "outcome_skill_patterns"
+
+    id                      = Column(Integer, primary_key=True, index=True)
+    tenant_id               = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
+    role_template_id        = Column(Integer, ForeignKey("role_templates.id"), nullable=True, index=True)
+    role_category           = Column(String(50), nullable=True)
+    skill_name              = Column(String(200), nullable=False)
+    correlation_score       = Column(Float, nullable=True)
+    present_in_hired_pct    = Column(Float, nullable=True)
+    present_in_rejected_pct = Column(Float, nullable=True)
+    sample_size             = Column(Integer, nullable=True)
+    last_computed_at        = Column(DateTime, nullable=True)
+    created_at              = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant        = relationship("Tenant")
+    role_template = relationship("RoleTemplate")
+
+    __table_args__ = (
+        Index("ix_outcome_patterns_tenant_template", "tenant_id", "role_template_id"),
+    )
 

@@ -8,10 +8,13 @@ from datetime import datetime, date
 from decimal import Decimal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import List, Optional
+from datetime import datetime
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import RoleTemplate, User
+from app.backend.models.db_models import RoleTemplate, SkillClassificationTemplate, User
 from app.backend.models.schemas import TemplateCreate, TemplateOut
 
 logger = logging.getLogger(__name__)
@@ -240,3 +243,141 @@ def delete_template(
     db.delete(template)
     db.commit()
     return {"deleted": template_id}
+
+
+# ─── Skill Classification Template CRUD ───────────────────────────────────────
+
+class SkillItem(BaseModel):
+    skill: str
+    proficiency: Optional[str] = None
+
+
+class SkillClassificationCreate(BaseModel):
+    name: str
+    role_template_id: Optional[int] = None
+    required_skills: List[SkillItem]
+    nice_to_have_skills: List[SkillItem]
+
+
+class SkillClassificationUpdate(BaseModel):
+    name: Optional[str] = None
+    required_skills: Optional[List[SkillItem]] = None
+    nice_to_have_skills: Optional[List[SkillItem]] = None
+
+
+def _serialize_skill_template(t):
+    """Serialize a SkillClassificationTemplate row for API response."""
+    import json as _json
+    req = t.required_skills if isinstance(t.required_skills, list) else _json.loads(t.required_skills or "[]")
+    nice = t.nice_to_have_skills if isinstance(t.nice_to_have_skills, list) else _json.loads(t.nice_to_have_skills or "[]")
+    return {
+        "id": t.id,
+        "name": t.name,
+        "role_template_id": t.role_template_id,
+        "required_skills": req,
+        "nice_to_have_skills": nice,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+    }
+
+
+@router.post("/skill-classifications")
+def create_skill_classification(
+    data: SkillClassificationCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    template = SkillClassificationTemplate(
+        tenant_id=current_user.tenant_id,
+        name=data.name,
+        role_template_id=data.role_template_id,
+        required_skills=json.dumps([s.dict() for s in data.required_skills]),
+        nice_to_have_skills=json.dumps([s.dict() for s in data.nice_to_have_skills]),
+        created_by=current_user.id,
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    return _serialize_skill_template(template)
+
+
+@router.get("/skill-classifications")
+def list_skill_classifications(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    templates = (
+        db.query(SkillClassificationTemplate)
+        .filter(SkillClassificationTemplate.tenant_id == current_user.tenant_id)
+        .order_by(SkillClassificationTemplate.updated_at.desc())
+        .all()
+    )
+    return [_serialize_skill_template(t) for t in templates]
+
+
+@router.get("/skill-classifications/{template_id}")
+def get_skill_classification(
+    template_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    template = (
+        db.query(SkillClassificationTemplate)
+        .filter(
+            SkillClassificationTemplate.id == template_id,
+            SkillClassificationTemplate.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return _serialize_skill_template(template)
+
+
+@router.put("/skill-classifications/{template_id}")
+def update_skill_classification(
+    template_id: int,
+    data: SkillClassificationUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    template = (
+        db.query(SkillClassificationTemplate)
+        .filter(
+            SkillClassificationTemplate.id == template_id,
+            SkillClassificationTemplate.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if data.name is not None:
+        template.name = data.name
+    if data.required_skills is not None:
+        template.required_skills = json.dumps([s.dict() for s in data.required_skills])
+    if data.nice_to_have_skills is not None:
+        template.nice_to_have_skills = json.dumps([s.dict() for s in data.nice_to_have_skills])
+    db.commit()
+    db.refresh(template)
+    return _serialize_skill_template(template)
+
+
+@router.delete("/skill-classifications/{template_id}")
+def delete_skill_classification(
+    template_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    template = (
+        db.query(SkillClassificationTemplate)
+        .filter(
+            SkillClassificationTemplate.id == template_id,
+            SkillClassificationTemplate.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    db.delete(template)
+    db.commit()
+    return {"deleted": True, "id": template_id}

@@ -95,7 +95,7 @@ describe('ResultCard', () => {
     const resultWithSeniority = {
       ...mockResult,
       score_breakdown: {
-        skill_match: 85,
+        skill_match: { score: 85, confidence_weighted: false, avg_confidence: 1.0 },
         experience_match: 80,
         education: 75,
         timeline: 90

@@ -1,0 +1,124 @@
+﻿python : C:\Users\DELL\AppData\Local\Programs\Python\Python313\Lib\site-package
+s\pytest_asyncio\plugin.py:207: PytestDeprecationWarning: The configuration 
+option "asyncio_default_fixture_loop_scope" is unset.
+At line:1 char:55
++ ... etaLogics"; python -m pytest app/backend/tests/ --tb=line -q 2>&1 | O ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\DELL\A...cope" is unset. 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+The event loop scope for asynchronous fixtures will default to the fixture 
+caching scope. Future versions of pytest-asyncio will default the loop scope 
+for asynchronous fixtures to function scope. Set the default fixture loop 
+scope explicitly in order to avoid unexpected behavior in the future. Valid 
+fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [  6%]
+........................................................................ [ 12%]
+........................................................................ [ 19%]
+........................................................................ [ 25%]
+........................................................................ [ 32%]
+........................................................................ [ 38%]
+........................................................................ [ 45%]
+........................................................................ [ 51%]
+.....s.................................................................. [ 58%]
+........................................................................ [ 64%]
+........................................................................ [ 70%]
+........................................................................ [ 77%]
+........................................................................ [ 83%]
+........................................................................ [ 90%]
+........................................................................ [ 96%]
+.....................................                                    [100%]
+============================== warnings summary ===============================
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295
+  C:\Users\DELL\AppData\Local\Programs\Python\Python313\Lib\site-packages\pydantic\_internal\_config.py:295: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.10/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+app\backend\services\queue_manager.py:43
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\services\queue_manager.py:43: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+app/backend/tests/test_phase3_explainable_scoring.py: 24 warnings
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\explainable_scorer.py:56: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat()
+
+app/backend/tests/test_phase4_continuous_learning.py: 131 warnings
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\continuous_learning.py:58: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    outcome_id = f"{outcome['candidate_id']}_{outcome['jd_id']}_{datetime.utcnow().strftime('%Y%m%d')}"
+
+app/backend/tests/test_phase4_continuous_learning.py: 131 warnings
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\continuous_learning.py:62: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    outcome["recorded_at"] = outcome.get("recorded_at", datetime.utcnow().isoformat())
+
+app/backend/tests/test_phase4_continuous_learning.py::TestModelRetrainingPipeline::test_should_retrain_time_based
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\test_phase4_continuous_learning.py:240: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    last_retrained = datetime.utcnow() - timedelta(days=31)
+
+app/backend/tests/test_phase4_continuous_learning.py::TestModelRetrainingPipeline::test_should_retrain_time_based
+app/backend/tests/test_phase4_continuous_learning.py::TestModelRetrainingPipeline::test_should_retrain_data_based
+app/backend/tests/test_phase4_continuous_learning.py::TestModelRetrainingPipeline::test_should_not_retrain
+app/backend/tests/test_phase4_continuous_learning.py::TestIntegration::test_full_learning_loop
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\continuous_learning.py:371: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    days_since_retrain = (datetime.utcnow() - last_retrained).days
+
+app/backend/tests/test_phase4_continuous_learning.py::TestModelRetrainingPipeline::test_should_retrain_data_based
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\test_phase4_continuous_learning.py:262: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    last_retrained = datetime.utcnow() - timedelta(days=1)
+
+app/backend/tests/test_phase4_continuous_learning.py::TestModelRetrainingPipeline::test_should_not_retrain
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\test_phase4_continuous_learning.py:284: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    last_retrained = datetime.utcnow() - timedelta(days=15)
+
+app/backend/tests/test_phase4_continuous_learning.py::TestIntegration::test_full_learning_loop
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\test_phase4_continuous_learning.py:356: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    last_retrained = datetime.utcnow() - timedelta(days=45)
+
+app/backend/tests/test_phase5_enterprise_security.py: 10 warnings
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\enterprise_security.py:164: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    audit_id = f"audit_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{user_id}_{resource_id}"
+
+app/backend/tests/test_phase5_enterprise_security.py: 10 warnings
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\enterprise_security.py:168: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat(),
+
+app/backend/tests/test_phase5_enterprise_security.py::TestComplianceAuditLogger::test_generate_compliance_report
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegration::test_full_compliance_workflow
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\enterprise_security.py:240: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "generated_at": datetime.utcnow().isoformat(),
+
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_register_integration
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_get_integration_status
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_get_integration_status
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_sync_job_requisition
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_push_candidate
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_disabled_integration
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\enterprise_security.py:306: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    integration_id = f"{integration_type}_{datetime.utcnow().strftime('%Y%m%d')}"
+
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_register_integration
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_get_integration_status
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_get_integration_status
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_sync_job_requisition
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_push_candidate
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_disabled_integration
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\enterprise_security.py:312: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "created_at": datetime.utcnow().isoformat(),
+
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_sync_job_requisition
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\enterprise_security.py:339: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "synced_at": datetime.utcnow().isoformat(),
+
+app/backend/tests/test_phase5_enterprise_security.py::TestIntegrationHub::test_push_candidate
+  C:\Users\DELL\Projects\Resume AI by ThetaLogics\app\backend\tests\..\services\enterprise_security.py:362: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "pushed_at": datetime.utcnow().isoformat()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1116 passed, 1 skipped, 338 warnings in 2088.87s (0:34:48)

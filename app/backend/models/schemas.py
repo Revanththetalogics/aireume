@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -25,6 +25,18 @@ class AnalyzeJdRequest(BaseModel):
     scoring_weights: Optional[Dict[str, float]] = None
 
 
+class ProficiencySkill(BaseModel):
+    """A skill with an optional proficiency level."""
+    skill: str
+    proficiency: Optional[str] = None  # basic | intermediate | advanced | expert
+
+
+class RescoreRequest(BaseModel):
+    """Body for POST /api/analyze/{result_id}/rescore — override skill classification."""
+    required_skills: List[Any]  # List[str] or List[ProficiencySkill-like dicts]
+    nice_to_have_skills: List[Any] = []
+
+
 # ─── Core analysis ────────────────────────────────────────────────────────────
 
 class EmploymentGap(BaseModel):
@@ -40,9 +52,16 @@ class RiskSignal(BaseModel):
     severity: Optional[str] = None   # low | medium | high
 
 
+class SkillMatchBreakdown(BaseModel):
+    """Nested breakdown for skill_match dimension with confidence metadata."""
+    score: Optional[int] = 0
+    confidence_weighted: Optional[bool] = False
+    avg_confidence: Optional[float] = 1.0
+
+
 class ScoreBreakdown(BaseModel):
     # Backward-compat fields (always populated)
-    skill_match:      Optional[int] = 0
+    skill_match:      Optional[SkillMatchBreakdown] = Field(default_factory=SkillMatchBreakdown)
     experience_match: Optional[int] = 0
     stability:        Optional[int] = 0   # mapped from timeline score
     education:        Optional[int] = 0
@@ -344,6 +363,13 @@ class CommentOut(BaseModel):
 
 class CompareRequest(BaseModel):
     candidate_ids: List[int]
+
+
+class CandidateSkillCompareRequest(BaseModel):
+    candidate_ids: List[int]
+    jd_analysis: Optional[Dict] = None
+    screening_result_id: Optional[int] = None
+    team_gaps: Optional[List[str]] = []
 
 
 # ─── Training ────────────────────────────────────────────────────────────────

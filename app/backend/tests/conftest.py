@@ -390,7 +390,7 @@ def mock_hybrid_pipeline():
         "final_recommendation": "Consider",
         "employment_gaps": [],
         "score_breakdown": {
-            "skill_match": 80, "experience_match": 70,
+            "skill_match": {"score": 80, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 70,
             "stability": 90, "education": 70,
             "architecture": 65, "domain_fit": 78, "timeline": 90, "risk_penalty": 5,
         },
@@ -453,7 +453,7 @@ def mock_agent_pipeline():
         "strengths": ["Strong Python skills"], "weaknesses": ["Limited cloud experience"],
         "education_analysis": "Solid CS background.", "risk_signals": [],
         "final_recommendation": "Consider", "employment_gaps": [],
-        "score_breakdown": {"skill_match": 80, "experience_match": 70, "stability": 90, "education": 70},
+        "score_breakdown": {"skill_match": {"score": 80, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 70, "stability": 90, "education": 70},
         "matched_skills": ["python"], "missing_skills": ["kubernetes"],
         "adjacent_skills": [], "risk_level": "Low",
         "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},

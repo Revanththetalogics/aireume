@@ -1,5 +1,6 @@
 """Standardized fit score computation — single source of truth."""
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from app.backend.services.constants import (
@@ -8,17 +9,93 @@ from app.backend.services.constants import (
 )
 from app.backend.services.risk_calculator import compute_risk_penalty
 
+log = logging.getLogger(__name__)
+
+
+def _compute_team_gap_bonus(matched_skills: list, team_gaps: list) -> float:
+    """Bonus score (0-100) for candidates who fill team skill gaps."""
+    if not team_gaps:
+        return 0.0
+    gaps_lower = [g.lower() for g in team_gaps]
+    # matched_skills can be strings or dicts with "skill" key
+    matched_lower = []
+    for s in matched_skills:
+        if isinstance(s, dict):
+            matched_lower.append(s.get("skill", "").lower())
+        else:
+            matched_lower.append(s.lower())
+    gaps_filled = [g for g in gaps_lower if g in matched_lower]
+    return (len(gaps_filled) / len(team_gaps)) * 100
+
+
+def _apply_trend_factor(skill: str, skill_trends: list) -> float:
+    """Per-skill multiplier based on market trend direction."""
+    if not skill_trends:
+        return 1.0
+    trend = next((t for t in skill_trends if t.get("skill", "").lower() == skill.lower()), None)
+    if not trend:
+        return 1.0
+    growth = trend.get("growth_pct", 0)
+    direction = trend.get("direction", "stable")
+    if direction == "rising":
+        return min(1.2, 1.0 + (abs(growth) / 100) * 0.2)
+    elif direction == "falling":
+        return max(0.8, 1.0 - (abs(growth) / 100) * 0.2)
+    return 1.0
+
+
+def _apply_outcome_factor(skill: str, outcome_patterns: list) -> float:
+    """Skills with higher historical success rate get boosted."""
+    if not outcome_patterns:
+        return 1.0
+    pattern = next((p for p in outcome_patterns if p.get("skill", "").lower() == skill.lower()), None)
+    if not pattern or pattern.get("sample_size", 0) < 5:
+        return 1.0  # Not enough data to be meaningful
+    success_rate = pattern.get("success_rate", 0.5)
+    return 0.8 + (success_rate * 0.4)  # Range: 0.8x to 1.2x
+
+
+def _generate_exp_explanation(actual: float, required: float, score: int) -> str:
+    """Generate human-readable explanation for experience score."""
+    if not required:
+        return "No specific experience requirement specified"
+    if actual >= required * 1.5:
+        return f"{actual:.1f} years significantly exceeds {required:.0f} year requirement"
+    elif actual >= required:
+        return f"{actual:.1f} years meets/exceeds {required:.0f} year requirement"
+    elif actual >= required * 0.7:
+        return f"{actual:.1f} years is close to {required:.0f} year requirement"
+    else:
+        return f"{actual:.1f} years falls short of {required:.0f} year requirement"
+
 
 def compute_fit_score(
     scores: Dict[str, Any],
     scoring_weights: Optional[Dict] = None,
     risk_signals: Optional[List[dict]] = None,
     risk_penalty: Optional[float] = None,
+    jd_analysis: Optional[Dict] = None,
+    phase3_context: Optional[Dict] = None,
+    skill_match_result: Optional[Dict] = None,
 ) -> Dict[str, Any]:
     """Compute weighted fit score, risk signals, and recommendation.
 
     When custom scoring_weights are provided, they are applied to scoring.
     When no custom weights are provided, DEFAULT_WEIGHTS from constants.py is used.
+
+    When jd_analysis is provided with required_skills and nice_to_have_skills,
+    skill_score is computed with a 70/30 weight split (required/nice-to-have).
+
+    When skill_match_result contains matched_skills_detailed, confidence-weighted
+    scoring is used instead of binary counting — alias matches (0.95) and
+    substring matches (0.8) contribute proportionally less than exact matches (1.0).
+    Hierarchy-inferred matches are excluded from the ratio (informational only).
+
+    When phase3_context is provided with team_gaps, skill_trends, and/or
+    outcome_patterns, the scoring is adjusted accordingly:
+    - skill_trends: per-skill multiplier on required_ratio
+    - outcome_patterns: per-skill multiplier on required_ratio
+    - team_gaps: adds a team_fit dimension with weight redistribution
     """
     w = (scoring_weights or DEFAULT_WEIGHTS).copy()
 
@@ -36,6 +113,124 @@ def compute_fit_score(
     employment_gaps = scores.get("employment_gaps", [])
     short_stints    = scores.get("short_stints",   [])
 
+    # Extract JD skill lists for tiered scoring
+    jd_required = []
+    jd_nice_to_have = []
+    if jd_analysis:
+        jd_required = jd_analysis.get("required_skills", []) or []
+        jd_nice_to_have = jd_analysis.get("nice_to_have_skills", []) or []
+
+    # ── Initialize tracking vars for score_breakdown evidence ──────────────────
+    required_matched = []
+    nice_matched = []
+    required_confidence_sum = 0.0
+    nice_confidence_sum = 0.0
+    matched_detailed = (skill_match_result or {}).get("matched_skills_detailed", [])
+    confidence_detailed = [m for m in matched_detailed
+                           if m.get("match_type") != "hierarchy_inferred"] if matched_detailed else []
+    missing_required = missing_skills  # default; overridden in tiered branch
+    proficiency_requirements = (jd_analysis or {}).get("skill_proficiency_requirements") if jd_analysis else None
+
+    # Compute tiered skill score when nice-to-have skills are available
+    if jd_nice_to_have:
+        required_lower = [r.lower() for r in jd_required if isinstance(r, str)]
+        nice_lower = [n.lower() for n in jd_nice_to_have if isinstance(n, str)]
+
+        # ── Confidence-weighted scoring when matched_skills_detailed is available ──
+        # (matched_detailed and confidence_detailed already initialized above)
+
+        if confidence_detailed:
+            # Confidence-weighted scoring for required skills
+            required_confidence_sum = 0.0
+            nice_confidence_sum = 0.0
+
+            for m in confidence_detailed:
+                skill_name = m.get("skill", "").lower()
+                confidence = m.get("confidence", 1.0)
+
+                if skill_name in required_lower:
+                    required_confidence_sum += confidence
+                elif skill_name in nice_lower:
+                    nice_confidence_sum += confidence
+
+            required_ratio = (required_confidence_sum / max(len(jd_required), 1)) * 100
+
+            # Nice-to-have: use confidence if detailed data covers them,
+            # otherwise fall back to binary counting
+            nice_from_detailed = [m for m in confidence_detailed
+                                  if m.get("skill", "").lower() in nice_lower]
+            if nice_from_detailed:
+                nice_ratio = (nice_confidence_sum / max(len(jd_nice_to_have), 1)) * 100
+            else:
+                # matched_skills_detailed currently only tracks required-skill matches;
+                # fall back to binary counting for nice-to-have
+                nice_matched = [s for s in matched_skills if isinstance(s, str) and s.lower() in nice_lower]
+                nice_ratio = len(nice_matched) / max(len(jd_nice_to_have), 1) * 100
+        else:
+            # Fallback to binary counting (backward compatible)
+            required_matched = [s for s in matched_skills if isinstance(s, str) and s.lower() in required_lower]
+            nice_matched = [s for s in matched_skills if isinstance(s, str) and s.lower() in nice_lower]
+            required_ratio = len(required_matched) / max(len(jd_required), 1) * 100
+            nice_ratio = len(nice_matched) / max(len(jd_nice_to_have), 1) * 100
+
+        # Apply proficiency-aware scoring when proficiency requirements are present
+        # proficiency_requirements already initialized above
+        # Build required_matched list for proficiency and Phase 3 calculations
+        required_matched = [s for s in matched_skills if isinstance(s, str) and s.lower() in required_lower]
+        if proficiency_requirements and required_matched:
+            from app.backend.services.hybrid_pipeline import (
+                _compute_proficiency_score,
+            )
+            # Build minimal candidate data for proficiency estimation
+            candidate_skills_data = {
+                "skills_identified": matched_skills,
+                "total_effective_years": actual_years,
+                "work_experience": scores.get("work_experience", []),
+            }
+            prof_factor = _compute_proficiency_score(
+                required_matched, candidate_skills_data, proficiency_requirements,
+            )
+            required_ratio = required_ratio * prof_factor
+
+        skill_score = round((required_ratio * 0.70) + (nice_ratio * 0.30))
+
+        # ── Phase 3 scoring integration (trends + outcomes) ──────────────────
+        phase3_ctx = phase3_context or {}
+        team_gaps = phase3_ctx.get("team_gaps", [])
+        skill_trends = phase3_ctx.get("skill_trends", [])
+        outcome_patterns = phase3_ctx.get("outcome_patterns", [])
+
+        if skill_trends and required_matched:
+            trend_adjusted_count = 0.0
+            for s in required_matched:
+                skill_name = s if isinstance(s, str) else s.get("skill", "")
+                trend_adjusted_count += _apply_trend_factor(skill_name, skill_trends)
+            avg_trend = trend_adjusted_count / max(len(required_matched), 1)
+            required_ratio = min(100, required_ratio * avg_trend)
+
+        if outcome_patterns and required_matched:
+            outcome_adjusted_count = 0.0
+            for s in required_matched:
+                skill_name = s if isinstance(s, str) else s.get("skill", "")
+                outcome_adjusted_count += _apply_outcome_factor(skill_name, outcome_patterns)
+            avg_outcome = outcome_adjusted_count / max(len(required_matched), 1)
+            required_ratio = min(100, required_ratio * avg_outcome)
+
+        # Recompute skill_score after trend/outcome adjustments
+        skill_score = round((required_ratio * 0.70) + (nice_ratio * 0.30))
+
+        # For risk signals, use missing required skills only
+        missing_required = [s for s in missing_skills if isinstance(s, str) and s.lower() in required_lower]
+        required_count_for_risk = len(jd_required)
+    else:
+        missing_required = missing_skills
+        required_count_for_risk = required_count
+
+    # ── Phase 3: team gap bonus (computed outside tiered branch too) ────────
+    phase3_ctx = phase3_context or {}
+    team_gaps = phase3_ctx.get("team_gaps", [])
+    team_gap_bonus = _compute_team_gap_bonus(matched_skills, team_gaps) if team_gaps else 0.0
+
     # ── Risk signals (deterministic Python — not LLM) ─────────────────────────
     if risk_signals is None:
         risk_signals = []
@@ -45,13 +240,13 @@ def compute_fit_score(
             risk_signals.append({"type": "gap",           "severity": "high",
                                   "description": "Critical employment gap detected (12+ months)"})
 
-        skill_miss_pct = (len(missing_skills) / max(required_count, 1)) * 100
+        skill_miss_pct = (len(missing_required) / max(required_count_for_risk, 1)) * 100
         if skill_miss_pct >= 50:
             risk_signals.append({"type": "skill_gap",     "severity": "high",
-                                  "description": f"Missing {len(missing_skills)}/{required_count} required skills"})
+                                  "description": f"Missing {len(missing_required)}/{required_count_for_risk} required skills"})
         elif skill_miss_pct >= 30:
             risk_signals.append({"type": "skill_gap",     "severity": "medium",
-                                  "description": f"Missing {len(missing_skills)}/{required_count} required skills"})
+                                  "description": f"Missing {len(missing_required)}/{required_count_for_risk} required skills"})
 
         if domain_score < 40:
             risk_signals.append({"type": "domain_mismatch", "severity": "medium",
@@ -73,15 +268,30 @@ def compute_fit_score(
         risk_penalty = compute_risk_penalty(risk_signals)
 
     # ── Fit score ──────────────────────────────────────────────────────────────
-    fit_score = round(
-        skill_score    * w.get("skills", DEFAULT_WEIGHTS["skills"])       +
-        exp_score      * w.get("experience", DEFAULT_WEIGHTS["experience"])   +
-        arch_score     * w.get("architecture", DEFAULT_WEIGHTS["architecture"]) +
-        edu_score      * w.get("education", DEFAULT_WEIGHTS["education"])    +
-        timeline_score * w.get("timeline", DEFAULT_WEIGHTS["timeline"])     +
-        domain_score   * w.get("domain", DEFAULT_WEIGHTS["domain"])       -
-        risk_penalty   * w.get("risk", DEFAULT_WEIGHTS["risk"])
-    )
+    if team_gap_bonus > 0:
+        # Redistribute: take 5% from skills weight, add team_fit dimension
+        # skills weight becomes 0.25 (from 0.30), team_fit gets 0.05
+        fit_score = round(
+            skill_score      * (w.get("skills", DEFAULT_WEIGHTS["skills"]) - 0.05)       +
+            team_gap_bonus   * 0.05                                                       +
+            exp_score        * w.get("experience", DEFAULT_WEIGHTS["experience"])   +
+            arch_score       * w.get("architecture", DEFAULT_WEIGHTS["architecture"]) +
+            edu_score        * w.get("education", DEFAULT_WEIGHTS["education"])    +
+            timeline_score   * w.get("timeline", DEFAULT_WEIGHTS["timeline"])     +
+            domain_score     * w.get("domain", DEFAULT_WEIGHTS["domain"])       -
+            risk_penalty     * w.get("risk", DEFAULT_WEIGHTS["risk"])
+        )
+    else:
+        # Normal weights (no team context)
+        fit_score = round(
+            skill_score    * w.get("skills", DEFAULT_WEIGHTS["skills"])       +
+            exp_score      * w.get("experience", DEFAULT_WEIGHTS["experience"])   +
+            arch_score     * w.get("architecture", DEFAULT_WEIGHTS["architecture"]) +
+            edu_score      * w.get("education", DEFAULT_WEIGHTS["education"])    +
+            timeline_score * w.get("timeline", DEFAULT_WEIGHTS["timeline"])     +
+            domain_score   * w.get("domain", DEFAULT_WEIGHTS["domain"])       -
+            risk_penalty   * w.get("risk", DEFAULT_WEIGHTS["risk"])
+        )
     fit_score = max(0, min(100, fit_score))
 
     # ── Recommendation ────────────────────────────────────────────────────────
@@ -95,6 +305,71 @@ def compute_fit_score(
         recommendation = "Reject"
         risk_level = "High" if any(r["severity"] == "high" for r in risk_signals) else "Medium"
 
+    # ── Build detailed score_breakdown with evidence chains ───────────────────────
+    # Use matched_detailed / confidence_detailed already initialized above
+    all_detailed = matched_detailed  # alias for clarity
+    confidence_weighted = bool(all_detailed)
+    avg_confidence = round(
+        sum(m.get("confidence", 1.0) for m in all_detailed) / max(len(all_detailed), 1), 2
+    ) if all_detailed else 1.0
+
+    # ── Skill match details ─────────────────────────────────────────────────────
+    skill_match_details = {
+        "score":               skill_score,
+        "confidence_weighted": confidence_weighted,
+        "avg_confidence":      avg_confidence,
+        "required_total":      len(jd_required),
+        "required_matched":    len(required_matched) if not confidence_weighted else int(required_confidence_sum),
+        "nice_total":          len(jd_nice_to_have),
+        "nice_matched":        len(nice_matched) if not confidence_weighted else (int(nice_confidence_sum) if nice_confidence_sum else len(nice_matched)),
+        "missing_required":    missing_required[:10],
+        "matched_details": [
+            {
+                "skill":       m.get("skill", ""),
+                "confidence":  m.get("confidence", 1.0),
+                "match_type":  m.get("match_type", "exact"),
+            }
+            for m in (all_detailed[:15] if all_detailed else [])
+        ],
+    }
+
+    # Add proficiency adjustments if available
+    if proficiency_requirements and required_matched:
+        proficiency_details = []
+        for skill in required_matched[:10]:
+            skill_name = skill if isinstance(skill, str) else skill.get("skill", "")
+            req_level = proficiency_requirements.get(skill_name.lower())
+            if req_level:
+                proficiency_details.append({
+                    "skill":    skill_name,
+                    "required": req_level,
+                    "factor":   "applied",
+                })
+        if proficiency_details:
+            skill_match_details["proficiency_adjustments"] = proficiency_details
+
+    # Add team gap bonus if present
+    if team_gap_bonus > 0:
+        skill_match_details["team_gap_bonus"] = round(team_gap_bonus, 1)
+
+    # Add trend factors if applied
+    if phase3_context and phase3_context.get("skill_trends"):
+        trend_applied = []
+        for t in phase3_context["skill_trends"][:5]:
+            factor = _apply_trend_factor(t["skill"], phase3_context["skill_trends"])
+            if factor != 1.0:
+                trend_applied.append({"skill": t["skill"], "factor": round(factor, 2), "direction": t.get("direction", "stable")})
+        if trend_applied:
+            skill_match_details["trend_factors_applied"] = trend_applied
+
+    # ── Experience match details ────────────────────────────────────────────────
+    experience_match_details = {
+        "score":          exp_score,
+        "actual_years":   round(actual_years, 1) if actual_years else None,
+        "required_years": required_years if required_years else None,
+        "explanation":    _generate_exp_explanation(actual_years, required_years, exp_score),
+    }
+
     return {
         "fit_score":            fit_score,
         "final_recommendation": recommendation,
@@ -102,8 +377,8 @@ def compute_fit_score(
         "risk_signals":         risk_signals,
         "risk_penalty":         risk_penalty,
         "score_breakdown": {
-            "skill_match":      skill_score,
-            "experience_match": exp_score,
+            "skill_match":      skill_match_details,
+            "experience_match": experience_match_details,
             "stability":        timeline_score,
             "education":        edu_score,
             "architecture":     arch_score,

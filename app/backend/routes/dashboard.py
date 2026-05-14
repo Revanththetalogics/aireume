@@ -12,8 +12,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_admin
 from app.backend.models.db_models import Candidate, RoleTemplate, ScreeningResult, User
+from app.backend.services.skill_trend_service import compute_monthly_snapshot, get_skill_trends
 
 logger = logging.getLogger(__name__)
 
@@ -379,3 +380,32 @@ async def get_screening_analytics(
         "pass_through_rates": pass_through_rates,
         "jd_effectiveness": jd_effectiveness,
     }
+
+
+# ── GET /api/analytics/skill-trends ───────────────────────────────────────────
+
+@router.get("/api/analytics/skill-trends")
+async def get_skill_trends_endpoint(
+    role_category: Optional[str] = Query(None, description="Filter by role category"),
+    months: int = Query(6, ge=1, le=24, description="Number of months to look back"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return skill trend time-series data for the tenant."""
+    tenant_id = current_user.tenant_id
+    return get_skill_trends(db, tenant_id, role_category=role_category, months=months)
+
+
+# ── POST /api/analytics/skill-trends/compute ──────────────────────────────────
+
+@router.post("/api/analytics/skill-trends/compute")
+async def compute_skill_trends_endpoint(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: Compute skill frequency snapshot for the current month."""
+    from datetime import date as _date
+    tenant_id = current_user.tenant_id
+    target = _date.today().replace(day=1)
+    count = compute_monthly_snapshot(db, tenant_id, target_date=target)
+    return {"snapshots_created": count, "period": target.strftime("%Y-%m")}

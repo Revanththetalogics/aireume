@@ -6,6 +6,8 @@ import logging
 import re
 from typing import Dict, List, Any
 
+from app.backend.services.constants import SKILL_SYNONYMS, SKILL_HIERARCHY
+
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -928,6 +930,34 @@ def _extract_skills_from_text(text: str) -> List[str]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SKILL NORMALIZATION ENGINE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def normalize_skill(name: str) -> str:
+    """Normalize a skill name to its canonical form using SKILL_SYNONYMS."""
+    if not name:
+        return ""
+    normalized = name.lower().strip()
+    # Check synonyms table
+    return SKILL_SYNONYMS.get(normalized, normalized)
+
+
+def get_implied_skills(skill: str) -> list:
+    """Get parent/implied skills from hierarchy with confidence."""
+    normalized = normalize_skill(skill)
+    implied = []
+    current = normalized
+    depth = 0
+    while current in SKILL_HIERARCHY and depth < 3:
+        parent = SKILL_HIERARCHY[current]["parent"]
+        confidence = round(0.7 - (depth * 0.15), 2)  # 0.7, 0.55, 0.40 for deeper levels
+        implied.append({"skill": parent, "confidence": max(0.4, confidence), "source": skill})
+        current = normalize_skill(parent)
+        depth += 1
+    return implied
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN SKILL MATCHING FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -948,6 +978,7 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
     - core_match_ratio: float (0-1)
     - secondary_match_ratio: float (0-1)
     - matched_skills: list
+    - matched_skills_detailed: list of dicts with skill, confidence, match_type
     - missing_skills: list
     - skill_score: float (0-100)
     - adjacent_skills: list
@@ -967,6 +998,14 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
         if s and isinstance(s, str):
             cand_normalized.extend(_expand_skill(s))
     cand_set = set(cand_normalized)
+
+    # Step 1b: Build synonym-normalized candidate set for enhanced matching
+    cand_syn_set = set()
+    for s in candidate_skills:
+        if s and isinstance(s, str):
+            cand_syn_set.add(normalize_skill(s))
+            for v in _expand_skill(s):
+                cand_syn_set.add(normalize_skill(v))
 
     # Step 2: Build domain context from structured skills
     context_subcats = {}
@@ -999,19 +1038,30 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
 
         promoted.append(s)
         cand_set.update(_expand_skill(s))
+        cand_syn_set.add(normalize_skill(s))
 
     matched = []
     missing = []
+    matched_detailed = []
 
     for req in jd_skills:
         if not req or not isinstance(req, str):
             continue
         req_variants = _expand_skill(req)
         found = False
+        match_type = None
 
         # Exact / alias match
         if any(v in cand_set for v in req_variants):
             found = True
+            match_type = "exact" if _normalize_skill(req) in cand_set else "alias"
+
+        # Synonym normalization match
+        if not found:
+            req_syn = normalize_skill(req)
+            if req_syn in cand_syn_set:
+                found = True
+                match_type = "alias"
 
         # Substring match: "React Native" in "React" or vice-versa
         if not found:
@@ -1026,6 +1076,7 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
                             if not (req_subcats & c_subcats):
                                 continue  # Different domains, skip
                         found = True
+                        match_type = "substring"
                         break
 
         # Fuzzy fallback (rapidfuzz, threshold 88)
@@ -1037,14 +1088,42 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
                     for c in list(cand_set)[:200]:  # cap for performance
                         if fuzz.token_sort_ratio(req_norm, c) >= 88:
                             found = True
+                            match_type = "alias"
                             break
                 except ImportError:
                     pass
 
         if found:
             matched.append(req)
+            confidence = {"exact": 1.0, "alias": 0.95, "substring": 0.8}.get(match_type, 0.9)
+            matched_detailed.append({
+                "skill": req,
+                "confidence": confidence,
+                "match_type": match_type,
+            })
         else:
             missing.append(req)
+
+    # Post-loop: Check for hierarchy-inferred matches among missing skills.
+    # These are added to matched_skills_detailed ONLY (not matched_skills)
+    # to avoid inflating scores until downstream scoring integration.
+    all_candidate_skills = [s for s in candidate_skills if s and isinstance(s, str)] + promoted
+    for req in missing:
+        req_syn = normalize_skill(req)
+        for c in all_candidate_skills:
+            implied = get_implied_skills(c)
+            for imp in implied:
+                if normalize_skill(imp["skill"]) == req_syn:
+                    matched_detailed.append({
+                        "skill": req,
+                        "confidence": imp["confidence"],
+                        "match_type": "hierarchy_inferred",
+                        "source": imp.get("source", c),
+                    })
+                    break
+            else:
+                continue
+            break
 
     # Adjacent (nice-to-have) matches
     adjacent = []
@@ -1066,6 +1145,7 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
         "core_match_ratio": core_match_ratio,
         "secondary_match_ratio": secondary_match_ratio,
         "matched_skills": matched,
+        "matched_skills_detailed": matched_detailed,
         "missing_skills": missing,
         "skill_score": skill_score,
         "adjacent_skills": adjacent,

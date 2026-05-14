@@ -20,8 +20,11 @@ from typing import Optional
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate
-from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest
+from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate, HiringOutcome
+from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest, CandidateSkillCompareRequest
+from app.backend.services.outcome_service import (
+    record_outcome, record_feedback, get_outcome_for_result, get_outcomes_for_jd, compute_skill_patterns
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1045,6 +1048,159 @@ def download_candidate_resume(
     )
 
 
+@router.post("/compare")
+async def compare_candidates_skill_matrix(
+    data: CandidateSkillCompareRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Compare multiple candidates against a JD with skill-level detail."""
+    from app.backend.services.skill_matcher import match_skills
+
+    # Get candidates
+    candidates = db.query(Candidate).filter(
+        Candidate.id.in_(data.candidate_ids),
+        Candidate.tenant_id == current_user.tenant_id,
+    ).all()
+
+    if not candidates:
+        raise HTTPException(status_code=404, detail="No candidates found")
+
+    # Get JD analysis (from request or from screening result)
+    jd_analysis = data.jd_analysis
+    if not jd_analysis and data.screening_result_id:
+        result = db.query(ScreeningResult).filter(
+            ScreeningResult.id == data.screening_result_id,
+            ScreeningResult.tenant_id == current_user.tenant_id,
+        ).first()
+        if result and result.analysis_result:
+            try:
+                analysis = json.loads(result.analysis_result) if isinstance(result.analysis_result, str) else result.analysis_result
+            except Exception:
+                analysis = {}
+            jd_analysis = analysis.get("jd_analysis", {}) if isinstance(analysis, dict) else {}
+
+    if not jd_analysis:
+        raise HTTPException(status_code=400, detail="JD analysis required (provide jd_analysis or screening_result_id)")
+
+    required_skills = jd_analysis.get("required_skills", []) if isinstance(jd_analysis, dict) else []
+    nice_skills = jd_analysis.get("nice_to_have_skills", []) if isinstance(jd_analysis, dict) else []
+    if not isinstance(required_skills, list):
+        required_skills = []
+    if not isinstance(nice_skills, list):
+        nice_skills = []
+    all_skills = required_skills + nice_skills
+    team_gaps = data.team_gaps or []
+    team_gaps_lower = [g.lower() for g in team_gaps]
+
+    # Build skills matrix
+    skills_matrix = []
+
+    for skill in all_skills:
+        skill_entry = {
+            "skill": skill,
+            "is_required": skill in required_skills,
+            "is_team_gap": skill.lower() in team_gaps_lower,
+            "candidates": {},
+        }
+        skills_matrix.append(skill_entry)
+
+    candidate_summaries = {}
+
+    for candidate in candidates:
+        # Get candidate skills from parsed data
+        parsed_skills = []
+        if candidate.parsed_skills:
+            try:
+                parsed_skills = json.loads(candidate.parsed_skills) if isinstance(candidate.parsed_skills, str) else candidate.parsed_skills
+            except Exception:
+                parsed_skills = []
+        if not isinstance(parsed_skills, list):
+            parsed_skills = []
+
+        # Run skill matching
+        skill_result = match_skills(
+            candidate_skills=parsed_skills,
+            jd_skills=all_skills,
+        )
+
+        matched = [s.lower() for s in skill_result.get("matched_skills", [])]
+        matched_detailed = skill_result.get("matched_skills_detailed", [])
+        if not isinstance(matched_detailed, list):
+            matched_detailed = []
+
+        # Build per-skill status for this candidate
+        total_match = 0
+        required_match = 0
+        gaps_filled = 0
+
+        for skill_entry in skills_matrix:
+            skill_name = skill_entry["skill"]
+            skill_lower = skill_name.lower()
+
+            # Check if matched
+            is_matched = skill_lower in matched
+            confidence = 1.0
+            match_type = "exact"
+
+            # Get confidence from detailed if available
+            if matched_detailed:
+                detail = next((m for m in matched_detailed if m.get("skill", "").lower() == skill_lower), None)
+                if detail:
+                    is_matched = True
+                    confidence = detail.get("confidence", 1.0)
+                    match_type = detail.get("match_type", "exact")
+
+            skill_entry["candidates"][str(candidate.id)] = {
+                "matched": is_matched,
+                "confidence": confidence,
+                "match_type": match_type,
+            }
+
+            if is_matched:
+                total_match += 1
+                if skill_entry["is_required"]:
+                    required_match += 1
+                if skill_entry["is_team_gap"]:
+                    gaps_filled += 1
+
+        # Get screening result score if available
+        screening = db.query(ScreeningResult).filter(
+            ScreeningResult.candidate_id == candidate.id,
+            ScreeningResult.tenant_id == current_user.tenant_id,
+        ).order_by(ScreeningResult.timestamp.desc()).first()
+
+        fit_score = None
+        if screening and screening.analysis_result:
+            try:
+                sr_data = json.loads(screening.analysis_result) if isinstance(screening.analysis_result, str) else screening.analysis_result
+            except Exception:
+                sr_data = {}
+            fit_score = sr_data.get("fit_score") if isinstance(sr_data, dict) else None
+
+        candidate_summaries[str(candidate.id)] = {
+            "name": candidate.name or "Unknown",
+            "fit_score": fit_score,
+            "required_matched": required_match,
+            "required_total": len(required_skills),
+            "nice_matched": total_match - required_match,
+            "nice_total": len(nice_skills),
+            "gaps_filled": gaps_filled,
+            "total_gaps": len(team_gaps),
+            "match_percentage": round((total_match / max(len(all_skills), 1)) * 100),
+        }
+
+    return {
+        "skills_matrix": skills_matrix,
+        "summary": candidate_summaries,
+        "metadata": {
+            "total_required": len(required_skills),
+            "total_nice": len(nice_skills),
+            "total_team_gaps": len(team_gaps),
+        }
+    }
+
+
 # ─── JD-scoped candidate ranking & bulk shortlist ─────────────────────────────
 
 
@@ -1321,3 +1477,138 @@ def get_all_jd_stats(
             "avg_fit_score": round(sum(s["scores"]) / len(s["scores"]), 1) if s["scores"] else None
         }
     return result
+
+
+# ─── Outcome tracking endpoints ──────────────────────────────────────────────
+
+_VALID_OUTCOME_DECISIONS = {"hired", "rejected", "withdrawn", "no_decision"}
+
+
+@router.post("/{candidate_id}/outcome")
+def record_candidate_outcome(
+    candidate_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Record a hiring outcome for a candidate's screening result."""
+    # Validate candidate exists and belongs to tenant
+    candidate = db.query(Candidate).filter(
+        Candidate.id == candidate_id,
+        Candidate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    screening_result_id = body.get("screening_result_id")
+    decision = body.get("decision")
+    stage = body.get("stage")
+    notes = body.get("notes")
+
+    if not screening_result_id:
+        raise HTTPException(status_code=422, detail="screening_result_id is required")
+    if not decision:
+        raise HTTPException(status_code=422, detail="decision is required")
+    if decision not in _VALID_OUTCOME_DECISIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid decision '{decision}'. Must be one of: {', '.join(sorted(_VALID_OUTCOME_DECISIONS))}"
+        )
+
+    # Validate screening result belongs to candidate and tenant
+    result = db.query(ScreeningResult).filter(
+        ScreeningResult.id == screening_result_id,
+        ScreeningResult.candidate_id == candidate_id,
+        ScreeningResult.tenant_id == current_user.tenant_id,
+    ).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Screening result not found for this candidate")
+
+    try:
+        outcome = record_outcome(
+            db=db,
+            tenant_id=current_user.tenant_id,
+            screening_result_id=screening_result_id,
+            candidate_id=candidate_id,
+            decision=decision,
+            stage=stage,
+            user_id=current_user.id,
+            notes=notes,
+            role_template_id=result.role_template_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return json.loads(json.dumps({
+        "id": outcome.id,
+        "screening_result_id": outcome.screening_result_id,
+        "candidate_id": outcome.candidate_id,
+        "role_template_id": outcome.role_template_id,
+        "decision": outcome.decision,
+        "decision_stage": outcome.decision_stage,
+        "decision_date": outcome.decision_date.isoformat() if outcome.decision_date else None,
+        "feedback_notes": outcome.feedback_notes,
+        "source": outcome.source,
+        "created_at": outcome.created_at.isoformat() if outcome.created_at else None,
+    }, default=_json_default))
+
+
+@router.post("/outcomes/{outcome_id}/feedback")
+def record_outcome_feedback(
+    outcome_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Record post-hire quality feedback for an outcome."""
+    rating = body.get("rating")
+    notes = body.get("notes")
+
+    if rating is None:
+        raise HTTPException(status_code=422, detail="rating is required")
+    try:
+        rating = int(rating)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="rating must be an integer")
+    if not (1 <= rating <= 5):
+        raise HTTPException(status_code=422, detail="rating must be between 1 and 5")
+
+    try:
+        outcome = record_feedback(
+            db=db,
+            outcome_id=outcome_id,
+            tenant_id=current_user.tenant_id,
+            rating=rating,
+            notes=notes,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    if not outcome:
+        raise HTTPException(status_code=404, detail="Outcome not found")
+
+    return json.loads(json.dumps({
+        "id": outcome.id,
+        "screening_result_id": outcome.screening_result_id,
+        "candidate_id": outcome.candidate_id,
+        "decision": outcome.decision,
+        "feedback_rating": outcome.feedback_rating,
+        "feedback_notes": outcome.feedback_notes,
+        "updated_at": outcome.updated_at.isoformat() if outcome.updated_at else None,
+    }, default=_json_default))
+
+
+@router.get("/analytics/outcome-patterns")
+def get_outcome_patterns(
+    role_template_id: Optional[int] = Query(None),
+    role_category: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Compute and return skill-to-outcome correlation patterns."""
+    return compute_skill_patterns(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        role_template_id=role_template_id,
+        role_category=role_category,
+    )

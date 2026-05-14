@@ -23,7 +23,7 @@ import re
 import time
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel, Field, ValidationError, validator
 
@@ -90,9 +90,23 @@ class RiskSignal(BaseModel):
     description: str = ""
 
 
+class SkillMatchBreakdown(BaseModel):
+    """Nested breakdown for skill_match dimension with confidence metadata."""
+    score: int = Field(default=0, ge=0, le=100)
+    confidence_weighted: bool = Field(default=False)
+    avg_confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class ExperienceMatchBreakdown(BaseModel):
+    score: int = Field(default=0, ge=0, le=100)
+    actual_years: Optional[float] = None
+    required_years: Optional[float] = None
+    explanation: Optional[str] = None
+
+
 class ScoreBreakdown(BaseModel):
-    skill_match: int = Field(default=0, ge=0, le=100)
-    experience_match: int = Field(default=0, ge=0, le=100)
+    skill_match: SkillMatchBreakdown = Field(default_factory=SkillMatchBreakdown)
+    experience_match: Union[int, ExperienceMatchBreakdown] = Field(default=0)
     architecture: int = Field(default=0, ge=0, le=100)
     education: int = Field(default=0, ge=0, le=100)
     timeline: int = Field(default=0, ge=0, le=100)
@@ -378,9 +392,17 @@ def check_cross_node_consistency(
 def _recompute_fit_score(sa: dict, fs: dict, jd: dict) -> int:
     """Recompute fit_score from score_breakdown to detect drift."""
     sb = fs.get("score_breakdown", {})
+    # skill_match may be a dict (new format) or int (legacy)
+    sm_val = sb.get("skill_match", sa.get("skill_score", 0))
+    if isinstance(sm_val, dict):
+        sm_val = sm_val.get("score", 0)
+    # experience_match may be a dict (new format) or int (legacy)
+    em_val = sb.get("experience_match", 0)
+    if isinstance(em_val, dict):
+        em_val = em_val.get("score", 0)
     scores = {
-        "skill_score": sb.get("skill_match", sa.get("skill_score", 0)),
-        "exp_score": sb.get("experience_match", 0),
+        "skill_score": sm_val,
+        "exp_score": em_val,
         "arch_score": sb.get("architecture", sa.get("architecture_score", 50)),
         "edu_score": sb.get("education", sa.get("education_score", 60)),
         "timeline_score": sb.get("timeline", sa.get("timeline_score", 70)),
@@ -388,7 +410,7 @@ def _recompute_fit_score(sa: dict, fs: dict, jd: dict) -> int:
     }
     risk_signals = fs.get("risk_signals", [])
     risk_penalty = sb.get("risk_penalty", fs.get("risk_penalty", None))
-    result = compute_fit_score(scores, DEFAULT_WEIGHTS, risk_signals=risk_signals, risk_penalty=risk_penalty)
+    result = compute_fit_score(scores, DEFAULT_WEIGHTS, risk_signals=risk_signals, risk_penalty=risk_penalty, jd_analysis=jd)
     return result["fit_score"]
 
 

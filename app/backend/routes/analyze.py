@@ -24,15 +24,22 @@ from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import update
+from sqlalchemy import update, func
 
 from app.backend.db.database import get_db, SessionLocal
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan
+from app.backend.services.jd_quality_scorer import score_jd_quality
+from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan, OutcomeSkillPattern, SkillTrendSnapshot, TeamSkillProfile
 from app.backend.models.schemas import (
     AnalysisResponse, BatchAnalysisResponse, BatchAnalysisResult,
     BatchFailedItem, BatchStreamEvent,
     DuplicateCandidateInfo,
+    RescoreRequest,
+)
+from app.backend.services.constants import (
+    GENERIC_SOFT_SKILLS, MUST_HAVE_CUES, NICE_TO_HAVE_CUES,
+    JOB_FUNCTION_SKILL_TAXONOMY,
+    RECOMMENDATION_THRESHOLDS,
 )
 from app.backend.services.parser_service import parse_resume, extract_jd_text
 from app.backend.services.doc_converter import convert_to_pdf
@@ -45,9 +52,14 @@ from app.backend.services.hybrid_pipeline import (
     _background_llm_narrative,
     register_background_task,
 )
+from app.backend.services.fit_scorer import compute_fit_score
+from app.backend.services.weight_mapper import convert_to_new_schema
 from app.backend.services.skill_matcher import JD_CACHE_VERSION
 from app.backend.routes.subscription import _ensure_monthly_reset, _get_plan_limits, record_usage
 from app.backend.services.billing.quota import check_quota
+from app.backend.services.outcome_service import compute_skill_patterns
+from app.backend.services.team_service import get_team_profile
+from app.backend.services.skill_trend_service import get_skill_trends
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 log    = logging.getLogger("aria.analysis")
@@ -151,6 +163,59 @@ def _json_default(obj):
         import base64
         return base64.b64encode(obj).decode("ascii")
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _apply_skill_overrides(jd_analysis: dict, overrides: dict | None) -> dict:
+    """Apply user-specified skill overrides to jd_analysis in-place.
+
+    Preserves original skills as ``original_required_skills`` /
+    ``original_nice_to_have_skills`` and sets ``skill_overrides_applied``
+    so downstream consumers can detect overrides.
+
+    Supports proficiency-aware overrides where each skill can be a dict:
+        {"skill": "Python", "proficiency": "advanced"}
+    Proficiency data is stored separately in
+    ``jd_analysis["skill_proficiency_requirements"]`` for downstream scoring.
+    """
+    if not overrides:
+        return jd_analysis
+
+    proficiency_map: dict[str, str] = {}
+
+    def _extract_skills(skill_list: list) -> list[str]:
+        """Normalise a skill list that may contain strings or proficiency dicts."""
+        result: list[str] = []
+        for item in skill_list:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict) and "skill" in item:
+                result.append(item["skill"])
+                prof = item.get("proficiency")
+                if isinstance(prof, str) and prof.lower() in (
+                    "basic", "intermediate", "advanced", "expert",
+                ):
+                    proficiency_map[item["skill"].lower()] = prof.lower()
+        return result
+
+    if "required_skills" in overrides and isinstance(overrides["required_skills"], list):
+        jd_analysis["original_required_skills"] = jd_analysis.get("required_skills", [])
+        jd_analysis["required_skills"] = _extract_skills(overrides["required_skills"])
+    if "nice_to_have_skills" in overrides and isinstance(overrides["nice_to_have_skills"], list):
+        jd_analysis["original_nice_to_have_skills"] = jd_analysis.get("nice_to_have_skills", [])
+        jd_analysis["nice_to_have_skills"] = _extract_skills(overrides["nice_to_have_skills"])
+    jd_analysis["skill_overrides_applied"] = True
+
+    # Store proficiency requirements separately for downstream scoring
+    if proficiency_map:
+        jd_analysis["skill_proficiency_requirements"] = proficiency_map
+    else:
+        jd_analysis.pop("skill_proficiency_requirements", None)
+
+    log.info("Skill overrides applied: required=%d, nice_to_have=%d, proficiency_entries=%d",
+             len(overrides.get("required_skills", [])),
+             len(overrides.get("nice_to_have_skills", [])),
+             len(proficiency_map))
+    return jd_analysis
 
 
 # ─── JD cache helpers ─────────────────────────────────────────────────────────
@@ -422,6 +487,592 @@ def _check_jd_size(job_description: str) -> None:
         )
 
 
+def _build_phase3_context(
+    db: Session,
+    tenant_id: int,
+    jd_analysis: dict,
+    team_id: Optional[str] = None,
+) -> Optional[dict]:
+    """Build Phase 3 scoring context (outcome patterns, skill trends, team gaps).
+
+    Returns None if no Phase 3 data is available, so scoring falls back to
+    the default behaviour.  Failures are caught and logged — never break scoring.
+    """
+    try:
+        all_jd_skills = [s.lower().strip() for s in (
+            jd_analysis.get("required_skills", []) +
+            jd_analysis.get("nice_to_have_skills", [])
+        ) if isinstance(s, str)]
+
+        # 1. Outcome patterns
+        outcome_patterns = []
+        if all_jd_skills:
+            patterns = db.query(OutcomeSkillPattern).filter(
+                OutcomeSkillPattern.tenant_id == tenant_id,
+                OutcomeSkillPattern.skill_name.in_(all_jd_skills),
+            ).all()
+            for p in patterns:
+                outcome_patterns.append({
+                    "skill": p.skill_name,
+                    "success_rate": (p.present_in_hired_pct / 100) if p.present_in_hired_pct else 0.5,
+                    "sample_size": p.total_outcomes or 0,
+                })
+
+        # 2. Skill trends
+        skill_trends = []
+        if all_jd_skills:
+            latest_date = db.query(func.max(SkillTrendSnapshot.period_date)).filter(
+                SkillTrendSnapshot.tenant_id == tenant_id,
+            ).scalar()
+            if latest_date:
+                snapshots = db.query(SkillTrendSnapshot).filter(
+                    SkillTrendSnapshot.tenant_id == tenant_id,
+                    SkillTrendSnapshot.period_date == latest_date,
+                    SkillTrendSnapshot.skill_name.in_(all_jd_skills),
+                ).all()
+                for snap in snapshots:
+                    skill_trends.append({
+                        "skill": snap.skill_name,
+                        "direction": snap.trend_direction or "stable",
+                        "growth_pct": snap.growth_pct or 0,
+                    })
+
+        # 3. Team gaps
+        team_gaps = []
+        if team_id:
+            try:
+                profile = get_team_profile(db, int(team_id), tenant_id)
+                if profile and profile.skills_json:
+                    team_skills_raw = json.loads(profile.skills_json)
+                    team_skill_names = set(
+                        e.get("skill", "").lower().strip()
+                        for e in team_skills_raw
+                        if e.get("skill")
+                    )
+                    team_gaps = [s for s in all_jd_skills if s not in team_skill_names]
+            except Exception as exc:
+                log.warning("team_gaps query failed in _build_phase3_context: %s", exc)
+
+        # Only return context if there's something useful
+        if outcome_patterns or skill_trends or team_gaps:
+            return {
+                "team_gaps": team_gaps,
+                "skill_trends": skill_trends,
+                "outcome_patterns": outcome_patterns,
+            }
+        return None
+    except Exception as e:
+        log.warning("Phase 3 context retrieval failed: %s", e)
+        return None
+
+
+# ─── JD Parse Preview helpers ────────────────────────────────────────────────
+
+def _enrich_skills_with_confidence(
+    skills: list[str],
+    jd_text: str,
+    is_nice_to_have: bool = False,
+    seniority: str = "mid",
+) -> list[dict]:
+    """Post-process skill list to add confidence/source and proficiency metadata
+    based on linguistic cues in the original JD text.
+
+    Heuristic rules:
+      - Nice-to-have near preferred/bonus/plus cues  → high / preferred_section
+      - Required near must-have/required/essential    → high / explicit_requirement
+      - Inferred from Qualifications/Requirements hdr → medium / qualifications_section
+      - Default                                         → medium / inferred
+    """
+    jd_lower = jd_text.lower()
+
+    # Pre-compute section boundaries for "Qualifications" / "Requirements" headers
+    _SECTION_HEADERS = [
+        "qualifications", "requirements", "what you'll need",
+        "what we're looking for", "job requirements",
+        "minimum qualifications", "basic qualifications",
+        "preferred qualifications", "desired qualifications",
+    ]
+    section_ranges: list[tuple[int, int]] = []
+    for hdr in _SECTION_HEADERS:
+        idx = jd_lower.find(hdr)
+        if idx >= 0:
+            # Section extends to the next header-like line or end of text
+            end = len(jd_text)
+            for nxt in _SECTION_HEADERS:
+                nxt_idx = jd_lower.find(nxt, idx + len(hdr))
+                if nxt_idx > idx and nxt_idx < end:
+                    end = nxt_idx
+            section_ranges.append((idx, end))
+
+    def _skill_in_section(skill_name: str) -> bool:
+        """Check if the skill appears within a known section header range."""
+        s_lower = skill_name.lower()
+        for start, end in section_ranges:
+            if s_lower in jd_lower[start:end]:
+                return True
+        return False
+
+    enriched = []
+    for skill in skills:
+        skill_lower = skill.lower()
+
+        # Determine surrounding context (±120 chars around the skill mention)
+        pos = jd_lower.find(skill_lower)
+        context = ""
+        if pos >= 0:
+            ctx_start = max(0, pos - 120)
+            ctx_end = min(len(jd_text), pos + len(skill_lower) + 120)
+            context = jd_lower[ctx_start:ctx_end].lower()
+
+        if is_nice_to_have:
+            # Nice-to-have: check for preferred/bonus cues
+            if any(cue in context for cue in NICE_TO_HAVE_CUES):
+                confidence, source = "high", "preferred_section"
+            elif _skill_in_section(skill):
+                confidence, source = "medium", "qualifications_section"
+            else:
+                confidence, source = "medium", "inferred"
+        else:
+            # Required: check for must-have/required/essential cues
+            if any(cue in context for cue in MUST_HAVE_CUES):
+                confidence, source = "high", "explicit_requirement"
+            elif _skill_in_section(skill):
+                confidence, source = "medium", "qualifications_section"
+            else:
+                confidence, source = "medium", "inferred"
+
+        proficiency = _estimate_skill_proficiency(
+            skill, seniority, jd_text, is_nice_to_have=is_nice_to_have,
+        )
+        enriched.append({
+            "skill": skill,
+            "confidence": confidence,
+            "source": source,
+            "proficiency_expected": proficiency,
+        })
+
+    return enriched
+
+
+# ─── Proficiency estimation ──────────────────────────────────────────────────
+
+PROFICIENCY_CUE_MAP: dict[str, list[str]] = {
+    "expert": [
+        "expert in", "deep knowledge of", "mastery of",
+        "extensive experience with", "8+ years", "10+ years",
+        "expert-level", "deep expertise",
+    ],
+    "advanced": [
+        "proficient in", "solid experience", "strong knowledge",
+        "strong background", "5+ years", "6+ years", "7+ years",
+        "proven track record with", "advanced knowledge",
+        "hands-on experience",
+    ],
+    "intermediate": [
+        "working knowledge of", "experience with", "good understanding",
+        "2+ years", "3+ years", "4+ years", "comfortable with",
+    ],
+    "basic": [
+        "basic understanding of", "exposure to", "awareness of",
+        "familiarity with", "knowledge of", "1+ year",
+        "some experience",
+    ],
+}
+
+_PROFICIENCY_RANK = {"basic": 0, "intermediate": 1, "advanced": 2, "expert": 3}
+
+_SENIORITY_DEFAULT_PROFICIENCY: dict[str, str] = {
+    "junior": "basic",
+    "mid": "intermediate",
+    "senior": "advanced",
+    "lead": "expert",
+    "principal": "expert",
+}
+
+
+def _estimate_skill_proficiency(
+    skill: str,
+    seniority: str,
+    jd_text: str,
+    is_nice_to_have: bool = False,
+) -> str:
+    """Estimate the expected proficiency level for a skill based on
+    linguistic cues in the JD text and the role's seniority.
+
+    Priority order:
+      1. Cue-based detection (±150 chars around skill mention)
+      2. Seniority-based default
+      3. Nice-to-have cap (one level below seniority default)
+
+    Returns one of: "basic", "intermediate", "advanced", "expert".
+    """
+    jd_lower = jd_text.lower()
+    skill_lower = skill.lower()
+    pos = jd_lower.find(skill_lower)
+
+    # --- Step 1: Try cue-based detection around the skill mention ---
+    if pos >= 0:
+        ctx_start = max(0, pos - 150)
+        ctx_end = min(len(jd_text), pos + len(skill_lower) + 150)
+        context = jd_lower[ctx_start:ctx_end]
+
+        for level in ("expert", "advanced", "intermediate", "basic"):
+            if any(cue in context for cue in PROFICIENCY_CUE_MAP[level]):
+                proficiency = level
+                break
+        else:
+            proficiency = None
+    else:
+        proficiency = None
+
+    # --- Step 2: Fall back to seniority-based default ---
+    if proficiency is None:
+        proficiency = _SENIORITY_DEFAULT_PROFICIENCY.get(seniority.lower(), "intermediate")
+
+    # --- Step 3: Nice-to-have cap — one level below seniority default ---
+    if is_nice_to_have:
+        seniority_default = _SENIORITY_DEFAULT_PROFICIENCY.get(
+            seniority.lower(), "intermediate"
+        )
+        cap_rank = max(_PROFICIENCY_RANK[seniority_default] - 1, 0)
+        if _PROFICIENCY_RANK[proficiency] > cap_rank:
+            proficiency = [k for k, v in _PROFICIENCY_RANK.items() if v == cap_rank][0]
+
+    return proficiency
+
+
+def _get_excluded_skills(
+    jd_text: str,
+    required_skills: list[str],
+    nice_to_have_skills: list[str],
+) -> list[str]:
+    """Return skills that were detected in the JD but excluded because they
+    are generic soft skills (per GENERIC_SOFT_SKILLS constant)."""
+    jd_lower = jd_text.lower()
+    excluded: list[str] = []
+    for soft in GENERIC_SOFT_SKILLS:
+        if soft in jd_lower and soft not in (s.lower() for s in required_skills) and soft not in (s.lower() for s in nice_to_have_skills):
+            excluded.append(soft)
+    return excluded
+
+
+def _get_suggested_additions(
+    job_function: str,
+    required_skills: list[str],
+    nice_to_have_skills: list[str],
+    role_title: str,
+) -> list[str]:
+    """Return common skills for the detected job_function that are not already
+    in required_skills or nice_to_have_skills.
+
+    Tries O*NET first; falls back to JOB_FUNCTION_SKILL_TAXONOMY mapping.
+    """
+    existing = {s.lower() for s in required_skills + nice_to_have_skills}
+
+    # ── Attempt O*NET lookup ───────────────────────────────────────────────
+    try:
+        from app.backend.services.onet.onet_validator import ONETValidator
+        validator = ONETValidator()
+        if validator.available and role_title:
+            occ = validator.resolve_occupation(role_title)
+            if occ:
+                occ_skills = validator.get_expected_skills(occ["soc_code"])
+                hot_skills = [
+                    s["skill_name"]
+                    for s in occ_skills
+                    if s.get("is_hot_technology") or s.get("is_in_demand")
+                ]
+                suggestions = [
+                    s for s in hot_skills
+                    if s.lower() not in existing
+                ]
+                if suggestions:
+                    return suggestions[:8]
+    except Exception:
+        pass  # Fall back to taxonomy mapping
+
+    # ── Fallback: JOB_FUNCTION_SKILL_TAXONOMY mapping ──────────────────────
+    taxonomy = JOB_FUNCTION_SKILL_TAXONOMY.get(job_function, {})
+    core = taxonomy.get("core_skills", [])
+    adjacent = taxonomy.get("adjacent_skills", [])
+    candidates = core + adjacent
+    suggestions = [s for s in candidates if s.lower() not in existing]
+    return suggestions[:8]
+
+
+def _enrich_skills_with_market_data(
+    skills_list: list, role_title: str
+) -> tuple[list, dict]:
+    """Enrich skills with O*NET market intelligence (hot/demand flags, category).
+
+    Returns (enriched_skills_list, market_summary).
+    If O*NET is unavailable, market fields are set to None and market_summary
+    contains an error message.
+    """
+    try:
+        from app.backend.services.onet.onet_validator import ONETValidator
+
+        validator = ONETValidator()
+        if not validator.available or not role_title:
+            raise RuntimeError("O*NET unavailable or no role title")
+
+        # Extract skill names from the enriched skill objects
+        skill_names = [
+            s["skill"] for s in skills_list if isinstance(s, dict) and s.get("skill")
+        ]
+
+        # Batch validate against the role title's occupation
+        batch_result = validator.validate_skills_batch(skill_names, role_title)
+
+        # Build a commodity_title lookup from occupation skills
+        # (validate_skills_batch doesn't include commodity_title)
+        commodity_lookup: dict[str, str] = {}
+        soc_code = batch_result.get("soc_code")
+        if soc_code:
+            occ_skills = validator.get_expected_skills(soc_code)
+            for occ_s in occ_skills:
+                commodity_lookup[occ_s["skill_name"].lower()] = (
+                    occ_s.get("commodity_title") or "Unclassified"
+                )
+
+        # Index validation results by skill name (case-insensitive)
+        validated_lookup: dict[str, dict] = {}
+        for v in batch_result.get("validated", []):
+            if v.get("skill"):
+                validated_lookup[v["skill"].lower()] = v
+
+        # Enrich each skill with market flags
+        hot_count = 0
+        in_demand_count = 0
+        rare_skills: list[str] = []
+
+        for skill_obj in skills_list:
+            skill_name = skill_obj.get("skill", "")
+            key = skill_name.lower()
+
+            v = validated_lookup.get(key)
+            if v and v.get("recognized"):
+                skill_obj["is_hot"] = v["is_hot"]
+                skill_obj["is_in_demand"] = v["is_in_demand"]
+                skill_obj["category"] = commodity_lookup.get(key, "Unclassified")
+
+                if v["is_hot"]:
+                    hot_count += 1
+                if v["is_in_demand"]:
+                    in_demand_count += 1
+            else:
+                # Not found in O*NET
+                skill_obj["is_hot"] = False
+                skill_obj["is_in_demand"] = False
+                skill_obj["category"] = "Unclassified"
+                rare_skills.append(skill_name)
+
+        # Compute market alignment ratio
+        total = max(len(skills_list), 1)
+        demand_ratio = in_demand_count / total
+        if demand_ratio > 0.7:
+            alignment = "high"
+        elif demand_ratio >= 0.4:
+            alignment = "medium"
+        else:
+            alignment = "low"
+
+        market_summary = {
+            "hot_skills_count": hot_count,
+            "in_demand_count": in_demand_count,
+            "rare_skills": rare_skills,
+            "market_alignment": alignment,
+        }
+
+        return skills_list, market_summary
+
+    except Exception:
+        # O*NET unavailable — set all market fields to None
+        for skill_obj in skills_list:
+            skill_obj["is_hot"] = None
+            skill_obj["is_in_demand"] = None
+            skill_obj["category"] = None
+
+        market_summary = {"error": "Market data unavailable"}
+        return skills_list, market_summary
+
+
+# ─── JD Parse Preview Endpoint ────────────────────────────────────────────────
+
+@router.post("/jd/parse-preview")
+async def jd_parse_preview(
+    job_description: str = Form(None),
+    job_file: UploadFile = File(None),
+    team_id: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Preview parsed JD structure with confidence metadata per skill.
+
+    Accepts either ``job_description`` text or a ``job_file`` upload.
+    Reuses the existing JD parser pipeline (with caching via JdCache).
+    Returns enriched skill lists with confidence/source, excluded soft skills,
+    and suggested additions based on the detected job function.
+    """
+    # Resolve JD text from form or file
+    jd_bytes = jd_name = None
+    if job_file and job_file.filename:
+        jd_bytes = await job_file.read()
+        if len(jd_bytes) > 5 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Job description file too large (max 5MB)")
+        jd_name = job_file.filename
+
+    jd_text = _resolve_jd(job_description, jd_bytes, jd_name)
+    _check_jd_length(jd_text)
+    _check_jd_size(jd_text)
+
+    # Use the same caching logic as /api/analyze
+    jd_analysis = _get_or_cache_jd(db, jd_text)
+
+    # Enrich skills with confidence/source metadata
+    seniority = jd_analysis.get("seniority", "mid")
+    required_skills_enriched = _enrich_skills_with_confidence(
+        jd_analysis.get("required_skills", []),
+        jd_text,
+        is_nice_to_have=False,
+        seniority=seniority,
+    )
+    nice_to_have_enriched = _enrich_skills_with_confidence(
+        jd_analysis.get("nice_to_have_skills", []),
+        jd_text,
+        is_nice_to_have=True,
+        seniority=seniority,
+    )
+
+    # Compute excluded skills (detected but filtered as generic soft skills)
+    excluded_skills = _get_excluded_skills(
+        jd_text,
+        jd_analysis.get("required_skills", []),
+        jd_analysis.get("nice_to_have_skills", []),
+    )
+
+    # Compute suggested additions from O*NET or taxonomy fallback
+    suggested_additions = _get_suggested_additions(
+        job_function=jd_analysis.get("job_function", "other"),
+        required_skills=jd_analysis.get("required_skills", []),
+        nice_to_have_skills=jd_analysis.get("nice_to_have_skills", []),
+        role_title=jd_analysis.get("role_title", ""),
+    )
+
+    # Enrich skills with O*NET market intelligence (hot/demand flags, category)
+    # Both lists share the same skill objects, so in-place enrichment propagates
+    all_enriched_skills = required_skills_enriched + nice_to_have_enriched
+    _, market_summary = _enrich_skills_with_market_data(
+        all_enriched_skills,
+        jd_analysis.get("role_title", ""),
+    )
+
+    # Score JD quality (pure Python, no LLM)
+    jd_quality = score_jd_quality(jd_text, jd_analysis)
+
+    # ── Phase 3 insights: historical, team context, skill trends ────────────
+    tenant_id = current_user.tenant_id
+    all_jd_skills = [s.lower().strip() for s in (
+        jd_analysis.get("required_skills", []) +
+        jd_analysis.get("nice_to_have_skills", [])
+    ) if isinstance(s, str)]
+
+    # 1. Historical insights — OutcomeSkillPattern correlations
+    historical_insights = {}
+    try:
+        skill_patterns = db.query(OutcomeSkillPattern).filter(
+            OutcomeSkillPattern.tenant_id == tenant_id,
+            OutcomeSkillPattern.skill_name.in_(all_jd_skills),
+        ).order_by(OutcomeSkillPattern.correlation_score.desc()).limit(20).all()
+
+        patterns_list = []
+        for p in skill_patterns:
+            # Derive success_rate from present_in_hired_pct (0-100 → 0.0-1.0)
+            success_rate = round((p.present_in_hired_pct or 0) / 100, 2) if p.present_in_hired_pct else None
+            patterns_list.append({
+                "skill": p.skill_name,
+                "success_rate": success_rate,
+                "sample_size": p.sample_size,
+                "correlation": p.correlation_score,
+            })
+        historical_insights = {"patterns": patterns_list}
+    except Exception as exc:
+        log.warning("historical_insights query failed: %s", exc)
+        historical_insights = {"patterns": []}
+
+    # 2. Team context — team has / gaps if team_id provided
+    team_context = None
+    if team_id:
+        try:
+            profile = get_team_profile(db, int(team_id), tenant_id)
+            if profile and profile.skills_json:
+                team_skills_raw = json.loads(profile.skills_json)
+                team_skill_names = set(
+                    e.get("skill", "").lower().strip()
+                    for e in team_skills_raw
+                    if e.get("skill")
+                )
+                team_has = [
+                    s for s in all_jd_skills if s in team_skill_names
+                ]
+                team_gaps = [
+                    s for s in all_jd_skills if s not in team_skill_names
+                ]
+                team_context = {
+                    "team_has": team_has,
+                    "team_gaps": team_gaps,
+                }
+            else:
+                team_context = {"team_has": [], "team_gaps": all_jd_skills}
+        except Exception as exc:
+            log.warning("team_context query failed: %s", exc)
+            team_context = {"team_has": [], "team_gaps": []}
+
+    # 3. Skill trends — direction + growth_pct from SkillTrendSnapshot
+    skill_trends = []
+    try:
+        if all_jd_skills:
+            # Get latest period date for this tenant
+            latest_date = db.query(func.max(SkillTrendSnapshot.period_date)).filter(
+                SkillTrendSnapshot.tenant_id == tenant_id,
+            ).scalar()
+
+            if latest_date:
+                snapshots = db.query(SkillTrendSnapshot).filter(
+                    SkillTrendSnapshot.tenant_id == tenant_id,
+                    SkillTrendSnapshot.period_date == latest_date,
+                    SkillTrendSnapshot.skill_name.in_(all_jd_skills),
+                ).all()
+
+                for snap in snapshots:
+                    skill_trends.append({
+                        "skill": snap.skill_name,
+                        "direction": snap.trend_direction or "stable",
+                        "growth_pct": snap.growth_pct or 0,
+                    })
+    except Exception as exc:
+        log.warning("skill_trends query failed: %s", exc)
+        skill_trends = []
+
+    return {
+        "role_title": jd_analysis.get("role_title", ""),
+        "seniority": jd_analysis.get("seniority", "mid"),
+        "domain": jd_analysis.get("domain", "other"),
+        "job_function": jd_analysis.get("job_function", "other"),
+        "required_years": jd_analysis.get("required_years", 0),
+        "required_skills": required_skills_enriched,
+        "nice_to_have_skills": nice_to_have_enriched,
+        "excluded_skills": excluded_skills,
+        "suggested_additions": suggested_additions,
+        "key_responsibilities": jd_analysis.get("key_responsibilities", []),
+        "market_summary": market_summary,
+        "jd_quality": jd_quality,
+        "historical_insights": historical_insights,
+        "team_context": team_context,
+        "skill_trends": skill_trends,
+    }
+
+
 def _check_scoring_weights_size(scoring_weights: str | None) -> None:
     """Reject scoring_weights that exceeds maximum size limit."""
     if scoring_weights and len(scoring_weights.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
@@ -634,8 +1285,10 @@ async def analyze_endpoint(
     job_description: str = Form(None),
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
+    skill_overrides: str = Form(None),
     action: str = Form(None),   # use_existing | update_profile | create_new | None
     template_id: Optional[int] = Form(None),
+    team_id: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -693,12 +1346,49 @@ async def analyze_endpoint(
     # Validate scoring_weights size before parsing
     _check_scoring_weights_size(scoring_weights)
 
+    # Validate skill_overrides size before parsing
+    if skill_overrides and len(skill_overrides.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail="Skill overrides exceed maximum size of 4KB"
+        )
+
     weights = None
     if scoring_weights:
         try:
             weights = json.loads(scoring_weights)
         except Exception as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
+    
+    # Parse skill_overrides JSON (accepts strings or proficiency dicts)
+    parsed_skill_overrides = None
+    if skill_overrides:
+        try:
+            parsed_skill_overrides = json.loads(skill_overrides)
+            # Validate structure: must contain lists of strings or proficiency dicts
+            if not isinstance(parsed_skill_overrides, dict):
+                raise ValueError("skill_overrides must be a JSON object")
+            for key in ("required_skills", "nice_to_have_skills"):
+                if key in parsed_skill_overrides:
+                    if not isinstance(parsed_skill_overrides[key], list):
+                        raise ValueError(f"skill_overrides.{key} must be a list")
+                    for item in parsed_skill_overrides[key]:
+                        if isinstance(item, str):
+                            continue  # Plain string — backward compatible
+                        if isinstance(item, dict) and isinstance(item.get("skill"), str):
+                            prof = item.get("proficiency")
+                            if prof is not None and not isinstance(prof, str):
+                                raise ValueError(
+                                    f"skill_overrides.{key} proficiency must be a string"
+                                )
+                            continue
+                        raise ValueError(
+                            f"skill_overrides.{key} items must be strings or "
+                            f'{{"skill": "...", "proficiency": "..."}} dicts'
+                        )
+        except (json.JSONDecodeError, ValueError) as e:
+            log.warning("Non-critical: Invalid skill_overrides JSON, ignoring: %s", e)
+            parsed_skill_overrides = None
     
     # If no explicit weights provided, load tenant default weights
     if not weights:
@@ -741,7 +1431,13 @@ async def analyze_endpoint(
             }
             gap_analysis = json.loads(existing.gap_analysis_json or "{}")
             jd_analysis  = _get_or_cache_jd(db, job_description)
-            
+            _apply_skill_overrides(jd_analysis, parsed_skill_overrides)
+
+            # Build Phase 3 context for scoring integration
+            phase3_context = _build_phase3_context(
+                db, current_user.tenant_id, jd_analysis, team_id=team_id,
+            )
+
             # Create result record first for background LLM
             db_result = ScreeningResult(
                 tenant_id=current_user.tenant_id,
@@ -755,7 +1451,7 @@ async def analyze_endpoint(
             db.add(db_result)
             db.commit()
             db.refresh(db_result)
-            
+
             result = await run_hybrid_pipeline(
                 resume_text=existing.raw_resume_text,
                 job_description=job_description,
@@ -765,6 +1461,7 @@ async def analyze_endpoint(
                 jd_analysis=jd_analysis,
                 screening_result_id=db_result.id,
                 tenant_id=current_user.tenant_id,
+                phase3_context=phase3_context,
             )
             
             # Update result with analysis
@@ -807,6 +1504,12 @@ async def analyze_endpoint(
 
     gap_analysis = analyze_gaps(parsed_data.get("work_experience", []))
     jd_analysis  = _get_or_cache_jd(db, job_description)
+    _apply_skill_overrides(jd_analysis, parsed_skill_overrides)
+
+    # Build Phase 3 context for scoring integration
+    phase3_context = _build_phase3_context(
+        db, current_user.tenant_id, jd_analysis, team_id=team_id,
+    )
 
     # Create candidate and result BEFORE pipeline (for background LLM)
     candidate_id, is_dup = _get_or_create_candidate(
@@ -843,6 +1546,7 @@ async def analyze_endpoint(
         jd_analysis=jd_analysis,
         screening_result_id=db_result.id,
         tenant_id=current_user.tenant_id,
+        phase3_context=phase3_context,
     )
 
     # Update result in DB
@@ -908,8 +1612,10 @@ async def analyze_stream_endpoint(
     job_description: str = Form(None),
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
+    skill_overrides: str = Form(None),
     action: str = Form(None),
     template_id: Optional[int] = Form(None),
+    team_id: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -972,6 +1678,13 @@ async def analyze_stream_endpoint(
     # Validate scoring_weights size before parsing
     _check_scoring_weights_size(scoring_weights)
 
+    # Validate skill_overrides size before parsing
+    if skill_overrides and len(skill_overrides.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail="Skill overrides exceed maximum size of 4KB"
+        )
+
     weights = None
     if scoring_weights:
         try:
@@ -979,6 +1692,36 @@ async def analyze_stream_endpoint(
             log.info("Received custom weights from frontend: %s", weights)
         except Exception as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
+
+    # Parse skill_overrides JSON (accepts strings or proficiency dicts)
+    parsed_skill_overrides = None
+    if skill_overrides:
+        try:
+            parsed_skill_overrides = json.loads(skill_overrides)
+            # Validate structure: must contain lists of strings or proficiency dicts
+            if not isinstance(parsed_skill_overrides, dict):
+                raise ValueError("skill_overrides must be a JSON object")
+            for key in ("required_skills", "nice_to_have_skills"):
+                if key in parsed_skill_overrides:
+                    if not isinstance(parsed_skill_overrides[key], list):
+                        raise ValueError(f"skill_overrides.{key} must be a list")
+                    for item in parsed_skill_overrides[key]:
+                        if isinstance(item, str):
+                            continue  # Plain string — backward compatible
+                        if isinstance(item, dict) and isinstance(item.get("skill"), str):
+                            prof = item.get("proficiency")
+                            if prof is not None and not isinstance(prof, str):
+                                raise ValueError(
+                                    f"skill_overrides.{key} proficiency must be a string"
+                                )
+                            continue
+                        raise ValueError(
+                            f"skill_overrides.{key} items must be strings or "
+                            f'{{"skill": "...", "proficiency": "..."}} dicts'
+                        )
+        except (json.JSONDecodeError, ValueError) as e:
+            log.warning("Non-critical: Invalid skill_overrides JSON, ignoring: %s", e)
+            parsed_skill_overrides = None
     
     # If no explicit weights provided, load tenant default weights
     if not weights:
@@ -1013,6 +1756,12 @@ async def analyze_stream_endpoint(
 
     gap_analysis = analyze_gaps(parsed_data.get("work_experience", []))
     jd_analysis  = _get_or_cache_jd(db, job_description)
+    _apply_skill_overrides(jd_analysis, parsed_skill_overrides)
+
+    # Build Phase 3 context for scoring integration
+    phase3_context = _build_phase3_context(
+        db, tenant_id, jd_analysis, team_id=team_id,
+    )
 
     # Pre-create candidate and ScreeningResult BEFORE streaming
     # This gives us an ID to pass to the background LLM task
@@ -1061,6 +1810,7 @@ async def analyze_stream_endpoint(
                 jd_analysis=jd_analysis,
                 screening_result_id=screening_result_id,
                 tenant_id=tenant_id,
+                phase3_context=phase3_context,
             ):
                 # Check for client disconnect between stages
                 if await request.is_disconnected():
@@ -2118,6 +2868,300 @@ def update_status(
     result.status_updated_at = datetime.utcnow()
     db.commit()
     return {"id": result_id, "status": new_status}
+
+
+# ─── Re-score endpoint (post-analysis skill edit) ────────────────────────────
+
+@router.post("/analyze/{result_id}/rescore")
+def rescore_endpoint(
+    result_id: int,
+    body: RescoreRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-score an existing analysis with overridden skill classification.
+
+    Does NOT re-run the full pipeline or call the LLM — this is a quick
+    recalculation using stored data.  Only skill-related scores change
+    (skill_match + fit_score).  Changes are persisted to the database.
+    """
+    # ── 1. Load screening result & verify tenant ownership ───────────────────
+    result = db.query(ScreeningResult).filter(
+        ScreeningResult.id == result_id,
+        ScreeningResult.tenant_id == current_user.tenant_id,
+    ).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    # ── 2. Parse stored JSON blobs ────────────────────────────────────────────
+    try:
+        analysis = json.loads(result.analysis_result)
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=400, detail="Stored analysis_result is corrupt")
+
+    try:
+        parsed_data = json.loads(result.parsed_data)
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=400, detail="Stored parsed_data is corrupt")
+
+    # ── 3. Extract candidate skills from parsed_data ──────────────────────────
+    # The pipeline stores skills in multiple places; gather them all.
+    candidate_skills_raw: list[str] = list(parsed_data.get("skills", []))
+    # Also check the candidate_profile / skills_identified path
+    cp = analysis.get("candidate_profile", {})
+    candidate_skills_raw.extend(cp.get("skills_identified", []))
+    # Deduplicate (case-insensitive)
+    seen_lower: set[str] = set()
+    candidate_skills: list[str] = []
+    for s in candidate_skills_raw:
+        if isinstance(s, str) and s.lower() not in seen_lower:
+            seen_lower.add(s.lower())
+            candidate_skills.append(s)
+
+    # ── 4. Apply new skill classification ─────────────────────────────────────
+    jd_analysis = analysis.get("jd_analysis", {})
+    # Save originals
+    jd_analysis.setdefault("original_required_skills", jd_analysis.get("required_skills", []))
+    jd_analysis.setdefault("original_nice_to_have_skills", jd_analysis.get("nice_to_have_skills", []))
+
+    # Extract proficiency data and normalise skills to plain strings
+    proficiency_map: dict[str, str] = {}
+    def _normalise_skill_list(skill_list):
+        result = []
+        for item in skill_list:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict) and "skill" in item:
+                result.append(item["skill"])
+                prof = item.get("proficiency")
+                if isinstance(prof, str) and prof.lower() in (
+                    "basic", "intermediate", "advanced", "expert",
+                ):
+                    proficiency_map[item["skill"].lower()] = prof.lower()
+            else:
+                result.append(str(item))
+        return result
+
+    required_skills = _normalise_skill_list(body.required_skills)
+    nice_to_have_skills = _normalise_skill_list(body.nice_to_have_skills)
+
+    jd_analysis["required_skills"] = required_skills
+    jd_analysis["nice_to_have_skills"] = nice_to_have_skills
+    jd_analysis["skill_overrides_applied"] = True
+    if proficiency_map:
+        jd_analysis["skill_proficiency_requirements"] = proficiency_map
+    else:
+        jd_analysis.pop("skill_proficiency_requirements", None)
+
+    # ── 5. Re-run skill matching (case-insensitive) ──────────────────────────
+    req_lower = {s.lower() for s in required_skills if isinstance(s, str)}
+    nice_lower = {s.lower() for s in nice_to_have_skills if isinstance(s, str)}
+    cand_lower = {s.lower() for s in candidate_skills}
+
+    matched_required = [s for s in required_skills if s.lower() in cand_lower]
+    missing_required = [s for s in required_skills if s.lower() not in cand_lower]
+    matched_nice_to_have = [s for s in nice_to_have_skills if s.lower() in cand_lower]
+    missing_nice_to_have = [s for s in nice_to_have_skills if s.lower() not in cand_lower]
+
+    # Backward-compat unions
+    matched_skills = matched_required + matched_nice_to_have
+    missing_skills = missing_required + missing_nice_to_have
+
+    required_match_pct = (len(matched_required) / max(len(required_skills), 1)) * 100
+    nice_to_have_match_pct = (len(matched_nice_to_have) / max(len(nice_to_have_skills), 1)) * 100
+
+    # ── 5b. Proficiency-aware scoring (if proficiency data provided) ────────
+    proficiency_analysis = {}
+    prof_factor = None
+    if proficiency_map and matched_required:
+        from app.backend.services.hybrid_pipeline import (
+            _compute_proficiency_score,
+            _estimate_candidate_proficiency,
+        )
+        # Build candidate skills data for proficiency estimation
+        candidate_skills_data = {
+            "skills_identified": candidate_skills,
+            "total_effective_years": analysis.get("candidate_profile", {}).get("total_effective_years", 0),
+            "work_experience": parsed_data.get("work_experience", []),
+        }
+        prof_factor = _compute_proficiency_score(
+            matched_required, candidate_skills_data, proficiency_map,
+        )
+        # Build proficiency_analysis details
+        for skill in matched_required:
+            req_level = proficiency_map.get(skill.lower())
+            if req_level:
+                cand_level = _estimate_candidate_proficiency(skill, candidate_skills_data)
+                from app.backend.services.hybrid_pipeline import PROFICIENCY_LEVELS
+                req_rank = PROFICIENCY_LEVELS.get(req_level, 2)
+                cand_rank = PROFICIENCY_LEVELS.get(cand_level, 2)
+                if cand_rank >= req_rank:
+                    match_factor = 1.0
+                elif cand_rank == req_rank - 1:
+                    match_factor = 0.6
+                else:
+                    match_factor = 0.3
+                proficiency_analysis[skill] = {
+                    "required": req_level,
+                    "estimated_candidate": cand_level,
+                    "match_factor": match_factor,
+                }
+
+    # ── 6. Recalculate skill_score (70/30 weighting) ──────────────────────────
+    if nice_to_have_skills:
+        req_ratio = required_match_pct
+        if prof_factor is not None:
+            req_ratio = required_match_pct * prof_factor
+        skill_score = round((req_ratio * 0.70) + (nice_to_have_match_pct * 0.30))
+    else:
+        req_ratio = required_match_pct
+        if prof_factor is not None:
+            req_ratio = required_match_pct * prof_factor
+        skill_score = round(req_ratio)
+
+    # ── 7. Recalculate fit_score using compute_fit_score() ────────────────────
+    sb = analysis.get("score_breakdown", {})
+    all_scores = {
+        "skill_score":     skill_score,
+        "exp_score":       sb.get("experience_match", 50),
+        "arch_score":      sb.get("architecture", 50),
+        "edu_score":       sb.get("education", 60),
+        "timeline_score":  sb.get("stability", sb.get("timeline", 85)),
+        "domain_score":    sb.get("domain_fit", 60),
+        "actual_years":    analysis.get("candidate_profile", {}).get("total_effective_years", 0),
+        "required_years":  analysis.get("candidate_profile", {}).get("required_years", 0),
+        "matched_skills":  matched_skills,
+        "missing_skills":  missing_skills,
+        "required_count":  len(required_skills),
+        "employment_gaps": analysis.get("edu_timeline_analysis", {}).get("employment_gaps", []),
+        "short_stints":    analysis.get("edu_timeline_analysis", {}).get("short_stints", []),
+    }
+
+    # Load tenant scoring weights (same pattern as analyze_endpoint)
+    scoring_weights = None
+    try:
+        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+        if tenant and tenant.scoring_weights:
+            scoring_weights = json.loads(tenant.scoring_weights)
+    except Exception:
+        pass
+
+    # Convert weights to internal schema (mirrors _run_python_phase)
+    new_weights = convert_to_new_schema(scoring_weights)
+    internal_weights = {
+        "skills":       new_weights.get("core_competencies", 0.30),
+        "experience":   new_weights.get("experience", 0.20),
+        "architecture": new_weights.get("role_excellence", 0.15),
+        "education":    new_weights.get("education", 0.10),
+        "timeline":     new_weights.get("career_trajectory", 0.10),
+        "domain":       new_weights.get("domain_fit", 0.10),
+        "risk":         new_weights.get("risk", 0.15),
+    }
+
+    jd_for_fit = {
+        "required_skills": required_skills,
+        "nice_to_have_skills": nice_to_have_skills,
+    }
+
+    fit_r = compute_fit_score(all_scores, internal_weights, jd_analysis=jd_for_fit)
+
+    # Preserve deterministic score if it exists — rescore only changes skill components
+    # The deterministic engine applies caps based on core_skill_match and domain_match;
+    # since we are not re-running domain detection, keep the deterministic score logic
+    # but adjust it if the new skill match is worse.
+    deterministic_score = analysis.get("deterministic_score", fit_r["fit_score"])
+    det_features = analysis.get("deterministic_features", {})
+    if det_features:
+        # Recompute core_skill_match based on new required match
+        new_core_ratio = len(matched_required) / max(len(required_skills), 1)
+        det_features = dict(det_features)
+        det_features["core_skill_match"] = new_core_ratio
+        # Re-derive secondary_skill_match from nice-to-have
+        new_secondary_ratio = len(matched_nice_to_have) / max(len(nice_to_have_skills), 1) if nice_to_have_skills else 0
+        det_features["secondary_skill_match"] = new_secondary_ratio
+
+        # Re-run deterministic score with updated features
+        try:
+            from app.backend.services.eligibility_service import check_eligibility
+            from app.backend.services.fit_scorer import compute_deterministic_score
+
+            # Use stored domain data — we are NOT re-running domain detection
+            jd_domain = analysis.get("jd_domain", {})
+            candidate_domain = analysis.get("candidate_domain", {})
+            eligibility = check_eligibility(
+                jd_domain=jd_domain,
+                candidate_domain=candidate_domain,
+                core_skill_match=det_features["core_skill_match"],
+                relevant_experience=det_features.get("relevant_experience", 0),
+            )
+            deterministic_score = compute_deterministic_score(det_features, eligibility, new_weights)
+        except Exception as e:
+            log.warning("Deterministic re-score failed, using fit_score: %s", e)
+            deterministic_score = fit_r["fit_score"]
+
+    # Use deterministic score when available, otherwise use compute_fit_score result
+    final_fit_score = deterministic_score if det_features else fit_r["fit_score"]
+    final_recommendation = fit_r["final_recommendation"]
+    # Override recommendation based on deterministic score thresholds
+    if det_features:
+        if final_fit_score >= RECOMMENDATION_THRESHOLDS["shortlist"]:
+            final_recommendation = "Shortlist"
+        elif final_fit_score >= RECOMMENDATION_THRESHOLDS["consider"]:
+            final_recommendation = "Consider"
+        else:
+            final_recommendation = "Reject"
+
+    # ── 8. Update analysis_result JSON ────────────────────────────────────────
+    # Skill analysis
+    skill_analysis = analysis.get("skill_analysis", {})
+    skill_analysis.update({
+        "matched_skills":        matched_skills,
+        "missing_skills":        missing_skills,
+        "matched_required":      matched_required,
+        "missing_required":      missing_required,
+        "matched_nice_to_have":  matched_nice_to_have,
+        "missing_nice_to_have":  missing_nice_to_have,
+        "required_match_pct":    required_match_pct,
+        "nice_to_have_match_pct": nice_to_have_match_pct,
+        "skill_score":           skill_score,
+        "required_count":        len(required_skills),
+    })
+    if proficiency_analysis:
+        skill_analysis["proficiency_analysis"] = proficiency_analysis
+
+    # Top-level fields
+    analysis.update({
+        "skill_analysis":        skill_analysis,
+        "jd_analysis":          jd_analysis,
+        "fit_score":            final_fit_score,
+        "final_recommendation": final_recommendation,
+        "risk_level":           fit_r["risk_level"],
+        "risk_signals":         fit_r["risk_signals"],
+        "score_breakdown":      fit_r["score_breakdown"],
+        "matched_skills":       matched_skills,
+        "missing_skills":       missing_skills,
+        "required_skills_count": len(required_skills),
+        "deterministic_score":  final_fit_score,
+        "deterministic_features": det_features if det_features else analysis.get("deterministic_features"),
+    })
+
+    # ── 9. Persist to database ────────────────────────────────────────────────
+    result.analysis_result = json.dumps(analysis, default=_json_default)
+    db.commit()
+
+    log.info(json.dumps({
+        "event":             "rescore_complete",
+        "result_id":         result_id,
+        "tenant_id":         current_user.tenant_id,
+        "new_fit_score":     final_fit_score,
+        "new_skill_score":   skill_score,
+        "required_matched":  len(matched_required),
+        "required_total":    len(required_skills),
+        "nice_matched":      len(matched_nice_to_have),
+        "nice_total":        len(nice_to_have_skills),
+    }))
+
+    return analysis
 
 
 # ─── Narrative polling endpoint ───────────────────────────────────────────────

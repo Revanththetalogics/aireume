@@ -83,7 +83,7 @@ def compare_candidates(
         # Ensure score_breakdown has all expected keys with defaults
         if not isinstance(score_breakdown, dict):
             score_breakdown = {}
-        score_breakdown.setdefault("skill_match", 0)
+        score_breakdown.setdefault("skill_match", {"score": 0, "confidence_weighted": False, "avg_confidence": 1.0})
         score_breakdown.setdefault("experience_match", 0)
         score_breakdown.setdefault("education", 0)
         score_breakdown.setdefault("stability", 0)
@@ -157,8 +157,13 @@ def compare_candidates(
 
     # Determine category winners
     if comparison:
+        def _sm_score(sb):
+            """Extract scalar skill_match score (handles dict and legacy int formats)."""
+            sm = sb.get("skill_match", 0)
+            return sm.get("score", 0) if isinstance(sm, dict) else sm
+
         max_fit      = max(c["fit_score"] for c in comparison)
-        max_skill    = max(c["score_breakdown"].get("skill_match", 0) for c in comparison)
+        max_skill    = max(_sm_score(c["score_breakdown"]) for c in comparison)
         max_exp      = max(c["score_breakdown"].get("experience_match", 0) for c in comparison)
         max_edu      = max(c["score_breakdown"].get("education", 0) for c in comparison)
         max_stability= max(c["score_breakdown"].get("stability", 0) for c in comparison)
@@ -166,7 +171,7 @@ def compare_candidates(
         for c in comparison:
             c["winners"] = {
                 "overall":    c["fit_score"] == max_fit,
-                "skills":     c["score_breakdown"].get("skill_match", 0) == max_skill,
+                "skills":     _sm_score(c["score_breakdown"]) == max_skill,
                 "experience": c["score_breakdown"].get("experience_match", 0) == max_exp,
                 "education":  c["score_breakdown"].get("education", 0) == max_edu,
                 "stability":  c["score_breakdown"].get("stability", 0) == max_stability,

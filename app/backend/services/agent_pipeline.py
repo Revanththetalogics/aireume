@@ -526,6 +526,26 @@ BIAS MITIGATION RULES:
 5. missing_skills must ONLY include skills from the REQUIRED SKILLS list genuinely absent in the resume.
 6. Do NOT invent skills that are not in either the resume or the required skills list.
 
+Additionally, for each skill identified, estimate the years of hands-on experience and the most recent year it was used, based on:
+- Duration at companies/roles where the skill was mentioned or implied
+- Explicit statements like "5+ years Python" or "experienced in Docker since 2019"
+- Technology stack descriptions in work experience sections
+- Certifications and their dates
+
+Return this as an additional field "skills_with_experience":
+[
+    {"skill": "Python", "years": 8, "last_used": 2024},
+    {"skill": "Docker", "years": 3, "last_used": 2023},
+    {"skill": "React", "years": 5, "last_used": 2024}
+]
+
+Rules for estimation:
+- If a skill appears in the most recent role, last_used = current year
+- If a skill only appears in older roles, last_used = end year of that role
+- years = total duration across all roles where skill was used (not overlapping)
+- If duration cannot be determined, estimate conservatively (e.g., 1-2 years)
+- Only include skills that are clearly technical/professional (not soft skills)
+
 JOB: role={role_title} domain={domain} seniority={seniority}
 REQUIRED SKILLS: {required_skills}
 RESUME:
@@ -536,6 +556,7 @@ OUTPUT SCHEMA (all scores 0-100):
 {{
   "name": null,
   "skills_identified": [],
+  "skills_with_experience": [],
   "education": {{"degree": null, "field": null, "institution": null, "gpa_or_distinction": null}},
   "career_summary": "",
   "total_effective_years": 0.0,
@@ -563,7 +584,7 @@ timeline_score=career stability and upward progression."""
 
 
 _RESUME_ANALYSER_CP_KEYS = {
-    "name", "skills_identified", "education", "career_summary",
+    "name", "skills_identified", "skills_with_experience", "education", "career_summary",
     "total_effective_years", "current_role", "current_company",
 }
 _RESUME_ANALYSER_SA_KEYS = {
@@ -588,6 +609,8 @@ def _split_resume_analyser(data: dict, required_skills: list) -> dict:
         cp["total_effective_years"] = 0.0
     if not cp.get("skills_identified"):
         cp["skills_identified"] = []
+    if not cp.get("skills_with_experience"):
+        cp["skills_with_experience"] = []
     if not cp.get("education"):
         cp["education"] = {}
     if not sa.get("matched_skills"):
@@ -619,7 +642,7 @@ async def resume_analyser_node(state: PipelineState) -> dict:
     jd             = state.get("jd_analysis", {})
     required_skills = jd.get("required_skills", [])
     _cp_fb = {
-        "name": None, "skills_identified": [],
+        "name": None, "skills_identified": [], "skills_with_experience": [],
         "education": {"degree": None, "field": None, "institution": None, "gpa_or_distinction": None},
         "career_summary": "Unable to parse resume.",
         "total_effective_years": 0.0, "current_role": None, "current_company": None,
@@ -724,7 +747,7 @@ OUTPUT SCHEMA:
 {{
   "experience_score": 0,
   "risk_penalty": 0,
-  "score_breakdown": {{"skill_match":0,"experience_match":0,"architecture":0,"education":0,"timeline":0,"domain_fit":0,"risk_penalty":0}},
+  "score_breakdown": {{"skill_match":{{"score":0,"confidence_weighted":false,"avg_confidence":1.0}},"experience_match":0,"architecture":0,"education":0,"timeline":0,"domain_fit":0,"risk_penalty":0}},
   "fit_score": 0,
   "risk_level": "Low|Medium|High",
   "risk_signals": [{{"type":"gap|skill_gap|domain_mismatch|stability|education|overqualified","severity":"low|medium|high","description":""}}],
@@ -1261,14 +1284,15 @@ Now analyze this candidate using similar reasoning and maintain consistency with
         # Always override score_breakdown with actual agent-computed input scores.
         # LLMs frequently output the schema template literal (0) for these fields.
         sb = result.setdefault("score_breakdown", {})
-        sb["skill_match"]      = sa.get("skill_score", 0)
+        sb["skill_match"]      = {"score": sa.get("skill_score", 0), "confidence_weighted": False, "avg_confidence": 1.0}
         sb["architecture"]     = sa.get("architecture_score", 0)
         sb["domain_fit"]       = sa.get("domain_fit_score", 0)
         sb["education"]        = eta.get("education_score", 0)
         sb["timeline"]         = eta.get("timeline_score", 0)
-        sb["experience_match"] = max(0, min(100, int(
-            result.get("experience_score", sb.get("experience_match", 0))
-        )))
+        _existing_exp = sb.get("experience_match", 0)
+        _existing_exp_val = _existing_exp.get("score", 0) if isinstance(_existing_exp, dict) else _existing_exp
+        exp_score_val = max(0, min(100, int(result.get("experience_score", _existing_exp_val))))
+        sb["experience_match"] = exp_score_val
         result["score_breakdown"] = sb
 
         # Guardrail Tier 4: Record token consumption
@@ -1445,7 +1469,8 @@ def assemble_result(
     # Map timeline → stability for backward compat (frontend still renders "Stability" bar)
     score_bd_compat = dict(score_bd)
     score_bd_compat.setdefault("stability", score_bd.get("timeline", 0))
-    score_bd_compat.setdefault("skill_match", score_bd.get("skill_match", 0))
+    # skill_match default: dict format with score=0
+    score_bd_compat.setdefault("skill_match", score_bd.get("skill_match", {"score": 0, "confidence_weighted": False, "avg_confidence": 1.0}))
     score_bd_compat.setdefault("experience_match", score_bd.get("experience_match", 0))
     score_bd_compat.setdefault("education", score_bd.get("education", 0))
 

@@ -233,7 +233,7 @@ _TITLE_RE = re.compile(
 
 def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
     """Parse a job description purely with Python rules. Returns structured dict."""
-    from services.constants import JOB_FUNCTION_KEYWORDS, GENERIC_SOFT_SKILLS
+    from app.backend.services.constants import JOB_FUNCTION_KEYWORDS, GENERIC_SOFT_SKILLS
     
     text_lower = jd_text.lower()
 
@@ -1112,11 +1112,12 @@ def _ensure_str_list(v) -> List[str]:
 
 def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dict[str, Any]) -> Dict[str, Any]:
     """Deterministic narrative when LLM is unavailable or timed out."""
-    matched  = skill_analysis.get("matched_skills", [])
-    missing  = skill_analysis.get("missing_skills", [])
+    matched  = skill_analysis.get("matched_required") or skill_analysis.get("matched_skills", [])
+    missing  = skill_analysis.get("missing_required") or skill_analysis.get("missing_skills", [])
     score    = python_result.get("fit_score", 0)
     req      = skill_analysis.get("required_count", 0)
-    actual_y = python_result.get("score_breakdown", {}).get("experience_match", 0)
+    actual_y_raw = python_result.get("score_breakdown", {}).get("experience_match", 0)
+    actual_y = actual_y_raw.get("score", 0) if isinstance(actual_y_raw, dict) else actual_y_raw
     req_y    = python_result.get("_required_years", 0)
     recommendation = python_result.get("final_recommendation", "Pending")
     score_rationales = python_result.get("score_rationales", {})
@@ -1504,8 +1505,8 @@ def _build_score_rationales(
     gap_analysis: Dict[str, Any],
 ) -> Dict[str, str]:
     """Build human-readable rationale for each score dimension."""
-    matched = skill_a.get("matched_skills", [])
-    missing = skill_a.get("missing_skills", [])
+    matched = skill_a.get("matched_required") or skill_a.get("matched_skills", [])
+    missing = skill_a.get("missing_required") or skill_a.get("missing_skills", [])
     req_count = skill_a.get("required_count", 0)
     skill_score = skill_a.get("skill_score", 0)
 
@@ -1701,6 +1702,143 @@ def _compute_skill_depth(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PROFICIENCY-AWARE SCORING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+PROFICIENCY_LEVELS = {"basic": 1, "intermediate": 2, "advanced": 3, "expert": 4}
+
+
+def compute_recency_decay(last_used_year: int) -> float:
+    """Compute decay factor based on how recently a skill was used."""
+    from datetime import datetime
+    current_year = datetime.now().year
+    years_ago = current_year - last_used_year
+    if years_ago <= 1:
+        return 1.0  # Current or last year — no decay
+    elif years_ago <= 2:
+        return 0.9
+    elif years_ago <= 3:
+        return 0.78
+    else:
+        return max(0.4, 1.0 - (0.12 * years_ago))  # 12% decay/year, min 40%
+
+
+def _estimate_candidate_proficiency(skill: str, candidate_skills_data: dict) -> str:
+    """
+    Estimate candidate's proficiency level for a specific skill.
+
+    Priority 1: LLM-extracted skill-years with recency decay (evidence-based)
+    Priority 2: Existing heuristic (total years + mention count) as fallback
+    """
+    # Priority 1: Check LLM-extracted skills_with_experience
+    skills_with_exp = candidate_skills_data.get("skills_with_experience", [])
+    skill_lower = skill.lower()
+
+    skill_data = None
+    for s in skills_with_exp:
+        if s.get("skill", "").lower() == skill_lower:
+            skill_data = s
+            break
+
+    if skill_data and skill_data.get("years"):
+        years = skill_data["years"]
+        last_used = skill_data.get("last_used", 2024)
+        recency = compute_recency_decay(last_used)
+        effective_years = years * recency
+    else:
+        # Priority 2: Fallback to existing heuristic
+        # (Keep the existing logic that uses total_effective_years and mention count)
+        total_years = candidate_skills_data.get("total_effective_years", 0)
+        skills_list = candidate_skills_data.get("skills_identified", [])
+        work_exp = candidate_skills_data.get("work_experience", [])
+
+        # Existing heuristic: count mentions in work experience
+        mention_count = 0
+        years_with_skill = 0.0
+        for exp in work_exp:
+            if not isinstance(exp, dict):
+                continue
+            desc = (exp.get("description", "") or "").lower()
+            title = (exp.get("title", "") or "").lower()
+            if skill_lower in desc or skill_lower in title:
+                dur = exp.get("duration_months") or exp.get("duration")
+                if isinstance(dur, (int, float)):
+                    years_with_skill += dur / 12.0
+                else:
+                    years_with_skill += 0.5
+                mention_count += 1
+
+        # Also count mentions in skills list
+        for s in skills_list:
+            if isinstance(s, str) and s.lower() == skill_lower:
+                mention_count += 1
+            elif isinstance(s, dict):
+                s_name = s.get("skill", s.get("name", ""))
+                if isinstance(s_name, str) and s_name.lower() == skill_lower:
+                    years_val = s.get("years")
+                    if isinstance(years_val, (int, float)):
+                        years_with_skill = max(years_with_skill, float(years_val))
+                    mention_count += 1
+
+        # If no specific skill-year data, use total experience as proxy
+        effective_years = years_with_skill if years_with_skill > 0 else total_years * 0.3
+
+        # If we have mention count, boost the estimate
+        if mention_count >= 5:
+            effective_years = max(effective_years, 3.0)
+        elif mention_count >= 3:
+            effective_years = max(effective_years, 1.5)
+
+    # Map to proficiency level
+    if effective_years >= 5:
+        return "expert"
+    elif effective_years >= 3:
+        return "advanced"
+    elif effective_years >= 1:
+        return "intermediate"
+    else:
+        return "basic"
+
+
+def _compute_proficiency_score(
+    matched_skills: list,
+    candidate_skills_data: dict,
+    proficiency_requirements: dict,
+) -> float:
+    """Score skills based on proficiency match, not just presence.
+
+    Returns a factor between 0.0 and 1.0 that scales the binary match ratio.
+    Returns 1.0 when all proficiency requirements are met or exceeded.
+    """
+    if not proficiency_requirements or not matched_skills:
+        return 1.0
+
+    total_score = 0.0
+    for skill in matched_skills:
+        required_level = proficiency_requirements.get(
+            skill.lower() if isinstance(skill, str) else str(skill).lower(), None
+        )
+        if required_level is None:
+            total_score += 1.0  # No proficiency requirement = full match
+            continue
+
+        # Estimate candidate proficiency from resume data
+        candidate_level = _estimate_candidate_proficiency(skill, candidate_skills_data)
+
+        req_rank = PROFICIENCY_LEVELS.get(required_level, 2)
+        cand_rank = PROFICIENCY_LEVELS.get(candidate_level, 2)
+
+        if cand_rank >= req_rank:
+            total_score += 1.0       # Match or exceed
+        elif cand_rank == req_rank - 1:
+            total_score += 0.6       # One level below
+        else:
+            total_score += 0.3       # Two+ levels below
+
+    return total_score / max(len(matched_skills), 1)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN ORCHESTRATORS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1711,6 +1849,7 @@ def _run_python_phase(
     gap_analysis: Dict[str, Any],
     scoring_weights: Optional[Dict],
     jd_analysis: Optional[Dict],
+    phase3_context: Optional[Dict] = None,
 ) -> Dict[str, Any]:
     """Execute all deterministic Python components. Returns a rich result dict."""
     # Sanitize user-provided text to prevent prompt injection
@@ -1726,6 +1865,81 @@ def _run_python_phase(
         structured_skills=profile.get("structured_skills", []),
         text_scanned_skills=profile.get("text_scanned_skills", []),
     )
+
+    # ── Augment skill_analysis with tiered fields ────────────────────────────
+    required_skills = jd.get("required_skills", []) or []
+    nice_to_have_skills = jd.get("nice_to_have_skills", []) or []
+
+    matched_required = list(skill_a.get("matched_skills", []))
+    missing_required = list(skill_a.get("missing_skills", []))
+    matched_nice_to_have = list(skill_a.get("adjacent_skills", []))
+
+    # Compute missing nice-to-have (case-insensitive)
+    matched_nice_lower = {m.lower() for m in matched_nice_to_have if isinstance(m, str)}
+    missing_nice_to_have = [
+        s for s in nice_to_have_skills
+        if isinstance(s, str) and s.lower() not in matched_nice_lower
+    ]
+
+    required_match_pct = skill_a.get("core_match_ratio", 0) * 100
+    nice_to_have_match_pct = skill_a.get("secondary_match_ratio", 0) * 100
+
+    # Update skill_score with 70/30 weighting when nice-to-have skills exist
+    # Apply proficiency-aware scoring when proficiency requirements are present
+    proficiency_requirements = jd.get("skill_proficiency_requirements")
+    proficiency_analysis = {}
+    prof_factor = None
+
+    if proficiency_requirements and matched_required:
+        # Build candidate skills data for proficiency estimation
+        candidate_skills_data = {
+            "skills_identified": profile.get("skills_identified", []),
+            "total_effective_years": profile.get("total_effective_years", 0),
+            "work_experience": parsed_data.get("work_experience", []),
+            "skills_with_experience": profile.get("skills_with_experience", []),
+        }
+        prof_factor = _compute_proficiency_score(
+            matched_required, candidate_skills_data, proficiency_requirements,
+        )
+        # Build proficiency_analysis details
+        for skill in matched_required:
+            req_level = proficiency_requirements.get(skill.lower() if isinstance(skill, str) else str(skill).lower())
+            if req_level:
+                cand_level = _estimate_candidate_proficiency(skill, candidate_skills_data)
+                req_rank = PROFICIENCY_LEVELS.get(req_level, 2)
+                cand_rank = PROFICIENCY_LEVELS.get(cand_level, 2)
+                if cand_rank >= req_rank:
+                    match_factor = 1.0
+                elif cand_rank == req_rank - 1:
+                    match_factor = 0.6
+                else:
+                    match_factor = 0.3
+                proficiency_analysis[skill] = {
+                    "required": req_level,
+                    "estimated_candidate": cand_level,
+                    "match_factor": match_factor,
+                }
+
+    if nice_to_have_skills:
+        req_pct = required_match_pct
+        if prof_factor is not None:
+            req_pct = required_match_pct * prof_factor
+        skill_a["skill_score"] = round((req_pct * 0.70) + (nice_to_have_match_pct * 0.30))
+    elif prof_factor is not None:
+        skill_a["skill_score"] = round(required_match_pct * prof_factor)
+
+    # Build unions for backward compatibility
+    skill_a["matched_skills"] = matched_required + matched_nice_to_have
+    skill_a["missing_skills"] = missing_required + missing_nice_to_have
+    skill_a["matched_required"] = matched_required
+    skill_a["missing_required"] = missing_required
+    skill_a["matched_nice_to_have"] = matched_nice_to_have
+    skill_a["missing_nice_to_have"] = missing_nice_to_have
+    skill_a["required_match_pct"] = required_match_pct
+    skill_a["nice_to_have_match_pct"] = nice_to_have_match_pct
+    if proficiency_analysis:
+        skill_a["proficiency_analysis"] = proficiency_analysis
+
     edu_s    = score_education_rules(profile, jd["domain"])
     exp_r    = score_experience_rules(profile, jd, gap_analysis)
     dom_r    = domain_architecture_rules(resume_text, jd["domain"], profile.get("current_role"))
@@ -1763,7 +1977,7 @@ def _run_python_phase(
     }
     log.info("Internal weights for compute_fit_score: %s", internal_weights)
 
-    fit_r = compute_fit_score(all_scores, internal_weights)
+    fit_r = compute_fit_score(all_scores, internal_weights, jd_analysis=jd, phase3_context=phase3_context, skill_match_result=skill_a)
     log.info("compute_fit_score result: fit_score=%s", fit_r["fit_score"])
 
     # ── Deterministic engine (domain → eligibility → deterministic score) ─────
@@ -2156,6 +2370,7 @@ async def run_hybrid_pipeline(
     jd_analysis: Optional[Dict] = None,
     screening_result_id: Optional[int] = None,
     tenant_id: Optional[int] = None,
+    phase3_context: Optional[Dict] = None,
 ) -> Dict[str, Any]:
     """
     Non-streaming version. Returns Python scoring results immediately.
@@ -2168,7 +2383,8 @@ async def run_hybrid_pipeline(
     (for backward compatibility with batch and existing tests).
     """
     python_result = _run_python_phase(
-        resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis
+        resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis,
+        phase3_context=phase3_context,
     )
 
     llm_context = {
@@ -2249,6 +2465,7 @@ async def astream_hybrid_pipeline(
     jd_analysis: Optional[Dict] = None,
     screening_result_id: Optional[int] = None,
     tenant_id: Optional[int] = None,
+    phase3_context: Optional[Dict] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     SSE streaming version.
@@ -2266,7 +2483,8 @@ async def astream_hybrid_pipeline(
     """
     # Phase 1 — Python (instant)
     python_result = _run_python_phase(
-        resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis
+        resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis,
+        phase3_context=phase3_context,
     )
 
     llm_context = {

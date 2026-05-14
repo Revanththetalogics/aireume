@@ -1,9 +1,10 @@
 import { useCallback, useState, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X, BookOpen, BookmarkPlus, Check, LayoutTemplate, Sparkles } from 'lucide-react'
-import { extractJdFromUrl, getTemplates, createTemplate } from '../lib/api'
+import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X, BookOpen, BookmarkPlus, Check, LayoutTemplate, Sparkles, Eye } from 'lucide-react'
+import { extractJdFromUrl, getTemplates, createTemplate, parseJdPreview } from '../lib/api'
 import WeightSuggestionPanel from './WeightSuggestionPanel'
 import UniversalWeightsPanel from './UniversalWeightsPanel'
+import SkillClassificationEditor from './SkillClassificationEditor'
 
 const WEIGHT_PRESETS = {
   Balanced:        { skills: 0.40, experience: 0.35, stability: 0.15, education: 0.10 },
@@ -88,6 +89,8 @@ export default function UploadForm({
   error,
   scoringWeights,
   onScoringWeightsChange,
+  skillOverrides: externalSkillOverrides,
+  onSkillOverridesChange,
 }) {
   const [jdMode, setJdMode]               = useState('text')
   const [urlInput, setUrlInput]           = useState('')
@@ -124,6 +127,12 @@ export default function UploadForm({
   const [saveLoading, setSaveLoading]     = useState(false)
   const [savedNotice, setSavedNotice]     = useState(false)
   const pickerRef = useRef(null)
+
+  // Skill Classification Editor state
+  const [jdParseResult, setJdParseResult]     = useState(null)   // parsed JD data from /api/jd/parse-preview
+  const [showSkillEditor, setShowSkillEditor]  = useState(false)  // toggle editor visibility
+  const [skillOverrides, setSkillOverrides]    = useState(null)   // user's edits (confirmed overrides)
+  const [parsingJd, setParsingJd]             = useState(false)   // loading state for preview
 
   useEffect(() => {
     getTemplates()
@@ -219,6 +228,23 @@ export default function UploadForm({
       setUrlLoading(false)
     }
   }
+
+  const handleParsePreview = async () => {
+    setParsingJd(true)
+    try {
+      const data = await parseJdPreview(jobDescription)
+      setJdParseResult(data)
+      setShowSkillEditor(true)
+    } catch (err) {
+      // Silently fail — skill editing is optional
+      console.warn('JD parse-preview failed:', err)
+    } finally {
+      setParsingJd(false)
+    }
+  }
+
+  // Helper: count words in a string
+  const wordCount = (str) => (str || '').trim().split(/\s+/).filter(Boolean).length
 
   const isSubmitDisabled = isLoading || !selectedFile || (
     jdMode === 'text' ? !jobDescription.trim() :
@@ -397,6 +423,32 @@ export default function UploadForm({
                   )}
                 </button>
               </div>
+              {/* Preview & Edit Skills button — shown when JD has >= 80 words */}
+              {wordCount(jobDescription) >= 80 && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={handleParsePreview}
+                    disabled={parsingJd}
+                    className="flex items-center gap-2 w-full px-4 py-2.5 rounded-xl text-sm font-semibold transition-all
+                      bg-gradient-to-r from-indigo-50 to-brand-50 border border-indigo-200 text-indigo-700
+                      hover:from-indigo-100 hover:to-brand-100 hover:border-indigo-300
+                      disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {parsingJd ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Parsing skills…
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-4 h-4" />
+                        Preview & Edit Skills
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -461,6 +513,52 @@ export default function UploadForm({
             </div>
           )}
         </div>
+
+        {/* Skill Classification Editor */}
+        {showSkillEditor && jdParseResult && (
+          <div className="mb-6">
+            <SkillClassificationEditor
+              data={jdParseResult}
+              onConfirm={(overrides) => {
+                setSkillOverrides(overrides)
+                setShowSkillEditor(false)
+                onSkillOverridesChange && onSkillOverridesChange(overrides)
+              }}
+              onSkip={() => {
+                setSkillOverrides(null)
+                setShowSkillEditor(false)
+                onSkillOverridesChange && onSkillOverridesChange(null)
+              }}
+              loading={false}
+            />
+          </div>
+        )}
+
+        {/* Skill Overrides Summary Badge & JD Quality Badge */}
+        {skillOverrides && !showSkillEditor && (
+          <div className="mb-6 flex items-center gap-3 flex-wrap p-3 bg-indigo-50 border border-indigo-200 rounded-2xl">
+            <Check className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="text-sm font-medium text-indigo-700">
+              Skills customized ({Array.isArray(skillOverrides.required_skills) ? skillOverrides.required_skills.length : 0} must-have, {Array.isArray(skillOverrides.nice_to_have_skills) ? skillOverrides.nice_to_have_skills.length : 0} good-to-have)
+            </span>
+            {jdParseResult?.jd_quality && (
+              <span className="text-sm font-medium text-emerald-700">
+                JD Quality: {jdParseResult.jd_quality.grade} ({jdParseResult.jd_quality.overall_score}/100)
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSkillOverrides(null)
+                setJdParseResult(null)
+                onSkillOverridesChange && onSkillOverridesChange(null)
+              }}
+              className="ml-auto text-xs text-indigo-500 hover:text-indigo-700 underline"
+            >
+              Reset
+            </button>
+          </div>
+        )}
 
         {/* AI Weight Suggestion */}
         {jobDescription && jobDescription.trim().length > 100 && (

@@ -151,7 +151,7 @@ class TestSchemaValidation:
             "fit_score": 75,
             "risk_level": "Medium",
             "final_recommendation": "Consider",
-            "score_breakdown": {"skill_match": 80, "experience_match": 70},
+            "score_breakdown": {"skill_match": {"score": 80, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 70},
             "strengths": ["good"],
             "weaknesses": [],
             "risk_signals": [],
@@ -183,7 +183,7 @@ class TestCrossNodeConsistency:
         sa = {"matched_skills": ["python"], "missing_skills": ["django"], "skill_score": 80, "architecture_score": 70, "domain_fit_score": 75, "education_score": 60, "timeline_score": 70}
         fs = {
             "fit_score": 75, "final_recommendation": "Consider",
-            "score_breakdown": {"skill_match": 80, "experience_match": 70, "architecture": 70, "education": 60, "timeline": 70, "domain_fit": 75, "risk_penalty": 10},
+            "score_breakdown": {"skill_match": {"score": 80, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 70, "architecture": 70, "education": 60, "timeline": 70, "domain_fit": 75, "risk_penalty": 10},
         }
         report = check_cross_node_consistency(jd, sa, fs)
         assert report.is_consistent is True
@@ -211,7 +211,7 @@ class TestCrossNodeConsistency:
         sa = {"matched_skills": ["python"], "missing_skills": [], "skill_score": 50, "architecture_score": 50, "domain_fit_score": 50, "education_score": 50, "timeline_score": 50}
         fs = {
             "fit_score": 50, "final_recommendation": "Shortlist",
-            "score_breakdown": {"skill_match": 50, "experience_match": 50, "architecture": 50, "education": 50, "timeline": 50, "domain_fit": 50, "risk_penalty": 0},
+            "score_breakdown": {"skill_match": {"score": 50, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 50, "architecture": 50, "education": 50, "timeline": 50, "domain_fit": 50, "risk_penalty": 0},
         }
         report = check_cross_node_consistency(jd, sa, fs)
         assert any("Shortlist" in v for v in report.violations)
@@ -222,7 +222,7 @@ class TestCrossNodeConsistency:
         sa = {"matched_skills": ["python"], "missing_skills": [], "skill_score": 80, "architecture_score": 70, "domain_fit_score": 75, "education_score": 60, "timeline_score": 70}
         fs = {
             "fit_score": 80, "final_recommendation": "Reject",
-            "score_breakdown": {"skill_match": 80, "experience_match": 70, "architecture": 70, "education": 60, "timeline": 70, "domain_fit": 75, "risk_penalty": 10},
+            "score_breakdown": {"skill_match": {"score": 80, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 70, "architecture": 70, "education": 60, "timeline": 70, "domain_fit": 75, "risk_penalty": 10},
         }
         report = check_cross_node_consistency(jd, sa, fs)
         assert fs["final_recommendation"] == "Consider"
@@ -233,7 +233,7 @@ class TestCrossNodeConsistency:
         fs = {
             "fit_score": 99,
             "final_recommendation": "Shortlist",
-            "score_breakdown": {"skill_match": 80, "experience_match": 70, "architecture": 60, "education": 50, "timeline": 70, "domain_fit": 60, "risk_penalty": 0},
+            "score_breakdown": {"skill_match": {"score": 80, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 70, "architecture": 60, "education": 50, "timeline": 70, "domain_fit": 60, "risk_penalty": 0},
         }
         report = check_cross_node_consistency(jd, sa, fs)
         assert report.is_consistent is False
@@ -422,9 +422,9 @@ class TestVoteJDParser:
 class TestVoteScorer:
     def test_median_scores(self):
         results = [
-            {"fit_score": 70, "experience_score": 60, "risk_penalty": 10, "risk_level": "Medium", "final_recommendation": "Consider", "score_breakdown": {"skill_match": 70}, "interview_questions": {"technical_questions": ["Q1"], "behavioral_questions": [], "culture_fit_questions": []}},
-            {"fit_score": 80, "experience_score": 70, "risk_penalty": 5, "risk_level": "Low", "final_recommendation": "Shortlist", "score_breakdown": {"skill_match": 80}, "interview_questions": {"technical_questions": ["Q2"], "behavioral_questions": [], "culture_fit_questions": []}},
-            {"fit_score": 90, "experience_score": 80, "risk_penalty": 0, "risk_level": "Low", "final_recommendation": "Shortlist", "score_breakdown": {"skill_match": 90}, "interview_questions": {"technical_questions": ["Q3"], "behavioral_questions": [], "culture_fit_questions": []}},
+            {"fit_score": 70, "experience_score": 60, "risk_penalty": 10, "risk_level": "Medium", "final_recommendation": "Consider", "score_breakdown": {"skill_match": {"score": 70, "confidence_weighted": False, "avg_confidence": 1.0}}, "interview_questions": {"technical_questions": ["Q1"], "behavioral_questions": [], "culture_fit_questions": []}},
+            {"fit_score": 80, "experience_score": 70, "risk_penalty": 5, "risk_level": "Low", "final_recommendation": "Shortlist", "score_breakdown": {"skill_match": {"score": 80, "confidence_weighted": False, "avg_confidence": 1.0}}, "interview_questions": {"technical_questions": ["Q2"], "behavioral_questions": [], "culture_fit_questions": []}},
+            {"fit_score": 90, "experience_score": 80, "risk_penalty": 0, "risk_level": "Low", "final_recommendation": "Shortlist", "score_breakdown": {"skill_match": {"score": 90, "confidence_weighted": False, "avg_confidence": 1.0}}, "interview_questions": {"technical_questions": ["Q3"], "behavioral_questions": [], "culture_fit_questions": []}},
         ]
         merged = vote_scorer(results)
         assert merged["fit_score"] == 80
@@ -751,7 +751,7 @@ class TestGuardrailIntegration:
         sa = {"matched_skills": ["python", "django"], "missing_skills": ["aws"]}
         fs = {
             "fit_score": 70, "final_recommendation": "Consider",
-            "score_breakdown": {"skill_match": 75, "experience_match": 65, "architecture": 60, "education": 70, "timeline": 80, "domain_fit": 70, "risk_penalty": 10},
+            "score_breakdown": {"skill_match": {"score": 75, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 65, "architecture": 60, "education": 70, "timeline": 80, "domain_fit": 70, "risk_penalty": 10},
         }
 
         # Run consistency check

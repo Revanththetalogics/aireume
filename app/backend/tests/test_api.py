@@ -120,7 +120,7 @@ class TestAPIEndpoints:
             "strengths": ["Strong Python skills"], "weaknesses": [],
             "education_analysis": "Good background.", "risk_signals": [],
             "final_recommendation": "Consider", "employment_gaps": [],
-            "score_breakdown": {"skill_match": 80, "experience_match": 70,
+            "score_breakdown": {"skill_match": {"score": 80, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 70,
                                 "stability": 100, "education": 70},
             "matched_skills": ["python"], "missing_skills": [], "adjacent_skills": [],
             "risk_level": "Low",

@@ -374,3 +374,155 @@ SOFT_SKILL_THRESHOLD = 0.30  # Max 30% of required skills can be soft skills
 HIGH_CONFIDENCE = 0.85
 MEDIUM_CONFIDENCE = 0.70
 LOW_CONFIDENCE_THRESHOLD = 0.70
+
+
+# --- Skill Synonyms (variant/abbreviation → canonical form) ---
+SKILL_SYNONYMS = {
+    # Language abbreviations
+    "js": "javascript", "ts": "typescript", "py": "python",
+    "rb": "ruby", "cs": "csharp", "c#": "csharp", "c++": "cpp",
+    "cpp": "cpp", "go": "golang", "rs": "rust",
+
+    # Framework variants
+    "react.js": "react", "reactjs": "react", "react native": "react native",
+    "vue.js": "vue", "vuejs": "vue",
+    "angular.js": "angularjs", "angularjs": "angularjs",
+    "node.js": "nodejs", "node": "nodejs",
+    "next.js": "nextjs", "nuxt.js": "nuxtjs",
+    "express.js": "express", "expressjs": "express",
+    "nest.js": "nestjs", "nestjs": "nestjs",
+
+    # Database variants
+    "postgres": "postgresql", "pg": "postgresql",
+    "mongo": "mongodb", "mongodb": "mongodb",
+    "ms sql": "mssql", "sql server": "mssql",
+    "mysql": "mysql", "maria": "mariadb", "mariadb": "mariadb",
+    "dynamodb": "dynamodb", "dynamo": "dynamodb",
+    "redis": "redis", "memcache": "memcached",
+
+    # Cloud/DevOps
+    "k8s": "kubernetes", "kube": "kubernetes",
+    "aws": "aws", "amazon web services": "aws",
+    "gcp": "google cloud platform", "google cloud": "google cloud platform",
+    "azure": "microsoft azure", "ms azure": "microsoft azure",
+    "tf": "terraform", "gh actions": "github actions",
+    "ci/cd": "cicd", "ci cd": "cicd",
+
+    # Tools
+    "git": "git", "github": "github", "gitlab": "gitlab",
+    "vscode": "visual studio code", "vs code": "visual studio code",
+    "docker compose": "docker-compose",
+    "rabbitmq": "rabbitmq", "rabbit": "rabbitmq",
+    "kafka": "apache kafka",
+    "elasticsearch": "elasticsearch", "elastic": "elasticsearch", "es": "elasticsearch",
+
+    # Data/ML
+    "ml": "machine learning", "ai": "artificial intelligence",
+    "dl": "deep learning", "nlp": "natural language processing",
+    "cv": "computer vision",
+    "pytorch": "pytorch", "torch": "pytorch",
+    "sklearn": "scikit-learn", "scikit learn": "scikit-learn",
+    "pandas": "pandas", "numpy": "numpy",
+
+    # Mobile
+    "rn": "react native", "ios": "ios", "android": "android",
+    "flutter": "flutter", "swift": "swift", "kotlin": "kotlin",
+    "objective-c": "objective-c", "objc": "objective-c",
+
+    # Testing
+    "jest": "jest", "mocha": "mocha", "pytest": "pytest",
+    "junit": "junit", "cypress": "cypress", "selenium": "selenium",
+
+    # Messaging/API
+    "rest": "rest api", "restful": "rest api", "rest api": "rest api",
+    "graphql": "graphql", "grpc": "grpc",
+    "websocket": "websockets", "ws": "websockets",
+
+    # Methodologies
+    "agile": "agile", "scrum": "scrum", "kanban": "kanban",
+    "tdd": "test driven development", "bdd": "behavior driven development",
+    "oop": "object oriented programming",
+
+    # Frontend
+    "html5": "html", "css3": "css",
+    "sass": "sass", "scss": "sass", "less": "less",
+    "tailwind": "tailwindcss", "tailwind css": "tailwindcss",
+    "bootstrap": "bootstrap", "material ui": "material-ui", "mui": "material-ui",
+
+    # Others
+    "linux": "linux", "unix": "unix", "bash": "bash", "shell": "shell scripting",
+    "powershell": "powershell", "ps": "powershell",
+    "nginx": "nginx", "apache": "apache http server",
+}
+
+
+# --- Skill Hierarchy (child skill → parent + category) ---
+SKILL_HIERARCHY = {
+    # Frontend Frameworks → Language
+    "react": {"parent": "javascript", "category": "frontend_framework"},
+    "vue": {"parent": "javascript", "category": "frontend_framework"},
+    "angular": {"parent": "typescript", "category": "frontend_framework"},
+    "svelte": {"parent": "javascript", "category": "frontend_framework"},
+    "nextjs": {"parent": "react", "category": "fullstack_framework"},
+    "nuxtjs": {"parent": "vue", "category": "fullstack_framework"},
+
+    # Backend Frameworks → Language
+    "django": {"parent": "python", "category": "backend_framework"},
+    "fastapi": {"parent": "python", "category": "backend_framework"},
+    "flask": {"parent": "python", "category": "backend_framework"},
+    "spring": {"parent": "java", "category": "backend_framework"},
+    "spring boot": {"parent": "java", "category": "backend_framework"},
+    "express": {"parent": "nodejs", "category": "backend_framework"},
+    "nestjs": {"parent": "typescript", "category": "backend_framework"},
+    "rails": {"parent": "ruby", "category": "backend_framework"},
+    "laravel": {"parent": "php", "category": "backend_framework"},
+    "asp.net": {"parent": "csharp", "category": "backend_framework"},
+    "gin": {"parent": "golang", "category": "backend_framework"},
+    "actix": {"parent": "rust", "category": "backend_framework"},
+
+    # Container/Orchestration
+    "kubernetes": {"parent": "docker", "category": "container_orchestration"},
+    "docker-compose": {"parent": "docker", "category": "container_orchestration"},
+    "helm": {"parent": "kubernetes", "category": "package_management"},
+
+    # Cloud Services → Platform
+    "lambda": {"parent": "aws", "category": "serverless"},
+    "ec2": {"parent": "aws", "category": "compute"},
+    "s3": {"parent": "aws", "category": "storage"},
+    "rds": {"parent": "aws", "category": "database"},
+    "cloud functions": {"parent": "google cloud platform", "category": "serverless"},
+    "azure functions": {"parent": "microsoft azure", "category": "serverless"},
+
+    # Data/ML → Foundation
+    "tensorflow": {"parent": "python", "category": "ml_framework"},
+    "pytorch": {"parent": "python", "category": "ml_framework"},
+    "scikit-learn": {"parent": "python", "category": "ml_library"},
+    "pandas": {"parent": "python", "category": "data_library"},
+    "numpy": {"parent": "python", "category": "data_library"},
+    "spark": {"parent": "python", "category": "big_data"},
+
+    # Testing → Language
+    "jest": {"parent": "javascript", "category": "testing_framework"},
+    "pytest": {"parent": "python", "category": "testing_framework"},
+    "junit": {"parent": "java", "category": "testing_framework"},
+    "cypress": {"parent": "javascript", "category": "e2e_testing"},
+
+    # Mobile
+    "react native": {"parent": "react", "category": "mobile_framework"},
+    "flutter": {"parent": "dart", "category": "mobile_framework"},
+    "swiftui": {"parent": "swift", "category": "ui_framework"},
+    "jetpack compose": {"parent": "kotlin", "category": "ui_framework"},
+
+    # IaC
+    "terraform": {"parent": "infrastructure as code", "category": "iac"},
+    "cloudformation": {"parent": "aws", "category": "iac"},
+    "ansible": {"parent": "infrastructure as code", "category": "configuration_management"},
+
+    # Databases → Category
+    "postgresql": {"parent": "sql", "category": "relational_database"},
+    "mysql": {"parent": "sql", "category": "relational_database"},
+    "mssql": {"parent": "sql", "category": "relational_database"},
+    "mongodb": {"parent": "nosql", "category": "document_database"},
+    "redis": {"parent": "nosql", "category": "key_value_store"},
+    "elasticsearch": {"parent": "nosql", "category": "search_engine"},
+}

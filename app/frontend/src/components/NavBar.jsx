@@ -21,6 +21,7 @@ const USER_MENU_LINKS = [
   { label: 'Analytics', path: '/analytics', icon: BarChart3 },
   { label: 'Pipeline', path: '/pipeline', icon: Columns },
   { label: 'Team', path: '/team', icon: Users2 },
+  { label: 'Team Skills', path: '/team-skills', icon: Users },
   { label: 'Interviews', path: '/video', icon: Video },
   { label: 'Settings', path: '/settings', icon: Settings },
 ]

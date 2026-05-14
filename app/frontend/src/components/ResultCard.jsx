@@ -2,13 +2,14 @@ import {
   ThumbsUp, ThumbsDown, AlertTriangle, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Target, TrendingUp, Shield, ClipboardList,
   Copy, Check, Mail, X, Loader2, Lightbulb, BookOpen, Compass, Cpu,
-  Sparkles, Info, UserCheck, User, Eye, MessageCircle,
+  Sparkles, Info, UserCheck, User, Eye, MessageCircle, Star,
+  Flame, CheckCircle2,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import SkillsRadar from './SkillsRadar'
 import AnimatedScore from './AnimatedScore'
 import StreamingText from './StreamingText'
-import { generateEmail, getNarrative, getEvaluations, saveEvaluation } from '../lib/api'
+import { generateEmail, getNarrative, getEvaluations, saveEvaluation, recordOutcome, recordOutcomeFeedback } from '../lib/api'
 
 // ─── Small reusable components ────────────────────────────────────────────────
 
@@ -203,6 +204,298 @@ function EmailModal({ candidateId, resultId, onClose }) {
   )
 }
 
+// ─── Score Breakdown Panel with expandable evidence ──────────────────────────
+
+function ScoreBreakdownPanel({ scoreBreakdown, recommendationRationale, riskSummary }) {
+  const [showDetails, setShowDetails] = useState(false)
+
+  // Handle both old (scalar) and new (dict) formats gracefully
+  const skillBreakdown = scoreBreakdown?.skill_match
+  const isSkillDetailed = typeof skillBreakdown === 'object' && skillBreakdown !== null
+  const skillScore = isSkillDetailed ? (skillBreakdown.score ?? 0) : (skillBreakdown ?? 0)
+
+  const expBreakdown = scoreBreakdown?.experience_match
+  const isExpDetailed = typeof expBreakdown === 'object' && expBreakdown !== null
+  const expScore = isExpDetailed ? (expBreakdown.score ?? 0) : (expBreakdown ?? 0)
+
+  // Confidence dot color based on match_type
+  const matchTypeColor = (type) => {
+    if (type === 'exact') return 'bg-green-500'
+    if (type === 'alias') return 'bg-amber-400'
+    if (type === 'substring') return 'bg-orange-400'
+    if (type === 'hierarchy_inferred') return 'bg-slate-300'
+    return 'bg-blue-400'
+  }
+
+  const matchTypeLabel = (type) => {
+    if (type === 'exact') return 'Exact'
+    if (type === 'alias') return 'Alias'
+    if (type === 'substring') return 'Partial'
+    if (type === 'hierarchy_inferred') return 'Inferred'
+    return type || 'Match'
+  }
+
+  return (
+    <div className="bg-brand-50/60 rounded-2xl p-5 ring-1 ring-brand-100">
+      {/* Header with toggle */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-brand-500" />
+          <h3 className="text-sm font-bold text-brand-800 uppercase tracking-wide">Score Breakdown</h3>
+        </div>
+        <button
+          onClick={() => setShowDetails(v => !v)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-brand-700 hover:bg-brand-100 transition-colors ring-1 ring-brand-200"
+        >
+          {showDetails ? (
+            <>
+              <ChevronUp className="w-3.5 h-3.5" />
+              Hide Details
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-3.5 h-3.5" />
+              View Score Details
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Score bars — always visible */}
+      <div className="grid grid-cols-2 gap-4">
+        <ScoreBar label="Skill Match" value={skillScore} color="blue" />
+        <ScoreBar label="Experience" value={expScore} color="green" />
+        <ScoreBar label="Education" value={scoreBreakdown.education ?? 0} color="amber" />
+        <ScoreBar label="Timeline" value={scoreBreakdown.timeline ?? scoreBreakdown.stability ?? 0} color="purple" />
+        {scoreBreakdown.architecture != null && (
+          <ScoreBar label="Architecture" value={scoreBreakdown.architecture} color="teal" />
+        )}
+        {scoreBreakdown.domain_fit != null && (
+          <ScoreBar label="Domain Fit" value={scoreBreakdown.domain_fit} color="rose" />
+        )}
+      </div>
+
+      {/* Expandable evidence details */}
+      {showDetails && (
+        <div className="mt-4 pt-4 border-t border-brand-200 space-y-4">
+
+          {/* ── Skill Match Evidence ── */}
+          {isSkillDetailed && (
+            <div className="bg-white rounded-xl p-4 ring-1 ring-brand-100">
+              <div className="flex items-center gap-2 mb-3">
+                <CheckCircle2 className="w-4 h-4 text-brand-600" />
+                <h4 className="text-sm font-bold text-slate-800">Skill Match Evidence</h4>
+              </div>
+
+              {/* Required skills progress */}
+              {skillBreakdown.required_total > 0 && (
+                <div className="mb-3">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-semibold text-slate-600">
+                      Required Skills Matched
+                    </span>
+                    <span className="text-xs font-bold text-brand-700">
+                      {Math.min(skillBreakdown.required_matched, skillBreakdown.required_total)}/{skillBreakdown.required_total}
+                    </span>
+                  </div>
+                  <div className="w-full bg-brand-100 rounded-full h-2.5">
+                    <div
+                      className="h-2.5 rounded-full bg-brand-500 transition-all duration-500"
+                      style={{ width: `${Math.min(100, (skillBreakdown.required_matched / Math.max(skillBreakdown.required_total, 1)) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Nice-to-have skills progress */}
+              {skillBreakdown.nice_total > 0 && (
+                <div className="mb-3">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-semibold text-slate-600">
+                      Nice-to-Have Skills Matched
+                    </span>
+                    <span className="text-xs font-bold text-amber-700">
+                      {skillBreakdown.nice_matched}/{skillBreakdown.nice_total}
+                    </span>
+                  </div>
+                  <div className="w-full bg-amber-100 rounded-full h-2.5">
+                    <div
+                      className="h-2.5 rounded-full bg-amber-500 transition-all duration-500"
+                      style={{ width: `${Math.min(100, (skillBreakdown.nice_matched / Math.max(skillBreakdown.nice_total, 1)) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Missing required skills */}
+              {skillBreakdown.missing_required?.length > 0 && (
+                <div className="mb-3">
+                  <span className="text-xs font-semibold text-red-600 block mb-1.5">Missing Required Skills</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {skillBreakdown.missing_required.map((skill, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 ring-1 ring-red-200">
+                        <XCircle className="w-3 h-3" />
+                        {typeof skill === 'string' ? skill : skill?.skill || String(skill)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Matched skills with confidence */}
+              {skillBreakdown.matched_details?.length > 0 && (
+                <div className="mb-3">
+                  <span className="text-xs font-semibold text-green-700 block mb-1.5">Matched Skills</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {skillBreakdown.matched_details.map((m, i) => (
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-slate-700 ring-1 ring-green-200"
+                        title={`${matchTypeLabel(m.match_type)} match — confidence: ${(m.confidence * 100).toFixed(0)}%`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${matchTypeColor(m.match_type)}`} />
+                        {m.skill}
+                        <span className="text-slate-400 text-[10px]">{(m.confidence * 100).toFixed(0)}%</span>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-400">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> Exact</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Alias</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" /> Partial</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Proficiency adjustments */}
+              {skillBreakdown.proficiency_adjustments?.length > 0 && (
+                <div className="mb-3">
+                  <span className="text-xs font-semibold text-indigo-700 block mb-1.5">Proficiency Adjustments</span>
+                  <div className="space-y-1">
+                    {skillBreakdown.proficiency_adjustments.map((p, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs text-slate-600">
+                        <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                        <span className="font-medium">{p.skill}</span>
+                        <span className="text-slate-400">— required: {String(p.required)}</span>
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-semibold text-[10px]">{p.factor}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Team gap bonus */}
+              {skillBreakdown.team_gap_bonus > 0 && (
+                <div className="flex items-center gap-2 mb-3">
+                  <UserCheck className="w-3.5 h-3.5 text-teal-600" />
+                  <span className="text-xs font-semibold text-teal-700">
+                    Team Gap Bonus: +{skillBreakdown.team_gap_bonus}
+                  </span>
+                </div>
+              )}
+
+              {/* Trend factors applied */}
+              {skillBreakdown.trend_factors_applied?.length > 0 && (
+                <div>
+                  <span className="text-xs font-semibold text-purple-700 block mb-1.5">Market Trend Factors</span>
+                  <div className="space-y-1">
+                    {skillBreakdown.trend_factors_applied.map((t, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs text-slate-600">
+                        <TrendingUp className={`w-3 h-3 ${t.direction === 'rising' ? 'text-green-500' : t.direction === 'falling' ? 'text-red-500' : 'text-slate-400'}`} />
+                        <span className="font-medium">{t.skill}</span>
+                        <span className="text-slate-400">— {t.direction}</span>
+                        <span className={`px-1.5 py-0.5 rounded font-semibold text-[10px] ${
+                          t.factor > 1 ? 'bg-green-50 text-green-700' : t.factor < 1 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-600'
+                        }`}>
+                          ×{t.factor}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Confidence metadata */}
+              {skillBreakdown.confidence_weighted && (
+                <div className="mt-3 pt-3 border-t border-brand-100 flex items-center gap-2 text-xs text-slate-500">
+                  <Info className="w-3 h-3" />
+                  <span>Confidence-weighted scoring (avg: {((skillBreakdown.avg_confidence ?? 1) * 100).toFixed(0)}%)</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Experience Evidence ── */}
+          {isExpDetailed && (
+            <div className="bg-white rounded-xl p-4 ring-1 ring-brand-100">
+              <div className="flex items-center gap-2 mb-3">
+                <Star className="w-4 h-4 text-green-600" />
+                <h4 className="text-sm font-bold text-slate-800">Experience</h4>
+              </div>
+              <div className="flex items-baseline gap-2 mb-2">
+                {expBreakdown.actual_years != null && (
+                  <span className="text-lg font-bold text-slate-800">{expBreakdown.actual_years}y</span>
+                )}
+                {expBreakdown.required_years != null && (
+                  <span className="text-xs text-slate-500">vs {expBreakdown.required_years}y required</span>
+                )}
+              </div>
+              {expBreakdown.explanation && (
+                <p className="text-xs text-slate-600 italic">{expBreakdown.explanation}</p>
+              )}
+            </div>
+          )}
+
+          {/* ── Other score dimensions as simple bars ── */}
+          <div className="bg-white rounded-xl p-4 ring-1 ring-brand-100">
+            <div className="flex items-center gap-2 mb-3">
+              <ClipboardList className="w-4 h-4 text-brand-600" />
+              <h4 className="text-sm font-bold text-slate-800">Other Dimensions</h4>
+            </div>
+            <div className="space-y-2">
+              <ScoreBar label="Education" value={scoreBreakdown.education ?? 0} color="amber" />
+              <ScoreBar label="Timeline" value={scoreBreakdown.timeline ?? scoreBreakdown.stability ?? 0} color="purple" />
+              {scoreBreakdown.architecture != null && (
+                <ScoreBar label="Architecture" value={scoreBreakdown.architecture} color="teal" />
+              )}
+              {scoreBreakdown.domain_fit != null && (
+                <ScoreBar label="Domain Fit" value={scoreBreakdown.domain_fit} color="rose" />
+              )}
+              {scoreBreakdown.risk_penalty > 0 && (
+                <ScoreBar label="Risk Penalty" value={scoreBreakdown.risk_penalty} color="rose" />
+              )}
+            </div>
+          </div>
+
+          {/* Rationale & seniority */}
+          {recommendationRationale && (
+            <p className="text-xs text-slate-500 italic">{safeStr(recommendationRationale)}</p>
+          )}
+          {riskSummary?.seniority_alignment && (
+            <div className="flex items-center gap-2">
+              <Info className="w-3.5 h-3.5 text-brand-500" />
+              <span className="text-xs font-semibold text-brand-700">Seniority Alignment:</span>
+              <span className="text-xs text-slate-600">{safeStr(riskSummary.seniority_alignment)}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Non-expanded rationale & seniority (always show) */}
+      {!showDetails && recommendationRationale && (
+        <p className="text-xs text-slate-500 mt-3 italic">{safeStr(recommendationRationale)}</p>
+      )}
+      {!showDetails && riskSummary?.seniority_alignment && (
+        <div className="mt-3 pt-3 border-t border-brand-100 flex items-center gap-2">
+          <Info className="w-3.5 h-3.5 text-brand-500" />
+          <span className="text-xs font-semibold text-brand-700">Seniority Alignment:</span>
+          <span className="text-xs text-slate-600">{safeStr(riskSummary.seniority_alignment)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Analysis source badge ────────────────────────────────────────────────────
 
 function AnalysisSourceBadge({ narrativeReady, isPolling, analysisQuality, aiEnhanced }) {
@@ -280,6 +573,19 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
   const [savingEval, setSavingEval]   = useState({})   // { "technical_0": true } — loading states
   const [evalLoaded, setEvalLoaded]   = useState(false)
 
+  // Outcome feedback state
+  const [outcomeStatus, setOutcomeStatus]       = useState(null) // null | 'hired' | 'rejected' | 'withdrawn'
+  const [outcomeId, setOutcomeId]               = useState(null)
+  const [showStageSelect, setShowStageSelect]   = useState(false)
+  const [selectedStage, setSelectedStage]       = useState('')
+  const [outcomeNotes, setOutcomeNotes]         = useState('')
+  const [savingOutcome, setSavingOutcome]       = useState(false)
+  const [showFeedback, setShowFeedback]         = useState(false)
+  const [feedbackRating, setFeedbackRating]     = useState(0)
+  const [feedbackNotes, setFeedbackNotes]       = useState('')
+  const [savingFeedback, setSavingFeedback]     = useState(false)
+  const [outcomeError, setOutcomeError]         = useState(null)
+
   // Normalize interview question to structured format (backward compat)
   const normalizeQ = (q) => {
     if (typeof q === 'string') return { text: q, what_to_listen_for: [], follow_ups: [] };
@@ -338,6 +644,54 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     }
     setSavingEval(prev => ({ ...prev, [key]: false }))
   }
+
+  // Outcome handler
+  const handleOutcome = (decision) => {
+    setOutcomeStatus(decision)
+    setShowStageSelect(true)
+    setOutcomeError(null)
+  }
+
+  const handleConfirmOutcome = async () => {
+    if (!candidate_id) return
+    setSavingOutcome(true)
+    setOutcomeError(null)
+    try {
+      const data = {
+        screening_result_id: result_id,
+        decision: outcomeStatus,
+      }
+      if (selectedStage) data.stage = selectedStage
+      if (outcomeNotes.trim()) data.notes = outcomeNotes.trim()
+      const result = await recordOutcome(candidate_id, data)
+      setOutcomeId(result.outcome_id || result.id)
+      setShowStageSelect(false)
+      // Show feedback for hired candidates
+      if (outcomeStatus === 'hired') {
+        setShowFeedback(true)
+      }
+    } catch (err) {
+      setOutcomeError(err.response?.data?.detail || 'Failed to record outcome')
+    } finally {
+      setSavingOutcome(false)
+    }
+  }
+
+  const handleSubmitFeedback = async () => {
+    if (!outcomeId || feedbackRating === 0) return
+    setSavingFeedback(true)
+    try {
+      await recordOutcomeFeedback(outcomeId, {
+        rating: feedbackRating,
+        notes: feedbackNotes.trim() || undefined,
+      })
+      setShowFeedback(false)
+    } catch (err) {
+      console.error('Failed to submit feedback:', err)
+    } finally {
+      setSavingFeedback(false)
+    }
+  }
   
   // Narrative polling state
   const [narrativeData, setNarrativeData]       = useState(null)
@@ -356,7 +710,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     recommendation_rationale,
     narrative_pending, analysis_quality,
     fit_summary, concerns, score_rationales, risk_summary, skill_depth,
-    analysis_id,
+    analysis_id, onet_hot_skills,
   } = result
 
   // Defensive fallback: use result_id if analysis_id is not available (for backward compatibility)
@@ -554,71 +908,218 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
 
         {/* Score Breakdown */}
         {score_breakdown && Object.keys(score_breakdown).length > 0 && !isPending && (
-          <div className="bg-brand-50/60 rounded-2xl p-5 ring-1 ring-brand-100">
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp className="w-4 h-4 text-brand-500" />
-              <h3 className="text-sm font-bold text-brand-800 uppercase tracking-wide">Score Breakdown</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <ScoreBar label="Skill Match"   value={score_breakdown.skill_match ?? 0}      color="blue" />
-              <ScoreBar label="Experience"    value={score_breakdown.experience_match ?? 0} color="green" />
-              <ScoreBar label="Education"     value={score_breakdown.education ?? 0}        color="amber" />
-              <ScoreBar label="Timeline"      value={score_breakdown.timeline ?? score_breakdown.stability ?? 0} color="purple" />
-              {score_breakdown.architecture != null && (
-                <ScoreBar label="Architecture" value={score_breakdown.architecture}          color="teal" />
-              )}
-              {score_breakdown.domain_fit != null && (
-                <ScoreBar label="Domain Fit"   value={score_breakdown.domain_fit}            color="rose" />
-              )}
-            </div>
-            {recommendation_rationale && (
-              <p className="text-xs text-slate-500 mt-3 italic">{safeStr(recommendation_rationale)}</p>
-            )}
-            {risk_summary?.seniority_alignment && (
-              <div className="mt-3 pt-3 border-t border-brand-100 flex items-center gap-2">
-                <Info className="w-3.5 h-3.5 text-brand-500" />
-                <span className="text-xs font-semibold text-brand-700">Seniority Alignment:</span>
-                <span className="text-xs text-slate-600">{safeStr(risk_summary.seniority_alignment)}</span>
-              </div>
-            )}
-          </div>
+          <ScoreBreakdownPanel scoreBreakdown={score_breakdown} recommendationRationale={recommendation_rationale} riskSummary={risk_summary} />
         )}
 
-        {/* Skills Intel */}
-        {((matched_skills?.length > 0) || (missing_skills?.length > 0)) && (
-          <div className="grid grid-cols-2 gap-4">
-            {matched_skills?.length > 0 && (
-              <div className="bg-green-50 rounded-2xl p-4 ring-1 ring-green-100 border-l-4 border-green-500">
-                <div className="flex items-center gap-1.5 mb-2.5">
-                  <CheckCircle className="w-4 h-4 text-green-600" />
-                  <span className="text-xs font-bold text-green-700 uppercase tracking-wide">Matched</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {matched_skills.slice(0, 12).map((s, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-lg font-semibold inline-flex items-center gap-1">
-                      {safeStr(s)}
-                      {skill_depth && skill_depth[safeStr(s)] && (
-                        <span className="text-[10px] text-green-600 font-medium">({safeStr(skill_depth[safeStr(s)])}x)</span>
-                      )}
+        {/* Skills Intel — Tiered display when enhanced skill_analysis is available */}
+        {skill_analysis?.matched_required != null ? (
+          /* ── Tiered Skill Display (new backend data) ── */
+          <div className="space-y-4">
+            {/* Tiered score breakdown */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2 bg-brand-50/80 ring-1 ring-brand-200 rounded-xl px-3 py-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-brand-600" />
+                <span className="text-xs font-bold text-brand-800">
+                  Core Skills: {typeof score_breakdown?.skill_match === 'object' ? (score_breakdown?.skill_match?.score ?? skill_analysis.required_match_pct ?? 0) : (score_breakdown?.skill_match ?? skill_analysis.required_match_pct ?? 0)}%
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                <span className="font-semibold text-green-700">Must-have: {skill_analysis.required_match_pct ?? 0}%</span>
+                <span className="text-slate-300">|</span>
+                <span className="font-semibold text-amber-700">Good-to-have: {skill_analysis.nice_to_have_match_pct ?? 0}%</span>
+                {skill_analysis.proficiency_analysis && Object.keys(skill_analysis.proficiency_analysis).length > 0 && (() => {
+                  const profEntries = Object.values(skill_analysis.proficiency_analysis)
+                  const avgMatch = profEntries.length > 0
+                    ? Math.round((profEntries.reduce((sum, e) => sum + (e.match_factor ?? 0), 0) / profEntries.length) * 100)
+                    : 0
+                  return (
+                    <>
+                      <span className="text-slate-300">|</span>
+                      <span className="font-semibold text-indigo-700">Proficiency match: {avgMatch}%</span>
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+
+            {/* Must-Have Skills */}
+            {(() => {
+              const matched = skill_analysis.matched_required || []
+              const missing = skill_analysis.missing_required || []
+              const total = matched.length + missing.length
+              const profAnalysis = skill_analysis.proficiency_analysis || {}
+              const hotSet = new Set((onet_hot_skills || []).map(s => typeof s === 'string' ? s.toLowerCase() : String(s).toLowerCase()))
+              if (total === 0) return null
+              return (
+                <div className="bg-slate-50 rounded-2xl p-4 ring-1 ring-slate-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-5 h-5 rounded-md bg-red-100 flex items-center justify-center">
+                      <Shield className="w-3 h-3 text-red-600" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                      Must-Have Skills
                     </span>
-                  ))}
+                    <span className="text-xs font-semibold text-slate-500">
+                      ({matched.length}/{total} matched)
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {matched.map((s, i) => {
+                      const skillName = safeStr(s)
+                      const prof = profAnalysis[skillName] || profAnalysis[skillName.toLowerCase()]
+                      const isHot = hotSet.has(skillName.toLowerCase())
+                      let profPill = null
+                      if (prof) {
+                        const mf = prof.match_factor ?? 0
+                        if (mf >= 1.0) {
+                          profPill = (
+                            <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700 bg-green-200/60 rounded px-1 py-px">
+                              <CheckCircle2 className="w-2.5 h-2.5" />
+                              {safeStr(prof.estimated_candidate)}
+                            </span>
+                          )
+                        } else if (mf >= 0.5) {
+                          profPill = (
+                            <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-700 bg-amber-200/60 rounded px-1 py-px">
+                              {safeStr(prof.estimated_candidate)} ({safeStr(prof.required)} expected)
+                            </span>
+                          )
+                        } else {
+                          profPill = (
+                            <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-semibold text-orange-700 bg-orange-200/60 rounded px-1 py-px">
+                              {safeStr(prof.estimated_candidate)} ({safeStr(prof.required)} expected)
+                            </span>
+                          )
+                        }
+                      }
+                      return (
+                        <span
+                          key={`mr-${i}`}
+                          className="px-2.5 py-1 bg-green-100 border-2 border-green-400 text-green-800 text-xs rounded-lg font-medium inline-flex items-center gap-1"
+                        >
+                          <CheckCircle className="w-3 h-3 text-green-600" />
+                          {skillName}
+                          {profPill}
+                          {isHot && <Flame className="w-3 h-3 text-orange-500" title="Hot skill — high market demand" />}
+                          {skill_depth && skill_depth[skillName] && (
+                            <span className="text-[10px] text-green-600 font-medium">({safeStr(skill_depth[skillName])}x)</span>
+                          )}
+                        </span>
+                      )
+                    })}
+                    {missing.map((s, i) => {
+                      const skillName = safeStr(s)
+                      const isHot = hotSet.has(skillName.toLowerCase())
+                      return (
+                        <span
+                          key={`mm-${i}`}
+                          className="px-2.5 py-1 bg-red-100 border-2 border-red-400 text-red-800 text-xs rounded-lg font-medium inline-flex items-center gap-1"
+                        >
+                          <XCircle className="w-3 h-3 text-red-500" />
+                          {skillName}
+                          {isHot && <Flame className="w-3 h-3 text-orange-500" title="Hot skill — high market demand" />}
+                        </span>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
-            {missing_skills?.length > 0 && (
-              <div className="bg-red-50 rounded-2xl p-4 ring-1 ring-red-100 border-l-4 border-red-400">
-                <div className="flex items-center gap-1.5 mb-2.5">
-                  <XCircle className="w-4 h-4 text-red-600" />
-                  <span className="text-xs font-bold text-red-700 uppercase tracking-wide">Missing</span>
+              )
+            })()}
+
+            {/* Good-to-Have Skills */}
+            {(() => {
+              const matched = skill_analysis.matched_nice_to_have || []
+              const missing = skill_analysis.missing_nice_to_have || []
+              const total = matched.length + missing.length
+              const hotSet = new Set((onet_hot_skills || []).map(s => typeof s === 'string' ? s.toLowerCase() : String(s).toLowerCase()))
+              if (total === 0) return null
+              return (
+                <div className="bg-amber-50/50 rounded-2xl p-4 ring-1 ring-amber-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-5 h-5 rounded-md bg-amber-100 flex items-center justify-center">
+                      <Star className="w-3 h-3 text-amber-600" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                      Good-to-Have Skills
+                    </span>
+                    <span className="text-xs font-semibold text-slate-500">
+                      ({matched.length}/{total} matched)
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {matched.map((s, i) => {
+                      const skillName = safeStr(s)
+                      const isHot = hotSet.has(skillName.toLowerCase())
+                      return (
+                        <span
+                          key={`gr-${i}`}
+                          className="px-2.5 py-1 bg-green-50 border border-green-200 text-green-700 text-xs rounded-lg font-medium inline-flex items-center gap-1"
+                        >
+                          <CheckCircle className="w-3 h-3 text-green-500" />
+                          {skillName}
+                          {isHot && <Flame className="w-3 h-3 text-orange-500" title="Hot skill — high market demand" />}
+                          {skill_depth && skill_depth[skillName] && (
+                            <span className="text-[10px] text-green-500 font-medium">({safeStr(skill_depth[skillName])}x)</span>
+                          )}
+                        </span>
+                      )
+                    })}
+                    {missing.map((s, i) => {
+                      const skillName = safeStr(s)
+                      const isHot = hotSet.has(skillName.toLowerCase())
+                      return (
+                        <span
+                          key={`gm-${i}`}
+                          className="px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-lg font-medium inline-flex items-center gap-1"
+                        >
+                          <AlertTriangle className="w-3 h-3 text-amber-400" />
+                          {skillName}
+                          {isHot && <Flame className="w-3 h-3 text-orange-500" title="Hot skill — high market demand" />}
+                        </span>
+                      )
+                    })}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {missing_skills.slice(0, 10).map((s, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-lg font-semibold">{safeStr(s)}</span>
-                  ))}
-                </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
+        ) : (
+          /* ── Legacy flat skill display (backward compat) ── */
+          ((matched_skills?.length > 0) || (missing_skills?.length > 0)) && (
+            <div className="grid grid-cols-2 gap-4">
+              {matched_skills?.length > 0 && (
+                <div className="bg-green-50 rounded-2xl p-4 ring-1 ring-green-100 border-l-4 border-green-500">
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <span className="text-xs font-bold text-green-700 uppercase tracking-wide">Matched</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {matched_skills.slice(0, 12).map((s, i) => (
+                      <span key={i} className="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-lg font-semibold inline-flex items-center gap-1">
+                        {safeStr(s)}
+                        {skill_depth && skill_depth[safeStr(s)] && (
+                          <span className="text-[10px] text-green-600 font-medium">({safeStr(skill_depth[safeStr(s)])}x)</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {missing_skills?.length > 0 && (
+                <div className="bg-red-50 rounded-2xl p-4 ring-1 ring-red-100 border-l-4 border-red-400">
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <XCircle className="w-4 h-4 text-red-600" />
+                    <span className="text-xs font-bold text-red-700 uppercase tracking-wide">Missing</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {missing_skills.slice(0, 10).map((s, i) => (
+                      <span key={i} className="px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-lg font-semibold">{safeStr(s)}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
         )}
 
         {/* Adjacent skills */}
@@ -1080,6 +1581,166 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Outcome Feedback Section */}
+        {!isPending && candidate_id && (
+          <div className="ring-1 ring-brand-200 rounded-2xl bg-brand-50/40 overflow-hidden">
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <ClipboardList className="w-4 h-4 text-brand-600" />
+                <span className="font-bold text-brand-800 text-sm">Hiring Decision</span>
+              </div>
+
+              {/* Outcome Status Badge — shown when outcome is recorded */}
+              {outcomeStatus && !showStageSelect ? (
+                <div className="flex items-center gap-3">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ring-1 ${
+                    outcomeStatus === 'hired'
+                      ? 'bg-green-100 text-green-700 ring-green-200'
+                      : outcomeStatus === 'rejected'
+                      ? 'bg-red-100 text-red-700 ring-red-200'
+                      : 'bg-slate-100 text-slate-600 ring-slate-200'
+                  }`}>
+                    {outcomeStatus === 'hired' && <CheckCircle className="w-3.5 h-3.5" />}
+                    {outcomeStatus === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
+                    {outcomeStatus === 'withdrawn' && <AlertTriangle className="w-3.5 h-3.5" />}
+                    {outcomeStatus.charAt(0).toUpperCase() + outcomeStatus.slice(1)}
+                  </span>
+                  {/* Feedback link for hired candidates */}
+                  {outcomeStatus === 'hired' && outcomeId && !showFeedback && (
+                    <button
+                      onClick={() => setShowFeedback(true)}
+                      className="text-xs font-semibold text-brand-600 hover:text-brand-800 transition-colors"
+                    >
+                      Add feedback
+                    </button>
+                  )}
+                </div>
+              ) : !outcomeStatus ? (
+                /* Decision Buttons — shown when no outcome recorded */
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-slate-500">Decision:</span>
+                  <button
+                    onClick={() => handleOutcome('hired')}
+                    className="px-3 py-1.5 text-xs rounded-xl font-semibold bg-green-50 text-green-700 ring-1 ring-green-200 hover:bg-green-100 transition-colors"
+                  >
+                    Hired
+                  </button>
+                  <button
+                    onClick={() => handleOutcome('rejected')}
+                    className="px-3 py-1.5 text-xs rounded-xl font-semibold bg-red-50 text-red-700 ring-1 ring-red-200 hover:bg-red-100 transition-colors"
+                  >
+                    Rejected
+                  </button>
+                  <button
+                    onClick={() => handleOutcome('withdrawn')}
+                    className="px-3 py-1.5 text-xs rounded-xl font-semibold bg-slate-50 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100 transition-colors"
+                  >
+                    Withdrawn
+                  </button>
+                </div>
+              ) : null}
+
+              {/* Stage Selection — shown after clicking a decision button */}
+              {showStageSelect && (
+                <div className="mt-3 space-y-3 p-3 bg-white rounded-xl ring-1 ring-brand-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-500">Stage:</span>
+                    <select
+                      value={selectedStage}
+                      onChange={(e) => setSelectedStage(e.target.value)}
+                      className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-300"
+                    >
+                      <option value="">Select stage (optional)</option>
+                      <option value="screening">Screening</option>
+                      <option value="phone_screen">Phone Screen</option>
+                      <option value="interview">Interview</option>
+                      <option value="offer">Offer</option>
+                      <option value="onboarded">Onboarded</option>
+                    </select>
+                  </div>
+                  <textarea
+                    placeholder="Optional notes about this decision..."
+                    value={outcomeNotes}
+                    onChange={(e) => setOutcomeNotes(e.target.value)}
+                    rows={2}
+                    className="w-full text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-300 placeholder:text-slate-300"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleConfirmOutcome}
+                      disabled={savingOutcome}
+                      className="px-4 py-1.5 text-xs font-bold bg-brand-600 text-white rounded-xl hover:bg-brand-700 disabled:opacity-60 transition-colors flex items-center gap-1.5"
+                    >
+                      {savingOutcome && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => { setShowStageSelect(false); setOutcomeStatus(null) }}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Feedback Rating — shown after marking as "hired" */}
+              {showFeedback && outcomeId && (
+                <div className="mt-3 p-3 bg-white rounded-xl ring-1 ring-brand-100 space-y-3">
+                  <div>
+                    <span className="text-xs font-semibold text-slate-500">Rate this hire:</span>
+                    <div className="flex items-center gap-1 mt-1.5">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          onClick={() => setFeedbackRating(star)}
+                          className="transition-colors"
+                        >
+                          <Star
+                            className={`w-5 h-5 ${
+                              star <= feedbackRating
+                                ? 'text-amber-400 fill-amber-400'
+                                : 'text-slate-300'
+                            }`}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <textarea
+                    placeholder="Optional feedback notes..."
+                    value={feedbackNotes}
+                    onChange={(e) => setFeedbackNotes(e.target.value)}
+                    rows={2}
+                    className="w-full text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-300 placeholder:text-slate-300"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSubmitFeedback}
+                      disabled={savingFeedback || feedbackRating === 0}
+                      className="px-4 py-1.5 text-xs font-bold bg-brand-600 text-white rounded-xl hover:bg-brand-700 disabled:opacity-60 transition-colors flex items-center gap-1.5"
+                    >
+                      {savingFeedback && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      Submit Feedback
+                    </button>
+                    <button
+                      onClick={() => setShowFeedback(false)}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Error message */}
+              {outcomeError && (
+                <p className="mt-2 text-xs text-red-600">{outcomeError}</p>
+              )}
+            </div>
           </div>
         )}
       </div>

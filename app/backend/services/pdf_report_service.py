@@ -147,8 +147,8 @@ def generate_pdf_report(result_id: int, db: Session, current_user_id: int) -> by
     # ── 8. Score breakdown (with safe defaults) ──────────────────────────
     sb = analysis.get("score_breakdown", {})
     score_breakdown = {
-        "skill_match": sb.get("skill_match", 0) or 0,
-        "experience_match": sb.get("experience_match", 0) or 0,
+        "skill_match": (lambda v: v.get("score", 0) if isinstance(v, dict) else v)(sb.get("skill_match", 0)) or 0,
+        "experience_match": (lambda v: v.get("score", 0) if isinstance(v, dict) else v)(sb.get("experience_match", 0)) or 0,
         "domain_fit": sb.get("domain_fit", 0) or 0,
         "education": sb.get("education", 0) or 0,
         "stability": sb.get("stability", 0) or 0,

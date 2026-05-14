@@ -210,6 +210,7 @@ export default function Dashboard() {
   const [jobDescription, setJobDescription]   = useState(location.state?.jdText || '')
   const [selectedJobFile, setSelectedJobFile] = useState(null)
   const [scoringWeights, setScoringWeights]   = useState(null)
+  const [skillOverrides, setSkillOverrides]   = useState(null)
   const [isLoading, setIsLoading]             = useState(false)
   const [error, setError]                     = useState(null)
 
@@ -257,7 +258,9 @@ export default function Dashboard() {
         jobDescription,
         selectedJobFile,
         scoringWeights,
-        ({ stage }) => setCompletedStages(prev => new Set([...prev, stage]))
+        ({ stage }) => setCompletedStages(prev => new Set([...prev, stage])),
+        null,   // templateId
+        skillOverrides,
       )
 
       setCompletedStages(new Set(PIPELINE_STAGES.map(s => s.id)))
@@ -300,6 +303,8 @@ export default function Dashboard() {
             error={error}
             scoringWeights={scoringWeights}
             onScoringWeightsChange={setScoringWeights}
+            skillOverrides={skillOverrides}
+            onSkillOverridesChange={setSkillOverrides}
           />
         </div>
 

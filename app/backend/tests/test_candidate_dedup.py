@@ -72,7 +72,7 @@ MOCK_PIPELINE_RESULT = {
     "risk_signals": [],
     "final_recommendation": "Recommend",
     "employment_gaps": [],
-    "score_breakdown": {"skill_match": 85, "experience_match": 80, "stability": 90, "education": 75},
+    "score_breakdown": {"skill_match": {"score": 85, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 80, "stability": 90, "education": 75},
     "matched_skills": ["python", "fastapi", "postgresql"],
     "missing_skills": ["kubernetes"],
     "adjacent_skills": ["docker"],

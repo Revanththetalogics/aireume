@@ -225,7 +225,7 @@ class TestAssembleResult:
             "risk_signals": [],
             "strengths": ["Strong Python"],
             "weaknesses": [],
-            "score_breakdown": {"skill_match": 95, "experience_match": 88},
+            "score_breakdown": {"skill_match": {"score": 95, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 88},
             "final_recommendation": "Shortlist",
             "recommendation_rationale": "Score 82/100 — Shortlist.",
             "explainability": {"overall_rationale": "Strong backend match."},
@@ -449,7 +449,7 @@ class TestScorerNode:
             "experience_score": 88,
             "risk_penalty": 0,
             "score_breakdown": {
-                "skill_match": 95, "experience_match": 88, "architecture": 80,
+                "skill_match": {"score": 95, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 88, "architecture": 80,
                 "education": 85, "timeline": 88, "domain_fit": 90, "risk_penalty": 0,
             },
             "fit_score": 88,
@@ -518,7 +518,7 @@ class TestScorerNode:
             "fit_score": 75, "final_recommendation": "Consider",
             "risk_level": "Medium", "risk_signals": [],
             "strengths": [], "weaknesses": [],
-            "score_breakdown": {"skill_match": 0},  # LLM returned 0 (template literal)
+            "score_breakdown": {"skill_match": {"score": 0, "confidence_weighted": False, "avg_confidence": 1.0}},  # LLM returned 0 (template literal)
             "explainability": {},
             "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},
         }
@@ -526,8 +526,9 @@ class TestScorerNode:
                    return_value=_make_llm_mock(scorer_output)):
             result = await scorer_node(state_with_analysis)
 
-        # state_with_analysis has skill_score=95 — override must apply
-        assert result["final_scores"]["score_breakdown"]["skill_match"] == 95
+        # state_with_analysis has skill_score=95 — override must apply (dict format)
+        sm = result["final_scores"]["score_breakdown"]["skill_match"]
+        assert (sm["score"] if isinstance(sm, dict) else sm) == 95
 
     @pytest.mark.asyncio
     async def test_fallback_on_llm_exception(self, state_with_analysis):
@@ -606,7 +607,7 @@ class TestRunAgentPipeline:
         scorer_out = {
             "experience_score": 82, "risk_penalty": 0,
             "score_breakdown": {
-                "skill_match": 90, "experience_match": 82, "architecture": 70,
+                "skill_match": {"score": 90, "confidence_weighted": False, "avg_confidence": 1.0}, "experience_match": 82, "architecture": 70,
                 "education": 80, "timeline": 85, "domain_fit": 85, "risk_penalty": 0,
             },
             "fit_score": 79, "risk_level": "Low", "risk_signals": [],

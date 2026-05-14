@@ -119,7 +119,7 @@ api.interceptors.response.use(
 /**
  * Submit a resume analysis job to the queue (returns immediately with job_id)
  */
-export async function submitAnalysisJob(file, jobDescription, jobFile = null, scoringWeights = null, priority = 5, templateId = null) {
+export async function submitAnalysisJob(file, jobDescription, jobFile = null, scoringWeights = null, priority = 5, templateId = null, skillOverrides = null) {
   const formData = new FormData()
   formData.append('resume_file', file)
   if (jobFile) {
@@ -133,6 +133,9 @@ export async function submitAnalysisJob(file, jobDescription, jobFile = null, sc
   formData.append('priority', priority.toString())
   if (templateId) {
     formData.append('template_id', templateId)
+  }
+  if (skillOverrides) {
+    formData.append('skill_overrides', JSON.stringify(skillOverrides))
   }
   
   const response = await api.post('/queue/submit', formData, {
@@ -207,7 +210,7 @@ export async function analyzeResumeAsync(file, jobDescription, jobFile = null, s
 
 // ─── Resume Analysis (Legacy Synchronous) ─────────────────────────────────────
 
-export async function analyzeResume(file, jobDescription, jobFile = null, scoringWeights = null, templateId = null) {
+export async function analyzeResume(file, jobDescription, jobFile = null, scoringWeights = null, templateId = null, skillOverrides = null) {
   const formData = new FormData()
   formData.append('resume', file)
   if (jobFile) {
@@ -220,6 +223,9 @@ export async function analyzeResume(file, jobDescription, jobFile = null, scorin
   }
   if (templateId) {
     formData.append('template_id', templateId)
+  }
+  if (skillOverrides) {
+    formData.append('skill_overrides', JSON.stringify(skillOverrides))
   }
   const response = await api.post('/analyze', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -245,6 +251,7 @@ export async function analyzeResumeStream(
   scoringWeights = null,
   onStageComplete = null,
   templateId = null,
+  skillOverrides = null,
 ) {
   const formData = new FormData()
   formData.append('resume', file)
@@ -258,6 +265,9 @@ export async function analyzeResumeStream(
   }
   if (templateId) {
     formData.append('template_id', templateId)
+  }
+  if (skillOverrides) {
+    formData.append('skill_overrides', JSON.stringify(skillOverrides))
   }
 
   const baseURL = import.meta.env.VITE_API_URL || '/api'
@@ -574,6 +584,11 @@ export async function compareResults(ids) {
   return response.data
 }
 
+export async function compareCandidates(data) {
+  const res = await api.post('/candidates/compare', data)
+  return res.data
+}
+
 // ─── Export ──────────────────────────────────────────────────────────────────
 
 export async function exportCsv(ids = []) {
@@ -660,6 +675,28 @@ export async function deleteTemplate(id) {
   await api.delete(`/templates/${id}`)
 }
 
+// ─── Skill Classification Templates ─────────────────────────────────────────
+
+export async function getSkillTemplates() {
+  const res = await api.get('/templates/skill-classifications')
+  return res.data
+}
+
+export async function createSkillTemplate(data) {
+  const res = await api.post('/templates/skill-classifications', data)
+  return res.data
+}
+
+export async function updateSkillTemplate(templateId, data) {
+  const res = await api.put(`/templates/skill-classifications/${templateId}`, data)
+  return res.data
+}
+
+export async function deleteSkillTemplate(templateId) {
+  const res = await api.delete(`/templates/skill-classifications/${templateId}`)
+  return res.data
+}
+
 // ─── Candidates ───────────────────────────────────────────────────────────────
 
 export async function getCandidates(params = {}) {
@@ -713,6 +750,21 @@ export async function generateEmail(candidateId, type) {
   return res.data
 }
 
+// ─── JD Parse Preview ───────────────────────────────────────────────────────
+
+/**
+ * Parse JD text and return skill classification preview (must-have, nice-to-have, etc.)
+ * Used by SkillClassificationEditor before analysis.
+ */
+export async function parseJdPreview(jobDescription) {
+  const formData = new FormData()
+  formData.append('job_description', jobDescription)
+  const res = await api.post('/jd/parse-preview', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return res.data
+}
+
 // ─── JD URL Extraction ────────────────────────────────────────────────────────
 
 export async function extractJdFromUrl(url) {
@@ -720,7 +772,29 @@ export async function extractJdFromUrl(url) {
   return res.data
 }
 
-// ─── Team ────────────────────────────────────────────────────────────────────
+// ─── Team Skill Profiles ──────────────────────────────────────────────────
+
+export async function getTeamProfiles() {
+  const response = await api.get('/team/profiles')
+  return response.data
+}
+
+export async function createTeamProfile(data) {
+  const response = await api.post('/team/profiles', data)
+  return response.data
+}
+
+export async function updateTeamProfile(profileId, data) {
+  const response = await api.put(`/team/profiles/${profileId}`, data)
+  return response.data
+}
+
+export async function deleteTeamProfile(profileId) {
+  const response = await api.delete(`/team/profiles/${profileId}`)
+  return response.data
+}
+
+// ─── Team (Members) ────────────────────────────────────────────────────────
 
 export async function getTeamMembers() {
   const res = await api.get('/team')
@@ -1124,6 +1198,18 @@ export async function getAllJDStats() {
   return res.data
 }
 
+// ─── Skill Trends Analytics ─────────────────────────────────────────────────
+
+export async function getSkillTrends(params) {
+  const res = await api.get('/analytics/skill-trends', { params })
+  return res.data
+}
+
+export async function computeSkillTrends() {
+  const res = await api.post('/analytics/skill-trends/compute')
+  return res.data
+}
+
 // ─── Screening Analytics ────────────────────────────────────────────────────
 
 export async function getScreeningAnalytics(period = 'last_30_days') {
@@ -1268,6 +1354,23 @@ export async function updatePlanFeature(planId, featureFlagId, enabled) {
 export async function deletePlanFeature(planId, featureFlagId) {
   const response = await api.delete(`/admin/plans/${planId}/features/${featureFlagId}`)
   return response.data
+}
+
+// ─── Outcome Feedback API ─────────────────────────────────────────────────────
+
+export async function recordOutcome(candidateId, data) {
+  const res = await api.post(`/candidates/${candidateId}/outcome`, data)
+  return res.data
+}
+
+export async function recordOutcomeFeedback(outcomeId, data) {
+  const res = await api.post(`/candidates/outcomes/${outcomeId}/feedback`, data)
+  return res.data
+}
+
+export async function getOutcomePatterns(params) {
+  const res = await api.get('/candidates/analytics/outcome-patterns', { params })
+  return res.data
 }
 
 export default api
