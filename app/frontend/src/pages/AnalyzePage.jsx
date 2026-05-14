@@ -5,7 +5,7 @@ import {
   Upload, FileText, X, Loader2, AlertCircle, CheckCircle, 
   Sparkles, ChevronRight, BookOpen, LayoutTemplate, Link2, 
   FileUp, Type, Save, Clock, Trophy, Eye, Download, CheckCircle2, ArrowLeft,
-  FileCheck, XCircle, Hourglass
+  FileCheck, XCircle, Hourglass, RefreshCw, ShieldCheck
 } from 'lucide-react'
 import { 
   analyzeResumeStream, 
@@ -16,10 +16,13 @@ import {
   createTemplateFromFile,
   getNarrative,
   checkHealth,
+  parseJdPreview,
+  parseJdPreviewFromFile,
 } from '../lib/api'
 import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
 import WeightSuggestionPanel from '../components/WeightSuggestionPanel'
 import UniversalWeightsPanel from '../components/UniversalWeightsPanel'
+import SkillClassificationEditor from '../components/SkillClassificationEditor'
 import { FitBadge, RecommendBadge, NarrativeStatusBadge } from '../components/Badges'
 
 const DEFAULT_WEIGHTS = {
@@ -124,6 +127,14 @@ export default function AnalyzePage() {
   const [loadedFromLibrary, setLoadedFromLibrary] = useState(false)
   const [loadedTemplateId, setLoadedTemplateId] = useState(null)
   const jdLibraryRef = useRef(null)
+
+  // Skill Classification state (mandatory review before analysis)
+  const [jdParseResult, setJdParseResult]     = useState(null)
+  const [skillOverrides, setSkillOverrides]    = useState(null)
+  const [parsingJd, setParsingJd]             = useState(false)
+  const [skillsConfirmed, setSkillsConfirmed] = useState(false)
+  const [parseError, setParseError]           = useState(null)
+  const debounceRef = useRef(null)
 
   // Reset analysis state on fresh mount
   useEffect(() => {
@@ -254,6 +265,64 @@ export default function AnalyzePage() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
+  // ── Auto-parse JD text with debounce (1.5s after user stops typing) ──
+  useEffect(() => {
+    if (jdMode !== 'text') return
+
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    const words = (jdText || '').trim().split(/\s+/).filter(Boolean).length
+    if (words < 80) {
+      setJdParseResult(null)
+      setParseError(null)
+      return
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      setParsingJd(true)
+      setParseError(null)
+      try {
+        const data = await parseJdPreview(jdText)
+        setJdParseResult(data)
+      } catch (err) {
+        console.warn('JD auto-parse failed:', err)
+        setParseError(err.message || 'Failed to parse job description')
+      } finally {
+        setParsingJd(false)
+      }
+    }, 1500)
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [jdText, jdMode])
+
+  // ── Auto-parse JD file on upload ──
+  useEffect(() => {
+    if (jdMode !== 'file' || !jdFile) return
+
+    let cancelled = false
+    const parseFile = async () => {
+      setParsingJd(true)
+      setParseError(null)
+      setSkillsConfirmed(false)
+      try {
+        const data = await parseJdPreviewFromFile(jdFile)
+        if (!cancelled) setJdParseResult(data)
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('JD file auto-parse failed:', err)
+          setParseError(err.message || 'Failed to parse job description file')
+        }
+      } finally {
+        if (!cancelled) setParsingJd(false)
+      }
+    }
+
+    parseFile()
+    return () => { cancelled = true }
+  }, [jdMode, jdFile])
+
   // Poll for narrative completion on batch results
   useEffect(() => {
     if (!analysisDone || !streamingResults.length) return
@@ -320,6 +389,10 @@ export default function AnalyzePage() {
       setJdText(result.jd_text)
       setJdMode('text')
       setShowAiSuggestion(true)
+      // Reset skill confirmation since JD changed
+      setSkillsConfirmed(false)
+      setSkillOverrides(null)
+      setJdParseResult(null)
     } catch (err) {
       setUrlError(err.response?.data?.detail || 'Failed to extract JD from URL')
     } finally {
@@ -332,6 +405,10 @@ export default function AnalyzePage() {
     if (acceptedFiles.length > 0) {
       setJdFile(acceptedFiles[0])
       setJdMode('file')
+      // Reset skill confirmation since JD source changed
+      setSkillsConfirmed(false)
+      setSkillOverrides(null)
+      setJdParseResult(null)
     }
   }, [])
 
@@ -378,6 +455,11 @@ export default function AnalyzePage() {
     setJdText(template.jd_text)
     setJdMode('text')
     setShowJdLibrary(false)
+    
+    // Reset skill confirmation since JD changed
+    setSkillsConfirmed(false)
+    setSkillOverrides(null)
+    setJdParseResult(null)
     
     // Mark as loaded from library to prevent duplicate save
     setLoadedFromLibrary(true)
@@ -480,6 +562,7 @@ export default function AnalyzePage() {
           weights,
           null,  // onStageComplete
           loadedTemplateId,
+          skillOverrides,
         )
         navigate('/report', { state: { result } })
       } else {
@@ -544,6 +627,7 @@ export default function AnalyzePage() {
             }
           },
           loadedTemplateId,
+          skillOverrides,
         )
       }
 
@@ -565,7 +649,7 @@ export default function AnalyzePage() {
     }
   }
 
-  const isStep1Complete = jdMode === 'text' ? jdText.trim().length > 50 : jdFile !== null
+  const isStep1Complete = (jdMode === 'text' ? jdText.trim().length > 50 : jdFile !== null) && skillsConfirmed
   const isStep2Complete = weights && Object.keys(weights).length > 0
   const isStep3Complete = files.length > 0
 
@@ -605,7 +689,7 @@ export default function AnalyzePage() {
       {/* Progress Steps */}
       <div className="mb-8 flex items-center justify-between">
         {[
-          { num: 1, label: 'Job Description', complete: isStep1Complete },
+          { num: 1, label: 'JD & Skills', complete: isStep1Complete },
           { num: 2, label: 'Scoring Weights', complete: isStep2Complete },
           { num: 3, label: 'Upload Resumes', complete: isStep3Complete }
         ].map((step, idx) => (
@@ -663,7 +747,7 @@ export default function AnalyzePage() {
       {currentStep === 1 && (
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8 card-animate">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-brand-900">Step 1: Job Description</h2>
+            <h2 className="text-xl font-bold text-brand-900">Step 1: Job Description & Skill Review</h2>
             <div className="relative" ref={jdLibraryRef}>
               <button
                 onClick={() => setShowJdLibrary(!showJdLibrary)}
@@ -724,6 +808,12 @@ export default function AnalyzePage() {
                 value={jdText}
                 onChange={(e) => {
                   setJdText(e.target.value)
+                  // Reset skill confirmation when JD text changes
+                  if (skillsConfirmed) {
+                    setSkillsConfirmed(false)
+                    setSkillOverrides(null)
+                    setJdParseResult(null)
+                  }
                   if (e.target.value.length > 100 && !showAiSuggestion) {
                     setShowAiSuggestion(true)
                   }
@@ -734,43 +824,129 @@ export default function AnalyzePage() {
               <p className="text-xs text-slate-500 mt-2">
                 {jdText.length} characters • {jdText.split(/\s+/).filter(Boolean).length} words
               </p>
+
+              {/* Short JD hint */}
+              {jdText.trim() && jdText.split(/\s+/).filter(Boolean).length < 80 && (
+                <div className="mt-3 flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                  <p className="text-xs text-amber-700">
+                    Add more detail to the job description for better skill extraction ({jdText.split(/\s+/).filter(Boolean).length}/80 words minimum)
+                  </p>
+                </div>
+              )}
+
+              {/* Parsing indicator */}
+              {parsingJd && jdMode === 'text' && (
+                <div className="mt-3 flex items-center gap-2 p-3 bg-brand-50 border border-brand-200 rounded-xl">
+                  <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+                  <p className="text-xs text-brand-700 font-medium">Parsing job description…</p>
+                </div>
+              )}
+
+              {/* Parse error with retry */}
+              {parseError && !parsingJd && jdMode === 'text' && (
+                <div className="mt-3 flex items-center justify-between gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                  <p className="text-xs text-red-700">{parseError}</p>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setParseError(null)
+                      setParsingJd(true)
+                      try {
+                        if (jdMode === 'file' && jdFile) {
+                          const data = await parseJdPreviewFromFile(jdFile)
+                          setJdParseResult(data)
+                        } else {
+                          const data = await parseJdPreview(jdText)
+                          setJdParseResult(data)
+                        }
+                      } catch (err) {
+                        setParseError(err.message || 'Failed to parse job description')
+                      } finally {
+                        setParsingJd(false)
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-red-700 ring-1 ring-red-200 hover:bg-red-50 transition-all shrink-0"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Retry
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
           {jdMode === 'file' && (
-            <div
-              {...getJdRootProps()}
-              className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
-                isJdDragActive
-                  ? 'border-brand-500 bg-brand-50'
-                  : jdFile
-                  ? 'border-brand-200 bg-brand-50/40'
-                  : 'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
-              }`}
-            >
-              <input {...getJdInputProps()} />
-              {jdFile ? (
-                <div className="flex items-center justify-center gap-3">
-                  <FileText className="w-8 h-8 text-brand-600" />
-                  <div>
-                    <p className="font-semibold text-brand-900">{jdFile.name}</p>
-                    <p className="text-xs text-slate-500">{(jdFile.size / 1024).toFixed(1)} KB</p>
+            <div>
+              <div
+                {...getJdRootProps()}
+                className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
+                  isJdDragActive
+                    ? 'border-brand-500 bg-brand-50'
+                    : jdFile
+                    ? 'border-brand-200 bg-brand-50/40'
+                    : 'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
+                }`}
+              >
+                <input {...getJdInputProps()} />
+                {jdFile ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <FileText className="w-8 h-8 text-brand-600" />
+                    <div>
+                      <p className="font-semibold text-brand-900">{jdFile.name}</p>
+                      <p className="text-xs text-slate-500">{(jdFile.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setJdFile(null)
+                        setSkillsConfirmed(false)
+                        setSkillOverrides(null)
+                        setJdParseResult(null)
+                      }}
+                      className="ml-4 p-2 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <X className="w-4 h-4 text-red-600" />
+                    </button>
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setJdFile(null)
-                    }}
-                    className="ml-4 p-2 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <X className="w-4 h-4 text-red-600" />
-                  </button>
+                ) : (
+                  <div>
+                    <FileUp className="w-12 h-12 text-brand-400 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-slate-700">Drop JD file here or click to browse</p>
+                    <p className="text-xs text-slate-500 mt-1">PDF, DOCX, or TXT (max 5MB)</p>
+                  </div>
+                )}
+              </div>
+              {/* File mode parsing indicator */}
+              {parsingJd && jdMode === 'file' && (
+                <div className="mt-3 flex items-center gap-2 p-3 bg-brand-50 border border-brand-200 rounded-xl">
+                  <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+                  <p className="text-xs text-brand-700 font-medium">Parsing job description file…</p>
                 </div>
-              ) : (
-                <div>
-                  <FileUp className="w-12 h-12 text-brand-400 mx-auto mb-3" />
-                  <p className="text-sm font-medium text-slate-700">Drop JD file here or click to browse</p>
-                  <p className="text-xs text-slate-500 mt-1">PDF, DOCX, or TXT (max 5MB)</p>
+              )}
+              {/* File mode parse error */}
+              {parseError && !parsingJd && jdMode === 'file' && (
+                <div className="mt-3 flex items-center justify-between gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                  <p className="text-xs text-red-700">{parseError}</p>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setParseError(null)
+                      setParsingJd(true)
+                      try {
+                        const data = await parseJdPreviewFromFile(jdFile)
+                        setJdParseResult(data)
+                      } catch (err) {
+                        setParseError(err.message || 'Failed to parse job description file')
+                      } finally {
+                        setParsingJd(false)
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-red-700 ring-1 ring-red-200 hover:bg-red-50 transition-all shrink-0"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Retry
+                  </button>
                 </div>
               )}
             </div>
@@ -804,6 +980,51 @@ export default function AnalyzePage() {
               {urlError && (
                 <p className="text-sm text-red-600 mt-2">{urlError}</p>
               )}
+            </div>
+          )}
+
+          {/* ── Inline Skill Classification Editor (shown after JD is parsed, before confirmation) ── */}
+          {jdParseResult && !skillsConfirmed && (
+            <div className="mt-6">
+              <SkillClassificationEditor
+                data={jdParseResult}
+                onConfirm={(overrides) => {
+                  setSkillOverrides(overrides)
+                  setSkillsConfirmed(true)
+                }}
+                onSkip={() => {
+                  setSkillOverrides(null)
+                  setSkillsConfirmed(true)
+                }}
+                loading={false}
+              />
+            </div>
+          )}
+
+          {/* ── Skills Confirmed Badge ── */}
+          {skillsConfirmed && (
+            <div className="mt-6 flex items-center gap-3 flex-wrap p-3 bg-green-50 border border-green-200 rounded-2xl">
+              <ShieldCheck className="w-4 h-4 text-green-600 shrink-0" />
+              <span className="text-sm font-medium text-green-700">
+                Skills confirmed
+                {skillOverrides
+                  ? ` — ${Array.isArray(skillOverrides.required_skills) ? skillOverrides.required_skills.length : 0} must-have, ${Array.isArray(skillOverrides.nice_to_have_skills) ? skillOverrides.nice_to_have_skills.length : 0} good-to-have`
+                  : ' — using AI defaults'}
+              </span>
+              {jdParseResult?.jd_quality && (
+                <span className="text-sm font-medium text-emerald-700">
+                  JD Quality: {jdParseResult.jd_quality.grade} ({jdParseResult.jd_quality.overall_score}/100)
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setSkillsConfirmed(false)
+                }}
+                className="ml-auto text-xs text-green-500 hover:text-green-700 underline"
+              >
+                Re-edit
+              </button>
             </div>
           )}
 
@@ -938,6 +1159,14 @@ export default function AnalyzePage() {
             </div>
           )}
 
+          {/* Skill confirmation required message */}
+          {!skillsConfirmed && files.length > 0 && (
+            <div className="mb-6 p-4 bg-amber-50 ring-1 ring-amber-200 rounded-2xl flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-700">Please go back to Step 1 and confirm the extracted skills before analysis</p>
+            </div>
+          )}
+
           {/* Navigation */}
           <div className="flex justify-between">
             <button
@@ -949,7 +1178,7 @@ export default function AnalyzePage() {
             </button>
             <button
               onClick={handleAnalyze}
-              disabled={!isStep3Complete || isAnalyzing}
+              disabled={!isStep3Complete || isAnalyzing || !skillsConfirmed}
               className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-2xl font-bold hover:shadow-brand-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-brand-sm"
             >
               {isAnalyzing && files.length === 1 ? (

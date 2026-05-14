@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X, BookOpen, BookmarkPlus, Check, LayoutTemplate, Sparkles, Eye } from 'lucide-react'
-import { extractJdFromUrl, getTemplates, createTemplate, parseJdPreview } from '../lib/api'
+import { Upload, FileText, AlertCircle, FileUp, Type, Link2, SlidersHorizontal, ChevronDown, ChevronUp, Loader2, X, BookOpen, BookmarkPlus, Check, LayoutTemplate, Sparkles, RefreshCw, ShieldCheck } from 'lucide-react'
+import { extractJdFromUrl, getTemplates, createTemplate, parseJdPreview, parseJdPreviewFromFile } from '../lib/api'
 import WeightSuggestionPanel from './WeightSuggestionPanel'
 import UniversalWeightsPanel from './UniversalWeightsPanel'
 import SkillClassificationEditor from './SkillClassificationEditor'
@@ -77,6 +77,11 @@ function WeightsPanel({ weights, onChange }) {
   )
 }
 
+// Helper: count words in a string
+function wordCount(str) {
+  return (str || '').trim().split(/\s+/).filter(Boolean).length
+}
+
 export default function UploadForm({
   onFileSelect,
   jobDescription,
@@ -128,11 +133,13 @@ export default function UploadForm({
   const [savedNotice, setSavedNotice]     = useState(false)
   const pickerRef = useRef(null)
 
-  // Skill Classification Editor state
+  // Skill Classification state (mandatory review flow)
   const [jdParseResult, setJdParseResult]     = useState(null)   // parsed JD data from /api/jd/parse-preview
-  const [showSkillEditor, setShowSkillEditor]  = useState(false)  // toggle editor visibility
   const [skillOverrides, setSkillOverrides]    = useState(null)   // user's edits (confirmed overrides)
-  const [parsingJd, setParsingJd]             = useState(false)   // loading state for preview
+  const [parsingJd, setParsingJd]             = useState(false)  // loading state for parsing
+  const [skillsConfirmed, setSkillsConfirmed] = useState(false)  // mandatory confirmation gate
+  const [parseError, setParseError]           = useState(null)   // error during JD parsing
+  const debounceRef = useRef(null)                                // debounce timer ref
 
   useEffect(() => {
     getTemplates()
@@ -150,6 +157,67 @@ export default function UploadForm({
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
+
+  // ── Auto-parse JD text with debounce (1.5s after user stops typing) ──
+  useEffect(() => {
+    if (jdMode !== 'text') return
+
+    // Clear previous timer
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    const words = wordCount(jobDescription)
+    if (words < 80) {
+      // Too short — clear any stale parse result
+      setJdParseResult(null)
+      setParseError(null)
+      return
+    }
+
+    // Debounced auto-parse
+    debounceRef.current = setTimeout(async () => {
+      setParsingJd(true)
+      setParseError(null)
+      try {
+        const data = await parseJdPreview(jobDescription)
+        setJdParseResult(data)
+      } catch (err) {
+        console.warn('JD auto-parse failed:', err)
+        setParseError(err.message || 'Failed to parse job description')
+      } finally {
+        setParsingJd(false)
+      }
+    }, 1500)
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [jobDescription, jdMode])
+
+  // ── Auto-parse JD file on upload ──
+  useEffect(() => {
+    if (jdMode !== 'file' || !selectedJobFile) return
+
+    let cancelled = false
+    const parseFile = async () => {
+      setParsingJd(true)
+      setParseError(null)
+      setSkillsConfirmed(false)
+      try {
+        const data = await parseJdPreviewFromFile(selectedJobFile)
+        if (!cancelled) setJdParseResult(data)
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('JD file auto-parse failed:', err)
+          setParseError(err.message || 'Failed to parse job description file')
+        }
+      } finally {
+        if (!cancelled) setParsingJd(false)
+      }
+    }
+
+    parseFile()
+    return () => { cancelled = true }
+  }, [jdMode, selectedJobFile])
 
   const handleSaveJd = async () => {
     if (!jobDescription.trim()) return
@@ -170,6 +238,11 @@ export default function UploadForm({
     onJobDescriptionChange(template.jd_text)
     setJdMode('text')
     setShowJdPicker(false)
+    // Reset skill confirmation since JD changed
+    setSkillsConfirmed(false)
+    setSkillOverrides(null)
+    setJdParseResult(null)
+    onSkillOverridesChange && onSkillOverridesChange(null)
   }
 
   const onDrop = useCallback((acceptedFiles) => {
@@ -180,8 +253,12 @@ export default function UploadForm({
     if (acceptedFiles.length > 0) {
       onJobFileSelect(acceptedFiles[0])
       setJdMode('file')
+      // Reset skill confirmation since JD source changed
+      setSkillsConfirmed(false)
+      setSkillOverrides(null)
+      onSkillOverridesChange && onSkillOverridesChange(null)
     }
-  }, [onJobFileSelect])
+  }, [onJobFileSelect, onSkillOverridesChange])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -222,6 +299,11 @@ export default function UploadForm({
       const result = await extractJdFromUrl(urlInput.trim())
       onJobDescriptionChange(result.jd_text)
       setJdMode('text')
+      // Reset skill confirmation since JD changed
+      setSkillsConfirmed(false)
+      setSkillOverrides(null)
+      setJdParseResult(null)
+      onSkillOverridesChange && onSkillOverridesChange(null)
     } catch (err) {
       setUrlError(err.response?.data?.detail || 'Failed to extract JD from URL')
     } finally {
@@ -229,37 +311,350 @@ export default function UploadForm({
     }
   }
 
-  const handleParsePreview = async () => {
+  // Handle JD text change — reset skill confirmation when JD is modified
+  const handleJdTextChange = (newText) => {
+    onJobDescriptionChange(newText)
+    if (skillsConfirmed) {
+      setSkillsConfirmed(false)
+      setSkillOverrides(null)
+      setJdParseResult(null)
+      onSkillOverridesChange && onSkillOverridesChange(null)
+    }
+  }
+
+  // Retry JD parsing after an error
+  const handleRetryParse = async () => {
+    setParseError(null)
     setParsingJd(true)
     try {
-      const data = await parseJdPreview(jobDescription)
-      setJdParseResult(data)
-      setShowSkillEditor(true)
+      if (jdMode === 'file' && selectedJobFile) {
+        const data = await parseJdPreviewFromFile(selectedJobFile)
+        setJdParseResult(data)
+      } else {
+        const data = await parseJdPreview(jobDescription)
+        setJdParseResult(data)
+      }
     } catch (err) {
-      // Silently fail — skill editing is optional
-      console.warn('JD parse-preview failed:', err)
+      console.warn('JD retry-parse failed:', err)
+      setParseError(err.message || 'Failed to parse job description')
     } finally {
       setParsingJd(false)
     }
   }
 
-  // Helper: count words in a string
-  const wordCount = (str) => (str || '').trim().split(/\s+/).filter(Boolean).length
+  // Reset skills to re-edit after confirmation
+  const handleResetSkills = () => {
+    setSkillsConfirmed(false)
+    // Keep jdParseResult so the editor reappears; overrides will be re-set on next confirm
+  }
 
   const isSubmitDisabled = isLoading || !selectedFile || (
     jdMode === 'text' ? !jobDescription.trim() :
     jdMode === 'file' ? !selectedJobFile :
     !urlInput.trim()
-  )
+  ) || !skillsConfirmed
+
+  // Determine effective JD word count for hint
+  const jdWordCount = jdMode === 'text' ? wordCount(jobDescription) : 0
 
   return (
     <div className="w-full max-w-3xl mx-auto card-animate">
       <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8">
         <h2 className="text-xl font-bold text-brand-900 mb-6 tracking-tight">Upload Resume & Job Description</h2>
 
-        {/* Resume Upload */}
+        {/* ── Step 1: Job Description ── */}
         <div className="mb-6">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Resume (PDF, DOCX, DOC, TXT, RTF, ODT)</label>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold shrink-0">1</span>
+            <label className="block text-sm font-semibold text-slate-700">Job Description</label>
+
+            {/* Load from saved JDs */}
+            <div className="relative" ref={pickerRef}>
+              <button
+                type="button"
+                onClick={() => setShowJdPicker((v) => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 transition-colors border border-brand-200"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                Saved JDs
+                {savedJds.length > 0 && (
+                  <span className="ml-0.5 bg-brand-200 text-brand-800 rounded-full px-1.5 py-0.5 text-[10px] font-bold">
+                    {savedJds.length}
+                  </span>
+                )}
+              </button>
+              {showJdPicker && (
+                <div className="absolute left-0 top-full mt-1.5 w-72 bg-white border border-brand-100 rounded-2xl shadow-brand-lg z-30 max-h-64 overflow-y-auto py-1">
+                  {savedJds.length === 0 ? (
+                    <div className="px-4 py-3">
+                      <p className="text-xs text-slate-400">No saved JDs yet.</p>
+                      <p className="text-[10px] text-slate-400 mt-1">Paste a JD and click "Save to Library" below.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold px-3 py-1.5 sticky top-0 bg-white/95 border-b border-brand-50">
+                        Select a Template
+                      </p>
+                      {savedJds.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => handleLoadJd(t)}
+                          className="w-full text-left px-4 py-3 hover:bg-brand-50 transition-colors border-b border-brand-50 last:border-b-0"
+                        >
+                          <p className="font-semibold text-slate-800 text-sm truncate">{t.name}</p>
+                          <p className="text-xs text-slate-400 truncate mt-0.5">{t.jd_text.slice(0, 80)}…</p>
+                        </button>
+                      ))}
+                      <div className="px-3 py-2 bg-brand-50/50 border-t border-brand-100">
+                        <a href="/templates" className="text-xs text-brand-700 font-medium hover:text-brand-800 flex items-center gap-1">
+                          <LayoutTemplate className="w-3 h-3" />
+                          Manage all templates →
+                        </a>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Pill tab switcher */}
+            <div className="ml-auto flex bg-brand-50 ring-1 ring-brand-100 rounded-xl p-1">
+              {[
+                { mode: 'text', Icon: Type,   label: 'Text' },
+                { mode: 'file', Icon: FileUp, label: 'File' },
+                { mode: 'url',  Icon: Link2,  label: 'URL'  },
+              ].map(({ mode, Icon, label }) => (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    if (jdMode === 'file' && mode !== 'file') onJobFileSelect(null)
+                    setJdMode(mode)
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    jdMode === mode
+                      ? 'bg-brand-600 text-white shadow-brand-sm'
+                      : 'text-slate-500 hover:text-brand-700'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {jdMode === 'text' && (
+            <div className="relative">
+              <textarea
+                value={jobDescription}
+                onChange={(e) => handleJdTextChange(e.target.value)}
+                placeholder="Paste the job description here..."
+                rows={6}
+                className="w-full px-4 py-3 rounded-2xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white resize-none text-slate-700 placeholder-slate-400 text-sm transition-shadow"
+              />
+              {/* Save JD button */}
+              <div className="flex justify-between items-center mt-2">
+                <span className="text-xs text-slate-400">
+                  {jobDescription.length > 0 && `${jobDescription.length.toLocaleString()} characters · ${jdWordCount} words`}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveJd}
+                  disabled={saveLoading || !jobDescription.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-40
+                    bg-white border border-brand-200 text-brand-700 hover:bg-brand-50 hover:border-brand-300"
+                >
+                  {savedNotice ? (
+                    <>
+                      <Check className="w-4 h-4 text-green-600" />
+                      <span className="text-green-600">Saved to Library!</span>
+                    </>
+                  ) : saveLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <BookmarkPlus className="w-4 h-4" />
+                      Save to Library
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Short JD hint — shown when JD text exists but is under 80 words */}
+              {jobDescription.trim() && jdWordCount < 80 && (
+                <div className="mt-3 flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                  <p className="text-xs text-amber-700">
+                    Add more detail to the job description for better skill extraction ({jdWordCount}/80 words minimum)
+                  </p>
+                </div>
+              )}
+
+              {/* Parsing indicator */}
+              {parsingJd && jdMode === 'text' && (
+                <div className="mt-3 flex items-center gap-2 p-3 bg-brand-50 border border-brand-200 rounded-xl">
+                  <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+                  <p className="text-xs text-brand-700 font-medium">Parsing job description…</p>
+                </div>
+              )}
+
+              {/* Parse error with retry */}
+              {parseError && !parsingJd && jdMode === 'text' && (
+                <div className="mt-3 flex items-center justify-between gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                  <p className="text-xs text-red-700">{parseError}</p>
+                  <button
+                    type="button"
+                    onClick={handleRetryParse}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-red-700 ring-1 ring-red-200 hover:bg-red-50 transition-all shrink-0"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Retry
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {jdMode === 'file' && (
+            <div>
+              <div
+                {...getJdRootProps()}
+                className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 ${
+                  isJdDragActive
+                    ? 'border-brand-500 bg-brand-50'
+                    : selectedJobFile
+                    ? 'border-brand-200 bg-brand-50/40'
+                    : 'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
+                }`}
+              >
+                <input {...getJdInputProps()} />
+                {selectedJobFile ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-brand-100 flex items-center justify-center">
+                      <FileText className="w-4 h-4 text-brand-600" />
+                    </div>
+                    <div className="text-left flex-1 min-w-0">
+                      <p className="font-semibold text-slate-800 truncate">{selectedJobFile.name}</p>
+                      <p className="text-sm text-slate-400">{(selectedJobFile.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="w-10 h-10 rounded-2xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center mx-auto mb-2">
+                      <FileUp className="w-5 h-5 text-brand-500" />
+                    </div>
+                    <p className="text-slate-600 text-sm font-medium">
+                      {isJdDragActive ? 'Drop JD file here...' : 'Upload JD — PDF, DOCX, DOC, TXT, RTF, HTML, ODT'}
+                    </p>
+                  </>
+                )}
+              </div>
+              {/* File mode parsing indicator */}
+              {parsingJd && jdMode === 'file' && (
+                <div className="mt-3 flex items-center gap-2 p-3 bg-brand-50 border border-brand-200 rounded-xl">
+                  <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+                  <p className="text-xs text-brand-700 font-medium">Parsing job description file…</p>
+                </div>
+              )}
+              {/* File mode parse error */}
+              {parseError && !parsingJd && jdMode === 'file' && (
+                <div className="mt-3 flex items-center justify-between gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                  <p className="text-xs text-red-700">{parseError}</p>
+                  <button
+                    type="button"
+                    onClick={handleRetryParse}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-red-700 ring-1 ring-red-200 hover:bg-red-50 transition-all shrink-0"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Retry
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {jdMode === 'url' && (
+            <div>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  placeholder="https://linkedin.com/jobs/view/... or indeed.com/..."
+                  className="flex-1 px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
+                />
+                <button
+                  onClick={handleExtractUrl}
+                  disabled={urlLoading || !urlInput.trim()}
+                  className="px-4 py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-xl hover:bg-brand-700 disabled:opacity-60 flex items-center gap-2 transition-colors shadow-brand-sm"
+                >
+                  {urlLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+                  Extract
+                </button>
+              </div>
+              {urlError && <p className="text-xs text-red-600 mt-1.5">{urlError}</p>}
+              {jobDescription && jdMode === 'url' && (
+                <p className="text-xs text-green-600 mt-1.5">JD extracted — switched to Text mode for review.</p>
+              )}
+            </div>
+          )}
+
+          {/* ── Inline Skill Classification Editor (shown after JD is parsed, before confirmation) ── */}
+          {jdParseResult && !skillsConfirmed && (
+            <div className="mt-4">
+              <SkillClassificationEditor
+                data={jdParseResult}
+                onConfirm={(overrides) => {
+                  setSkillOverrides(overrides)
+                  setSkillsConfirmed(true)
+                  onSkillOverridesChange && onSkillOverridesChange(overrides)
+                }}
+                onSkip={() => {
+                  setSkillOverrides(null)
+                  setSkillsConfirmed(true)
+                  onSkillOverridesChange && onSkillOverridesChange(null)
+                }}
+                loading={false}
+              />
+            </div>
+          )}
+
+          {/* ── Skills Confirmed Badge ── */}
+          {skillsConfirmed && (
+            <div className="mt-4 flex items-center gap-3 flex-wrap p-3 bg-green-50 border border-green-200 rounded-2xl">
+              <ShieldCheck className="w-4 h-4 text-green-600 shrink-0" />
+              <span className="text-sm font-medium text-green-700">
+                Skills confirmed
+                {skillOverrides
+                  ? ` — ${Array.isArray(skillOverrides.required_skills) ? skillOverrides.required_skills.length : 0} must-have, ${Array.isArray(skillOverrides.nice_to_have_skills) ? skillOverrides.nice_to_have_skills.length : 0} good-to-have`
+                  : ' — using AI defaults'}
+              </span>
+              {jdParseResult?.jd_quality && (
+                <span className="text-sm font-medium text-emerald-700">
+                  JD Quality: {jdParseResult.jd_quality.grade} ({jdParseResult.jd_quality.overall_score}/100)
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleResetSkills}
+                className="ml-auto text-xs text-green-500 hover:text-green-700 underline"
+              >
+                Re-edit
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Step 2: Resume Upload ── */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold shrink-0">2</span>
+            <label className="block text-sm font-semibold text-slate-700">Resume (PDF, DOCX, DOC, TXT, RTF, ODT)</label>
+          </div>
           <div
             {...getRootProps()}
             className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 ${
@@ -301,262 +696,11 @@ export default function UploadForm({
           </div>
         </div>
 
-        {/* Job Description */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <label className="block text-sm font-semibold text-slate-700">Job Description</label>
-
-              {/* Load from saved JDs - now more prominent */}
-              <div className="relative" ref={pickerRef}>
-                <button
-                  type="button"
-                  onClick={() => setShowJdPicker((v) => !v)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 transition-colors border border-brand-200"
-                >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  Saved JDs
-                  {savedJds.length > 0 && (
-                    <span className="ml-0.5 bg-brand-200 text-brand-800 rounded-full px-1.5 py-0.5 text-[10px] font-bold">
-                      {savedJds.length}
-                    </span>
-                  )}
-                </button>
-                {showJdPicker && (
-                  <div className="absolute left-0 top-full mt-1.5 w-72 bg-white border border-brand-100 rounded-2xl shadow-brand-lg z-30 max-h-64 overflow-y-auto py-1">
-                    {savedJds.length === 0 ? (
-                      <div className="px-4 py-3">
-                        <p className="text-xs text-slate-400">No saved JDs yet.</p>
-                        <p className="text-[10px] text-slate-400 mt-1">Paste a JD and click "Save to Library" below.</p>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold px-3 py-1.5 sticky top-0 bg-white/95 border-b border-brand-50">
-                          Select a Template
-                        </p>
-                        {savedJds.map((t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => handleLoadJd(t)}
-                            className="w-full text-left px-4 py-3 hover:bg-brand-50 transition-colors border-b border-brand-50 last:border-b-0"
-                          >
-                            <p className="font-semibold text-slate-800 text-sm truncate">{t.name}</p>
-                            <p className="text-xs text-slate-400 truncate mt-0.5">{t.jd_text.slice(0, 80)}…</p>
-                          </button>
-                        ))}
-                        <div className="px-3 py-2 bg-brand-50/50 border-t border-brand-100">
-                          <a href="/templates" className="text-xs text-brand-700 font-medium hover:text-brand-800 flex items-center gap-1">
-                            <LayoutTemplate className="w-3 h-3" />
-                            Manage all templates →
-                          </a>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Pill tab switcher */}
-            <div className="flex bg-brand-50 ring-1 ring-brand-100 rounded-xl p-1">
-              {[
-                { mode: 'text', Icon: Type,   label: 'Text' },
-                { mode: 'file', Icon: FileUp, label: 'File' },
-                { mode: 'url',  Icon: Link2,  label: 'URL'  },
-              ].map(({ mode, Icon, label }) => (
-                <button
-                  key={mode}
-                  onClick={() => {
-                    if (jdMode === 'file' && mode !== 'file') onJobFileSelect(null)
-                    setJdMode(mode)
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                    jdMode === mode
-                      ? 'bg-brand-600 text-white shadow-brand-sm'
-                      : 'text-slate-500 hover:text-brand-700'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {jdMode === 'text' && (
-            <div className="relative">
-              <textarea
-                value={jobDescription}
-                onChange={(e) => onJobDescriptionChange(e.target.value)}
-                placeholder="Paste the job description here..."
-                rows={6}
-                className="w-full px-4 py-3 rounded-2xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white resize-none text-slate-700 placeholder-slate-400 text-sm transition-shadow"
-              />
-              {/* Save JD button - prominently placed below textarea */}
-              <div className="flex justify-between items-center mt-2">
-                <span className="text-xs text-slate-400">
-                  {jobDescription.length > 0 && `${jobDescription.length.toLocaleString()} characters`}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleSaveJd}
-                  disabled={saveLoading || !jobDescription.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-40
-                    bg-white border border-brand-200 text-brand-700 hover:bg-brand-50 hover:border-brand-300"
-                >
-                  {savedNotice ? (
-                    <>
-                      <Check className="w-4 h-4 text-green-600" />
-                      <span className="text-green-600">Saved to Library!</span>
-                    </>
-                  ) : saveLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <BookmarkPlus className="w-4 h-4" />
-                      Save to Library
-                    </>
-                  )}
-                </button>
-              </div>
-              {/* Preview & Edit Skills button — shown when JD has >= 80 words */}
-              {wordCount(jobDescription) >= 80 && (
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={handleParsePreview}
-                    disabled={parsingJd}
-                    className="flex items-center gap-2 w-full px-4 py-2.5 rounded-xl text-sm font-semibold transition-all
-                      bg-gradient-to-r from-indigo-50 to-brand-50 border border-indigo-200 text-indigo-700
-                      hover:from-indigo-100 hover:to-brand-100 hover:border-indigo-300
-                      disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {parsingJd ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Parsing skills…
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="w-4 h-4" />
-                        Preview & Edit Skills
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {jdMode === 'file' && (
-            <div
-              {...getJdRootProps()}
-              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 ${
-                isJdDragActive
-                  ? 'border-brand-500 bg-brand-50'
-                  : selectedJobFile
-                  ? 'border-brand-200 bg-brand-50/40'
-                  : 'border-brand-200 hover:border-brand-400 hover:bg-brand-50/40'
-              }`}
-            >
-              <input {...getJdInputProps()} />
-              {selectedJobFile ? (
-                <div className="flex items-center justify-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-brand-100 flex items-center justify-center">
-                    <FileText className="w-4 h-4 text-brand-600" />
-                  </div>
-                  <div className="text-left flex-1 min-w-0">
-                    <p className="font-semibold text-slate-800 truncate">{selectedJobFile.name}</p>
-                    <p className="text-sm text-slate-400">{(selectedJobFile.size / 1024).toFixed(1)} KB</p>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="w-10 h-10 rounded-2xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center mx-auto mb-2">
-                    <FileUp className="w-5 h-5 text-brand-500" />
-                  </div>
-                  <p className="text-slate-600 text-sm font-medium">
-                    {isJdDragActive ? 'Drop JD file here...' : 'Upload JD — PDF, DOCX, DOC, TXT, RTF, HTML, ODT'}
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-
-          {jdMode === 'url' && (
-            <div>
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  placeholder="https://linkedin.com/jobs/view/... or indeed.com/..."
-                  className="flex-1 px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
-                />
-                <button
-                  onClick={handleExtractUrl}
-                  disabled={urlLoading || !urlInput.trim()}
-                  className="px-4 py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-xl hover:bg-brand-700 disabled:opacity-60 flex items-center gap-2 transition-colors shadow-brand-sm"
-                >
-                  {urlLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-                  Extract
-                </button>
-              </div>
-              {urlError && <p className="text-xs text-red-600 mt-1.5">{urlError}</p>}
-              {jobDescription && jdMode === 'url' && (
-                <p className="text-xs text-green-600 mt-1.5">JD extracted — switched to Text mode for review.</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Skill Classification Editor */}
-        {showSkillEditor && jdParseResult && (
-          <div className="mb-6">
-            <SkillClassificationEditor
-              data={jdParseResult}
-              onConfirm={(overrides) => {
-                setSkillOverrides(overrides)
-                setShowSkillEditor(false)
-                onSkillOverridesChange && onSkillOverridesChange(overrides)
-              }}
-              onSkip={() => {
-                setSkillOverrides(null)
-                setShowSkillEditor(false)
-                onSkillOverridesChange && onSkillOverridesChange(null)
-              }}
-              loading={false}
-            />
-          </div>
-        )}
-
-        {/* Skill Overrides Summary Badge & JD Quality Badge */}
-        {skillOverrides && !showSkillEditor && (
-          <div className="mb-6 flex items-center gap-3 flex-wrap p-3 bg-indigo-50 border border-indigo-200 rounded-2xl">
-            <Check className="w-4 h-4 text-indigo-600 shrink-0" />
-            <span className="text-sm font-medium text-indigo-700">
-              Skills customized ({Array.isArray(skillOverrides.required_skills) ? skillOverrides.required_skills.length : 0} must-have, {Array.isArray(skillOverrides.nice_to_have_skills) ? skillOverrides.nice_to_have_skills.length : 0} good-to-have)
-            </span>
-            {jdParseResult?.jd_quality && (
-              <span className="text-sm font-medium text-emerald-700">
-                JD Quality: {jdParseResult.jd_quality.grade} ({jdParseResult.jd_quality.overall_score}/100)
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setSkillOverrides(null)
-                setJdParseResult(null)
-                onSkillOverridesChange && onSkillOverridesChange(null)
-              }}
-              className="ml-auto text-xs text-indigo-500 hover:text-indigo-700 underline"
-            >
-              Reset
-            </button>
+        {/* Skill confirmation required message */}
+        {selectedFile && !skillsConfirmed && (
+          <div className="mb-5 p-4 bg-amber-50 ring-1 ring-amber-200 rounded-2xl flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-700">Please review and confirm the extracted skills before analysis</p>
           </div>
         )}
 

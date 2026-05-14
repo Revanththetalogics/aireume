@@ -462,7 +462,7 @@ export async function analyzeBatchChunked(files, jobDescription, jobFile = null,
  * @param {Function} callbacks.onDone - Called with (total, successful, failedCount) when complete
  * @returns {Promise<void>}
  */
-export async function analyzeBatchStream(files, jobDescription, jdFile = null, scoringWeights = null, callbacks = {}, templateId = null) {
+export async function analyzeBatchStream(files, jobDescription, jdFile = null, scoringWeights = null, callbacks = {}, templateId = null, skillOverrides = null) {
   const {
     onFileProgress, onOverallProgress, onFileComplete, onFileError,  // upload callbacks
     onProcessing, // (index, total, filename) => void
@@ -502,6 +502,7 @@ export async function analyzeBatchStream(files, jobDescription, jdFile = null, s
   if (jdFile) formData.append('job_file', jdFile)
   if (scoringWeights) formData.append('scoring_weights', JSON.stringify(scoringWeights))
   if (templateId) formData.append('template_id', templateId)
+  if (skillOverrides) formData.append('skill_overrides', JSON.stringify(skillOverrides))
 
   // Phase 3: Open SSE stream
   const baseURL = import.meta.env.VITE_API_URL || '/api'
@@ -759,6 +760,19 @@ export async function generateEmail(candidateId, type) {
 export async function parseJdPreview(jobDescription) {
   const formData = new FormData()
   formData.append('job_description', jobDescription)
+  const res = await api.post('/jd/parse-preview', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return res.data
+}
+
+/**
+ * Parse JD file upload and return skill classification preview.
+ * Same endpoint as parseJdPreview but accepts a File object.
+ */
+export async function parseJdPreviewFromFile(file) {
+  const formData = new FormData()
+  formData.append('job_file', file)
   const res = await api.post('/jd/parse-preview', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })

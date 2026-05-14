@@ -6,262 +6,342 @@
     <style>
         @page {
             size: A4;
-            margin: 1.8cm 1.6cm;
+            margin: 2cm 1.8cm;
             @bottom-center {
-                content: "Page " counter(page) " of " counter(pages);
-                font-size: 9pt;
-                color: #8898aa;
-                font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+                content: "ARIA Candidate Assessment Report — Page " counter(page) " of " counter(pages);
+                font-size: 8pt;
+                color: #9ca3af;
+                font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
             }
         }
 
         * {
             box-sizing: border-box;
-        }
-
-        body {
-            font-family: "Segoe UI", Helvetica, Arial, sans-serif;
-            font-size: 10pt;
-            line-height: 1.5;
-            color: #2d3748;
             margin: 0;
             padding: 0;
         }
 
-        h1 {
-            font-size: 20pt;
-            font-weight: 700;
-            color: #1a202c;
-            margin: 0 0 4pt 0;
-        }
-
-        h2 {
-            font-size: 14pt;
-            font-weight: 600;
-            color: #1a202c;
-            margin: 0 0 10pt 0;
-            border-bottom: 2pt solid #e2e8f0;
-            padding-bottom: 4pt;
-        }
-
-        h3 {
-            font-size: 11pt;
-            font-weight: 600;
-            color: #2d3748;
-            margin: 0 0 6pt 0;
-        }
-
-        .report-header {
-            margin-bottom: 16pt;
-        }
-
-        .report-header .brand {
-            font-size: 9pt;
-            color: #718096;
-            text-transform: uppercase;
-            letter-spacing: 1pt;
-            margin-bottom: 2pt;
-        }
-
-        .report-header .date {
-            font-size: 9pt;
-            color: #a0aec0;
-        }
-
-        .candidate-snapshot {
-            background: #f7fafc;
-            border-radius: 6pt;
-            padding: 12pt;
-            margin-bottom: 14pt;
-            border-left: 4pt solid #3182ce;
-        }
-
-        .candidate-snapshot .name {
-            font-size: 16pt;
-            font-weight: 700;
-            color: #1a202c;
-            margin: 0 0 4pt 0;
-        }
-
-        .candidate-snapshot .meta {
+        body {
+            font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
             font-size: 10pt;
-            color: #4a5568;
+            line-height: 1.5;
+            color: #1f2937;
+            background: #f9fafb;
         }
 
-        .candidate-snapshot .meta span {
-            margin-right: 12pt;
+        /* Brand Header */
+        .brand-header {
+            margin-bottom: 16pt;
+            padding-bottom: 8pt;
+            border-bottom: 2pt solid #e5e7eb;
         }
 
-        .score-row {
-            margin-bottom: 14pt;
+        .brand-header .logo {
+            font-size: 22pt;
+            font-weight: 700;
+            color: #1e1b4b;
+            letter-spacing: -0.5pt;
         }
 
-        .score-box {
-            display: inline-block;
-            width: 48%;
-            vertical-align: top;
+        .brand-header .subtitle {
+            font-size: 11pt;
+            color: #6366f1;
+            font-weight: 500;
+            margin-top: 2pt;
+        }
+
+        /* Candidate Info Section */
+        .candidate-info {
+            margin-bottom: 12pt;
+        }
+
+        .candidate-info .candidate-name {
+            font-size: 14pt;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 4pt;
+        }
+
+        .candidate-info .meta-row {
+            font-size: 9.5pt;
+            color: #6b7280;
+            line-height: 1.6;
+        }
+
+        .candidate-info .meta-row strong {
+            color: #374151;
+        }
+
+        /* Score Cards */
+        .score-cards {
+            display: flex;
+            gap: 12pt;
+            margin-bottom: 16pt;
             padding: 12pt;
-            border-radius: 6pt;
+            background: #fef2f2;
+            border-radius: 8pt;
+        }
+
+        .score-card {
+            flex: 1;
             text-align: center;
-            page-break-inside: avoid;
         }
 
-        .score-box.ai-score {
-            background: #f0fff4;
-            border: 1pt solid #c6f6d5;
-            margin-right: 2%;
-        }
-
-        .score-box.ai-score.amber {
-            background: #fffaf0;
-            border: 1pt solid #feebc8;
-        }
-
-        .score-box.ai-score.red {
-            background: #fff5f5;
-            border: 1pt solid #fed7d7;
-        }
-
-        .score-box.recruiter-score {
-            background: #ebf8ff;
-            border: 1pt solid #bee3f8;
-            margin-left: 2%;
-        }
-
-        .score-box.recruiter-score.neutral {
-            background: #f7fafc;
-            border: 1pt solid #e2e8f0;
-        }
-
-        .score-box .label {
-            font-size: 9pt;
-            color: #718096;
+        .score-card .card-label {
+            font-size: 8pt;
+            color: #6b7280;
             text-transform: uppercase;
             letter-spacing: 0.5pt;
             margin-bottom: 4pt;
         }
 
-        .score-box .value {
-            font-size: 22pt;
+        .score-card .card-value {
+            font-size: 24pt;
             font-weight: 700;
+            color: #dc2626;
         }
 
-        .score-box.ai-score .value { color: #276749; }
-        .score-box.ai-score.amber .value { color: #c05621; }
-        .score-box.ai-score.red .value { color: #c53030; }
-        .score-box.recruiter-score .value { color: #2b6cb0; }
-        .score-box.recruiter-score.neutral .value { color: #718096; }
+        .score-card .card-value.reject {
+            color: #ea580c;
+        }
 
+        .score-card .card-value.neutral {
+            color: #6b7280;
+            font-size: 18pt;
+        }
+
+        /* Score Breakdown */
         .section {
             margin-bottom: 14pt;
         }
 
-        .recommendation-box {
-            background: #f7fafc;
-            border-radius: 6pt;
-            padding: 10pt 12pt;
-            margin-bottom: 10pt;
+        .section-title {
+            font-size: 12pt;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 8pt;
         }
 
-        .recommendation-box .rec-label {
-            font-size: 9pt;
-            color: #718096;
-            text-transform: uppercase;
-            letter-spacing: 0.5pt;
+        .score-breakdown {
+            margin-bottom: 14pt;
         }
 
-        .recommendation-box .rec-text {
+        .dimension-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8pt;
+            gap: 10pt;
+        }
+
+        .dimension-row .dim-label {
+            width: 120pt;
+            font-size: 9.5pt;
+            color: #374151;
+            font-weight: 500;
+        }
+
+        .dimension-row .bar-container {
+            flex: 1;
+            height: 8pt;
+            background: #f3f4f6;
+            border-radius: 4pt;
+            overflow: hidden;
+        }
+
+        .dimension-row .bar-fill {
+            height: 100%;
+            border-radius: 4pt;
+            transition: width 0.3s;
+        }
+
+        .dimension-row .bar-fill.green { background: #22c55e; }
+        .dimension-row .bar-fill.amber { background: #f59e0b; }
+        .dimension-row .bar-fill.red { background: #ef4444; }
+        .dimension-row .bar-fill.blue { background: #6366f1; }
+        .dimension-row .bar-fill.purple { background: #8b5cf6; }
+
+        .dimension-row .dim-value {
+            width: 35pt;
+            text-align: right;
+            font-size: 9.5pt;
+            font-weight: 600;
+            color: #111827;
+        }
+
+        /* Skill Pills */
+        .skill-section {
+            margin-bottom: 12pt;
+        }
+
+        .skill-section .section-title {
             font-size: 11pt;
             font-weight: 600;
-            color: #1a202c;
-            margin-top: 2pt;
+            margin-bottom: 6pt;
         }
 
-        .bullet-list {
-            margin: 0;
-            padding-left: 16pt;
+        .skill-section.missing .section-title {
+            color: #dc2626;
         }
 
-        .bullet-list li {
-            margin-bottom: 4pt;
+        .skill-section.strength .section-title {
+            color: #059669;
         }
 
-        .role-pill {
-            display: inline-block;
-            background: #edf2f7;
-            color: #2d3748;
-            padding: 3pt 8pt;
+        .pill-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6pt;
+        }
+
+        .pill {
+            padding: 4pt 10pt;
             border-radius: 12pt;
             font-size: 9pt;
             font-weight: 500;
         }
 
+        .pill.red {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .pill.green {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        /* Risk Signals */
+        .risk-box {
+            padding: 8pt 10pt;
+            background: #fef2f2;
+            border-radius: 6pt;
+            margin-bottom: 10pt;
+        }
+
+        .risk-box .risk-label {
+            font-size: 9pt;
+            font-weight: 600;
+            color: #dc2626;
+            margin-bottom: 2pt;
+        }
+
+        .risk-box .risk-text {
+            font-size: 9.5pt;
+            color: #374151;
+            line-height: 1.5;
+        }
+
+        /* Employment Gaps */
+        .gaps-box {
+            padding: 8pt 10pt;
+            background: #f0fdf4;
+            border-radius: 6pt;
+            color: #059669;
+            font-size: 9.5pt;
+        }
+
+        /* AI Reasoning */
+        .reasoning-box {
+            margin-top: 12pt;
+        }
+
+        .reasoning-box .section-title {
+            font-size: 11pt;
+            color: #111827;
+        }
+
+        .reasoning-box .reasoning-text {
+            font-size: 9.5pt;
+            color: #4b5563;
+            line-height: 1.6;
+        }
+
+        /* Page Break */
         .page-break {
             page-break-before: always;
         }
 
-        /* Page 2 — Score Breakdown */
-        .dimension-bar {
-            margin-bottom: 10pt;
-            page-break-inside: avoid;
+        /* Recruiter Evaluation Page */
+        .eval-status-box {
+            padding: 16pt;
+            background: #f9fafb;
+            border: 1pt solid #e5e7eb;
+            border-radius: 8pt;
+            text-align: center;
+            color: #6b7280;
+            font-size: 10pt;
+            margin-bottom: 14pt;
         }
 
-        .dimension-bar .dim-header {
+        .checklist {
+            margin-bottom: 14pt;
+        }
+
+        .checklist-item {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 3pt;
+            align-items: center;
+            padding: 8pt 10pt;
+            background: #ffffff;
+            border: 1pt solid #e5e7eb;
+            border-radius: 6pt;
+            margin-bottom: 6pt;
+            font-size: 9.5pt;
         }
 
-        .dimension-bar .dim-label {
-            font-weight: 600;
-            font-size: 10pt;
+        .checklist-item .item-label {
+            color: #374151;
+            font-weight: 500;
         }
 
-        .dimension-bar .dim-value {
-            font-weight: 700;
-            font-size: 10pt;
-        }
-
-        .bar-track {
-            width: 100%;
-            height: 10pt;
-            background: #e2e8f0;
-            border-radius: 5pt;
-            overflow: hidden;
-        }
-
-        .bar-fill {
-            height: 100%;
-            border-radius: 5pt;
-            background: #48bb78;
-        }
-
-        .bar-fill.amber { background: #ed8936; }
-        .bar-fill.red { background: #f56565; }
-
-        .skill-pills {
-            margin-top: 6pt;
-        }
-
-        .pill {
-            display: inline-block;
-            padding: 3pt 8pt;
+        .checklist-item .item-status {
+            padding: 3pt 10pt;
             border-radius: 10pt;
             font-size: 8.5pt;
-            font-weight: 500;
-            margin: 0 4pt 4pt 0;
+            font-weight: 600;
+            background: #fef3c7;
+            color: #d97706;
         }
 
-        .pill.green {
-            background: #c6f6d5;
-            color: #276749;
+        .decision-summary {
+            padding: 10pt 12pt;
+            background: #fef2f2;
+            border-radius: 8pt;
+            margin-bottom: 14pt;
         }
 
-        .pill.red {
-            background: #fed7d7;
-            color: #c53030;
+        .decision-summary .summary-line {
+            font-size: 9pt;
+            color: #374151;
+            margin-bottom: 3pt;
+            line-height: 1.5;
         }
 
+        .decision-summary .summary-line strong {
+            color: #111827;
+        }
+
+        /* Skills Detail */
+        .skill-detail-item {
+            padding: 8pt 10pt;
+            background: #fef2f2;
+            border-radius: 6pt;
+            margin-bottom: 6pt;
+        }
+
+        .skill-detail-item .skill-name {
+            font-size: 9.5pt;
+            font-weight: 600;
+            color: #dc2626;
+            margin-bottom: 2pt;
+        }
+
+        .skill-detail-item .skill-reason {
+            font-size: 8.5pt;
+            color: #6b7280;
+        }
+
+        /* Tables */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -270,175 +350,88 @@
         }
 
         th, td {
-            padding: 6pt 8pt;
+            padding: 8pt 10pt;
             text-align: left;
-            border-bottom: 1pt solid #e2e8f0;
+            border: 1pt solid #e5e7eb;
         }
 
         th {
-            background: #f7fafc;
+            background: #1e1b4b;
+            color: #ffffff;
             font-weight: 600;
-            color: #4a5568;
             font-size: 9pt;
         }
 
-        .severity-high {
-            color: #c53030;
-            font-weight: 600;
+        td {
+            background: #ffffff;
+            color: #374151;
         }
 
-        .severity-medium {
-            color: #c05621;
+        .severity-badge {
+            display: inline-block;
+            padding: 3pt 8pt;
+            border-radius: 10pt;
+            font-size: 8pt;
             font-weight: 600;
+            text-transform: uppercase;
         }
 
-        .severity-low {
-            color: #2f855a;
-            font-weight: 600;
+        .severity-badge.high {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .severity-badge.medium {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .severity-badge.low {
+            background: #d1fae5;
+            color: #059669;
         }
 
         .empty-state {
-            color: #a0aec0;
+            color: #9ca3af;
             font-style: italic;
-            font-size: 10pt;
+            font-size: 9.5pt;
             padding: 8pt 0;
-        }
-
-        /* Page 3 — Recruiter Evaluation */
-        .eval-category {
-            margin-bottom: 12pt;
-            page-break-inside: avoid;
-        }
-
-        .eval-category .cat-header {
-            font-weight: 600;
-            font-size: 11pt;
-            margin-bottom: 4pt;
-            text-transform: capitalize;
-        }
-
-        .eval-counts {
-            font-size: 9.5pt;
-            color: #4a5568;
-            margin-bottom: 4pt;
-        }
-
-        .eval-counts .count-strong { color: #276749; font-weight: 600; }
-        .eval-counts .count-adequate { color: #c05621; font-weight: 600; }
-        .eval-counts .count-weak { color: #c53030; font-weight: 600; }
-
-        .eval-notes {
-            background: #f7fafc;
-            border-radius: 4pt;
-            padding: 6pt 8pt;
-            font-size: 9.5pt;
-            color: #4a5568;
-        }
-
-        .eval-notes p {
-            margin: 0 0 3pt 0;
-        }
-
-        .overall-box {
-            background: #ebf8ff;
-            border-left: 3pt solid #3182ce;
-            padding: 10pt 12pt;
-            border-radius: 0 4pt 4pt 0;
-            margin: 10pt 0;
-        }
-
-        .overall-box .oa-label {
-            font-size: 9pt;
-            color: #2b6cb0;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5pt;
-            margin-bottom: 4pt;
-        }
-
-        .overall-box .oa-text {
-            font-size: 10pt;
-            color: #2d3748;
-            line-height: 1.6;
-        }
-
-        .recruiter-rec-box {
-            display: inline-block;
-            padding: 6pt 14pt;
-            border-radius: 4pt;
-            font-size: 11pt;
-            font-weight: 700;
-            margin-top: 6pt;
-        }
-
-        .recruiter-rec-box.advance {
-            background: #c6f6d5;
-            color: #276749;
-        }
-
-        .recruiter-rec-box.hold {
-            background: #feebc8;
-            color: #c05621;
-        }
-
-        .recruiter-rec-box.reject {
-            background: #fed7d7;
-            color: #c53030;
-        }
-
-        /* Page 4 — Questions */
-        .question-item {
-            background: #f7fafc;
-            border-radius: 4pt;
-            padding: 8pt 10pt;
-            margin-bottom: 6pt;
-            font-size: 10pt;
-            page-break-inside: avoid;
-        }
-
-        .question-number {
-            display: inline-block;
-            background: #3182ce;
-            color: #fff;
-            width: 16pt;
-            height: 16pt;
-            line-height: 16pt;
-            text-align: center;
-            border-radius: 50%;
-            font-size: 8pt;
-            font-weight: 700;
-            margin-right: 6pt;
         }
     </style>
 </head>
 <body>
 
 <!-- ==================== PAGE 1 — EXECUTIVE SUMMARY ==================== -->
-<div class="report-header">
-    <div class="brand">ARIA &mdash; Candidate Assessment Report</div>
-    <h1>Executive Summary</h1>
-    <div class="date">Generated on {{ generated_at }}</div>
+<div class="brand-header">
+    <div class="logo">ARIA</div>
+    <div class="subtitle">Candidate Assessment Report</div>
 </div>
 
-<div class="candidate-snapshot">
-    <div class="name">{{ candidate_name }}</div>
-    <div class="meta">
-        {% if current_role %}<span><strong>Current Role:</strong> {{ current_role }}</span>{% endif %}
-        {% if total_years is not none %}<span><strong>Experience:</strong> {{ total_years }} years</span>{% endif %}
-        {% if contact_email %}<span><strong>Email:</strong> {{ contact_email }}</span>{% endif %}
-        {% if contact_phone %}<span><strong>Phone:</strong> {{ contact_phone }}</span>{% endif %}
+<div class="candidate-info">
+    <div class="candidate-name">Candidate: {{ candidate_name }}</div>
+    <div class="meta-row">
+        {% if role_title %}<strong>Role:</strong> {{ role_title }}{% endif %}
+        {% if total_years is not none %} &nbsp; | &nbsp; <strong>Experience:</strong> {{ total_years }} years{% endif %}
+        &nbsp; | &nbsp; <strong>Generated:</strong> {{ generated_at }}
+    </div>
+    <div class="meta-row" style="margin-top: 2pt;">
+        {% if contact_email %}<strong>Email:</strong> {{ contact_email }}{% endif %}
+        {% if contact_phone %} &nbsp; | &nbsp; <strong>Phone:</strong> {{ contact_phone }}{% endif %}
     </div>
 </div>
 
-<div class="score-row">
-    {% set score_class = 'green' if fit_score >= 70 else ('amber' if fit_score >= 40 else 'red') %}
-    <div class="score-box ai-score {{ score_class }}">
-        <div class="label">AI Score</div>
-        <div class="value">{{ fit_score }}/100</div>
+<div class="score-cards">
+    <div class="score-card">
+        <div class="card-label">AI Score</div>
+        <div class="card-value">{{ fit_score }}/100</div>
     </div>
-    <div class="score-box recruiter-score {{ 'neutral' if not recruiter_recommendation else '' }}">
-        <div class="label">Recruiter Assessment</div>
-        <div class="value">
+    <div class="score-card">
+        <div class="card-label">Recommendation</div>
+        <div class="card-value reject">{{ final_recommendation or 'PENDING' }}</div>
+    </div>
+    <div class="score-card">
+        <div class="card-label">Recruiter Status</div>
+        <div class="card-value neutral">
             {% if recruiter_recommendation %}
                 {{ recruiter_recommendation }}
             {% else %}
@@ -448,111 +441,159 @@
     </div>
 </div>
 
-<div class="section">
-    <div class="recommendation-box">
-        <div class="rec-label">AI Recommendation</div>
-        <div class="rec-text">{{ final_recommendation or 'No recommendation available' }}</div>
-        {% if final_rationale %}
-        <p style="margin: 4pt 0 0 0; font-size: 9.5pt; color: #4a5568;">{{ final_rationale }}</p>
-        {% endif %}
-    </div>
-</div>
-
-<div class="section">
-    <h3>Top Strengths</h3>
-    {% if strengths %}
-    <ul class="bullet-list">
-        {% for s in strengths %}
-        <li>{{ s }}</li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty-state">No strengths recorded.</p>
-    {% endif %}
-</div>
-
-<div class="section">
-    <h3>Top Concerns</h3>
-    {% if weaknesses %}
-    <ul class="bullet-list">
-        {% for w in weaknesses %}
-        <li>{{ w }}</li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty-state">No concerns recorded.</p>
-    {% endif %}
-</div>
-
-<div class="section">
-    <h3>Role</h3>
-    {% if role_title %}
-    <span class="role-pill">{{ role_title }}</span>
-    {% else %}
-    <p class="empty-state">Role not specified.</p>
-    {% endif %}
-</div>
-
-<!-- ==================== PAGE 2 — AI DETAILED ANALYSIS ==================== -->
-<div class="page-break"></div>
-
-<div class="report-header">
-    <div class="brand">ARIA &mdash; Candidate Assessment Report</div>
-    <h1>AI Detailed Analysis</h1>
-</div>
-
-<div class="section">
-    <h2>Score Breakdown</h2>
-    {% for dim_key, dim_label in [
-        ('skill_match', 'Skill Match'),
-        ('experience_match', 'Experience Match'),
-        ('domain_fit', 'Domain Fit'),
-        ('education', 'Education'),
-        ('stability', 'Stability'),
-        ('architecture', 'Architecture')
+<div class="score-breakdown">
+    <div class="section-title">Score Breakdown</div>
+    {% for dim_key, dim_label, bar_color in [
+        ('skill_match', 'Skill Match', 'red'),
+        ('experience_match', 'Experience Match', 'amber'),
+        ('domain_fit', 'Domain Fit', 'amber'),
+        ('education', 'Education', 'green'),
+        ('stability', 'Stability', 'blue'),
+        ('architecture', 'Architecture', 'purple')
     ] %}
     {% set val = score_breakdown.get(dim_key, 0) %}
-    {% set bar_class = 'green' if val >= 70 else ('amber' if val >= 40 else 'red') %}
-    <div class="dimension-bar">
-        <div class="dim-header">
-            <span class="dim-label">{{ dim_label }}</span>
-            <span class="dim-value">{{ val }}%</span>
+    {% set color_class = 'green' if val >= 70 else ('amber' if val >= 40 else 'red') %}
+    <div class="dimension-row">
+        <div class="dim-label">{{ dim_label }}</div>
+        <div class="bar-container">
+            <div class="bar-fill {{ color_class }}" style="width: {{ val }}%;"></div>
         </div>
-        <div class="bar-track">
-            <div class="bar-fill {{ bar_class }}" style="width: {{ val }}%;"></div>
-        </div>
+        <div class="dim-value">{{ val }}%</div>
     </div>
     {% endfor %}
 </div>
 
-<div class="section">
-    <h2>Matched Skills</h2>
-    <div class="skill-pills">
-        {% if matched_skills %}
-            {% for skill in matched_skills %}
-            <span class="pill green">{{ skill }}</span>
-            {% endfor %}
-        {% else %}
-            <p class="empty-state">No matched skills recorded.</p>
-        {% endif %}
+{% if missing_skills %}
+<div class="skill-section missing">
+    <div class="section-title">Missing Skills</div>
+    <div class="pill-container">
+        {% for skill in missing_skills[:5] %}
+        <span class="pill red">{{ skill }}</span>
+        {% endfor %}
     </div>
+</div>
+{% endif %}
+
+{% if risk_signals %}
+<div class="section">
+    <div class="section-title">Risk Signals</div>
+    {% for rs in risk_signals[:2] %}
+    {% set sev = (rs.severity or rs.get('severity', 'low')).lower() %}
+    <div class="risk-box">
+        <div class="risk-label">{{ sev.upper() }} SEVERITY — {{ rs.type or rs.get('type', 'Risk') }}</div>
+        <div class="risk-text">{{ rs.description or rs.get('description', '') }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if strengths %}
+<div class="skill-section strength">
+    <div class="section-title">Top Strength</div>
+    <div class="gaps-box" style="color: #059669;">
+        {{ strengths[0] }} — {{ score_breakdown.get('education', 0) }}/100
+    </div>
+</div>
+{% endif %}
+
+{% if final_rationale %}
+<div class="reasoning-box">
+    <div class="section-title">AI Reasoning</div>
+    <div class="reasoning-text">{{ final_rationale }}</div>
+</div>
+{% endif %}
+
+<!-- ==================== PAGE 2 — RECRUITER EVALUATION & FOLLOW-UP ==================== -->
+<div class="page-break"></div>
+
+<div class="brand-header">
+    <div class="logo">ARIA</div>
+    <div class="subtitle">Recruiter Evaluation & Follow-Up</div>
 </div>
 
 <div class="section">
-    <h2>Missing Skills</h2>
-    <div class="skill-pills">
-        {% if missing_skills %}
-            {% for skill in missing_skills %}
-            <span class="pill red">{{ skill }}</span>
-            {% endfor %}
-        {% else %}
-            <p class="empty-state">No missing skills recorded.</p>
-        {% endif %}
+    <div class="section-title">Recruiter Evaluation</div>
+    {% if has_evaluations %}
+    <div class="eval-status-box" style="background: #f0fdf4; color: #059669; border-color: #bbf7d0;">
+        Recruiter evaluation completed.
+    </div>
+    {% else %}
+    <div class="eval-status-box">
+        Recruiter evaluation not yet completed.
+    </div>
+    {% endif %}
+</div>
+
+<div class="checklist">
+    <div class="section-title">Evaluation Checklist</div>
+    <div class="checklist-item">
+        <span class="item-label">Initial Screening</span>
+        <span class="item-status">Pending</span>
+    </div>
+    <div class="checklist-item">
+        <span class="item-label">Technical Interview</span>
+        <span class="item-status">Pending</span>
+    </div>
+    <div class="checklist-item">
+        <span class="item-label">Cultural Fit Assessment</span>
+        <span class="item-status">Pending</span>
+    </div>
+    <div class="checklist-item">
+        <span class="item-label">Final Decision</span>
+        <span class="item-status">Pending</span>
     </div>
 </div>
 
+<div class="decision-summary">
+    <div class="section-title" style="font-size: 10pt; margin-bottom: 6pt;">Quick Decision Summary</div>
+    <div class="summary-line"><strong>AI Recommendation:</strong> {{ final_recommendation or 'PENDING' }}</div>
+    <div class="summary-line"><strong>Score:</strong> {{ fit_score }}/100 &nbsp; | &nbsp; <strong>Risk Level:</strong> {% if fit_score < 40 %}HIGH{% elif fit_score < 70 %}MEDIUM{% else %}LOW{% endif %}</div>
+    {% if missing_skills %}
+    <div class="summary-line"><strong>Key Issue:</strong> Missing {{ missing_skills|length }}/{{ (matched_skills|length + missing_skills|length) }} required skills for {{ role_title or 'the role' }}</div>
+    {% endif %}
+    {% if strengths %}
+    <div class="summary-line"><strong>Positive:</strong> {{ strengths[0] }}</div>
+    {% endif %}
+</div>
+
+{% if matched_skills %}
 <div class="section">
-    <h2>Risk Signals</h2>
+    <div class="section-title">Matched Skills</div>
+    <div class="pill-container">
+        {% for skill in matched_skills[:5] %}
+        <span class="pill green">{{ skill }}</span>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="section">
+    <div class="section-title">Matched Skills</div>
+    <div class="empty-state">No matched skills recorded.</div>
+</div>
+{% endif %}
+
+{% if missing_skills %}
+<div class="section">
+    <div class="section-title" style="color: #dc2626;">Missing Skills ({{ missing_skills|length }} of {{ (matched_skills|length + missing_skills|length) }} Required)</div>
+    {% for skill in missing_skills[:5] %}
+    <div class="skill-detail-item">
+        <div class="skill-name">{{ skill }}</div>
+        <div class="skill-reason">Required for {{ role_title or 'the role' }} level decision-making and long-term planning</div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- ==================== PAGE 3 — DETAILED ANALYSIS ==================== -->
+<div class="page-break"></div>
+
+<div class="brand-header">
+    <div class="logo">ARIA</div>
+    <div class="subtitle">AI Detailed Analysis</div>
+</div>
+
+<div class="section">
+    <div class="section-title">Risk Signals</div>
     {% if risk_signals %}
     <table>
         <thead>
@@ -565,22 +606,21 @@
         <tbody>
             {% for rs in risk_signals %}
             {% set sev = (rs.severity or rs.get('severity', 'low')).lower() %}
-            {% set sev_class = 'severity-high' if sev == 'high' else ('severity-medium' if sev == 'medium' else 'severity-low') %}
             <tr>
                 <td>{{ rs.type or rs.get('type', 'N/A') }}</td>
                 <td>{{ rs.description or rs.get('description', '') }}</td>
-                <td class="{{ sev_class }}">{{ sev.upper() }}</td>
+                <td><span class="severity-badge {{ sev }}">{{ sev.upper() }}</span></td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     {% else %}
-    <p class="empty-state">No risk signals identified.</p>
+    <div class="empty-state">No risk signals identified.</div>
     {% endif %}
 </div>
 
 <div class="section">
-    <h2>Employment Gaps</h2>
+    <div class="section-title">Employment Gaps</div>
     {% if employment_gaps %}
     <table>
         <thead>
@@ -601,84 +641,7 @@
         </tbody>
     </table>
     {% else %}
-    <p class="empty-state">No employment gaps detected.</p>
-    {% endif %}
-</div>
-
-<!-- ==================== PAGE 3 — RECRUITER EVALUATION ==================== -->
-<div class="page-break"></div>
-
-<div class="report-header">
-    <div class="brand">ARIA &mdash; Candidate Assessment Report</div>
-    <h1>Recruiter Evaluation</h1>
-</div>
-
-{% if has_evaluations %}
-<div class="section">
-    <h2>Per-Dimension Summary</h2>
-    {% for category, data in eval_summary.items() %}
-    <div class="eval-category">
-        <div class="cat-header">{{ category.replace('_', ' ') }}</div>
-        <div class="eval-counts">
-            <span class="count-strong">{{ data.strong }} strong</span> &middot;
-            <span class="count-adequate">{{ data.adequate }} adequate</span> &middot;
-            <span class="count-weak">{{ data.weak }} weak</span>
-        </div>
-        {% if data.notes %}
-        <div class="eval-notes">
-            {% for note in data.notes %}
-            <p>&ldquo;{{ note }}&rdquo;</p>
-            {% endfor %}
-        </div>
-        {% endif %}
-    </div>
-    {% endfor %}
-</div>
-
-{% if overall_assessment %}
-<div class="section">
-    <h2>Overall Assessment</h2>
-    <div class="overall-box">
-        <div class="oa-label">Recruiter Notes</div>
-        <div class="oa-text">{{ overall_assessment }}</div>
-    </div>
-</div>
-{% endif %}
-
-<div class="section">
-    <h2>Recruiter Recommendation</h2>
-    {% if recruiter_recommendation %}
-    <div class="recruiter-rec-box {{ recruiter_recommendation.lower() }}">
-        {{ recruiter_recommendation.upper() }}
-    </div>
-    {% else %}
-    <p class="empty-state">No recommendation recorded.</p>
-    {% endif %}
-</div>
-
-{% else %}
-<div class="section">
-    <p class="empty-state" style="font-size: 12pt; padding: 20pt 0;">Recruiter evaluation not yet completed.</p>
-</div>
-{% endif %}
-
-<!-- ==================== PAGE 4 — SUGGESTED FOLLOW-UP QUESTIONS ==================== -->
-<div class="page-break"></div>
-
-<div class="report-header">
-    <div class="brand">ARIA &mdash; Candidate Assessment Report</div>
-    <h1>Suggested Follow-Up Questions</h1>
-</div>
-
-<div class="section">
-    {% if follow_up_questions %}
-        {% for q in follow_up_questions %}
-        <div class="question-item">
-            <span class="question-number">{{ loop.index }}</span>{{ q }}
-        </div>
-        {% endfor %}
-    {% else %}
-    <p class="empty-state">No follow-up questions available.</p>
+    <div class="gaps-box">No employment gaps detected.</div>
     {% endif %}
 </div>
 
