@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 
 
@@ -59,10 +59,18 @@ class SkillMatchBreakdown(BaseModel):
     avg_confidence: Optional[float] = 1.0
 
 
+class ExperienceMatchBreakdown(BaseModel):
+    """Nested breakdown for experience_match dimension with year details."""
+    score: Optional[int] = 0
+    actual_years: Optional[float] = None
+    required_years: Optional[float] = None
+    explanation: Optional[str] = None
+
+
 class ScoreBreakdown(BaseModel):
     # Backward-compat fields (always populated)
     skill_match:      Optional[SkillMatchBreakdown] = Field(default_factory=SkillMatchBreakdown)
-    experience_match: Optional[int] = 0
+    experience_match: Optional[Union[int, ExperienceMatchBreakdown]] = 0
     stability:        Optional[int] = 0   # mapped from timeline score
     education:        Optional[int] = 0
     # New LangGraph dimensions

@@ -534,9 +534,9 @@ Additionally, for each skill identified, estimate the years of hands-on experien
 
 Return this as an additional field "skills_with_experience":
 [
-    {"skill": "Python", "years": 8, "last_used": 2024},
-    {"skill": "Docker", "years": 3, "last_used": 2023},
-    {"skill": "React", "years": 5, "last_used": 2024}
+    {{"skill": "Python", "years": 8, "last_used": 2024}},
+    {{"skill": "Docker", "years": 3, "last_used": 2023}},
+    {{"skill": "React", "years": 5, "last_used": 2024}}
 ]
 
 Rules for estimation:
