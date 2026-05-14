@@ -16,7 +16,7 @@ Idempotent: safe when objects already exist.
 from alembic import op
 import sqlalchemy as sa
 
-revision = "022"
+revision = "022_historical_learning_system"
 down_revision = "021"
 branch_labels = None
 depends_on = None
