@@ -39,7 +39,7 @@ describe('UploadForm', () => {
     expect(screen.getByText('Test error message')).toBeInTheDocument()
   })
 
-  it('calls onSubmit when button clicked', () => {
+  it('disables submit when skills not confirmed', () => {
     const onSubmit = vi.fn()
     const mockFile = new File(['test'], 'resume.pdf', { type: 'application/pdf' })
 
@@ -47,13 +47,15 @@ describe('UploadForm', () => {
       <UploadForm
         {...defaultProps}
         selectedFile={mockFile}
-        jobDescription="Test job description"
+        jobDescription="Test job description with enough words to be valid for parsing"
         onSubmit={onSubmit}
       />
     )
 
     const button = screen.getByRole('button', { name: /analyze resume/i })
+    // Button should be disabled because skills haven't been confirmed yet
+    expect(button).toBeDisabled()
     fireEvent.click(button)
-    expect(onSubmit).toHaveBeenCalled()
+    expect(onSubmit).not.toHaveBeenCalled()
   })
 })
