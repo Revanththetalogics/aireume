@@ -213,6 +213,8 @@ class RoleTemplate(Base):
     jd_text         = Column(Text, nullable=False)
     scoring_weights = Column(Text, nullable=True)   # JSON: {skills,experience,stability,education}
     tags            = Column(String(500), nullable=True)
+    required_skills_override = Column(Text, nullable=True)  # JSON: ["skill1", "skill2"] or [{"skill": "...", "proficiency": "..."}]
+    nice_to_have_skills_override = Column(Text, nullable=True)  # Same format
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant               = relationship("Tenant", back_populates="templates")

@@ -29,7 +29,7 @@ from sqlalchemy import update, func
 from app.backend.db.database import get_db, SessionLocal
 from app.backend.middleware.auth import get_current_user
 from app.backend.services.jd_quality_scorer import score_jd_quality
-from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan, OutcomeSkillPattern, SkillTrendSnapshot, TeamSkillProfile
+from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan, OutcomeSkillPattern, SkillTrendSnapshot, TeamSkillProfile, RoleTemplate
 from app.backend.models.schemas import (
     AnalysisResponse, BatchAnalysisResponse, BatchAnalysisResult,
     BatchFailedItem, BatchStreamEvent,
@@ -1030,6 +1030,7 @@ async def _process_single_resume(
     job_description: str,
     scoring_weights: dict | None,
     db: Session | None = None,
+    skill_overrides: dict | None = None,
 ) -> dict:
     """Core analysis logic — parse in thread, run Python scoring, return result.
 
@@ -1065,6 +1066,9 @@ async def _process_single_resume(
             jd_analysis = _get_or_cache_jd(db, job_description)
         except Exception as e:
             log.warning("Non-critical: JD cache fetch failed: %s", e)
+
+    if skill_overrides:
+        _apply_skill_overrides(jd_analysis, skill_overrides)
 
     try:
         from app.backend.services.hybrid_pipeline import (
@@ -1495,6 +1499,25 @@ async def analyze_endpoint(
     )
     db.commit()
 
+    # Persist skill overrides to template after successful analysis
+    if template_id and parsed_skill_overrides:
+        try:
+            template = db.query(RoleTemplate).filter(
+                RoleTemplate.id == template_id,
+                RoleTemplate.tenant_id == current_user.tenant_id
+            ).first()
+            if template:
+                template.required_skills_override = json.dumps(
+                    parsed_skill_overrides.get("required_skills", [])
+                )
+                template.nice_to_have_skills_override = json.dumps(
+                    parsed_skill_overrides.get("nice_to_have_skills", [])
+                )
+                db.commit()
+                log.info("Persisted skill overrides to template %s", template_id)
+        except Exception as e:
+            log.warning("Failed to persist skill overrides to template: %s", e)
+
     result["result_id"]    = db_result.id
     result["analysis_id"]  = db_result.id   # Add this line
     result["candidate_id"] = candidate_id
@@ -1845,6 +1868,25 @@ async def analyze_stream_endpoint(
                         _store_candidate_profile(cand, parsed_data, gap_analysis, file_hash, final_result.get("analysis_quality", "medium"), content, resume.filename)
                     save_db.commit()
                     log.info("Final DB save completed for screening_result_id=%s (fit_score=%s)", screening_result_id, final_result.get("fit_score"))
+
+                    # Persist skill overrides to template after successful analysis
+                    if template_id and parsed_skill_overrides:
+                        try:
+                            tmpl = save_db.query(RoleTemplate).filter(
+                                RoleTemplate.id == template_id,
+                                RoleTemplate.tenant_id == tenant_id
+                            ).first()
+                            if tmpl:
+                                tmpl.required_skills_override = json.dumps(
+                                    parsed_skill_overrides.get("required_skills", [])
+                                )
+                                tmpl.nice_to_have_skills_override = json.dumps(
+                                    parsed_skill_overrides.get("nice_to_have_skills", [])
+                                )
+                                save_db.commit()
+                                log.info("Persisted skill overrides to template %s", template_id)
+                        except Exception as e:
+                            log.warning("Failed to persist skill overrides to template: %s", e)
                 else:
                     log.error("ScreeningResult id=%s not found for final save", screening_result_id)
             finally:
@@ -2157,6 +2199,7 @@ async def batch_analyze_stream_endpoint(
     job_description: str = Form(None),
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
+    skill_overrides: str = Form(None),
     template_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2329,6 +2372,43 @@ async def batch_analyze_stream_endpoint(
         except Exception as e:
             log.warning("Non-critical: Invalid scoring_weights JSON, using defaults: %s", e)
 
+    # Validate skill_overrides size before parsing
+    if skill_overrides and len(skill_overrides.encode('utf-8')) > MAX_SCORING_WEIGHTS_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail="Skill overrides exceed maximum size of 4KB"
+        )
+
+    # Parse skill_overrides JSON (accepts strings or proficiency dicts)
+    parsed_skill_overrides = None
+    if skill_overrides:
+        try:
+            parsed_skill_overrides = json.loads(skill_overrides)
+            # Validate structure: must contain lists of strings or proficiency dicts
+            if not isinstance(parsed_skill_overrides, dict):
+                raise ValueError("skill_overrides must be a JSON object")
+            for key in ("required_skills", "nice_to_have_skills"):
+                if key in parsed_skill_overrides:
+                    if not isinstance(parsed_skill_overrides[key], list):
+                        raise ValueError(f"skill_overrides.{key} must be a list")
+                    for item in parsed_skill_overrides[key]:
+                        if isinstance(item, str):
+                            continue  # Plain string — backward compatible
+                        if isinstance(item, dict) and isinstance(item.get("skill"), str):
+                            prof = item.get("proficiency")
+                            if prof is not None and not isinstance(prof, str):
+                                raise ValueError(
+                                    f"skill_overrides.{key} proficiency must be a string"
+                                )
+                            continue
+                        raise ValueError(
+                            f"skill_overrides.{key} items must be strings or "
+                            f'{{"skill": "...", "proficiency": "..."}} dicts'
+                        )
+        except (json.JSONDecodeError, ValueError) as e:
+            log.warning("Non-critical: Invalid skill_overrides JSON, ignoring: %s", e)
+            parsed_skill_overrides = None
+
     # Pre-parse JD once
     _get_or_cache_jd(db, job_description)
 
@@ -2340,11 +2420,12 @@ async def batch_analyze_stream_endpoint(
     async def _process_and_tag(
         index: int, content: bytes, filename: str, upload_id: str,
         jd: str, weights: dict | None, db_session: Session,
+        skill_overrides: dict | None = None,
     ) -> tuple[dict, bytes, str, str]:
         """Wrapper that returns result alongside file metadata."""
         await asyncio.sleep(0.3 * index)  # Stagger to avoid thundering herd
         result = await _process_with_semaphore(
-            content, filename, jd, weights, db_session,
+            content, filename, jd, weights, db_session, skill_overrides,
         )
         return result, content, filename, upload_id
 
@@ -2379,7 +2460,7 @@ async def batch_analyze_stream_endpoint(
 
         # Create tagged tasks
         tasks = [
-            _process_and_tag(idx, c, f, uid, job_description, parsed_weights, db)
+            _process_and_tag(idx, c, f, uid, job_description, parsed_weights, db, parsed_skill_overrides)
             for idx, (c, f, uid) in enumerate(file_data)
         ]
 
@@ -2511,11 +2592,12 @@ async def _process_with_semaphore(
     job_description: str,
     scoring_weights: dict | None,
     db: Session | None = None,
+    skill_overrides: dict | None = None,
 ) -> dict:
     """Wrap resume processing with semaphore for concurrency control."""
     async with _BATCH_SEMAPHORE:
         return await _process_single_resume(
-            content, filename, job_description, scoring_weights, db,
+            content, filename, job_description, scoring_weights, db, skill_overrides,
         )
 
 

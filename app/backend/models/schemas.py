@@ -309,6 +309,8 @@ class TemplateCreate(BaseModel):
     jd_text: str
     scoring_weights: Optional[Dict[str, float]] = None
     tags: Optional[str] = None
+    required_skills_override: Optional[str] = None
+    nice_to_have_skills_override: Optional[str] = None
 
 
 class TemplateOut(BaseModel):
@@ -317,6 +319,8 @@ class TemplateOut(BaseModel):
     jd_text: str
     scoring_weights: Optional[str] = None
     tags: Optional[str] = None
+    required_skills_override: Optional[str] = None
+    nice_to_have_skills_override: Optional[str] = None
     created_at: datetime
 
     class Config:

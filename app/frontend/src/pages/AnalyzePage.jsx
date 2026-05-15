@@ -5,7 +5,7 @@ import {
   Upload, FileText, X, Loader2, AlertCircle, CheckCircle, 
   Sparkles, ChevronRight, BookOpen, LayoutTemplate, Link2, 
   FileUp, Type, Save, Clock, Trophy, Eye, Download, CheckCircle2, ArrowLeft,
-  FileCheck, XCircle, Hourglass, RefreshCw, ShieldCheck
+  FileCheck, XCircle, Hourglass, RefreshCw, ShieldCheck, Settings, ChevronDown
 } from 'lucide-react'
 import { 
   analyzeResumeStream, 
@@ -33,6 +33,20 @@ const DEFAULT_WEIGHTS = {
   career_trajectory: 0.10,
   role_excellence: 0.10,
   risk: -0.10,
+}
+
+const WEIGHT_PRESETS = {
+  balanced: { core_competencies: 0.30, experience: 0.20, domain_fit: 0.20, education: 0.10, career_trajectory: 0.10, role_excellence: 0.10, risk: -0.10 },
+  'skill-heavy': { core_competencies: 0.40, experience: 0.20, domain_fit: 0.15, education: 0.05, career_trajectory: 0.10, role_excellence: 0.10, risk: -0.10 },
+  'experience-heavy': { core_competencies: 0.25, experience: 0.35, domain_fit: 0.15, education: 0.05, career_trajectory: 0.10, role_excellence: 0.10, risk: -0.10 },
+  'domain-focused': { core_competencies: 0.25, experience: 0.20, domain_fit: 0.30, education: 0.05, career_trajectory: 0.10, role_excellence: 0.10, risk: -0.10 },
+}
+
+const PRESET_LABELS = {
+  balanced: 'Balanced',
+  'skill-heavy': 'Skill-Heavy',
+  'experience-heavy': 'Experience-Heavy',
+  'domain-focused': 'Domain-Focused',
 }
 
 // ── IndexedDB helpers for JD file caching ──
@@ -101,12 +115,15 @@ export default function AnalyzePage() {
   const [urlLoading, setUrlLoading] = useState(false)
   const [urlError, setUrlError] = useState('')
 
-  // Step 2: Weights
+  // Weights (now optional, inside collapsible Advanced section in Step 2)
   const [weights, setWeights] = useState(DEFAULT_WEIGHTS)
   const [roleCategory, setRoleCategory] = useState('general')
   const [showAiSuggestion, setShowAiSuggestion] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [weightsManuallySet, setWeightsManuallySet] = useState(false)
+  const [weightPreset, setWeightPreset] = useState('balanced')
 
-  // Step 3: Resume Upload
+  // Step 2: Resume Upload & Analyze
   const [files, setFiles] = useState([])
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [error, setError] = useState('')
@@ -207,6 +224,38 @@ export default function AnalyzePage() {
     }
   }, [])
 
+  // Restore active session from sessionStorage on fresh mount
+  useEffect(() => {
+    if (location.state?.jd_text || location.state?.jd_mode) return
+    const savedSession = sessionStorage.getItem('aria_active_jd')
+    if (!savedSession) return
+    try {
+      const ctx = JSON.parse(savedSession)
+      if (ctx.jd_text) setJdText(ctx.jd_text)
+      if (ctx.weights) setWeights(ctx.weights)
+      if (ctx.role_category) setRoleCategory(ctx.role_category)
+      if (ctx.jd_mode === 'file') {
+        setJdMode('file')
+        getJdFile().then(file => {
+          if (file) setJdFile(file)
+        }).catch(() => {})
+      }
+      if (ctx.skillOverrides && ctx.skillsConfirmed) {
+        setSkillOverrides(ctx.skillOverrides)
+        setSkillsConfirmed(true)
+        if (ctx.jdParseResult) {
+          setJdParseResult(ctx.jdParseResult)
+        }
+      }
+      // Auto-skip to upload if JD context is complete
+      if ((ctx.jd_text || ctx.jd_mode === 'file') && ctx.weights) {
+        setCurrentStep(2)
+      }
+    } catch (e) {
+      console.error('Failed to restore session:', e)
+    }
+  }, [])
+
   // Load JD from location state (from JD Library or ReportPage)
   useEffect(() => {
     if (location.state?.jd_text) {
@@ -216,6 +265,14 @@ export default function AnalyzePage() {
       }
       if (location.state.role_category) {
         setRoleCategory(location.state.role_category)
+      }
+      // Restore skill overrides if available
+      if (location.state.skillOverrides) {
+        setSkillOverrides(location.state.skillOverrides)
+        setSkillsConfirmed(location.state.skillsConfirmed ?? true)
+      }
+      if (location.state.jdParseResult) {
+        setJdParseResult(location.state.jdParseResult)
       }
       // Mark as loaded from library to prevent duplicate JD creation
       if (location.state.template_id) {
@@ -238,7 +295,15 @@ export default function AnalyzePage() {
           if (location.state.role_category) {
             setRoleCategory(location.state.role_category)
           }
-          setCurrentStep(3)
+          // Restore skill overrides if available
+          if (location.state.skillOverrides) {
+            setSkillOverrides(location.state.skillOverrides)
+            setSkillsConfirmed(location.state.skillsConfirmed ?? true)
+          }
+          if (location.state.jdParseResult) {
+            setJdParseResult(location.state.jdParseResult)
+          }
+          setCurrentStep(2)
         }
       }).catch((err) => {
         console.warn('Failed to load from IndexedDB:', err)
@@ -250,7 +315,7 @@ export default function AnalyzePage() {
   // Auto-skip to upload when returning with text JD context
   useEffect(() => {
     if (location.state?.jd_text && location.state?.weights) {
-      setCurrentStep(3)
+      setCurrentStep(2)
     }
   }, [location.state])
 
@@ -323,7 +388,42 @@ export default function AnalyzePage() {
     return () => { cancelled = true }
   }, [jdMode, jdFile])
 
-  // Poll for narrative completion on batch results
+  // ── Auto-select weight preset based on JD role detection ──
+  useEffect(() => {
+    if (jdParseResult && !weightsManuallySet) {
+      const seniority = jdParseResult.seniority || ''
+      const jobFunction = jdParseResult.job_function || ''
+
+      if (seniority.toLowerCase().includes('senior') || seniority.toLowerCase().includes('lead') || seniority.toLowerCase().includes('principal')) {
+        setWeightPreset('skill-heavy')
+        setWeights(WEIGHT_PRESETS['skill-heavy'])
+      } else if (seniority.toLowerCase().includes('manager') || seniority.toLowerCase().includes('director') || seniority.toLowerCase().includes('vp')) {
+        setWeightPreset('experience-heavy')
+        setWeights(WEIGHT_PRESETS['experience-heavy'])
+      } else if (jobFunction.toLowerCase().includes('research') || jobFunction.toLowerCase().includes('data')) {
+        setWeightPreset('domain-focused')
+        setWeights(WEIGHT_PRESETS['domain-focused'])
+      } else {
+        setWeightPreset('balanced')
+        setWeights(WEIGHT_PRESETS['balanced'])
+      }
+    }
+  }, [jdParseResult])
+
+  // ── Auto-advance from Step 1 to Step 2 when skills are confirmed ──
+  useEffect(() => {
+    if (skillsConfirmed && currentStep === 1) {
+      setCurrentStep(2)
+    }
+  }, [skillsConfirmed])
+
+  // Handle weights change — marks as manually set
+  const handleWeightsChange = (newWeights) => {
+    setWeights(newWeights)
+    setWeightsManuallySet(true)
+  }
+
+// Poll for narrative completion on batch results
   useEffect(() => {
     if (!analysisDone || !streamingResults.length) return
 
@@ -447,6 +547,7 @@ export default function AnalyzePage() {
   // Handle AI weight acceptance
   const handleWeightsAccepted = (suggestedWeights) => {
     setWeights(suggestedWeights)
+    setWeightsManuallySet(true)
     setShowAiSuggestion(false)
   }
 
@@ -456,10 +557,43 @@ export default function AnalyzePage() {
     setJdMode('text')
     setShowJdLibrary(false)
     
-    // Reset skill confirmation since JD changed
-    setSkillsConfirmed(false)
-    setSkillOverrides(null)
-    setJdParseResult(null)
+    // Check if template has saved skill overrides — restore them
+    const hasRequiredOverride = template.required_skills_override && (
+      Array.isArray(template.required_skills_override)
+        ? template.required_skills_override.length > 0
+        : typeof template.required_skills_override === 'string' && template.required_skills_override !== '[]'
+    )
+    const hasNiceOverride = template.nice_to_have_skills_override && (
+      Array.isArray(template.nice_to_have_skills_override)
+        ? template.nice_to_have_skills_override.length > 0
+        : typeof template.nice_to_have_skills_override === 'string' && template.nice_to_have_skills_override !== '[]'
+    )
+
+    if (hasRequiredOverride || hasNiceOverride) {
+      const parseOverride = (val) => {
+        if (Array.isArray(val)) return val
+        if (typeof val === 'string') {
+          try { return JSON.parse(val) } catch { return [] }
+        }
+        return []
+      }
+      const restoredOverrides = {
+        required_skills: parseOverride(template.required_skills_override),
+        nice_to_have_skills: parseOverride(template.nice_to_have_skills_override)
+      }
+      setSkillOverrides(restoredOverrides)
+      setSkillsConfirmed(true)
+      setJdParseResult({
+        required_skills: restoredOverrides.required_skills,
+        nice_to_have_skills: restoredOverrides.nice_to_have_skills,
+        restored_from_template: true
+      })
+    } else {
+      // Reset skill confirmation since JD changed
+      setSkillsConfirmed(false)
+      setSkillOverrides(null)
+      setJdParseResult(null)
+    }
     
     // Mark as loaded from library to prevent duplicate save
     setLoadedFromLibrary(true)
@@ -518,7 +652,10 @@ export default function AnalyzePage() {
         jd_text: jdText,
         weights,
         role_category: roleCategory,
-        jd_mode: 'text'
+        jd_mode: 'text',
+        skillOverrides,
+        jdParseResult,
+        skillsConfirmed
       }))
       clearJdFile().catch(() => {})
     } else if (jdMode === 'file' && jdFile) {
@@ -528,7 +665,10 @@ export default function AnalyzePage() {
           weights,
           role_category: roleCategory,
           jd_mode: 'file',
-          file_name: jdFile.name
+          file_name: jdFile.name,
+          skillOverrides,
+          jdParseResult,
+          skillsConfirmed
         }))
       } catch { /* ignore */ }
     }
@@ -650,8 +790,7 @@ export default function AnalyzePage() {
   }
 
   const isStep1Complete = (jdMode === 'text' ? jdText.trim().length > 50 : jdFile !== null) && skillsConfirmed
-  const isStep2Complete = weights && Object.keys(weights).length > 0
-  const isStep3Complete = files.length > 0
+  const isStep2Complete = files.length > 0
 
   const remainingAnalyses = getRemainingAnalyses()
 
@@ -668,7 +807,7 @@ export default function AnalyzePage() {
     setFileStatuses([])
     setBatchStartTime(null)
     setFiles([])
-    setCurrentStep(3)
+    setCurrentStep(2)
   }
 
   return (
@@ -677,7 +816,7 @@ export default function AnalyzePage() {
       <div className="mb-8">
         <h1 className="text-3xl font-extrabold text-brand-900 tracking-tight">New Analysis</h1>
         <p className="text-slate-500 text-sm mt-1 font-medium">
-          Follow the 3-step process to analyze resumes with AI-powered scoring
+          Follow the 2-step process to analyze resumes with AI-powered scoring
           {remainingAnalyses !== undefined && remainingAnalyses !== Infinity && (
             <span className="ml-2 text-brand-600 font-semibold">
               ({remainingAnalyses} analyses remaining)
@@ -690,8 +829,7 @@ export default function AnalyzePage() {
       <div className="mb-8 flex items-center justify-between">
         {[
           { num: 1, label: 'JD & Skills', complete: isStep1Complete },
-          { num: 2, label: 'Scoring Weights', complete: isStep2Complete },
-          { num: 3, label: 'Upload Resumes', complete: isStep3Complete }
+          { num: 2, label: 'Upload & Analyze', complete: isStep2Complete }
         ].map((step, idx) => (
           <div key={step.num} className="flex items-center flex-1">
             <button
@@ -711,7 +849,7 @@ export default function AnalyzePage() {
                 {step.label}
               </span>
             </button>
-            {idx < 2 && (
+            {idx < 1 && (
               <ChevronRight className="w-5 h-5 text-slate-300 mx-2 flex-shrink-0" />
             )}
           </div>
@@ -1006,8 +1144,12 @@ export default function AnalyzePage() {
             <div className="mt-6 flex items-center gap-3 flex-wrap p-3 bg-green-50 border border-green-200 rounded-2xl">
               <ShieldCheck className="w-4 h-4 text-green-600 shrink-0" />
               <span className="text-sm font-medium text-green-700">
-                Skills confirmed
-                {skillOverrides
+                {jdParseResult?.restored_from_template
+                  ? 'Skills restored from saved template'
+                  : 'Skills confirmed'}
+                {skillOverrides && !jdParseResult?.restored_from_template
+                  ? ` — ${Array.isArray(skillOverrides.required_skills) ? skillOverrides.required_skills.length : 0} must-have, ${Array.isArray(skillOverrides.nice_to_have_skills) ? skillOverrides.nice_to_have_skills.length : 0} good-to-have`
+                  : skillOverrides && jdParseResult?.restored_from_template
                   ? ` — ${Array.isArray(skillOverrides.required_skills) ? skillOverrides.required_skills.length : 0} must-have, ${Array.isArray(skillOverrides.nice_to_have_skills) ? skillOverrides.nice_to_have_skills.length : 0} good-to-have`
                   : ' — using AI defaults'}
               </span>
@@ -1020,6 +1162,11 @@ export default function AnalyzePage() {
                 type="button"
                 onClick={() => {
                   setSkillsConfirmed(false)
+                  // Clear restored flag so user can re-edit from fresh parse
+                  if (jdParseResult?.restored_from_template) {
+                    setJdParseResult(null)
+                    setSkillOverrides(null)
+                  }
                 }}
                 className="ml-auto text-xs text-green-500 hover:text-green-700 underline"
               >
@@ -1027,72 +1174,13 @@ export default function AnalyzePage() {
               </button>
             </div>
           )}
-
-          {/* Next Button */}
-          <div className="mt-6 flex justify-end">
-            <button
-              onClick={() => setCurrentStep(2)}
-              disabled={!isStep1Complete}
-              className="flex items-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-2xl font-semibold hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-brand-sm"
-            >
-              Next: Configure Weights
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
         </div>
       )}
 
-      {/* Step 2: Scoring Weights */}
-      {currentStep === 2 && (
-        <div className="space-y-6 card-animate">
-          <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8">
-            <h2 className="text-xl font-bold text-brand-900 mb-6">Step 2: Scoring Weights</h2>
-
-            {/* AI Suggestion Panel */}
-            {showAiSuggestion && jdText && (
-              <div className="mb-6">
-                <WeightSuggestionPanel
-                  jobDescription={jdText}
-                  onWeightsAccepted={handleWeightsAccepted}
-                  currentWeights={weights}
-                />
-              </div>
-            )}
-
-            {/* Universal Weights Panel */}
-            <UniversalWeightsPanel
-              weights={weights}
-              onChange={setWeights}
-              roleCategory={roleCategory}
-              onRoleCategoryChange={setRoleCategory}
-            />
-
-            {/* Navigation */}
-            <div className="mt-6 flex justify-between">
-              <button
-                onClick={() => setCurrentStep(1)}
-                className="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 rounded-2xl font-semibold hover:bg-slate-200 transition-colors"
-              >
-                <ChevronRight className="w-4 h-4 rotate-180" />
-                Back
-              </button>
-              <button
-                onClick={() => setCurrentStep(3)}
-                disabled={!isStep2Complete}
-                className="flex items-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-2xl font-semibold hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-brand-sm"
-              >
-                Next: Upload Resumes
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Upload Resumes */}
-      {currentStep === 3 && !showResults && (
+      {/* Step 2: Upload & Analyze */}
+      {currentStep === 2 && !showResults && (
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8 card-animate">
-          <h2 className="text-xl font-bold text-brand-900 mb-6">Step 3: Upload Resumes</h2>
+          <h2 className="text-xl font-bold text-brand-900 mb-6">Step 2: Upload & Analyze</h2>
 
           {/* Analysis Type Indicator */}
           <div className="mb-6 p-4 bg-brand-50 rounded-2xl ring-1 ring-brand-200">
@@ -1159,6 +1247,46 @@ export default function AnalyzePage() {
             </div>
           )}
 
+          {/* Weight preset indicator */}
+          <p className="text-xs text-slate-400 mt-1 mb-4">
+            Scoring: {PRESET_LABELS[weightPreset] || 'Balanced'} weights
+            {!weightsManuallySet && ' (auto-detected)'}
+          </p>
+
+          {/* Advanced: Scoring Weights (collapsible) */}
+          <div className="mt-6">
+            <button 
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+              <span>Advanced: Scoring Weights</span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {showAdvanced && (
+              <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                {/* AI Suggestion Panel */}
+                {showAiSuggestion && jdText && (
+                  <div className="mb-6">
+                    <WeightSuggestionPanel
+                      jobDescription={jdText}
+                      onWeightsAccepted={handleWeightsAccepted}
+                      currentWeights={weights}
+                    />
+                  </div>
+                )}
+
+                {/* Universal Weights Panel */}
+                <UniversalWeightsPanel
+                  weights={weights}
+                  onChange={handleWeightsChange}
+                  roleCategory={roleCategory}
+                />
+              </div>
+            )}
+          </div>
+
           {/* Skill confirmation required message */}
           {!skillsConfirmed && files.length > 0 && (
             <div className="mb-6 p-4 bg-amber-50 ring-1 ring-amber-200 rounded-2xl flex items-start gap-3">
@@ -1170,7 +1298,7 @@ export default function AnalyzePage() {
           {/* Navigation */}
           <div className="flex justify-between">
             <button
-              onClick={() => setCurrentStep(2)}
+              onClick={() => setCurrentStep(1)}
               className="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 rounded-2xl font-semibold hover:bg-slate-200 transition-colors"
             >
               <ChevronRight className="w-4 h-4 rotate-180" />
@@ -1178,7 +1306,7 @@ export default function AnalyzePage() {
             </button>
             <button
               onClick={handleAnalyze}
-              disabled={!isStep3Complete || isAnalyzing || !skillsConfirmed}
+              disabled={!isStep2Complete || isAnalyzing || !skillsConfirmed}
               className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-2xl font-bold hover:shadow-brand-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-brand-sm"
             >
               {isAnalyzing && files.length === 1 ? (

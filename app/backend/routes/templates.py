@@ -101,6 +101,10 @@ def create_template(
             existing.scoring_weights = json.dumps(body.scoring_weights, default=_json_default)
         if body.tags:
             existing.tags = body.tags
+        if body.required_skills_override is not None:
+            existing.required_skills_override = body.required_skills_override
+        if body.nice_to_have_skills_override is not None:
+            existing.nice_to_have_skills_override = body.nice_to_have_skills_override
         # Auto-generate tags if existing template has none
         if not existing.tags and body.jd_text:
             try:
@@ -125,6 +129,8 @@ def create_template(
         jd_text=body.jd_text,
         scoring_weights=json.dumps(body.scoring_weights, default=_json_default) if body.scoring_weights else None,
         tags=auto_tags,
+        required_skills_override=body.required_skills_override,
+        nice_to_have_skills_override=body.nice_to_have_skills_override,
     )
     db.add(template)
     db.commit()
@@ -138,6 +144,8 @@ async def create_template_from_file(
     jd_file: UploadFile = File(...),
     tags: str | None = Form(None),
     scoring_weights: str | None = Form(None),
+    required_skills_override: str | None = Form(None),
+    nice_to_have_skills_override: str | None = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -198,6 +206,8 @@ async def create_template_from_file(
         jd_text=jd_text,
         scoring_weights=json.dumps(weights, default=_json_default) if weights else None,
         tags=auto_tags,
+        required_skills_override=required_skills_override,
+        nice_to_have_skills_override=nice_to_have_skills_override,
     )
     db.add(template)
     db.commit()
@@ -223,6 +233,10 @@ def update_template(
     template.jd_text = body.jd_text
     template.scoring_weights = json.dumps(body.scoring_weights) if body.scoring_weights else None
     template.tags = body.tags
+    if body.required_skills_override is not None:
+        template.required_skills_override = body.required_skills_override
+    if body.nice_to_have_skills_override is not None:
+        template.nice_to_have_skills_override = body.nice_to_have_skills_override
     db.commit()
     db.refresh(template)
     return template

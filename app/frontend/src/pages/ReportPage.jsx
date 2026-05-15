@@ -481,7 +481,17 @@ export default function ReportPage() {
                 : 'Analyze another resume using the same JD and weights.'}
             </p>
             <button
-              onClick={() => navigate('/analyze', { state: jdContext })}
+              onClick={() => {
+                const saved = JSON.parse(sessionStorage.getItem('aria_active_jd') || '{}')
+                navigate('/analyze', {
+                  state: {
+                    ...jdContext,
+                    skillOverrides: jdContext?.skillOverrides || saved.skillOverrides,
+                    jdParseResult: jdContext?.jdParseResult || saved.jdParseResult,
+                    skillsConfirmed: jdContext?.skillsConfirmed ?? true
+                  }
+                })
+              }}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-brand-50 ring-1 ring-brand-200 text-brand-700 text-xs font-bold hover:bg-brand-100 transition-colors"
             >
               <Upload className="w-3.5 h-3.5" />
