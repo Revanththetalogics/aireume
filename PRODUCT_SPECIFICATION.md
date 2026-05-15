@@ -39,7 +39,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 | **Styling** | TailwindCSS 3.4.17 | Utility-first CSS |
 | **Charts** | Recharts 3.x | Data visualization |
 | **LLM Runtime** | Ollama (Cloud + Local) | AI inference engine |
-| **LLM Models** | gemma4:31b-cloud (primary), qwen3.5:4b (local fallback) | AI analysis |
+| **LLM Models** | gemma4:31b-cloud (primary, single model) | AI analysis |
 | **LLM Framework** | LangChain 0.2.0+ / LangGraph 0.3.0+ | LLM orchestration |
 | **Authentication** | python-jose + bcrypt | JWT tokens + password hashing |
 | **PDF Parsing** | pdfplumber + PyMuPDF | Document extraction |
@@ -78,7 +78,6 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 ┌──────────────┐  ┌────────────┐  ┌──────────────┐
 │   OLLAMA     │  │ PostgreSQL │  │  FILE STORE  │
 │ gemma4:31b   │  │ 16 DB      │  │  Uploads     │
-│ qwen3.5:4b   │  │ 200 conn   │  │  Resumes     │
 │ 8 Cores/8GB  │  │ 1.5GB buf  │  │  Videos      │
 └──────────────┘  └────────────┘  └──────────────┘
 ```
@@ -927,8 +926,8 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 **Optional** (60+ configurable variables):
 - `OLLAMA_API_KEY`: Ollama Cloud API key
-- `OLLAMA_FAST_MODEL`: Fallback fast model
-- `LLM_NARRATIVE_TIMEOUT`: LLM timeout (default: 300s)
+- `OLLAMA_MAX_CONCURRENT`: Max concurrent LLM requests (default: 8)
+- `LLM_NARRATIVE_TIMEOUT`: LLM timeout (default: 500s)
 - `BATCH_MAX_CONCURRENT`: Batch concurrency (default: 30)
 - `CORS_ORIGINS`: Allowed CORS origins
 - `ACCESS_TOKEN_EXPIRE_MINUTES`: JWT access token lifetime

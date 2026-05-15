@@ -50,7 +50,7 @@ class TestAPIEndpoints:
         mock_sentinel = MagicMock()
         mock_sentinel.get_status.return_value = {
             "state": "warming",
-            "model": "qwen3.5:4b",
+            "model": "gemma4:31b-cloud",
             "last_probe_time": 1234567890.0,
             "last_latency_ms": 150.5,
             "healthy": False,  # Not healthy because not HOT
@@ -238,7 +238,7 @@ class TestAPIEndpoints:
         mock_sentinel = MagicMock()
         mock_sentinel.get_status.return_value = {
             "state": "hot",
-            "model": "qwen3.5:4b",
+            "model": "gemma4:31b-cloud",
             "last_probe_time": 1234567890.0,
             "last_latency_ms": 150.5,
             "healthy": True,
@@ -252,7 +252,7 @@ class TestAPIEndpoints:
             assert "sentinel" in data
             assert data["sentinel"]["state"] == "hot"
             assert data["sentinel"]["healthy"] is True
-            assert data["sentinel"]["model"] == "qwen3.5:4b"
+            assert data["sentinel"]["model"] == "gemma4:31b-cloud"
         finally:
             llm_service._sentinel = original_sentinel
 

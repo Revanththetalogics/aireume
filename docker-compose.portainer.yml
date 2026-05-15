@@ -59,7 +59,6 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aria_db}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - ENVIRONMENT=production
-      - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-gemma4:31b-cloud}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
       - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
       - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
@@ -116,9 +115,9 @@ services:
         done;
         echo '  ✓  Ollama is up';
         echo '';
-        echo '  Loading qwen3.5:4b into RAM...';
-        ollama run qwen3.5:4b 'warmup' --nowordwrap;
-        echo '  ✓  qwen3.5:4b is HOT in RAM';
+        echo '  Loading gemma4:31b into RAM...';
+        ollama run gemma4:31b 'warmup' --nowordwrap;
+        echo '  ✓  gemma4:31b is HOT in RAM';
         echo '  ✓  Warmup complete — exiting (KEEP_ALIVE=-1 keeps model loaded)';
         echo '============================================';
       "

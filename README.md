@@ -155,7 +155,7 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 ┌─────────────────┐ ┌──────────┐ ┌─────────────────┐
 │     OLLAMA      │ │PostgreSQL│ │   FILE STORE    │
 │  ┌───────────┐  │ │  ┌────┐  │ │  ┌───────────┐  │
-│  │qwen3.5:4b │  │ │  │16  │  │ │  │  Uploads  │  │
+│  │gemma4:31b │  │ │  │16  │  │ │  │  Uploads  │  │
 │  │  (LLM)    │  │ │  │GB  │  │ │  │  Resumes  │  │
 │  │ 8 Cores   │  │ │  └────┘  │ │  │  Videos   │  │
 │  │ 8GB RAM   │  │ │ 200 conn │ │  └───────────┘  │
@@ -183,7 +183,6 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 | **Icons** | Lucide React | latest | Icon library |
 | **LLM Runtime** | Ollama | latest | Local inference |
 | **LLM Model** | gemma4:31b-cloud | latest | Primary cloud model |
-| **LLM Model (Local)** | qwen3.5:4b | latest | Local fallback model |
 | **LLM Framework** | LangChain + LangGraph | 0.2.0+ / 0.3.0+ | LLM orchestration |
 | **Authentication** | python-jose + bcrypt | 3.3.0 | JWT + password hashing |
 | **PDF Parsing** | pdfplumber + PyMuPDF | 0.11.5 | Document extraction |
@@ -230,15 +229,14 @@ For self-hosted Ollama with full data privacy:
 1. **Update your `.env` file:**
 ```bash
 OLLAMA_BASE_URL=http://ollama:11434
-OLLAMA_MODEL=qwen3.5:4b
-OLLAMA_FAST_MODEL=qwen3.5:4b
+OLLAMA_MODEL=gemma4:31b-cloud
 LLM_NARRATIVE_TIMEOUT=180
 # OLLAMA_API_KEY can be left empty for local
 ```
 
 2. **Pull the model:**
 ```bash
-docker exec -it resume-screener-ollama ollama pull qwen3.5:4b
+docker exec -it resume-screener-ollama ollama pull gemma4:31b
 ```
 
 3. **Restart to use local Ollama.**
@@ -274,7 +272,7 @@ cp .env.example .env
 docker-compose up --build
 
 # In a separate terminal, pull the LLM model
-docker exec -it resume-ai-ollama-1 ollama pull qwen3.5:4b
+docker exec -it resume-ai-ollama-1 ollama pull gemma4:31b
 ```
 
 ### Access Points
@@ -345,8 +343,7 @@ For production deployments with a dedicated GPU and full data privacy:
 ```bash
 # 1. Edit /opt/aria/.env with local settings:
 OLLAMA_BASE_URL=http://ollama:11434
-OLLAMA_MODEL=qwen3.5:4b
-OLLAMA_FAST_MODEL=qwen3.5:4b
+OLLAMA_MODEL=gemma4:31b-cloud
 LLM_NARRATIVE_TIMEOUT=180
 # OLLAMA_API_KEY can be omitted
 
@@ -355,7 +352,7 @@ cd /opt/aria
 docker-compose -f docker-compose.prod.yml up -d
 
 # 3. Pull the model
-docker exec resume-screener-ollama ollama pull qwen3.5:4b
+docker exec resume-screener-ollama ollama pull gemma4:31b
 
 # 4. Verify connectivity
 curl http://localhost:8080/api/llm-status
@@ -399,7 +396,7 @@ cat ~/.ssh/github_actions_vps
 | `POSTGRES_PASSWORD` | PostgreSQL root password | Strong password |
 | `OLLAMA_API_KEY` | Ollama Cloud API key (default) | `ollama_xxxxxxxxxxxxxxxx` |
 | `OLLAMA_BASE_URL` | Ollama API endpoint | `https://ollama.com` or `http://ollama:11434` |
-| `OLLAMA_MODEL` | Primary LLM model | `gemma4:31b-cloud` or `qwen3.5:4b` |
+| `OLLAMA_MODEL` | Primary LLM model | `gemma4:31b-cloud` |
 | `ENVIRONMENT` | Runtime environment | `production` or `development` |
 
 ### Optional Environment Variables
@@ -408,12 +405,12 @@ cat ~/.ssh/github_actions_vps
 |----------|---------|-------------|
 | `CORS_ORIGINS` | `http://localhost,http://localhost:80` | Allowed CORS origins |
 | `OLLAMA_STARTUP_REQUIRED` | `1` | Wait for Ollama on startup (auto-skipped for cloud) |
-| `LLM_NARRATIVE_TIMEOUT` | `300` | LLM generation timeout (seconds) |
+| `LLM_NARRATIVE_TIMEOUT` | `500` | LLM generation timeout (seconds) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | JWT access token lifetime |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | JWT refresh token lifetime |
 | `POSTGRES_USER` | `aria` | PostgreSQL username |
 | `POSTGRES_DB` | `aria_db` | PostgreSQL database name |
-| `OLLAMA_FAST_MODEL` | `gemma4:31b-cloud` | Fallback fast model |
+| `OLLAMA_MAX_CONCURRENT` | `8` | Max concurrent LLM requests |
 
 ### Local Ollama Configuration (Optional)
 
@@ -422,8 +419,7 @@ For self-hosted Ollama instead of cloud:
 ```bash
 # Local Ollama settings (replaces cloud defaults)
 OLLAMA_BASE_URL=http://ollama:11434
-OLLAMA_MODEL=qwen3.5:4b
-OLLAMA_FAST_MODEL=qwen3.5:4b
+OLLAMA_MODEL=gemma4:31b-cloud
 LLM_NARRATIVE_TIMEOUT=180
 # OLLAMA_API_KEY can be omitted for local
 ```

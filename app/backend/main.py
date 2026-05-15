@@ -163,7 +163,7 @@ async def _startup_checks() -> dict:
 
     # ── 3. Ollama reachability ────────────────────────────────────────────────
     ollama_url    = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    narrative_model = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+    narrative_model = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
     pulled_models = []
     hot_models    = []
     ollama_ok     = False
@@ -467,7 +467,7 @@ async def deep_health_check():
     # ── 2. Ollama check via sentinel ────────────────────────────────────────────
     ollama_start = time.monotonic()
     sentinel = get_sentinel()
-    model_name = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+    model_name = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 
     if sentinel is None:
         checks["ollama"] = {
@@ -544,19 +544,16 @@ async def llm_status():
         return {"state": "unknown", "healthy": False, "message": "Sentinel not initialized"}
 
     ollama_url     = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    target_model   = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
-    fast_model     = os.getenv("OLLAMA_FAST_MODEL", "qwen3.5:4b")
+    target_model   = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
     is_cloud       = is_ollama_cloud(ollama_url)
 
     result: dict = {
         "ollama_url":            ollama_url,
         "narrative_model":       target_model,
-        "fast_model":            fast_model,
         "mode":                  "cloud" if is_cloud else "local",
         "ollama_reachable":      False,
         "pulled_models":         [],
         "narrative_model_ready": False,
-        "fast_model_ready":      False,
         "running_models":        [],
         "diagnosis":             "",
     }
@@ -569,7 +566,6 @@ async def llm_status():
     if is_cloud:
         result["ollama_reachable"] = True
         result["narrative_model_ready"] = True
-        result["fast_model_ready"] = True
         result["diagnosis"] = f"Using Ollama Cloud with model: {target_model}"
         if sentinel_status.get("healthy"):
             result["diagnosis"] += " — Cloud connection is healthy."
@@ -587,9 +583,6 @@ async def llm_status():
             result["pulled_models"] = [m["name"] for m in tags_resp.json().get("models", [])]
             result["narrative_model_ready"] = any(
                 target_model in m for m in result["pulled_models"]
-            )
-            result["fast_model_ready"] = any(
-                fast_model in m for m in result["pulled_models"]
             )
             try:
                 ps = await client.get(f"{ollama_url}/api/ps", headers=headers)

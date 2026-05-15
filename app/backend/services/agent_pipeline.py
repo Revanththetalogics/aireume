@@ -10,8 +10,8 @@ Architecture — 3 dependency stages, parallel within each stage:
       Both wait for Stage 2 (both skill_domain AND edu_timeline) to complete.
 
 Models:
-  get_fast_llm()      → qwen3.5:4b  (extraction / matching / education / interview)
-  get_reasoning_llm() → qwen3.5:4b  (scoring / explainability — needs deeper reasoning)
+  get_fast_llm()      → OLLAMA_MODEL  (extraction / matching / education / interview)
+  get_reasoning_llm() → OLLAMA_MODEL  (scoring / explainability — needs deeper reasoning)
 
 Design principles:
   - The LLM determines ALL intelligence: skill extraction, semantic matching,
@@ -66,9 +66,8 @@ def _truncate(text: str, max_len: int) -> str:
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
-OLLAMA_BASE_URL       = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_FAST_MODEL     = os.getenv("OLLAMA_FAST_MODEL", "gemma4:31b-cloud")
-OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 
 
 def _is_ollama_cloud(base_url: str) -> bool:
@@ -146,7 +145,7 @@ def get_fast_llm(seed: Optional[int] = None) -> ChatOllama:
         _num_ctx = 12288 if _is_cloud else 3072
 
         _llm_kwargs = {
-            "model": OLLAMA_FAST_MODEL,
+            "model": OLLAMA_MODEL,
             "base_url": OLLAMA_BASE_URL,
             "temperature": 0.0,
             "seed": seed if seed is not None else 42,
@@ -181,7 +180,7 @@ def get_reasoning_llm(seed: Optional[int] = None) -> ChatOllama:
         _num_ctx = 16384 if _is_cloud else 8192
 
         _llm_kwargs = {
-            "model": OLLAMA_REASONING_MODEL,
+            "model": OLLAMA_MODEL,
             "base_url": OLLAMA_BASE_URL,
             "temperature": 0.0,
             "seed": seed if seed is not None else 42,
@@ -368,6 +367,33 @@ EXAMPLE 3 (Role with soft skills mentioned but not required):
 JD: "Data Scientist. Analyze complex datasets and build predictive models. Required: Python, SQL, machine learning, statistics, 3+ years experience. Nice to have: deep learning, NLP, cloud platforms. We value collaboration and communication skills."
 Output: {{"role_title": "Data Scientist", "job_function": "data_science", "domain": "data_science", "seniority": "mid", "required_skills": ["python", "sql", "machine learning", "statistics", "data analysis"], "required_years": 3, "nice_to_have_skills": ["deep learning", "nlp", "cloud platforms", "collaboration", "communication"], "key_responsibilities": ["analyze complex datasets", "build predictive models", "create data visualizations", "present findings to stakeholders", "ensure data quality"]}}
 
+SKILL EXTRACTION RULES:
+1. Extract EVERY specific technical skill mentioned, including platform sub-technologies:
+   - "Salesforce development with Apex and Visualforce" → required_skills: ["Salesforce", "Apex", "Visualforce"]
+   - "AWS infrastructure (Lambda, S3, DynamoDB)" → required_skills: ["AWS", "Lambda", "S3", "DynamoDB"]
+   - "REST/SOAP integration experience" → required_skills: ["REST API", "SOAP"]
+   Do NOT collapse sub-skills into just the platform name.
+
+2. MUST-HAVE vs GOOD-TO-HAVE classification:
+   - Must-have: Skills in "Required", "Must have", "Essential", "Mandatory" sections, OR skills critical to the primary job function
+   - Good-to-have: Skills in "Preferred", "Nice to have", "Bonus", "Plus" sections, OR skills that enhance but aren't core to the role
+   - If NO section markers exist: skills mentioned first or repeatedly = must-have; skills mentioned with "preferred", "exposure to", "familiarity with" = good-to-have
+
+3. Role context awareness:
+   - For senior roles (Lead/Principal/Architect): include architecture, design, mentoring as relevant skills
+   - For management roles: include stakeholder management, team leadership
+   - For developer roles: focus on programming languages and frameworks
+
+4. Soft skill extraction:
+   - Only extract soft skills that are EXPLICITLY required in the JD text
+   - Common recruiter-required: communication, leadership, stakeholder management, mentoring
+   - Do NOT add generic soft skills that aren't mentioned in the JD
+
+5. Skill naming conventions:
+   - Use canonical names: "REST API" not "RESTful", "Apex" not "SFDC Apex", "SOAP" not "webservices"
+   - Separate compound skills: "REST/SOAP" → ["REST API", "SOAP"]
+   - Include version-agnostic names: "Python" not "Python 3.x"
+
 CURRENT JD:
 {jd_text}
 
@@ -389,6 +415,63 @@ _PROMPT_VERSION = hashlib.md5(_JD_PARSER_PROMPT.encode()).hexdigest()[:8]
 # Guardrail: Phase 4 — circuit breaker for JD parser hallucinations.
 _hallucination_counter: Dict[str, int] = {"count": 0, "last_reset": datetime.now().timestamp()}
 _CIRCUIT_BREAKER_THRESHOLD = 5  # max hallucinations per hour before fallback to rules
+
+
+def _split_compound_skills(skills: list) -> list:
+    """Split 'REST/SOAP' or 'Python, Java' into separate entries"""
+    result = []
+    for skill in skills:
+        if not skill or not isinstance(skill, str):
+            continue
+        # Split on / only if short (avoid splitting URLs or paths)
+        if "/" in skill and len(skill) < 30:
+            parts = [s.strip() for s in skill.split("/") if s.strip()]
+            result.extend(parts)
+        else:
+            result.append(skill.strip())
+    return result
+
+
+def _dedupe_skills(skills: list) -> list:
+    """Deduplicate preserving order, case-insensitive"""
+    seen = set()
+    result = []
+    for s in skills:
+        key = s.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            result.append(s.strip())
+    return result
+
+
+def _enrich_jd_skills(jd_analysis: dict) -> dict:
+    """Post-process JD skills for completeness and accuracy"""
+    required = jd_analysis.get("required_skills", [])
+    nice_to_have = jd_analysis.get("nice_to_have_skills", [])
+    
+    # 1. Split compound skills: "REST/SOAP" → ["REST API", "SOAP"]
+    required = _split_compound_skills(required)
+    nice_to_have = _split_compound_skills(nice_to_have)
+    
+    # 2. Normalize to canonical names
+    try:
+        from app.backend.services.skill_matcher import normalize_skill_name
+        required = [normalize_skill_name(s) for s in required if s]
+        nice_to_have = [normalize_skill_name(s) for s in nice_to_have if s]
+    except ImportError:
+        pass
+    
+    # 3. Deduplicate (case-insensitive, preserve first occurrence)
+    required = _dedupe_skills(required)
+    nice_to_have = _dedupe_skills(nice_to_have)
+    
+    # 4. Remove any nice-to-have that's already in required
+    req_lower = {s.lower() for s in required}
+    nice_to_have = [s for s in nice_to_have if s.lower() not in req_lower]
+    
+    jd_analysis["required_skills"] = required
+    jd_analysis["nice_to_have_skills"] = nice_to_have
+    return jd_analysis
 
 
 async def jd_parser_node(state: PipelineState) -> dict:
@@ -499,6 +582,9 @@ async def jd_parser_node(state: PipelineState) -> dict:
             result = _sanitize_jd_output(result, raw_jd)
             emit_guardrail_event("circuit_breaker_triggered", tenant_id=tenant_id, metadata={"node": "jd_parser"})
 
+        # Post-process: enrich skills (split compounds, normalize, dedupe, remove overlap)
+        result = _enrich_jd_skills(result)
+
         _jd_cache[cache_key] = result
         return {"jd_analysis": result}
     except Exception as exc:
@@ -548,6 +634,35 @@ Rules for estimation:
 
 JOB: role={role_title} domain={domain} seniority={seniority}
 REQUIRED SKILLS: {required_skills}
+NICE-TO-HAVE SKILLS: {nice_to_have_skills}
+
+TARGETED SKILL VERIFICATION:
+The job requires these specific skills: {required_skills_str}
+And these good-to-have skills: {nice_to_have_str}
+
+For EACH required skill listed above, search the ENTIRE resume and determine if the candidate has it:
+- Look for exact mentions, synonyms, abbreviations, and contextual evidence
+- "Apex Coding" or "APEX classes" or "Apex triggers" → confirms "Apex"
+- "webservices" or "SOAP integration" or "web service calls" → confirms "SOAP"
+- "Force.com API" or "REST endpoints" or "API integration" → confirms "REST API"
+- "Train and mentor" or "coached team members" → confirms "mentoring"
+- "Strong communication" or "presented to stakeholders" → confirms "communication"
+
+Platform ecosystem expansion — when candidate works with a platform, extract ALL sub-technologies separately:
+- Salesforce → also extract: Apex, Visualforce, SOQL, Lightning, Force.com
+- AWS → also extract: Lambda, S3, EC2, DynamoDB, CloudFormation
+- Azure → also extract: Azure Functions, Cosmos DB, App Service
+- SAP → also extract: ABAP, SAP HANA, Fiori
+
+Soft skill extraction (use canonical noun forms):
+- "mentor" / "coached" / "trained team" → "mentoring"
+- "led teams" / "managed team of" → "leadership"
+- "stakeholder relationships" / "client management" → "stakeholder management"
+- "communicate" / "presented" / "articulate" → "communication"
+
+IMPORTANT: Include in skills_identified EVERY skill you find evidence for in the resume,
+even if it appears only once. Do NOT filter based on confidence or frequency.
+
 RESUME:
 {resume_text}
 EMPLOYMENT TIMELINE: {timeline}
@@ -641,6 +756,9 @@ def _split_resume_analyser(data: dict, required_skills: list) -> dict:
 async def resume_analyser_node(state: PipelineState) -> dict:
     jd             = state.get("jd_analysis", {})
     required_skills = jd.get("required_skills", [])
+    nice_to_have_skills = jd.get("nice_to_have_skills", [])
+    required_skills_str = ", ".join(required_skills) if required_skills else "Not specified"
+    nice_to_have_str = ", ".join(nice_to_have_skills) if nice_to_have_skills else "Not specified"
     _cp_fb = {
         "name": None, "skills_identified": [], "skills_with_experience": [],
         "education": {"degree": None, "field": None, "institution": None, "gpa_or_distinction": None},
@@ -678,6 +796,9 @@ async def resume_analyser_node(state: PipelineState) -> dict:
             domain=jd.get("domain", "other"),
             seniority=jd.get("seniority", "mid"),
             required_skills=json.dumps(required_skills[:20], default=_json_default),
+            nice_to_have_skills=json.dumps(nice_to_have_skills[:20], default=_json_default),
+            required_skills_str=required_skills_str,
+            nice_to_have_str=nice_to_have_str,
             # Guardrail: increased truncation to capture full resume context
             resume_text=resume_text[:8000],
             timeline=json.dumps(state.get("employment_timeline", [])[:10], default=_json_default),

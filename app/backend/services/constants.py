@@ -458,6 +458,21 @@ SKILL_SYNONYMS = {
     "tailwind": "tailwindcss", "tailwind css": "tailwindcss",
     "bootstrap": "bootstrap", "material ui": "material-ui", "mui": "material-ui",
 
+    # Salesforce
+    "apexcode": "apex",
+    "apex code": "apex",
+    "sfdc apex": "apex",
+    "webservices": "soap",
+    "web services": "soap",
+    "soap api": "soap",
+    "vf": "visualforce",
+    "visual force": "visualforce",
+    "lwc": "lightning",
+    "lightning web component": "lightning",
+    "sfdc": "salesforce",
+    "sf.com": "salesforce",
+    "salesforce.com": "salesforce",
+
     # Others
     "linux": "linux", "unix": "unix", "bash": "bash", "shell": "shell scripting",
     "powershell": "powershell", "ps": "powershell",
@@ -534,4 +549,21 @@ SKILL_HIERARCHY = {
     "mongodb": {"parent": "nosql", "category": "document_database"},
     "redis": {"parent": "nosql", "category": "key_value_store"},
     "elasticsearch": {"parent": "nosql", "category": "search_engine"},
+
+    # Salesforce
+    "apex": {"parent": "salesforce", "category": "programming"},
+    "visualforce": {"parent": "salesforce", "category": "ui"},
+    "lightning": {"parent": "salesforce", "category": "ui"},
+    "soql": {"parent": "salesforce", "category": "query"},
+    "lwc": {"parent": "salesforce", "category": "ui"},
+    "soap": {"parent": "web_services", "category": "protocol"},
+
+    # AWS
+    "lambda": {"parent": "aws", "category": "compute"},
+    "s3": {"parent": "aws", "category": "storage"},
+    "dynamodb": {"parent": "aws", "category": "database"},
+    "ec2": {"parent": "aws", "category": "compute"},
+
+    # SAP
+    "abap": {"parent": "sap", "category": "programming"},
 }

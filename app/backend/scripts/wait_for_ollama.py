@@ -49,7 +49,7 @@ def main() -> int:
         print(f"[wait_for_ollama] Ollama Cloud detected ({base}) — skipping local Ollama gate.", flush=True)
         print("[wait_for_ollama] Cloud models do not require local warmup or model pulling.", flush=True)
         return 0
-    want = (os.getenv("OLLAMA_MODEL") or os.getenv("OLLAMA_FAST_MODEL") or "qwen3.5:4b").strip()
+    want = (os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud").strip()
     poll_sec = float(os.getenv("OLLAMA_POLL_INTERVAL_SEC", "2"))
     deadline = time.monotonic() + float(os.getenv("OLLAMA_WAIT_TIMEOUT_SEC", "120"))
     warm_timeout = float(os.getenv("OLLAMA_WARMUP_TIMEOUT_SEC", "300"))

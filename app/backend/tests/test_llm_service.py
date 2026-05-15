@@ -21,7 +21,7 @@ class TestOllamaHealthSentinel:
         """Test sentinel initializes with correct default values."""
         sentinel = OllamaHealthSentinel()
         assert sentinel.base_url == "http://ollama:11434"
-        assert sentinel.model_name == "qwen3.5:4b"
+        assert sentinel.model_name == "gemma4:31b-cloud"
         assert sentinel.probe_interval == 60
         assert sentinel.state == OllamaState.COLD
         assert sentinel.last_probe_time == 0
@@ -94,7 +94,7 @@ class TestOllamaHealthSentinel:
             mock_client.post.assert_called_once()
             call_args = mock_client.post.call_args
             assert call_args[0][0] == "http://ollama:11434/api/generate"
-            assert call_args[1]["json"]["model"] == "qwen3.5:4b"
+            assert call_args[1]["json"]["model"] == "gemma4:31b-cloud"
             assert call_args[1]["json"]["prompt"] == "warmup"
 
     @pytest.mark.asyncio
@@ -104,7 +104,7 @@ class TestOllamaHealthSentinel:
         
         mock_response_ps = MagicMock()
         mock_response_ps.status_code = 200
-        mock_response_ps.json.return_value = {"models": [{"name": "qwen3.5:4b"}]}
+        mock_response_ps.json.return_value = {"models": [{"name": "gemma4:31b-cloud"}]}
         
         with patch('httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
@@ -161,7 +161,7 @@ class TestOllamaHealthSentinel:
         status = sentinel.get_status()
         
         assert status["state"] == "hot"
-        assert status["model"] == "qwen3.5:4b"
+        assert status["model"] == "gemma4:31b-cloud"
         assert status["last_probe_time"] == 1234567890.0
         assert status["last_latency_ms"] == 150.5
         assert status["healthy"] is True

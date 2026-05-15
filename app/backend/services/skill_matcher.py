@@ -233,7 +233,7 @@ MASTER_SKILLS: List[str] = [
     "sap", "oracle erp", "dynamics 365", "netsuite", "workday",
     "servicenow", "jira service management", "freshdesk", "zendesk",
     "sharepoint", "power platform", "power apps", "power automate",
-    "outsystems", "mendix", "appian", " Salesforce apex", "visualforce",
+    "outsystems", "mendix", "appian", "apex", "soap", "visualforce", "soql", "lightning", "lwc",
     "business analysis", "business intelligence", "data modeling",
     "process modeling", "bpmn", "uml", "enterprise architecture",
     "togaf", "archimate", "zachman",
@@ -372,7 +372,7 @@ SKILL_ALIASES: Dict[str, List[str]] = {
     "test driven development": ["tdd"],
     "behavior driven development": ["bdd"],
     # Architecture
-    "rest api":                ["rest", "restful", "restful api"],
+    "rest api":                ["rest", "restful", "restful api", "http api", "rest service", "rest endpoint"],
     "graphql":                 ["graph ql"],
     "microservices":           ["microservice", "micro services"],
     "domain driven design":    ["ddd"],
@@ -393,6 +393,17 @@ SKILL_ALIASES: Dict[str, List[str]] = {
     "tableau":                 ["tableau desktop", "tableau server"],
     "figma":                   ["figma design"],
     "ci/cd":                   ["cicd", "continuous delivery", "continuous deployment", "continuous integration"],
+    # Salesforce
+    "apex":                    ["apexcode", "apex code", "salesforce apex", "sfdc apex", "apex trigger", "apex class"],
+    "soap":                    ["webservices", "web services", "soap api", "wsdl", "soap web service"],
+    "visualforce":             ["vf", "visual force", "vf page"],
+    "salesforce":              ["sfdc", "sf.com", "salesforce.com", "salesforce crm"],
+    "lightning":               ["lwc", "lightning web component", "aura", "aura component"],
+    # Soft skills
+    "mentoring":               ["mentor", "mentored", "coaching", "coached", "coach"],
+    "communication":           ["communicate", "communicating", "communicator", "communication skills"],
+    "stakeholder management":  ["managing stakeholders", "stakeholder engagement", "stakeholder relations"],
+    "leadership":              ["lead teams", "led teams", "team lead", "people management", "team management"],
 }
 
 
@@ -565,7 +576,7 @@ SKILL_TAXONOMY = {
         "vcs": ["git", "github", "gitlab", "bitbucket"]
     },
     "business_erp": {
-        "crm": ["salesforce", "hubspot", "zoho"],
+        "crm": ["salesforce", "apex", "visualforce", "lightning", "soql", "soap", "lwc", "hubspot", "zoho", "dynamics 365", "pipedrive"],
         "erp": ["sap", "oracle erp", "dynamics 365", "netsuite", "workday"],
         "service": ["servicenow", "freshdesk", "zendesk"],
         "low_code": ["power platform", "power apps", "outsystems", "mendix"]
@@ -958,6 +969,66 @@ def get_implied_skills(skill: str) -> list:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# TARGETED SKILL CONFIRMATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def confirm_skills_in_text(target_skills: list, resume_text: str) -> dict:
+    """
+    Targeted skill confirmation: For each target skill, search resume text
+    using word-boundary matching with variant expansion.
+    Returns: {skill: {"found": bool, "evidence": str}}
+    """
+    import re
+    text_lower = resume_text.lower()
+    results = {}
+
+    for skill in target_skills:
+        if not skill or not isinstance(skill, str):
+            continue
+        skill_lower = skill.lower().strip()
+        variants = _get_all_search_variants(skill_lower)
+
+        found = False
+        evidence = ""
+        for variant in variants:
+            try:
+                pattern = r'\b' + re.escape(variant) + r'\b'
+                match = re.search(pattern, text_lower)
+                if match:
+                    start = max(0, match.start() - 50)
+                    end = min(len(text_lower), match.end() + 50)
+                    evidence = resume_text[start:end].strip()
+                    found = True
+                    break
+            except re.error:
+                continue
+
+        results[skill] = {"found": found, "evidence": evidence}
+    return results
+
+
+def _get_all_search_variants(skill: str) -> list:
+    """Get all searchable forms of a skill for text confirmation"""
+    variants = {skill}
+    # Add from SKILL_ALIASES
+    variants.update(SKILL_ALIASES.get(skill, []))
+    # Reverse alias lookup
+    for canonical, aliases in SKILL_ALIASES.items():
+        if skill in [a.lower() for a in aliases]:
+            variants.add(canonical)
+    # Verb/noun form transformations
+    if skill.endswith("ing"):
+        variants.add(skill[:-3])        # mentoring → mentor
+        variants.add(skill[:-3] + "ed") # mentoring → mentored
+    elif skill.endswith("tion"):
+        variants.add(skill[:-4] + "te") # communication → communicate
+    elif skill.endswith("ment"):
+        variants.add(skill[:-4] + "e")  # management → manage
+        variants.add(skill[:-4] + "ing") # management → managing
+    return list(variants)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN SKILL MATCHING FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -992,6 +1063,8 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
     if jd_nice_to_have is None:
         jd_nice_to_have = []
 
+    jd_required_lower = {_normalize_skill(s) for s in (jd_skills or [])}
+
     # Step 1: Build candidate set from structured candidate_skills ONLY
     cand_normalized: List[str] = []
     for s in candidate_skills:
@@ -1023,6 +1096,15 @@ def match_skills(candidate_skills, jd_skills, jd_nice_to_have=None,
             continue
 
         subcats = _get_skill_subcategory_keys(s_norm)
+
+        # Platform hierarchy relaxation: accept child skills when JD requires parent
+        parent_info = SKILL_HIERARCHY.get(s_norm, {})
+        parent = parent_info.get("parent") if isinstance(parent_info, dict) else None
+        if parent and parent in jd_required_lower:
+            promoted.append(s)
+            cand_set.update(_expand_skill(s))
+            cand_syn_set.add(normalize_skill(s))
+            continue
 
         if s_norm in HIGH_COLLISION_SKILLS or not subcats:
             # High-collision or unknown-domain: require 2+ context skills from same subcategory

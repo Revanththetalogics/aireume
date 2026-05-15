@@ -223,7 +223,7 @@ async def daily_calibration():
 **Purpose**: Reduce single-model bias through consensus
 
 **Features**:
-- Run analysis through 3 models: gemma4:31b, llama3.1:8b, qwen2.5:14b
+- Run analysis through 3 runs of gemma4:31b-cloud for consensus
 - Median-based score aggregation (robust to outliers)
 - Model agreement metric (shows consensus strength)
 - Fallback to single model if others unavailable

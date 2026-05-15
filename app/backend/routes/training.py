@@ -111,7 +111,7 @@ async def _train_model(tenant_id: int, model_name: str, training_data: list):
     ])
 
     modelfile = (
-        f"FROM qwen3.5:4b\n"
+        f"FROM {os.getenv('OLLAMA_MODEL', 'gemma4:31b-cloud')}\n"
         f"SYSTEM You are ARIA, a specialized recruiter AI trained on {len(training_data)} real hiring outcomes. "
         f"You analyze candidate profiles and predict fit. "
         f"Training examples:\n{examples_text}\n"

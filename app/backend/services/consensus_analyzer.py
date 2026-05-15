@@ -57,9 +57,9 @@ class ConsensusAnalyzer:
             models: List of model names to use. Defaults to 3 diverse models.
         """
         self.models = models or [
-            "gemma2:27b",      # Primary model - balanced
-            "llama3.1:8b",     # Alternative perspective - efficient
-            "qwen2.5:14b",     # Different training data - diverse
+            "gemma4:31b-cloud",  # Primary model - balanced
+            "gemma4:31b-cloud",  # Same model, different seed
+            "gemma4:31b-cloud",  # Same model, third run for consensus
         ]
         self.timeout = 120.0
     

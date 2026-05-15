@@ -34,7 +34,7 @@ def get_ollama_headers(base_url: str) -> Dict[str, str]:
 
 # ─── Shared Ollama Semaphore ─────────────────────────────────────────────────
 # Prevents LLM contention across resume narrative, video analysis, and transcript analysis.
-# Ollama with qwen3.5:4b only supports Parallel:1, so we serialize all LLM requests.
+# Local Ollama may support limited parallelism; cloud supports higher concurrency.
 _ollama_semaphore: asyncio.Semaphore | None = None
 
 
@@ -72,9 +72,9 @@ class OllamaState(str, enum.Enum):
 
 
 class OllamaHealthSentinel:
-    def __init__(self, ollama_base_url: str = None, model_name: str = "qwen3.5:4b", probe_interval: int = 60):
+    def __init__(self, ollama_base_url: str = None, model_name: str = None, probe_interval: int = 60):
         self.base_url = ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-        self.model_name = model_name
+        self.model_name = model_name or os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
         self.probe_interval = probe_interval
         self.state = OllamaState.COLD
         self.last_probe_time: float = 0

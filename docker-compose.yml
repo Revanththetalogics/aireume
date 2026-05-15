@@ -33,7 +33,7 @@ services:
     environment:
       # 3 parallel slots: Stage 1 (2 nodes) + one Stage 2 node fires before the other finishes.
       - OLLAMA_NUM_PARALLEL=3
-      # Keep qwen3.5:4b loaded — eliminates cold-load latency.
+      # Keep model loaded — eliminates cold-load latency.
       - OLLAMA_MAX_LOADED_MODELS=1
       # Flash Attention: fused O(n) attention kernel — 20-40% faster on long contexts.
       - OLLAMA_FLASH_ATTENTION=1
@@ -47,8 +47,8 @@ services:
       - "11434:11434"
     restart: unless-stopped
     # On first run, exec into container and pull the model:
-    #   ollama pull qwen3.5:4b
-    # Production also uses qwen3.5:4b (set via OLLAMA_MODEL env var).
+    #   ollama pull gemma4:31b
+    # Production uses gemma4:31b-cloud (set via OLLAMA_MODEL env var).
 
   backend:
     build:
@@ -65,7 +65,6 @@ services:
       # Using gemma4:31b-cloud - powerful multimodal model with strong reasoning
       # Excellent for video malpractice detection, resume analysis, and transcript evaluation
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
-      - OLLAMA_FAST_MODEL=${OLLAMA_FAST_MODEL:-gemma4:31b-cloud}
       # 500s recommended for gemma4:31b-cloud (faster than 480B models)
       - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
       - DATABASE_URL=postgresql://aria:aria_secret@postgres:5432/aria_db

@@ -419,6 +419,25 @@ def parse_resume_rules(parsed_data: Dict[str, Any], gap_analysis: Dict[str, Any]
     # skills_identified = ONLY structured by default
     # text_scanned_skills = tracked separately, validated during matching
 
+    skills_identified = structured
+
+    # Targeted skill confirmation: search resume text for each required skill
+    try:
+        from app.backend.services.skill_matcher import confirm_skills_in_text
+        jd_target_skills = (
+            list(gap_analysis.get("required_skills", [])) +
+            list(gap_analysis.get("nice_to_have_skills", []))
+        )
+        if jd_target_skills and raw_text:
+            confirmed = confirm_skills_in_text(jd_target_skills, raw_text)
+            existing_lower = {s.lower() for s in skills_identified}
+            for skill, result in confirmed.items():
+                if result["found"] and skill.lower() not in existing_lower:
+                    skills_identified.append(skill)
+                    existing_lower.add(skill.lower())
+    except Exception as e:
+        log.debug("Targeted skill confirmation skipped: %s", e)
+
     total_years = float(gap_analysis.get("total_years", 0.0) or 0.0)
     if total_years <= 0 and raw_text:
         inferred_y = _infer_total_years_from_resume_text(raw_text)
@@ -445,7 +464,7 @@ def parse_resume_rules(parsed_data: Dict[str, Any], gap_analysis: Dict[str, Any]
         "phone":                 contact.get("phone", ""),
         "structured_skills":     structured,       # Tier 0: parser output (HIGH confidence)
         "text_scanned_skills":   text_only,         # Tier 2: text-only (LOW confidence)
-        "skills_identified":     structured,        # ONLY structured — key change
+        "skills_identified":     skills_identified,  # structured + confirmed from text
         "education":             parsed_data.get("education", []),
         "work_experience":       work_exp,
         "career_summary":        career_summary,
