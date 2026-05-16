@@ -604,6 +604,7 @@ describe('useUsageCheck', () => {
 
     await waitFor(() => {
       expect(result.current).toBeDefined()
+      expect(result.current.getRemainingAnalyses()).toBe(1) // Wait for subscription to load
     })
 
     let checkResult
