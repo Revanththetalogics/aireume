@@ -483,6 +483,7 @@ export default function ReportPage() {
             <button
               onClick={() => {
                 const saved = JSON.parse(sessionStorage.getItem('aria_active_jd') || '{}')
+                sessionStorage.setItem('aria_analyze_another', 'true')
                 navigate('/analyze', {
                   state: {
                     ...jdContext,

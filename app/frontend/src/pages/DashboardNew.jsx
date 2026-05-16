@@ -434,8 +434,9 @@ function DashboardContent() {
       <div className="mb-8">
         <h2 className="text-lg font-bold text-brand-900 mb-4">Pipeline Summary</h2>
         {sortedPipelineByJd.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sortedPipelineByJd.map((jd) => {
+          <div className="max-h-[480px] overflow-y-auto scroll-smooth pr-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {sortedPipelineByJd.map((jd) => {
               const total = jd.total_candidates ?? 0
               const breakdown = jd.status_breakdown || {}
               const avgScore = jd.avg_fit_score
@@ -507,6 +508,7 @@ function DashboardContent() {
                 </div>
               )
             })}
+            </div>
           </div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-10 text-center">

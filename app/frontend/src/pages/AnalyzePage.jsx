@@ -225,8 +225,21 @@ export default function AnalyzePage() {
   }, [])
 
   // Restore active session from sessionStorage on fresh mount
+  // ONLY auto-advance when coming from "Analyze Another Resume" (flag set in ReportPage)
   useEffect(() => {
     if (location.state?.jd_text || location.state?.jd_mode) return
+    
+    const isAnalyzeAnother = sessionStorage.getItem('aria_analyze_another')
+    
+    if (!isAnalyzeAnother) {
+      // Fresh navigation (Dashboard, nav menu, etc.) — clear stale session data
+      sessionStorage.removeItem('aria_active_jd')
+      return
+    }
+    
+    // Clear the one-time flag immediately
+    sessionStorage.removeItem('aria_analyze_another')
+    
     const savedSession = sessionStorage.getItem('aria_active_jd')
     if (!savedSession) return
     try {
@@ -234,19 +247,10 @@ export default function AnalyzePage() {
       if (ctx.jd_text) setJdText(ctx.jd_text)
       if (ctx.weights) setWeights(ctx.weights)
       if (ctx.role_category) setRoleCategory(ctx.role_category)
-      if (ctx.jd_mode === 'file') {
-        setJdMode('file')
-        getJdFile().then(file => {
-          if (file) setJdFile(file)
-        }).catch(() => {})
-      }
-      if (ctx.skillOverrides && ctx.skillsConfirmed) {
-        setSkillOverrides(ctx.skillOverrides)
-        setSkillsConfirmed(true)
-        if (ctx.jdParseResult) {
-          setJdParseResult(ctx.jdParseResult)
-        }
-      }
+      if (ctx.jd_mode) setJdMode(ctx.jd_mode)
+      if (ctx.skillOverrides) setSkillOverrides(ctx.skillOverrides)
+      if (ctx.jdParseResult) setJdParseResult(ctx.jdParseResult)
+      if (ctx.skillsConfirmed) setSkillsConfirmed(ctx.skillsConfirmed)
       // Auto-skip to upload if JD context is complete
       if ((ctx.jd_text || ctx.jd_mode === 'file') && ctx.weights) {
         setCurrentStep(2)
