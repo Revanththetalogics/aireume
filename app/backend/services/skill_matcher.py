@@ -8,6 +8,34 @@ from typing import Dict, List, Any
 
 from app.backend.services.constants import SKILL_SYNONYMS, SKILL_HIERARCHY
 
+# Extend imported hierarchy with additional cloud, platform, and framework entries
+SKILL_HIERARCHY = {**SKILL_HIERARCHY, **{
+    # GCP
+    "bigquery": {"parent": "gcp", "category": "analytics"},
+    "cloud functions": {"parent": "gcp", "category": "compute"},
+    "pubsub": {"parent": "gcp", "category": "messaging"},
+    "compute engine": {"parent": "gcp", "category": "compute"},
+
+    # Azure
+    "azure functions": {"parent": "azure", "category": "compute"},
+    "cosmos db": {"parent": "azure", "category": "database"},
+    "azure devops": {"parent": "azure", "category": "devops"},
+    "app service": {"parent": "azure", "category": "compute"},
+
+    # Docker/K8s ecosystem
+    "helm": {"parent": "kubernetes", "category": "packaging"},
+    "kubectl": {"parent": "kubernetes", "category": "cli"},
+    "docker compose": {"parent": "docker", "category": "orchestration"},
+
+    # Spring ecosystem
+    "spring security": {"parent": "spring boot", "category": "security"},
+    "spring data": {"parent": "spring boot", "category": "data"},
+
+    # React ecosystem
+    "redux": {"parent": "react", "category": "state"},
+    "next.js": {"parent": "react", "category": "framework"},
+}}
+
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -307,13 +335,13 @@ SKILL_ALIASES: Dict[str, List[str]] = {
     # Web frameworks
     "react":                   ["reactjs", "react.js", "react js"],
     "vue.js":                  ["vue", "vuejs", "vue 3", "vue3"],
-    "angular":                 ["angularjs", "angular 2+", "angular js"],
+    "angular":                 ["angularjs", "angular 2+", "angular js", "angular.js"],
     "next.js":                 ["nextjs", "next js", "nextjs 13", "nextjs 14"],
     "nuxt.js":                 ["nuxt", "nuxtjs"],
     "node.js":                 ["node", "nodejs", "express", "express.js"],
     "fastapi":                 ["fast api"],
     "django":                  ["django rest framework", "drf", "django 4"],
-    "spring boot":             ["spring", "spring framework", "spring mvc", "spring cloud"],
+    "spring boot":             ["spring", "spring framework", "spring mvc", "spring cloud", "springboot", "spring-boot"],
     "tailwind":                ["tailwind css", "tailwindcss"],
     # Databases
     "postgresql":              ["postgres", "psql", "pg", "postgre"],
@@ -322,7 +350,7 @@ SKILL_ALIASES: Dict[str, List[str]] = {
     "microsoft sql server":    ["mssql", "sql server", "t-sql", "tsql"],
     "redis":                   ["redis cache", "redis queue"],
     "dynamodb":                ["dynamo", "aws dynamodb"],
-    "bigquery":                ["google bigquery", "bq"],
+    "bigquery":                ["google bigquery", "bq", "big query"],
     "snowflake":               ["snowflake db"],
     # Cloud
     "amazon web services":     ["aws", "amazon aws"],
@@ -330,11 +358,11 @@ SKILL_ALIASES: Dict[str, List[str]] = {
     "microsoft azure":         ["azure", "az", "azure cloud"],
     # DevOps
     "kubernetes":              ["k8s", "kube", "k8"],
-    "docker":                  ["dockerfile", "docker compose", "docker swarm", "container"],
+    "docker":                  ["dockerfile", "docker compose", "docker swarm", "container", "containerization", "docker engine"],
     "github actions":          ["gh actions", "github ci", "github workflows"],
     "terraform":               ["tf", "iac", "infrastructure as code", "hcl"],
     "ansible":                 ["ansible playbook"],
-    "jenkins":                 ["jenkins ci", "jenkins pipeline"],
+    "jenkins":                 ["jenkins ci", "jenkins pipeline", "jenkinsfile"],
     "continuous integration":  ["ci", "ci/cd", "cicd"],
     "nginx":                   ["nginx web server"],
     "prometheus":              ["prometheus monitoring"],
@@ -404,6 +432,154 @@ SKILL_ALIASES: Dict[str, List[str]] = {
     "communication":           ["communicate", "communicating", "communicator", "communication skills"],
     "stakeholder management":  ["managing stakeholders", "stakeholder engagement", "stakeholder relations"],
     "leadership":              ["lead teams", "led teams", "team lead", "people management", "team management"],
+
+    # GCP
+    "gcp":                     ["google cloud", "google cloud platform"],
+    "cloud functions":         ["gcf", "google cloud functions"],
+    "pubsub":                  ["pub/sub", "google pub/sub"],
+
+    # Azure
+    "azure":                   ["microsoft azure", "ms azure"],
+    "azure functions":         ["az functions"],
+    "cosmos db":               ["cosmosdb", "azure cosmos"],
+    "azure devops":            ["ado", "azure devops services"],
+
+    # ServiceNow
+    "servicenow":              ["snow", "service now", "service-now"],
+
+    # Oracle
+    "plsql":                   ["pl/sql", "pl sql", "oracle pl/sql"],
+    "oracle":                  ["oracle db", "oracle database"],
+
+    # Docker/K8s
+    "helm":                    ["helm charts"],
+
+    # Data Engineering
+    "etl":                     ["extract transform load", "data pipeline", "data pipelines"],
+    "spark":                   ["apache spark", "pyspark"],
+    "kafka":                   ["apache kafka", "event streaming"],
+    "airflow":                 ["apache airflow"],
+    "hadoop":                  ["apache hadoop", "hdfs", "mapreduce"],
+
+    # CI/CD
+    "express":                 ["expressjs", "express.js"],
+
+    # Frontend
+    "vue":                     ["vuejs", "vue.js"],
+
+    # Soft Skills
+    "problem solving":         ["problem-solving", "troubleshooting", "analytical thinking"],
+    "teamwork":                ["team player", "collaborative", "team collaboration"],
+    "time management":         ["deadline management", "time-management"],
+    "project management":      ["program management"],
+    "agile":                   ["agile methodology", "scrum", "kanban"],
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CERTIFICATION SKILL INFERENCE MAP
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CERTIFICATION_SKILL_MAP = {
+    # Salesforce
+    "dev-401": ["apex", "visualforce", "soql"],
+    "dev-501": ["apex", "visualforce", "soql"],
+    "dev501": ["apex", "visualforce", "soql"],
+    "adm-201": ["salesforce admin", "salesforce"],
+    "adm201": ["salesforce admin", "salesforce"],
+    "salesforce certified developer": ["apex", "visualforce", "soql", "salesforce"],
+    "salesforce certified administrator": ["salesforce admin", "salesforce"],
+    "salesforce certified sales cloud": ["salesforce", "sales cloud"],
+    "salesforce certified service cloud": ["salesforce", "service cloud"],
+    "salesforce certified platform builder": ["salesforce", "lightning", "apex"],
+    "sfdc certified": ["salesforce", "apex"],
+    # AWS
+    "aws solutions architect": ["aws", "ec2", "s3", "vpc", "cloudformation", "lambda"],
+    "aws developer associate": ["aws", "lambda", "dynamodb", "api gateway", "s3"],
+    "aws sysops": ["aws", "ec2", "cloudwatch", "iam"],
+    "aws devops engineer": ["aws", "codepipeline", "cloudformation", "ecs"],
+    "aws certified": ["aws"],
+    # Azure
+    "az-900": ["azure"],
+    "az-204": ["azure", "azure functions", "cosmos db", "app service"],
+    "az-305": ["azure", "azure architecture"],
+    "azure solutions architect": ["azure", "azure architecture"],
+    "azure certified": ["azure"],
+    # GCP
+    "google cloud professional": ["gcp", "bigquery", "cloud functions"],
+    "gcp associate cloud engineer": ["gcp", "compute engine", "kubernetes"],
+    "google cloud certified": ["gcp"],
+    # Project Management
+    "pmp": ["project management"],
+    "prince2": ["project management"],
+    "csm": ["scrum", "agile"],
+    "certified scrum master": ["scrum", "agile"],
+    "safe agilist": ["agile", "safe", "scaled agile"],
+    "pmi-acp": ["agile", "project management"],
+    # Data
+    "databricks certified": ["databricks", "spark", "data engineering"],
+    "snowflake certified": ["snowflake", "sql", "data warehousing"],
+    # Security
+    "cissp": ["information security", "cybersecurity"],
+    "ceh": ["ethical hacking", "penetration testing"],
+    "comptia security+": ["cybersecurity", "network security"],
+    # Java/Oracle
+    "ocjp": ["java"],
+    "oracle certified java": ["java"],
+    "oracle certified professional": ["oracle", "plsql"],
+    # Microsoft
+    "mcse": ["windows server", "active directory"],
+    "mcsa": ["windows server"],
+    # Kubernetes/DevOps
+    "cka": ["kubernetes"],
+    "ckad": ["kubernetes"],
+    "docker certified associate": ["docker", "containers"],
+    # ITIL
+    "itil": ["it service management", "itsm"],
+    "itil certified": ["it service management", "itsm"],
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SHORT SKILL SPECIAL PATTERNS
+# For high-collision single-letter skills (R, C, Go, C#, C++)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SHORT_SKILL_PATTERNS = {
+    "r": r'(?i)\b(?:R\s+programming|R\s+language|R\s+studio|RStudio|(?:programming|develop(?:ment|er)|statistical\s+computing|data\s+analysis|machine\s+learning)\s+(?:in|with|using)\s+R\b|\bR\b(?=\s+(?:programming|language|package|library|script|studio|markdown|shiny)))',
+    "c": r'(?i)\b(?:C\s+programming|C\s+language|ANSI\s+C|C/C\+\+|programming\s+in\s+C\b|(?:written|developed|coded)\s+in\s+C\b)',
+    "c++": r'(?i)\bC\+\+\b',
+    "c#": r'(?i)(?:\bC#\b|C\s*Sharp|\.NET\s+C#)',
+    "go": r'(?i)\b(?:Golang|Go\s+programming|Go\s+language|Go\s+developer|written\s+in\s+Go|develop(?:ed|ment)\s+in\s+Go)\b',
+    "rust": r'(?i)\bRust\b(?=\s+(?:programming|language|developer|engineer|code|project|application))',
+    "swift": r'(?i)\bSwift\b(?=\s+(?:programming|language|developer|UI|iOS|app))',
+    "dart": r'(?i)\bDart\b(?=\s+(?:programming|language|Flutter|developer))',
+    "sas": r'(?i)\bSAS\b(?=\s+(?:programming|language|analytics|statistical|enterprise))',
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONTEXTUAL SKILL INDICATORS
+# Implied skills detected via surrounding context phrases
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CONTEXTUAL_SKILL_INDICATORS = {
+    "rest api": ["api integration", "api development", "api design", "restful service", "http endpoint", "api endpoint", "web api"],
+    "sql": ["database queries", "stored procedures", "database design", "relational database", "query optimization"],
+    "git": ["version control", "source control", "code repository", "pull request", "code review"],
+    "ci/cd": ["continuous integration", "continuous deployment", "deployment pipeline", "automated deployment", "build pipeline"],
+    "agile": ["sprint planning", "daily standup", "backlog grooming", "retrospective", "scrum ceremony", "user stories"],
+    "microservices": ["service-oriented architecture", "soa", "distributed architecture", "service mesh", "api gateway"],
+    "cloud computing": ["cloud infrastructure", "cloud migration", "cloud-native", "cloud architect"],
+    "devops": ["infrastructure automation", "deployment automation", "site reliability", "sre"],
+    "data engineering": ["data pipeline", "etl process", "data warehouse", "data lake", "data ingestion"],
+    "machine learning": ["predictive model", "model training", "feature engineering", "ml pipeline", "neural network"],
+    "project management": ["managed project", "project delivery", "project planning", "project lifecycle", "cross-functional project"],
+    "leadership": ["led team", "managed team", "team of", "direct reports", "people management", "reporting to me"],
+    "mentoring": ["mentored", "coached", "trained junior", "knowledge transfer", "onboarding new", "guided team"],
+    "communication": ["presented to", "stakeholder presentation", "client-facing", "executive summary", "cross-functional collaboration"],
+    "stakeholder management": ["stakeholder engagement", "client relationship", "business partner", "executive stakeholder"],
+    "problem solving": ["troubleshot", "root cause analysis", "debug", "resolved issue", "diagnosed"],
 }
 
 
@@ -974,11 +1150,15 @@ def get_implied_skills(skill: str) -> list:
 
 def confirm_skills_in_text(target_skills: list, resume_text: str) -> dict:
     """
-    Targeted skill confirmation: For each target skill, search resume text
-    using word-boundary matching with variant expansion.
-    Returns: {skill: {"found": bool, "evidence": str}}
+    Multi-layer targeted skill confirmation against resume text.
+    Layer 1: Short skill special patterns (R, C, Go, C#, C++)
+    Layer 2: Direct text search with alias expansion
+    Layer 3: Certification inference
+    Layer 4: Contextual indicators (implied skills)
+
+    Returns: {skill: {"found": bool, "evidence": str, "confidence": str}}
     """
-    import re
+    import re as _re
     text_lower = resume_text.lower()
     results = {}
 
@@ -986,24 +1166,67 @@ def confirm_skills_in_text(target_skills: list, resume_text: str) -> dict:
         if not skill or not isinstance(skill, str):
             continue
         skill_lower = skill.lower().strip()
-        variants = _get_all_search_variants(skill_lower)
-
         found = False
         evidence = ""
-        for variant in variants:
+        confidence = "not_found"
+
+        # Layer 1: Short skill special patterns
+        if skill_lower in SHORT_SKILL_PATTERNS:
             try:
-                pattern = r'\b' + re.escape(variant) + r'\b'
-                match = re.search(pattern, text_lower)
+                match = _re.search(SHORT_SKILL_PATTERNS[skill_lower], resume_text)
                 if match:
-                    start = max(0, match.start() - 50)
-                    end = min(len(text_lower), match.end() + 50)
+                    start = max(0, match.start() - 30)
+                    end = min(len(resume_text), match.end() + 30)
                     evidence = resume_text[start:end].strip()
                     found = True
-                    break
-            except re.error:
-                continue
+                    confidence = "high"
+            except _re.error:
+                pass
 
-        results[skill] = {"found": found, "evidence": evidence}
+        # Layer 2: Direct text search with alias expansion
+        if not found:
+            variants = _get_all_search_variants(skill_lower)
+            for variant in variants:
+                try:
+                    pattern = r'\b' + _re.escape(variant) + r'\b'
+                    match = _re.search(pattern, text_lower)
+                    if match:
+                        start = max(0, match.start() - 50)
+                        end = min(len(text_lower), match.end() + 50)
+                        evidence = resume_text[start:end].strip()
+                        found = True
+                        confidence = "high"
+                        break
+                except _re.error:
+                    continue
+
+        # Layer 3: Certification inference
+        if not found:
+            for cert_name, cert_skills in CERTIFICATION_SKILL_MAP.items():
+                if cert_name in text_lower and skill_lower in [s.lower() for s in cert_skills]:
+                    # Find the cert mention for evidence
+                    idx = text_lower.index(cert_name)
+                    start = max(0, idx - 20)
+                    end = min(len(resume_text), idx + len(cert_name) + 20)
+                    evidence = f"Implied by certification: {resume_text[start:end].strip()}"
+                    found = True
+                    confidence = "medium"
+                    break
+
+        # Layer 4: Contextual indicators (implied skills)
+        if not found and skill_lower in CONTEXTUAL_SKILL_INDICATORS:
+            for indicator in CONTEXTUAL_SKILL_INDICATORS[skill_lower]:
+                if indicator in text_lower:
+                    idx = text_lower.index(indicator)
+                    start = max(0, idx - 30)
+                    end = min(len(resume_text), idx + len(indicator) + 30)
+                    evidence = resume_text[start:end].strip()
+                    found = True
+                    confidence = "contextual"
+                    break
+
+        results[skill] = {"found": found, "evidence": evidence, "confidence": confidence}
+
     return results
 
 
