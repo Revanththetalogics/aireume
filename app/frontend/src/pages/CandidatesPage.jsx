@@ -322,6 +322,7 @@ export default function CandidatesPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const initialStatus = searchParams.get('status') || ''
+  const initialNarrativeStatus = searchParams.get('narrative_status') || ''
 
   const [candidates, setCandidates] = useState([])
   const [total, setTotal]           = useState(0)
@@ -330,6 +331,7 @@ export default function CandidatesPage() {
   const [loading, setLoading]       = useState(true)
   const [selectedId, setSelectedId] = useState(null)
   const [statusFilter, setStatusFilter] = useState(initialStatus)
+  const [narrativeStatusFilter, setNarrativeStatusFilter] = useState(initialNarrativeStatus)
   const [skillFilter, setSkillFilter] = useState('')
   const [toast, setToast]           = useState(null)
   const [selectedIds, setSelectedIds] = useState(new Set())
@@ -354,11 +356,12 @@ export default function CandidatesPage() {
     if (mode !== 'split') { setSplitSelectedId(null); setSplitProfile(null) }
   }, [])
 
-  const fetchCandidates = async (s = search, p = page, st = statusFilter, sk = skillFilter) => {
+  const fetchCandidates = async (s = search, p = page, st = statusFilter, ns = narrativeStatusFilter, sk = skillFilter) => {
     setLoading(true)
     try {
       const params = { search: s, page: p, page_size: 20 }
       if (st) params.status = st
+      if (ns) params.narrative_status = ns
       if (sk) params.skill = sk
       const data = await getCandidates(params)
       setCandidates(data.candidates)
@@ -372,21 +375,24 @@ export default function CandidatesPage() {
 
   useEffect(() => { fetchCandidates() }, [page])
 
-  // Sync URL params when statusFilter changes (skip initial mount)
+  // Sync URL params when status/narrative_status filters change
   useEffect(() => {
-    if (statusFilter) {
-      setSearchParams({ status: statusFilter }, { replace: true })
+    const params = {}
+    if (statusFilter) params.status = statusFilter
+    if (narrativeStatusFilter) params.narrative_status = narrativeStatusFilter
+    if (Object.keys(params).length > 0) {
+      setSearchParams(params, { replace: true })
     } else {
       setSearchParams({}, { replace: true })
     }
     setPage(1)
-    fetchCandidates(search, 1, statusFilter, skillFilter)
-  }, [statusFilter])
+    fetchCandidates(search, 1, statusFilter, narrativeStatusFilter, skillFilter)
+  }, [statusFilter, narrativeStatusFilter])
 
   // Re-fetch when skill filter changes
   useEffect(() => {
     setPage(1)
-    fetchCandidates(search, 1, statusFilter, skillFilter)
+    fetchCandidates(search, 1, statusFilter, narrativeStatusFilter, skillFilter)
   }, [skillFilter])
 
   const handleSearch = (e) => {
@@ -542,8 +548,8 @@ export default function CandidatesPage() {
           <div>
             <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Candidates</h2>
             <p className="text-slate-500 text-sm mt-1 font-medium">
-              {statusFilter || skillFilter || scoreFilter !== 'all'
-                ? `Showing ${total} candidate${total !== 1 ? 's' : ''}${statusFilter ? ` with status: ${STATUS_CONFIG[statusFilter]?.label || statusFilter}` : ''}${skillFilter ? ` matching skill: "${skillFilter}"` : ''}${scoreFilter !== 'all' ? ` — ${scoreFilter === '70plus' ? '70+ (Strong)' : scoreFilter === '50to69' ? '50-69 (Moderate)' : 'Below 50 (Weak)'}` : ''}`
+              {statusFilter || narrativeStatusFilter || skillFilter || scoreFilter !== 'all'
+                ? `Showing ${total} candidate${total !== 1 ? 's' : ''}${statusFilter ? ` with status: ${STATUS_CONFIG[statusFilter]?.label || statusFilter}` : ''}${narrativeStatusFilter ? ` with narrative status: ${narrativeStatusFilter}` : ''}${skillFilter ? ` matching skill: "${skillFilter}"` : ''}${scoreFilter !== 'all' ? ` — ${scoreFilter === '70plus' ? '70+ (Strong)' : scoreFilter === '50to69' ? '50-69 (Moderate)' : 'Below 50 (Weak)'}` : ''}`
                 : `${total} candidates tracked in your workspace`}
             </p>
           </div>
@@ -629,9 +635,9 @@ export default function CandidatesPage() {
               <Columns className="w-4 h-4" />
             </button>
           </div>
-          {(statusFilter || skillFilter || scoreFilter !== 'all') && (
+          {(statusFilter || narrativeStatusFilter || skillFilter || scoreFilter !== 'all') && (
             <button
-              onClick={() => { setStatusFilter(''); setSkillFilter(''); setScoreFilter('all') }}
+              onClick={() => { setStatusFilter(''); setNarrativeStatusFilter(''); setSkillFilter(''); setScoreFilter('all') }}
               className="text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
             >
               Clear filters
@@ -644,7 +650,7 @@ export default function CandidatesPage() {
             <Skeleton variant="list" count={8} />
           </div>
         ) : candidates.length === 0 ? (
-          statusFilter || skillFilter || scoreFilter !== 'all' ? (
+          statusFilter || narrativeStatusFilter || skillFilter || scoreFilter !== 'all' ? (
             <div className="text-center py-16 bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand card-animate">
               <div className="w-16 h-16 rounded-2xl bg-brand-50 ring-1 ring-brand-200 flex items-center justify-center mx-auto mb-4">
                 <Users className="w-8 h-8 text-brand-300" />

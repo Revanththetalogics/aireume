@@ -357,7 +357,7 @@ function DashboardContent() {
 
         {/* In Progress */}
         <button
-          onClick={() => navigate('/candidates?status=in_progress')}
+          onClick={() => navigate('/candidates?narrative_status=processing')}
           className="bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl shadow-sm p-5 text-left transition-colors group"
         >
           <div className="flex items-center justify-between">

@@ -711,25 +711,87 @@ def _extract_first_balanced_json_object(text: str) -> str | None:
 
 
 def _parse_llm_json_response(raw: str) -> dict | None:
-    """Parse JSON from LLM output; tolerate thinking tags, fences, and malformed tails."""
-    clean = re.sub(r"<redacted_thinking>.*?</redacted_thinking>", "", raw, flags=re.DOTALL).strip()
+    """Parse JSON from LLM output; tolerate thinking tags, fences, and malformed tails.
+    
+    Extraction strategy (ordered by reliability):
+    1. Try json.loads() on the raw response as-is
+    2. Strip thinking tags (<think>, <redacted_thinking>) and markdown fences, then retry
+    3. Find first { and last }, extract that substring, then retry
+    4. Extract the first balanced JSON object and retry
+    5. Fix common LLM mistakes (trailing commas, unescaped control chars, combined) and retry
+    6. Regex-based brace extraction as last resort
+    """
+    if not raw or not raw.strip():
+        return None
+
+    # ── Strategy 1: Try parsing the raw response directly ────────────────────
+    try:
+        return json.loads(raw.strip())
+    except json.JSONDecodeError:
+        pass  # Expected, continue to cleanup
+
+    # ── Strategy 2: Strip thinking tags and markdown fences ──────────────────
+    clean = raw.strip()
+
+    # Strip Unicode BOM if present (some LLM APIs prepend it)
+    if clean and clean[0] == '\ufeff':
+        clean = clean[1:].strip()
+
+    # Strip thinking/reasoning tags (Gemma uses <think>, our prompt uses <redacted_thinking>)
+    clean = re.sub(r"<think>.*?</think>", "", clean, flags=re.DOTALL)
+    clean = re.sub(r"<redacted_thinking>.*?</redacted_thinking>", "", clean, flags=re.DOTALL)
+    # Also handle unclosed <think> tag (model started thinking but didn't close it)
+    if "<think>" in clean and "</think>" not in clean:
+        think_start = clean.find("<think>")
+        after_think = clean[think_start + 7:]
+        # If there's a JSON object after the unclosed think tag, keep it
+        json_start = after_think.find("{")
+        if json_start != -1:
+            clean = after_think[json_start:]
+        else:
+            # Remove everything from <think> onwards
+            clean = clean[:think_start]
+
+    clean = clean.strip()
+
+    # Strip markdown code fences
     clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.IGNORECASE)
     clean = re.sub(r"\s*```$", "", clean)
     clean = clean.strip()
 
-    for candidate in (clean,):
+    # Strip leading/trailing non-JSON text (e.g., "Here is the JSON:\n{...}\nDone.")
+    # Only strip if the cleaned text doesn't start with {
+    if clean and not clean.startswith("{"):
+        first_brace = clean.find("{")
+        if first_brace != -1:
+            clean = clean[first_brace:]
+
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError:
+        pass  # Continue to next strategy
+
+    # ── Strategy 3: Find first { and last }, extract substring ───────────────
+    # Simple and effective: the LLM response likely IS a single JSON object
+    # with possible extra whitespace or trailing text.
+    first_brace = clean.find("{")
+    last_brace = clean.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        candidate = clean[first_brace : last_brace + 1]
         try:
             return json.loads(candidate)
         except json.JSONDecodeError as e:
-            log.debug("Initial JSON parse failed at position %d: %s", e.pos if hasattr(e, 'pos') else -1, str(e)[:100])
+            log.debug("First/last brace extraction failed at position %d: %s", e.pos, str(e)[:120])
 
+    # ── Strategy 4: Extract first balanced JSON object ───────────────────────
     blob = _extract_first_balanced_json_object(clean)
     if blob:
         try:
             return json.loads(blob)
         except json.JSONDecodeError as e:
-            log.debug("Balanced object parse failed at position %d: %s", e.pos if hasattr(e, 'pos') else -1, str(e)[:100])
-            # Trailing commas are a common LLM mistake
+            log.debug("Balanced object parse failed at position %d: %s", e.pos, str(e)[:120])
+
+            # ── Strategy 5a: Fix trailing commas ─────────────────────────────
             try:
                 fixed = re.sub(r",\s*}", "}", blob)
                 fixed = re.sub(r",\s*]", "]", fixed)
@@ -737,10 +799,113 @@ def _parse_llm_json_response(raw: str) -> dict | None:
                 log.debug("Successfully parsed after fixing trailing commas")
                 return parsed
             except json.JSONDecodeError as e2:
-                log.debug("Parse failed even after comma fix at position %d: %s", e2.pos if hasattr(e2, 'pos') else -1, str(e2)[:100])
+                log.debug("Parse failed after comma fix at position %d: %s", e2.pos, str(e2)[:120])
+
+            # ── Strategy 5b: Fix unescaped control characters in strings ──────
+            # LLMs sometimes emit literal newlines/tabs inside JSON string values
+            try:
+                fixed = _fix_unescaped_control_chars(blob)
+                parsed = json.loads(fixed)
+                log.debug("Successfully parsed after fixing unescaped control chars")
+                return parsed
+            except json.JSONDecodeError as e3:
+                log.debug("Parse failed after control-char fix at position %d: %s", e3.pos, str(e3)[:120])
+
+            # ── Strategy 5c: Combined fix — trailing commas + control chars ───
+            # Both issues can coexist in the same response; applying only one fix
+            # leaves the other unresolved, causing json.loads to fail on both 5a and 5b.
+            try:
+                fixed = _fix_unescaped_control_chars(blob)
+                fixed = re.sub(r",\s*}", "}", fixed)
+                fixed = re.sub(r",\s*]", "]", fixed)
+                parsed = json.loads(fixed)
+                log.debug("Successfully parsed after combined control-char + trailing-comma fix")
+                return parsed
+            except json.JSONDecodeError as e4:
+                log.debug("Parse failed after combined fix at position %d: %s", e4.pos, str(e4)[:120])
+
+            # ── Strategy 5d: Control chars + commas on first/last brace extract ─
+            # Apply all fixes to the broader first/last brace extraction from Strategy 3
+            if first_brace != -1 and last_brace > first_brace:
+                candidate = clean[first_brace : last_brace + 1]
+                try:
+                    fixed = _fix_unescaped_control_chars(candidate)
+                    fixed = re.sub(r",\s*}", "}", fixed)
+                    fixed = re.sub(r",\s*]", "]", fixed)
+                    parsed = json.loads(fixed)
+                    log.debug("Successfully parsed after combined fix on first/last brace extract")
+                    return parsed
+                except json.JSONDecodeError as e5:
+                    log.debug("Combined fix on first/last brace extract failed at position %d: %s", e5.pos, str(e5)[:120])
     else:
-        log.debug("Could not extract balanced JSON object from response")
+        log.debug("Could not extract balanced JSON object from response (len=%d)", len(clean))
+
+    # ── Final attempt: regex-based brace extraction ──────────────────────────
+    # Use balanced extraction on the full clean text as last resort — the old
+    # regex `\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}` only handled 2 nesting levels
+    # and silently failed on deeply nested interview_questions JSON (5+ levels).
+    # _extract_first_balanced_json_object handles arbitrary depth correctly.
+    if not blob:
+        # Balanced extraction already failed above; try on the broader first/last slice
+        if first_brace != -1 and last_brace > first_brace:
+            candidate = clean[first_brace : last_brace + 1]
+            balanced = _extract_first_balanced_json_object(candidate)
+            if balanced:
+                try:
+                    return json.loads(balanced)
+                except json.JSONDecodeError:
+                    pass
+
+    # Absolute last resort: simple regex for shallow JSON
+    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', clean, flags=re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(0))
+        except json.JSONDecodeError:
+            pass
+
     return None
+
+
+def _fix_unescaped_control_chars(text: str) -> str:
+    """Replace literal control characters inside JSON string values with their escaped forms.
+    
+    LLMs (especially cloud models) sometimes emit raw newlines, tabs, or other
+    control characters inside JSON string values, which is invalid per RFC 8259.
+    This function walks the string respecting quoted regions and escapes any
+    control characters found inside them.
+    """
+    result = []
+    in_string = False
+    escape = False
+    for c in text:
+        if in_string:
+            if escape:
+                escape = False
+                result.append(c)
+            elif c == '\\':
+                escape = True
+                result.append(c)
+            elif c == '"':
+                in_string = False
+                result.append(c)
+            elif ord(c) < 0x20:
+                # Control character inside a string — escape it
+                if c == '\n':
+                    result.append('\\n')
+                elif c == '\r':
+                    result.append('\\r')
+                elif c == '\t':
+                    result.append('\\t')
+                else:
+                    result.append(f'\\u{ord(c):04x}')
+            else:
+                result.append(c)
+        else:
+            if c == '"':
+                in_string = True
+            result.append(c)
+    return ''.join(result)
 
 
 async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
@@ -977,12 +1142,6 @@ No markdown, no code fences."""
     log.debug("LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
     log.info("LLM response received: %d characters, %d tokens (approx)", len(raw) if raw else 0, len(raw.split()) if raw else 0)
 
-    # Extract JSON from response (handles markdown code blocks and extra text)
-    json_match = re.search(r'\{[\s\S]*\}', raw)
-    if json_match:
-        raw = json_match.group(0)
-        log.debug("Extracted JSON object: %d characters", len(raw))
-
     # Handle empty, whitespace-only, or ultra-short response - retry with higher temperature as fallback
     # Ultra-short responses (e.g. "{" from Ollama Cloud) are not valid JSON narratives
     # A valid narrative JSON is always 100+ chars; threshold of 20 catches degenerate outputs
@@ -1058,20 +1217,56 @@ No markdown, no code fences."""
                 raise  # Re-raise non-429 exceptions
         log.debug("Retry LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
 
-        # Extract JSON from retry response
-        if raw:
-            json_match = re.search(r'\{[\s\S]*\}', raw)
-            if json_match:
-                raw = json_match.group(0)
-
     if not raw or len(str(raw).strip()) < 20:
         log.warning("LLM returned empty or too-short response after retry")
         raise ValueError("LLM returned empty response")
 
     data = _parse_llm_json_response(raw)
     if data is None:
-        log.warning("LLM JSON extraction failed. Response length: %d chars. Raw (first 500 chars): %s", len(raw) if raw else 0, raw[:500] if raw else "<empty>")
-        log.warning("LLM JSON extraction failed. Last 200 chars: %s", raw[-200:] if raw and len(raw) > 200 else raw)
+        # Provide detailed diagnostics for debugging extraction failures
+        log.warning("LLM JSON extraction failed. Response length: %d chars.", len(raw) if raw else 0)
+        log.warning("  First 200 chars: %s", raw[:200] if raw else "<empty>")
+        log.warning("  Last 200 chars: %s", raw[-200:] if raw and len(raw) > 200 else raw)
+        # Try to identify the exact parse failure point on the cleaned response
+        try:
+            _clean = raw.strip()
+            # Strip Unicode BOM
+            if _clean and _clean[0] == '\ufeff':
+                _clean = _clean[1:].strip()
+            _clean = re.sub(r"<LM_THINK_START>.*?<LM_THINK_END>", "", _clean, flags=re.DOTALL)
+            _clean = re.sub(r"<redacted_thinking>.*?</redacted_thinking>", "", _clean, flags=re.DOTALL)
+            _clean = re.sub(r"^```(?:json)?\s*", "", _clean, flags=re.IGNORECASE)
+            _clean = re.sub(r"\s*```$", "", _clean)
+            _clean = _clean.strip()
+            # First/last brace extraction
+            _fb = _clean.find("{")
+            _lb = _clean.rfind("}")
+            if _fb != -1 and _lb > _fb:
+                _sliced = _clean[_fb:_lb + 1]
+            else:
+                _sliced = _clean
+            json.loads(_sliced)
+        except json.JSONDecodeError as diag:
+            log.warning("  Diagnostic: json.loads fails at position %d (char=%r, line=%d, col=%d): %s",
+                        diag.pos, _sliced[diag.pos] if diag.pos < len(_sliced) else '?',
+                        diag.lineno, diag.colno, str(diag)[:150])
+            # Show context around the failure position
+            ctx_start = max(0, diag.pos - 80)
+            ctx_end = min(len(_sliced), diag.pos + 80)
+            log.warning("  Context around failure: ...%r...", _sliced[ctx_start:ctx_end])
+            # Try the combined fix to see if that resolves it
+            try:
+                _fixed = _fix_unescaped_control_chars(_sliced)
+                _fixed = re.sub(r",\s*}", "}", _fixed)
+                _fixed = re.sub(r",\s*]", "]", _fixed)
+                json.loads(_fixed)
+                log.warning("  Diagnostic: Combined fix (control chars + trailing commas) WOULD resolve the issue — "
+                            "this indicates the response has both problems but they were applied separately in earlier strategies.")
+            except json.JSONDecodeError as diag2:
+                log.warning("  Diagnostic: Combined fix also fails at position %d: %s", diag2.pos, str(diag2)[:150])
+                ctx2_start = max(0, diag2.pos - 80)
+                ctx2_end = min(len(_fixed), diag2.pos + 80)
+                log.warning("  Context around combined-fix failure: ...%r...", _fixed[ctx2_start:ctx2_end])
         raise ValueError("LLM returned non-JSON response")
 
     # Handle both 'concerns' (new format) and 'weaknesses' (legacy format)

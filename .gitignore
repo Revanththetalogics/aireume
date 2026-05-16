@@ -46,3 +46,8 @@ test_full_output.txt
 *_output*.txt
 *_results*.txt
 *_summary*.txt
+
+# Playwright
+e2e/.auth/user.json
+test-results/
+playwright-report/

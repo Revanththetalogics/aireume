@@ -15,6 +15,7 @@ from datetime import datetime, date, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
@@ -50,6 +51,7 @@ def _json_default(obj):
 def list_candidates(
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    narrative_status: Optional[str] = Query(None),
     skill: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -63,6 +65,8 @@ def list_candidates(
             detail=f"Invalid status '{status}'. Must be one of: {', '.join(sorted(_VALID_STATUSES))}",
         )
 
+    query = db.query(Candidate).filter(Candidate.tenant_id == current_user.tenant_id)
+
     # When status filter is active, we must join through ScreeningResult to find
     # candidates that have at least one result with that status.
     if status:
@@ -75,12 +79,20 @@ def list_candidates(
             .distinct()
             .subquery()
         )
-        query = db.query(Candidate).filter(
-            Candidate.tenant_id == current_user.tenant_id,
-            Candidate.id.in_(candidate_ids_with_status),
+        query = query.filter(Candidate.id.in_(candidate_ids_with_status))
+
+    # Filter by narrative_status (e.g., processing) — separate from status
+    if narrative_status:
+        candidate_ids_with_narrative = (
+            db.query(ScreeningResult.candidate_id)
+            .filter(
+                ScreeningResult.tenant_id == current_user.tenant_id,
+                ScreeningResult.narrative_status == narrative_status,
+            )
+            .distinct()
+            .subquery()
         )
-    else:
-        query = db.query(Candidate).filter(Candidate.tenant_id == current_user.tenant_id)
+        query = query.filter(Candidate.id.in_(candidate_ids_with_narrative))
 
     if search:
         q = f"%{search}%"
