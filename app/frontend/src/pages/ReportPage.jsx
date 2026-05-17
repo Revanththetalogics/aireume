@@ -2,14 +2,14 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState, useRef } from 'react'
 import {
   ArrowLeft, Share2, Download, CheckCircle, Check,
-  ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon, Upload, Eye, FileText,
+  ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon, Upload, Eye, FileText, Clock,
 } from 'lucide-react'
 import html2pdf from 'html2pdf.js'
 import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
 import InterviewScorecard from '../components/InterviewScorecard'
 import Timeline from '../components/Timeline'
-import { labelTrainingExample, updateResultStatus, updateCandidateName, getNarrative, viewCandidateResume, downloadCandidateResume, downloadPdfReport } from '../lib/api'
+import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandidateAuditLog, getNarrative, viewCandidateResume, downloadCandidateResume, downloadPdfReport } from '../lib/api'
 import AnimatedScore from '../components/AnimatedScore'
 import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
@@ -105,6 +105,8 @@ export default function ReportPage() {
   const [resumeActionLoading, setResumeActionLoading] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [noResult, setNoResult] = useState(false)
+  const [auditLogs, setAuditLogs] = useState([])
+  const [auditExpanded, setAuditExpanded] = useState(false)
 
   /** Resolve name from all possible result paths — returns null if unknown */
   const resolveName = (r) =>
@@ -149,6 +151,15 @@ export default function ReportPage() {
     }
     setNoResult(true)
   }, [result, location.search])
+
+  // Fetch audit log when candidate_id is available
+  useEffect(() => {
+    const cid = result?.candidate_id
+    if (!cid) return
+    getCandidateAuditLog(cid)
+      .then(setAuditLogs)
+      .catch(() => setAuditLogs([]))
+  }, [result?.candidate_id])
 
   // Poll for narrative completion if status is pending or processing
   useEffect(() => {
@@ -348,18 +359,28 @@ export default function ReportPage() {
         {/* Back button */}
         <button
           onClick={() => {
-            // If coming from a batch/analyze page, go back explicitly
-            if (location.state?.from) {
-              navigate(location.state.from)
+            const searchParams = new URLSearchParams(location.search)
+            const fromParam = searchParams.get('from')
+            const destination = location.state?.from ||
+              (fromParam === 'batch' ? '/analyze' :
+               fromParam === 'analyze' ? '/analyze' : null)
+
+            if (destination) {
+              navigate(destination)
             } else {
-              // Otherwise use browser back or go to home
               window.history.length > 1 ? navigate(-1) : navigate('/')
             }
           }}
           className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-brand-700 transition-colors self-start"
         >
           <ArrowLeft className="w-4 h-4" />
-          {location.state?.from ? 'Back to Results' : 'Back'}
+          {(() => {
+            const searchParams = new URLSearchParams(location.search)
+            const fromParam = searchParams.get('from')
+            return location.state?.from === '/batch' || fromParam === 'batch'
+              ? 'Back to Batch Results'
+              : 'Back to Results'
+          })()}
         </button>
 
         {/* Report badge + candidate name */}
@@ -370,8 +391,50 @@ export default function ReportPage() {
           <InlineNameEditor
             initialName={candidateName}
             candidateId={result.candidate_id}
-            onSaved={setCandidateName}
+            onSaved={(newName) => {
+              setCandidateName(newName)
+              setResult(prev => ({
+                ...prev,
+                analysis_result: { ...prev?.analysis_result, candidate_name: newName },
+                candidate_name: newName,
+                contact_info: { ...prev?.contact_info, name: newName },
+                candidate_profile: { ...prev?.candidate_profile, name: newName },
+              }))
+              // Re-fetch audit log to include the new edit
+              if (result.candidate_id) {
+                getCandidateAuditLog(result.candidate_id).then(setAuditLogs).catch(() => {})
+              }
+            }}
           />
+          {/* Audit trail: "Last edited" indicator */}
+          {auditLogs.length > 0 && (
+            <div className="mt-1">
+              <button
+                onClick={() => setAuditExpanded(!auditExpanded)}
+                className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-brand-600 transition-colors"
+              >
+                <Clock className="w-3 h-3" />
+                Last edited {new Date(auditLogs[0].changed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                by {auditLogs[0].changed_by_email?.split('@')[0] || 'user'}
+              </button>
+              {auditExpanded && (
+                <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
+                  {auditLogs.map((log) => (
+                    <div key={log.id} className="text-[10px] text-slate-400 bg-slate-50 rounded-lg px-2 py-1.5 ring-1 ring-slate-100">
+                      <span className="font-semibold text-slate-600">{log.field_name}</span>
+                      {': '}
+                      <span className="line-through">{log.old_value || '(empty)'}</span>
+                      {' → '}
+                      <span className="text-brand-700 font-medium">{log.new_value || '(empty)'}</span>
+                      <div className="mt-0.5 text-slate-400">
+                        {log.changed_by_email?.split('@')[0] || 'User'} · {new Date(log.changed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {role && <p className="text-slate-500 text-xs mt-1 font-medium">{safeStr(role)}</p>}
           <div className="mt-2 border-t border-brand-50 pt-2">
             <p className="text-xs text-slate-400">Analyzed on</p>

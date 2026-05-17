@@ -189,6 +189,29 @@ def generate_pdf_report(result_id: int, db: Session, current_user_id: int) -> by
         if ev.notes:
             eval_summary[cat]["notes"].append(ev.notes)
 
+    # ── 12b. Recruiter dimensions & score ─────────────────────────────────
+    recruiter_dimensions: dict[str, dict[str, Any]] = {}
+    rating_map = {"strong": 3, "adequate": 2, "weak": 1}
+    for ev in evaluations:
+        dim = (ev.question_category or "general").replace("_", " ").title()
+        if dim not in recruiter_dimensions:
+            recruiter_dimensions[dim] = {"scores": [], "total": 0, "evaluated": 0}
+        recruiter_dimensions[dim]["total"] += 1
+        if ev.rating:
+            recruiter_dimensions[dim]["evaluated"] += 1
+            recruiter_dimensions[dim]["scores"].append(rating_map.get(ev.rating, 0))
+
+    # Calculate average scores per dimension
+    for dim in recruiter_dimensions:
+        scores = recruiter_dimensions[dim]["scores"]
+        recruiter_dimensions[dim]["score"] = round(sum(scores) / len(scores), 1) if scores else 0
+
+    # Overall recruiter score (average across all dimensions, scaled to /5)
+    all_scores = [rating_map.get(ev.rating, 0) for ev in evaluations if ev.rating]
+    recruiter_score = round((sum(all_scores) / len(all_scores)) * 5 / 3, 1) if all_scores else 0
+
+    recruiter_evaluated = bool(overall or evaluations)
+
     # ── 13. Follow-up questions ───────────────────────────────────────────
     follow_up_questions: list[str] = []
 
@@ -252,6 +275,9 @@ def generate_pdf_report(result_id: int, db: Session, current_user_id: int) -> by
         eval_summary=eval_summary,
         follow_up_questions=follow_up_questions,
         has_evaluations=bool(evaluations),
+        recruiter_evaluated=recruiter_evaluated,
+        recruiter_score=recruiter_score,
+        recruiter_dimensions=recruiter_dimensions,
     )
 
     # ── 15. Convert to PDF ────────────────────────────────────────────────

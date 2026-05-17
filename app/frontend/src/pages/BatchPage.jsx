@@ -632,7 +632,7 @@ export default function BatchPage() {
                           <div className="flex items-center gap-2">
                             <NarrativeStatusBadge result={r} />
                             <button
-                              onClick={() => navigate(`/report?id=${id}`, { state: { from: '/batch', result: r } })}
+                              onClick={() => navigate(`/report?id=${id}&from=batch`, { state: { from: '/batch', result: r } })}
                               className="text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
                             >
                               View Report

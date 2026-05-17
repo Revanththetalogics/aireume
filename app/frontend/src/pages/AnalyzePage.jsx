@@ -1490,7 +1490,7 @@ export default function AnalyzePage() {
                           <div className="flex items-center gap-2">
                             <NarrativeStatusBadge result={r} />
                             <button
-                              onClick={() => navigate(`/report?id=${id}`, { state: { from: '/analyze', result: r } })}
+                              onClick={() => navigate(`/report?id=${id}&from=analyze`, { state: { from: '/analyze', result: r } })}
                               className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
                             >
                               <Eye className="w-3.5 h-3.5" />

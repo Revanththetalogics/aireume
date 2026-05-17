@@ -21,8 +21,9 @@ from typing import Optional
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate, HiringOutcome
+from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate, HiringOutcome, FieldAuditLog
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest, CandidateSkillCompareRequest
+from app.backend.services.audit_service import log_field_change
 from app.backend.services.outcome_service import (
     record_outcome, record_feedback, get_outcome_for_result, get_outcomes_for_jd, compute_skill_patterns
 )
@@ -315,6 +316,37 @@ def get_candidate_pipeline(
     return {"columns": columns, "counts": counts}
 
 
+@router.put("/{candidate_id}/name")
+def update_candidate_name(
+    candidate_id: int,
+    body: CandidateNameUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    candidate = db.query(Candidate).filter(
+        Candidate.id == candidate_id,
+        Candidate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    old_name = candidate.name
+    log_field_change(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        entity_type="candidate",
+        entity_id=candidate.id,
+        field_name="name",
+        old_value=old_name,
+        new_value=body.name,
+        user_id=current_user.id,
+    )
+    candidate.name = body.name
+    candidate.profile_updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(candidate)
+    return {"id": candidate.id, "name": candidate.name}
+
+
 @router.patch("/{candidate_id}")
 def update_candidate(
     candidate_id: int,
@@ -328,10 +360,68 @@ def update_candidate(
     ).first()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    log_field_change(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        entity_type="candidate",
+        entity_id=candidate.id,
+        field_name="name",
+        old_value=candidate.name,
+        new_value=body.name,
+        user_id=current_user.id,
+    )
     candidate.name = body.name
     db.commit()
     db.refresh(candidate)
     return {"id": candidate.id, "name": candidate.name}
+
+
+@router.get("/{candidate_id}/audit-log")
+def get_candidate_audit_log(
+    candidate_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return field-level edit history for a candidate (most recent 50 entries)."""
+    candidate = db.query(Candidate).filter(
+        Candidate.id == candidate_id,
+        Candidate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    logs = (
+        db.query(FieldAuditLog)
+        .filter(
+            FieldAuditLog.entity_type == "candidate",
+            FieldAuditLog.entity_id == candidate_id,
+            FieldAuditLog.tenant_id == str(current_user.tenant_id),
+        )
+        .order_by(FieldAuditLog.changed_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    # Resolve changed_by user emails for display
+    user_ids = {log.changed_by for log in logs if log.changed_by}
+    user_map = {}
+    if user_ids:
+        for u in db.query(User).filter(User.id.in_(user_ids)).all():
+            user_map[u.id] = u.email
+
+    return [
+        {
+            "id": log.id,
+            "field_name": log.field_name,
+            "old_value": log.old_value,
+            "new_value": log.new_value,
+            "changed_by": log.changed_by,
+            "changed_by_email": user_map.get(log.changed_by),
+            "changed_at": log.changed_at.isoformat() if log.changed_at else None,
+            "change_reason": log.change_reason,
+        }
+        for log in logs
+    ]
 
 
 @router.get("/{candidate_id}")

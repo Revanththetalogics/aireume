@@ -394,6 +394,24 @@ class AuditLog(Base):
     ip_address = Column(String(45), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
+
+class FieldAuditLog(Base):
+    """Field-level audit trail for candidate/report edits — dynamic reports."""
+    __tablename__ = "field_audit_logs"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    tenant_id     = Column(String(100), nullable=False, index=True)
+    entity_type   = Column(String(50), nullable=False)    # 'candidate', 'screening_result'
+    entity_id     = Column(Integer, nullable=False, index=True)
+    field_name    = Column(String(100), nullable=False)
+    old_value     = Column(Text, nullable=True)
+    new_value     = Column(Text, nullable=True)
+    changed_by    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    changed_at    = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    change_reason = Column(String(500), nullable=True)
+
+    changed_by_user = relationship("User")
+
 class FeatureFlag(Base):
     """Global feature flags for the platform."""
     __tablename__ = "feature_flags"

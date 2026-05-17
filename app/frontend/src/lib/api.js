@@ -727,6 +727,11 @@ export async function updateCandidateName(candidateId, name) {
   return response.data
 }
 
+export async function getCandidateAuditLog(candidateId) {
+  const response = await api.get(`/candidates/${candidateId}/audit-log`)
+  return response.data
+}
+
 // ─── Candidate Notes ─────────────────────────────────────────────────────────
 
 export async function getCandidateNotes(candidateId) {

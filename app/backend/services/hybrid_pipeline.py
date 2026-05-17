@@ -1325,6 +1325,75 @@ def _ensure_str_list(v) -> List[str]:
     return [item if isinstance(item, str) else str(item) for item in v]
 
 
+def _build_executive_summary(score, recommendation, matched_skills, required_skills,
+                              missing_skills, experience_years, current_role,
+                              domain_fit_score, risk_signals, education_match):
+    """Build a rich executive summary from deterministic analysis data.
+
+    Produces a concise, multi-dimensional narrative that helps hiring managers
+    quickly understand the candidate's fit — even when the LLM narrative is
+    unavailable or still processing.
+    """
+    parts = []
+
+    # Opening: Role fit assessment
+    if current_role and current_role not in ("N/A", "", "Unknown"):
+        parts.append(f"{current_role} professional with {experience_years or 0} years of experience.")
+    elif experience_years:
+        parts.append(f"Candidate with {experience_years} years of professional experience.")
+
+    # Skills assessment
+    matched_count = len(matched_skills) if matched_skills else 0
+    required_count = len(required_skills) if required_skills else 0
+    if matched_count and required_count:
+        skill_pct = int((matched_count / required_count) * 100)
+        top_skills = ", ".join(matched_skills[:3])
+        parts.append(f"Demonstrates {matched_count}/{required_count} required skills ({skill_pct}% coverage) including {top_skills}.")
+    elif matched_count:
+        parts.append(f"Matches {matched_count} relevant skills.")
+
+    # Missing skills / gaps
+    if missing_skills:
+        top_missing = ", ".join(missing_skills[:3])
+        parts.append(f"Key gaps: {top_missing}.")
+
+    # Domain and experience fit
+    if domain_fit_score is not None:
+        if domain_fit_score >= 60:
+            parts.append(f"Strong domain alignment ({domain_fit_score}% fit).")
+        else:
+            parts.append(f"Limited domain overlap ({domain_fit_score}% fit) — may require ramp-up time.")
+
+    # Education alignment
+    if education_match is not None:
+        if education_match >= 70:
+            parts.append("Education background aligns well with role requirements.")
+        elif education_match < 40:
+            parts.append("Education profile may need supplementary assessment.")
+
+    # Risk signals
+    high_risks = [r for r in (risk_signals or [])
+                  if isinstance(r, dict) and r.get('severity', '').lower() == 'high']
+    if high_risks:
+        risk_types = ", ".join(r.get('type', r.get('signal', 'unknown')) for r in high_risks[:2])
+        parts.append(f"Attention needed: {risk_types}.")
+
+    # Recommendation
+    rec_map = {
+        'strong_yes': 'Strongly recommended for interview',
+        'Shortlist': 'Strongly recommended for interview',
+        'yes': 'Recommended for interview',
+        'Consider': 'Recommended for interview with noted reservations',
+        'consider': 'Recommended for interview with noted reservations',
+        'no': 'Does not meet minimum requirements',
+        'Reject': 'Does not meet minimum requirements',
+    }
+    rec_text = rec_map.get(recommendation, f"Overall assessment: {recommendation}")
+    parts.append(f"{rec_text} (fit score: {score}/100).")
+
+    return " ".join(parts)
+
+
 def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dict[str, Any]) -> Dict[str, Any]:
     """Deterministic narrative when LLM is unavailable or timed out."""
     matched  = skill_analysis.get("matched_required") or skill_analysis.get("matched_skills", [])
@@ -1336,6 +1405,15 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
     req_y    = python_result.get("_required_years", 0)
     recommendation = python_result.get("final_recommendation", "Pending")
     score_rationales = python_result.get("score_rationales", {})
+
+    # Extract richer context for the executive summary
+    profile          = python_result.get("candidate_profile", {})
+    jd_a             = python_result.get("jd_analysis", {})
+    sb               = python_result.get("score_breakdown", {})
+    domain_fit_raw   = sb.get("domain_fit", None)
+    education_raw    = sb.get("education", None)
+    risk_signals_val = python_result.get("risk_signals", [])
+    required_skills_list = jd_a.get("required_skills", [])
 
     strengths = []
     if matched:
@@ -1351,15 +1429,19 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
     if not concerns:
         concerns.append("Manual review recommended for full assessment")
 
-    # Generate deterministic fit_summary based on scores and recommendation
-    if score >= 80:
-        fit_summary = f"Strong candidate with {score}/100 fit score. {len(matched)}/{req} skills matched. Recommended for {recommendation}."
-    elif score >= 60:
-        fit_summary = f"Viable candidate with {score}/100 fit score. {len(matched)}/{req} skills matched. Consider for interview."
-    elif score >= 40:
-        fit_summary = f"Mixed fit at {score}/100. Skills matched: {len(matched)}/{req}. Manual review recommended."
-    else:
-        fit_summary = f"Low fit score of {score}/100. Only {len(matched)}/{req} skills matched. Not recommended without significant training."
+    # Build rich executive summary using deterministic data
+    fit_summary = _build_executive_summary(
+        score=score,
+        recommendation=recommendation,
+        matched_skills=matched,
+        required_skills=required_skills_list,
+        missing_skills=missing,
+        experience_years=profile.get("total_effective_years"),
+        current_role=profile.get("current_role"),
+        domain_fit_score=domain_fit_raw,
+        risk_signals=risk_signals_val,
+        education_match=education_raw,
+    )
 
     # Use score_rationales for explainability if available, otherwise use defaults
     if score_rationales:

@@ -1,7 +1,12 @@
-"""Audit logging service for platform admin actions."""
+"""Audit logging services — platform admin audit trail + field-level change tracking."""
+
 import json
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from app.backend.models.db_models import AuditLog, User
+from app.backend.models.db_models import AuditLog, FieldAuditLog, User
+
+
+# ─── Platform Admin Audit Trail ─────────────────────────────────────────────
 
 
 def log_audit(
@@ -15,7 +20,7 @@ def log_audit(
     ip_address: str = None,
 ):
     """Record an audit log entry for a platform admin action.
-    
+
     Args:
         db: Database session
         actor: The user performing the action
@@ -37,3 +42,39 @@ def log_audit(
     db.add(entry)
     db.commit()
     return entry
+
+
+# ─── Field-Level Change Tracking (Dynamic Reports) ──────────────────────────
+
+
+def log_field_change(
+    db: Session,
+    tenant_id: str,
+    entity_type: str,
+    entity_id: int,
+    field_name: str,
+    old_value,
+    new_value,
+    user_id: int,
+    reason: str = None,
+):
+    """Log a field-level change to the audit trail.
+
+    Skips logging when old and new values are identical (string comparison).
+    Does NOT commit — the caller is responsible for committing the transaction.
+    """
+    if str(old_value or "") == str(new_value or ""):
+        return  # No actual change
+
+    entry = FieldAuditLog(
+        tenant_id=str(tenant_id),
+        entity_type=entity_type,
+        entity_id=entity_id,
+        field_name=field_name,
+        old_value=str(old_value) if old_value is not None else None,
+        new_value=str(new_value) if new_value is not None else None,
+        changed_by=user_id,
+        changed_at=datetime.now(timezone.utc),
+        change_reason=reason,
+    )
+    db.add(entry)

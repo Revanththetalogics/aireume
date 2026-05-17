@@ -32,6 +32,7 @@ docx2txt==0.8
 striprtf==0.0.26
 odfpy==1.4.1
 antiword==0.1.0
+mammoth>=1.8.0
 
 # NLP & Text Processing
 spacy==3.8.2

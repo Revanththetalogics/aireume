@@ -32,6 +32,12 @@ except ImportError:
     _HAS_DOCX2TXT = False
 
 try:
+    import mammoth
+    _HAS_MAMMOTH = True
+except ImportError:
+    _HAS_MAMMOTH = False
+
+try:
     from striprtf.striprtf import rtf_to_text
     _HAS_STRIPRTF = True
 except ImportError:
@@ -487,6 +493,16 @@ class ResumeParser:
                 except Exception as e:
                     logger.warning("docx2txt extraction failed: %s", e)
             
+            # Stage 2b: Extract text using mammoth (better structure preservation)
+            if _HAS_MAMMOTH:
+                try:
+                    mammoth_result = mammoth.extract_raw_text(io.BytesIO(file_bytes))
+                    if mammoth_result.value.strip():
+                        add_unique_text(mammoth_result.value, "mammoth")
+                        logger.info("DOCX mammoth extraction completed")
+                except Exception as e:
+                    logger.warning("mammoth extraction failed: %s", e)
+            
             # Stage 3: Extract text from tables (contact info often in tables)
             try:
                 for table_idx, table in enumerate(doc.tables):
@@ -653,7 +669,18 @@ class ResumeParser:
             except (subprocess.SubprocessError, FileNotFoundError, Exception) as e:
                 logger.debug("LibreOffice DOCX conversion not available or failed: %s", e)
 
-        # Stage 4: Best-effort ASCII extraction
+        # Stage 4: Try mammoth for better structure preservation (DOCX/DOC)
+        if not text_parts and _HAS_MAMMOTH:
+            try:
+                result = mammoth.extract_raw_text(io.BytesIO(file_bytes))
+                text = result.value
+                if text.strip():
+                    text_parts.append((text, "mammoth"))
+                    logger.info("DOC extraction completed via mammoth")
+            except Exception as e:
+                logger.debug("mammoth extraction failed: %s", e)
+
+        # Stage 5: Best-effort ASCII extraction
         if not text_parts:
             try:
                 raw = file_bytes.decode("latin-1", errors="ignore")
@@ -1638,30 +1665,230 @@ def _name_from_email(email: str) -> str:
     return " ".join(t.capitalize() for t in tokens[:4])
 
 
+def _extract_contact_from_labels(text: str) -> Dict[str, str]:
+    """
+    Tier 0.5: Extract contact info from explicitly labeled fields in the resume header.
+
+    Searches the first 30 lines for patterns like "Name: John Doe", "Email: john@x.com",
+    "Phone: +91-9876543210", etc. Returns a dict with any found fields.
+    This is the highest-confidence extraction because it relies on explicit labels.
+    """
+    result: Dict[str, str] = {}
+    if not text:
+        return result
+
+    lines = text.strip().split('\n')[:30]
+
+    # ── Name patterns ──────────────────────────────────────────────────────
+    name_patterns = [
+        re.compile(r'(?:Name|Full\s*Name|Candidate\s*Name)\s*[:\-–—]\s*(.+)', re.IGNORECASE),
+    ]
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        for pat in name_patterns:
+            m = pat.search(line)
+            if m:
+                candidate = m.group(1).strip()
+                # Validate: not empty, not too long, no digits, no @ sign
+                if candidate and len(candidate) <= 80 and not any(c.isdigit() for c in candidate) and '@' not in candidate:
+                    # Strip trailing punctuation/labels
+                    candidate = re.sub(r'\s*[,;|].*$', '', candidate).strip()
+                    if len(candidate.split()) >= 1:
+                        result['name'] = candidate
+                        break
+        if 'name' in result:
+            break
+
+    # ── Email patterns ─────────────────────────────────────────────────────
+    email_label_patterns = [
+        re.compile(r'(?:Email|E-?mail|Email\s*ID|Mail)\s*[:\-–—]\s*(.+)', re.IGNORECASE),
+    ]
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        for pat in email_label_patterns:
+            m = pat.search(line)
+            if m:
+                candidate = m.group(1).strip()
+                # Validate: must look like an email
+                email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', candidate)
+                if email_match:
+                    result['email'] = email_match.group(0)
+                    break
+        if 'email' in result:
+            break
+
+    # ── Phone patterns ─────────────────────────────────────────────────────
+    phone_label_patterns = [
+        re.compile(r'(?:Phone|Mobile|Cell|Contact\s*(?:Number)?|Tel(?:ephone)?|Ph)\s*[:\-–—]\s*(.+)', re.IGNORECASE),
+    ]
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        for pat in phone_label_patterns:
+            m = pat.search(line)
+            if m:
+                candidate = m.group(1).strip()
+                # Extract phone number from the labeled value
+                # Try to find a phone-like pattern in the candidate
+                phone_patterns = [
+                    r'\+[0-9]{1,3}[-\s.]?[0-9]{1,4}[-\s.]?[0-9]{1,4}[-\s.]?[0-9]{1,9}',
+                    r'\([0-9]{2,4}\)\s*[0-9]{1,4}[-\s.]?[0-9]{1,9}',
+                    r'[0-9]{3,4}[-\s.][0-9]{3,4}[-\s.][0-9]{4}',
+                    r'\+?\d[\d\s().\-]{8,}\d',
+                ]
+                for pp in phone_patterns:
+                    pm = re.search(pp, candidate)
+                    if pm:
+                        phone = pm.group(0).strip()
+                        digits_only = re.sub(r'\D', '', phone)
+                        if len(digits_only) >= 7:
+                            year_check = int(digits_only[:4]) if len(digits_only) >= 4 else 0
+                            if not (1900 <= year_check <= 2099):
+                                result['phone'] = phone
+                                break
+                if 'phone' in result:
+                    break
+
+    # ── Aggressive phone extraction from first 30 lines (even without labels) ─
+    if 'phone' not in result:
+        aggressive_phone_patterns = [
+            # Indian: +91XXXXXXXXXX or +91 XXXXX XXXXX
+            r'\+91[-\s]?\d{5}[-\s]?\d{5}',
+            # US: (XXX) XXX-XXXX
+            r'\(\d{3}\)\s*\d{3}[-\s]\d{4}',
+            # Standard: XXX-XXX-XXXX
+            r'\b\d{3}[-\s]\d{3}[-\s]\d{4}\b',
+            # International generic: +CC-XXXXXXXXXX
+            r'\+\d{1,3}[-\s]\d{2,4}[-\s]\d{3,4}[-\s]\d{4}',
+        ]
+        for line in lines:
+            for pp in aggressive_phone_patterns:
+                pm = re.search(pp, line)
+                if pm:
+                    phone = pm.group(0).strip()
+                    digits_only = re.sub(r'\D', '', phone)
+                    if len(digits_only) >= 7:
+                        year_check = int(digits_only[:4]) if len(digits_only) >= 4 else 0
+                        if not (1900 <= year_check <= 2099):
+                            result['phone'] = phone
+                            break
+            if 'phone' in result:
+                break
+
+    # ── Address/Location patterns ──────────────────────────────────────────
+    address_label_patterns = [
+        re.compile(r'(?:Address|Location|City|State|Country)\s*[:\-–—]\s*(.+)', re.IGNORECASE),
+    ]
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        for pat in address_label_patterns:
+            m = pat.search(line)
+            if m:
+                candidate = m.group(1).strip()
+                if candidate and len(candidate) <= 200:
+                    candidate = re.sub(r'\s*[,;|].*$', '', candidate).strip()
+                    if candidate:
+                        result.setdefault('address', candidate)
+                        break
+
+    return result
+
+
 def _extract_name_relaxed(text: str) -> str:
     """
     Fallback when strict header heuristics miss (e.g. title line before name, odd layout).
+    Handles: Title Case names, ALL-CAPS multi-word names (e.g. "PAVAN KUMAR SV"),
+    names after "Name:" labels, and aggressively skips non-name lines.
     """
     skip = {
         "resume", "curriculum", "vitae", "cv", "profile", "summary",
         "objective", "contact", "address", "details", "information",
         "page", "updated", "date", "experience", "education", "skills",
-        "employment", "work", "projects", "references",
+        "employment", "work", "projects", "references", "certifications",
+        "awards", "publications", "languages", "interests", "hobbies",
+        "activities", "achievements", "declaration", "hobbies",
     }
-    title_case_name = re.compile(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*$")
+    # Section header patterns that are definitely NOT names
+    section_header_re = re.compile(
+        r'\b(?:OBJECTIVE|SUMMARY|EXPERIENCE|EDUCATION|SKILLS|EMPLOYMENT|'
+        r'WORK|PROJECTS|REFERENCES|CERTIFICATIONS|AWARDS|PUBLICATIONS|'
+        r'LANGUAGES|INTERESTS|HOBBIES|ACTIVITIES|ACHIEVEMENTS|DECLARATION|'
+        r'PERSONAL|DETAILS|CONTACT|PROFILE|STRENGTHS|CAREER)\b',
+        re.IGNORECASE
+    )
+
+    # Pattern 1: Name after explicit label (e.g., "Name: John Doe" or "Name - PAVAN KUMAR SV")
+    name_label_re = re.compile(r'^(?:Name|Full\s*Name|Candidate\s*Name)\s*[:\-–—]\s*(.+)', re.IGNORECASE)
+
+    # Pattern 2: Title Case name (e.g., "John Doe", "Mary-Jane Smith")
+    title_case_name = re.compile(r"^([A-Z][a-z]+(?:[\s-][A-Z][a-z]+){1,3})\s*$")
+
+    # Pattern 3: ALL-CAPS multi-word name (e.g., "PAVAN KUMAR SV", "JOHN DOE")
+    all_caps_name = re.compile(r"^([A-Z]{2,}(?:\s+[A-Z]{1,5}){1,4})\s*$")
+
+    # Pattern 4: Mixed case with initials (e.g., "Pavan Kumar S V", "John D Smith")
+    mixed_initial_name = re.compile(r"^([A-Z][a-z]+(?:\s+[A-Z]{1,3}\.?\s*)*\s*[A-Z][a-z]+)\s*$")
+
     for line in text.strip().split("\n")[:35]:
         line = line.strip()
         if len(line) < 4 or len(line) > 80:
             continue
+        # Skip lines with email, URL, phone digits
         if "@" in line or re.search(r"linkedin\.com/", line, re.IGNORECASE):
+            continue
+        if re.search(r"https?://", line, re.IGNORECASE):
             continue
         if re.search(r"\+?\d[\d\s().\-]{8,}\d", line):
             continue
+        # Skip section headers
+        if section_header_re.search(line):
+            continue
+        # Skip lines that are clearly job titles or roles
+        if re.search(r'\b(?:developer|engineer|manager|analyst|architect|lead|consultant|director|specialist|administrator|coordinator|designer|intern)\b', line, re.IGNORECASE):
+            continue
+
+        # Check Pattern 1: Name after explicit label
+        label_match = name_label_re.match(line)
+        if label_match:
+            candidate = label_match.group(1).strip()
+            # Strip trailing punctuation/extra labels
+            candidate = re.sub(r'\s*[,;|].*$', '', candidate).strip()
+            if candidate and not any(c.isdigit() for c in candidate) and '@' not in candidate:
+                return candidate
+
+        # Check Pattern 2: Title Case
         if title_case_name.match(line):
             words = line.split()
             if any(w.lower() in skip for w in words):
                 continue
             return line
+
+        # Check Pattern 3: ALL-CAPS multi-word name
+        caps_match = all_caps_name.match(line)
+        if caps_match:
+            candidate = caps_match.group(1).strip()
+            words = candidate.split()
+            # Must have 2-5 words, each 1-5 chars (initials are short)
+            if 2 <= len(words) <= 5 and all(1 <= len(w) <= 15 for w in words):
+                if not any(w in skip for w in (w.lower() for w in words)):
+                    # Return in Title Case
+                    return " ".join(w.capitalize() if len(w) > 2 else w for w in words)
+
+        # Check Pattern 4: Mixed case with initials
+        mixed_match = mixed_initial_name.match(line)
+        if mixed_match:
+            candidate = mixed_match.group(1).strip()
+            words = candidate.split()
+            if not any(w.lower() in skip for w in words):
+                return candidate
+
     return ""
 
 
@@ -1809,7 +2036,16 @@ async def enrich_parsed_resume_async(data: Dict[str, Any], filename: Optional[st
     
     # --- Contact enrichment (skip if already complete) ---
     if not (contact.get("name") and contact.get("email")):
-        # Try LLM extraction first (most accurate, handles all edge cases)
+        # Tier 0.5: Structured header parsing (highest confidence — explicit labels)
+        if raw:
+            label_contact = _extract_contact_from_labels(raw)
+            if label_contact:
+                # Merge: only fill gaps, don't overwrite existing values
+                for key in ('name', 'email', 'phone', 'address'):
+                    if label_contact.get(key) and not contact.get(key):
+                        contact[key] = label_contact[key]
+
+        # Try LLM extraction next (handles all edge cases)
         llm_contact = None
         if raw:
             try:
@@ -1865,15 +2101,32 @@ async def enrich_parsed_resume_async(data: Dict[str, Any], filename: Optional[st
 
 
 def enrich_parsed_resume(data: Dict[str, Any], filename: Optional[str] = None) -> None:
-    """Synchronous wrapper - Fill gaps in parser output in-place (name from NER / email / relaxed header scan / filename)."""
+    """Synchronous wrapper - Fill gaps in parser output in-place (name from structured labels / NER / email / relaxed header scan / filename)."""
     contact = data.setdefault("contact_info", {})
     raw = (data.get("raw_text") or "").strip()
     if (contact.get("name") or "").strip():
+        # Name already found, but fill other contact gaps via structured labels
+        if raw:
+            label_contact = _extract_contact_from_labels(raw)
+            if label_contact:
+                for key in ('email', 'phone', 'address'):
+                    if label_contact.get(key) and not contact.get(key):
+                        contact[key] = label_contact[key]
         return
     
-    # Tier 0: Try spaCy NER first (most accurate for diverse formats)
+    # Tier 0.5: Structured header parsing (highest confidence — explicit labels)
     guess = None
     if raw:
+        label_contact = _extract_contact_from_labels(raw)
+        if label_contact:
+            # Fill all labeled contact fields (name, email, phone, address)
+            for key in ('name', 'email', 'phone', 'address'):
+                if label_contact.get(key) and not contact.get(key):
+                    contact[key] = label_contact[key]
+            guess = label_contact.get('name')
+    
+    # Tier 0: Try spaCy NER (most accurate for diverse formats)
+    if not guess and raw:
         guess = _extract_name_ner(raw)
     
     # Tier 1: Fallback to email-based extraction
