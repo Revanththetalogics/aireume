@@ -105,7 +105,7 @@ export default function ReportPage() {
   const [resumeActionLoading, setResumeActionLoading] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [noResult, setNoResult] = useState(false)
-  const [loading, setLoading] = useState(!location.state?.result)
+  const [loading, setLoading] = useState(true)
   const [auditLogs, setAuditLogs] = useState([])
   const [auditExpanded, setAuditExpanded] = useState(false)
 
@@ -130,16 +130,26 @@ export default function ReportPage() {
   }, [])
 
   useEffect(() => {
-    if (result) {
-      console.log('[ReportPage] Result object:', result)
-      console.log('[ReportPage] contact_info:', result.contact_info)
-      console.log('[ReportPage] candidate_profile:', result.candidate_profile)
+    // Check if result from location.state is a COMPLETE result (not just a partial card summary)
+    const isCompleteResult = result && (
+      result.analysis_result ||
+      result.strengths !== undefined ||
+      result.contact_info ||
+      result.candidate_profile ||
+      result.score_breakdown
+    )
+
+    if (isCompleteResult) {
+      console.log('[ReportPage] Using complete result from state')
       setCandidateName(resolveName(result))
       setLoading(false)
       return
     }
+
+    // Extract ID from either the partial result or URL params
     const params = new URLSearchParams(location.search)
-    const id = params.get('id')
+    const id = params.get('id') || result?.id || result?.result_id
+
     if (!id) {
       setNoResult(true)
       setLoading(false)
@@ -158,14 +168,13 @@ export default function ReportPage() {
       }
     } catch { /* ignore */ }
 
-    // Fetch from API as final fallback
+    // Fetch full data from API
     setLoading(true)
     getScreeningResult(id)
       .then(data => {
         setResult(data)
         setCandidateName(resolveName(data))
-        // Cache for future use
-        try { sessionStorage.setItem(`report_${id}`, JSON.stringify(data)) } catch { /* ignore */ }
+        try { sessionStorage.setItem(`report_${id}`, JSON.stringify(data)) } catch {}
       })
       .catch(() => {
         setNoResult(true)

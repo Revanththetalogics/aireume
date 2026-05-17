@@ -434,7 +434,7 @@ export default function JDCandidatesPage() {
       const rid = candidate?.latest_result_id || candidate?.id || candidate?.result_id
       if (rid) handleStatusChange(rid, 'rejected')
     },
-    onOpen: (candidate) => navigate(`/report?id=${candidate?.id || candidate?.result_id}`, { state: { from: '/candidates', result: candidate } }),
+    onOpen: (candidate) => navigate(`/report?id=${candidate?.id || candidate?.result_id}`, { state: { from: '/candidates' } }),
     onSearch: () => searchInputRef.current?.focus(),
     enabled: viewMode === 'list',
   })
@@ -712,7 +712,7 @@ export default function JDCandidatesPage() {
                             job_title: jdName,
                           }}
                           onStatusChange={handleStatusChange}
-                          onSelect={(card) => navigate(`/report?id=${card.id}`, { state: { from: '/candidates', result: card } })}
+                          onSelect={(card) => navigate(`/report?id=${card.id}`, { state: { from: '/candidates' } })}
                           selected={selectedIndex === idx}
                         />
                       </div>
@@ -793,7 +793,7 @@ export default function JDCandidatesPage() {
                               draggable
                               onDragStart={(e) => handleDragStart(e, candidate, status)}
                               onDragEnd={handleDragEnd}
-                              onClick={() => navigate(`/report?id=${candidate.latest_result_id || candidate.id}`, { state: { from: '/candidates', result: candidate } })}
+                              onClick={() => navigate(`/report?id=${candidate.latest_result_id || candidate.id}`, { state: { from: '/candidates' } })}
                               className={`bg-white rounded-xl ring-1 ring-brand-100 shadow-brand-sm p-3 cursor-pointer hover:shadow-brand transition-shadow select-none ${
                                 draggingId === candidate.id ? 'opacity-50' : ''
                               }`}
