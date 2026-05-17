@@ -154,6 +154,9 @@ export default function AnalyzePage() {
   const [parseError, setParseError]           = useState(null)
   const debounceRef = useRef(null)
   const skipAutoParseRef = useRef(false)
+  const streamingResultsRef = useRef([])
+  const streamingFailedRef = useRef([])
+  const sessionRestoredRef = useRef(false)
 
   // Reset analysis state on fresh mount
   useEffect(() => {
@@ -231,11 +234,11 @@ export default function AnalyzePage() {
   useEffect(() => {
     if (location.state?.jd_text || location.state?.jd_mode) return
 
-    // Check if returning from report view — restore batch results
-    const returningFromReport = location.state?.from === '/analyze' ||
-      new URLSearchParams(location.search).get('restored') === 'true'
+    const params = new URLSearchParams(location.search)
+    const returningFromReport = params.get('restored') === 'true' || location.state?.from === '/analyze'
 
-    if (returningFromReport) {
+    if (returningFromReport && !sessionRestoredRef.current) {
+      sessionRestoredRef.current = true
       const savedBatch = sessionStorage.getItem('aria_batch_results')
       if (savedBatch) {
         try {
@@ -246,11 +249,15 @@ export default function AnalyzePage() {
             setStreamingFailed(batch.failed || [])
             setAnalysisProgress(batch.progress || { completed: 0, total: 0 })
             setAnalysisDone(true)
+            // Clean URL param without triggering navigation
+            window.history.replaceState({}, '', '/analyze')
             return  // Skip the rest of session restoration logic
           }
         } catch {}
       }
     }
+
+    if (sessionRestoredRef.current) return
 
     const isAnalyzeAnother = sessionStorage.getItem('aria_analyze_another')
 
@@ -258,14 +265,18 @@ export default function AnalyzePage() {
       // Fresh navigation (Dashboard, nav menu, etc.) — clear stale session data
       sessionStorage.removeItem('aria_active_jd')
       sessionStorage.removeItem('aria_batch_results')  // Also clear batch results
+      sessionRestoredRef.current = true
       return
     }
-    
+
     // Clear the one-time flag immediately
     sessionStorage.removeItem('aria_analyze_another')
-    
+
     const savedSession = sessionStorage.getItem('aria_active_jd')
-    if (!savedSession) return
+    if (!savedSession) {
+      sessionRestoredRef.current = true
+      return
+    }
     try {
       const ctx = JSON.parse(savedSession)
       if (ctx.jd_text) setJdText(ctx.jd_text)
@@ -282,7 +293,8 @@ export default function AnalyzePage() {
     } catch (e) {
       console.error('Failed to restore session:', e)
     }
-  }, [])
+    sessionRestoredRef.current = true
+  }, [location.search])
 
   // Load JD from location state (from JD Library or ReportPage)
   useEffect(() => {
@@ -797,7 +809,9 @@ export default function AnalyzePage() {
               setAnalysisProgress({ completed: index, total })
               setStreamingResults(prev => {
                 const updated = [...prev, { filename, result, screeningResultId }]
-                return updated.sort((a, b) => (b.result?.fit_score || 0) - (a.result?.fit_score || 0))
+                updated.sort((a, b) => (b.result?.fit_score || 0) - (a.result?.fit_score || 0))
+                streamingResultsRef.current = updated
+                return updated
               })
               setFileStatuses(prev => prev.map(fs =>
                 fs.filename === filename
@@ -807,25 +821,53 @@ export default function AnalyzePage() {
               if (screeningResultId) {
                 try { sessionStorage.setItem(`report_${screeningResultId}`, JSON.stringify(result)) } catch {}
               }
+              // Safety net: persist batch results on every new result
+              try {
+                const currentResults = streamingResultsRef.current
+                const currentFailed = streamingFailedRef.current
+                if (currentResults.length > 0) {
+                  sessionStorage.setItem('aria_batch_results', JSON.stringify({
+                    results: currentResults,
+                    failed: currentFailed || [],
+                    progress: { completed: index, total },
+                    timestamp: Date.now()
+                  }))
+                }
+              } catch {}
             },
             onFailed: (index, total, filename, error) => {
               setIsAnalyzing(true)
               setAnalysisProgress(prev => ({ completed: prev.completed, total: total || prev.total }))
-              setStreamingFailed(prev => [...prev, { filename, error }])
+              setStreamingFailed(prev => {
+                const updated = [...prev, { filename, error }]
+                streamingFailedRef.current = updated
+                return updated
+              })
               setFileStatuses(prev => prev.map(fs =>
                 fs.filename === filename
                   ? { ...fs, status: 'failed', error, endTime: Date.now() }
                   : fs
               ))
+              // Safety net: persist batch results on every failure too
+              try {
+                const currentResults = streamingResultsRef.current
+                const currentFailed = streamingFailedRef.current
+                sessionStorage.setItem('aria_batch_results', JSON.stringify({
+                  results: currentResults,
+                  failed: currentFailed || [],
+                  progress: { completed: index, total: total || 0 },
+                  timestamp: Date.now()
+                }))
+              } catch {}
             },
             onDone: (total, successful, failedCount) => {
               setAnalysisDone(true)
-              // Persist batch results for back-navigation
+              // Persist batch results for back-navigation (use refs to avoid stale closure)
               try {
                 sessionStorage.setItem('aria_batch_results', JSON.stringify({
-                  results: streamingResults,
-                  failed: streamingFailed,
-                  progress: analysisProgress,
+                  results: streamingResultsRef.current,
+                  failed: streamingFailedRef.current,
+                  progress: { completed: total, total },
                   timestamp: Date.now()
                 }))
               } catch {}
@@ -1564,7 +1606,18 @@ export default function AnalyzePage() {
                           <div className="flex items-center gap-2">
                             <NarrativeStatusBadge result={r} />
                             <button
-                              onClick={() => navigate(`/report?id=${id}&from=analyze`, { state: { from: '/analyze', result: r } })}
+                              onClick={() => {
+                                // Persist batch results before navigating to report
+                                try {
+                                  sessionStorage.setItem('aria_batch_results', JSON.stringify({
+                                    results: streamingResultsRef.current,
+                                    failed: streamingFailedRef.current,
+                                    progress: analysisProgress,
+                                    timestamp: Date.now()
+                                  }))
+                                } catch {}
+                                navigate(`/report?id=${id}&from=analyze`, { state: { from: '/analyze', result: r } })
+                              }}
                               className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-bold hover:underline"
                             >
                               <Eye className="w-3.5 h-3.5" />

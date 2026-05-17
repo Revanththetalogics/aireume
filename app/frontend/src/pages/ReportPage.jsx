@@ -350,7 +350,7 @@ export default function ReportPage() {
   const handleDownload = async () => {
     if (isDownloading) return
 
-    const resultId = result?.result_id
+    const resultId = result?.result_id || result?.id || new URLSearchParams(location.search).get('id')
     if (!resultId) {
       fallbackClientSidePdf()
       return
@@ -406,7 +406,11 @@ export default function ReportPage() {
                fromParam === 'analyze' ? '/analyze' : null)
 
             if (destination) {
-              navigate(destination, { state: { from: '/analyze' } })
+              if (destination === '/analyze') {
+                navigate('/analyze?restored=true', { replace: false })
+              } else {
+                navigate(destination, { state: { from: '/analyze' } })
+              }
             } else {
               window.history.length > 1 ? navigate(-1) : navigate('/')
             }
