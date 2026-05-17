@@ -63,6 +63,18 @@ def generate_pdf_report(result_id: int, db: Session, current_user_id: int) -> by
     analysis = _safe_json(result.analysis_result)
     parsed = _safe_json(result.parsed_data)
 
+    # ── 2b. Merge narrative_json fields (same logic as candidates.py endpoint) ─
+    narrative_data = _safe_json(result.narrative_json) if result.narrative_json else {}
+    if narrative_data:
+        narrative_fields = {
+            "ai_enhanced", "fit_summary", "strengths", "concerns",
+            "weaknesses", "recommendation_rationale", "explainability",
+            "interview_questions", "candidate_profile_summary",
+        }
+        for field in narrative_fields:
+            if field in narrative_data and narrative_data[field]:
+                analysis[field] = narrative_data[field]
+
     # ── 3. Fetch related records ──────────────────────────────────────────
     evaluations = (
         db.query(InterviewEvaluation)
