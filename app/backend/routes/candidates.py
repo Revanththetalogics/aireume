@@ -196,6 +196,168 @@ def list_candidates(
     return {"candidates": result, "total": total, "page": page, "page_size": page_size}
 
 
+@router.get("/results/{result_id}")
+def get_screening_result(
+    result_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fetch full screening result by ID for report display.
+
+    Used by the frontend ReportPage when navigating via URL with ?id= param
+    and no result data is available in location.state or sessionStorage.
+    Returns the same data shape that the report page expects.
+    """
+    result = db.query(ScreeningResult).options(
+        joinedload(ScreeningResult.candidate),
+        joinedload(ScreeningResult.role_template),
+    ).filter(
+        ScreeningResult.id == result_id,
+        ScreeningResult.tenant_id == current_user.tenant_id,
+    ).first()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    candidate = result.candidate
+    role_template = result.role_template
+
+    # ── Parse JSON columns ──────────────────────────────────────────────────
+    analysis = {}
+    if result.analysis_result:
+        try:
+            analysis = json.loads(result.analysis_result) if isinstance(result.analysis_result, str) else result.analysis_result
+        except Exception:
+            analysis = {}
+
+    parsed = {}
+    if result.parsed_data:
+        try:
+            parsed = json.loads(result.parsed_data) if isinstance(result.parsed_data, str) else result.parsed_data
+        except Exception:
+            parsed = {}
+
+    narrative_data = {}
+    if result.narrative_json:
+        try:
+            narrative_data = json.loads(result.narrative_json) if isinstance(result.narrative_json, str) else result.narrative_json
+        except Exception:
+            narrative_data = {}
+
+    # ── Merge analysis + narrative (same logic as get_candidate) ────────────
+    merged_data = dict(analysis)
+    if narrative_data:
+        narrative_fields = {
+            "ai_enhanced", "fit_summary", "strengths", "concerns", "weaknesses",
+            "recommendation_rationale", "explainability", "interview_questions",
+            "candidate_profile_summary",
+        }
+        for field in narrative_fields:
+            if field in narrative_data:
+                merged_data[field] = narrative_data[field]
+
+    # ── Ensure key fields with fallback to parsed_data ──────────────────────
+    contact_info = merged_data.get("contact_info") or parsed.get("contact_info") or {}
+    if candidate:
+        if not contact_info.get("email") and candidate.email:
+            contact_info["email"] = candidate.email
+        if not contact_info.get("phone") and candidate.phone:
+            contact_info["phone"] = candidate.phone
+        if not contact_info.get("name") and candidate.name:
+            contact_info["name"] = candidate.name
+    merged_data["contact_info"] = contact_info
+
+    if not merged_data.get("candidate_profile") and candidate:
+        work_exp = parsed.get("work_experience", [])
+        merged_data["candidate_profile"] = {
+            "name": candidate.name,
+            "email": candidate.email,
+            "phone": candidate.phone,
+            "skills_identified": parsed.get("skills", []),
+            "education": parsed.get("education", []),
+            "work_experience": work_exp,
+            "career_summary": "",
+            "total_effective_years": candidate.total_years_exp or 0,
+            "current_role": work_exp[0].get("title", "") if work_exp else (candidate.current_role or ""),
+            "current_company": work_exp[0].get("company", "") if work_exp else (candidate.current_company or ""),
+        }
+
+    if not merged_data.get("work_experience"):
+        merged_data["work_experience"] = parsed.get("work_experience", [])
+
+    # Set defaults for all fields expected by ReportPage / ResultCard
+    merged_data.setdefault("fit_score", None)
+    merged_data.setdefault("job_role", None)
+    merged_data.setdefault("final_recommendation", "Pending")
+    merged_data.setdefault("risk_level", None)
+    merged_data.setdefault("score_breakdown", {})
+    merged_data.setdefault("strengths", [])
+    merged_data.setdefault("weaknesses", [])
+    merged_data.setdefault("concerns", [])
+    merged_data.setdefault("risk_signals", [])
+    merged_data.setdefault("employment_gaps", [])
+    merged_data.setdefault("skill_analysis", {})
+    merged_data.setdefault("jd_analysis", {})
+    merged_data.setdefault("edu_timeline_analysis", {})
+    merged_data.setdefault("education_analysis", None)
+    merged_data.setdefault("matched_skills", [])
+    merged_data.setdefault("missing_skills", [])
+    merged_data.setdefault("adjacent_skills", [])
+    merged_data.setdefault("required_skills_count", 0)
+    merged_data.setdefault("analysis_quality", "low")
+    merged_data.setdefault("pipeline_errors", [])
+    merged_data.setdefault("score_rationales", {})
+    merged_data.setdefault("risk_summary", {})
+    merged_data.setdefault("skill_depth", {})
+    merged_data.setdefault("status", result.status or "pending")
+    # narrative_pending / ai_enhanced are computed from narrative_status, not stored
+    merged_data.pop("narrative_pending", None)
+    merged_data.pop("ai_enhanced", None)
+
+    # ── Resolve candidate name (candidate.name > parsed > contact_info) ─────
+    candidate_name = None
+    if candidate and candidate.name:
+        candidate_name = candidate.name.strip()
+    if not candidate_name:
+        candidate_name = (
+            (merged_data.get("candidate_name") or "").strip() or
+            (contact_info.get("name") or "").strip() or
+            (merged_data.get("candidate_profile", {}).get("name") or "").strip() or
+            None
+        )
+
+    # ── Resolve JD name ─────────────────────────────────────────────────────
+    jd_name = role_template.name if role_template else None
+
+    # ── Build response (same structure as get_candidate history items) ──────
+    response_data = {
+        "id":                   result.id,
+        "result_id":            result.id,
+        "analysis_id":          result.id,
+        "timestamp":            result.timestamp,
+        "candidate_id":         result.candidate_id,
+        "candidate_name":       candidate_name,
+        "role_template_id":     result.role_template_id,
+        "jd_name":              jd_name,
+        "deterministic_score":  result.deterministic_score,
+        "status_updated_at":    result.status_updated_at,
+        "narrative_status":     result.narrative_status or "pending",
+        "narrative_error":      result.narrative_error,
+        "ai_enhanced":          result.narrative_status == "ready" and result.narrative_json is not None,
+        "narrative_pending":    result.narrative_status in ("pending", "processing"),
+    }
+    response_data.update(merged_data)
+
+    # Re-apply resolved name (merged_data.update may overwrite with stale value)
+    response_data["candidate_name"] = candidate_name
+    response_data["jd_name"] = jd_name
+    response_data["deterministic_score"] = result.deterministic_score
+    response_data["status_updated_at"] = result.status_updated_at
+    response_data["role_template_id"] = result.role_template_id
+
+    return response_data
+
+
 @router.get("/pipeline")
 def get_candidate_pipeline(
     jd_id: Optional[int] = Query(None, description="Filter by JD (role_template_id)"),

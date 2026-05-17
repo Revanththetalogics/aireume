@@ -732,6 +732,11 @@ export async function getCandidateAuditLog(candidateId) {
   return response.data
 }
 
+export async function getScreeningResult(resultId) {
+  const response = await api.get(`/candidates/results/${resultId}`)
+  return response.data
+}
+
 // ─── Candidate Notes ─────────────────────────────────────────────────────────
 
 export async function getCandidateNotes(candidateId) {

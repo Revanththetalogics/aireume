@@ -14,6 +14,7 @@ import {
   getTemplates, 
   createTemplate,
   createTemplateFromFile,
+  updateTemplate,
   getNarrative,
   checkHealth,
   parseJdPreview,
@@ -152,6 +153,7 @@ export default function AnalyzePage() {
   const [skillsConfirmed, setSkillsConfirmed] = useState(false)
   const [parseError, setParseError]           = useState(null)
   const debounceRef = useRef(null)
+  const skipAutoParseRef = useRef(false)
 
   // Reset analysis state on fresh mount
   useEffect(() => {
@@ -359,6 +361,13 @@ export default function AnalyzePage() {
   // ── Auto-parse JD text with debounce (1.5s after user stops typing) ──
   useEffect(() => {
     if (jdMode !== 'text') return
+
+    // Skip auto-parse when we just restored overrides from a template —
+    // the restored jdParseResult should not be clobbered by a fresh parse.
+    if (skipAutoParseRef.current) {
+      skipAutoParseRef.current = false
+      return
+    }
 
     if (debounceRef.current) clearTimeout(debounceRef.current)
 
@@ -593,37 +602,37 @@ export default function AnalyzePage() {
     setJdMode('text')
     setShowJdLibrary(false)
     
-    // Check if template has saved skill overrides — restore them
-    const hasRequiredOverride = template.required_skills_override && (
-      Array.isArray(template.required_skills_override)
-        ? template.required_skills_override.length > 0
-        : typeof template.required_skills_override === 'string' && template.required_skills_override !== '[]'
-    )
-    const hasNiceOverride = template.nice_to_have_skills_override && (
-      Array.isArray(template.nice_to_have_skills_override)
-        ? template.nice_to_have_skills_override.length > 0
-        : typeof template.nice_to_have_skills_override === 'string' && template.nice_to_have_skills_override !== '[]'
-    )
-
-    if (hasRequiredOverride || hasNiceOverride) {
-      const parseOverride = (val) => {
-        if (Array.isArray(val)) return val
-        if (typeof val === 'string') {
-          try { return JSON.parse(val) } catch { return [] }
-        }
-        return []
+    // Robust override parser — handles null, "", "null", "[]", JSON strings, arrays
+    const parseOverride = (val) => {
+      if (!val) return []
+      if (Array.isArray(val)) return val
+      if (typeof val === 'string') {
+        try {
+          const parsed = JSON.parse(val)
+          return Array.isArray(parsed) ? parsed : []
+        } catch { return [] }
       }
+      return []
+    }
+
+    const reqOverride = parseOverride(template.required_skills_override)
+    const niceOverride = parseOverride(template.nice_to_have_skills_override)
+    const hasOverrides = reqOverride.length > 0 || niceOverride.length > 0
+
+    if (hasOverrides) {
       const restoredOverrides = {
-        required_skills: parseOverride(template.required_skills_override),
-        nice_to_have_skills: parseOverride(template.nice_to_have_skills_override)
+        required_skills: reqOverride,
+        nice_to_have_skills: niceOverride
       }
       setSkillOverrides(restoredOverrides)
       setSkillsConfirmed(true)
       setJdParseResult({
-        required_skills: restoredOverrides.required_skills,
-        nice_to_have_skills: restoredOverrides.nice_to_have_skills,
+        required_skills: reqOverride,
+        nice_to_have_skills: niceOverride,
         restored_from_template: true
       })
+      // Skip the auto-parse effect so it doesn't clobber restored state
+      skipAutoParseRef.current = true
     } else {
       // Reset skill confirmation since JD changed
       setSkillsConfirmed(false)
@@ -722,10 +731,22 @@ export default function AnalyzePage() {
             name: templateName,
             jd_text: jdText,
             scoring_weights: weights,
-            tags: roleCategory
+            tags: roleCategory,
+            required_skills_override: skillOverrides ? JSON.stringify(skillOverrides.required_skills) : null,
+            nice_to_have_skills_override: skillOverrides ? JSON.stringify(skillOverrides.nice_to_have_skills) : null,
           })
         } else {
           await createTemplateFromFile(templateName, jdFile, roleCategory, weights)
+        }
+      } else if (loadedTemplateId && skillOverrides) {
+        // Template already exists — update it with the latest skill overrides
+        try {
+          await updateTemplate(loadedTemplateId, {
+            required_skills_override: JSON.stringify(skillOverrides.required_skills),
+            nice_to_have_skills_override: JSON.stringify(skillOverrides.nice_to_have_skills),
+          })
+        } catch (err) {
+          console.warn('Failed to update template overrides before analysis:', err)
         }
       }
 
@@ -1172,9 +1193,20 @@ export default function AnalyzePage() {
             <div className="mt-6">
               <SkillClassificationEditor
                 data={jdParseResult}
-                onConfirm={(overrides) => {
+                onConfirm={async (overrides) => {
                   setSkillOverrides(overrides)
                   setSkillsConfirmed(true)
+                  // Persist overrides to the template so they are restored on next load
+                  if (loadedTemplateId) {
+                    try {
+                      await updateTemplate(loadedTemplateId, {
+                        required_skills_override: JSON.stringify(overrides.required_skills),
+                        nice_to_have_skills_override: JSON.stringify(overrides.nice_to_have_skills),
+                      })
+                    } catch (err) {
+                      console.warn('Failed to persist skill overrides to template:', err)
+                    }
+                  }
                 }}
                 onSkip={() => {
                   setSkillOverrides(null)

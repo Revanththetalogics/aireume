@@ -9,7 +9,7 @@ import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
 import InterviewScorecard from '../components/InterviewScorecard'
 import Timeline from '../components/Timeline'
-import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandidateAuditLog, getNarrative, viewCandidateResume, downloadCandidateResume, downloadPdfReport } from '../lib/api'
+import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandidateAuditLog, getNarrative, viewCandidateResume, downloadCandidateResume, downloadPdfReport, getScreeningResult } from '../lib/api'
 import AnimatedScore from '../components/AnimatedScore'
 import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
@@ -105,6 +105,7 @@ export default function ReportPage() {
   const [resumeActionLoading, setResumeActionLoading] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [noResult, setNoResult] = useState(false)
+  const [loading, setLoading] = useState(!location.state?.result)
   const [auditLogs, setAuditLogs] = useState([])
   const [auditExpanded, setAuditExpanded] = useState(false)
 
@@ -134,23 +135,45 @@ export default function ReportPage() {
       console.log('[ReportPage] contact_info:', result.contact_info)
       console.log('[ReportPage] candidate_profile:', result.candidate_profile)
       setCandidateName(resolveName(result))
+      setLoading(false)
       return
     }
     const params = new URLSearchParams(location.search)
     const id = params.get('id')
-    if (id) {
-      try {
-        const stored = sessionStorage.getItem(`report_${id}`)
-        if (stored) {
-          const parsed = JSON.parse(stored)
-          setResult(parsed)
-          setCandidateName(resolveName(parsed))
-          return
-        }
-      } catch { /* ignore */ }
+    if (!id) {
+      setNoResult(true)
+      setLoading(false)
+      return
     }
-    setNoResult(true)
-  }, [result, location.search])
+
+    // Try sessionStorage first
+    try {
+      const stored = sessionStorage.getItem(`report_${id}`)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        setResult(parsed)
+        setCandidateName(resolveName(parsed))
+        setLoading(false)
+        return
+      }
+    } catch { /* ignore */ }
+
+    // Fetch from API as final fallback
+    setLoading(true)
+    getScreeningResult(id)
+      .then(data => {
+        setResult(data)
+        setCandidateName(resolveName(data))
+        // Cache for future use
+        try { sessionStorage.setItem(`report_${id}`, JSON.stringify(data)) } catch { /* ignore */ }
+      })
+      .catch(() => {
+        setNoResult(true)
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [location.search])
 
   // Fetch audit log when candidate_id is available
   useEffect(() => {
@@ -232,6 +255,14 @@ export default function ReportPage() {
   }, [result?.analysis_id, result?.result_id, result?.narrative_status])
 
   if (!result) {
+    if (loading) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-brand-700">
+          <Loader2 className="w-8 h-8 animate-spin mb-3" />
+          <p className="text-sm font-medium">Loading report…</p>
+        </div>
+      )
+    }
     if (noResult) {
       return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-500">

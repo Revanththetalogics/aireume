@@ -15,7 +15,7 @@ from datetime import datetime
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import RoleTemplate, SkillClassificationTemplate, User
-from app.backend.models.schemas import TemplateCreate, TemplateOut
+from app.backend.models.schemas import TemplateCreate, TemplateOut, TemplateUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,17 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-@router.get("")
+class TemplateListResponse(BaseModel):
+    templates: List[TemplateOut]
+    total: int
+    limit: int
+    offset: int
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("", response_model=TemplateListResponse)
 def list_templates(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -218,7 +228,7 @@ async def create_template_from_file(
 @router.put("/{template_id}", response_model=TemplateOut)
 def update_template(
     template_id: int,
-    body: TemplateCreate,
+    body: TemplateUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -229,10 +239,14 @@ def update_template(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    template.name = body.name
-    template.jd_text = body.jd_text
-    template.scoring_weights = json.dumps(body.scoring_weights) if body.scoring_weights else None
-    template.tags = body.tags
+    if body.name is not None:
+        template.name = body.name
+    if body.jd_text is not None:
+        template.jd_text = body.jd_text
+    if body.scoring_weights is not None:
+        template.scoring_weights = json.dumps(body.scoring_weights, default=_json_default)
+    if body.tags is not None:
+        template.tags = body.tags
     if body.required_skills_override is not None:
         template.required_skills_override = body.required_skills_override
     if body.nice_to_have_skills_override is not None:

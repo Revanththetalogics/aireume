@@ -313,6 +313,16 @@ class TemplateCreate(BaseModel):
     nice_to_have_skills_override: Optional[str] = None
 
 
+class TemplateUpdate(BaseModel):
+    """Partial update for templates — only supplied fields are changed."""
+    name: Optional[str] = None
+    jd_text: Optional[str] = None
+    scoring_weights: Optional[Dict[str, float]] = None
+    tags: Optional[str] = None
+    required_skills_override: Optional[str] = None
+    nice_to_have_skills_override: Optional[str] = None
+
+
 class TemplateOut(BaseModel):
     id: int
     name: str
