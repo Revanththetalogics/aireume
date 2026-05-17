@@ -557,6 +557,23 @@ class SecurityEvent(Base):
     user   = relationship("User")
 
 
+class BillingEvent(Base):
+    """Audit log for billing webhook events from payment providers."""
+    __tablename__ = "billing_events"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    provider     = Column(String(20), nullable=False, index=True)   # stripe / razorpay / manual
+    event_type   = Column(String(100), nullable=False, index=True)  # invoice.paid, subscription.activated, etc.
+    tenant_id    = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
+    raw_payload  = Column(Text, nullable=True)                       # JSON-serialised event payload
+    result       = Column(String(20), nullable=False, default="pending")  # success / error / ignored
+    error_detail = Column(Text, nullable=True)                       # Error message if result=error
+    processed_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship("Tenant")
+
+
 class PlanFeature(Base):
     """Maps subscription plans to feature flag entitlements."""
     __tablename__ = "plan_features"

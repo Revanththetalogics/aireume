@@ -1,4 +1,7 @@
 """Billing routes — checkout, webhooks, subscription management."""
+import json
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -8,6 +11,9 @@ from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_platform_admin
 from app.backend.models.db_models import User, Tenant
 from app.backend.services.billing.factory import get_payment_provider
+from app.backend.services.billing.webhook_processor import process_webhook_event
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
@@ -61,12 +67,46 @@ async def handle_webhook(
     """Handle incoming webhook events from the payment provider.
 
     No authentication — the provider validates the payload via signature.
+    Always returns 200 to prevent provider-side retries.  Errors are
+    logged internally.
     """
-    body = await request.body()
-    signature = request.headers.get("X-Signature", "")
-    provider = get_payment_provider(db)
-    result = provider.handle_webhook_event(body, signature)
-    return result
+    try:
+        body = await request.body()
+        signature = request.headers.get("X-Signature", "")
+        provider = get_payment_provider(db)
+
+        # Verify signature and parse event
+        result = provider.handle_webhook_event(body, signature)
+
+        provider_name = result.get("provider", provider.provider_name)
+        event_type = result.get("event_type", "unknown")
+        data = result.get("data", {})
+
+        # Process the event — updates tenant state, logs audit, fires webhooks
+        raw_payload = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else str(body)
+        process_result = process_webhook_event(
+            db,
+            provider=provider_name,
+            event_type=event_type,
+            data=data,
+            raw_payload=raw_payload,
+        )
+
+        log.info(
+            "Webhook processed: provider=%s event=%s result=%s",
+            provider_name, event_type, process_result.get("reason", "ok"),
+        )
+    except Exception as exc:
+        # Always return 200 — log errors internally
+        log.exception("Webhook processing error: %s", exc)
+    finally:
+        # Ensure the session is clean even if an error occurred mid-transaction
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+    return {"received": True}
 
 
 @router.get("/subscription/{tenant_id}")

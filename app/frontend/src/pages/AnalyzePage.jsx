@@ -249,6 +249,22 @@ export default function AnalyzePage() {
             setStreamingFailed(batch.failed || [])
             setAnalysisProgress(batch.progress || { completed: 0, total: 0 })
             setAnalysisDone(true)
+            // Also restore batch context (JD text, skill overrides, etc.)
+            const savedContext = sessionStorage.getItem('aria_batch_context')
+            if (savedContext) {
+              try {
+                const ctx = JSON.parse(savedContext)
+                if (ctx.jdText) setJdText(ctx.jdText)
+                if (ctx.skillOverrides) setSkillOverrides(ctx.skillOverrides)
+                if (ctx.skillsConfirmed !== undefined) setSkillsConfirmed(ctx.skillsConfirmed)
+                if (ctx.jdParseResult) setJdParseResult(ctx.jdParseResult)
+                if (ctx.jdMode) setJdMode(ctx.jdMode)
+                if (ctx.weights) setWeights(ctx.weights)
+                if (ctx.roleCategory) setRoleCategory(ctx.roleCategory)
+                // Skip auto-parse so it doesn't clobber restored jdParseResult
+                skipAutoParseRef.current = true
+              } catch {}
+            }
             // Clean URL param without triggering navigation
             window.history.replaceState({}, '', '/analyze')
             return  // Skip the rest of session restoration logic
@@ -731,6 +747,20 @@ export default function AnalyzePage() {
     }
 
     sessionStorage.removeItem('aria_batch_results')
+    // Save full batch context for back-navigation restoration
+    try {
+      sessionStorage.setItem('aria_batch_context', JSON.stringify({
+        jdText,
+        skillOverrides,
+        skillsConfirmed,
+        jdParseResult,
+        jdMode,
+        weights,
+        roleCategory,
+        fileNames: files.map(f => f.name),
+        timestamp: Date.now()
+      }))
+    } catch {}
     setIsAnalyzing(true)
 
     try {
@@ -917,6 +947,7 @@ export default function AnalyzePage() {
     setBatchStartTime(null)
     setFiles([])
     setCurrentStep(2)
+    sessionStorage.removeItem('aria_batch_context')
   }
 
   return (
@@ -991,7 +1022,7 @@ export default function AnalyzePage() {
       )}
 
       {/* Step 1: Job Description */}
-      {currentStep === 1 && (
+      {currentStep === 1 && !showResults && (
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8 card-animate">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-brand-900">Step 1: Job Description & Skill Review</h2>
@@ -1613,6 +1644,18 @@ export default function AnalyzePage() {
                                     results: streamingResultsRef.current,
                                     failed: streamingFailedRef.current,
                                     progress: analysisProgress,
+                                    timestamp: Date.now()
+                                  }))
+                                  // Also persist batch context for back-navigation
+                                  sessionStorage.setItem('aria_batch_context', JSON.stringify({
+                                    jdText,
+                                    skillOverrides,
+                                    skillsConfirmed,
+                                    jdParseResult,
+                                    jdMode,
+                                    weights,
+                                    roleCategory,
+                                    fileNames: streamingResults.map(r => r.filename),
                                     timestamp: Date.now()
                                   }))
                                 } catch {}
