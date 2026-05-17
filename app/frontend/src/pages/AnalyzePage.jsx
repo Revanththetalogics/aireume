@@ -228,12 +228,34 @@ export default function AnalyzePage() {
   // ONLY auto-advance when coming from "Analyze Another Resume" (flag set in ReportPage)
   useEffect(() => {
     if (location.state?.jd_text || location.state?.jd_mode) return
-    
+
+    // Check if returning from report view — restore batch results
+    const returningFromReport = location.state?.from === '/analyze' ||
+      new URLSearchParams(location.search).get('restored') === 'true'
+
+    if (returningFromReport) {
+      const savedBatch = sessionStorage.getItem('aria_batch_results')
+      if (savedBatch) {
+        try {
+          const batch = JSON.parse(savedBatch)
+          // Only restore if less than 30 minutes old
+          if (batch.timestamp && (Date.now() - batch.timestamp) < 30 * 60 * 1000) {
+            setStreamingResults(batch.results || [])
+            setStreamingFailed(batch.failed || [])
+            setAnalysisProgress(batch.progress || { completed: 0, total: 0 })
+            setAnalysisDone(true)
+            return  // Skip the rest of session restoration logic
+          }
+        } catch {}
+      }
+    }
+
     const isAnalyzeAnother = sessionStorage.getItem('aria_analyze_another')
-    
-    if (!isAnalyzeAnother) {
+
+    if (!isAnalyzeAnother && !returningFromReport) {
       // Fresh navigation (Dashboard, nav menu, etc.) — clear stale session data
       sessionStorage.removeItem('aria_active_jd')
+      sessionStorage.removeItem('aria_batch_results')  // Also clear batch results
       return
     }
     
@@ -464,6 +486,16 @@ export default function AnalyzePage() {
                 ai_enhanced: data.status === 'ready',
               }
               try { sessionStorage.setItem(`report_${id}`, JSON.stringify(updatedResult)) } catch {}
+              // Update batch results cache
+              try {
+                const currentResults = JSON.parse(sessionStorage.getItem('aria_batch_results') || '{}')
+                if (currentResults.results) {
+                  currentResults.results = currentResults.results.map(batchItem =>
+                    batchItem.screeningResultId === id ? { ...batchItem, result: updatedResult } : batchItem
+                  )
+                  sessionStorage.setItem('aria_batch_results', JSON.stringify(currentResults))
+                }
+              } catch {}
               return { ...item, result: updatedResult }
             }))
           } else {
@@ -677,6 +709,7 @@ export default function AnalyzePage() {
       } catch { /* ignore */ }
     }
 
+    sessionStorage.removeItem('aria_batch_results')
     setIsAnalyzing(true)
 
     try {
@@ -766,9 +799,18 @@ export default function AnalyzePage() {
             },
             onDone: (total, successful, failedCount) => {
               setAnalysisDone(true)
+              // Persist batch results for back-navigation
+              try {
+                sessionStorage.setItem('aria_batch_results', JSON.stringify({
+                  results: streamingResults,
+                  failed: streamingFailed,
+                  progress: analysisProgress,
+                  timestamp: Date.now()
+                }))
+              } catch {}
               setIsAnalyzing(false)
               setAnalysisProgress({ completed: total, total })
-            }
+            },
           },
           loadedTemplateId,
           skillOverrides,

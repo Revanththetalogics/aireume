@@ -366,7 +366,7 @@ export default function ReportPage() {
                fromParam === 'analyze' ? '/analyze' : null)
 
             if (destination) {
-              navigate(destination)
+              navigate(destination, { state: { from: '/analyze' } })
             } else {
               window.history.length > 1 ? navigate(-1) : navigate('/')
             }
