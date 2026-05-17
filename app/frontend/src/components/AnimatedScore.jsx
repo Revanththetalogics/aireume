@@ -30,10 +30,15 @@ export default function AnimatedScore({
     lg: 'text-4xl font-extrabold',
   };
 
-  const colorConfig = getScoreColor(score);
+  const colorConfig = score != null ? getScoreColor(score) : null;
   const colorClass = showColor && colorConfig ? colorConfig.text : 'text-slate-900';
 
   useEffect(() => {
+    if (score == null || typeof score !== 'number') {
+      count.set(0)
+      return
+    }
+
     if (!shouldAnimate) {
       count.set(score);
       return;
