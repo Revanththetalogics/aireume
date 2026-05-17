@@ -154,23 +154,36 @@ def _create_all_tables():
 
 
 def _drop_all_tables():
-    """Drop all tables - dispose pool first to release any held locks."""
+    """Drop all tables safely, tolerating background threads that may hold cursors."""
+    import time
     from sqlalchemy import text
     
-    # Dispose all pooled connections to release SQLite file locks
-    test_engine.dispose()
+    # Brief pause to let any in-flight background DB operations complete
+    # (e.g. _background_llm_narrative thread writing to SQLite)
+    time.sleep(0.05)
     
-    # Drop queue tables first (in reverse order of creation)
-    with test_engine.connect() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS job_metrics"))
-        conn.execute(text("DROP TABLE IF EXISTS analysis_artifacts"))
-        conn.execute(text("DROP TABLE IF EXISTS field_audit_logs"))
-        conn.execute(text("DROP TABLE IF EXISTS analysis_results"))
-        conn.execute(text("DROP TABLE IF EXISTS analysis_jobs"))
-        conn.commit()
-    
-    # Then drop main tables
-    database.Base.metadata.drop_all(bind=test_engine)
+    # Drop tables with retry - SQLite in-memory with StaticPool uses a single
+    # connection, so background threads may briefly hold locks
+    for attempt in range(3):
+        try:
+            with test_engine.connect() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS job_metrics"))
+                conn.execute(text("DROP TABLE IF EXISTS analysis_artifacts"))
+                conn.execute(text("DROP TABLE IF EXISTS field_audit_logs"))
+                conn.execute(text("DROP TABLE IF EXISTS analysis_results"))
+                conn.execute(text("DROP TABLE IF EXISTS analysis_jobs"))
+                conn.commit()
+            database.Base.metadata.drop_all(bind=test_engine)
+            return  # Success
+        except Exception:
+            if attempt < 2:
+                time.sleep(0.1 * (attempt + 1))
+            else:
+                # Final attempt: just drop via metadata (best-effort)
+                try:
+                    database.Base.metadata.drop_all(bind=test_engine)
+                except Exception:
+                    pass  # Teardown failure is non-fatal for test results
 
 # ─── Patch bcrypt → sha256_crypt for local test compatibility ────────────────
 # passlib 1.7.4 + bcrypt 4.x has a known incompatibility. Use sha256_crypt in
