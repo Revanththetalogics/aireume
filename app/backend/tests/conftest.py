@@ -161,6 +161,7 @@ def _drop_all_tables():
     with test_engine.connect() as conn:
         conn.execute(text("DROP TABLE IF EXISTS job_metrics"))
         conn.execute(text("DROP TABLE IF EXISTS analysis_artifacts"))
+        conn.execute(text("DROP TABLE IF EXISTS field_audit_logs"))
         conn.execute(text("DROP TABLE IF EXISTS analysis_results"))
         conn.execute(text("DROP TABLE IF EXISTS analysis_jobs"))
         conn.commit()
