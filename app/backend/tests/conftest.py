@@ -154,8 +154,11 @@ def _create_all_tables():
 
 
 def _drop_all_tables():
-    """Drop all tables."""
+    """Drop all tables - dispose pool first to release any held locks."""
     from sqlalchemy import text
+    
+    # Dispose all pooled connections to release SQLite file locks
+    test_engine.dispose()
     
     # Drop queue tables first (in reverse order of creation)
     with test_engine.connect() as conn:
