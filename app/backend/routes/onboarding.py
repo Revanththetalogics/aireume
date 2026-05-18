@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import RoleTemplate, ScreeningResult, Candidate, Tenant, SubscriptionPlan
+from app.backend.services.metadata_utils import safe_parse_metadata
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
@@ -37,15 +38,7 @@ async def get_onboarding_status(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     # Determine step completion from tenant metadata
-    metadata = {}
-    try:
-        raw = tenant.metadata_json
-        if isinstance(raw, dict):
-            metadata = raw
-        elif isinstance(raw, str):
-            metadata = json.loads(raw or "{}")
-    except Exception:
-        pass
+    metadata = safe_parse_metadata(tenant.metadata_json)
 
     completed_at = tenant.onboarding_completed_at.isoformat() if tenant.onboarding_completed_at else None
 
@@ -77,15 +70,7 @@ async def update_organization(
     tenant.name = body.name.strip()
 
     # Update metadata with industry and company_size
-    metadata = {}
-    try:
-        raw = tenant.metadata_json
-        if isinstance(raw, dict):
-            metadata = raw
-        elif isinstance(raw, str):
-            metadata = json.loads(raw or "{}")
-    except Exception:
-        pass
+    metadata = safe_parse_metadata(tenant.metadata_json)
 
     if body.industry:
         metadata["industry"] = body.industry

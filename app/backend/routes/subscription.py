@@ -18,6 +18,7 @@ from app.backend.models.db_models import (
     Tenant, User, SubscriptionPlan, UsageLog, Candidate, UsageAlert
 )
 from app.backend.models.schemas import SubscriptionResponse, PlanInfo, UsageStats
+from app.backend.services.metadata_utils import safe_parse_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -575,16 +576,7 @@ def update_alert_preferences(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     # Store preferences in tenant metadata_json
-    try:
-        raw = tenant.metadata_json
-        if isinstance(raw, dict):
-            prefs = raw
-        elif raw and isinstance(raw, str):
-            prefs = json.loads(raw)
-        else:
-            prefs = {}
-    except (json.JSONDecodeError, TypeError):
-        prefs = {}
+    prefs = safe_parse_metadata(tenant.metadata_json)
 
     if body.email_alerts is not None:
         prefs["email_alerts"] = body.email_alerts

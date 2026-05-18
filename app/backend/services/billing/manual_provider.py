@@ -124,16 +124,8 @@ class ManualProvider(PaymentProvider):
             if tenant:
                 # Store proration info in tenant metadata for manual invoicing
                 import json
-                metadata = {}
-                if tenant.metadata_json:
-                    try:
-                        raw = tenant.metadata_json
-                        if isinstance(raw, dict):
-                            metadata = raw
-                        elif isinstance(raw, str):
-                            metadata = json.loads(raw)
-                    except json.JSONDecodeError:
-                        metadata = {}
+                from app.backend.services.metadata_utils import safe_parse_metadata
+                metadata = safe_parse_metadata(tenant.metadata_json)
 
                 pending_prorations = metadata.get("pending_prorations", [])
                 pending_prorations.append({
