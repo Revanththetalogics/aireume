@@ -5,7 +5,7 @@ import sqlalchemy as sa
 
 
 revision = "029_dunning_system"
-down_revision = "027_billing_events"
+down_revision = "028_invoices"
 branch_labels = None
 depends_on = None
 
