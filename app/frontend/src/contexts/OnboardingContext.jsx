@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { getOnboardingStatus, completeOnboarding as completeOnboardingAPI } from '../lib/api'
 
 const OnboardingContext = createContext(null)
 
@@ -35,6 +36,30 @@ export function OnboardingProvider({ children }) {
   const [isOnboardingComplete, setIsOnboardingComplete] = useState(() => loadFromStorage(STORAGE_KEY, { complete: false }).complete)
   const [checklist, setChecklist] = useState(() => loadFromStorage(CHECKLIST_KEY, { items: DEFAULT_CHECKLIST, dismissed: false }).items)
   const [checklistDismissed, setChecklistDismissed] = useState(() => loadFromStorage(CHECKLIST_KEY, { items: DEFAULT_CHECKLIST, dismissed: false }).dismissed)
+  const [onboardingStatus, setOnboardingStatus] = useState(null)
+  const [statusLoading, setStatusLoading] = useState(true)
+
+  // Fetch onboarding status from backend on mount
+  useEffect(() => {
+    let cancelled = false
+    async function fetchStatus() {
+      try {
+        const data = await getOnboardingStatus()
+        if (!cancelled) {
+          setOnboardingStatus(data)
+          setIsOnboardingComplete(data.completed)
+          setStatusLoading(false)
+        }
+      } catch {
+        // Not authenticated or endpoint unavailable — rely on localStorage
+        if (!cancelled) {
+          setStatusLoading(false)
+        }
+      }
+    }
+    fetchStatus()
+    return () => { cancelled = true }
+  }, [])
 
   // Persist onboarding state whenever it changes
   useEffect(() => {
@@ -96,11 +121,24 @@ export function OnboardingProvider({ children }) {
     setChecklistDismissed(true)
   }, [])
 
+  // Mark onboarding as complete on the backend and locally
+  const markOnboardingComplete = useCallback(async () => {
+    try {
+      await completeOnboardingAPI()
+    } catch {
+      // Best-effort — still mark locally
+    }
+    setIsOnboardingComplete(true)
+    setOnboardingStatus((prev) => prev ? { ...prev, completed: true } : prev)
+  }, [])
+
   return (
     <OnboardingContext.Provider
       value={{
         currentStep,
         isOnboardingComplete,
+        onboardingStatus,
+        statusLoading,
         checklist,
         checklistDismissed,
         completeStep,
@@ -110,6 +148,7 @@ export function OnboardingProvider({ children }) {
         completeChecklistItem,
         isChecklistComplete,
         dismissChecklist,
+        markOnboardingComplete,
       }}
     >
       {children}

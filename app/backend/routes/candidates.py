@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_active_subscription
 from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate, HiringOutcome, FieldAuditLog
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest, CandidateSkillCompareRequest
 from app.backend.services.audit_service import log_field_change
@@ -482,7 +482,7 @@ def get_candidate_pipeline(
 def update_candidate_name(
     candidate_id: int,
     body: CandidateNameUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     candidate = db.query(Candidate).filter(
@@ -1034,7 +1034,7 @@ def get_candidate_notes(
 def add_candidate_note(
     candidate_id: int,
     body: dict,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """Add a note to a candidate."""
@@ -1075,7 +1075,7 @@ def add_candidate_note(
 def delete_candidate_note(
     candidate_id: int,
     note_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """Delete a note. Only the note author can delete their own notes."""
@@ -1098,7 +1098,7 @@ def delete_candidate_note(
 async def analyze_existing_candidate(
     candidate_id: int,
     body: AnalyzeJdRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """
@@ -1315,7 +1315,7 @@ def download_candidate_resume(
 @router.post("/compare")
 async def compare_candidates_skill_matrix(
     data: CandidateSkillCompareRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """Compare multiple candidates against a JD with skill-level detail."""
@@ -1753,7 +1753,7 @@ def record_candidate_outcome(
     candidate_id: int,
     body: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
 ):
     """Record a hiring outcome for a candidate's screening result."""
     # Validate candidate exists and belongs to tenant
@@ -1822,7 +1822,7 @@ def record_outcome_feedback(
     outcome_id: int,
     body: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
 ):
     """Record post-hire quality feedback for an outcome."""
     rating = body.get("rating")

@@ -4,7 +4,7 @@ JWT authentication dependency for FastAPI routes.
 import hashlib
 import os
 from datetime import datetime, timezone
-from fastapi import Depends, HTTPException, status, Request
+from fastapi import Depends, HTTPException, status, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session, joinedload
@@ -135,6 +135,32 @@ def get_current_user(
             raise HTTPException(status_code=403, detail="Account suspended. Contact support.")
 
     return user
+
+
+# ─── Subscription Status Enforcement ─────────────────────────────────────────
+
+def require_active_subscription(
+    current_user: User = Depends(get_current_user),
+    response: Response = None,
+) -> User:
+    """
+    Dependency that blocks write access for tenants with suspended or cancelled subscriptions.
+    Returns the current user if subscription is active/trialing/past_due.
+    Adds a warning header for past_due subscriptions.
+    """
+    tenant = current_user.tenant
+    if tenant and tenant.subscription_status in ("suspended", "cancelled"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "detail": "Your subscription is suspended. Please update your payment method to restore access.",
+                "error_code": "SUBSCRIPTION_SUSPENDED",
+                "subscription_status": tenant.subscription_status,
+            },
+        )
+    if response and tenant and tenant.subscription_status == "past_due":
+        response.headers["X-Subscription-Warning"] = "past_due"
+    return current_user
 
 
 # ─── Tenant-Level RBAC ────────────────────────────────────────────────────────

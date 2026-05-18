@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user, require_admin
+from app.backend.middleware.auth import get_current_user, require_admin, require_active_subscription
 from app.backend.models.db_models import Comment, JdCache, RoleTemplate, ScreeningResult, TeamMember, TeamSkillProfile, Tenant, User
 from app.backend.models.schemas import CommentCreate, CommentOut, InviteRequest
 from app.backend.routes.auth import _hash_password
@@ -65,7 +65,7 @@ def list_team(
     ]
 
 
-@router.post("/invites")
+@router.post("/invites", dependencies=[Depends(require_active_subscription)])
 def invite_member(
     body: InviteRequest,
     current_user: User = Depends(require_admin),

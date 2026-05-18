@@ -9,8 +9,9 @@ from typing import Optional
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_platform_admin
-from app.backend.models.db_models import User, Tenant
+from app.backend.models.db_models import User, Tenant, Invoice
 from app.backend.services.billing.factory import get_payment_provider
+from app.backend.services.billing.invoice_service import get_tenant_invoices, get_tenant_invoice_count, get_invoice_by_id
 from app.backend.services.billing.webhook_processor import process_webhook_event
 
 log = logging.getLogger(__name__)
@@ -150,3 +151,71 @@ def cancel_subscription(
     provider = get_payment_provider(db)
     result = provider.cancel_subscription(tenant_id, subscription_id)
     return result
+
+
+@router.get("/invoices")
+def list_invoices(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get invoices for the current tenant.
+
+    Any authenticated user can see their own tenant's invoices.
+    Returns a paginated list ordered by newest first.
+    """
+    invoices = get_tenant_invoices(db, tenant_id=current_user.tenant_id, limit=limit, offset=offset)
+    total = get_tenant_invoice_count(db, tenant_id=current_user.tenant_id)
+
+    return {
+        "invoices": [
+            {
+                "id": inv.id,
+                "invoice_number": inv.invoice_number,
+                "status": inv.status,
+                "amount": inv.amount,
+                "currency": inv.currency,
+                "description": inv.description,
+                "line_items": inv.line_items,
+                "payment_provider": inv.payment_provider,
+                "period_start": inv.period_start.isoformat() if inv.period_start else None,
+                "period_end": inv.period_end.isoformat() if inv.period_end else None,
+                "issued_at": inv.issued_at.isoformat() if inv.issued_at else None,
+                "paid_at": inv.paid_at.isoformat() if inv.paid_at else None,
+            }
+            for inv in invoices
+        ],
+        "total": total,
+    }
+
+
+@router.get("/invoices/{invoice_id}")
+def get_invoice(
+    invoice_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get a single invoice detail.
+
+    Only returns the invoice if it belongs to the current user's tenant.
+    """
+    invoice = get_invoice_by_id(db, invoice_id=invoice_id, tenant_id=current_user.tenant_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    return {
+        "id": invoice.id,
+        "invoice_number": invoice.invoice_number,
+        "status": invoice.status,
+        "amount": invoice.amount,
+        "currency": invoice.currency,
+        "description": invoice.description,
+        "line_items": invoice.line_items,
+        "payment_provider": invoice.payment_provider,
+        "provider_invoice_id": invoice.provider_invoice_id,
+        "period_start": invoice.period_start.isoformat() if invoice.period_start else None,
+        "period_end": invoice.period_end.isoformat() if invoice.period_end else None,
+        "issued_at": invoice.issued_at.isoformat() if invoice.issued_at else None,
+        "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
+    }

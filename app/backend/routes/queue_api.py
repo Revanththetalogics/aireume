@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.backend.db.database import get_db
 from app.backend.models.db_models import User, Tenant
 from app.backend.routes.auth import get_current_user
+from app.backend.middleware.auth import require_active_subscription
 from app.backend.services.queue_manager import (
     get_queue_manager,
     AnalysisJob,
@@ -42,7 +43,7 @@ async def submit_analysis_job(
     job_description: str,
     candidate_id: Optional[int] = None,
     priority: int = 5,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """

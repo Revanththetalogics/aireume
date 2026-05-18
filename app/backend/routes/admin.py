@@ -4,6 +4,7 @@ All endpoints require platform admin privileges.
 """
 import json
 import math
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -27,9 +28,13 @@ from app.backend.models.db_models import (
     Webhook, WebhookDelivery,
     PlatformConfig, TenantEmailConfig,
     SecurityEvent, ImpersonationSession, ErasureLog,
-    PlanFeature, RateLimitConfig,
+    PlanFeature, RateLimitConfig, DunningRecord,
+    SSOConfig,
 )
 from app.backend.services.audit_service import log_audit
+from app.backend.services.billing.factory import get_payment_provider
+from app.backend.services.billing.dunning_service import dunning_service
+from app.backend.services.proration_service import calculate_proration, get_plan_price_for_period
 from app.backend.services.impersonation_service import (
     create_impersonation_session,
     list_active_sessions,
@@ -75,6 +80,17 @@ class AddUserToTenantRequest(BaseModel):
     role: str = "user"
     is_platform_admin: bool = False
     platform_role: Optional[str] = None
+
+
+class SSOConfigRequest(BaseModel):
+    idp_entity_id: str
+    idp_sso_url: str
+    idp_slo_url: Optional[str] = None
+    idp_certificate: str
+    enforce_sso: bool = False
+    auto_provision: bool = True
+    default_role: str = "viewer"
+    is_active: bool = True
 
 
 class TenantListItem(BaseModel):
@@ -406,7 +422,7 @@ def change_tenant_plan(
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
-    """Change a tenant's subscription plan."""
+    """Change a tenant's subscription plan with proration calculation."""
     tenant = db.query(Tenant).options(joinedload(Tenant.plan)).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
@@ -415,12 +431,66 @@ def change_tenant_plan(
     if not new_plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    old_plan_name = tenant.plan.name if tenant.plan else "none"
-    old_plan_display = tenant.plan.display_name if tenant.plan else "None"
+    old_plan = tenant.plan
+    old_plan_name = old_plan.name if old_plan else "none"
+    old_plan_display = old_plan.display_name if old_plan else "None"
     old_plan_id = tenant.plan_id
 
+    # ── Proration calculation ──────────────────────────────────────────────
+    proration = None
+    provider_result = None
+
+    if tenant.current_period_start and tenant.current_period_end and old_plan:
+        old_price = get_plan_price_for_period(
+            old_plan, tenant.current_period_start, tenant.current_period_end
+        )
+        new_price = get_plan_price_for_period(
+            new_plan, tenant.current_period_start, tenant.current_period_end
+        )
+
+        proration = calculate_proration(
+            old_plan_price=old_price,
+            new_plan_price=new_price,
+            period_start=tenant.current_period_start,
+            period_end=tenant.current_period_end,
+        )
+
+        # Apply proration through the active payment provider
+        if not proration.get("skipped", False):
+            try:
+                provider = get_payment_provider(db)
+                provider_result = provider.prorate_plan_change(
+                    tenant_id=tenant.id,
+                    subscription_id=tenant.stripe_subscription_id or "",
+                    old_plan_price=old_price,
+                    new_plan_price=new_price,
+                    proration_data=proration,
+                )
+            except Exception as exc:
+                provider_result = {
+                    "status": "error",
+                    "error": str(exc),
+                    "provider": "unknown",
+                }
+
+    # ── Apply the plan change ──────────────────────────────────────────────
     tenant.plan_id = body.plan_id
+    tenant.subscription_updated_at = datetime.now(timezone.utc)
     db.commit()
+
+    # ── Audit log ──────────────────────────────────────────────────────────
+    audit_details = {
+        "old_plan_id": old_plan_id,
+        "old_plan_name": old_plan_name,
+        "old_plan_display_name": old_plan_display,
+        "new_plan_id": new_plan.id,
+        "new_plan_name": new_plan.name,
+        "new_plan_display_name": new_plan.display_name,
+    }
+    if proration:
+        audit_details["proration"] = proration
+    if provider_result:
+        audit_details["provider_result"] = provider_result
 
     log_audit(
         db,
@@ -428,22 +498,21 @@ def change_tenant_plan(
         action="tenant.change_plan",
         resource_type="tenant",
         resource_id=tenant_id,
-        details={
-            "old_plan_id": old_plan_id,
-            "old_plan_name": old_plan_name,
-            "old_plan_display_name": old_plan_display,
-            "new_plan_id": new_plan.id,
-            "new_plan_name": new_plan.name,
-            "new_plan_display_name": new_plan.display_name,
-        },
+        details=audit_details,
     )
 
-    return {
+    response = {
         "message": "Plan changed successfully",
         "tenant_id": tenant_id,
         "old_plan": old_plan_name,
         "new_plan": new_plan.name,
     }
+    if proration:
+        response["proration"] = proration
+    if provider_result:
+        response["provider_result"] = provider_result
+
+    return response
 
 
 # ─── 6. Adjust Usage ────────────────────────────────────────────────────────────
@@ -660,6 +729,177 @@ def delete_tenant(
     )
 
     return {"message": f"Tenant '{tenant_name}' deleted successfully"}
+
+
+# ─── Tenant SSO Configuration ─────────────────────────────────────────────
+
+@router.get("/tenants/{tenant_id}/sso")
+def get_tenant_sso(
+    tenant_id: int,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Get SSO configuration for a tenant."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    sso_config = db.query(SSOConfig).filter(SSOConfig.tenant_id == tenant_id).first()
+    if not sso_config:
+        return {"enabled": False}
+
+    return {
+        "enabled": sso_config.is_active,
+        "provider_type": sso_config.provider_type,
+        "idp_entity_id": sso_config.idp_entity_id,
+        "idp_sso_url": sso_config.idp_sso_url,
+        "idp_slo_url": sso_config.idp_slo_url,
+        "sp_entity_id": sso_config.sp_entity_id,
+        "sp_acs_url": sso_config.sp_acs_url,
+        "enforce_sso": sso_config.enforce_sso,
+        "auto_provision": sso_config.auto_provision,
+        "default_role": sso_config.default_role,
+        "is_active": sso_config.is_active,
+        "created_at": _dt_to_iso(sso_config.created_at),
+        "updated_at": _dt_to_iso(sso_config.updated_at),
+    }
+
+
+@router.put("/tenants/{tenant_id}/sso")
+def update_tenant_sso(
+    tenant_id: int,
+    body: SSOConfigRequest,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Create or update SSO configuration for a tenant."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    base_url = os.getenv("BASE_URL", "http://localhost:8080")
+    sp_entity_id = f"{base_url}/api/sso/metadata/{tenant.slug}"
+    sp_acs_url = f"{base_url}/api/sso/callback/{tenant.slug}"
+
+    sso_config = db.query(SSOConfig).filter(SSOConfig.tenant_id == tenant_id).first()
+    if sso_config:
+        sso_config.idp_entity_id = body.idp_entity_id
+        sso_config.idp_sso_url = body.idp_sso_url
+        sso_config.idp_slo_url = body.idp_slo_url
+        sso_config.idp_certificate = body.idp_certificate
+        sso_config.sp_entity_id = sp_entity_id
+        sso_config.sp_acs_url = sp_acs_url
+        sso_config.enforce_sso = body.enforce_sso
+        sso_config.auto_provision = body.auto_provision
+        sso_config.default_role = body.default_role
+        sso_config.is_active = body.is_active
+        action = "tenant.sso_update"
+    else:
+        sso_config = SSOConfig(
+            tenant_id=tenant_id,
+            provider_type="saml2",
+            idp_entity_id=body.idp_entity_id,
+            idp_sso_url=body.idp_sso_url,
+            idp_slo_url=body.idp_slo_url,
+            idp_certificate=body.idp_certificate,
+            sp_entity_id=sp_entity_id,
+            sp_acs_url=sp_acs_url,
+            enforce_sso=body.enforce_sso,
+            auto_provision=body.auto_provision,
+            default_role=body.default_role,
+            is_active=body.is_active,
+        )
+        db.add(sso_config)
+        action = "tenant.sso_create"
+
+    db.commit()
+    db.refresh(sso_config)
+
+    log_audit(
+        db,
+        actor=admin,
+        action=action,
+        resource_type="tenant",
+        resource_id=tenant_id,
+        details={
+            "idp_entity_id": body.idp_entity_id,
+            "enforce_sso": body.enforce_sso,
+            "auto_provision": body.auto_provision,
+        },
+    )
+
+    return {
+        "message": "SSO configuration saved",
+        "tenant_id": tenant_id,
+        "sp_entity_id": sp_entity_id,
+        "sp_acs_url": sp_acs_url,
+    }
+
+
+@router.delete("/tenants/{tenant_id}/sso")
+def delete_tenant_sso(
+    tenant_id: int,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Remove SSO configuration for a tenant."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    sso_config = db.query(SSOConfig).filter(SSOConfig.tenant_id == tenant_id).first()
+    if not sso_config:
+        raise HTTPException(status_code=404, detail="SSO configuration not found")
+
+    db.delete(sso_config)
+    db.commit()
+
+    log_audit(
+        db,
+        actor=admin,
+        action="tenant.sso_delete",
+        resource_type="tenant",
+        resource_id=tenant_id,
+    )
+
+    return {"message": "SSO configuration deleted", "tenant_id": tenant_id}
+
+
+@router.post("/tenants/{tenant_id}/sso/test")
+def test_tenant_sso(
+    tenant_id: int,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Test SSO configuration (validates certificate format, checks IdP URL)."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    sso_config = db.query(SSOConfig).filter(SSOConfig.tenant_id == tenant_id).first()
+    if not sso_config:
+        raise HTTPException(status_code=404, detail="SSO configuration not found")
+
+    errors = []
+
+    # Validate certificate
+    try:
+        from app.backend.services.sso_service import _parse_x509_cert
+        _parse_x509_cert(sso_config.idp_certificate)
+    except Exception as exc:
+        errors.append(f"Invalid X.509 certificate: {exc}")
+
+    # Basic URL validation
+    if not sso_config.idp_sso_url.startswith(("http://", "https://")):
+        errors.append("IdP SSO URL must start with http:// or https://")
+
+    if sso_config.idp_slo_url and not sso_config.idp_slo_url.startswith(("http://", "https://")):
+        errors.append("IdP SLO URL must start with http:// or https://")
+
+    if errors:
+        return {"valid": False, "errors": errors}
+
+    return {"valid": True, "message": "SSO configuration appears valid"}
 
 
 # ─── Tenant User Management ─────────────────────────────────────────────
@@ -2261,3 +2501,489 @@ def delete_tenant_rate_limit(
     )
 
     return {"message": "Rate limit configuration deleted, tenant will use defaults"}
+
+
+# ─── Plan CRUD ──────────────────────────────────────────────────────────────────
+
+class PlanListItem(BaseModel):
+    id: int
+    name: str
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    price_monthly: int
+    price_yearly: int
+    currency: str
+    features: list[str]
+    limits: dict
+    is_active: bool
+    sort_order: int
+    subscriber_count: int
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class PlanListResponse(BaseModel):
+    plans: list[PlanListItem]
+    total: int
+
+
+class CreatePlanRequest(BaseModel):
+    name: str
+    display_name: str
+    price_monthly: int
+    price_yearly: int
+    description: Optional[str] = None
+    limits: Optional[dict] = None
+    features: Optional[list[str]] = None
+    is_active: Optional[bool] = True
+    sort_order: Optional[int] = None
+    currency: Optional[str] = "usd"
+
+
+class UpdatePlanRequest(BaseModel):
+    name: Optional[str] = None
+    display_name: Optional[str] = None
+    price_monthly: Optional[int] = None
+    price_yearly: Optional[int] = None
+    description: Optional[str] = None
+    limits: Optional[dict] = None
+    features: Optional[list[str]] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+    currency: Optional[str] = None
+
+
+class PlanDetailResponse(BaseModel):
+    id: int
+    name: str
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    price_monthly: int
+    price_yearly: int
+    currency: str
+    features: list[str]
+    limits: dict
+    is_active: bool
+    sort_order: int
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+def _parse_plan_json(text_value: Optional[str], default):
+    """Safely parse a JSON text column."""
+    if text_value is None:
+        return default
+    try:
+        return json.loads(text_value)
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
+def _validate_plan_name(db: Session, name: str, exclude_id: Optional[int] = None):
+    """Ensure plan name is unique."""
+    query = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == name)
+    if exclude_id is not None:
+        query = query.filter(SubscriptionPlan.id != exclude_id)
+    if query.first():
+        raise HTTPException(status_code=409, detail=f"Plan name '{name}' already exists")
+
+
+def _validate_plan_fields(body: CreatePlanRequest | UpdatePlanRequest):
+    """Validate plan fields."""
+    errors = []
+
+    if hasattr(body, "name") and body.name is not None:
+        if not body.name.strip():
+            errors.append("name cannot be empty")
+
+    if hasattr(body, "price_monthly") and body.price_monthly is not None:
+        if body.price_monthly < 0:
+            errors.append("price_monthly must be >= 0")
+
+    if hasattr(body, "price_yearly") and body.price_yearly is not None:
+        if body.price_yearly < 0:
+            errors.append("price_yearly must be >= 0")
+
+    if hasattr(body, "limits") and body.limits is not None:
+        if not isinstance(body.limits, dict):
+            errors.append("limits must be a JSON object")
+        else:
+            for key in ("analyses_per_month", "team_members", "storage_gb", "batch_size"):
+                if key in body.limits and not isinstance(body.limits[key], int):
+                    errors.append(f"limits.{key} must be an integer")
+
+    if hasattr(body, "features") and body.features is not None:
+        if not isinstance(body.features, list):
+            errors.append("features must be a JSON array")
+        else:
+            for idx, item in enumerate(body.features):
+                if not isinstance(item, str):
+                    errors.append(f"features[{idx}] must be a string")
+
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+
+
+def _get_subscriber_count(db: Session, plan_id: int) -> int:
+    """Count active subscribers for a plan."""
+    return (
+        db.query(func.count(Tenant.id))
+        .filter(
+            Tenant.plan_id == plan_id,
+            Tenant.subscription_status.in_(["active", "trialing"]),
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _subscription_plan_to_list_item(plan: SubscriptionPlan, subscriber_count: int) -> PlanListItem:
+    return PlanListItem(
+        id=plan.id,
+        name=plan.name,
+        display_name=plan.display_name,
+        description=plan.description,
+        price_monthly=plan.price_monthly,
+        price_yearly=plan.price_yearly,
+        currency=plan.currency,
+        features=_parse_plan_json(plan.features, []),
+        limits=_parse_plan_json(plan.limits, {}),
+        is_active=plan.is_active,
+        sort_order=plan.sort_order,
+        subscriber_count=subscriber_count,
+        created_at=_dt_to_iso(plan.created_at),
+        updated_at=_dt_to_iso(plan.updated_at),
+    )
+
+
+@router.get("/plans", response_model=PlanListResponse)
+def list_plans(
+    admin: User = Depends(require_billing_admin),
+    db: Session = Depends(get_db),
+):
+    """List all subscription plans (including inactive) with subscriber counts."""
+    plans = db.query(SubscriptionPlan).order_by(SubscriptionPlan.sort_order, SubscriptionPlan.id).all()
+
+    items = []
+    for plan in plans:
+        subscriber_count = _get_subscriber_count(db, plan.id)
+        items.append(_subscription_plan_to_list_item(plan, subscriber_count))
+
+    return PlanListResponse(plans=items, total=len(items))
+
+
+@router.post("/plans", response_model=PlanDetailResponse, status_code=201)
+def create_plan(
+    body: CreatePlanRequest,
+    admin: User = Depends(require_billing_admin),
+    db: Session = Depends(get_db),
+):
+    """Create a new subscription plan."""
+    _validate_plan_name(db, body.name)
+    _validate_plan_fields(body)
+
+    plan = SubscriptionPlan(
+        name=body.name,
+        display_name=body.display_name,
+        description=body.description,
+        price_monthly=body.price_monthly,
+        price_yearly=body.price_yearly,
+        currency=(body.currency or "usd").upper(),
+        limits=json.dumps(body.limits) if body.limits is not None else "{}",
+        features=json.dumps(body.features) if body.features is not None else "[]",
+        is_active=body.is_active if body.is_active is not None else True,
+        sort_order=body.sort_order if body.sort_order is not None else 0,
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+
+    log_audit(
+        db,
+        actor=admin,
+        action="plan.create",
+        resource_type="plan",
+        resource_id=plan.id,
+        details={
+            "name": plan.name,
+            "display_name": plan.display_name,
+            "price_monthly": plan.price_monthly,
+            "price_yearly": plan.price_yearly,
+            "currency": plan.currency,
+        },
+    )
+
+    return PlanDetailResponse(
+        id=plan.id,
+        name=plan.name,
+        display_name=plan.display_name,
+        description=plan.description,
+        price_monthly=plan.price_monthly,
+        price_yearly=plan.price_yearly,
+        currency=plan.currency,
+        features=_parse_plan_json(plan.features, []),
+        limits=_parse_plan_json(plan.limits, {}),
+        is_active=plan.is_active,
+        sort_order=plan.sort_order,
+        created_at=_dt_to_iso(plan.created_at),
+        updated_at=_dt_to_iso(plan.updated_at),
+    )
+
+
+@router.put("/plans/{plan_id}", response_model=PlanDetailResponse)
+def update_plan(
+    plan_id: int,
+    body: UpdatePlanRequest,
+    admin: User = Depends(require_billing_admin),
+    db: Session = Depends(get_db),
+):
+    """Update an existing subscription plan."""
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    _validate_plan_fields(body)
+
+    before = {}
+    after = {}
+
+    if body.name is not None and body.name != plan.name:
+        _validate_plan_name(db, body.name, exclude_id=plan.id)
+        before["name"] = plan.name
+        after["name"] = body.name
+        plan.name = body.name
+
+    if body.display_name is not None:
+        before["display_name"] = plan.display_name
+        after["display_name"] = body.display_name
+        plan.display_name = body.display_name
+
+    if body.description is not None:
+        before["description"] = plan.description
+        after["description"] = body.description
+        plan.description = body.description
+
+    if body.price_monthly is not None:
+        before["price_monthly"] = plan.price_monthly
+        after["price_monthly"] = body.price_monthly
+        plan.price_monthly = body.price_monthly
+
+    if body.price_yearly is not None:
+        before["price_yearly"] = plan.price_yearly
+        after["price_yearly"] = body.price_yearly
+        plan.price_yearly = body.price_yearly
+
+    if body.currency is not None:
+        before["currency"] = plan.currency
+        after["currency"] = body.currency
+        plan.currency = body.currency.upper()
+
+    if body.limits is not None:
+        before["limits"] = _parse_plan_json(plan.limits, {})
+        after["limits"] = body.limits
+        plan.limits = json.dumps(body.limits)
+
+    if body.features is not None:
+        before["features"] = _parse_plan_json(plan.features, [])
+        after["features"] = body.features
+        plan.features = json.dumps(body.features)
+
+    if body.is_active is not None:
+        before["is_active"] = plan.is_active
+        after["is_active"] = body.is_active
+        plan.is_active = body.is_active
+
+    if body.sort_order is not None:
+        before["sort_order"] = plan.sort_order
+        after["sort_order"] = body.sort_order
+        plan.sort_order = body.sort_order
+
+    db.commit()
+    db.refresh(plan)
+
+    log_audit(
+        db,
+        actor=admin,
+        action="plan.update",
+        resource_type="plan",
+        resource_id=plan.id,
+        details={"before": before, "after": after},
+    )
+
+    return PlanDetailResponse(
+        id=plan.id,
+        name=plan.name,
+        display_name=plan.display_name,
+        description=plan.description,
+        price_monthly=plan.price_monthly,
+        price_yearly=plan.price_yearly,
+        currency=plan.currency,
+        features=_parse_plan_json(plan.features, []),
+        limits=_parse_plan_json(plan.limits, {}),
+        is_active=plan.is_active,
+        sort_order=plan.sort_order,
+        created_at=_dt_to_iso(plan.created_at),
+        updated_at=_dt_to_iso(plan.updated_at),
+    )
+
+
+@router.delete("/plans/{plan_id}")
+def archive_plan(
+    plan_id: int,
+    force: bool = Query(False),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Soft-delete (archive) a subscription plan. Requires super_admin."""
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    if not plan.is_active:
+        raise HTTPException(status_code=400, detail="Plan is already archived")
+
+    subscriber_count = _get_subscriber_count(db, plan_id)
+    if subscriber_count > 0 and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Plan has {subscriber_count} active subscriber(s). Use ?force=true to archive anyway.",
+        )
+
+    plan.is_active = False
+    db.commit()
+
+    log_audit(
+        db,
+        actor=admin,
+        action="plan.archive",
+        resource_type="plan",
+        resource_id=plan.id,
+        details={
+            "name": plan.name,
+            "subscriber_count": subscriber_count,
+            "forced": force,
+        },
+    )
+
+    return {
+        "message": "Plan archived successfully",
+        "plan_id": plan_id,
+        "name": plan.name,
+        "subscriber_count": subscriber_count,
+    }
+
+
+# ─── Dunning Management ──────────────────────────────────────────────────────
+
+@router.get("/dunning")
+def list_dunning(
+    status: Optional[str] = Query(None, description="Filter by dunning status: active, exhausted, resolved"),
+    admin: User = Depends(require_billing_admin),
+    db: Session = Depends(get_db),
+):
+    """List tenants currently in dunning (active or exhausted).
+    Accessible by billing_admin and above."""
+    query = db.query(DunningRecord)
+
+    if status:
+        query = query.filter(DunningRecord.status == status)
+    else:
+        # Default: show active + exhausted (not resolved)
+        query = query.filter(DunningRecord.status.in_(["active", "exhausted"]))
+
+    records = query.order_by(DunningRecord.next_retry_at.nulls_last()).all()
+
+    results = []
+    for r in records:
+        tenant = db.query(Tenant).filter(Tenant.id == r.tenant_id).first()
+        results.append({
+            "id": r.id,
+            "tenant_id": r.tenant_id,
+            "tenant_name": tenant.name if tenant else "Unknown",
+            "tenant_slug": tenant.slug if tenant else None,
+            "subscription_status": tenant.subscription_status if tenant else None,
+            "status": r.status,
+            "retry_count": r.retry_count,
+            "max_retries": r.max_retries,
+            "next_retry_at": _dt_to_iso(r.next_retry_at),
+            "last_retry_at": _dt_to_iso(r.last_retry_at),
+            "failure_reason": r.failure_reason,
+            "created_at": _dt_to_iso(r.created_at),
+        })
+
+    return {"items": results, "total": len(results)}
+
+
+@router.post("/dunning/{tenant_id}/resolve")
+def manually_resolve_dunning(
+    tenant_id: int,
+    admin: User = Depends(require_billing_admin),
+    db: Session = Depends(get_db),
+):
+    """Manually resolve dunning for a tenant (e.g., after offline payment).
+    Sets dunning status to resolved and tenant subscription_status to active."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    record = dunning_service.resolve_dunning(db, tenant_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No active dunning record found for this tenant",
+        )
+
+    # Also set tenant back to active
+    tenant.subscription_status = "active"
+    tenant.subscription_updated_at = datetime.now(timezone.utc)
+    tenant.suspended_at = None
+    tenant.suspended_reason = None
+    db.commit()
+
+    log_audit(
+        db,
+        actor=admin,
+        action="dunning.resolve",
+        resource_type="tenant",
+        resource_id=tenant_id,
+        details={
+            "dunning_id": record.id,
+            "retry_count": record.retry_count,
+            "resolved_by": "admin_manual",
+        },
+    )
+    db.commit()
+
+    return {
+        "message": "Dunning resolved successfully",
+        "tenant_id": tenant_id,
+        "dunning_id": record.id,
+        "retry_count": record.retry_count,
+    }
+
+
+@router.get("/dunning/process-retries")
+def trigger_dunning_retries(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Manually trigger dunning retry processing.
+    This is normally called by a scheduler/cron, but can be triggered manually.
+    Requires super_admin."""
+    results = dunning_service.process_due_retries(db)
+
+    log_audit(
+        db,
+        actor=admin,
+        action="dunning.process_retries",
+        resource_type="platform",
+        details={
+            "records_processed": len(results),
+            "results": results,
+        },
+    )
+
+    return {
+        "processed": len(results),
+        "results": results,
+    }

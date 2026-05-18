@@ -40,6 +40,7 @@ const SecurityEventsPage = lazy(() => import('./pages/admin/SecurityEventsPage')
 const ImpersonationPage = lazy(() => import('./pages/admin/ImpersonationPage'))
 const ErasurePage = lazy(() => import('./pages/admin/ErasurePage'))
 const PlanFeaturesPage = lazy(() => import('./pages/admin/PlanFeaturesPage'))
+const PlanManagementPage = lazy(() => import('./pages/admin/PlanManagementPage'))
 
 function PageLoader() {
   return (
@@ -60,10 +61,20 @@ function Shell({ children }) {
 }
 
 function OnboardingGate({ children }) {
-  const { isOnboardingComplete } = useOnboarding()
-  const { user } = useAuth()
+  const { isOnboardingComplete, statusLoading } = useOnboarding()
+  const { user, tenant, loading: authLoading } = useAuth()
 
-  if (user && !isOnboardingComplete) {
+  // Wait for both auth and onboarding status to load before deciding
+  const isLoading = authLoading || statusLoading
+
+  if (isLoading) {
+    return <PageLoader />
+  }
+
+  // If user is authenticated and onboarding is not complete (from backend or tenant data),
+  // show the onboarding wizard
+  const tenantOnboardingComplete = tenant?.onboarding_completed === true
+  if (user && !isOnboardingComplete && !tenantOnboardingComplete) {
     return <OnboardingWizard />
   }
 
@@ -111,6 +122,7 @@ function App() {
               <Route path="/admin/impersonation" element={<PlatformAdminRoute><Shell><OnboardingGate><ImpersonationPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
               <Route path="/admin/erasure" element={<PlatformAdminRoute><Shell><OnboardingGate><ErasurePage /></OnboardingGate></Shell></PlatformAdminRoute>} />
               <Route path="/admin/plan-features" element={<PlatformAdminRoute><Shell><OnboardingGate><PlanFeaturesPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
+              <Route path="/admin/plans" element={<PlatformAdminRoute><Shell><OnboardingGate><PlanManagementPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
 
               {/* Backward compatibility redirects */}
               <Route path="/batch"      element={<Navigate to="/analyze" replace />} />

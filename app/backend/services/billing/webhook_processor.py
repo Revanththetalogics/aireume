@@ -7,12 +7,14 @@ dispatched to the appropriate handler.
 """
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Dict, Optional
 
 from sqlalchemy.orm import Session
 
 from app.backend.models.db_models import BillingEvent, Tenant
+from app.backend.services.billing.dunning_service import dunning_service
+from app.backend.services.billing.invoice_service import create_invoice_from_payment
 from app.backend.services.webhook_service import dispatch_event_background
 
 log = logging.getLogger(__name__)
@@ -73,7 +75,10 @@ def _log_billing_event(
     result: str,
     error_detail: Optional[str] = None,
 ) -> BillingEvent:
-    """Persist a BillingEvent row for audit."""
+    """Persist a BillingEvent row for audit.
+
+    The caller is responsible for calling db.commit() after this.
+    """
     evt = BillingEvent(
         provider=provider,
         event_type=event_type,
@@ -83,7 +88,6 @@ def _log_billing_event(
         error_detail=error_detail[:2000] if error_detail else None,
     )
     db.add(evt)
-    db.flush()  # ensure the row is written within the current transaction
     return evt
 
 
@@ -110,7 +114,6 @@ def _fire_subscription_changed(tenant_id: int, new_status: str):
 def _handle_stripe_invoice_paid(db: Session, data: dict, raw_payload: str):
     """invoice.paid → set subscription_status = active, update period dates."""
     sub_data = data.get("object", {}) if isinstance(data, dict) else {}
-    # The invoice object contains subscription details
     customer_id = sub_data.get("customer") or sub_data.get("customer_id", "")
     subscription_id = sub_data.get("subscription") or sub_data.get("subscription_id", "")
 
@@ -126,6 +129,7 @@ def _handle_stripe_invoice_paid(db: Session, data: dict, raw_payload: str):
             tenant_id=None, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for customer_id={customer_id} subscription_id={subscription_id}",
         )
+        db.commit()
         return
 
     old_status = tenant.subscription_status
@@ -140,12 +144,35 @@ def _handle_stripe_invoice_paid(db: Session, data: dict, raw_payload: str):
         tenant.current_period_end = datetime.fromtimestamp(period_end, tz=timezone.utc)
     tenant.subscription_updated_at = datetime.now(timezone.utc)
 
-    db.commit()
-
     _log_billing_event(
         db, provider="stripe", event_type="invoice.paid",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+
+    # Generate invoice record
+    try:
+        invoice_amount = sub_data.get("amount_paid") or sub_data.get("total") or 0
+        invoice_currency = sub_data.get("currency", "usd")
+        stripe_invoice_id = sub_data.get("id", "")
+        period_start_dt = datetime.fromtimestamp(period_start, tz=timezone.utc) if period_start else None
+        period_end_dt = datetime.fromtimestamp(period_end, tz=timezone.utc) if period_end else None
+        create_invoice_from_payment(
+            db,
+            tenant_id=tenant.id,
+            amount=invoice_amount,
+            currency=invoice_currency,
+            plan_name=_resolve_plan_name(tenant),
+            period_start=period_start_dt,
+            period_end=period_end_dt,
+            payment_provider="stripe",
+            provider_invoice_id=stripe_invoice_id,
+        )
+    except Exception:
+        log.exception("Failed to generate invoice for stripe/invoice.paid tenant=%s", tenant.id)
+
+    # Resolve any active dunning for this tenant
+    dunning_service.resolve_dunning(db, tenant.id)
+    db.commit()
 
     if old_status != "active":
         _fire_subscription_changed(tenant.id, "active")
@@ -169,17 +196,26 @@ def _handle_stripe_invoice_payment_failed(db: Session, data: dict, raw_payload: 
             tenant_id=None, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for customer_id={customer_id} subscription_id={subscription_id}",
         )
+        db.commit()
         return
 
     old_status = tenant.subscription_status
     tenant.subscription_status = "past_due"
     tenant.subscription_updated_at = datetime.now(timezone.utc)
-    db.commit()
 
     _log_billing_event(
         db, provider="stripe", event_type="invoice.payment_failed",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+    # Initiate dunning for failed payment
+    try:
+        dunning_service.initiate_dunning(
+            db, tenant.id,
+            failure_reason=f"Stripe invoice.payment_failed: customer={customer_id}",
+        )
+    except Exception:
+        log.exception("Failed to initiate dunning for tenant %s", tenant.id)
+    db.commit()
 
     if old_status != "past_due":
         _fire_subscription_changed(tenant.id, "past_due")
@@ -197,6 +233,7 @@ def _handle_stripe_subscription_updated(db: Session, data: dict, raw_payload: st
             tenant_id=None, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for subscription_id={subscription_id}",
         )
+        db.commit()
         return
 
     # Map Stripe subscription status to our status
@@ -229,12 +266,12 @@ def _handle_stripe_subscription_updated(db: Session, data: dict, raw_payload: st
         tenant.stripe_subscription_id = subscription_id
 
     tenant.subscription_updated_at = datetime.now(timezone.utc)
-    db.commit()
 
     _log_billing_event(
         db, provider="stripe", event_type="customer.subscription.updated",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+    db.commit()
 
     if old_status != new_status:
         _fire_subscription_changed(tenant.id, new_status)
@@ -252,6 +289,7 @@ def _handle_stripe_subscription_deleted(db: Session, data: dict, raw_payload: st
             tenant_id=None, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for subscription_id={subscription_id}",
         )
+        db.commit()
         return
 
     old_status = tenant.subscription_status
@@ -259,12 +297,12 @@ def _handle_stripe_subscription_deleted(db: Session, data: dict, raw_payload: st
     tenant.current_period_start = None
     tenant.current_period_end = None
     tenant.subscription_updated_at = datetime.now(timezone.utc)
-    db.commit()
 
     _log_billing_event(
         db, provider="stripe", event_type="customer.subscription.deleted",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+    db.commit()
 
     if old_status != "cancelled":
         _fire_subscription_changed(tenant.id, "cancelled")
@@ -284,6 +322,7 @@ def _handle_razorpay_subscription_activated(db: Session, data: dict, raw_payload
             tenant_id=None, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for subscription_id={subscription_id}",
         )
+        db.commit()
         return
 
     old_status = tenant.subscription_status
@@ -301,12 +340,39 @@ def _handle_razorpay_subscription_activated(db: Session, data: dict, raw_payload
         tenant.stripe_subscription_id = subscription_id
 
     tenant.subscription_updated_at = datetime.now(timezone.utc)
-    db.commit()
 
     _log_billing_event(
         db, provider="razorpay", event_type="subscription.activated",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+
+    # Generate invoice record
+    try:
+        amount = data.get("payload", {}).get("payment", {}).get("entity", {}).get("amount", 0)
+        if not amount:
+            amount = data.get("amount", 0)
+        currency = data.get("payload", {}).get("payment", {}).get("entity", {}).get("currency", "inr")
+        if not currency:
+            currency = "inr"
+        period_start_dt = datetime.fromtimestamp(start, tz=timezone.utc) if start else None
+        period_end_dt = datetime.fromtimestamp(end, tz=timezone.utc) if end else None
+        create_invoice_from_payment(
+            db,
+            tenant_id=tenant.id,
+            amount=amount,
+            currency=currency,
+            plan_name=_resolve_plan_name(tenant),
+            period_start=period_start_dt,
+            period_end=period_end_dt,
+            payment_provider="razorpay",
+            provider_invoice_id=subscription_id,
+        )
+    except Exception:
+        log.exception("Failed to generate invoice for razorpay/subscription.activated tenant=%s", tenant.id)
+
+    # Resolve any active dunning for this tenant
+    dunning_service.resolve_dunning(db, tenant.id)
+    db.commit()
 
     if old_status != "active":
         _fire_subscription_changed(tenant.id, "active")
@@ -324,6 +390,7 @@ def _handle_razorpay_subscription_charged(db: Session, data: dict, raw_payload: 
             tenant_id=None, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for subscription_id={subscription_id}",
         )
+        db.commit()
         return
 
     old_status = tenant.subscription_status
@@ -337,12 +404,39 @@ def _handle_razorpay_subscription_charged(db: Session, data: dict, raw_payload: 
         tenant.current_period_end = datetime.fromtimestamp(end, tz=timezone.utc)
 
     tenant.subscription_updated_at = datetime.now(timezone.utc)
-    db.commit()
 
     _log_billing_event(
         db, provider="razorpay", event_type="subscription.charged",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+
+    # Generate invoice record
+    try:
+        amount = data.get("payload", {}).get("payment", {}).get("entity", {}).get("amount", 0)
+        if not amount:
+            amount = data.get("amount", 0)
+        currency = data.get("payload", {}).get("payment", {}).get("entity", {}).get("currency", "inr")
+        if not currency:
+            currency = "inr"
+        period_start_dt = datetime.fromtimestamp(start, tz=timezone.utc) if start else None
+        period_end_dt = datetime.fromtimestamp(end, tz=timezone.utc) if end else None
+        create_invoice_from_payment(
+            db,
+            tenant_id=tenant.id,
+            amount=amount,
+            currency=currency,
+            plan_name=_resolve_plan_name(tenant),
+            period_start=period_start_dt,
+            period_end=period_end_dt,
+            payment_provider="razorpay",
+            provider_invoice_id=subscription_id,
+        )
+    except Exception:
+        log.exception("Failed to generate invoice for razorpay/subscription.charged tenant=%s", tenant.id)
+
+    # Resolve any active dunning for this tenant
+    dunning_service.resolve_dunning(db, tenant.id)
+    db.commit()
 
     if old_status != "active":
         _fire_subscription_changed(tenant.id, "active")
@@ -360,17 +454,26 @@ def _handle_razorpay_subscription_pending(db: Session, data: dict, raw_payload: 
             tenant_id=None, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for subscription_id={subscription_id}",
         )
+        db.commit()
         return
 
     old_status = tenant.subscription_status
     tenant.subscription_status = "past_due"
     tenant.subscription_updated_at = datetime.now(timezone.utc)
-    db.commit()
 
     _log_billing_event(
         db, provider="razorpay", event_type="subscription.pending",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+    # Initiate dunning for failed payment
+    try:
+        dunning_service.initiate_dunning(
+            db, tenant.id,
+            failure_reason=f"Razorpay subscription.pending: sub={subscription_id}",
+        )
+    except Exception:
+        log.exception("Failed to initiate dunning for tenant %s", tenant.id)
+    db.commit()
 
     if old_status != "past_due":
         _fire_subscription_changed(tenant.id, "past_due")
@@ -388,6 +491,7 @@ def _handle_razorpay_subscription_cancelled(db: Session, data: dict, raw_payload
             tenant_id=None, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for subscription_id={subscription_id}",
         )
+        db.commit()
         return
 
     old_status = tenant.subscription_status
@@ -395,12 +499,12 @@ def _handle_razorpay_subscription_cancelled(db: Session, data: dict, raw_payload
     tenant.current_period_start = None
     tenant.current_period_end = None
     tenant.subscription_updated_at = datetime.now(timezone.utc)
-    db.commit()
 
     _log_billing_event(
         db, provider="razorpay", event_type="subscription.cancelled",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+    db.commit()
 
     if old_status != "cancelled":
         _fire_subscription_changed(tenant.id, "cancelled")
@@ -422,6 +526,7 @@ def _handle_manual_payment_approved(db: Session, data: dict, raw_payload: str):
             tenant_id=tenant_id, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for tenant_id={tenant_id}",
         )
+        db.commit()
         return
 
     old_status = tenant.subscription_status
@@ -440,17 +545,36 @@ def _handle_manual_payment_approved(db: Session, data: dict, raw_payload: str):
     if period_end:
         tenant.current_period_end = datetime.fromisoformat(period_end) if isinstance(period_end, str) else datetime.fromtimestamp(period_end, tz=timezone.utc)
     else:
-        # Default: 30 days from now
-        from datetime import timedelta
         tenant.current_period_end = now + timedelta(days=30)
 
     tenant.subscription_updated_at = datetime.now(timezone.utc)
-    db.commit()
 
     _log_billing_event(
         db, provider="manual", event_type="payment.approved",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+
+    # Generate invoice record
+    try:
+        amount = data.get("amount", 0)
+        currency = data.get("currency", "usd")
+        create_invoice_from_payment(
+            db,
+            tenant_id=tenant.id,
+            amount=amount,
+            currency=currency,
+            plan_name=_resolve_plan_name(tenant),
+            period_start=tenant.current_period_start,
+            period_end=tenant.current_period_end,
+            payment_provider="manual",
+            provider_invoice_id=data.get("payment_id"),
+        )
+    except Exception:
+        log.exception("Failed to generate invoice for manual/payment.approved tenant=%s", tenant.id)
+
+    # Resolve any active dunning for this tenant
+    dunning_service.resolve_dunning(db, tenant.id)
+    db.commit()
 
     if old_status != "active":
         _fire_subscription_changed(tenant.id, "active")
@@ -470,20 +594,41 @@ def _handle_manual_payment_rejected(db: Session, data: dict, raw_payload: str):
             tenant_id=tenant_id, raw_payload=raw_payload, result="error",
             error_detail=f"No tenant found for tenant_id={tenant_id}",
         )
+        db.commit()
         return
 
     old_status = tenant.subscription_status
     tenant.subscription_status = "past_due"
     tenant.subscription_updated_at = datetime.now(timezone.utc)
-    db.commit()
 
     _log_billing_event(
         db, provider="manual", event_type="payment.rejected",
         tenant_id=tenant.id, raw_payload=raw_payload, result="success",
     )
+    # Initiate dunning for failed payment
+    try:
+        dunning_service.initiate_dunning(
+            db, tenant.id,
+            failure_reason=f"Manual payment.rejected: tenant_id={tenant_id}",
+        )
+    except Exception:
+        log.exception("Failed to initiate dunning for tenant %s", tenant.id)
+    db.commit()
 
     if old_status != "past_due":
         _fire_subscription_changed(tenant.id, "past_due")
+
+
+# ─── Plan name resolution ──────────────────────────────────────────────────
+
+def _resolve_plan_name(tenant: Tenant) -> str:
+    """Best-effort resolution of the tenant's current plan display name."""
+    try:
+        if tenant.plan:
+            return tenant.plan.display_name or tenant.plan.name
+    except Exception:
+        pass
+    return ""
 
 
 # ─── Event handler registry ─────────────────────────────────────────────────
@@ -535,6 +680,7 @@ def process_webhook_event(
             tenant_id=None, raw_payload=raw_payload, result="ignored",
             error_detail="No handler registered for this event type",
         )
+        db.commit()
         return {
             "processed": False,
             "reason": "ignored",

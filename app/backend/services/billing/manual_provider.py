@@ -3,7 +3,14 @@
 This provider works entirely offline — no external API keys or SDKs
 required.  It is the default when no payment provider is configured,
 and is suitable for enterprise customers who pay via invoice / PO.
+
+The manual provider accepts internal webhook-style events triggered by
+admins (e.g. payment.approved, payment.rejected).  Signature validation
+is done via a shared API key passed in the X-Signature header.
 """
+import hashlib
+import hmac
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, Any
@@ -21,8 +28,11 @@ class ManualProvider(PaymentProvider):
     dependencies are required.
     """
 
-    def __init__(self, db: Session = None):
+    # Shared secret for internal webhook signature validation.
+    # In production, this comes from platform_configs via the factory.
+    def __init__(self, db: Session = None, webhook_secret: str = ""):
         self._db = db
+        self._webhook_secret = webhook_secret
 
     @property
     def provider_name(self) -> str:
@@ -88,14 +98,82 @@ class ManualProvider(PaymentProvider):
         result["current_period_end"] = None
         return result
 
+    def prorate_plan_change(
+        self,
+        tenant_id: int,
+        subscription_id: str,
+        old_plan_price: int,
+        new_plan_price: int,
+        proration_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Record proration details for manual invoicing.
+
+        No external API calls are made. The proration is logged in the
+        tenant's metadata for later manual invoicing.
+        """
+        result = {
+            "tenant_id": tenant_id,
+            "subscription_id": subscription_id,
+            "provider": self.provider_name,
+            "status": "pending_manual_invoice",
+            "proration": proration_data,
+        }
+
+        if self._db is not None:
+            tenant = self._db.query(Tenant).filter(Tenant.id == tenant_id).first()
+            if tenant:
+                # Store proration info in tenant metadata for manual invoicing
+                import json
+                metadata = {}
+                if tenant.metadata_json:
+                    try:
+                        metadata = json.loads(tenant.metadata_json)
+                    except json.JSONDecodeError:
+                        metadata = {}
+
+                pending_prorations = metadata.get("pending_prorations", [])
+                pending_prorations.append({
+                    "subscription_id": subscription_id,
+                    "old_plan_price_cents": old_plan_price,
+                    "new_plan_price_cents": new_plan_price,
+                    "proration_data": proration_data,
+                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                })
+                metadata["pending_prorations"] = pending_prorations
+                tenant.metadata_json = json.dumps(metadata)
+                self._db.commit()
+
+        return result
+
     def handle_webhook_event(
         self,
         payload: bytes,
         signature: str,
     ) -> Dict[str, Any]:
-        # Manual provider does not receive external webhooks — no-op.
+        """Process a manual webhook event (typically from admin actions).
+
+        Validates the HMAC-SHA256 signature using the shared secret.
+        If no secret is configured (e.g. in dev mode), validation is skipped.
+        """
+        # Decode payload
+        payload_str = payload.decode("utf-8") if isinstance(payload, bytes) else payload
+
+        # Validate signature if a webhook secret is configured
+        if self._webhook_secret:
+            expected_sig = hmac.new(
+                self._webhook_secret.encode(),
+                payload_str.encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            if not hmac.compare_digest(signature, expected_sig):
+                raise ValueError("Invalid webhook signature for manual provider")
+
+        event = json.loads(payload_str)
+        event_type = event.get("event", "unknown")
+        event_data = event.get("payload", event.get("data", {}))
+
         return {
-            "event_type": "manual.noop",
-            "data": {},
+            "event_type": event_type,
+            "data": event_data,
             "provider": self.provider_name,
         }

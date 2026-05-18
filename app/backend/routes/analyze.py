@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import update, func
 
 from app.backend.db.database import get_db, SessionLocal
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_active_subscription
 from app.backend.services.jd_quality_scorer import score_jd_quality
 from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan, OutcomeSkillPattern, SkillTrendSnapshot, TeamSkillProfile, RoleTemplate
 from app.backend.models.schemas import (
@@ -825,7 +825,7 @@ async def jd_parse_preview(
     job_description: str = Form(None),
     job_file: UploadFile = File(None),
     team_id: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """Preview parsed JD structure with confidence metadata per skill.
@@ -1108,7 +1108,7 @@ async def _process_single_resume(
 @router.post("/analyze/suggest-weights")
 async def suggest_weights_endpoint(
     job_description: str = Form(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """AI-powered weight suggestion based on job description."""
@@ -1211,6 +1211,20 @@ def _check_and_increment_usage(db: Session, tenant_id: int, user_id: int, quanti
     db.add(usage_log)
     db.commit()
     
+    # ── Check usage thresholds (non-blocking) ──────────────────────────────────
+    try:
+        if analyses_limit and analyses_limit > 0:
+            from app.backend.services.usage_alert_service import usage_alert_service
+            # Re-read tenant for current count after commit
+            tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+            if tenant:
+                usage_alert_service.check_and_alert(
+                    db, tenant_id, "analyses_per_month",
+                    tenant.analyses_count_this_month, analyses_limit,
+                )
+    except Exception:
+        pass  # Alert failures must never break the main flow
+    
     return True, ""
 
 
@@ -1224,7 +1238,7 @@ async def analyze_endpoint(
     action: str = Form(None),   # use_existing | update_profile | create_new | None
     template_id: Optional[int] = Form(None),
     team_id: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """
@@ -1570,7 +1584,7 @@ async def analyze_stream_endpoint(
     action: str = Form(None),
     template_id: Optional[int] = Form(None),
     team_id: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """
@@ -1947,7 +1961,7 @@ async def batch_analyze_chunked_endpoint(
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
     template_id: Optional[int] = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """
@@ -2201,7 +2215,7 @@ async def batch_analyze_stream_endpoint(
     scoring_weights: str = Form(None),
     skill_overrides: str = Form(None),
     template_id: Optional[int] = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """
@@ -2641,7 +2655,7 @@ async def batch_analyze_endpoint(
     job_file: UploadFile = File(None),
     scoring_weights: str = Form(None),
     template_id: Optional[int] = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     # ─── HARD QUOTA CHECK (before any work) ───────────────────────────────────
@@ -2862,7 +2876,7 @@ def get_analysis_history(
 def update_status(
     result_id: int,
     body: dict,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     result = db.query(ScreeningResult).filter(
@@ -2889,7 +2903,7 @@ def update_status(
 def rescore_endpoint(
     result_id: int,
     body: RescoreRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
     """Re-score an existing analysis with overridden skill classification.

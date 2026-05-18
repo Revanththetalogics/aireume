@@ -29,7 +29,9 @@ PROVIDER_REGISTRY = {
     },
     "manual": {
         "class": ManualProvider,
-        "config_keys": [],
+        "config_keys": [
+            "billing.manual.webhook_secret",
+        ],
     },
 }
 
@@ -58,17 +60,18 @@ def get_payment_provider(db: Session) -> PaymentProvider:
     provider_cls = provider_entry["class"]
     config_keys = provider_entry["config_keys"]
 
-    # If this is the manual provider, just pass db
-    if provider_name == "manual":
-        return ManualProvider(db=db)
-
     # Load provider-specific config values from platform_configs
     config_rows = (
         db.query(PlatformConfig)
         .filter(PlatformConfig.config_key.in_(config_keys))
         .all()
-    )
+    ) if config_keys else []
     config_map = {r.config_key: r.config_value for r in config_rows}
+
+    # If this is the manual provider, just pass db + webhook_secret
+    if provider_name == "manual":
+        webhook_secret = config_map.get("billing.manual.webhook_secret", "")
+        return ManualProvider(db=db, webhook_secret=webhook_secret)
 
     # Build constructor kwargs from config
     kwargs = {}

@@ -30,7 +30,7 @@ from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_active_subscription
 from app.backend.models.db_models import User
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
@@ -103,7 +103,7 @@ async def upload_chunk(
     total_chunks: int = Form(...),
     filename: str = Form(...),
     chunk: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
 ):
     """
     Upload a single chunk of a file.
@@ -207,7 +207,7 @@ async def upload_chunk(
 @router.post("/finalize", response_model=FinalizeUploadResponse)
 async def finalize_upload(
     request: FinalizeUploadRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_active_subscription),
 ):
     """
     Finalize a chunked upload by assembling all chunks into a complete file.

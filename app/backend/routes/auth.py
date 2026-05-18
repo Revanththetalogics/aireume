@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, SECRET_KEY, ALGORITHM
-from app.backend.models.db_models import Tenant, User, RevokedToken
+from app.backend.models.db_models import Tenant, User, RevokedToken, SSOConfig
 from app.backend.models.schemas import (
     RegisterRequest, LoginRequest, TokenResponse, RefreshRequest
 )
@@ -56,7 +56,7 @@ def _make_slug(name: str) -> str:
 
 
 def _tenant_dict(tenant: Tenant) -> dict:
-    return {"id": tenant.id, "name": tenant.name, "slug": tenant.slug}
+    return {"id": tenant.id, "name": tenant.name, "slug": tenant.slug, "onboarding_completed": tenant.onboarding_completed}
 
 
 def _user_dict(user: User) -> dict:
@@ -183,10 +183,23 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
             record_suspicious_activity(db, ip_address=ip, email=body.email, details={"reason": "brute_force_detected"})
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+
+    # Check SSO enforcement
+    if tenant:
+        sso_config = db.query(SSOConfig).filter(SSOConfig.tenant_id == tenant.id).first()
+        if sso_config and sso_config.is_active and sso_config.enforce_sso:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_code": "SSO_ENFORCED",
+                    "message": "Password login is disabled. Please use SSO.",
+                    "sso_login_url": f"/api/sso/login/{tenant.slug}",
+                },
+            )
+
     # Record successful login
     record_login_success(db, user=user, ip_address=ip, user_agent=user_agent)
-
-    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 
     access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     refresh_token = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))

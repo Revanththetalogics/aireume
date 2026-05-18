@@ -59,11 +59,11 @@ def test_manual_provider_get_subscription_status(db):
 
 
 def test_manual_provider_webhook_is_noop(db):
-    """ManualProvider.handle_webhook_event returns a no-op result."""
+    """ManualProvider.handle_webhook_event parses the event payload."""
     from app.backend.services.billing.manual_provider import ManualProvider
     provider = ManualProvider(db=db)
     result = provider.handle_webhook_event(b"{}", "")
-    assert result["event_type"] == "manual.noop"
+    assert result["event_type"] == "unknown"  # empty payload → no event key
     assert result["provider"] == "manual"
 
 
@@ -236,7 +236,11 @@ def test_billing_checkout_creates_session(auth_client, db):
 
 
 def test_billing_webhook_handles_events(client, db):
-    """POST /api/billing/webhook handles events (no auth required)."""
+    """POST /api/billing/webhook handles events (no auth required).
+
+    The endpoint always returns 200 with {received: true} to prevent
+    provider-side retries.  Actual processing happens internally.
+    """
     resp = client.post(
         "/api/billing/webhook",
         content=b'{"test": true}',
@@ -244,7 +248,7 @@ def test_billing_webhook_handles_events(client, db):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["provider"] == "manual"
+    assert data["received"] is True
 
 
 def test_billing_get_subscription_status(auth_client, db):

@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, DateTime, Date, Text, Boolean, LargeBinary,
-    ForeignKey, Float, func, BigInteger, UniqueConstraint, Index
+    ForeignKey, Float, func, BigInteger, UniqueConstraint, Index, JSON
 )
 from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
@@ -40,7 +40,7 @@ class Tenant(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # ── Subscription & Usage Tracking ─────────────────────────────────────────
-    subscription_status     = Column(String(20), nullable=False, default="active")  # active/trialing/cancelled/past_due
+    subscription_status     = Column(String(20), nullable=False, default="active")  # active/trialing/cancelled/past_due/suspended
     current_period_start    = Column(DateTime(timezone=True), nullable=True)
     current_period_end      = Column(DateTime(timezone=True), nullable=True)
     analyses_count_this_month = Column(Integer, nullable=False, default=0)
@@ -58,6 +58,10 @@ class Tenant(Base):
     # Tenant-level default scoring weights (JSON string)
     scoring_weights = Column(Text, nullable=True)  # JSON: custom weights for this tenant
 
+    # Onboarding tracking
+    onboarding_completed    = Column(Boolean, nullable=False, default=False)
+    onboarding_completed_at = Column(DateTime(timezone=True), nullable=True)
+
     plan         = relationship("SubscriptionPlan", back_populates="tenants")
     users        = relationship("User", back_populates="tenant")
     candidates   = relationship("Candidate", back_populates="tenant")
@@ -66,6 +70,7 @@ class Tenant(Base):
     team_members = relationship("TeamMember", back_populates="tenant")
     usage_logs   = relationship("UsageLog", back_populates="tenant")
     email_config = relationship("TenantEmailConfig", backref="tenant", uselist=False)
+    sso_config = relationship("SSOConfig", backref="tenant", uselist=False)
 
 
 class User(Base):
@@ -574,6 +579,55 @@ class BillingEvent(Base):
     tenant = relationship("Tenant")
 
 
+class Invoice(Base):
+    """Invoice record generated on successful payment."""
+    __tablename__ = "invoices"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    tenant_id    = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    invoice_number = Column(String(50), unique=True, nullable=False)  # e.g., INV-2026-00001
+    status       = Column(String(20), nullable=False, default="paid")  # draft, pending, paid, void, refunded
+    amount       = Column(Integer, nullable=False)                     # cents
+    currency     = Column(String(3), nullable=False, default="usd")
+    description  = Column(String(500), nullable=True)
+    line_items   = Column(JSON, default=list)  # [{"description": "Pro Plan - Monthly", "amount": 4900, "quantity": 1}]
+
+    # Payment reference
+    payment_provider    = Column(String(20), nullable=True)   # stripe, razorpay, manual
+    provider_invoice_id = Column(String(255), nullable=True)  # stripe invoice ID etc.
+
+    # Dates
+    period_start = Column(DateTime(timezone=True), nullable=True)
+    period_end   = Column(DateTime(timezone=True), nullable=True)
+    issued_at    = Column(DateTime(timezone=True), server_default=func.now())
+    paid_at      = Column(DateTime(timezone=True), nullable=True)
+
+    # Tenant relationship
+    tenant = relationship("Tenant", backref="invoices")
+
+    __table_args__ = (
+        Index("ix_invoices_tenant_issued", "tenant_id", "issued_at"),
+    )
+
+
+class DunningRecord(Base):
+    """Tracks failed payment retry attempts and dunning state for tenants."""
+    __tablename__ = "dunning_records"
+
+    id              = Column(String(36), primary_key=True)
+    tenant_id       = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    status          = Column(String(20), nullable=False, default="active")   # active | resolved | exhausted
+    retry_count     = Column(Integer, nullable=False, default=0)
+    max_retries     = Column(Integer, nullable=False, default=4)
+    next_retry_at   = Column(DateTime(timezone=True), nullable=True)
+    last_retry_at   = Column(DateTime(timezone=True), nullable=True)
+    failure_reason  = Column(String(500), nullable=True)
+    resolved_at     = Column(DateTime(timezone=True), nullable=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship("Tenant", backref="dunning_records")
+
+
 class PlanFeature(Base):
     """Maps subscription plans to feature flag entitlements."""
     __tablename__ = "plan_features"
@@ -606,6 +660,34 @@ class ErasureLog(Base):
 
     tenant = relationship("Tenant")
     actor  = relationship("User")
+
+
+class SSOConfig(Base):
+    __tablename__ = "sso_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), unique=True, index=True)
+    provider_type = Column(String(20), default="saml2")  # saml2, oidc (future)
+
+    # SAML settings
+    idp_entity_id = Column(String(500), nullable=False)
+    idp_sso_url = Column(String(500), nullable=False)  # IdP login URL
+    idp_slo_url = Column(String(500), nullable=True)   # IdP logout URL (optional)
+    idp_certificate = Column(Text, nullable=False)     # X.509 cert for signature verification
+
+    # SP settings (auto-generated)
+    sp_entity_id = Column(String(500), nullable=True)  # Our entity ID
+    sp_acs_url = Column(String(500), nullable=True)    # Assertion Consumer Service URL
+
+    # Behavior
+    enforce_sso = Column(Boolean, default=False)       # If true, password login disabled for this tenant
+    auto_provision = Column(Boolean, default=True)     # Auto-create user on first SSO login
+    default_role = Column(String(50), default="viewer") # Default role for auto-provisioned users
+
+    # Status
+    is_active = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 # ─── Historical learning system ────────────────────────────────────────────────
@@ -706,5 +788,28 @@ class OutcomeSkillPattern(Base):
 
     __table_args__ = (
         Index("ix_outcome_patterns_tenant_template", "tenant_id", "role_template_id"),
+    )
+
+
+# ─── Usage alerts ────────────────────────────────────────────────────────────────
+
+class UsageAlert(Base):
+    """Tracks usage threshold alerts sent to tenants."""
+    __tablename__ = "usage_alerts"
+
+    id                 = Column(String(36), primary_key=True)
+    tenant_id          = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    alert_type         = Column(String(50), nullable=False)   # analyses_80, analyses_100, storage_80, storage_100, team_members_100
+    threshold_percent  = Column(Integer, nullable=False)      # 80 or 100
+    metric_name        = Column(String(50), nullable=False)   # analyses_per_month, storage_gb, team_members
+    current_value      = Column(Integer, nullable=False)
+    limit_value        = Column(Integer, nullable=False)
+    notified_at        = Column(DateTime(timezone=True), server_default=func.now())
+    period_key         = Column(String(10), nullable=False)   # e.g., "2026-05" — prevents duplicate alerts per period
+
+    tenant = relationship("Tenant", backref="usage_alerts")
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "alert_type", "period_key", name="uq_usage_alert_per_period"),
     )
 

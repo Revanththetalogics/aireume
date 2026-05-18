@@ -39,6 +39,7 @@ import {
   Edit,
   TrendingUp,
   DollarSign,
+  Package,
 } from 'lucide-react'
 import {
   getAdminTenants,
@@ -1193,6 +1194,18 @@ export default function AdminDashboardPage() {
                     <div>
                       <p className="text-sm font-bold text-brand-900">GDPR Erasure</p>
                       <p className="text-xs text-slate-500">Tenant data anonymization</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => navigate('/admin/plans')}
+                    className="flex items-center gap-3 p-4 rounded-2xl bg-brand-50 hover:bg-brand-100 ring-1 ring-brand-200 transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center shrink-0">
+                      <Package className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-brand-900">Plan Management</p>
+                      <p className="text-xs text-slate-500">Create and manage subscription plans</p>
                     </div>
                   </button>
                   <button

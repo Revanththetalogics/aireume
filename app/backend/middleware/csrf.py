@@ -30,6 +30,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/api/auth/refresh",
         "/api/auth/logout",
         "/api/billing/webhook",
+        "/api/sso/callback",
         "/health",
         "/api/health",
         "/api/health/deep",
@@ -37,13 +38,24 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/metrics",
     }
 
+    def _is_exempt(self, path: str) -> bool:
+        """Check if a path is CSRF-exempt (exact match or prefix match)."""
+        if path in self.EXEMPT_PATHS:
+            return True
+        for exempt in self.EXEMPT_PATHS:
+            if exempt.endswith("/") and path.startswith(exempt):
+                return True
+            if not exempt.endswith("/") and path.startswith(exempt + "/"):
+                return True
+        return False
+
     async def dispatch(self, request: Request, call_next):
         # Skip CSRF check for safe methods
         if request.method in self.SAFE_METHODS:
             return await call_next(request)
         
         # Skip for exempt paths
-        if request.url.path in self.EXEMPT_PATHS:
+        if self._is_exempt(request.url.path):
             return await call_next(request)
         
         # Skip CSRF if using Authorization header (API clients, not browser)

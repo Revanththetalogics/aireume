@@ -58,6 +58,29 @@ class PaymentProvider(ABC):
         Returns a normalised dict with ``event_type`` and ``data``.
         """
 
+    @abstractmethod
+    def prorate_plan_change(
+        self,
+        tenant_id: int,
+        subscription_id: str,
+        old_plan_price: int,
+        new_plan_price: int,
+        proration_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Apply a prorated plan change for the given tenant.
+
+        Args:
+            tenant_id: ID of the tenant whose plan is changing.
+            subscription_id: Provider-specific subscription identifier.
+            old_plan_price: Price of the old plan in cents.
+            new_plan_price: Price of the new plan in cents.
+            proration_data: Dict returned by ``calculate_proration`` containing
+                ``credit_amount``, ``charge_amount``, ``net_amount``, etc.
+
+        Returns:
+            Dict with at least ``status`` and ``provider`` keys.
+        """
+
     @property
     @abstractmethod
     def provider_name(self) -> str:

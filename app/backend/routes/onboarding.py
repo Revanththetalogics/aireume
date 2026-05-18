@@ -1,12 +1,164 @@
 import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
-from app.backend.models.db_models import RoleTemplate, ScreeningResult, Candidate
+from app.backend.models.db_models import RoleTemplate, ScreeningResult, Candidate, Tenant, SubscriptionPlan
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
+
+# ─── Pydantic request models ────────────────────────────────────────────────────
+
+class OrganizationRequest(BaseModel):
+    name: str
+    industry: str | None = None
+    company_size: str | None = None
+
+class SelectPlanRequest(BaseModel):
+    plan_id: int
+
+
+# ─── Onboarding status & flow endpoints ─────────────────────────────────────────
+
+@router.get("/status")
+async def get_onboarding_status(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns onboarding status for the current tenant.
+    Includes which steps have been completed.
+    """
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Determine step completion from tenant metadata
+    metadata = {}
+    try:
+        metadata = json.loads(tenant.metadata_json or "{}")
+    except Exception:
+        pass
+
+    completed_at = tenant.onboarding_completed_at.isoformat() if tenant.onboarding_completed_at else None
+
+    return {
+        "completed": tenant.onboarding_completed,
+        "completed_at": completed_at,
+        "steps": {
+            "organization": bool(metadata.get("industry") or metadata.get("company_size")),
+            "plan_selected": tenant.plan_id is not None,
+            "first_jd": False,  # Will be True once they create their first JD
+        },
+    }
+
+
+@router.post("/organization")
+async def update_organization(
+    body: OrganizationRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Updates tenant organization name and metadata during onboarding.
+    """
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Update tenant name
+    tenant.name = body.name.strip()
+
+    # Update metadata with industry and company_size
+    metadata = {}
+    try:
+        metadata = json.loads(tenant.metadata_json or "{}")
+    except Exception:
+        pass
+
+    if body.industry:
+        metadata["industry"] = body.industry
+    if body.company_size:
+        metadata["company_size"] = body.company_size
+
+    tenant.metadata_json = json.dumps(metadata)
+    db.commit()
+    db.refresh(tenant)
+
+    return {
+        "success": True,
+        "tenant": {
+            "id": tenant.id,
+            "name": tenant.name,
+            "slug": tenant.slug,
+            "onboarding_completed": tenant.onboarding_completed,
+        },
+    }
+
+
+@router.post("/select-plan")
+async def select_onboarding_plan(
+    body: SelectPlanRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Selects a subscription plan during onboarding.
+    Only works during onboarding (tenant.onboarding_completed is False).
+    """
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Validate the plan exists and is active
+    plan = db.query(SubscriptionPlan).filter(
+        SubscriptionPlan.id == body.plan_id,
+        SubscriptionPlan.is_active == True,
+    ).first()
+    if not plan:
+        raise HTTPException(status_code=400, detail="Invalid or inactive plan")
+
+    tenant.plan_id = plan.id
+    db.commit()
+    db.refresh(tenant)
+
+    return {
+        "success": True,
+        "plan": {
+            "id": plan.id,
+            "name": plan.name,
+            "display_name": plan.display_name,
+        },
+    }
+
+
+@router.post("/complete")
+async def complete_onboarding(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Marks onboarding as complete for the current tenant.
+    """
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    tenant.onboarding_completed = True
+    tenant.onboarding_completed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(tenant)
+
+    return {
+        "completed": True,
+        "redirect_to": "/",
+    }
+
+
+# ─── Sample data seeding (existing endpoint) ───────────────────────────────────
 
 def _build_parsed_data(name: str, email: str, skills: list, work_exp: list, education: list) -> str:
     return json.dumps({

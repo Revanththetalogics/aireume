@@ -1,16 +1,40 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Sparkles, Eye, EyeOff, AlertCircle, ArrowRight } from 'lucide-react'
+import { Sparkles, Eye, EyeOff, AlertCircle, ArrowRight, Building2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { getSSOConfig } from '../lib/api'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuth()
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
+  const [tenantSlug, setTenantSlug] = useState('')
   const [showPw, setShowPw]     = useState(false)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
+  const [ssoState, setSsoState] = useState(null) // { enabled, enforced, login_url }
+  const [checkingSSO, setCheckingSSO] = useState(false)
+
+  // Check SSO config when tenant slug changes (with debounce)
+  useEffect(() => {
+    if (!tenantSlug.trim()) {
+      setSsoState(null)
+      return
+    }
+    const timer = setTimeout(async () => {
+      setCheckingSSO(true)
+      try {
+        const cfg = await getSSOConfig(tenantSlug.trim())
+        setSsoState(cfg)
+      } catch {
+        setSsoState(null)
+      } finally {
+        setCheckingSSO(false)
+      }
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [tenantSlug])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -20,11 +44,33 @@ export default function LoginPage() {
       await login(email, password)
       navigate('/')
     } catch (err) {
-      setError(err.response?.data?.detail || 'Invalid email or password')
+      const detail = err.response?.data?.detail
+      if (detail && typeof detail === 'object' && detail.error_code === 'SSO_ENFORCED') {
+        setSsoState({
+          enabled: true,
+          enforced: true,
+          login_url: detail.sso_login_url,
+        })
+        setError('Password login is disabled for your workspace. Please use SSO below.')
+      } else {
+        setError(detail || 'Invalid email or password')
+      }
     } finally {
       setLoading(false)
     }
   }
+
+  const handleSSOLogin = () => {
+    const slug = tenantSlug.trim()
+    if (!slug) {
+      setError('Please enter your workspace slug to sign in with SSO')
+      return
+    }
+    window.location.href = `/api/sso/login/${slug}`
+  }
+
+  const ssoEnforced = ssoState?.enforced === true
+  const ssoEnabled = ssoState?.enabled === true
 
   return (
     <div className="min-h-screen bg-surface flex items-center justify-center p-4">
@@ -54,53 +100,97 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                placeholder="you@company.com"
-                className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Workspace</label>
               <div className="relative">
+                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
-                  type={showPw ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  type="text"
+                  value={tenantSlug}
+                  onChange={(e) => setTenantSlug(e.target.value)}
                   required
-                  placeholder="••••••••"
-                  className="w-full px-4 py-2.5 pr-11 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
+                  placeholder="your-company"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-brand-600 transition-colors p-1"
-                >
-                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
               </div>
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-2xl font-bold text-white text-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed btn-brand shadow-brand mt-2"
-            >
-              {loading ? (
-                <>
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Signing in...
-                </>
-              ) : (
-                <>Sign In <ArrowRight className="w-4 h-4" /></>
+              {checkingSSO && (
+                <p className="text-xs text-slate-400 mt-1">Checking workspace settings...</p>
               )}
-            </button>
+            </div>
+
+            {!ssoEnforced && (
+              <>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required={!ssoEnforced}
+                    placeholder="you@company.com"
+                    className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPw ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required={!ssoEnforced}
+                      placeholder="••••••••"
+                      className="w-full px-4 py-2.5 pr-11 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-brand-600 transition-colors p-1"
+                    >
+                      {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3 rounded-2xl font-bold text-white text-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed btn-brand shadow-brand mt-2"
+                >
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Signing in...
+                    </>
+                  ) : (
+                    <>Sign In <ArrowRight className="w-4 h-4" /></>
+                  )}
+                </button>
+              </>
+            )}
+
+            {ssoEnabled && (
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-2 text-slate-400">{ssoEnforced ? '' : 'or'}</span>
+                </div>
+              </div>
+            )}
+
+            {ssoEnabled && (
+              <button
+                type="button"
+                onClick={handleSSOLogin}
+                className="w-full py-3 rounded-2xl font-bold text-brand-700 text-sm flex items-center justify-center gap-2 ring-1 ring-brand-200 hover:bg-brand-50 transition-colors"
+              >
+                <Building2 className="w-4 h-4" />
+                {ssoEnforced ? 'Sign in with SSO' : 'Sign in with SSO'}
+              </button>
+            )}
           </form>
 
           <p className="text-center text-sm text-slate-500 mt-6">

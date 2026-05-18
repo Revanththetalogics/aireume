@@ -83,6 +83,51 @@ class StripeProvider(PaymentProvider):
             "provider": self.provider_name,
         }
 
+    def prorate_plan_change(
+        self,
+        tenant_id: int,
+        subscription_id: str,
+        old_plan_price: int,
+        new_plan_price: int,
+        proration_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Apply a prorated plan change via Stripe's proration API.
+
+        Uses ``proration_behavior='create_prorations'`` on the subscription
+        so Stripe generates invoice items automatically.
+        """
+        self._require_stripe()
+        if not subscription_id:
+            return {
+                "tenant_id": tenant_id,
+                "provider": self.provider_name,
+                "status": "skipped_no_subscription_id",
+                "proration": proration_data,
+            }
+
+        try:
+            sub = stripe.Subscription.modify(
+                subscription_id,
+                proration_behavior="create_prorations",
+            )
+            return {
+                "tenant_id": tenant_id,
+                "subscription_id": sub.id,
+                "provider": self.provider_name,
+                "status": sub.status,
+                "proration_behavior": "create_prorations",
+                "proration": proration_data,
+            }
+        except Exception as exc:
+            return {
+                "tenant_id": tenant_id,
+                "subscription_id": subscription_id,
+                "provider": self.provider_name,
+                "status": "error",
+                "error": str(exc),
+                "proration": proration_data,
+            }
+
     def handle_webhook_event(
         self,
         payload: bytes,

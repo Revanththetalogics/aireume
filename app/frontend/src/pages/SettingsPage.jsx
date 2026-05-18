@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Settings,
@@ -17,11 +17,19 @@ import {
   Zap,
   BarChart3,
   Calendar,
-  RefreshCw
+  RefreshCw,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Receipt,
+  ArrowLeft,
+  ArrowRight,
+  ExternalLink
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
-import { adminResetUsage, adminChangePlan, getUserFriendlyError } from '../lib/api'
+import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice } from '../lib/api'
 
 function Section({ title, icon: Icon, children, description }) {
   return (
@@ -82,6 +90,193 @@ function UsageCard({ label, used, limit, unit = '' }) {
   )
 }
 
+// ─── Billing Helpers ────────────────────────────────────────────────────────
+
+function formatCurrency(amountCents, currency = 'usd') {
+  const symbols = { usd: '$', eur: '€', gbp: '£' }
+  const symbol = symbols[currency?.toLowerCase()] || '$'
+  return `${symbol}${((amountCents || 0) / 100).toFixed(2)}`
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return 'N/A'
+  return new Date(dateStr).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+const STATUS_STYLES = {
+  paid:      'bg-green-100 text-green-700 ring-green-200',
+  pending:   'bg-amber-100 text-amber-700 ring-amber-200',
+  draft:     'bg-slate-100 text-slate-600 ring-slate-200',
+  void:      'bg-slate-100 text-slate-500 ring-slate-200',
+  refunded:  'bg-blue-100 text-blue-700 ring-blue-200',
+}
+
+function StatusBadge({ status, className = '' }) {
+  const style = STATUS_STYLES[status] || STATUS_STYLES.draft
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-bold rounded-full ring-1 ${style} ${className}`}>
+      {status?.charAt(0).toUpperCase() + status?.slice(1) || 'Unknown'}
+    </span>
+  )
+}
+
+function InvoiceRow({ invoice, isExpanded, onToggle, onViewDetail }) {
+  return (
+    <>
+      <tr className="border-b border-brand-50 hover:bg-brand-50/30 transition-colors">
+        <td className="py-3 px-3 text-sm font-semibold text-brand-900">{invoice.invoice_number}</td>
+        <td className="py-3 px-3 text-sm text-slate-600">{formatDate(invoice.issued_at)}</td>
+        <td className="py-3 px-3 text-sm text-slate-700 max-w-[200px] truncate">{invoice.description || '—'}</td>
+        <td className="py-3 px-3 text-sm font-semibold text-slate-900 text-right">{formatCurrency(invoice.amount, invoice.currency)}</td>
+        <td className="py-3 px-3 text-center"><StatusBadge status={invoice.status} /></td>
+        <td className="py-3 px-3 text-right">
+          <div className="flex items-center justify-end gap-1">
+            <button
+              onClick={onViewDetail}
+              className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+              title="View details"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onToggle}
+              className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+              title={isExpanded ? 'Collapse' : 'Expand'}
+            >
+              {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        </td>
+      </tr>
+    </>
+  )
+}
+
+function InvoiceCard({ invoice, onViewDetail }) {
+  return (
+    <div className="p-4 bg-brand-50/30 rounded-2xl ring-1 ring-brand-100">
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <p className="font-semibold text-brand-900 text-sm">{invoice.invoice_number}</p>
+          <p className="text-xs text-slate-500 mt-0.5">{formatDate(invoice.issued_at)}</p>
+        </div>
+        <StatusBadge status={invoice.status} />
+      </div>
+      <p className="text-sm text-slate-700 mb-2">{invoice.description || '—'}</p>
+      <div className="flex items-center justify-between">
+        <p className="font-bold text-brand-900">{formatCurrency(invoice.amount, invoice.currency)}</p>
+        <button
+          onClick={onViewDetail}
+          className="flex items-center gap-1 px-3 py-1.5 bg-white text-brand-700 text-xs font-semibold rounded-xl hover:bg-brand-50 transition-colors ring-1 ring-brand-200"
+        >
+          <ExternalLink className="w-3 h-3" />
+          Details
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function InvoiceDetailModal({ invoice, loading, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-white rounded-3xl ring-1 ring-brand-100 shadow-brand-lg max-w-lg w-full max-h-[80vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center">
+                <FileText className="w-5 h-5 text-brand-600" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-brand-900 text-lg">{invoice.invoice_number || 'Invoice'}</h3>
+                <p className="text-xs text-slate-500">Invoice Details</p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Status</p>
+                  <div className="mt-1"><StatusBadge status={invoice.status} /></div>
+                </div>
+                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Amount</p>
+                  <p className="font-bold text-brand-900 mt-1">{formatCurrency(invoice.amount, invoice.currency)}</p>
+                </div>
+                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Period</p>
+                  <p className="text-sm text-slate-700 mt-1">
+                    {formatDate(invoice.period_start)} — {formatDate(invoice.period_end)}
+                  </p>
+                </div>
+                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Provider</p>
+                  <p className="text-sm text-slate-700 mt-1 capitalize">{invoice.payment_provider || 'N/A'}</p>
+                </div>
+                {invoice.issued_at && (
+                  <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Issued</p>
+                    <p className="text-sm text-slate-700 mt-1">{formatDate(invoice.issued_at)}</p>
+                  </div>
+                )}
+                {invoice.paid_at && (
+                  <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Paid</p>
+                    <p className="text-sm text-slate-700 mt-1">{formatDate(invoice.paid_at)}</p>
+                  </div>
+                )}
+              </div>
+
+              {invoice.description && (
+                <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Description</p>
+                  <p className="text-sm text-slate-700 mt-1">{invoice.description}</p>
+                </div>
+              )}
+
+              {invoice.line_items && invoice.line_items.length > 0 && (
+                <div>
+                  <h5 className="font-bold text-slate-800 text-sm mb-2">Line Items</h5>
+                  <div className="space-y-2">
+                    {invoice.line_items.map((item, i) => (
+                      <div key={i} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl ring-1 ring-slate-200">
+                        <div>
+                          <p className="text-sm font-medium text-slate-700">{item.description}</p>
+                          {item.quantity > 1 && <p className="text-xs text-slate-400">Qty: {item.quantity}</p>}
+                        </div>
+                        <p className="font-semibold text-slate-900">{formatCurrency(item.amount, invoice.currency)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const navigate = useNavigate()
   const { user, tenant, logout } = useAuth()
@@ -99,6 +294,53 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('subscription')
   const [saving, setSaving] = useState(false)
   const [actionLoading, setActionLoading] = useState(null)
+
+  // Billing history state
+  const [invoices, setInvoices] = useState([])
+  const [invoicesTotal, setInvoicesTotal] = useState(0)
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
+  const [invoicesError, setInvoicesError] = useState(null)
+  const [invoicesPage, setInvoicesPage] = useState(0)
+  const invoicesPerPage = 10
+  const [selectedInvoice, setSelectedInvoice] = useState(null)
+  const [invoiceDetail, setInvoiceDetail] = useState(null)
+  const [invoiceDetailLoading, setInvoiceDetailLoading] = useState(false)
+  const [expandedInvoice, setExpandedInvoice] = useState(null)
+
+  const fetchInvoices = useCallback(async (page = 0) => {
+    setInvoicesLoading(true)
+    setInvoicesError(null)
+    try {
+      const offset = page * invoicesPerPage
+      const data = await getInvoices(invoicesPerPage, offset)
+      setInvoices(data.invoices || [])
+      setInvoicesTotal(data.total || 0)
+      setInvoicesPage(page)
+    } catch (err) {
+      setInvoicesError(getUserFriendlyError(err))
+    } finally {
+      setInvoicesLoading(false)
+    }
+  }, [])
+
+  const fetchInvoiceDetail = useCallback(async (invoiceId) => {
+    setInvoiceDetailLoading(true)
+    try {
+      const data = await getInvoice(invoiceId)
+      setInvoiceDetail(data)
+    } catch (err) {
+      console.error('Failed to fetch invoice detail:', err)
+    } finally {
+      setInvoiceDetailLoading(false)
+    }
+  }, [])
+
+  // Fetch invoices when billing tab is active
+  useEffect(() => {
+    if (activeTab === 'billing') {
+      fetchInvoices(0)
+    }
+  }, [activeTab, fetchInvoices])
 
   // Profile form state
   const [profile, setProfile] = useState({
@@ -147,6 +389,7 @@ export default function SettingsPage() {
 
   const tabs = [
     { id: 'subscription', label: 'Subscription', icon: CreditCard },
+    { id: 'billing', label: 'Billing History', icon: Receipt },
     { id: 'team', label: 'Team & Access', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
@@ -398,6 +641,238 @@ export default function SettingsPage() {
                     </div>
                   </Section>
                 </>
+              )}
+            </>
+          )}
+
+          {/* Billing History Tab */}
+          {activeTab === 'billing' && (
+            <>
+              {/* Upcoming Billing */}
+              <Section
+                title="Upcoming Billing"
+                icon={Calendar}
+                description="Your next scheduled payment"
+              >
+                {currentPlan?.price > 0 ? (
+                  <div className="p-4 bg-gradient-to-br from-brand-50 to-brand-100/50 rounded-2xl ring-1 ring-brand-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-slate-600">Next billing date</p>
+                        <p className="font-bold text-brand-900 text-lg mt-0.5">
+                          {currentPlan?.current_period_end
+                            ? new Date(currentPlan.current_period_end).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+                            : 'N/A'}
+                        </p>
+                      </div>
+                      <div className="sm:text-right">
+                        <p className="text-sm font-medium text-slate-600">Amount</p>
+                        <p className="font-bold text-brand-900 text-lg mt-0.5">
+                          ${((currentPlan?.price || 0) / 100).toFixed(2)}
+                          <span className="text-sm font-medium text-slate-500">/{currentPlan?.billing_cycle === 'monthly' ? 'mo' : 'yr'}</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-50 rounded-2xl ring-1 ring-slate-200 text-center">
+                    <p className="text-slate-600 text-sm">You're on the free plan. No upcoming charges.</p>
+                  </div>
+                )}
+              </Section>
+
+              {/* Invoice List */}
+              <Section
+                title="Invoice History"
+                icon={FileText}
+                description="View and download your past invoices"
+              >
+                {invoicesLoading ? (
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+                  </div>
+                ) : invoicesError ? (
+                  <div className="p-4 bg-red-50 rounded-2xl ring-1 ring-red-200 text-center">
+                    <AlertTriangle className="w-6 h-6 text-red-500 mx-auto mb-2" />
+                    <p className="text-red-700 text-sm">{invoicesError}</p>
+                    <button
+                      onClick={() => fetchInvoices(0)}
+                      className="mt-3 px-3 py-1.5 bg-white text-red-600 text-xs font-semibold rounded-xl hover:bg-red-50 transition-colors"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : invoices.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                    <p className="text-slate-500 font-medium">No invoices yet</p>
+                    <p className="text-slate-400 text-sm mt-1">Invoices will appear here once you make a payment</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Desktop Table */}
+                    <div className="hidden sm:block overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-brand-100">
+                            <th className="text-left py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Invoice #</th>
+                            <th className="text-left py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                            <th className="text-left py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Description</th>
+                            <th className="text-right py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
+                            <th className="text-center py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                            <th className="text-right py-3 px-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {invoices.map((inv) => (
+                            <InvoiceRow
+                              key={inv.id}
+                              invoice={inv}
+                              isExpanded={expandedInvoice === inv.id}
+                              onToggle={() => {
+                                if (expandedInvoice === inv.id) {
+                                  setExpandedInvoice(null)
+                                } else {
+                                  setExpandedInvoice(inv.id)
+                                  if (!invoiceDetail || invoiceDetail?.id !== inv.id) {
+                                    fetchInvoiceDetail(inv.id)
+                                  }
+                                }
+                              }}
+                              onViewDetail={() => {
+                                setSelectedInvoice(inv)
+                                fetchInvoiceDetail(inv.id)
+                              }}
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Cards */}
+                    <div className="sm:hidden space-y-3">
+                      {invoices.map((inv) => (
+                        <InvoiceCard
+                          key={inv.id}
+                          invoice={inv}
+                          onViewDetail={() => {
+                            setSelectedInvoice(inv)
+                            fetchInvoiceDetail(inv.id)
+                          }}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Pagination */}
+                    {invoicesTotal > invoicesPerPage && (
+                      <div className="flex items-center justify-between mt-6 pt-4 border-t border-brand-100">
+                        <p className="text-xs text-slate-500">
+                          Showing {invoicesPage * invoicesPerPage + 1}–{Math.min((invoicesPage + 1) * invoicesPerPage, invoicesTotal)} of {invoicesTotal}
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => fetchInvoices(invoicesPage - 1)}
+                            disabled={invoicesPage === 0}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-semibold rounded-xl hover:bg-brand-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <ArrowLeft className="w-3 h-3" />
+                            Prev
+                          </button>
+                          <button
+                            onClick={() => fetchInvoices(invoicesPage + 1)}
+                            disabled={(invoicesPage + 1) * invoicesPerPage >= invoicesTotal}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-brand-50 text-brand-700 text-xs font-semibold rounded-xl hover:bg-brand-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            Next
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </Section>
+
+              {/* Expanded Invoice Detail (inline) */}
+              {expandedInvoice && invoiceDetail && invoiceDetail.id === expandedInvoice && (
+                <Section
+                  title={`Invoice ${invoiceDetail.invoice_number}`}
+                  icon={FileText}
+                  description="Invoice details"
+                >
+                  <div className="space-y-4">
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Status</p>
+                        <StatusBadge status={invoiceDetail.status} className="mt-1" />
+                      </div>
+                      <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Amount</p>
+                        <p className="font-bold text-brand-900 mt-1">{formatCurrency(invoiceDetail.amount, invoiceDetail.currency)}</p>
+                      </div>
+                      <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Period</p>
+                        <p className="text-sm text-slate-700 mt-1">
+                          {formatDate(invoiceDetail.period_start)} — {formatDate(invoiceDetail.period_end)}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Payment Provider</p>
+                        <p className="text-sm text-slate-700 mt-1 capitalize">{invoiceDetail.payment_provider || 'N/A'}</p>
+                      </div>
+                      {invoiceDetail.issued_at && (
+                        <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Issued</p>
+                          <p className="text-sm text-slate-700 mt-1">{formatDate(invoiceDetail.issued_at)}</p>
+                        </div>
+                      )}
+                      {invoiceDetail.paid_at && (
+                        <div className="p-3 bg-brand-50/50 rounded-2xl ring-1 ring-brand-100">
+                          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Paid</p>
+                          <p className="text-sm text-slate-700 mt-1">{formatDate(invoiceDetail.paid_at)}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Line Items */}
+                    {invoiceDetail.line_items && invoiceDetail.line_items.length > 0 && (
+                      <div>
+                        <h5 className="font-bold text-slate-800 text-sm mb-2">Line Items</h5>
+                        <div className="space-y-2">
+                          {invoiceDetail.line_items.map((item, i) => (
+                            <div key={i} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl ring-1 ring-slate-200">
+                              <div>
+                                <p className="text-sm font-medium text-slate-700">{item.description}</p>
+                                {item.quantity > 1 && <p className="text-xs text-slate-400">Qty: {item.quantity}</p>}
+                              </div>
+                              <p className="font-semibold text-slate-900">{formatCurrency(item.amount, invoiceDetail.currency)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex justify-end mt-4">
+                    <button
+                      onClick={() => setExpandedInvoice(null)}
+                      className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors"
+                    >
+                      Close Details
+                    </button>
+                  </div>
+                </Section>
+              )}
+
+              {/* Invoice Detail Modal */}
+              {selectedInvoice && (
+                <InvoiceDetailModal
+                  invoice={invoiceDetail || selectedInvoice}
+                  loading={invoiceDetailLoading}
+                  onClose={() => {
+                    setSelectedInvoice(null)
+                    setInvoiceDetail(null)
+                  }}
+                />
               )}
             </>
           )}

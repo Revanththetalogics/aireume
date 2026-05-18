@@ -15,7 +15,7 @@ from sqlalchemy import func
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, require_admin
 from app.backend.models.db_models import (
-    Tenant, User, SubscriptionPlan, UsageLog, Candidate
+    Tenant, User, SubscriptionPlan, UsageLog, Candidate, UsageAlert
 )
 from app.backend.models.schemas import SubscriptionResponse, PlanInfo, UsageStats
 
@@ -79,6 +79,11 @@ class UsageCheckResponse(BaseModel):
     current_usage: int
     limit: int
     message: Optional[str] = None
+
+
+class AlertPreferencesRequest(BaseModel):
+    email_alerts: Optional[bool] = None
+    webhook_alerts: Optional[bool] = None
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -495,9 +500,96 @@ def record_usage(
         db.add(usage_log)
         
         db.commit()
+        
+        # ── Check usage thresholds (non-blocking) ──────────────────────────────
+        try:
+            if plan:
+                limits = _get_plan_limits(plan)
+                analyses_limit = limits.get("analyses_per_month", 20)
+                if analyses_limit > 0:
+                    from app.backend.services.usage_alert_service import usage_alert_service
+                    usage_alert_service.check_and_alert(
+                        db, tenant_id, "analyses_per_month",
+                        tenant.analyses_count_this_month, analyses_limit,
+                    )
+        except Exception:
+            logger.exception("Usage alert check failed for tenant %d", tenant_id)
+        
         return True
     
     except Exception as e:
         logger.exception("Failed to record usage: %s", e)
         db.rollback()
         return False
+
+
+def check_usage_alerts(db: Session, tenant_id: int, metric_name: str, current_value: int, limit_value: int) -> None:
+    """Convenience wrapper to check usage thresholds for any metric (non-blocking).
+
+    Call from routes that track storage, team members, etc.
+    """
+    try:
+        if limit_value > 0:
+            from app.backend.services.usage_alert_service import usage_alert_service
+            usage_alert_service.check_and_alert(db, tenant_id, metric_name, current_value, limit_value)
+    except Exception:
+        logger.exception("Usage alert check failed for tenant %d metric %s", tenant_id, metric_name)
+
+
+# ─── Usage Alert Routes ──────────────────────────────────────────────────────
+
+@router.get("/alerts")
+def get_usage_alerts(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get recent usage alerts for the current tenant."""
+    from app.backend.services.usage_alert_service import usage_alert_service
+    alerts = usage_alert_service.get_tenant_alerts(db, user.tenant_id, limit=limit)
+    return {"alerts": alerts, "total": len(alerts)}
+
+
+@router.get("/alerts/preferences")
+def get_alert_preferences(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get notification preferences for usage alerts."""
+    return {
+        "email_alerts": True,
+        "webhook_alerts": True,
+        "thresholds": [80, 100],
+    }
+
+
+@router.put("/alerts/preferences")
+def update_alert_preferences(
+    body: AlertPreferencesRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Update notification preferences for usage alerts (admin only)."""
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Store preferences in tenant metadata_json
+    try:
+        prefs = json.loads(tenant.metadata_json) if tenant.metadata_json else {}
+    except (json.JSONDecodeError, TypeError):
+        prefs = {}
+
+    if body.email_alerts is not None:
+        prefs["email_alerts"] = body.email_alerts
+    if body.webhook_alerts is not None:
+        prefs["webhook_alerts"] = body.webhook_alerts
+
+    tenant.metadata_json = json.dumps(prefs)
+    db.commit()
+
+    return {
+        "email_alerts": prefs.get("email_alerts", True),
+        "webhook_alerts": prefs.get("webhook_alerts", True),
+        "thresholds": [80, 100],
+    }

@@ -998,6 +998,18 @@ export async function getUsageHistory(limit = 100) {
   return response.data
 }
 
+// ─── Billing (Invoices) ─────────────────────────────────────────────────────
+
+export async function getInvoices(limit = 50, offset = 0) {
+  const response = await api.get(`/billing/invoices?limit=${limit}&offset=${offset}`)
+  return response.data
+}
+
+export async function getInvoice(invoiceId) {
+  const response = await api.get(`/billing/invoices/${invoiceId}`)
+  return response.data
+}
+
 // ─── Admin (for testing/plan management) ──────────────────────────────────────
 
 export async function adminResetUsage() {
@@ -1135,6 +1147,28 @@ export async function getAdminUsageTrends(days = 30) {
   return response.data
 }
 
+// ─── Plan Management Admin API ──────────────────────────────────────────
+
+export async function getAdminPlans() {
+  const response = await api.get('/admin/plans')
+  return response.data
+}
+
+export async function createPlan(data) {
+  const response = await api.post('/admin/plans', data)
+  return response.data
+}
+
+export async function updatePlan(planId, data) {
+  const response = await api.put(`/admin/plans/${planId}`, data)
+  return response.data
+}
+
+export async function archivePlan(planId, force = false) {
+  const response = await api.delete(`/admin/plans/${planId}`, { params: { force } })
+  return response.data
+}
+
 // ─── Billing Admin API ──────────────────────────────────────────
 
 export async function getBillingConfig() {
@@ -1186,6 +1220,26 @@ export async function getScorecard(resultId) {
 
 export async function seedSampleData() {
   const response = await api.post('/onboarding/seed-sample')
+  return response.data
+}
+
+export async function getOnboardingStatus() {
+  const response = await api.get('/onboarding/status')
+  return response.data
+}
+
+export async function updateOrganization(data) {
+  const response = await api.post('/onboarding/organization', data)
+  return response.data
+}
+
+export async function selectOnboardingPlan(planId) {
+  const response = await api.post('/onboarding/select-plan', { plan_id: planId })
+  return response.data
+}
+
+export async function completeOnboarding() {
+  const response = await api.post('/onboarding/complete')
   return response.data
 }
 
@@ -1360,6 +1414,33 @@ export async function updateTenant(tenantId, data) {
 // @future-use — imported in AdminDashboardPage but not yet wired to UI
 export async function deleteTenant(tenantId) {
   const response = await api.delete('/admin/tenants/' + tenantId, { params: { confirm: true } })
+  return response.data
+}
+
+// ─── SSO Configuration ───────────────────────────────────────────────────────
+
+export async function getSSOConfig(tenantSlug) {
+  const response = await api.get(`/sso/config/${tenantSlug}`)
+  return response.data
+}
+
+export async function getTenantSSO(tenantId) {
+  const response = await api.get(`/admin/tenants/${tenantId}/sso`)
+  return response.data
+}
+
+export async function updateTenantSSO(tenantId, data) {
+  const response = await api.put(`/admin/tenants/${tenantId}/sso`, data)
+  return response.data
+}
+
+export async function deleteTenantSSO(tenantId) {
+  const response = await api.delete(`/admin/tenants/${tenantId}/sso`)
+  return response.data
+}
+
+export async function testTenantSSO(tenantId) {
+  const response = await api.post(`/admin/tenants/${tenantId}/sso/test`)
   return response.data
 }
 
