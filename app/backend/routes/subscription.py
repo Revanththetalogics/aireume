@@ -576,7 +576,13 @@ def update_alert_preferences(
 
     # Store preferences in tenant metadata_json
     try:
-        prefs = json.loads(tenant.metadata_json) if tenant.metadata_json else {}
+        raw = tenant.metadata_json
+        if isinstance(raw, dict):
+            prefs = raw
+        elif raw and isinstance(raw, str):
+            prefs = json.loads(raw)
+        else:
+            prefs = {}
     except (json.JSONDecodeError, TypeError):
         prefs = {}
 

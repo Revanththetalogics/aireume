@@ -127,7 +127,11 @@ class ManualProvider(PaymentProvider):
                 metadata = {}
                 if tenant.metadata_json:
                     try:
-                        metadata = json.loads(tenant.metadata_json)
+                        raw = tenant.metadata_json
+                        if isinstance(raw, dict):
+                            metadata = raw
+                        elif isinstance(raw, str):
+                            metadata = json.loads(raw)
                     except json.JSONDecodeError:
                         metadata = {}
 

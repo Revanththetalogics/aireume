@@ -79,7 +79,11 @@ async def update_organization(
     # Update metadata with industry and company_size
     metadata = {}
     try:
-        metadata = json.loads(tenant.metadata_json or "{}")
+        raw = tenant.metadata_json
+        if isinstance(raw, dict):
+            metadata = raw
+        elif isinstance(raw, str):
+            metadata = json.loads(raw or "{}")
     except Exception:
         pass
 
