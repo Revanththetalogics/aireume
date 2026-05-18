@@ -23,7 +23,7 @@ sso_router = APIRouter(prefix="/api/sso", tags=["sso"])
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 
-def _get_sso_config_or_404(db: Session, tenant_slug: str) -> SSOConfig:
+def _get_sso_config_or_404(db: Session, tenant_slug: str) -> tuple:
     tenant = db.query(Tenant).filter(Tenant.slug == tenant_slug).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
