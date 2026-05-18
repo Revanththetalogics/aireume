@@ -39,7 +39,11 @@ async def get_onboarding_status(
     # Determine step completion from tenant metadata
     metadata = {}
     try:
-        metadata = json.loads(tenant.metadata_json or "{}")
+        raw = tenant.metadata_json
+        if isinstance(raw, dict):
+            metadata = raw
+        elif isinstance(raw, str):
+            metadata = json.loads(raw or "{}")
     except Exception:
         pass
 
