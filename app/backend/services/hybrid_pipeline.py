@@ -947,34 +947,86 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     fit_score = scores.get("fit_score", 0)
     recommendation = scores.get("final_recommendation", "Pending")
 
-    # Extract matched and missing skills
+    # Extract matched and missing skills — separate must-have vs nice-to-have
+    matched_must = skill_a.get("matched_required", [])
+    missing_must = skill_a.get("missing_required", [])
+    matched_nice = skill_a.get("matched_nice_to_have", [])
+    missing_nice = skill_a.get("missing_nice_to_have", [])
     matched = skill_a.get("matched_skills", [])
     missing = skill_a.get("missing_skills", [])
+    nice_match_pct = skill_a.get("nice_to_have_match_pct", 0)
+    req_match_pct = skill_a.get("required_match_pct", 0)
+
+    # Key responsibilities from JD (full list, capped at 6 for prompt size)
+    key_resp = jd.get("key_responsibilities", [])[:6]
+    resp_text = "; ".join(key_resp) if key_resp else "Not specified"
+
+    # Proficiency gap details (required level vs candidate estimated level)
+    prof_analysis = skill_a.get("proficiency_analysis", {})
+    prof_lines = []
+    for sname, pdata in prof_analysis.items():
+        prof_lines.append(f"{sname}: req={pdata.get('required','?')} cand={pdata.get('estimated_candidate','?')}")
+    prof_text = "; ".join(prof_lines[:8]) if prof_lines else "Not assessed"
+
+    # Education details
+    education = profile.get("education", [])
+    edu_parts = []
+    for edu in (education if isinstance(education, list) else [])[:3]:
+        deg = edu.get("degree", "") if isinstance(edu, dict) else ""
+        fld = edu.get("field", "") if isinstance(edu, dict) else ""
+        inst = edu.get("institution", "") if isinstance(edu, dict) else ""
+        if deg or fld:
+            edu_parts.append(f"{deg} {fld}".strip())
+        if inst:
+            edu_parts[-1] = f"{edu_parts[-1]} ({inst})" if edu_parts else inst
+    edu_text = "; ".join(edu_parts) if edu_parts else "Not available"
 
     # Extract seniority alignment from risk_summary
     seniority_alignment = risk_summary.get("seniority_alignment", "Not assessed")
 
-    # Format risk flags
+    # Format risk flags — structured list with severity (not condensed string)
     risk_flags_list = risk_summary.get("risk_flags", [])
     if risk_flags_list:
-        risk_flags = "; ".join(
-            f"{rf.get('flag', 'Unknown')}: {rf.get('detail', '')} ({rf.get('severity', 'low')})"
-            for rf in risk_flags_list
+        risk_flags = "\n".join(
+            f"  - {rf.get('flag', 'Unknown')}: {rf.get('detail', '')} (severity: {rf.get('severity', 'low')})"
+            for rf in risk_flags_list[:6]
         )
     else:
-        risk_flags = "None identified"
+        risk_flags = "  None identified"
 
-    # Format score rationales into compact string
+    # Format score rationales — NO truncation (removed 60-char cap for richer context)
     if score_rationales:
         rationales_parts = []
         for key in ["skill_rationale", "experience_rationale", "education_rationale", "timeline_rationale"]:
             val = score_rationales.get(key, "")
             if val:
-                # Truncate each rationale to ~60 chars to keep prompt compact
-                rationales_parts.append(f"{key.split('_')[0]}: {val[:60]}")
+                rationales_parts.append(f"{key.split('_')[0]}: {val}")
         score_rationales_summary = " | ".join(rationales_parts) if rationales_parts else "Not available"
     else:
         score_rationales_summary = "Not available"
+
+    # Build the must-have skill context lines for interview kit targeting
+    must_have_ctx_lines = []
+    for i, sk in enumerate(missing_must[:6]):
+        # Find a relevant responsibility for this skill
+        best_resp = key_resp[0] if key_resp else "this role"
+        prof_entry = prof_analysis.get(sk, {})
+        cand_lvl = prof_entry.get("estimated_candidate", "not assessed") if prof_entry else "not assessed"
+        must_have_ctx_lines.append(
+            f"- {sk}: MISSING | Candidate level: {cand_lvl} | Needed for: \"{best_resp}\""
+        )
+    for i, sk in enumerate(matched_must[:4]):
+        prof_entry = prof_analysis.get(sk, {})
+        req_lvl = prof_entry.get("required", "not specified") if prof_entry else "not specified"
+        cand_lvl = prof_entry.get("estimated_candidate", "not assessed") if prof_entry else "not assessed"
+        gap_note = ""
+        if prof_entry and prof_entry.get("match_factor", 1.0) < 1.0:
+            gap_note = " [PROFICIENCY GAP]"
+        best_resp = key_resp[0] if key_resp else "this role"
+        must_have_ctx_lines.append(
+            f"- {sk}: Matched{gap_note} | Required: {req_lvl}, Candidate: {cand_lvl} | Needed for: \"{best_resp}\""
+        )
+    must_have_ctx = "\n".join(must_have_ctx_lines) if must_have_ctx_lines else "  No must-have skills data available"
 
     # Build the recruiter-focused prompt with explicit JSON instruction
     prompt = f"""IMPORTANT: You must respond with ONLY a valid JSON object. No explanation, no markdown, no code blocks. Start with {{ and end with }}.
@@ -984,20 +1036,30 @@ WHY this candidate is/isn't suited for this role. Be specific — reference
 actual skills, scores, and gaps. Write as if advising a hiring manager.
 
 ROLE: {role_title} | {domain} | {seniority}
-CANDIDATE: {candidate_name} | {years}y experience | {current_role}
+CANDIDATE: {candidate_name} | {years}y experience | {current_role} at {current_company}
 SCORES: skill={skill_score} exp={exp_score} edu={edu_score} timeline={timeline_score} fit={fit_score} /100
 RECOMMENDATION: {recommendation}
-MATCHED SKILLS: {', '.join(matched[:12]) if matched else 'None'}
-MISSING SKILLS: {', '.join(missing[:8]) if missing else 'None'}
+MUST-HAVE MATCH: {len(matched_must)}/{len(matched_must)+len(missing_must)} required ({req_match_pct:.0f}%) | NICE-TO-HAVE MATCH: {len(matched_nice)}/{len(matched_nice)+len(missing_nice)} ({nice_match_pct:.0f}%)
+MATCHED MUST-HAVE: {', '.join(matched_must[:10]) if matched_must else 'None'}
+MISSING MUST-HAVE: {', '.join(missing_must[:6]) if missing_must else 'None'}
+MATCHED NICE-TO-HAVE: {', '.join(matched_nice[:6]) if matched_nice else 'None'}
+MISSING NICE-TO-HAVE: {', '.join(missing_nice[:4]) if missing_nice else 'None'}
+KEY RESPONSIBILITIES: {resp_text}
+PROFICIENCY GAPS: {prof_text}
 SENIORITY FIT: {seniority_alignment}
-RISK FLAGS: {risk_flags}
+RISK FLAGS:
+{risk_flags}
 SCORE RATIONALES: {score_rationales_summary}
+EDUCATION: {edu_text}
 CAREER: {career_snippet}
+
+MUST-HAVE SKILLS CONTEXT (for interview question targeting):
+{must_have_ctx}
 
 Return ONLY valid JSON:
 {{
   "candidate_profile_summary": "A 3-4 sentence recruiter-focused summary of this candidate. Describe their professional background, years of experience, key technical strengths, and how they fit (or don't fit) this specific role. Write in third person, professional tone. Example: 'John is a senior backend engineer with 8 years of experience in distributed systems and cloud infrastructure. He demonstrates strong proficiency in Python, Go, and AWS services. His experience aligns well with the Senior Software Engineer role, though he lacks frontend development exposure required for this position.'",
-  "fit_summary": "2-3 sentence executive summary for hiring manager. Be decisive — say whether this candidate is worth interviewing and why.",
+  "fit_summary": "4-6 sentence executive summary for hiring manager that MUST include: 1) Candidate name, current role, total years of experience 2) What makes them a strong/weak fit for THIS specific role (reference JD requirements and key responsibilities) 3) Top 2-3 technical strengths relevant to the role (cite specific matched must-have skills) 4) Top 2-3 technical gaps or concerns (cite specific missing must-have skills and proficiency gaps) 5) Clear INTERVIEW/PASS verdict with the single most important reason. Be decisive and specific — never generic.",
   "strengths": ["specific strength tied to role requirements. Reference actual skills and scores."],
   "concerns": ["specific concern tied to role gaps. Reference actual missing skills or risk flags."],
   "dealbreakers": ["If the candidate fails any MUST-HAVE requirement from the role, list it here with evidence. If no dealbreakers, return empty array."],
@@ -1017,9 +1079,9 @@ Return ONLY valid JSON:
   "interview_questions": {{
     "candidate_briefing": {{
       "profile_snapshot": "2-3 sentence summary: who is this person, current role, domain, years of experience",
-      "strengths_to_confirm": ["top matched skill/experience to validate"],
-      "areas_to_probe": ["specific gap, risk signal, or concern to investigate"],
-      "context_notes": ["Why Q1 targets missing skill X", "Why Q4 probes the employment gap"]
+      "strengths_to_confirm": ["top matched must-have skill/experience to validate"],
+      "areas_to_probe": ["specific gap with severity (HIGH/MEDIUM/LOW based on must-have vs nice-to-have) — e.g., 'Kubernetes — HIGH priority gap for container orchestration responsibility'"],
+      "context_notes": ["Why Q1 targets missing skill X — include gap severity and the JD responsibility it maps to", "Why Q4 probes the proficiency gap in Y"]
     }},
     "technical_questions": [
       {{"text": "scenario-based question", "what_to_listen_for": ["competence signal", "red flag"], "follow_ups": ["conditional follow-up"], "scoring_criteria": {{"strong": "Provides specific, detailed example with measurable outcomes and evidence of hands-on depth", "adequate": "Shows general understanding and some relevant experience, but lacks specificity or measurable results", "weak": "Surface-level or theoretical answer only; unable to provide concrete examples or demonstrates no practical experience"}}}}
@@ -1037,18 +1099,18 @@ Return ONLY valid JSON:
 }}
 
 NARRATIVE QUALITY RULES:
-1. NEVER hallucinate skills not in MATCHED SKILLS or MISSING SKILLS lists.
+1. NEVER hallucinate skills not in MATCHED MUST-HAVE/MISSING MUST-HAVE or NICE-TO-HAVE lists.
 2. NEVER invent candidate background details (company names, project names, degrees).
 3. If you don't have enough information, say so explicitly rather than guessing.
 4. Use the EXACT skill names from MATCHED/MISSING SKILLS — don't paraphrase.
-5. dealbreakers must be based ONLY on MISSING SKILLS or RISK FLAGS, not speculation.
+5. dealbreakers must be based ONLY on MISSING MUST-HAVE SKILLS or RISK FLAGS, not speculation.
 6. differentiators must be grounded in the actual candidate data provided.
 7. hiring_decision.action_items must be SPECIFIC and ACTIONABLE — never generic like 'conduct interview'.
 
 INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
 1. TECHNICAL QUESTIONS (5 questions):
-   a) For EACH missing skill: Create a scenario-based question that EXPLICITLY names the missing skill and ties it to a specific job responsibility. Do NOT ask "Do you know X?" — instead use "Walk me through how you would..." or "Tell me about a time when you had to..." patterns that force the candidate to demonstrate hands-on depth, not just awareness.
-   b) For 1-2 critical matched skills: Create depth-probing questions testing expertise level BEYOND awareness. Use "Tell me about a time you pushed the limits of [skill]..." format.
+   a) RULE: Generate at least 1 question per MISSING MUST-HAVE skill. Each question MUST reference the specific JD responsibility that requires this skill. Format: "In this role, you would {{responsibility}}. Tell me about a time you {{scenario requiring that missing skill}}..." or "This position requires {{responsibility}}. Walk me through how you would approach {{task requiring missing skill}}..."
+   b) RULE: For matched must-have skills with proficiency gaps (see MUST-HAVE SKILLS CONTEXT above), ask depth-probing questions. Format: "Tell me about a time you pushed the limits of {{skill}} beyond what was expected..."
    c) If architecture gaps exist: Include a system design question relevant to the domain.
    d) Calibrate difficulty by domain and seniority level.
    For each question, include:
@@ -1061,7 +1123,7 @@ INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
 
 2. BEHAVIORAL QUESTIONS (4 questions, STAR format):
    a) Address the biggest risk signal from gap/timeline assessment.
-   b) Target a seniority-specific challenge: senior→leadership/mentorship; mid→ownership; junior→learning agility.
+   b) Target a seniority-specific challenge: senior->leadership/mentorship; mid->ownership; junior->learning agility.
    c) Probe the role transition motivation.
    d) Map behavioral questions to JD-stated soft skills. If the role implies "leadership", "team collaboration", "communication", or "cross-functional coordination", the behavioral question must DIRECTLY assess that specific skill — not a generic teamwork question.
    For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
@@ -1079,7 +1141,11 @@ INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
    For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
 
 5. CANDIDATE BRIEFING (mandatory):
-   Generate a "candidate_briefing" with: profile_snapshot (2-3 sentences), strengths_to_confirm (top 2-3), areas_to_probe (top 2-3), context_notes (why each notable question was generated).
+   Generate a "candidate_briefing" with:
+   - profile_snapshot (2-3 sentences)
+   - strengths_to_confirm (top 2-3 matched must-have skills)
+   - areas_to_probe (top 2-3 gaps with severity: HIGH for missing must-have, MEDIUM for proficiency gap, LOW for missing nice-to-have). Format: "{{skill}} — {{severity}} priority gap for {{JD responsibility}}"
+   - context_notes (why each notable question was generated, referencing specific gap severity and JD responsibility)
 
 6. SCORING GUIDANCE (mandatory for ALL questions):
    Every question MUST include a "scoring_criteria" object with three keys:
@@ -1327,7 +1393,8 @@ def _ensure_str_list(v) -> List[str]:
 
 def _build_executive_summary(score, recommendation, matched_skills, required_skills,
                               missing_skills, experience_years, current_role,
-                              domain_fit_score, risk_signals, education_match):
+                              domain_fit_score, risk_signals, education_match,
+                              candidate_name=None, current_company=None):
     """Build a rich executive summary from deterministic analysis data.
 
     Produces a concise, multi-dimensional narrative that helps hiring managers
@@ -1336,26 +1403,37 @@ def _build_executive_summary(score, recommendation, matched_skills, required_ski
     """
     parts = []
 
-    # Opening: Role fit assessment
-    if current_role and current_role not in ("N/A", "", "Unknown"):
-        parts.append(f"{current_role} professional with {experience_years or 0} years of experience.")
-    elif experience_years:
-        parts.append(f"Candidate with {experience_years} years of professional experience.")
+    # Opening: Name, role, and experience
+    name_str = candidate_name or "Candidate"
+    company_str = ""
+    if current_company and current_company not in ("N/A", "", "Unknown"):
+        company_str = f" at {current_company}"
 
-    # Skills assessment
+    if current_role and current_role not in ("N/A", "", "Unknown"):
+        parts.append(f"{name_str} is a {current_role}{company_str} with {experience_years or 0} years of experience.")
+    elif experience_years:
+        parts.append(f"{name_str} has {experience_years} years of professional experience.")
+    else:
+        parts.append(f"{name_str} has been submitted for evaluation.")
+
+    # Specific strengths — matched must-have skills
     matched_count = len(matched_skills) if matched_skills else 0
     required_count = len(required_skills) if required_skills else 0
     if matched_count and required_count:
         skill_pct = int((matched_count / required_count) * 100)
-        top_skills = ", ".join(matched_skills[:3])
-        parts.append(f"Demonstrates {matched_count}/{required_count} required skills ({skill_pct}% coverage) including {top_skills}.")
+        top_matched = ", ".join(matched_skills[:3])
+        parts.append(f"Strengths include {top_matched} ({matched_count}/{required_count} required skills, {skill_pct}% coverage).")
     elif matched_count:
-        parts.append(f"Matches {matched_count} relevant skills.")
+        top_matched = ", ".join(matched_skills[:3])
+        parts.append(f"Strengths include {top_matched}.")
 
-    # Missing skills / gaps
+    # Specific weaknesses — missing must-have skills with proficiency context
     if missing_skills:
         top_missing = ", ".join(missing_skills[:3])
-        parts.append(f"Key gaps: {top_missing}.")
+        if required_count and len(missing_skills) >= required_count * 0.5:
+            parts.append(f"Key gaps: {top_missing} — these are critical for the role and should be probed in interview.")
+        else:
+            parts.append(f"Key gaps: {top_missing}.")
 
     # Domain and experience fit
     if domain_fit_score is not None:
@@ -1371,25 +1449,35 @@ def _build_executive_summary(score, recommendation, matched_skills, required_ski
         elif education_match < 40:
             parts.append("Education profile may need supplementary assessment.")
 
-    # Risk signals
+    # Risk signals with severity context
     high_risks = [r for r in (risk_signals or [])
                   if isinstance(r, dict) and r.get('severity', '').lower() == 'high']
     if high_risks:
         risk_types = ", ".join(r.get('type', r.get('signal', 'unknown')) for r in high_risks[:2])
-        parts.append(f"Attention needed: {risk_types}.")
+        parts.append(f"High-priority concerns: {risk_types}.")
 
-    # Recommendation
+    # Recommendation with specific reasoning
     rec_map = {
-        'strong_yes': 'Strongly recommended for interview',
-        'Shortlist': 'Strongly recommended for interview',
-        'yes': 'Recommended for interview',
-        'Consider': 'Recommended for interview with noted reservations',
-        'consider': 'Recommended for interview with noted reservations',
-        'no': 'Does not meet minimum requirements',
-        'Reject': 'Does not meet minimum requirements',
+        'strong_yes': 'INTERVIEW',
+        'Shortlist': 'INTERVIEW',
+        'yes': 'INTERVIEW',
+        'Consider': 'INTERVIEW with reservations',
+        'consider': 'INTERVIEW with reservations',
+        'no': 'PASS',
+        'Reject': 'PASS',
     }
-    rec_text = rec_map.get(recommendation, f"Overall assessment: {recommendation}")
-    parts.append(f"{rec_text} (fit score: {score}/100).")
+    verdict = rec_map.get(recommendation, f"ASSESS: {recommendation}")
+
+    # Build the reason — pick the most important factor
+    reason = ""
+    if missing_skills:
+        reason = f" — probe {missing_skills[0]} capability"
+    elif high_risks:
+        reason = f" — address {high_risks[0].get('type', 'risk flag')} concern"
+    elif matched_count and required_count and matched_count >= required_count:
+        reason = f" — strong skill match ({matched_count}/{required_count})"
+
+    parts.append(f"Verdict: {verdict}{reason} (fit score: {score}/100).")
 
     return " ".join(parts)
 
@@ -1441,6 +1529,8 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
         domain_fit_score=domain_fit_raw,
         risk_signals=risk_signals_val,
         education_match=education_raw,
+        candidate_name=profile.get("name"),
+        current_company=profile.get("current_company"),
     )
 
     # Use score_rationales for explainability if available, otherwise use defaults
@@ -1460,93 +1550,73 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             "overall_rationale":    f"Overall fit score: {score}/100.",
         }
 
-    tech_q = [
-        {
-            "text": "Describe a complex technical problem you solved that is relevant to this role.",
+    # Build targeted fallback questions based on deterministic skill data
+    top_missing_skills = missing[:3] if missing else []
+    top_matched_skills = matched[:3] if matched else []
+    key_resp_list = jd_a.get("key_responsibilities", [])[:3] if jd_a else []
+    primary_resp = key_resp_list[0] if key_resp_list else "this role's core work"
+
+    # Technical questions — targeted to missing skills where possible
+    tech_q = []
+    # Q1-Q3: One per missing must-have skill
+    for i, skill in enumerate(top_missing_skills[:3]):
+        resp = key_resp_list[i] if i < len(key_resp_list) else primary_resp
+        tech_q.append({
+            "text": f"This role involves {resp}. Walk me through how you would approach a challenge requiring {skill} — what tools, patterns, or experience would you draw on?",
             "what_to_listen_for": [
-                "Structured problem-solving approach",
-                "Technical depth and relevance to the role",
-                "Outcome and impact of the solution"
+                f"Familiarity with {skill} concepts and ecosystem",
+                "Practical problem-solving approach despite skill gap",
+                "Self-awareness about limitations and learning strategy"
             ],
             "follow_ups": [
-                "What alternatives did you consider?",
-                "How did you measure the success of your solution?"
+                f"Have you worked with anything similar to {skill} in a different context?",
+                "How would you get up to speed with {skill} if hired?"
             ],
             "scoring_criteria": {
-                "strong": "Provides detailed walkthrough of a specific technical problem with clear individual contribution and quantified business impact",
-                "adequate": "Describes a relevant problem but vague on individual contribution or measurable outcomes",
-                "weak": "Generic or theoretical answer; unable to describe a specific technical problem they solved"
+                "strong": f"Demonstrates transferable knowledge applicable to {skill}, articulates a clear learning plan with specific resources, and provides concrete examples of similar challenges solved",
+                "adequate": f"Shows general awareness of {skill} but lacks hands-on experience; learning plan is vague but directionally correct",
+                "weak": f"No familiarity with {skill} or related concepts; cannot articulate how they would bridge this gap"
             }
-        },
-        {
-            "text": "Tell me about a time you had to learn a new technology quickly.",
+        })
+
+    # Q4: Depth-probing for top matched skill
+    if top_matched_skills:
+        tech_q.append({
+            "text": f"Tell me about a time you pushed the limits of {top_matched_skills[0]} beyond what was typically expected. What was the context and outcome?",
             "what_to_listen_for": [
-                "Learning strategy and resourcefulness",
-                "Speed of ramp-up and practical application",
-                "Self-awareness about knowledge gaps"
+                f"Deep expertise in {top_matched_skills[0]} beyond surface-level usage",
+                "Evidence of creative or advanced application",
+                "Measurable impact from pushing boundaries"
             ],
             "follow_ups": [
-                "What resources did you rely on most?",
-                "How long before you felt productive with the new technology?"
+                "What would you do differently if you faced that situation again?",
+                "How did others on the team benefit from your approach?"
             ],
             "scoring_criteria": {
-                "strong": "Provides specific example with concrete learning strategy, timeline to productivity, and measurable outcome of applying the new technology",
-                "adequate": "Describes learning a new technology but lacks specifics on strategy or timeline to productivity",
-                "weak": "Vague about learning process; no concrete example or evidence of rapid skill acquisition"
+                "strong": "Provides detailed example showing advanced mastery, creative problem-solving, and measurable business impact",
+                "adequate": "Describes relevant experience with the skill but example is routine rather than pushing boundaries",
+                "weak": "Cannot describe going beyond basic usage; answer suggests surface-level familiarity only"
             }
-        },
-        {
-            "text": "Walk me through how you approach debugging in a complex system.",
-            "what_to_listen_for": [
-                "Systematic debugging methodology",
-                "Use of logging, monitoring, and observability tools",
-                "Experience with distributed systems debugging"
-            ],
-            "follow_ups": [
-                "Can you give a specific example of a particularly tricky bug?",
-                "How do you prioritize which issues to investigate first?"
-            ],
-            "scoring_criteria": {
-                "strong": "Describes a systematic debugging methodology with specific tools and a concrete example of diagnosing a complex issue",
-                "adequate": "Shows general debugging approach but lacks specifics on tools or methodology for complex systems",
-                "weak": "Only basic debugging experience; no systematic approach or evidence of handling complex system issues"
-            }
-        },
-        {
-            "text": "Give an example of how you balance technical excellence with practical constraints.",
-            "what_to_listen_for": [
-                "Pragmatic engineering judgment",
-                "Understanding of business priorities vs technical debt",
-                "Communication skills when negotiating trade-offs"
-            ],
-            "follow_ups": [
-                "How did stakeholders react to your approach?",
-                "Would you make the same trade-off again?"
-            ],
-            "scoring_criteria": {
-                "strong": "Provides specific example with clear articulation of trade-offs, stakeholder communication, and measurable impact of the decision",
-                "adequate": "Describes a relevant trade-off but lacks depth on business context or stakeholder communication",
-                "weak": "Theoretical answer; no concrete example of balancing technical and business constraints"
-            }
-        },
-        {
-            "text": "How would you design a solution for a key responsibility of this role?",
-            "what_to_listen_for": [
-                "System design thinking relevant to the domain",
-                "Consideration of scalability and edge cases",
-                "Ability to articulate architectural decisions"
-            ],
-            "follow_ups": [
-                "What trade-offs would you consider in this design?",
-                "How would you handle failure scenarios?"
-            ],
-            "scoring_criteria": {
-                "strong": "Presents a well-structured design with clear requirements, thoughtful trade-offs, and consideration of scale and failure modes",
-                "adequate": "Describes a design approach but lacks depth on trade-offs, scalability, or failure handling",
-                "weak": "Generic or theoretical design discussion; no evidence of hands-on system design experience"
-            }
-        },
-    ]
+        })
+
+    # Q5: System design / architecture question
+    tech_q.append({
+        "text": f"How would you design a solution for {primary_resp}? Walk me through your approach, key decisions, and trade-offs.",
+        "what_to_listen_for": [
+            "System design thinking relevant to the domain",
+            "Consideration of scalability and edge cases",
+            "Ability to articulate architectural decisions"
+        ],
+        "follow_ups": [
+            "What trade-offs would you consider in this design?",
+            "How would you handle failure scenarios?"
+        ],
+        "scoring_criteria": {
+            "strong": "Presents a well-structured design with clear requirements, thoughtful trade-offs, and consideration of scale and failure modes",
+            "adequate": "Describes a design approach but lacks depth on trade-offs, scalability, or failure handling",
+            "weak": "Generic or theoretical design discussion; no evidence of hands-on system design experience"
+        }
+    })
     behavioral_q = [
         {
             "text": "Tell me about a time you led a difficult project. What was the outcome?",
@@ -1671,11 +1741,27 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
         },
     ]
 
+    # Build targeted candidate_briefing from deterministic skill data
+    briefing_strengths = [f"Validate {s} expertise (matched must-have)" for s in top_matched_skills[:3]] if top_matched_skills else ["Review resume for key strengths before interview"]
+    briefing_probes = []
+    for sk in top_missing_skills[:3]:
+        briefing_probes.append(f"{sk} — HIGH priority gap for {primary_resp}")
+    if not briefing_probes:
+        briefing_probes = ["Assess overall technical depth and role motivation"]
+    briefing_notes = [f"Q{i+1} targets missing {sk} — HIGH priority gap for {primary_resp}" for i, sk in enumerate(top_missing_skills[:3])]
+    if top_matched_skills:
+        briefing_notes.append(f"Q{len(top_missing_skills[:3])+1} probes depth of matched skill {top_matched_skills[0]}")
+    if not briefing_notes:
+        briefing_notes = ["Generic questions generated — LLM-enhanced analysis was not available"]
+
+    _briefing_name = profile.get("name") or "Candidate"
+    _briefing_role = profile.get("current_role") or "current role"
+    _briefing_years = profile.get("total_effective_years") or 0
     candidate_briefing = {
-        "profile_snapshot": "Candidate profile details not available — fallback interview kit generated.",
-        "strengths_to_confirm": ["Review resume for key strengths before interview"],
-        "areas_to_probe": ["Assess overall technical depth and role motivation"],
-        "context_notes": ["Generic questions generated — LLM-enhanced analysis was not available"]
+        "profile_snapshot": f"{_briefing_name} is a {_briefing_role} with {_briefing_years} years of experience. Fallback analysis generated — LLM narrative was unavailable.",
+        "strengths_to_confirm": briefing_strengths,
+        "areas_to_probe": briefing_probes,
+        "context_notes": briefing_notes,
     }
 
     experience_deep_dive_q = [

@@ -388,10 +388,11 @@ def get_candidate_pipeline(
 
     candidate_ids = [c.id for c in candidates]
 
-    # Fetch all screening results for these candidates in a single query
+    # Fetch all active screening results for these candidates in a single query
     results_query = db.query(ScreeningResult).filter(
         ScreeningResult.candidate_id.in_(candidate_ids),
         ScreeningResult.tenant_id == current_user.tenant_id,
+        ScreeningResult.is_active == True,
     )
     if jd_id is not None:
         results_query = results_query.filter(ScreeningResult.role_template_id == jd_id)
@@ -417,17 +418,25 @@ def get_candidate_pipeline(
     for c in candidates:
         cand_results = results_by_candidate.get(c.id, [])
 
+        # When filtering by JD, skip candidates with no matching results entirely
+        # (they were fetched by tenant but don't belong to this JD pipeline)
+        if jd_id is not None and not cand_results:
+            continue
+
         # Best fit_score across ALL results for this candidate
+        # Prefer deterministic_score (consistent with list endpoint)
         best_score = None
         for r in cand_results:
-            try:
-                analysis = json.loads(r.analysis_result)
-                fit_score = analysis.get("fit_score")
-                if fit_score is not None:
-                    if best_score is None or fit_score > best_score:
-                        best_score = fit_score
-            except Exception:
-                pass
+            score = r.deterministic_score
+            if score is None:
+                try:
+                    analysis = json.loads(r.analysis_result)
+                    score = analysis.get("fit_score")
+                except Exception:
+                    pass
+            if score is not None:
+                if best_score is None or score > best_score:
+                    best_score = score
 
         latest_status = "pending"
         latest_result_id = None
@@ -1508,9 +1517,23 @@ def get_jd_candidates(
 
     rows = query.all()
 
+    # ── Deduplicate: keep only the latest ScreeningResult per candidate ──────
+    # (a candidate may have been analysed multiple times against the same JD)
+    latest_by_candidate: dict = {}
+    for sr, cand in rows:
+        existing = latest_by_candidate.get(cand.id)
+        if existing is None:
+            latest_by_candidate[cand.id] = (sr, cand)
+        else:
+            existing_sr, _ = existing
+            existing_ts = existing_sr.timestamp or datetime.min.replace(tzinfo=timezone.utc)
+            new_ts = sr.timestamp or datetime.min.replace(tzinfo=timezone.utc)
+            if new_ts > existing_ts or (new_ts == existing_ts and sr.id > existing_sr.id):
+                latest_by_candidate[cand.id] = (sr, cand)
+
     # ── Build candidate list ────────────────────────────────────────────────
     candidates = []
-    for sr, cand in rows:
+    for sr, cand in latest_by_candidate.values():
         analysis = {}
         try:
             analysis = json.loads(sr.analysis_result) if sr.analysis_result else {}
@@ -1522,10 +1545,26 @@ def get_jd_candidates(
         if fit_score is None:
             fit_score = analysis.get("fit_score")
 
+        # Resolve a usable display name — fall back to email prefix or "Unknown"
+        display_name = cand.name
+        if not display_name:
+            if cand.email:
+                display_name = cand.email.split("@")[0]
+            else:
+                display_name = f"Candidate #{cand.id}"
+
+        # Skip candidates whose analysis is genuinely incomplete (no score, no name
+        # from parsing) — they represent failed or queued analyses that haven't
+        # produced any usable data yet.
+        has_score = fit_score is not None and fit_score > 0
+        has_name = bool(cand.name)
+        if not has_score and not has_name:
+            continue
+
         candidates.append({
             "candidate_id":    cand.id,
             "result_id":       sr.id,
-            "name":            cand.name,
+            "name":            display_name,
             "email":           cand.email,
             "fit_score":       fit_score,
             "status":          sr.status or "pending",

@@ -361,7 +361,7 @@ export default function JDCandidatesPage() {
     if (selectedIds.size === candidates.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(candidates.map(c => c.id || c.result_id)))
+      setSelectedIds(new Set(candidates.map(c => c.result_id || c.id)))
     }
   }
 
@@ -371,12 +371,12 @@ export default function JDCandidatesPage() {
 
   // ── Status change (list view) ──
   const handleStatusChange = (resultId, newStatus) => {
-    const prevStatus = candidates.find(c => (c.id || c.result_id) === resultId)?.status
+    const prevStatus = candidates.find(c => (c.result_id || c.id) === resultId)?.status
     optimisticUpdate({
       items: candidates,
       setItems: setCandidates,
       itemId: resultId,
-      idField: (c) => c.id || c.result_id,
+      idField: (c) => c.result_id || c.id,
       field: 'status',
       newValue: newStatus,
       apiCall: () => updateResultStatus(resultId, newStatus),
@@ -393,7 +393,7 @@ export default function JDCandidatesPage() {
       await bulkUpdateStatus(jdId, [...selectedIds], status)
       setCandidates(prev =>
         prev.map(c =>
-          selectedIds.has(c.id || c.result_id) ? { ...c, status } : c
+          selectedIds.has(c.result_id || c.id) ? { ...c, status } : c
         )
       )
       setSelectedIds(new Set())
@@ -683,22 +683,26 @@ export default function JDCandidatesPage() {
               {/* Candidate Cards */}
               <div className="space-y-3">
                 {candidates.map((c, idx) => {
-                  const id = c.id || c.result_id
+                  // Backend returns candidate_id + result_id; use result_id for
+                  // navigation (links to the screening report) and candidate_id for
+                  // checkbox selection identity.
+                  const resultId = c.result_id || c.id
+                  const candidateId = c.candidate_id || c.id || c.result_id
                   return (
-                    <div key={id} className="flex items-start gap-3">
+                    <div key={resultId} className="flex items-start gap-3">
                       <div className="pt-5 pl-2">
                         <input
                           type="checkbox"
-                          checked={selectedIds.has(id)}
-                          onChange={() => toggleSelect(id)}
+                          checked={selectedIds.has(resultId)}
+                          onChange={() => toggleSelect(resultId)}
                           className="w-4 h-4 rounded border-brand-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
                         />
                       </div>
                       <div className={`flex-1 min-w-0 ${selectedIndex === idx ? 'ring-2 ring-brand-500 rounded-xl' : ''}`}>
                         <CandidateCard
                           candidate={{
-                            id,
-                            name: c.candidate_name || c.name,
+                            id: resultId,
+                            name: c.name || c.candidate_name,
                             email: c.email,
                             title: c.title || c.current_role,
                             fit_score: c.fit_score ?? c.score,
