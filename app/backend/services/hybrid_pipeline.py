@@ -954,8 +954,8 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     missing_nice = skill_a.get("missing_nice_to_have", [])
     matched = skill_a.get("matched_skills", [])
     missing = skill_a.get("missing_skills", [])
-    nice_match_pct = skill_a.get("nice_to_have_match_pct", 0)
-    req_match_pct = skill_a.get("required_match_pct", 0)
+    nice_match_pct = skill_a.get("nice_to_have_match_pct") or 0
+    req_match_pct = skill_a.get("required_match_pct") or 0
 
     # Key responsibilities from JD (full list, capped at 6 for prompt size)
     key_resp = jd.get("key_responsibilities", [])[:6]
@@ -976,9 +976,12 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
         fld = edu.get("field", "") if isinstance(edu, dict) else ""
         inst = edu.get("institution", "") if isinstance(edu, dict) else ""
         if deg or fld:
-            edu_parts.append(f"{deg} {fld}".strip())
-        if inst:
-            edu_parts[-1] = f"{edu_parts[-1]} ({inst})" if edu_parts else inst
+            part = f"{deg} {fld}".strip()
+            if inst:
+                part = f"{part} ({inst})"
+            edu_parts.append(part)
+        elif inst:
+            edu_parts.append(inst)
     edu_text = "; ".join(edu_parts) if edu_parts else "Not available"
 
     # Extract seniority alignment from risk_summary
