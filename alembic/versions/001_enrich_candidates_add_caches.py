@@ -42,6 +42,24 @@ def _index_names(insp, table: str) -> set:
 def upgrade() -> None:
     insp = _inspector()
 
+    # ── candidates: CREATE TABLE first if it doesn't exist (fresh DB) ──
+    if not _table_exists(insp, "candidates"):
+        op.create_table(
+            "candidates",
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("name", sa.String(255), nullable=False),
+            sa.Column("email", sa.String(255), nullable=True),
+            sa.Column("phone", sa.String(50), nullable=True),
+            sa.Column("resume_text", sa.Text(), nullable=True),
+            sa.Column("resume_file_name", sa.String(255), nullable=True),
+            sa.Column("uploaded_by", sa.Integer(), nullable=True),
+            sa.Column("tenant_id", sa.Integer(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        )
+        # Re-create inspector after table creation
+        insp = _inspector()
+
     # ── candidates: add profile columns (skip if already present) ───────────
     cand_cols = _column_names(insp, "candidates")
     add = []
