@@ -5,7 +5,7 @@ set -e
 case "${DATABASE_URL:-}" in
   postgresql*|postgres://*)
     echo "[entrypoint] Creating base tables (if not exist)..."
-    cd /app && python -c "from app.backend.db.database import Base, engine; Base.metadata.create_all(bind=engine)"
+    cd /app && python -c "from app.backend.models.db_models import Base; from app.backend.db.database import engine; Base.metadata.create_all(bind=engine)"
     echo "[entrypoint] Running Alembic migrations..."
     cd /app && alembic -c alembic.ini upgrade head
     echo "[entrypoint] Migrations complete."
