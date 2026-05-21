@@ -2,7 +2,7 @@ name: CD - Build & Push Images
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, production ]
   # Re-run build & push from GitHub → Actions → "CD - Build & Push Images" → Run workflow
   workflow_dispatch:
 
@@ -63,13 +63,28 @@ jobs:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+    - name: Set image tags based on branch
+      id: tags
+      run: |
+        if [ "${{ github.ref_name }}" = "production" ]; then
+          echo "BACKEND_TAG=${{ secrets.DOCKERHUB_USERNAME }}/resume-backend:latest" >> $GITHUB_OUTPUT
+          echo "FRONTEND_TAG=${{ secrets.DOCKERHUB_USERNAME }}/resume-frontend:latest" >> $GITHUB_OUTPUT
+          echo "NGINX_TAG=${{ secrets.DOCKERHUB_USERNAME }}/resume-nginx:latest" >> $GITHUB_OUTPUT
+          echo "ENVIRONMENT=production" >> $GITHUB_OUTPUT
+        else
+          echo "BACKEND_TAG=${{ secrets.DOCKERHUB_USERNAME }}/resume-backend:staging" >> $GITHUB_OUTPUT
+          echo "FRONTEND_TAG=${{ secrets.DOCKERHUB_USERNAME }}/resume-frontend:staging" >> $GITHUB_OUTPUT
+          echo "NGINX_TAG=${{ secrets.DOCKERHUB_USERNAME }}/resume-nginx:staging" >> $GITHUB_OUTPUT
+          echo "ENVIRONMENT=staging" >> $GITHUB_OUTPUT
+        fi
+
     - name: Build and push backend
       uses: docker/build-push-action@v5
       with:
         context: .
         file: ./app/backend/Dockerfile
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-backend:latest
+        tags: ${{ steps.tags.outputs.BACKEND_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
@@ -79,7 +94,7 @@ jobs:
       with:
         context: ./app/frontend
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-frontend:latest
+        tags: ${{ steps.tags.outputs.FRONTEND_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
@@ -88,13 +103,23 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: ./nginx
+        file: ./nginx/Dockerfile
+        build-args: |
+          NGINX_CONF=nginx.${{ steps.tags.outputs.ENVIRONMENT }}.conf
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-nginx:latest
+        tags: ${{ steps.tags.outputs.NGINX_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
 
-  # Deployment is manual — after a successful build-and-push, SSH into the
-  # VPS and run:
-  #   docker compose -f docker-compose.prod.yml pull backend frontend nginx
-  #   docker compose -f docker-compose.prod.yml up -d --no-deps backend frontend nginx
+  # Deployment is handled by Watchtower on the VPS:
+  # - Staging (main branch): Watchtower pulls :staging images → updates staging stack (docker-compose.prod.yml)
+  # - Production (production branch): Watchtower pulls :latest images → updates production stack (docker-compose.production.yml)
+  #
+  # Watchtower automatically detects new images within 60 seconds and performs rolling restarts.
+  # No manual SSH deployment required!
+  #
+  # SETUP INSTRUCTIONS:
+  # 1. Deploy staging stack in Portainer using docker-compose.prod.yml
+  # 2. Deploy production stack in Portainer using docker-compose.production.yml
+  # 3. Each stack has its own Watchtower monitoring its containers

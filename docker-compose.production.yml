@@ -1,0 +1,189 @@
+version: '3.8'
+
+# Production stack - isolated from staging
+# Project name: aria_prod (all containers/volumes/networks prefixed with aria_prod_)
+name: aria_prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aria-postgres-prod
+    # Tuned for 6 GB RAM allocation
+    command: >
+      postgres
+      -c shared_buffers=1536MB
+      -c effective_cache_size=4GB
+      -c work_mem=64MB
+      -c maintenance_work_mem=256MB
+      -c max_connections=200
+      -c wal_buffers=64MB
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aria}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-aria_prod_db}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 6G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aria} -d ${POSTGRES_DB:-aria_prod_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - aria_prod_network
+      - aria_staging_network  # Shared network for Ollama access
+
+  # NOTE: Ollama is SHARED with staging stack
+  # This service definition is kept for reference but commented out
+  # to avoid duplicate Ollama containers. Both stacks connect to the
+  # staging Ollama container via the shared network.
+  #
+  # If you want dedicated Ollama for production, uncomment this section
+  # and remove the external network reference below.
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: aria-ollama-prod
+  #   environment:
+  #     - OLLAMA_NUM_THREAD=8
+  #     - OLLAMA_NUM_PARALLEL=4
+  #     - OLLAMA_MAX_LOADED_MODELS=1
+  #     - OLLAMA_FLASH_ATTENTION=1
+  #     - OLLAMA_KV_CACHE_TYPE=q8_0
+  #     - OLLAMA_KEEP_ALIVE=-1
+  #   volumes:
+  #     - ollama_data_prod:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '8'
+  #         memory: 8G
+  #   restart: unless-stopped
+
+  backend:
+    image: revanth2245/resume-backend:latest
+    container_name: aria-backend-prod
+    # 6 workers for production load
+    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 6 --timeout-graceful-shutdown 30
+    stop_grace_period: 60s
+    environment:
+      # Connect to SHARED Ollama from staging stack
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:?OLLAMA_API_KEY is required}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aria}:${POSTGRES_PASSWORD}@aria-postgres-prod:5432/${POSTGRES_DB:-aria_prod_db}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
+      - ENVIRONMENT=production
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
+      - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-0}  # Skip local Ollama startup (using cloud or shared)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 6G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - aria_prod_network
+      - aria_staging_network  # Access shared Ollama if using local instance
+
+  frontend:
+    image: revanth2245/resume-frontend:latest
+    container_name: aria-frontend-prod
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    restart: unless-stopped
+    networks:
+      - aria_prod_network
+
+  nginx:
+    image: revanth2245/resume-nginx:latest
+    container_name: aria-nginx-prod
+    ports:
+      - "8080:80"  # Production accessible on port 8080
+    depends_on:
+      - frontend
+      - backend
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - aria_prod_network
+
+  # Watchtower: auto-updates production containers only
+  watchtower:
+    image: containrrr/watchtower
+    container_name: aria-watchtower-prod
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      --rolling-restart
+      --interval 60
+      --cleanup
+      aria-backend-prod
+      aria-frontend-prod
+      aria-nginx-prod
+    environment:
+      - WATCHTOWER_INCLUDE_STOPPED=false
+      - WATCHTOWER_NO_PULL=false
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    container_name: aria-certbot-prod
+    volumes:
+      - certbot_certs_prod:/etc/letsencrypt
+      - certbot_www_prod:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h; done'"
+    restart: unless-stopped
+
+volumes:
+  postgres_data_prod:
+  certbot_certs_prod:
+  certbot_www_prod:
+  # ollama_data_prod:  # Uncomment if using dedicated Ollama
+
+networks:
+  aria_prod_network:
+    name: aria_prod_network
+    driver: bridge
+  # Connect to staging network to share Ollama (if using local Ollama)
+  aria_staging_network:
+    name: aria_network
+    external: true

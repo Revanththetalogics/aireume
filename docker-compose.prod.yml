@@ -75,7 +75,7 @@ services:
   # Rebuild/push the backend image from app/backend/Dockerfile so ENTRYPOINT includes
   # wait_for_ollama.py (Ollama healthy + model warm before uvicorn).
   backend:
-    image: revanth2245/resume-backend:latest
+    image: revanth2245/resume-backend:staging
     container_name: resume-screener-backend
     # 4 workers: backend is I/O-bound (waits on Ollama/DB), so multiple workers
     # serve concurrent users without starving Ollama of CPU cores.
@@ -118,7 +118,7 @@ services:
       start_period: 30s
 
   frontend:
-    image: revanth2245/resume-frontend:latest
+    image: revanth2245/resume-frontend:staging
     container_name: resume-screener-frontend
     depends_on:
       - backend
@@ -130,7 +130,7 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: revanth2245/resume-nginx:latest
+    image: revanth2245/resume-nginx:staging
     container_name: resume-screener-nginx
     ports:
       - "80:80"
