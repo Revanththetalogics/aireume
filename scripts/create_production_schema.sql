@@ -534,11 +534,15 @@ CREATE TABLE IF NOT EXISTS hiring_outcomes (
     tenant_id INTEGER NOT NULL REFERENCES tenants(id),
     screening_result_id INTEGER NOT NULL UNIQUE REFERENCES screening_results(id),
     candidate_id INTEGER NOT NULL REFERENCES candidates(id),
+    role_template_id INTEGER REFERENCES role_templates(id),
     decision VARCHAR(20) NOT NULL,
     decision_stage VARCHAR(50),
     decision_date TIMESTAMP,
     decision_by_user_id INTEGER REFERENCES "users"(id),
-    notes TEXT,
+    feedback_rating INTEGER,
+    feedback_notes TEXT,
+    source VARCHAR(20) DEFAULT 'manual',
+    metadata_json TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

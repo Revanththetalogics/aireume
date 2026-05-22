@@ -34,6 +34,10 @@ def _index_names(insp, table: str) -> set:
     return {i["name"] for i in insp.get_indexes(table)}
 
 
+def _column_names(insp, table: str) -> set:
+    return {c["name"] for c in insp.get_columns(table)}
+
+
 def upgrade() -> None:
     insp = _inspector()
 
@@ -76,6 +80,22 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(), server_default=sa.func.now()),
             sa.Column("updated_at", sa.DateTime(), onupdate=sa.func.now()),
         )
+    else:
+        # Table already exists (e.g. from SQL script) — add any missing columns
+        cols = _column_names(insp, "hiring_outcomes")
+        missing = []
+        if "role_template_id" not in cols:
+            missing.append(sa.Column("role_template_id", sa.Integer(), sa.ForeignKey("role_templates.id"), nullable=True))
+        if "feedback_rating" not in cols:
+            missing.append(sa.Column("feedback_rating", sa.Integer(), nullable=True))
+        if "feedback_notes" not in cols:
+            missing.append(sa.Column("feedback_notes", sa.Text(), nullable=True))
+        if "source" not in cols:
+            missing.append(sa.Column("source", sa.String(20), server_default="manual", nullable=True))
+        if "metadata_json" not in cols:
+            missing.append(sa.Column("metadata_json", sa.Text(), nullable=True))
+        for col in missing:
+            op.add_column("hiring_outcomes", col)
 
     # Composite indexes for hiring_outcomes
     if _table_exists(insp, "hiring_outcomes"):
