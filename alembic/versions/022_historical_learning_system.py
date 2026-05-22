@@ -37,6 +37,25 @@ def _index_names(insp, table: str) -> set:
 def upgrade() -> None:
     insp = _inspector()
 
+    # ── 0. role_templates (MISSING from earlier migrations!) ─────────────────
+    # Some migrations FK to role_templates but none creates it.
+    # Create it now if missing so hiring_outcomes FK can be resolved.
+    if not _table_exists(insp, "role_templates"):
+        op.create_table(
+            "role_templates",
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("tenant_id", sa.Integer(), sa.ForeignKey("tenants.id"), nullable=False),
+            sa.Column("name", sa.String(200), nullable=False),
+            sa.Column("jd_text", sa.Text(), nullable=False),
+            sa.Column("scoring_weights", sa.Text(), nullable=True),
+            sa.Column("tags", sa.String(500), nullable=True),
+            sa.Column("required_skills_override", sa.Text(), nullable=True),
+            sa.Column("nice_to_have_skills_override", sa.Text(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True, onupdate=sa.func.now()),
+        )
+        op.create_index("ix_role_templates_tenant", "role_templates", ["tenant_id"])
+
     # ── 1. hiring_outcomes ─────────────────────────────────────────────────────
     if not _table_exists(insp, "hiring_outcomes"):
         op.create_table(
@@ -134,8 +153,17 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Drop in reverse order of creation
 
-    # outcome_skill_patterns
+    # hiring_outcomes
     insp = _inspector()
+    if _table_exists(insp, "hiring_outcomes"):
+        idx = _index_names(insp, "hiring_outcomes")
+        if "ix_hiring_outcomes_tenant_decision_date" in idx:
+            op.drop_index("ix_hiring_outcomes_tenant_decision_date", "hiring_outcomes")
+        if "ix_hiring_outcomes_tenant_template" in idx:
+            op.drop_index("ix_hiring_outcomes_tenant_template", "hiring_outcomes")
+        op.drop_table("hiring_outcomes")
+
+    # outcome_skill_patterns
     if _table_exists(insp, "outcome_skill_patterns"):
         idx = _index_names(insp, "outcome_skill_patterns")
         if "ix_outcome_patterns_tenant_template" in idx:
@@ -155,11 +183,9 @@ def downgrade() -> None:
     if _table_exists(insp, "team_skill_profiles"):
         op.drop_table("team_skill_profiles")
 
-    # hiring_outcomes
-    if _table_exists(insp, "hiring_outcomes"):
-        idx = _index_names(insp, "hiring_outcomes")
-        if "ix_hiring_outcomes_tenant_decision_date" in idx:
-            op.drop_index("ix_hiring_outcomes_tenant_decision_date", "hiring_outcomes")
-        if "ix_hiring_outcomes_tenant_template" in idx:
-            op.drop_index("ix_hiring_outcomes_tenant_template", "hiring_outcomes")
-        op.drop_table("hiring_outcomes")
+    # role_templates (created first, dropped last)
+    if _table_exists(insp, "role_templates"):
+        idx = _index_names(insp, "role_templates")
+        if "ix_role_templates_tenant" in idx:
+            op.drop_index("ix_role_templates_tenant", "role_templates")
+        op.drop_table("role_templates")
