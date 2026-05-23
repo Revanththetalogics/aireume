@@ -84,7 +84,6 @@ function OnboardingGate({ children }) {
 function App() {
   return (
     <AuthProvider>
-      <SubscriptionProvider>
         <NotificationProvider>
           <OnboardingProvider>
             <ErrorBoundary>
@@ -145,7 +144,6 @@ function App() {
             </ErrorBoundary>
           </OnboardingProvider>
         </NotificationProvider>
-      </SubscriptionProvider>
     </AuthProvider>
   )
 }
