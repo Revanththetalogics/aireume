@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { getOnboardingStatus, completeOnboarding as completeOnboardingAPI } from '../lib/api'
+import { useAuth } from './AuthContext'
 
 const OnboardingContext = createContext(null)
 
@@ -32,6 +33,7 @@ function saveToStorage(key, value) {
 }
 
 export function OnboardingProvider({ children }) {
+  const { user, loading: authLoading } = useAuth()
   const [currentStep, setCurrentStep] = useState(() => loadFromStorage(STORAGE_KEY, { step: 0 }).step)
   const [isOnboardingComplete, setIsOnboardingComplete] = useState(() => loadFromStorage(STORAGE_KEY, { complete: false }).complete)
   const [checklist, setChecklist] = useState(() => loadFromStorage(CHECKLIST_KEY, { items: DEFAULT_CHECKLIST, dismissed: false }).items)
@@ -39,8 +41,13 @@ export function OnboardingProvider({ children }) {
   const [onboardingStatus, setOnboardingStatus] = useState(null)
   const [statusLoading, setStatusLoading] = useState(true)
 
-  // Fetch onboarding status from backend on mount
+  // Fetch onboarding status from backend — only when authenticated
   useEffect(() => {
+    if (authLoading) return                // wait for auth to resolve
+    if (!user) {
+      setStatusLoading(false)              // not authenticated — rely on localStorage
+      return
+    }
     let cancelled = false
     async function fetchStatus() {
       try {
@@ -51,7 +58,6 @@ export function OnboardingProvider({ children }) {
           setStatusLoading(false)
         }
       } catch {
-        // Not authenticated or endpoint unavailable — rely on localStorage
         if (!cancelled) {
           setStatusLoading(false)
         }
@@ -59,7 +65,7 @@ export function OnboardingProvider({ children }) {
     }
     fetchStatus()
     return () => { cancelled = true }
-  }, [])
+  }, [authLoading, user])
 
   // Persist onboarding state whenever it changes
   useEffect(() => {
