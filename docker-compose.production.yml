@@ -39,7 +39,6 @@ services:
       start_period: 30s
     networks:
       - aria_prod_network
-      - aria_staging_network  # Shared network for Ollama access
 
   # NOTE: Ollama is SHARED with staging stack
   # This service definition is kept for reference but commented out

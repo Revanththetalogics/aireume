@@ -113,7 +113,7 @@ def _create_auth_response(user: User, tenant: Tenant, access_token: str, refresh
         secure=is_production,
         samesite="lax",
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        path="/api/auth"
+        path="/"
     )
     
     # Set CSRF token cookie (NOT httpOnly - JS needs to read it)
@@ -297,6 +297,6 @@ async def logout(request: Request, db: Session = Depends(get_db)):
     
     response = JSONResponse(content={"message": "Logged out successfully"})
     response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/api/auth")
+    response.delete_cookie("refresh_token", path="/")
     response.delete_cookie("csrf_token", path="/")
     return response
