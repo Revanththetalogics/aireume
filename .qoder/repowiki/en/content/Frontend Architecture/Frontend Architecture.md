@@ -10,15 +10,28 @@
 - [ProtectedRoute.jsx](file://app/frontend/src/components/ProtectedRoute.jsx)
 - [PlatformAdminRoute.jsx](file://app/frontend/src/components/PlatformAdminRoute.jsx)
 - [AuthContext.jsx](file://app/frontend/src/contexts/AuthContext.jsx)
+- [NotificationContext.jsx](file://app/frontend/src/contexts/NotificationContext.jsx)
+- [OnboardingContext.jsx](file://app/frontend/src/contexts/OnboardingContext.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [uploadChunked.js](file://app/frontend/src/lib/uploadChunked.js)
+- [AnimatedScore.jsx](file://app/frontend/src/components/AnimatedScore.jsx)
+- [StreamingText.jsx](file://app/frontend/src/components/StreamingText.jsx)
+- [CandidateCard.jsx](file://app/frontend/src/components/CandidateCard.jsx)
+- [ComparisonMatrix.jsx](file://app/frontend/src/components/ComparisonMatrix.jsx)
+- [GettingStarted.jsx](file://app/frontend/src/components/GettingStarted.jsx)
+- [SkillTrendChart.jsx](file://app/frontend/src/components/SkillTrendChart.jsx)
+- [ProgressBadge.jsx](file://app/frontend/src/components/ProgressBadge.jsx)
+- [ScoreBadge.jsx](file://app/frontend/src/components/ScoreBadge.jsx)
+- [QuickActions.jsx](file://app/frontend/src/components/QuickActions.jsx)
+- [OnboardingWizard.jsx](file://app/frontend/src/components/OnboardingWizard.jsx)
+- [useOptimisticUpdate.js](file://app/frontend/src/hooks/useOptimisticUpdate.js)
+- [useKeyboardShortcuts.js](file://app/frontend/src/hooks/useKeyboardShortcuts.js)
+- [useAnalysisProgress.js](file://app/frontend/src/hooks/useAnalysisProgress.js)
 - [UploadForm.jsx](file://app/frontend/src/components/UploadForm.jsx)
 - [ResultCard.jsx](file://app/frontend/src/components/ResultCard.jsx)
 - [ScoreGauge.jsx](file://app/frontend/src/components/ScoreGauge.jsx)
 - [Timeline.jsx](file://app/frontend/src/components/Timeline.jsx)
 - [SkillsRadar.jsx](file://app/frontend/src/components/SkillsRadar.jsx)
-- [UniversalWeightsPanel.jsx](file://app/frontend/src/components/UniversalWeightsPanel.jsx)
-- [WeightSuggestionPanel.jsx](file://app/frontend/src/components/WeightSuggestionPanel.jsx)
 - [VersionHistory.jsx](file://app/frontend/src/components/VersionHistory.jsx)
 - [ComparisonView.jsx](file://app/frontend/src/components/ComparisonView.jsx)
 - [Dashboard.jsx](file://app/frontend/src/pages/Dashboard.jsx)
@@ -27,6 +40,8 @@
 - [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)
 - [CandidatesPage.jsx](file://app/frontend/src/pages/CandidatesPage.jsx)
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
+- [ComparePage.jsx](file://app/frontend/src/pages/ComparePage.jsx)
+- [JDLibraryPage.jsx](file://app/frontend/src/pages/JDLibraryPage.jsx)
 - [AdminDashboardPage.jsx](file://app/frontend/src/pages/AdminDashboardPage.jsx)
 - [useSubscription.jsx](file://app/frontend/src/hooks/useSubscription.jsx)
 - [package.json](file://app/frontend/package.json)
@@ -36,12 +51,19 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced CandidatesPage.jsx with resume access buttons (View/Download) in candidate detail modal
-- Enhanced ReportPage.jsx with resume access buttons (View/Download) in sticky action bar
-- Added comprehensive resume file handling with proper MIME type detection and user experience improvements
-- Implemented proper filename generation with candidate name fallback
-- Added loading states and error handling for resume access operations
-- Integrated backend resume file endpoints with proper content-type handling
+- Added comprehensive OnboardingWizard component with 4-step guided setup flow
+- Introduced GettingStarted checklist system with completion tracking and celebration
+- Enhanced DashboardNew with improved pipeline visualization, action items, and weekly metrics
+- Added ComparisonMatrix component for advanced candidate comparison with skills matrix
+- Integrated SkillTrendChart for role category analysis and trend visualization
+- Enhanced CandidateCard with 30-second review layout, skills visualization, and quick actions
+- Added OnboardingContext for persistent onboarding state management
+- Implemented dual storage strategy for job context persistence (sessionStorage + IndexedDB)
+- Enhanced resume access system with proper MIME type handling and filename generation
+- Added comprehensive XSS protection architecture with safeStr utility function
+- Integrated Framer Motion animations for smooth transitions and user feedback
+- Enhanced streaming analysis with real-time progress tracking and live updates
+- Added platform administration system with comprehensive tenant management and metrics
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -85,12 +107,22 @@ NB["NavBar.jsx"]
 end
 subgraph "Enhanced Landing Page"
 DN["DashboardNew.jsx"]
+GS["GettingStarted.jsx"]
+end
+subgraph "Onboarding System"
+OW["OnboardingWizard.jsx"]
+OC["OnboardingContext.jsx"]
 end
 subgraph "Streaming Analysis Flow"
 AP["AnalyzePage.jsx"]
 UWP["UniversalWeightsPanel.jsx"]
 WSP["WeightSuggestionPanel.jsx"]
 BP["BatchPage.jsx"]
+end
+subgraph "Enhanced Candidate Experience"
+CC["CandidateCard.jsx"]
+CM["ComparisonMatrix.jsx"]
+STC["SkillTrendChart.jsx"]
 end
 subgraph "Admin Dashboard System"
 ADP["AdminDashboardPage.jsx"]
@@ -100,6 +132,18 @@ subgraph "Pages"
 D["Dashboard.jsx"]
 RP["ReportPage.jsx"]
 CP["CandidatesPage.jsx"]
+CMP["ComparePage.jsx"]
+JD["JDLibraryPage.jsx"]
+end
+subgraph "Enhanced Component Library"
+AS2["AnimatedScore.jsx"]
+ST["StreamingText.jsx"]
+PB["ProgressBadge.jsx"]
+SB["ScoreBadge.jsx"]
+QA["QuickActions.jsx"]
+UOU["useOptimisticUpdate.js"]
+UKS["useKeyboardShortcuts.js"]
+UAP["useAnalysisProgress.js"]
 end
 subgraph "Components with XSS Protection"
 UF["UploadForm.jsx"]
@@ -112,6 +156,7 @@ CV["ComparisonView.jsx"]
 end
 subgraph "State & Auth"
 AC["AuthContext.jsx"]
+NC["NotificationContext.jsx"]
 USC["useSubscription.jsx"]
 end
 subgraph "API Layer"
@@ -121,7 +166,7 @@ end
 subgraph "Security Layer"
 SEC["XSS Protection"]
 CSP["Content Security Policy"]
-end
+END
 M --> A
 A --> EB
 EB --> R
@@ -129,6 +174,9 @@ R --> PR
 PR --> AS
 AS --> NB
 AS --> DN
+DN --> GS
+AS --> OW
+OW --> OC
 DN --> AP
 AP --> UWP
 AP --> WSP
@@ -141,10 +189,20 @@ RP --> SG
 RP --> TL
 RC --> SR
 AS --> CP
+CP --> CC
+CC --> SB
+CC --> QA
+AS --> CMP
+CMP --> CM
+AS --> JD
+JD --> STC
+AS --> PB
+PB --> UAP
 AS --> ADP
 ADP --> PAR
 A --> API
 A --> AC
+A --> NC
 A --> USC
 A --> UC
 RC --> SEC
@@ -161,14 +219,30 @@ AS --> CSP
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
 - [NavBar.jsx](file://app/frontend/src/components/NavBar.jsx)
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
+- [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [OnboardingContext.jsx:1-170](file://app/frontend/src/contexts/OnboardingContext.jsx#L1-L170)
 - [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
+- [CandidateCard.jsx:1-141](file://app/frontend/src/components/CandidateCard.jsx#L1-L141)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
 - [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [AnimatedScore.jsx:1-63](file://app/frontend/src/components/AnimatedScore.jsx#L1-L63)
+- [StreamingText.jsx:1-73](file://app/frontend/src/components/StreamingText.jsx#L1-L73)
+- [ProgressBadge.jsx:1-132](file://app/frontend/src/components/ProgressBadge.jsx#L1-L132)
+- [ScoreBadge.jsx:1-58](file://app/frontend/src/components/ScoreBadge.jsx#L1-L58)
+- [QuickActions.jsx:1-158](file://app/frontend/src/components/QuickActions.jsx#L1-L158)
+- [useOptimisticUpdate.js:1-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L1-L81)
+- [useKeyboardShortcuts.js:1-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L1-L102)
+- [useAnalysisProgress.js:1-25](file://app/frontend/src/hooks/useAnalysisProgress.js#L1-L25)
 - [UploadForm.jsx:1-484](file://app/frontend/src/components/UploadForm.jsx#L1-L484)
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
@@ -177,6 +251,7 @@ AS --> CSP
 - [VersionHistory.jsx:1-260](file://app/frontend/src/components/VersionHistory.jsx#L1-L260)
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [NotificationContext.jsx](file://app/frontend/src/contexts/NotificationContext.jsx)
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
 - [api.js:1-967](file://app/frontend/src/lib/api.js#L1-L967)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
@@ -192,7 +267,10 @@ AS --> CSP
 - **AppShell**: Provides a consistent layout with navigation and scrollable content area.
 - **ProtectedRoute**: Guards routes requiring authentication.
 - **PlatformAdminRoute**: Guards routes requiring platform administrator privileges.
-- **DashboardNew**: Enhanced landing page serving as the new dashboard with analytics widgets, quick actions, and recent activity.
+- **DashboardNew**: Enhanced landing page serving as the new dashboard with analytics widgets, quick actions, GettingStarted checklist, and recent activity.
+- **OnboardingWizard**: Comprehensive 4-step guided setup flow with organization setup, plan selection, team invitation, and completion celebration.
+- **OnboardingContext**: Persistent onboarding state management with completion tracking and checklist management.
+- **GettingStarted**: Interactive checklist system with progress tracking and completion celebration.
 - **AnalyzePage**: New 3-step analysis workflow with job description input, AI weight suggestions, streaming resume upload, **enhanced with auto-skip functionality and dual job context persistence**.
 - **BatchPage**: Enhanced batch processing with chunked upload capabilities, real-time progress tracking, and ranked shortlist table.
 - **UniversalWeightsPanel**: Comprehensive scoring weights configuration with adaptive labels and validation.
@@ -205,21 +283,38 @@ AS --> CSP
 - **CandidatesPage**: List and search candidates with pagination and detail modal, **enhanced with resume access buttons (View/Download)**.
 - **ReportPage**: Single-result presentation with sharing, printing, labeling, inline editing, and **dual job context persistence for "Analyze Another Resume" workflow**, **enhanced with resume access buttons**.
 - **ComparisonView**: Side-by-side analysis comparison with universal string sanitization.
+- **ComparePage**: Advanced candidate comparison with detailed metrics, strength/weakness analysis, and ComparisonMatrix integration.
+- **ComparisonMatrix**: Comprehensive skills matrix comparison with team gap highlighting and confidence indicators.
+- **JDLibraryPage**: Enhanced job description library with filtering, sorting, AI-optimized weights, and usage statistics.
+- **SkillTrendChart**: Role category analysis with trend visualization and growth metrics.
 - **AdminDashboardPage**: Comprehensive platform administration interface with tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 - **AuthContext**: JWT lifecycle, login/register/logout, and tenant/user state.
+- **NotificationContext**: Analysis progress tracking and real-time updates for streaming workflows.
 - **useSubscription**: Subscription and usage checks, optimistic updates, and plan features with improved error handling.
 - **uploadChunked**: Utility for handling large file uploads with chunking, retry logic, and progress tracking.
 - **Streaming Analysis**: SSE-based real-time updates for both single and batch analysis workflows.
 - **XSS Protection**: Universal string sanitization through safeStr utility function across all components.
 - **Platform Administration**: Complete administrative interface for tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 - **Resume Access System**: **NEW**: Comprehensive resume file handling with proper MIME type detection, filename generation, and user experience improvements.
+- **AnimatedScore**: **NEW**: Framer-motion animated score counter with customizable duration, size, and color coding.
+- **StreamingText**: **NEW**: Typewriter-style text reveal for streaming LLM narrative content with progressive display and immediate mode.
+- **CandidateCard**: **NEW**: 30-second review design with enhanced highlights, skills visualization, and quick actions.
+- **ProgressBadge**: **NEW**: Real-time analysis progress tracking with popover, completion notifications, and status indicators.
+- **ScoreBadge**: **NEW**: Enhanced circular score badge with AnimatedScore integration for animated score display.
+- **QuickActions**: **NEW**: Status change buttons with dropdown options for candidate management actions.
+- **useOptimisticUpdate**: **NEW**: Hook for immediate UI updates with rollback capability and undo support.
+- **useKeyboardShortcuts**: **NEW**: Keyboard navigation for candidate lists with J/K movement, S/R status changes, and Enter action.
+- **useAnalysisProgress**: **NEW**: Hook for batch analysis progress management and real-time updates.
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
+- [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [OnboardingContext.jsx:1-170](file://app/frontend/src/contexts/OnboardingContext.jsx#L1-L170)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
 - [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
@@ -232,11 +327,24 @@ AS --> CSP
 - [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
 - [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [NotificationContext.jsx](file://app/frontend/src/contexts/NotificationContext.jsx)
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
-- [api.js:556-569](file://app/frontend/src/lib/api.js#L556-L569)
+- [AnimatedScore.jsx:1-63](file://app/frontend/src/components/AnimatedScore.jsx#L1-L63)
+- [StreamingText.jsx:1-73](file://app/frontend/src/components/StreamingText.jsx#L1-L73)
+- [CandidateCard.jsx:1-141](file://app/frontend/src/components/CandidateCard.jsx#L1-L141)
+- [ProgressBadge.jsx:1-132](file://app/frontend/src/components/ProgressBadge.jsx#L1-L132)
+- [ScoreBadge.jsx:1-58](file://app/frontend/src/components/ScoreBadge.jsx#L1-L58)
+- [QuickActions.jsx:1-158](file://app/frontend/src/components/QuickActions.jsx#L1-L158)
+- [useOptimisticUpdate.js:1-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L1-L81)
+- [useKeyboardShortcuts.js:1-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L1-L102)
+- [useAnalysisProgress.js:1-25](file://app/frontend/src/hooks/useAnalysisProgress.js#L1-L25)
 
 ## Architecture Overview
 The frontend follows a layered architecture with enhanced error handling, redesigned analysis flow, comprehensive XSS protection, and comprehensive platform administration capabilities:
@@ -244,13 +352,14 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - App wraps routes with ErrorBoundary, AuthProvider, sets up lazy routes, and renders shell wrappers.
 - ErrorBoundary provides graceful degradation with user-friendly error messages and retry options.
 - AppShell hosts NavBar and page content with security headers.
-- DashboardNew serves as the enhanced landing page with analytics and quick actions.
+- DashboardNew serves as the enhanced landing page with analytics, GettingStarted checklist, and quick actions.
+- OnboardingWizard provides comprehensive guided setup with 4-step flow and persistent state management.
 - AnalyzePage orchestrates the new 3-step analysis workflow with AI-powered features, streaming updates, and **intelligent auto-skip functionality**.
 - BatchPage provides enhanced batch processing with real-time progress tracking and ranked shortlist.
 - AdminDashboardPage provides comprehensive platform administration with tabbed navigation and administrative tools.
 - Pages orchestrate UI components and API interactions with improved error handling and XSS protection.
 - API client centralizes HTTP requests, JWT injection, automatic refresh, and enhanced retry mechanisms.
-- Contexts and hooks manage authentication and subscription state with robust error handling.
+- Contexts and hooks manage authentication, subscription state, onboarding progress, and analysis progress with robust error handling.
 - uploadChunked utility handles large file uploads with chunking and progress tracking.
 - Streaming analysis provides real-time updates via SSE for both single and batch workflows.
 - **NEW**: XSS Protection Layer provides universal string sanitization through safeStr utility function.
@@ -258,6 +367,13 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - **NEW**: Platform Administration System provides comprehensive tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 - **NEW**: Dual Job Context Persistence System provides seamless workflow continuity using both sessionStorage (for text-mode JDs) and IndexedDB (for file-mode JDs).
 - **NEW**: Resume Access System provides comprehensive resume file handling with proper MIME type detection, filename generation, and user experience improvements.
+- **NEW**: Enhanced Component Library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, and specialized hooks.
+- **NEW**: Optimistic UI Updates with useOptimisticUpdate hook for immediate feedback and rollback capability.
+- **NEW**: Keyboard Shortcuts for efficient candidate list navigation and management.
+- **NEW**: Real-time Analysis Progress Tracking with ProgressBadge and useAnalysisProgress hook.
+- **NEW**: GettingStarted Checklist System with completion tracking and celebration animations.
+- **NEW**: Advanced Candidate Comparison with ComparisonMatrix and SkillTrendChart integrations.
+- **NEW**: Enhanced JD Library with filtering, sorting, AI-optimized weights, and usage statistics.
 
 ```mermaid
 sequenceDiagram
@@ -268,9 +384,13 @@ participant P as "ProtectedRoute"
 participant PAR as "PlatformAdminRoute"
 participant S as "AppShell"
 participant DN as "DashboardNew"
+participant GS as "GettingStarted"
+participant OW as "OnboardingWizard"
 participant AP as "AnalyzePage"
 participant RP as "ReportPage"
 participant CP as "CandidatesPage"
+participant CMP as "ComparePage"
+participant CM as "ComparisonMatrix"
 participant BP as "BatchPage"
 participant ADP as "AdminDashboardPage"
 participant UWP as "UniversalWeightsPanel"
@@ -290,6 +410,12 @@ P-->>U : Redirect to "/login"
 else Authenticated
 P->>S : Render shell with CSP
 S->>DN : Render DashboardNew
+DN->>GS : Render GettingStarted
+S->>OW : Render OnboardingWizard (if needed)
+OW->>API : updateOrganization / selectOnboardingPlan
+API->>BE : Update onboarding status
+BE-->>OW : Success
+OW->>S : Hide wizard
 DN->>AP : Navigate to "/analyze"
 AP->>UWP : Render weights panel
 AP->>WSP : Render AI suggestions
@@ -319,6 +445,12 @@ API->>BE : Serve resume file with proper MIME type
 BE-->>CP : Return blob with content-type
 CP->>SEC : Apply XSS Protection
 CP->>S : Show resume in new tab or download
+S->>CMP : Navigate to "/compare"
+CMP->>CM : Render ComparisonMatrix
+CM->>API : compareCandidates
+API->>BE : Compare candidates
+BE-->>CM : Return comparison data
+CM->>SEC : Apply XSS Protection
 S-->>U : Admin interface with tabs
 end
 end
@@ -330,10 +462,14 @@ end
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
+- [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
 - [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
 - [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
 - [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
@@ -348,6 +484,586 @@ end
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 ## Detailed Component Analysis
+
+### Enhanced OnboardingWizard Component
+**New** The OnboardingWizard component provides a comprehensive 4-step guided setup flow with smooth animations and persistent state management.
+
+- **Step 1: Organization Setup**: Collects organization details (name, industry, company size) with validation and error handling
+- **Step 2: Plan Selection**: Displays available plans with pricing, features, and auto-selection of free plan
+- **Step 3: Team Invitation**: Optional team member invitations with email collection and local storage persistence
+- **Step 4: Completion Celebration**: Celebration animation with quick action buttons for immediate workflow continuation
+- **Framer Motion Integration**: Smooth transitions between steps with entrance/exit animations
+- **Persistent State Management**: Uses OnboardingContext for cross-session state persistence
+- **Error Handling**: Comprehensive error handling with user-friendly messages and retry options
+- **Loading States**: Proper loading indicators during API calls and data processing
+- **Accessibility**: Proper ARIA labels and keyboard navigation support
+
+```mermaid
+flowchart TD
+Start(["OnboardingWizard"]) --> CheckComplete{"isOnboardingComplete?"}
+CheckComplete --> |Yes| NullReturn["return null"]
+CheckComplete --> |No| Step1["Step 1: Organization Setup"]
+Step1 --> Step2["Step 2: Choose Plan"]
+Step2 --> Step3["Step 3: Invite Team"]
+Step3 --> Step4["Step 4: Get Started"]
+Step4 --> Complete["markOnboardingComplete()"]
+Complete --> Navigate["navigate('/')"]
+```
+
+**Diagram sources**
+- [OnboardingWizard.jsx:511-589](file://app/frontend/src/components/OnboardingWizard.jsx#L511-L589)
+
+**Section sources**
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+
+### Enhanced OnboardingContext Hook
+**New** The OnboardingContext provides persistent state management for the onboarding workflow across browser sessions.
+
+- **Persistent Storage**: Uses localStorage for cross-session state persistence with fallback to memory
+- **Status Tracking**: Tracks onboarding completion status and current step
+- **Checklist Management**: Manages GettingStarted checklist with completion tracking
+- **Backend Integration**: Syncs with backend onboarding status for authenticated users
+- **State Persistence**: Automatically persists state changes to localStorage
+- **Error Handling**: Graceful fallback when localStorage is unavailable
+- **Type Safety**: Comprehensive TypeScript support for all state properties
+
+```mermaid
+flowchart TD
+Start(["OnboardingContext"]) --> LoadStorage["loadFromStorage()"]
+LoadStorage --> InitState["Initialize state from storage"]
+InitState --> AuthCheck{"Authenticated?"}
+AuthCheck --> |Yes| FetchBackend["getOnboardingStatus()"]
+AuthCheck --> |No| UseLocalStorage["Use localStorage state"]
+FetchBackend --> MergeState["Merge with localStorage state"]
+MergeState --> ProvideContext["Provide context to children"]
+UseLocalStorage --> ProvideContext
+```
+
+**Diagram sources**
+- [OnboardingContext.jsx:35-170](file://app/frontend/src/contexts/OnboardingContext.jsx#L35-L170)
+
+**Section sources**
+- [OnboardingContext.jsx:1-170](file://app/frontend/src/contexts/OnboardingContext.jsx#L1-L170)
+
+### Enhanced GettingStarted Checklist
+**New** The GettingStarted component provides an interactive checklist system with progress tracking and completion celebration.
+
+- **Checklist Items**: Five core tasks (create JD, analyze resume, shortlist candidate, invite team, share with hiring manager)
+- **Progress Tracking**: Visual progress bar with completion percentage
+- **Completion Celebration**: Animated celebration when all items are completed
+- **Persistent State**: Uses OnboardingContext for completion tracking
+- **Interactive Elements**: Clickable checklist items with hover states and transitions
+- **Dismiss Functionality**: Ability to dismiss checklist after completion
+- **Accessibility**: Proper ARIA labels and keyboard navigation support
+
+```mermaid
+flowchart TD
+Start(["GettingStarted"]) --> CheckDismissed{"checklistDismissed?"}
+CheckDismissed --> |Yes| NullReturn["return null"]
+CheckDismissed --> |No| CheckComplete{"isChecklistComplete()?"}
+CheckComplete --> |Yes| Celebrate["Show celebration animation"]
+CheckComplete --> |No| RenderChecklist["Render checklist items"]
+Celebrate --> AutoDismiss["Auto-dismiss after 5s"]
+AutoDismiss --> Dismiss["dismissChecklist()"]
+RenderChecklist --> TrackProgress["Track completion progress"]
+```
+
+**Diagram sources**
+- [GettingStarted.jsx:19-129](file://app/frontend/src/components/GettingStarted.jsx#L19-L129)
+
+**Section sources**
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+
+### Enhanced DashboardNew Landing Page
+**Updated** DashboardNew serves as the new primary landing page replacing the legacy Dashboard with comprehensive analytics and workflow optimization:
+- Features gradient hero section with prominent call-to-action for new analysis
+- GettingStarted checklist integration with completion tracking and celebration
+- Three-column statistics grid showing usage, plan info, and JD library
+- Recent analyses quick access with clickable entries
+- Saved JD library integration with one-click analysis initiation
+- Feature highlights section showcasing AI weight suggestions, batch processing, and version history
+- **Enhanced**: Pipeline summary with stacked status bars, urgency indicators, and sorting
+- **Enhanced**: Weekly metrics with ring gauge visualization and trend indicators
+- **Enhanced**: Action items with priority indicators and quick navigation
+- **Enhanced**: Responsive design with card animations and blur effects
+
+```mermaid
+flowchart TD
+Start(["DashboardNew"]) --> GettingStarted["GettingStarted Checklist"]
+GettingStarted --> Stats["Quick Stats Grid"]
+Stats --> Hero["Hero CTA Section"]
+Hero --> Columns["Two Column Layout"]
+Columns --> ActionItems["Action Items Bar"]
+ActionItems --> Pipeline["Enhanced Pipeline Summary"]
+Pipeline --> Activities["Recent Activity Feed"]
+Activities --> WeeklyMetrics["Weekly Metrics"]
+WeeklyMetrics --> Skills["Top Skill Gaps"]
+```
+
+**Diagram sources**
+- [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
+
+**Section sources**
+- [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
+
+### Enhanced CandidateCard Component
+**Updated** The CandidateCard component has been redesigned with a 30-second review layout, enhanced highlights system, and integrated quick actions.
+
+- **30-Second Review Design**: Compact layout optimized for rapid candidate evaluation
+- **Enhanced Highlights**: Priority-based display of candidate strengths and concerns
+- **Skills Visualization**: Horizontal progress bars for top 3 skills with proficiency ratings
+- **Quick Actions Integration**: Embedded status change buttons with dropdown options
+- **Score Badge Enhancement**: Uses new AnimatedScore for animated score display
+- **Selection State**: Visual selection ring for keyboard navigation
+- **Hover Effects**: Subtle shadow transitions for better interactivity
+- **Responsive Design**: Adapts to different screen sizes and content lengths
+
+```mermaid
+flowchart TD
+Start(["CandidateCard"]) --> Header["Card Header"]
+Header --> ScoreBadge["ScoreBadge (AnimatedScore)"]
+Header --> Info["Candidate Info"]
+Info --> Name["Name & Title"]
+Info --> JobTitle["Applied Job Title"]
+Info --> Email["Email (fallback)"]
+Info --> RecBadge["Recommendation Badge"]
+Highlights["Highlights Section"] --> Top3["Top 3 Highlights"]
+Top3 --> Concern["Concern Icons"]
+Top3 --> Positive["Positive Icons"]
+Skills["Skills Section"] --> Top3Skills["Top 3 Skills"]
+Top3Skills --> SkillName["Skill Name"]
+Top3Skills --> SkillBar["Progress Bar"]
+Top3Skills --> Proficiency["Proficiency %"]
+Footer["Quick Actions Footer"] --> StatusButtons["Shortlist/Reject/Review"]
+Footer --> MoreDropdown["More Options Dropdown"]
+```
+
+**Diagram sources**
+- [CandidateCard.jsx:54-139](file://app/frontend/src/components/CandidateCard.jsx#L54-L139)
+
+**Section sources**
+- [CandidateCard.jsx:1-141](file://app/frontend/src/components/CandidateCard.jsx#L1-L141)
+
+### Enhanced ComparisonMatrix Component
+**New** The ComparisonMatrix component provides comprehensive candidate comparison with skills matrix visualization and team gap highlighting.
+
+- **Skills Matrix Visualization**: Grid-based comparison of candidate skills with confidence indicators
+- **Team Gap Highlighting**: Visual indication of team skill gaps with amber highlighting
+- **Multiple Sorting Options**: Sort by match percentage, fit score, or gaps filled
+- **Confidence Indicators**: Color-coded confidence levels (green/yellow/orange) for skill matches
+- **Required/Nice Skills**: Clear distinction between required and nice-to-have skills
+- **Summary Cards**: Quick overview of each candidate's performance metrics
+- **Loading States**: Proper loading indicators during comparison computation
+- **Error Handling**: Graceful error display with user-friendly messaging
+
+```mermaid
+flowchart TD
+Start(["ComparisonMatrix"]) --> CheckIds{"candidateIds.length >= 2?"}
+CheckIds --> |No| NullReturn["return null"]
+CheckIds --> |Yes| FetchData["fetchComparison()"]
+FetchData --> Loading{"loading?"}
+Loading --> |Yes| ShowSpinner["Show loading spinner"]
+Loading --> |No| CheckError{"error?"}
+CheckError --> |Yes| ShowError["Show error message"]
+CheckError --> |No| RenderMatrix["Render skills matrix"]
+RenderMatrix --> SortOptions["Sorting dropdown"]
+RenderMatrix --> SummaryCards["Summary cards grid"]
+RenderMatrix --> SkillsTable["Skills matrix table"]
+SkillsTable --> ConfidenceIndicators["Confidence indicators"]
+SkillsTable --> TeamGapHighlight["Team gap highlighting"]
+```
+
+**Diagram sources**
+- [ComparisonMatrix.jsx:11-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L11-L137)
+
+**Section sources**
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+
+### Enhanced ComparePage Component
+**Updated** ComparePage now integrates the new ComparisonMatrix component and provides comprehensive candidate comparison capabilities.
+
+- **Candidate Selection**: Multi-select interface with history-based candidate selection
+- **Comparison Results**: Detailed comparison table with metrics and winners
+- **Strengths/Weaknesses**: Collapsible sections for detailed candidate analysis
+- **Interview Questions**: Preview of AI-generated interview questions
+- **Hiring Decisions**: AI-powered hiring recommendations with confidence levels
+- **Dealbreakers**: Highlighted dealbreaker identification
+- **Differentiators**: Unique candidate differentiators
+- **Adjacent Skills**: Related skills analysis
+- **ComparisonMatrix Integration**: Advanced skills matrix comparison with team gap highlighting
+
+```mermaid
+flowchart TD
+Start(["ComparePage"]) --> Selector["Candidate Selector"]
+Selector --> CompareButton["Compare Button"]
+CompareButton --> CheckSelection{"selected.length >= 2?"}
+CheckSelection --> |No| ShowError["Show error message"]
+CheckSelection --> |Yes| FetchComparison["compareResults()"]
+FetchComparison --> RenderResults["Render comparison table"]
+RenderResults --> CollapsibleSections["Collapsible analysis sections"]
+RenderResults --> ComparisonMatrix["ComparisonMatrix component"]
+CollapsibleSections --> StrengthsWeaknesses["Strengths & Weaknesses"]
+CollapsibleSections --> InterviewQuestions["Interview Questions Preview"]
+CollapsibleSections --> HiringDecision["Hiring Decision"]
+CollapsibleSections --> Dealbreakers["Dealbreakers"]
+CollapsibleSections --> Differentiators["Differentiators"]
+CollapsibleSections --> AdjacentSkills["Adjacent Skills"]
+```
+
+**Diagram sources**
+- [ComparePage.jsx:82-510](file://app/frontend/src/pages/ComparePage.jsx#L82-L510)
+
+**Section sources**
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+
+### Enhanced JDLibraryPage Component
+**Updated** JDLibraryPage now includes enhanced filtering, sorting, and usage statistics for job descriptions.
+
+- **Advanced Filtering**: Domain, skill, and category-based filtering with dropdown selectors
+- **Legacy Compatibility**: Support for both structured tags (JSON) and legacy comma-separated tags
+- **Sorting Options**: Sort by recent or alphabetical order
+- **Usage Statistics**: Display screening statistics and shortlist counts for each JD
+- **AI-Optimized Weights**: Display of AI-generated scoring weights for each JD
+- **Template Management**: Create, edit, delete, and use job description templates
+- **Statistics Dashboard**: Overview of JD usage across the organization
+- **Responsive Design**: Grid layout adapts to different screen sizes
+
+```mermaid
+flowchart TD
+Start(["JDLibraryPage"]) --> LoadData["getTemplates() + getAllJDStats()"]
+LoadData --> ParseTags["parseTags() - structured + legacy"]
+ParseTags --> FilterTemplates["Filter by domain/skill/category"]
+FilterTemplates --> SortTemplates["Sort by recent/name"]
+SortTemplates --> RenderGrid["Render template grid"]
+RenderGrid --> TemplateCards["Template cards with stats"]
+TemplateCards --> WeightsDisplay["AI-optimized weights display"]
+TemplateCards --> ActionButtons["Use/Edit/Delete buttons"]
+ActionButtons --> Modal["TemplateModal for create/edit"]
+```
+
+**Diagram sources**
+- [JDLibraryPage.jsx:119-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L119-L530)
+
+**Section sources**
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+
+### Enhanced SkillTrendChart Component
+**New** The SkillTrendChart component provides comprehensive role category analysis with trend visualization and growth metrics.
+
+- **Role Category Filtering**: Dropdown for filtering by role categories (Backend, Frontend, Data Science, etc.)
+- **Trend Visualization**: Line chart showing JD mentions vs resume presence over time
+- **Growth Metrics**: Calculate and display growth percentages for each skill
+- **Direction Indicators**: Visual indicators for rising, falling, or stable trends
+- **Mini Sparklines**: Compact trend visualization for each skill in table view
+- **Sorting Capabilities**: Sort skills by various metrics (growth, mentions, presence)
+- **Snapshot Management**: Integration with backend snapshot computation
+- **Responsive Design**: Chart adapts to different screen sizes
+
+```mermaid
+flowchart TD
+Start(["SkillTrendChart"]) --> LoadData["Load skill trends data"]
+LoadData --> ParseData["Parse timeline data"]
+ParseData --> FilterCategory["Filter by role category"]
+FilterCategory --> ComputeMetrics["Compute growth percentages"]
+ComputeMetrics --> SortSkills["Sort by selected metric"]
+SortSkills --> RenderChart["Render line chart"]
+RenderChart --> RenderTable["Render skills table"]
+RenderTable --> MiniSparklines["Render mini sparklines"]
+RenderTable --> DirectionIndicators["Render trend indicators"]
+```
+
+**Diagram sources**
+- [SkillTrendChart.jsx:70-249](file://app/frontend/src/components/SkillTrendChart.jsx#L70-L249)
+
+**Section sources**
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
+
+### Enhanced AnimatedScore Component
+**New** The AnimatedScore component provides smooth score counting animations using Framer Motion with customizable configuration options.
+
+- **Framer Motion Integration**: Uses useMotionValue and useTransform for smooth animations
+- **Configurable Animation**: Customizable duration, size, and animation control
+- **Color Coding**: Automatic color assignment based on score thresholds
+- **Performance Optimization**: Efficient animation with requestAnimationFrame
+- **Fallback Handling**: Graceful handling of null or invalid score values
+- **Integration Ready**: Designed to work seamlessly with ScoreBadge component
+
+```mermaid
+flowchart TD
+Start(["AnimatedScore"]) --> CheckScore{"score !== null?"}
+CheckScore --> |No| SetZero["count.set(0)"]
+CheckScore --> |Yes| CheckAnimate{"shouldAnimate?"}
+CheckAnimate --> |No| SetDirect["count.set(score)"]
+CheckAnimate --> |Yes| StartAnim["animate(count, score)"]
+StartAnim --> Duration["duration: 0.8s"]
+Duration --> Ease["ease: easeOut"]
+Ease --> Stop["controls.stop"]
+SetZero --> Render["Render motion span"]
+SetDirect --> Render
+Stop --> Render
+Render --> Color["Apply score color"]
+Color --> Size["Apply size classes"]
+Size --> Output["Return animated score"]
+```
+
+**Diagram sources**
+- [AnimatedScore.jsx:36-53](file://app/frontend/src/components/AnimatedScore.jsx#L36-L53)
+
+**Section sources**
+- [AnimatedScore.jsx:1-63](file://app/frontend/src/components/AnimatedScore.jsx#L1-L63)
+
+### Enhanced StreamingText Component
+**New** The StreamingText component provides typewriter-style text revelation for streaming LLM narrative content with progressive display capabilities.
+
+- **Progressive Display**: Character-by-character reveal with configurable speed
+- **Streaming Mode**: Automatic display of newly received content as it arrives
+- **Immediate Mode**: Optional instant display of full text without animation
+- **RAF Optimization**: Uses requestAnimationFrame for smooth animations
+- **State Management**: Tracks displayed length and previous text references
+- **Visual Feedback**: Pulsing cursor indicator during streaming
+- **Performance Aware**: Cancels animation frames on cleanup
+
+```mermaid
+flowchart TD
+Start(["StreamingText"]) --> CheckStreaming{"isStreaming?"}
+CheckStreaming --> |No| NewText{"text !== prevText?"}
+CheckStreaming --> |Yes| StreamText["setDisplayedLength(text.length)"]
+NewText --> |Yes| ResetDisplay["setDisplayedLength(0)"]
+NewText --> |No| CheckSpeed{"immediate OR speed === 0?"}
+CheckSpeed --> |Yes| FullDisplay["setDisplayedLength(text.length)"]
+CheckSpeed --> |No| CheckLength{"displayedLength < text.length?"}
+CheckLength --> |No| DisplayText["Render displayedText"]
+CheckLength --> |Yes| StartRAF["requestAnimationFrame(step)"]
+StartRAF --> NextLength["setDisplayedLength + speed"]
+NextLength --> CheckEnd{"next < text.length?"}
+CheckEnd --> |Yes| ContinueRAF["rafId = requestAnimationFrame(step)"]
+CheckEnd --> |No| DisplayText
+StreamText --> DisplayText
+FullDisplay --> DisplayText
+ResetDisplay --> StartRAF
+DisplayText --> Cursor["Add pulsing cursor"]
+Cursor --> Output["Return animated text"]
+```
+
+**Diagram sources**
+- [StreamingText.jsx:23-60](file://app/frontend/src/components/StreamingText.jsx#L23-L60)
+
+**Section sources**
+- [StreamingText.jsx:1-73](file://app/frontend/src/components/StreamingText.jsx#L1-L73)
+
+### Enhanced ProgressBadge Component
+**New** The ProgressBadge component provides real-time analysis progress tracking with popover display and completion notifications.
+
+- **Real-time Progress**: Shows active analysis status with spinner animation
+- **Completion Notification**: Brief "Complete" state when analysis finishes
+- **Popover Interface**: Detailed progress popover with file list and progress bar
+- **Status Icons**: Visual indicators for completed, error, and in-progress files
+- **Auto-close**: Click-outside detection with automatic popover closure
+- **Animation States**: Smooth transitions between active and completion states
+- **Accessibility**: Proper ARIA labels and keyboard navigation support
+
+```mermaid
+flowchart TD
+Start(["ProgressBadge"]) --> CheckActive{"isActive OR showComplete?"}
+CheckActive --> |No| NullReturn["return null"]
+CheckActive --> |Yes| CheckComplete{"!isActive && showComplete?"}
+CheckComplete --> |Yes| CompleteState["Show 'Complete' badge"]
+CheckComplete --> |No| ActiveState["Show progress badge"]
+ActiveState --> Click["Click to toggle popover"]
+CompleteState --> Click
+Click --> CheckPopover{"popoverOpen?"}
+CheckPopover --> |No| OpenPopover["setPopoverOpen(true)"]
+CheckPopover --> |Yes| ClosePopover["setPopoverOpen(false)"]
+OpenPopover --> RenderPopover["Render progress popover"]
+ClosePopover --> RenderBadge["Render progress badge"]
+RenderPopover --> FileList["Display file list with status icons"]
+FileList --> ProgressBar["Show overall progress bar"]
+ProgressBar --> Completion["Show completion percentage"]
+```
+
+**Diagram sources**
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+
+**Section sources**
+- [ProgressBadge.jsx:1-132](file://app/frontend/src/components/ProgressBadge.jsx#L1-L132)
+
+### Enhanced ScoreBadge Component
+**Updated** The ScoreBadge component now integrates with AnimatedScore for animated score display and enhanced visual design.
+
+- **Animated Score Integration**: Uses AnimatedScore for smooth score counting animation
+- **Enhanced Visual Design**: Improved circular badge with color-coded borders and backgrounds
+- **Size Variants**: Small, medium, and large size options with proportional scaling
+- **Color Coding**: Automatic color assignment based on score thresholds
+- **Flexible Rendering**: Can render either animated or static score display
+- **Performance Optimization**: Efficient color calculation and class composition
+
+```mermaid
+flowchart TD
+Start(["ScoreBadge"]) --> CheckAnimated{"animated?"}
+CheckAnimated --> |Yes| AnimatedPath["Render AnimatedScore"]
+CheckAnimated --> |No| StaticPath["Render static score"]
+AnimatedPath --> SizeClasses["Apply size classes"]
+StaticPath --> SizeClasses
+SizeClasses --> ColorConfig["Get score color config"]
+ColorConfig --> BorderClass["Apply border class"]
+ColorConfig --> BGClass["Apply background class"]
+BorderClass --> RenderBadge["Render circular badge"]
+BGClass --> RenderBadge
+SizeClasses --> RenderBadge
+RenderBadge --> Output["Return enhanced ScoreBadge"]
+```
+
+**Diagram sources**
+- [ScoreBadge.jsx:13-57](file://app/frontend/src/components/ScoreBadge.jsx#L13-L57)
+
+**Section sources**
+- [ScoreBadge.jsx:1-58](file://app/frontend/src/components/ScoreBadge.jsx#L1-L58)
+
+### Enhanced QuickActions Component
+**New** The QuickActions component provides integrated status change buttons with dropdown options for candidate management.
+
+- **Primary Actions**: Shortlist, Reject, and Review Later buttons with visual feedback
+- **Status Highlighting**: Active state styling for current candidate status
+- **Dropdown Options**: More actions dropdown with Compare, Share, and Download
+- **Icon Integration**: Lucide icons for visual clarity and accessibility
+- **Compact Mode**: Icon-only mode for space-constrained layouts
+- **Click-outside Detection**: Automatic dropdown closure when clicking outside
+- **Accessibility**: Proper ARIA labels and keyboard navigation support
+
+```mermaid
+flowchart TD
+Start(["QuickActions"]) --> PrimaryActions["Primary Status Buttons"]
+PrimaryActions --> Shortlist["Shortlist Button"]
+PrimaryActions --> Reject["Reject Button"]
+PrimaryActions --> Review["Review Later Button"]
+Shortlist --> ActiveState["Active state styling"]
+Reject --> ActiveState
+Review --> ActiveState
+ActiveState --> Dropdown["More Options Dropdown"]
+Dropdown --> Compare["Compare Option"]
+Dropdown --> Share["Share Option"]
+Dropdown --> Download["Download Option"]
+Compare --> ClickHandler["Future: wire up handlers"]
+Share --> ClickHandler
+Download --> ClickHandler
+ClickHandler --> CloseDropdown["Close dropdown"]
+CloseDropdown --> UpdateStatus["Trigger onStatusChange"]
+UpdateStatus --> Callback["Call parent callback"]
+```
+
+**Diagram sources**
+- [QuickActions.jsx:88-157](file://app/frontend/src/components/QuickActions.jsx#L88-L157)
+
+**Section sources**
+- [QuickActions.jsx:1-158](file://app/frontend/src/components/QuickActions.jsx#L1-L158)
+
+### Enhanced useOptimisticUpdate Hook
+**New** The useOptimisticUpdate hook provides immediate UI updates with rollback capability and undo support for candidate status changes.
+
+- **Optimistic Updates**: Instant UI updates before API calls complete
+- **Rollback Capability**: Automatic rollback on API failure with user notification
+- **Undo Support**: Undo toast with callback to revert changes
+- **Flexible Matching**: Support for custom ID matching functions or field names
+- **Error Handling**: Graceful error handling with user feedback
+- **State Management**: Efficient state updates with immutable patterns
+- **API Integration**: Supports both success and undo API calls
+
+```mermaid
+flowchart TD
+Start(["useOptimisticUpdate"]) --> CallHook["optimisticUpdate() called"]
+CallHook --> FindItem["Find matching item by idField"]
+FindItem --> CheckChanged{"Value changed?"}
+CheckChanged --> |No| Return["return (no-op)"]
+CheckChanged --> |Yes| SavePrev["Save previous value"]
+SavePrev --> UpdateUI["Immediately update UI (optimistic)"]
+UpdateUI --> ShowUndo["Show undo toast with callback"]
+ShowUndo --> CallAPI["Execute background API call"]
+CallAPI --> Success{"API success?"}
+Success --> |Yes| Complete["Complete successfully"]
+Success --> |No| Rollback["Rollback state to previous value"]
+Rollback --> ShowError["Show error toast"]
+ShowError --> Complete
+Complete --> End["Operation complete"]
+```
+
+**Diagram sources**
+- [useOptimisticUpdate.js:25-78](file://app/frontend/src/hooks/useOptimisticUpdate.js#L25-L78)
+
+**Section sources**
+- [useOptimisticUpdate.js:1-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L1-L81)
+
+### Enhanced useKeyboardShortcuts Hook
+**New** The useKeyboardShortcuts hook provides efficient keyboard navigation for candidate lists with J/K movement, S/R status changes, and Enter action.
+
+- **J/K Navigation**: Move selection up and down with J and K keys
+- **Status Shortcuts**: S for shortlist, R for reject, with immediate status changes
+- **Enter Action**: Open selected candidate with Enter key
+- **Search Shortcut**: Cmd/Ctrl+K to focus search input
+- **Input Protection**: Ignores keystrokes when user is typing in inputs
+- **Content Editable Support**: Handles contenteditable elements properly
+- **Modular Design**: Configurable options for different use cases
+
+```mermaid
+flowchart TD
+Start(["useKeyboardShortcuts"]) --> CheckEnabled{"enabled AND items.length > 0?"}
+CheckEnabled --> |No| Exit["return"]
+CheckEnabled --> |Yes| Listen["Add keydown listener"]
+Listen --> CheckTarget{"Inside input/textarea/select?"}
+CheckTarget --> |Yes| Exit
+CheckTarget --> |No| CheckKey{"Check key press"}
+CheckKey --> CmdK{"Cmd/Ctrl+K?"}
+CmdK --> |Yes| FocusSearch["Call onSearch()"]
+CmdK --> |No| CheckJ{"Key === 'j'?"}
+CheckJ --> |Yes| SelectNext["onSelect(min)"]
+CheckJ --> |No| CheckK{"Key === 'k'?"}
+CheckK --> |Yes| SelectPrev["onSelect(max)"]
+CheckK --> |No| CheckS{"Key === 's'?"}
+CheckS --> |Yes| Shortlist["onShortlist(selected)"]
+CheckS --> |No| CheckR{"Key === 'r'?"}
+CheckR --> |Yes| Reject["onReject(selected)"]
+CheckR --> |No| CheckEnter{"Key === 'Enter'?"}
+CheckEnter --> |Yes| Open["onOpen(selected)"]
+CheckEnter --> |No| Exit
+FocusSearch --> Exit
+SelectNext --> Exit
+SelectPrev --> Exit
+Shortlist --> Exit
+Reject --> Exit
+Open --> Exit
+```
+
+**Diagram sources**
+- [useKeyboardShortcuts.js:26-98](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L26-L98)
+
+**Section sources**
+- [useKeyboardShortcuts.js:1-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L1-L102)
+
+### Enhanced useAnalysisProgress Hook
+**New** The useAnalysisProgress hook provides access to analysis progress state and methods for batch analysis workflows.
+
+- **Context Integration**: Consumes NotificationContext for progress state
+- **Progress Methods**: Access to start, update, complete, and reset progress
+- **State Properties**: isActive, completed, total, and items array
+- **Error Handling**: Throws descriptive error when used outside provider
+- **Real-time Updates**: Provides reactive progress state for UI updates
+- **Batch Analysis**: Designed for multi-file analysis workflows
+
+```mermaid
+flowchart TD
+Start(["useAnalysisProgress"]) --> ConsumeContext["Consume NotificationContext"]
+ConsumeContext --> CheckAnalysisProgress{"analysisProgress exists?"}
+CheckAnalysisProgress --> |No| ThrowError["Throw descriptive error"]
+CheckAnalysisProgress --> |Yes| ReturnState["Return analysisProgress + methods"]
+ReturnState --> Destructure["Destructure state properties"]
+Destructure --> Methods["Include start/update/complete/reset"]
+Methods --> ReturnFinal["Return combined object"]
+```
+
+**Diagram sources**
+- [useAnalysisProgress.js:4-24](file://app/frontend/src/hooks/useAnalysisProgress.js#L4-L24)
+
+**Section sources**
+- [useAnalysisProgress.js:1-25](file://app/frontend/src/hooks/useAnalysisProgress.js#L1-L25)
 
 ### Enhanced CandidatesPage with Resume Access Buttons
 **Updated** The CandidatesPage now includes comprehensive resume access functionality with View/Download buttons in the candidate detail modal.
@@ -473,32 +1189,6 @@ Browser-->>Client : Trigger download
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 
-### Enhanced DashboardNew Landing Page
-DashboardNew serves as the new primary landing page replacing the legacy Dashboard:
-- Features gradient hero section with prominent call-to-action for new analysis
-- Three-column statistics grid showing usage, plan info, and JD library
-- Recent analyses quick access with clickable entries
-- Saved JD library integration with one-click analysis initiation
-- Feature highlights section showcasing AI weight suggestions, batch processing, and version history
-- Responsive design with card animations and blur effects
-
-```mermaid
-flowchart TD
-Start(["DashboardNew"]) --> Stats["Quick Stats Grid"]
-Stats --> Hero["Hero CTA Section"]
-Hero --> Columns["Two Column Layout"]
-Columns --> Recent["Recent Analyses"]
-Columns --> JdLibrary["JD Library Quick Access"]
-Recent --> Navigate["Click to /report"]
-JdLibrary --> Analyze["Click to /analyze"]
-```
-
-**Diagram sources**
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
-
-**Section sources**
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
-
 ### Enhanced 3-Step Analysis Workflow
 AnalyzePage implements a comprehensive three-step analysis process with **intelligent auto-skip functionality**:
 - Step 1: Job Description input with text, file upload, and URL extraction modes
@@ -513,6 +1203,7 @@ AnalyzePage implements a comprehensive three-step analysis process with **intell
 - **NEW**: Intelligent job context detection logic that automatically loads file-mode JDs from IndexedDB when returning from ReportPage
 - **NEW**: Streaming analysis with real-time progress updates and ranked results
 - **NEW**: XSS protection through safeStr sanitization across all rendered content
+- **NEW**: Enhanced component library with AnimatedScore, StreamingText, and ProgressBadge integration
 
 ```mermaid
 flowchart TD
@@ -609,6 +1300,8 @@ BatchPage integrates chunked upload capabilities and real-time streaming:
 - **NEW**: Streaming analysis with ranked shortlist table and live updates
 - **NEW**: Real-time progress indicators for upload and analysis phases
 - **NEW**: XSS protection through safeStr sanitization for all dynamic content
+- **NEW**: Enhanced ProgressBadge integration for real-time progress tracking
+- **NEW**: Optimistic UI updates for candidate status changes during batch processing
 
 ```mermaid
 flowchart TD
@@ -619,6 +1312,11 @@ Progress --> Analyze["Streaming Analysis"]
 Analyze --> Results["Ranked Shortlist"]
 Results --> SEC["Apply XSS Protection"]
 SEC --> Export["Export Options"]
+Results --> ProgressBadge["ProgressBadge Updates"]
+ProgressBadge --> RealTime["Real-time Progress"]
+RealTime --> Candidates["Candidate List Updates"]
+Candidates --> Optimistic["Optimistic Status Updates"]
+Optimistic --> QuickActions["QuickActions Integration"]
 ```
 
 **Diagram sources**
@@ -636,6 +1334,8 @@ The streaming analysis system provides real-time updates for both single and bat
 - **Error Recovery**: Graceful handling of upload and analysis failures
 - **Callback System**: Modular event handling for different stages
 - **NEW**: XSS protection through safeStr sanitization for all streamed content
+- **NEW**: Enhanced ProgressBadge integration for real-time progress tracking
+- **NEW**: StreamingText integration for LLM narrative display with progressive reveal
 
 ```mermaid
 sequenceDiagram
@@ -644,6 +1344,8 @@ participant API as "analyzeBatchStream"
 participant SSE as "SSE Server"
 participant Upload as "Chunked Upload"
 participant SEC as "XSS Protection"
+participant PB as "ProgressBadge"
+participant ST as "StreamingText"
 Client->>API : Start batch analysis
 API->>Upload : Upload files (chunked)
 Upload-->>API : Upload progress callbacks
@@ -652,6 +1354,10 @@ loop For each file
 SSE-->>Client : onResult(index, total, filename, result, id)
 Client->>SEC : Apply safeStr sanitization
 SEC-->>Client : Sanitized result data
+Client->>PB : Update progress badge
+PB-->>Client : Show completion percentage
+Client->>ST : Render streaming text
+ST-->>Client : Progressive LLM narrative
 Client->>Client : Update ranked shortlist
 end
 SSE-->>Client : onDone(total, successful, failed)
@@ -662,11 +1368,15 @@ Client->>Client : Show completion status
 - [api.js:413-515](file://app/frontend/src/lib/api.js#L413-L515)
 - [BatchPage.jsx:131-177](file://app/frontend/src/pages/BatchPage.jsx#L131-L177)
 - [AnalyzePage.jsx:303-331](file://app/frontend/src/pages/AnalyzePage.jsx#L303-L331)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
 
 **Section sources**
 - [api.js:200-515](file://app/frontend/src/lib/api.js#L200-L515)
 - [BatchPage.jsx:131-177](file://app/frontend/src/pages/BatchPage.jsx#L131-L177)
 - [AnalyzePage.jsx:303-331](file://app/frontend/src/pages/AnalyzePage.jsx#L303-L331)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
 
 ### Ranked Shortlist Table
 The ranked shortlist table provides real-time candidate ranking during batch processing:
@@ -677,6 +1387,8 @@ The ranked shortlist table provides real-time candidate ranking during batch pro
 - **Selection Controls**: Checkbox selection for export operations
 - **Action Buttons**: Direct navigation to detailed reports
 - **NEW**: XSS protection through safeStr sanitization for all dynamic content
+- **NEW**: Enhanced CandidateCard integration with animated scores and quick actions
+- **NEW**: Optimistic UI updates for candidate status changes during batch processing
 
 ```mermaid
 flowchart TD
@@ -684,17 +1396,24 @@ Start(["Ranked Shortlist"]) --> Live["Live Updates"]
 Live --> SEC["Apply XSS Protection"]
 SEC --> Sort["Auto-sort by Score"]
 Sort --> Rank["Display Rankings"]
-Rank --> Actions["Action Buttons"]
+Rank --> CandidateCards["CandidateCard with AnimatedScore"]
+CandidateCards --> QuickActions["QuickActions Integration"]
+QuickActions --> Optimistic["Optimistic Status Updates"]
+Optimistic --> Actions["Action Buttons"]
 Actions --> Export["Export Selection"]
 ```
 
 **Diagram sources**
 - [BatchPage.jsx:511-575](file://app/frontend/src/pages/BatchPage.jsx#L511-L575)
 - [AnalyzePage.jsx:812-863](file://app/frontend/src/pages/AnalyzePage.jsx#L812-L863)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
 
 **Section sources**
 - [BatchPage.jsx:511-575](file://app/frontend/src/pages/BatchPage.jsx#L511-L575)
 - [AnalyzePage.jsx:812-863](file://app/frontend/src/pages/AnalyzePage.jsx#L812-L863)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
 
 ### Enhanced Chunked Upload System
 uploadChunked.js provides robust large file upload handling:
@@ -739,6 +1458,10 @@ The streaming analysis introduces several new UI components:
 - **Loading States**: Animated progress indicators during streaming operations
 - **Completion Feedback**: Clear indication when analysis is complete
 - **NEW**: XSS protection through safeStr sanitization for all dynamic content
+- **NEW**: AnimatedScore integration for animated fit scores
+- **NEW**: StreamingText integration for progressive LLM narrative display
+- **NEW**: ProgressBadge integration for real-time progress tracking
+- **NEW**: Optimistic UI updates for immediate feedback during batch processing
 
 ```mermaid
 flowchart TD
@@ -748,16 +1471,27 @@ Live --> Status["Status Badges"]
 Status --> Errors["Error Handling"]
 Errors --> Loading["Loading States"]
 Loading --> Complete["Completion Feedback"]
-Complete --> SEC["Apply XSS Protection"]
+Complete --> AnimatedScore["AnimatedScore Integration"]
+Complete --> StreamingText["StreamingText Integration"]
+Complete --> ProgressBadge["ProgressBadge Integration"]
+AnimatedScore --> SEC["Apply XSS Protection"]
+StreamingText --> SEC
+ProgressBadge --> SEC
 ```
 
 **Diagram sources**
 - [BatchPage.jsx:454-476](file://app/frontend/src/pages/BatchPage.jsx#L454-L476)
 - [AnalyzePage.jsx:774-799](file://app/frontend/src/pages/AnalyzePage.jsx#L774-L799)
+- [AnimatedScore.jsx:16-63](file://app/frontend/src/components/AnimatedScore.jsx#L16-L63)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
 
 **Section sources**
 - [BatchPage.jsx:454-476](file://app/frontend/src/pages/BatchPage.jsx#L454-L476)
 - [AnalyzePage.jsx:774-799](file://app/frontend/src/pages/AnalyzePage.jsx#L774-L799)
+- [AnimatedScore.jsx:16-63](file://app/frontend/src/components/AnimatedScore.jsx#L16-L63)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
 
 ### ErrorBoundary Implementation
 The ErrorBoundary component provides comprehensive error handling for the entire application:
@@ -790,7 +1524,7 @@ Refresh --> Reload["Window reload"]
 - AuthContext manages user, tenant, and loading state. It loads persisted tokens via httpOnly cookies, logs in/out, and exposes helpers to child components.
 - ProtectedRoute enforces authentication for protected shells and shows a loader while resolving session state.
 - PlatformAdminRoute enforces platform administrator privileges for admin routes.
-- App.jsx defines lazy routes for all pages including the new DashboardNew, AnalyzePage, and AdminDashboardPage, wrapping them in ErrorBoundary, ProtectedRoute, and SubscriptionProvider, then AppShell.
+- App.jsx defines lazy routes for all pages including the new DashboardNew, AnalyzePage, OnboardingWizard, and AdminDashboardPage, wrapping them in ErrorBoundary, ProtectedRoute, and SubscriptionProvider, then AppShell.
 
 ```mermaid
 flowchart TD
@@ -804,6 +1538,10 @@ Guard --> |No user| Redirect["Navigate to /login"]
 Routes --> Admin["PlatformAdminRoute"]
 Admin --> AdminShell["Admin Dashboard"]
 Admin --> |No platform admin| Redirect2["Navigate to /"]
+Routes --> Onboarding["OnboardingWizard"]
+Onboarding --> |Complete| Shell
+Routes --> Dashboard["DashboardNew"]
+Dashboard --> |Has checklist| GettingStarted["GettingStarted"]
 ```
 
 **Diagram sources**
@@ -811,6 +1549,9 @@ Admin --> |No platform admin| Redirect2["Navigate to /"]
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [OnboardingWizard.jsx:511-589](file://app/frontend/src/components/OnboardingWizard.jsx#L511-L589)
+- [DashboardNew.jsx:284-287](file://app/frontend/src/pages/DashboardNew.jsx#L284-L287)
+- [GettingStarted.jsx:19-129](file://app/frontend/src/components/GettingStarted.jsx#L19-L129)
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
@@ -830,6 +1571,9 @@ Admin --> |No platform admin| Redirect2["Navigate to /"]
 - **NEW**: Real-time progress callbacks for upload and analysis operations.
 - **NEW**: Comprehensive admin endpoints for tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 - **NEW**: Resume access endpoints (/candidates/{id}/resume) with proper MIME type handling.
+- **NEW**: Onboarding endpoints (updateOrganization, selectOnboardingPlan, getAvailablePlans, seedSampleData) for guided setup.
+- **NEW**: JD library endpoints (getTemplates, createTemplate, updateTemplate, deleteTemplate, getAllJDStats) for job description management.
+- **NEW**: Comparison endpoints (compareResults, compareCandidates) for candidate comparison functionality.
 - Exposes domain-specific functions for analysis, batch, history, comparison, exports, templates, candidates, email generation, JD URL extraction, team actions, training, video, transcript, health, subscription management, and admin operations.
 
 ```mermaid
@@ -901,6 +1645,8 @@ Analyze --> SEC["Apply XSS Protection"]
 - Renders recommendation badge, analysis source indicator, pending banner, score breakdown bars, matched/missing skills, adjacent skills, skills radar, strengths/weaknesses/risk signals, explainability, education analysis, domain fit/architecture, and interview kit tabs.
 - Email modal integrates with backend email generation.
 - **NEW**: Comprehensive XSS protection through safeStr utility function for all dynamic content rendering.
+- **NEW**: Enhanced integration with AnimatedScore for animated fit score display.
+- **NEW**: StreamingText integration for progressive LLM narrative display.
 
 ```mermaid
 classDiagram
@@ -916,14 +1662,20 @@ class XSSProtection {
 +safeStr(v) utility
 +universal sanitization
 }
+class AnimatedScore
+class StreamingText
 ResultCard --> SkillsRadar : "composition"
 ResultCard --> EmailModal : "optional"
 ResultCard --> XSSProtection : "uses"
+ResultCard --> AnimatedScore : "enhanced"
+ResultCard --> StreamingText : "integration"
 ```
 
 **Diagram sources**
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [SkillsRadar.jsx](file://app/frontend/src/components/SkillsRadar.jsx)
+- [AnimatedScore.jsx:1-63](file://app/frontend/src/components/AnimatedScore.jsx#L1-L63)
+- [StreamingText.jsx:1-73](file://app/frontend/src/components/StreamingText.jsx#L1-L73)
 
 **Section sources**
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
@@ -996,6 +1748,9 @@ D->>RP : Navigate("/report", {state : result})
 - **Enhanced**: Filename generation with candidate name fallback.
 - **Enhanced**: Loading states and error handling for resume operations.
 - **NEW**: XSS protection through safeStr sanitization for all dynamic content.
+- **NEW**: Enhanced CandidateCard integration with animated scores and quick actions.
+- **NEW**: Optimistic UI updates for candidate status changes during batch processing.
+- **NEW**: Keyboard shortcuts integration for efficient candidate list navigation.
 
 ```mermaid
 flowchart TD
@@ -1011,14 +1766,27 @@ ViewAPI --> SEC["Apply XSS Protection"]
 DownloadAPI --> SEC
 SEC --> Browser["Open/Download in Browser"]
 Detail --> |No| Idle["Idle"]
+Detail --> Keyboard["Keyboard Shortcuts"]
+Keyboard --> CandidateCards["Enhanced CandidateCard"]
+CandidateCards --> Optimistic["Optimistic Updates"]
+Optimistic --> QuickActions["QuickActions Integration"]
 ```
 
 **Diagram sources**
 - [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [useKeyboardShortcuts.js:16-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L16-L102)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
 
 **Section sources**
 - [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [useKeyboardShortcuts.js:16-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L16-L102)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
 
 ### Enhanced ReportPage
 **Updated** ReportPage now includes comprehensive resume access functionality with View/Download buttons in the sticky action bar.
@@ -1029,6 +1797,8 @@ Detail --> |No| Idle["Idle"]
 - **Enhanced**: Filename generation with candidate name fallback.
 - **Enhanced**: Loading states and error handling for resume operations.
 - **NEW**: Intelligent job context detection and utilization for improved user experience.
+- **NEW**: Enhanced ResultCard integration with AnimatedScore and StreamingText.
+- **NEW**: XSS protection through safeStr sanitization for all dynamic content.
 
 ```mermaid
 sequenceDiagram
@@ -1261,6 +2031,7 @@ All core components implement comprehensive XSS protection:
 - Explainability rationales
 - Education timeline analysis
 - Interview questions and answers
+- **NEW**: AnimatedScore integration with safeStr protection
 
 **ComparisonView.jsx**: Implements safeStr for version comparison data:
 - Final recommendations for both versions
@@ -1292,6 +2063,7 @@ All core components implement comprehensive XSS protection:
 - Step indicators and progress information
 - Error messages and validation feedback
 - File upload information and status
+- **NEW**: StreamingText integration with safeStr protection
 
 **ReportPage.jsx**: Implements safeStr for report content:
 - Candidate names and contact information
@@ -1304,11 +2076,42 @@ All core components implement comprehensive XSS protection:
 - Candidate names, emails, and scores
 - Application history and status
 - Resume access buttons with proper XSS protection
+- **NEW**: Enhanced CandidateCard with safeStr protection
+
+**ComparePage.jsx**: Implements safeStr for comparison content:
+- Candidate names and scores
+- Comparison metrics and winners
+- Strengths/weaknesses analysis
+- Interview questions preview
+- **NEW**: ComparisonMatrix integration with safeStr protection
+
+**JDLibraryPage.jsx**: Implements safeStr for JD library content:
+- JD names and descriptions
+- Tag information and weights
+- Usage statistics and counts
+- **NEW**: SkillTrendChart integration with safeStr protection
+
+**OnboardingWizard.jsx**: Implements safeStr for onboarding content:
+- Organization details and plan information
+- Team member emails and validation
+- Success messages and error handling
+- **NEW**: GettingStarted checklist with safeStr protection
 
 **Resume Access System**: Implements safeStr for filename generation:
 - Candidate names for resume filenames
 - Fallback IDs for resume filenames
 - XSS protection for dynamic content
+
+**NEW Component Library**: All new components implement safeStr protection:
+- AnimatedScore.jsx: Score values and size classes
+- StreamingText.jsx: Text content and streaming indicators
+- CandidateCard.jsx: Candidate information and highlights
+- ProgressBadge.jsx: Status messages and file names
+- ScoreBadge.jsx: Score values and color classes
+- QuickActions.jsx: Action labels and status messages
+- GettingStarted.jsx: Checklist items and progress tracking
+- ComparisonMatrix.jsx: Skills matrix data and confidence indicators
+- SkillTrendChart.jsx: Trend data and growth metrics
 
 #### Defensive Programming Approaches
 The XSS protection architecture follows defensive programming principles:
@@ -1351,6 +2154,18 @@ EmptyString --> Sanitized
 - [AnalyzePage.jsx:13-19](file://app/frontend/src/pages/AnalyzePage.jsx#L13-L19)
 - [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
 - [CandidatesPage.jsx:6-12](file://app/frontend/src/pages/CandidatesPage.jsx#L6-L12)
+- [ComparePage.jsx:7-13](file://app/frontend/src/pages/ComparePage.jsx#L7-L13)
+- [JDLibraryPage.jsx:7-13](file://app/frontend/src/pages/JDLibraryPage.jsx#L7-L13)
+- [OnboardingWizard.jsx:7-13](file://app/frontend/src/components/OnboardingWizard.jsx#L7-L13)
+- [AnimatedScore.jsx:16-63](file://app/frontend/src/components/AnimatedScore.jsx#L16-L63)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [GettingStarted.jsx:19-129](file://app/frontend/src/components/GettingStarted.jsx#L19-L129)
+- [ComparisonMatrix.jsx:17-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L17-L137)
+- [SkillTrendChart.jsx:70-249](file://app/frontend/src/components/SkillTrendChart.jsx#L70-L249)
 
 **Section sources**
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
@@ -1361,6 +2176,18 @@ EmptyString --> Sanitized
 - [AnalyzePage.jsx:13-19](file://app/frontend/src/pages/AnalyzePage.jsx#L13-L19)
 - [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
 - [CandidatesPage.jsx:6-12](file://app/frontend/src/pages/CandidatesPage.jsx#L6-L12)
+- [ComparePage.jsx:7-13](file://app/frontend/src/pages/ComparePage.jsx#L7-L13)
+- [JDLibraryPage.jsx:7-13](file://app/frontend/src/pages/JDLibraryPage.jsx#L7-L13)
+- [OnboardingWizard.jsx:7-13](file://app/frontend/src/components/OnboardingWizard.jsx#L7-L13)
+- [AnimatedScore.jsx:16-63](file://app/frontend/src/components/AnimatedScore.jsx#L16-L63)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [GettingStarted.jsx:19-129](file://app/frontend/src/components/GettingStarted.jsx#L19-L129)
+- [ComparisonMatrix.jsx:17-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L17-L137)
+- [SkillTrendChart.jsx:70-249](file://app/frontend/src/components/SkillTrendChart.jsx#L70-L249)
 
 ## Security Headers and CSP
 
@@ -1457,9 +2284,17 @@ The security audit identified important CSP implementation gaps:
 - TailwindCSS for styling and responsive design.
 - **NEW**: DOMPurify for advanced HTML sanitization.
 - **NEW**: html2pdf.js for PDF generation with built-in sanitization.
+- **NEW**: Framer Motion for smooth animations and transitions.
 - **NEW**: Comprehensive admin dashboard with 9 tabbed interfaces.
 - **NEW**: IndexedDB for file-mode job description caching.
 - **NEW**: Resume access system with proper MIME type handling.
+- **NEW**: Enhanced component library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, and specialized hooks.
+- **NEW**: Optimistic UI updates with useOptimisticUpdate hook.
+- **NEW**: Keyboard shortcuts with useKeyboardShortcuts hook.
+- **NEW**: Real-time analysis progress tracking with useAnalysisProgress hook.
+- **NEW**: GettingStarted checklist system with completion tracking.
+- **NEW**: Advanced candidate comparison with ComparisonMatrix.
+- **NEW**: Role category analysis with SkillTrendChart.
 
 ```mermaid
 graph LR
@@ -1472,6 +2307,7 @@ Pkg --> Charts["recharts@^3"]
 Pkg --> Tailwind["tailwindcss@^3"]
 Pkg --> DOMPurify["dompurify@^3.4.0"]
 Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
+Pkg --> FramerMotion["framer-motion@^11.11"]
 ```
 
 **Diagram sources**
@@ -1500,6 +2336,17 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Resume access optimization: Blob URL creation and cleanup prevents memory leaks.
 - **NEW**: MIME type detection: Efficient file type handling reduces unnecessary processing.
 - **NEW**: Filename generation: Smart fallback prevents errors and improves user experience.
+- **NEW**: Framer Motion animations: Optimized with requestAnimationFrame and efficient state updates.
+- **NEW**: StreamingText optimization: RAF-based animation with automatic cleanup.
+- **NEW**: CandidateCard performance: Optimized rendering with minimal re-renders.
+- **NEW**: ProgressBadge optimization: Efficient popover management with click-outside detection.
+- **NEW**: useOptimisticUpdate efficiency: Immutable state updates with efficient matching.
+- **NEW**: useKeyboardShortcuts optimization: Event delegation and input protection.
+- **NEW**: useAnalysisProgress efficiency: Context-based state management.
+- **NEW**: OnboardingWizard optimization: Persistent state management with localStorage fallback.
+- **NEW**: GettingStarted checklist optimization: Efficient completion tracking and celebration.
+- **NEW**: ComparisonMatrix optimization: Efficient skills matrix rendering with virtualization.
+- **NEW**: SkillTrendChart optimization: Efficient chart rendering with responsive design.
 - Image/icon assets: lucide-react icons are tree-shaken; keep only used icons.
 - **Enhanced**: Error boundaries prevent cascading failures and improve perceived performance.
 - **Enhanced**: Retry mechanisms with exponential backoff reduce user frustration from transient failures.
@@ -1532,6 +2379,20 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Resume access testing with proper MIME type handling and filename generation.
 - **NEW**: View/download functionality testing with browser compatibility and error scenarios.
 - **NEW**: Blob URL creation and cleanup testing to prevent memory leaks.
+- **NEW**: AnimatedScore testing with animation timing, color coding, and size variants.
+- **NEW**: StreamingText testing with progressive display, immediate mode, and streaming scenarios.
+- **NEW**: CandidateCard testing with enhanced highlights, skills visualization, and quick actions.
+- **NEW**: ProgressBadge testing with popover management, status indicators, and completion notifications.
+- **NEW**: ScoreBadge testing with AnimatedScore integration and size variants.
+- **NEW**: QuickActions testing with status changes, dropdown options, and accessibility features.
+- **NEW**: useOptimisticUpdate testing with rollback scenarios and undo functionality.
+- **NEW**: useKeyboardShortcuts testing with keyboard navigation and input protection.
+- **NEW**: useAnalysisProgress testing with progress state management and real-time updates.
+- **NEW**: OnboardingWizard testing with step-by-step validation and state persistence.
+- **NEW**: GettingStarted checklist testing with completion tracking and celebration scenarios.
+- **NEW**: ComparisonMatrix testing with skills matrix rendering and confidence indicators.
+- **NEW**: SkillTrendChart testing with trend visualization and growth metrics.
+- **NEW**: JDLibraryPage testing with filtering, sorting, and template management scenarios.
 
 **Section sources**
 - [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
@@ -1551,7 +2412,7 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **Enhanced**: Implement ErrorBoundary for critical components that require graceful degradation.
 - **Enhanced**: Use uploadChunked utility for any new file upload functionality requiring large file support.
 - **NEW**: Implement safeStr utility for all new components that render dynamic content.
-- **NEW**: Follow XSS protection patterns established in ResultCard, ComparisonView, and AdminDashboardPage components.
+- **NEW**: Follow XSS protection patterns established in ResultCard, ComparisonView, AdminDashboardPage, GettingStarted, OnboardingWizard, and new component library.
 - **NEW**: Ensure all user inputs and API responses are sanitized through safeStr function.
 - **NEW**: Implement comprehensive security headers and CSP policies for production deployments.
 - **NEW**: Test XSS protection thoroughly with malicious input scenarios and sanitization validation.
@@ -1571,6 +2432,21 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Implement proper error handling for resume access operations.
 - **NEW**: Add loading states and user feedback for resume operations.
 - **NEW**: Test resume access functionality across different browsers and file types.
+- **NEW**: Implement Framer Motion animations for smooth user interactions and visual feedback.
+- **NEW**: Add streaming text components for progressive content display and LLM narrative generation.
+- **NEW**: Enhance candidate cards with animated scores, quick actions, and improved visual hierarchy.
+- **NEW**: Implement real-time progress tracking with ProgressBadge for batch analysis workflows.
+- **NEW**: Add optimistic UI updates with useOptimisticUpdate for immediate feedback and rollback capability.
+- **NEW**: Implement keyboard shortcuts with useKeyboardShortcuts for efficient candidate list navigation.
+- **NEW**: Add analysis progress management with useAnalysisProgress for real-time updates.
+- **NEW**: Design components to handle complex state management with context providers and hooks.
+- **NEW**: Test all new components with comprehensive unit and integration tests.
+- **NEW**: Validate performance impact of new animations and real-time updates.
+- **NEW**: Ensure accessibility compliance for all new interactive components.
+- **NEW**: Implement GettingStarted checklist system with completion tracking and celebration.
+- **NEW**: Add advanced candidate comparison with ComparisonMatrix and SkillTrendChart.
+- **NEW**: Implement role category analysis with SkillTrendChart integration.
+- **NEW**: Add onboarding wizard with persistent state management and guided setup flow.
 
 ## Accessibility and Responsive Design
 - Accessible semantics: Buttons, inputs, and modals use appropriate roles and labels; focus management in dialogs.
@@ -1598,6 +2474,20 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Dual storage strategy maintains accessibility with automatic context detection and seamless workflow.
 - **NEW**: Resume access buttons maintain accessibility with proper ARIA labels and keyboard navigation.
 - **NEW**: Filename generation maintains accessibility with meaningful fallbacks for screen readers.
+- **NEW**: Framer Motion animations provide smooth transitions while maintaining accessibility.
+- **NEW**: StreamingText provides accessible progressive content display with proper ARIA attributes.
+- **NEW**: CandidateCard maintains accessibility with proper focus management and keyboard navigation.
+- **NEW**: ProgressBadge provides accessible progress tracking with proper ARIA labels.
+- **NEW**: ScoreBadge maintains accessibility with color contrast and screen reader support.
+- **NEW**: QuickActions provides accessible status change buttons with proper keyboard navigation.
+- **NEW**: useOptimisticUpdate maintains accessibility with proper error messaging and undo notifications.
+- **NEW**: useKeyboardShortcuts provides accessible keyboard navigation with proper focus management.
+- **NEW**: useAnalysisProgress provides accessible progress state management with screen reader support.
+- **NEW**: OnboardingWizard provides accessible guided setup with proper ARIA labels and keyboard navigation.
+- **NEW**: GettingStarted checklist provides accessible completion tracking with celebration animations.
+- **NEW**: ComparisonMatrix provides accessible skills matrix with proper ARIA attributes and keyboard navigation.
+- **NEW**: SkillTrendChart provides accessible trend visualization with proper ARIA attributes and keyboard navigation.
+- **NEW**: JDLibraryPage provides accessible template management with proper ARIA attributes and keyboard navigation.
 
 ## Error Handling and Resilience
 
@@ -1666,6 +2556,22 @@ The application implements comprehensive error handling at multiple levels:
 - **Browser Compatibility**: Graceful fallback for unsupported browsers
 - **Memory Management**: Automatic URL cleanup prevents memory leaks
 
+#### New Component Library Error Handling
+- **AnimatedScore**: Graceful handling of null scores and animation cleanup
+- **StreamingText**: Proper RAF cleanup and error handling for streaming scenarios
+- **CandidateCard**: Error handling for missing candidate data and API failures
+- **ProgressBadge**: Graceful handling of popover state and progress updates
+- **ScoreBadge**: Error handling for invalid score values and color calculations
+- **QuickActions**: Graceful handling of API failures and status change errors
+- **useOptimisticUpdate**: Error handling for rollback scenarios and API failures
+- **useKeyboardShortcuts**: Graceful handling of input protection and shortcut conflicts
+- **useAnalysisProgress**: Error handling for context provider failures and state updates
+- **OnboardingWizard**: Error handling for API failures and state persistence
+- **GettingStarted**: Error handling for checklist completion and celebration
+- **ComparisonMatrix**: Error handling for comparison computation and data loading
+- **SkillTrendChart**: Error handling for trend computation and chart rendering
+- **JDLibraryPage**: Error handling for template management and statistics loading
+
 ```mermaid
 flowchart TD
 Error["Error Occurs"] --> Level{"Error Level"}
@@ -1680,6 +2586,12 @@ Level --> |AutoSkip| AutoSkipError["Auto-skip Logic Error"]
 Level --> |JobContext| JobContextError["Job Context Error"]
 Level --> |DualStorage| DualStorageError["Dual Storage Error"]
 Level --> |ResumeAccess| ResumeAccessError["Resume Access Error"]
+Level --> |NewComponents| NewComponentError["New Component Errors"]
+Level --> |Onboarding| OnboardingError["Onboarding Error"]
+Level --> |Checklist| ChecklistError["GettingStarted Error"]
+Level --> |Comparison| ComparisonError["ComparisonMatrix Error"]
+Level --> |Trends| TrendsError["SkillTrendChart Error"]
+Level --> |JDLibrary| JDLibraryError["JDLibrary Error"]
 AppBoundary --> UserMsg["User-Friendly Message"]
 UserMsg --> Retry["Retry Options"]
 Retry --> Manual["Manual Retry"]
@@ -1707,6 +2619,12 @@ AutoSkipError --> Fallback["Fallback to Normal Workflow"]
 JobContextError --> Fallback
 DualStorageError --> Fallback["Fallback to Alternative Storage"]
 ResumeAccessError --> Fallback["Fallback to Alternative Method"]
+NewComponentError --> Fallback["Fallback to Alternative Method"]
+OnboardingError --> Fallback["Fallback to Alternative Method"]
+ChecklistError --> Fallback["Fallback to Alternative Method"]
+ComparisonError --> Fallback["Fallback to Alternative Method"]
+TrendsError --> Fallback["Fallback to Alternative Method"]
+JDLibraryError --> Fallback["Fallback to Alternative Method"]
 Fallback --> NormalFlow["Normal Step-by-step"]
 ```
 
@@ -1721,6 +2639,20 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [AnimatedScore.jsx:36-53](file://app/frontend/src/components/AnimatedScore.jsx#L36-L53)
+- [StreamingText.jsx:23-60](file://app/frontend/src/components/StreamingText.jsx#L23-L60)
+- [CandidateCard.jsx:54-139](file://app/frontend/src/components/CandidateCard.jsx#L54-L139)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:25-78](file://app/frontend/src/hooks/useOptimisticUpdate.js#L25-L78)
+- [useKeyboardShortcuts.js:26-98](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L26-L98)
+- [useAnalysisProgress.js:4-24](file://app/frontend/src/hooks/useAnalysisProgress.js#L4-L24)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
@@ -1733,6 +2665,20 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [AnimatedScore.jsx:36-53](file://app/frontend/src/components/AnimatedScore.jsx#L36-L53)
+- [StreamingText.jsx:23-60](file://app/frontend/src/components/StreamingText.jsx#L23-L60)
+- [CandidateCard.jsx:54-139](file://app/frontend/src/components/CandidateCard.jsx#L54-L139)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:25-78](file://app/frontend/src/hooks/useOptimisticUpdate.js#L25-L78)
+- [useKeyboardShortcuts.js:26-98](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L26-L98)
+- [useAnalysisProgress.js:4-24](file://app/frontend/src/hooks/useAnalysisProgress.js#L4-L24)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
 
 ## Troubleshooting Guide
 - Authentication issues: Verify tokens in localStorage; AuthContext clears tokens on 401; check interceptor retry flow.
@@ -1750,7 +2696,6 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - **NEW**: DOMPurify integration problems: Check HTML sanitization for rich content; verify policy configuration.
 - **NEW**: Streaming analysis failures: Check SSE connection status and event parsing in analyzeBatchStream.
 - **NEW**: Ranked shortlist issues: Verify sorting algorithm and real-time update callbacks.
-- **NEW**: Progress indicator problems: Check upload progress callbacks and overall progress calculations.
 - **NEW**: Malicious input detection: Test XSS protection with various attack vectors and sanitization scenarios.
 - **NEW**: Admin dashboard failures: Check tab-specific error handling and loading states.
 - **NEW**: Tenant management issues: Verify filtering, sorting, and bulk operation functionality.
@@ -1771,6 +2716,20 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - **NEW**: Blob URL cleanup problems: Verify automatic cleanup prevents memory leaks.
 - **NEW**: Filename generation errors: Test fallback strategies and XSS protection.
 - **NEW**: Loading state issues: Verify disabled states during resume operations.
+- **NEW**: AnimatedScore animation issues: Check animation timing, color calculation, and cleanup.
+- **NEW**: StreamingText display problems: Verify RAF cleanup and streaming mode functionality.
+- **NEW**: CandidateCard rendering issues: Check enhanced highlights and skills visualization.
+- **NEW**: ProgressBadge popover issues: Verify click-outside detection and progress updates.
+- **NEW**: ScoreBadge integration problems: Check AnimatedScore integration and size variants.
+- **NEW**: QuickActions status changes: Verify API calls and error handling.
+- **NEW**: useOptimisticUpdate rollback issues: Check state management and API failure handling.
+- **NEW**: useKeyboardShortcuts conflicts: Verify input protection and shortcut key handling.
+- **NEW**: useAnalysisProgress state issues: Check context provider and progress state management.
+- **NEW**: OnboardingWizard issues: Verify step progression and state persistence.
+- **NEW**: GettingStarted checklist issues: Verify completion tracking and celebration animation.
+- **NEW**: ComparisonMatrix issues: Verify skills matrix rendering and confidence indicators.
+- **NEW**: SkillTrendChart issues: Verify trend visualization and growth metric calculation.
+- **NEW**: JDLibraryPage issues: Verify template management and statistics loading.
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
@@ -1790,6 +2749,20 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [AnimatedScore.jsx:36-53](file://app/frontend/src/components/AnimatedScore.jsx#L36-L53)
+- [StreamingText.jsx:23-60](file://app/frontend/src/components/StreamingText.jsx#L23-L60)
+- [CandidateCard.jsx:54-139](file://app/frontend/src/components/CandidateCard.jsx#L54-L139)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:25-78](file://app/frontend/src/hooks/useOptimisticUpdate.js#L25-L78)
+- [useKeyboardShortcuts.js:26-98](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L26-L98)
+- [useAnalysisProgress.js:4-24](file://app/frontend/src/hooks/useAnalysisProgress.js#L4-L24)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
 
 ## Conclusion
 The Resume AI frontend is a modular, scalable React 18 application with clear separation between routing, state, UI components, and API integration. It leverages modern tooling, robust authentication and subscription management, comprehensive error handling through ErrorBoundary components, and enhanced API retry mechanisms with exponential backoff. The architecture now provides graceful degradation, improved resilience against transient failures, and a cohesive design system to deliver a responsive, accessible, and performant user experience even under adverse conditions.
@@ -1806,4 +2779,16 @@ The major enhancements include comprehensive streaming analysis capabilities wit
 
 **NEW**: The implementation of a comprehensive resume access system with proper MIME type detection, filename generation, and user experience improvements represents a significant enhancement to the candidate management workflow. The system now provides seamless resume viewing and downloading capabilities with proper browser integration, intelligent filename fallbacks, and robust error handling.
 
-The architecture successfully balances modern development practices with enterprise requirements, providing a solid foundation for continued growth and feature expansion while maintaining high standards for security, performance, and user experience.
+**NEW**: The implementation of the enhanced component library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, GettingStarted, ComparisonMatrix, and SkillTrendChart represents a significant advancement in user interface design and user experience. These components provide smooth animations, progressive content display, enhanced candidate evaluation tools, real-time progress tracking, and efficient status management.
+
+**NEW**: The implementation of optimistic UI updates, keyboard shortcuts, and real-time analysis progress tracking represents a significant improvement in user productivity and system responsiveness. Users now receive immediate feedback for their actions, can navigate efficiently through candidate lists, and have access to real-time progress information during analysis workflows.
+
+**NEW**: The implementation of comprehensive testing strategies for all new components and features ensures the reliability and maintainability of the enhanced frontend architecture. The testing approach covers all aspects of the new functionality including animations, streaming updates, keyboard navigation, and real-time progress tracking.
+
+**NEW**: The implementation of the GettingStarted checklist system with completion tracking and celebration animations provides users with a guided onboarding experience that encourages engagement and helps them become productive quickly.
+
+**NEW**: The implementation of advanced candidate comparison with ComparisonMatrix and SkillTrendChart provides recruiters with powerful analytical tools for making informed hiring decisions based on comprehensive skill analysis and trend visualization.
+
+**NEW**: The implementation of role category analysis with SkillTrendChart enables organizations to understand market trends and make data-driven decisions about their talent acquisition strategies.
+
+The architecture successfully balances modern development practices with enterprise requirements, providing a solid foundation for continued growth and feature expansion while maintaining high standards for security, performance, and user experience. The extensive component library enhancements, real-time capabilities, and comprehensive error handling demonstrate the system's maturity and readiness for production deployment.

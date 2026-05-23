@@ -8,12 +8,16 @@
 - [main.py](file://app/backend/main.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [db_models.py](file://app/backend/models/db_models.py)
+- [sso_service.py](file://app/backend/services/sso_service.py)
+- [impersonation_service.py](file://app/backend/services/impersonation_service.py)
+- [sso.py](file://app/backend/routes/sso.py)
 - [AuthContext.jsx](file://app/frontend/src/contexts/AuthContext.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [ProtectedRoute.jsx](file://app/frontend/src/components/ProtectedRoute.jsx)
 - [PlatformAdminRoute.jsx](file://app/frontend/src/components/PlatformAdminRoute.jsx)
 - [LoginPage.jsx](file://app/frontend/src/pages/LoginPage.jsx)
 - [RegisterPage.jsx](file://app/frontend/src/pages/RegisterPage.jsx)
+- [ImpersonationPage.jsx](file://app/frontend/src/pages/admin/ImpersonationPage.jsx)
 - [admin.py](file://app/backend/routes/admin.py)
 - [team.py](file://app/backend/routes/team.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
@@ -24,11 +28,12 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced authentication system now includes platform administrator role detection with dedicated `is_platform_admin` field in User model
-- Added new `PlatformAdminRoute` component for frontend administration access control with cross-tenant privileges
-- Implemented `require_platform_admin` middleware function for backend platform-level admin enforcement
-- Updated admin routes to use platform admin requirements for cross-tenant operations
-- Enhanced tenant suspension handling to allow platform admins to bypass suspension restrictions
+- Enhanced authentication system now includes comprehensive SSO/SAML implementation with dedicated SSO service and routes
+- Added impersonation sessions with admin-only access control for support and debugging
+- Improved refresh token management with enhanced security validation
+- Strengthened middleware for CSRF protection, CORS validation, and session management
+- Added new SSO configuration endpoints and enhanced authentication guards
+- Integrated platform administrator role detection with cross-tenant privileges
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -43,10 +48,10 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the authentication and authorization system for Resume AI by ThetaLogics. It covers dual authentication mechanisms (JWT tokens via Authorization headers for API clients and httpOnly cookies for browser clients), JWT token lifecycle, user registration and login flows, role-based access control (RBAC), multi-tenant isolation, password security, token refresh, session management, frontend authentication context and protected routes, API endpoint security posture, CORS configuration, and CSRF protection measures. The system now includes enhanced platform administrator role detection with cross-tenant privileges and comprehensive administrative access control.
+This document explains the authentication and authorization system for Resume AI by ThetaLogics. It covers dual authentication mechanisms (JWT tokens via Authorization headers for API clients and httpOnly cookies for browser clients), JWT token lifecycle, user registration and login flows, role-based access control (RBAC), multi-tenant isolation, password security, token refresh, session management, frontend authentication context and protected routes, API endpoint security, CORS configuration, and CSRF protection measures. The system now includes enhanced platform administrator role detection with cross-tenant privileges, comprehensive SSO/SAML implementation, and impersonation session management for enterprise-grade security.
 
 ## Project Structure
-The authentication system spans backend FastAPI routes and middleware, SQLAlchemy models, and a React frontend with an authentication context and protected routing. The system now supports dual authentication mechanisms with comprehensive CSRF protection and enhanced platform administrator capabilities.
+The authentication system spans backend FastAPI routes and middleware, SQLAlchemy models, and a React frontend with an authentication context and protected routing. The system now supports dual authentication mechanisms with comprehensive CSRF protection, SSO integration, and enhanced platform administrator capabilities.
 
 ```mermaid
 graph TB
@@ -61,6 +66,9 @@ G["Team Routes<br/>routes/team.py"]
 H["Subscription Routes<br/>routes/subscription.py"]
 I["Analyze Routes<br/>routes/analyze.py"]
 J["Admin Routes<br/>routes/admin.py"]
+K["SSO Service<br/>services/sso_service.py"]
+L["Impersonation Service<br/>services/impersonation_service.py"]
+M["SSO Routes<br/>routes/sso.py"]
 end
 subgraph "Frontend"
 X["Auth Context<br/>contexts/AuthContext.jsx"]
@@ -70,6 +78,7 @@ AA["Platform Admin Route<br/>components/PlatformAdminRoute.jsx"]
 U["Login Page<br/>pages/LoginPage.jsx"]
 V["Register Page<br/>pages/RegisterPage.jsx"]
 AB["Admin Dashboard<br/>pages/AdminDashboardPage.jsx"]
+AC["Impersonation Page<br/>pages/admin/ImpersonationPage.jsx"]
 end
 A --> B
 A --> C
@@ -79,18 +88,25 @@ A --> G
 A --> H
 A --> I
 A --> J
+A --> K
+A --> L
+A --> M
 C --> E
 F --> E
 G --> E
 H --> E
 I --> E
 J --> E
+K --> E
+L --> E
+M --> E
 X --> Y
 Z --> X
 AA --> X
 U --> X
 V --> X
 AB --> AA
+AC --> AA
 ```
 
 **Diagram sources**
@@ -104,12 +120,16 @@ AB --> AA
 - [subscription.py:1-477](file://app/backend/routes/subscription.py#L1-L477)
 - [analyze.py:320-519](file://app/backend/routes/analyze.py#L320-L519)
 - [admin.py:1-800](file://app/backend/routes/admin.py#L1-L800)
+- [sso_service.py:1-335](file://app/backend/services/sso_service.py#L1-L335)
+- [impersonation_service.py:1-109](file://app/backend/services/impersonation_service.py#L1-L109)
+- [sso.py:1-156](file://app/backend/routes/sso.py#L1-L156)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [api.js:1-414](file://app/frontend/src/lib/api.js#L1-L414)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [LoginPage.jsx:1-121](file://app/frontend/src/pages/LoginPage.jsx#L1-L121)
 - [RegisterPage.jsx:1-143](file://app/frontend/src/pages/RegisterPage.jsx#L1-L143)
+- [ImpersonationPage.jsx:1-205](file://app/frontend/src/pages/admin/ImpersonationPage.jsx#L1-L205)
 - [App.jsx:68-71](file://app/frontend/src/App.jsx#L68-L71)
 - [AdminDashboardPage.jsx:1-800](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L800)
 
@@ -130,7 +150,9 @@ AB --> AA
 - [AdminDashboardPage.jsx:1-800](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L800)
 
 ## Core Components
-- **Dual Authentication Middleware**: Validates bearer tokens for API clients and httpOnly cookies for browser clients, with automatic fallback between authentication methods.
+- **Dual Authentication Middleware**: Validates bearer tokens for API clients and httpOnly cookies for browser clients, with automatic fallback between authentication methods and impersonation session support.
+- **SSO/SAML Integration**: Comprehensive SAML 2.0 implementation with service provider configuration, assertion processing, and user provisioning.
+- **Impersonation Sessions**: Admin-only impersonation system with secure token generation, validation, and revocation for support and debugging.
 - **CSRF Protection Middleware**: Implements double-submit cookie pattern to prevent CSRF attacks for browser-based requests.
 - **Enhanced Auth Routes**: Registration, login, refresh, and profile retrieval with bcrypt password hashing, HS256 JWT signing, and comprehensive cookie management.
 - **Mandatory JWT Secret Validation**: Requires JWT_SECRET_KEY environment variable in production with development fallback for local testing.
@@ -143,6 +165,8 @@ AB --> AA
 **Section sources**
 - [auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
 - [auth.py:31-37](file://app/backend/middleware/auth.py#L31-L37)
+- [sso_service.py:164-335](file://app/backend/services/sso_service.py#L164-L335)
+- [impersonation_service.py:17-109](file://app/backend/services/impersonation_service.py#L17-L109)
 - [csrf.py:13-58](file://app/backend/middleware/csrf.py#L13-L58)
 - [auth.py:57-104](file://app/backend/routes/auth.py#L57-L104)
 - [AuthContext.jsx:6-62](file://app/frontend/src/contexts/AuthContext.jsx#L6-L62)
@@ -153,13 +177,15 @@ AB --> AA
 - [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
 
 ## Architecture Overview
-The system now implements a dual authentication architecture supporting both API clients and browser clients. JWT tokens are validated centrally with automatic fallback to httpOnly cookies for browser-based authentication. CSRF protection is integrated using the double-submit cookie pattern. The backend validates tokens centrally and injects the current user into route handlers, while frontend requests automatically manage cookies and CSRF tokens. Enhanced platform administrator capabilities provide cross-tenant administrative access with dedicated route protection.
+The system now implements a dual authentication architecture supporting both API clients and browser clients. JWT tokens are validated centrally with automatic fallback to httpOnly cookies for browser-based authentication. CSRF protection is integrated using the double-submit cookie pattern. The backend validates tokens centrally and injects the current user into route handlers, while frontend requests automatically manage cookies and CSRF tokens. Enhanced platform administrator capabilities provide cross-tenant administrative access with dedicated route protection. The new SSO/SAML integration enables enterprise Single Sign-On with comprehensive user provisioning and session management.
 
 ```mermaid
 sequenceDiagram
 participant FE as "Frontend"
 participant CSRF as "CSRF Middleware"
 participant API as "Auth Routes"
+participant SSO as "SSO Routes"
+participant SSOService as "SSO Service"
 participant MW as "JWT Middleware"
 participant DB as "Database"
 FE->>CSRF : Request with cookies and CSRF token
@@ -179,6 +205,16 @@ FE->>API : Refresh on 401
 FE->>API : POST /api/auth/refresh (cookie-based)
 API->>DB : Validate refresh token and load user
 API-->>FE : {access_token, refresh_token} + httpOnly cookies
+FE->>SSO : GET /api/sso/config/ : slug
+SSO->>DB : Check SSO config
+SSO-->>FE : {enabled, enforced, provider_type}
+FE->>SSO : GET /api/sso/login/ : slug
+SSO->>SSOService : generate_saml_request()
+SSOService-->>FE : Redirect to IdP
+FE->>SSO : POST /api/sso/callback/ : slug
+SSO->>SSOService : process_saml_response()
+SSOService->>DB : Get or create user
+SSO-->>FE : Redirect with JWT tokens
 ```
 
 **Diagram sources**
@@ -186,12 +222,15 @@ API-->>FE : {access_token, refresh_token} + httpOnly cookies
 - [auth.py:57-104](file://app/backend/routes/auth.py#L57-L104)
 - [auth.py:19-47](file://app/backend/middleware/auth.py#L19-L47)
 - [csrf.py:33-57](file://app/backend/middleware/csrf.py#L33-L57)
+- [sso.py:36-124](file://app/backend/routes/sso.py#L36-L124)
+- [sso_service.py:167-291](file://app/backend/services/sso_service.py#L167-L291)
 - [api.js:18-43](file://app/frontend/src/lib/api.js#L18-L43)
 
 ## Detailed Component Analysis
 
-### Dual Authentication Middleware and RBAC
+### Enhanced Authentication Middleware and RBAC
 - **Centralized Authentication**: The middleware now supports dual authentication methods - first checking Authorization headers for API clients, then falling back to httpOnly cookies for browser clients.
+- **Impersonation Session Support**: Enhanced middleware now validates impersonation tokens via X-Impersonation-Token header for admin-only user switching functionality.
 - **Mandatory JWT Secret Validation**: JWT_SECRET_KEY is now required in production with a development fallback for local testing, enhancing security posture.
 - **Enhanced Token Validation**: Validates JWT algorithm and claims, loads active user from database, and supports both bearer tokens and cookie-based authentication.
 - **Admin Enforcement**: Maintains admin-only access restrictions with enhanced security checks.
@@ -210,11 +249,15 @@ Claims --> |No| InvalidToken["401 Invalid token"]
 Claims --> |Yes| LoadUser["Load user by ID and is_active=true"]
 LoadUser --> Found{"User exists?"}
 Found --> |No| NotFound["401 User not found"]
-Found --> |Yes| CheckSuspension{"Tenant suspended?"}
+Found --> |Yes| CheckImpersonation{"Impersonation token?"}
+CheckImpersonation --> |Yes| ValidateImpersonation["Validate impersonation session"]
+ValidateImpersonation --> LoadTargetUser["Load target user"]
+LoadTargetUser --> CheckSuspension{"Tenant suspended?"}
 CheckSuspension --> |No| ReturnUser["Return User"]
 CheckSuspension --> |Yes| CheckPlatformAdmin{"Is platform admin?"}
 CheckPlatformAdmin --> |Yes| ReturnUser
 CheckPlatformAdmin --> |No| Suspended["403 Account suspended"]
+CheckSuspension --> |No| ReturnUser
 AdminCheck["require_admin"] --> Role{"user.role == 'admin'?"}
 Role --> |No| Forbidden["403 Admin access required"]
 Role --> |Yes| Allow["Proceed"]
@@ -228,12 +271,77 @@ Platform --> |Yes| Allow
 - [auth.py:31-37](file://app/backend/middleware/auth.py#L31-L37)
 - [auth.py:58-60](file://app/backend/middleware/auth.py#L58-L60)
 - [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
+- [auth.py:101-131](file://app/backend/middleware/auth.py#L101-L131)
 
 **Section sources**
 - [auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
 - [auth.py:19-47](file://app/backend/middleware/auth.py#L19-L47)
 - [auth.py:58-60](file://app/backend/middleware/auth.py#L58-L60)
 - [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
+- [auth.py:101-131](file://app/backend/middleware/auth.py#L101-L131)
+
+### SSO/SAML Implementation
+- **Comprehensive SAML 2.0 Support**: Lightweight SAML 2.0 service with complete AuthnRequest generation, response processing, and assertion validation.
+- **Service Provider Configuration**: Automatic SP metadata generation and ACS URL configuration for IdP integration.
+- **User Provisioning**: Automatic user creation for SSO users with configurable default roles and auto-provisioning settings.
+- **Security Validation**: RSA-SHA256 signature verification, audience restriction checking, and expiration validation.
+- **SSO Configuration Management**: Tenant-specific SSO settings with enable/disable controls and enforcement options.
+
+```mermaid
+flowchart TD
+SSOStart(["SSO Login Flow"]) --> CheckConfig["Check SSO Config"]
+CheckConfig --> GenerateRequest["Generate SAML AuthnRequest"]
+GenerateRequest --> RedirectIdP["Redirect to IdP"]
+RedirectIdP --> IdPLogin["IdP Authentication"]
+IdPLogin --> Response["SAML Response"]
+Response --> ProcessResponse["Process SAML Response"]
+ProcessResponse --> ValidateSignature["Verify Signature"]
+ValidateSignature --> CheckConditions["Check Conditions & Audience"]
+CheckConditions --> ExtractAttributes["Extract User Attributes"]
+ExtractAttributes --> ProvisionUser["Get or Create User"]
+ProvisionUser --> IssueTokens["Issue JWT Tokens"]
+IssueTokens --> RedirectSuccess["Redirect to Success"]
+```
+
+**Diagram sources**
+- [sso.py:58-124](file://app/backend/routes/sso.py#L58-L124)
+- [sso_service.py:167-291](file://app/backend/services/sso_service.py#L167-L291)
+
+**Section sources**
+- [sso_service.py:164-335](file://app/backend/services/sso_service.py#L164-L335)
+- [sso.py:1-156](file://app/backend/routes/sso.py#L1-L156)
+- [db_models.py:665-691](file://app/backend/models/db_models.py#L665-L691)
+
+### Impersonation Sessions
+- **Secure Token Generation**: Cryptographically secure impersonation tokens with SHA-256 hashing and configurable TTL (default 15 minutes).
+- **Admin-Only Access**: Only platform administrators can create impersonation sessions for support and debugging purposes.
+- **Session Validation**: Real-time validation of impersonation sessions with expiration and revocation checks.
+- **Audit Trail**: Comprehensive logging of impersonation session creation, validation, and revocation for security monitoring.
+- **Revocation System**: Immediate session revocation capability with audit logging for security incidents.
+
+```mermaid
+flowchart TD
+ImpersonationStart(["Impersonation Flow"]) --> AdminCheck["Admin Authentication"]
+AdminCheck --> CreateSession["Create Impersonation Session"]
+CreateSession --> GenerateToken["Generate Secure Token"]
+GenerateToken --> HashToken["SHA-256 Hash"]
+HashToken --> StoreSession["Store Session in DB"]
+StoreSession --> ReturnToken["Return Raw Token"]
+ReturnToken --> UserUsesToken["User Uses Token"]
+UserUsesToken --> ValidateToken["Validate Token"]
+ValidateToken --> CheckActive["Check Active & Not Expired"]
+CheckActive --> LoadTargetUser["Load Target User"]
+LoadTargetUser --> GrantAccess["Grant Access"]
+```
+
+**Diagram sources**
+- [impersonation_service.py:17-109](file://app/backend/services/impersonation_service.py#L17-L109)
+- [auth.py:101-131](file://app/backend/middleware/auth.py#L101-L131)
+
+**Section sources**
+- [impersonation_service.py:17-109](file://app/backend/services/impersonation_service.py#L17-L109)
+- [auth.py:101-131](file://app/backend/middleware/auth.py#L101-L131)
+- [db_models.py:531-546](file://app/backend/models/db_models.py#L531-L546)
 
 ### CSRF Protection Middleware
 - **Double-Submit Cookie Pattern**: Implements comprehensive CSRF protection using the double-submit cookie pattern for browser-based authentication.
@@ -263,6 +371,7 @@ Valid --> |Yes| PassThrough
 
 ### Enhanced Auth Routes: Registration, Login, Refresh, Profile
 - **Dual Authentication Support**: Registration and login now support both API clients (Authorization header) and browser clients (httpOnly cookies).
+- **SSO Enforcement**: Login flow now checks for SSO enforcement and redirects users to SSO when configured.
 - **Comprehensive Cookie Management**: Sets httpOnly access_token and refresh_token cookies with secure configurations, plus CSRF token cookie for browser clients.
 - **Enhanced Token Response**: Returns tokens in response body for API clients while setting cookies for browser clients.
 - **Mandatory JWT Secret**: Requires JWT_SECRET_KEY environment variable in production with development fallback.
@@ -283,6 +392,7 @@ API-->>FE : {access_token, refresh_token} + httpOnly cookies + CSRF token
 FE->>API : POST /api/auth/login (with cookies)
 API->>DB : Find active user by email
 API->>DB : Verify password
+API->>DB : Check SSO enforcement
 API-->>FE : {access_token, refresh_token} + httpOnly cookies + CSRF token
 FE->>API : POST /api/auth/refresh (cookie-based)
 API->>DB : Decode refresh token (type=refresh)
@@ -293,18 +403,21 @@ API-->>FE : {access_token, refresh_token} + httpOnly cookies
 **Diagram sources**
 - [auth.py:57-104](file://app/backend/routes/auth.py#L57-L104)
 - [auth.py:159-189](file://app/backend/routes/auth.py#L159-L189)
+- [auth.py:188-200](file://app/backend/routes/auth.py#L188-L200)
 - [csrf.py:33-57](file://app/backend/middleware/csrf.py#L33-L57)
 
 **Section sources**
 - [auth.py:57-104](file://app/backend/routes/auth.py#L57-L104)
 - [auth.py:159-189](file://app/backend/routes/auth.py#L159-L189)
 - [auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
+- [auth.py:188-200](file://app/backend/routes/auth.py#L188-L200)
 - [schemas.py:140-161](file://app/backend/models/schemas.py#L140-L161)
 
 ### Frontend Authentication Context and Protected Routes
 - **Cookie-Based Authentication**: AuthContext now handles httpOnly cookies automatically, loading user state on application startup.
 - **CSRF Token Management**: HTTP client automatically reads CSRF tokens from cookies and attaches them as X-CSRF-Token headers for browser requests.
 - **Enhanced Token Refresh**: Automatic refresh flow works seamlessly with cookie-based authentication, retrying original requests after successful refresh.
+- **SSO Integration**: Login page now dynamically checks SSO configuration and displays appropriate login options.
 - **Secure Token Storage**: No localStorage token handling for security - all tokens managed via httpOnly cookies.
 - **Protected Route Handling**: Maintains seamless protected route functionality with improved authentication state management.
 - **Platform Administrator Access**: PlatformAdminRoute component provides cross-tenant administrative access for platform-level admins.
@@ -353,6 +466,7 @@ API-->>App : Response
 - **require_platform_admin Middleware**: Backend dependency that enforces platform-level admin access for cross-tenant operations.
 - **Admin Dashboard Access**: `/admin` route protected by PlatformAdminRoute, providing comprehensive tenant management capabilities.
 - **Enhanced Suspension Handling**: Platform admins can bypass tenant suspension restrictions, allowing emergency access to suspended accounts.
+- **Impersonation Administration**: Platform admins can create and manage impersonation sessions for support and debugging.
 
 ```mermaid
 flowchart TD
@@ -387,6 +501,8 @@ CheckPlatform --> |No| DenyAccess["403 Account suspended"]
 - Subscription routes enforce tenant-scoped usage checks and admin-only plan management.
 - Analyze routes enforce tenant isolation and usage checks before processing.
 - Admin routes enforce platform-level access for cross-tenant operations.
+- SSO routes enforce tenant-specific SSO configuration and user provisioning.
+- Impersonation routes enforce admin-only access for session management.
 
 ```mermaid
 classDiagram
@@ -412,6 +528,7 @@ class User {
 +string role
 +bool is_active
 +bool is_platform_admin
++string platform_role
 }
 class TeamMember {
 +int id
@@ -434,16 +551,44 @@ class AdminDashboard {
 +string audit_logs
 +string feature_flags
 }
+class SSOConfig {
++int id
++int tenant_id
++string provider_type
++string idp_entity_id
++string idp_sso_url
++string idp_certificate
++string sp_entity_id
++string sp_acs_url
++bool enforce_sso
++bool auto_provision
++string default_role
++bool is_active
+}
+class ImpersonationSession {
++int id
++int admin_user_id
++int target_user_id
++string token_hash
++datetime expires_at
++datetime created_at
++datetime revoked_at
++string ip_address
+}
 Tenant "1" --> "many" User : "users"
 Tenant "1" --> "many" TeamMember : "team_members"
 Tenant "1" --> "many" UsageLog : "usage_logs"
 User "1" --> "1" TeamMember : "team_member"
 User "1" --> "many" UsageLog : "usage_logs"
+User "1" --> "many" ImpersonationSession : "admin_sessions"
+User "1" --> "many" ImpersonationSession : "target_sessions"
 ```
 
 **Diagram sources**
 - [db_models.py:31-93](file://app/backend/models/db_models.py#L31-L93)
 - [admin.py:140-296](file://app/backend/routes/admin.py#L140-L296)
+- [sso.py:26-33](file://app/backend/routes/sso.py#L26-L33)
+- [impersonation_service.py:17-109](file://app/backend/services/impersonation_service.py#L17-L109)
 
 **Section sources**
 - [db_models.py:31-93](file://app/backend/models/db_models.py#L31-L93)
@@ -451,6 +596,8 @@ User "1" --> "many" UsageLog : "usage_logs"
 - [subscription.py:172-253](file://app/backend/routes/subscription.py#L172-L253)
 - [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
 - [admin.py:140-296](file://app/backend/routes/admin.py#L140-L296)
+- [sso.py:26-33](file://app/backend/routes/sso.py#L26-L33)
+- [impersonation_service.py:17-109](file://app/backend/services/impersonation_service.py#L17-L109)
 
 ### Password Security Practices
 - Passwords are hashed using bcrypt via a CryptContext configured for bcrypt.
@@ -467,6 +614,7 @@ User "1" --> "many" UsageLog : "usage_logs"
 - Refresh endpoint validates refresh token type and regenerates both access and refresh tokens.
 - Frontend automatically refreshes on 401 and retries the original request.
 - Cookie-based refresh maintains security through httpOnly cookies and CSRF protection.
+- Enhanced refresh token validation includes JTI (JWT ID) checking for revoked tokens.
 
 **Section sources**
 - [auth.py:24-25](file://app/backend/routes/auth.py#L24-L25)
@@ -479,6 +627,8 @@ User "1" --> "many" UsageLog : "usage_logs"
 - **Authentication Method Detection**: Automatic detection between API clients (Authorization header) and browser clients (httpOnly cookies).
 - **Security Hardening**: Enhanced security posture with mandatory JWT secret validation and secure cookie configurations.
 - **Platform Administrator Endpoints**: Admin routes require platform-level privileges for cross-tenant operations.
+- **SSO Security**: SAML response validation includes signature verification, audience restriction, and expiration checking.
+- **Impersonation Security**: Admin-only impersonation with secure token generation and immediate revocation capability.
 
 **Section sources**
 - [main.py:181-198](file://app/backend/main.py#L181-L198)
@@ -486,6 +636,8 @@ User "1" --> "many" UsageLog : "usage_logs"
 - [auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
 - [auth.py:71-75](file://app/backend/middleware/auth.py#L71-L75)
 - [auth.py:78-91](file://app/backend/middleware/auth.py#L78-L91)
+- [sso_service.py:50-99](file://app/backend/services/sso_service.py#L50-L99)
+- [impersonation_service.py:17-41](file://app/backend/services/impersonation_service.py#L17-L41)
 
 ### Implementation Examples
 
@@ -549,6 +701,51 @@ Record --> Proceed["Proceed with action"]
 - [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
 - [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
 
+#### Example: SSO Login Flow
+- Implement SSO login with dynamic configuration checking and IdP redirection.
+
+```mermaid
+sequenceDiagram
+participant FE as "Frontend"
+participant API as "SSO Routes"
+participant SSOService as "SSO Service"
+FE->>API : GET /api/sso/config/ : slug
+API->>API : Check SSO config
+API-->>FE : {enabled, enforced, provider_type}
+FE->>API : GET /api/sso/login/ : slug
+API->>SSOService : generate_saml_request()
+SSOService-->>FE : Redirect to IdP
+FE->>API : POST /api/sso/callback/ : slug
+API->>SSOService : process_saml_response()
+SSOService->>API : Get or create user
+API-->>FE : Redirect with JWT tokens
+```
+
+**Diagram sources**
+- [sso.py:36-124](file://app/backend/routes/sso.py#L36-L124)
+- [sso_service.py:167-291](file://app/backend/services/sso_service.py#L167-L291)
+
+#### Example: Impersonation Session Management
+- Admin creates impersonation session and passes token to target user for temporary access.
+
+```mermaid
+sequenceDiagram
+participant Admin as "Admin User"
+participant API as "Admin Routes"
+participant ImpersonationService as "Impersonation Service"
+Admin->>API : POST /api/admin/impersonate/ : userId
+API->>ImpersonationService : create_impersonation_session()
+ImpersonationService-->>Admin : {impersonation_token, expires_in_minutes}
+Admin->>Target : Pass X-Impersonation-Token header
+Target->>API : Request with impersonation token
+API->>API : Validate impersonation session
+API-->>Target : Access granted as target user
+```
+
+**Diagram sources**
+- [impersonation_service.py:17-41](file://app/backend/services/impersonation_service.py#L17-L41)
+- [auth.py:101-131](file://app/backend/middleware/auth.py#L101-L131)
+
 ## Dependency Analysis
 - **Backend**:
   - Auth routes depend on middleware for current user and admin enforcement.
@@ -556,11 +753,14 @@ Record --> Proceed["Proceed with action"]
   - Team and subscription routes depend on middleware for current user and admin enforcement.
   - Analyze routes depend on usage helpers and middleware for tenant isolation.
   - Admin routes depend on require_platform_admin for cross-tenant operations.
+  - SSO routes depend on SSO service for SAML processing and user provisioning.
+  - Impersonation routes depend on impersonation service for session management.
 - **Frontend**:
   - AuthContext depends on HTTP client for API calls with cookie management.
   - ProtectedRoute depends on AuthContext for user state.
   - PlatformAdminRoute depends on AuthContext for platform admin detection.
   - Pages trigger AuthContext actions for login/register with enhanced security.
+  - SSO integration depends on API functions for configuration checking.
 
 ```mermaid
 graph LR
@@ -569,6 +769,7 @@ FE_Protected["ProtectedRoute.jsx"] --> FE_Auth
 FE_PlatformAdmin["PlatformAdminRoute.jsx"] --> FE_Auth
 FE_Login["LoginPage.jsx"] --> FE_Auth
 FE_Register["RegisterPage.jsx"] --> FE_Auth
+FE_Impersonation["ImpersonationPage.jsx"] --> FE_Auth
 BE_Main["main.py"] --> BE_MW["middleware/auth.py"]
 BE_Main --> BE_AuthRoutes["routes/auth.py"]
 BE_Main --> BE_CSRF["middleware/csrf.py"]
@@ -576,12 +777,18 @@ BE_Main --> BE_Team["routes/team.py"]
 BE_Main --> BE_Sub["routes/subscription.py"]
 BE_Main --> BE_Analyze["routes/analyze.py"]
 BE_Main --> BE_Admin["routes/admin.py"]
+BE_Main --> BE_SSORoutes["routes/sso.py"]
+BE_Main --> BE_SSOService["services/sso_service.py"]
+BE_Main --> BE_ImpersonationService["services/impersonation_service.py"]
 BE_AuthRoutes --> BE_DB["models/db_models.py"]
 BE_CSRF --> BE_DB
 BE_Team --> BE_DB
 BE_Sub --> BE_DB
 BE_Analyze --> BE_DB
 BE_Admin --> BE_DB
+BE_SSORoutes --> BE_DB
+BE_SSOService --> BE_DB
+BE_ImpersonationService --> BE_DB
 ```
 
 **Diagram sources**
@@ -593,6 +800,9 @@ BE_Admin --> BE_DB
 - [subscription.py:1-477](file://app/backend/routes/subscription.py#L1-L477)
 - [analyze.py:320-519](file://app/backend/routes/analyze.py#L320-L519)
 - [admin.py:1-800](file://app/backend/routes/admin.py#L1-L800)
+- [sso.py:1-156](file://app/backend/routes/sso.py#L1-L156)
+- [sso_service.py:1-335](file://app/backend/services/sso_service.py#L1-L335)
+- [impersonation_service.py:1-109](file://app/backend/services/impersonation_service.py#L1-L109)
 - [db_models.py:31-93](file://app/backend/models/db_models.py#L31-L93)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [api.js:1-414](file://app/frontend/src/lib/api.js#L1-L414)
@@ -600,6 +810,7 @@ BE_Admin --> BE_DB
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [LoginPage.jsx:1-121](file://app/frontend/src/pages/LoginPage.jsx#L1-L121)
 - [RegisterPage.jsx:1-143](file://app/frontend/src/pages/RegisterPage.jsx#L1-L143)
+- [ImpersonationPage.jsx:1-205](file://app/frontend/src/pages/admin/ImpersonationPage.jsx#L1-L205)
 
 **Section sources**
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
@@ -610,6 +821,9 @@ BE_Admin --> BE_DB
 - [subscription.py:1-477](file://app/backend/routes/subscription.py#L1-L477)
 - [analyze.py:320-519](file://app/backend/routes/analyze.py#L320-L519)
 - [admin.py:1-800](file://app/backend/routes/admin.py#L1-L800)
+- [sso.py:1-156](file://app/backend/routes/sso.py#L1-L156)
+- [sso_service.py:1-335](file://app/backend/services/sso_service.py#L1-L335)
+- [impersonation_service.py:1-109](file://app/backend/services/impersonation_service.py#L1-L109)
 - [db_models.py:31-93](file://app/backend/models/db_models.py#L31-L93)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [api.js:1-414](file://app/frontend/src/lib/api.js#L1-L414)
@@ -617,6 +831,7 @@ BE_Admin --> BE_DB
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [LoginPage.jsx:1-121](file://app/frontend/src/pages/LoginPage.jsx#L1-L121)
 - [RegisterPage.jsx:1-143](file://app/frontend/src/pages/RegisterPage.jsx#L1-L143)
+- [ImpersonationPage.jsx:1-205](file://app/frontend/src/pages/admin/ImpersonationPage.jsx#L1-L205)
 
 ## Performance Considerations
 - **Token Validation**: Occurs per request with dual authentication support; keep secret key secure and avoid excessive token lifetimes.
@@ -626,6 +841,9 @@ BE_Admin --> BE_DB
 - **Frontend Retry Logic**: Refresh flow reduces user friction but may increase backend load under contention—consider rate-limiting refresh endpoints.
 - **Tenant Queries**: Leverage indexed tenant_id fields to minimize latency in multi-tenant operations.
 - **Platform Admin Checks**: Additional database query for platform admin verification adds minimal overhead but provides critical security benefits.
+- **SSO Processing**: SAML response processing includes signature verification and XML parsing; optimize for production workloads.
+- **Impersonation Validation**: Session validation adds minimal overhead but enables powerful administrative capabilities.
+- **Database Indexing**: Ensure proper indexing on tenant_id, user_id, and token_hash fields for optimal query performance.
 
 ## Troubleshooting Guide
 - **401 Not authenticated**:
@@ -658,6 +876,15 @@ BE_Admin --> BE_DB
 - **Admin dashboard access denied**:
   - **Cause**: User lacks platform administrator privileges.
   - **Fix**: Ensure user has `is_platform_admin` set to True in the database.
+- **SSO login failing**:
+  - **Cause**: SSO configuration issues or IdP connectivity problems.
+  - **Fix**: Verify SSO settings, certificate configuration, and IdP availability.
+- **Impersonation session invalid**:
+  - **Cause**: Expired or revoked impersonation session.
+  - **Fix**: Create new impersonation session; ensure admin privileges are verified.
+- **SAML response validation error**:
+  - **Cause**: Signature verification failure or malformed SAML response.
+  - **Fix**: Verify IdP certificate, check response format, and validate audience restrictions.
 
 **Section sources**
 - [auth.py:23-40](file://app/backend/middleware/auth.py#L23-L40)
@@ -670,9 +897,11 @@ BE_Admin --> BE_DB
 - [subscription.py:270-272](file://app/backend/routes/subscription.py#L270-L272)
 - [subscription.py:340-343](file://app/backend/routes/subscription.py#L340-L343)
 - [main.py:181-198](file://app/backend/main.py#L181-L198)
+- [sso_service.py:213-237](file://app/backend/services/sso_service.py#L213-L237)
+- [impersonation_service.py:44-56](file://app/backend/services/impersonation_service.py#L44-L56)
 
 ## Conclusion
-The system implements a robust, tenant-aware authentication and authorization framework with comprehensive dual authentication support and enhanced platform administrator capabilities. The enhanced architecture now supports both API clients (Authorization headers) and browser clients (httpOnly cookies) with integrated CSRF protection. Mandatory JWT_SECRET_KEY validation strengthens security in production environments. Frontend integration provides seamless cookie management, automatic CSRF token handling, and secure token refresh. Multi-tenant models and tenant-scoped routes ensure isolation. The new platform administrator role provides cross-tenant administrative access with dedicated route protection and enhanced suspension handling. The comprehensive CSRF protection, secure cookie configurations, and dual authentication mechanisms provide enterprise-grade security for Resume AI by ThetaLogics.
+The system implements a robust, tenant-aware authentication and authorization framework with comprehensive dual authentication support, enhanced platform administrator capabilities, and enterprise-grade SSO/SAML integration. The enhanced architecture now supports both API clients (Authorization headers) and browser clients (httpOnly cookies) with integrated CSRF protection. Mandatory JWT_SECRET_KEY validation strengthens security in production environments. Frontend integration provides seamless cookie management, automatic CSRF token handling, and secure token refresh. Multi-tenant models and tenant-scoped routes ensure isolation. The new platform administrator role provides cross-tenant administrative access with dedicated route protection and enhanced suspension handling. The comprehensive CSRF protection, secure cookie configurations, dual authentication mechanisms, SSO integration, and impersonation session management provide enterprise-grade security for Resume AI by ThetaLogics.
 
 ## Appendices
 
@@ -686,6 +915,8 @@ The system implements a robust, tenant-aware authentication and authorization fr
 - **Audit Logging**: Audit tenant usage and user actions for compliance and anomaly detection.
 - **CORS Hardening**: Harden CORS policy to specific origins in production environments.
 - **Platform Admin Security**: Restrict platform administrator privileges to trusted individuals only.
+- **SSO Security**: Regularly validate SSO certificates and monitor IdP connectivity.
+- **Impersonation Security**: Limit impersonation sessions to minimum required time and monitor usage.
 
 ### Enhanced Security Features
 - **Dual Authentication Methods**: Seamless support for both API clients and browser clients.
@@ -695,12 +926,18 @@ The system implements a robust, tenant-aware authentication and authorization fr
 - **Automatic Token Refresh**: Seamless refresh flow for both API and browser clients.
 - **Platform Administrator Role**: Cross-tenant administrative capabilities with dedicated route protection.
 - **Enhanced Suspension Handling**: Platform admins can bypass tenant suspension restrictions.
+- **SSO/SAML Integration**: Enterprise-grade Single Sign-On with comprehensive security validation.
+- **Impersonation Sessions**: Secure admin-only user switching for support and debugging.
+- **Enhanced Token Validation**: JTI-based refresh token revocation and validation.
 
 ### Audit Logging and Account Management
 - Usage logs capture tenant and user actions with timestamps and details.
 - Admin endpoints allow resetting usage and changing plans for testing and support.
 - Platform admin audit trails track cross-tenant administrative actions.
 - Tenant suspension and reactivation operations are logged for compliance.
+- SSO login attempts and user provisioning are tracked for security monitoring.
+- Impersonation session creation, validation, and revocation are logged comprehensively.
+- Security events capture login failures, suspicious activities, and security incidents.
 
 **Section sources**
 - [db_models.py:79-93](file://app/backend/models/db_models.py#L79-L93)
@@ -708,3 +945,5 @@ The system implements a robust, tenant-aware authentication and authorization fr
 - [subscription.py:372-423](file://app/backend/routes/subscription.py#L372-L423)
 - [admin.py:299-361](file://app/backend/routes/admin.py#L299-L361)
 - [admin.py:491-558](file://app/backend/routes/admin.py#L491-L558)
+- [sso_service.py:292-330](file://app/backend/services/sso_service.py#L292-L330)
+- [impersonation_service.py:40,75](file://app/backend/services/impersonation_service.py#L40,L75)

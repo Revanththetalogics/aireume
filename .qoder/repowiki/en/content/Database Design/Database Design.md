@@ -24,6 +24,21 @@
 - [015_add_resume_file_storage.py](file://alembic/versions/015_add_resume_file_storage.py)
 - [016_deterministic_scoring_fields.py](file://alembic/versions/016_deterministic_scoring_fields.py)
 - [017_interview_kit_enhancement.py](file://alembic/versions/017_interview_kit_enhancement.py)
+- [018_ats_evolution.py](file://alembic/versions/018_ats_evolution.py)
+- [019_candidate_profile_enhancements.py](file://alembic/versions/019_candidate_profile_enhancements.py)
+- [020_doc_to_pdf_conversion.py](file://alembic/versions/020_doc_to_pdf_conversion.py)
+- [021_enterprise_platform_admin.py](file://alembic/versions/021_enterprise_platform_admin.py)
+- [022_historical_learning_system.py](file://alembic/versions/022_historical_learning_system.py)
+- [023_skill_template_persistence.py](file://alembic/versions/023_skill_template_persistence.py)
+- [024_audit_fixes.py](file://alembic/versions/024_audit_fixes.py)
+- [025_template_skill_overrides.py](file://alembic/versions/025_template_skill_overrides.py)
+- [026_audit_log_system.py](file://alembic/versions/026_audit_log_system.py)
+- [027_billing_events.py](file://alembic/versions/027_billing_events.py)
+- [028_invoices.py](file://alembic/versions/028_invoices.py)
+- [029_dunning_system.py](file://alembic/versions/029_dunning_system.py)
+- [030_usage_alerts.py](file://alembic/versions/030_usage_alerts.py)
+- [031_onboarding_flag.py](file://alembic/versions/031_onboarding_flag.py)
+- [032_sso_config.py](file://alembic/versions/032_sso_config.py)
 - [main.py](file://app/backend/main.py)
 - [auth.py](file://app/backend/middleware/auth.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
@@ -34,6 +49,7 @@
 - [candidates.py](file://app/backend/routes/candidates.py)
 - [upload.py](file://app/backend/routes/upload.py)
 - [interview_kit.py](file://app/backend/routes/interview_kit.py)
+- [enterprise_security.py](file://app/backend/services/enterprise_security.py)
 - [queue_manager.py](file://app/backend/services/queue_manager.py)
 - [analysis_service.py](file://app/backend/services/analysis_service.py)
 - [weight_suggester.py](file://app/backend/services/weight_suggester.py)
@@ -43,17 +59,23 @@
 - [eligibility_service.py](file://app/backend/services/eligibility_service.py)
 - [fit_scorer.py](file://app/backend/services/fit_scorer.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [billing/invoice_service.py](file://app/backend/services/billing/invoice_service.py)
+- [billing/dunning_service.py](file://app/backend/services/billing/dunning_service.py)
+- [billing/webhook_processor.py](file://app/backend/services/billing/webhook_processor.py)
+- [sso_service.py](file://app/backend/services/sso_service.py)
+- [usage_alert_service.py](file://app/backend/services/usage_alert_service.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added documentation for new Interview Kit Evaluation Framework database schema
-- Added InterviewEvaluation and OverallAssessment table designs with proper foreign key relationships
-- Enhanced ScreeningResult model with evaluation relationships
-- Updated migration documentation to include the 017_interview_kit_enhancement.py migration
-- Added comprehensive indexing strategies for interview evaluation tables
-- Documented tenant isolation support for evaluation framework
-- Added Interview Kit API endpoints and data validation rules
+- Added comprehensive documentation for new enterprise security features including impersonation sessions, security events, and granular platform roles
+- Enhanced historical learning system with hiring outcomes, team skill profiles, skill trend snapshots, and outcome patterns
+- Expanded candidate profile capabilities with AI professional summaries and candidate notes
+- Integrated billing ecosystem with invoices, dunning records, usage alerts, and billing events
+- Added SSO configuration management for SAML/OIDC integration
+- Implemented field-level audit logging system for candidate and screening result change tracking
+- Enhanced tenant management with onboarding completion tracking
+- Updated migration documentation to include all new enterprise-grade features
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -70,7 +92,7 @@
 ## Introduction
 This document describes the database design for Resume AI by ThetaLogics. It covers the entity relationship model, field definitions, indexes, constraints, multi-tenant architecture, subscription and usage tracking, the Alembic migration system, data validation rules, business logic constraints, referential integrity, data access patterns, caching strategies, performance considerations, data lifecycle and retention, backup strategies, and representative queries and reporting scenarios.
 
-**Updated** Enhanced with comprehensive audit logging, feature flag management, webhook system, billing configuration management, native resume file storage capabilities, deterministic scoring framework with eligibility gating, and Interview Kit Evaluation Framework for structured interview scoring and assessment
+**Updated** Enhanced with comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, and extensive candidate profile enhancements
 
 ## Project Structure
 The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements included connection pooling for PostgreSQL, token revocation support, strategic indexing for improved query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
@@ -91,36 +113,52 @@ J["Eligibility Service<br/>eligibility_service.py"]
 K["Fit Scorer<br/>fit_scorer.py"]
 L["Hybrid Pipeline<br/>hybrid_pipeline.py"]
 M["Interview Kit API<br/>interview_kit.py"]
+N["Enterprise Security<br/>enterprise_security.py"]
+O["Billing Services<br/>invoice_service.py / dunning_service.py / webhook_processor.py"]
+P["SSO Service<br/>sso_service.py"]
+Q["Usage Alert Service<br/>usage_alert_service.py"]
 end
 subgraph "Database Layer"
-N["SQLAlchemy Engine & Session<br/>database.py"]
-O["Declarative Models<br/>db_models.py"]
-P["Alembic Env & Script<br/>env.py / script.py.mako"]
-Q["Enhanced Models<br/>AuditLog, FeatureFlag, Webhook, PlatformConfig, InterviewEvaluation, OverallAssessment"]
-R["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016 / 017"]
-S["Deterministic Scoring<br/>deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason"]
-T["Resume File Storage<br/>resume_filename, resume_file_data"]
-U["Interview Evaluation Framework<br/>interview_evaluations, overall_assessments"]
+R["SQLAlchemy Engine & Session<br/>database.py"]
+S["Declarative Models<br/>db_models.py"]
+T["Alembic Env & Script<br/>env.py / script.py.mako"]
+U["Enhanced Models<br/>Enterprise Security, Historical Learning, Billing, SSO, Audit Logs"]
+V["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016 / 017 / 018 / 019 / 020 / 021 / 022 / 023 / 024 / 025 / 026 / 027 / 028 / 029 / 030 / 031 / 032"]
+W["Enterprise Security<br/>impersonation_sessions, security_events, plan_features, erasure_logs"]
+X["Historical Learning<br/>hiring_outcomes, team_skill_profiles, skill_trend_snapshots, outcome_skill_patterns"]
+Y["Billing System<br/>invoices, dunning_records, billing_events, usage_alerts"]
+Z["SSO Integration<br/>sso_configs"]
+AA["Audit System<br/>field_audit_logs"]
+BB["Enhanced Candidates<br/>ai_professional_summary, candidate_notes, resume_converted_pdf_data"]
+CC["Tenant Enhancements<br/>scoring_weights, onboarding_completed"]
 end
 A --> B
 A --> C
 C --> D
 D --> E
 C --> I
-I --> N
-A --> N
-N --> O
-N --> P
+I --> R
+A --> R
+R --> S
+R --> T
+R --> V
+R --> W
+R --> X
+R --> Y
+R --> Z
+R --> AA
+R --> BB
+R --> CC
+S --> U
+T --> U
+T --> V
 N --> R
-N --> S
-N --> T
-N --> U
-O --> Q
-P --> Q
+O --> R
 P --> R
+Q --> R
 L --> J
 L --> K
-M --> N
+M --> R
 ```
 
 **Diagram sources**
@@ -133,13 +171,19 @@ M --> N
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
 - [interview_kit.py:1-221](file://app/backend/routes/interview_kit.py#L1-L221)
+- [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
+- [billing/invoice_service.py:1-200](file://app/backend/services/billing/invoice_service.py#L1-L200)
+- [billing/dunning_service.py:1-200](file://app/backend/services/billing/dunning_service.py#L1-L200)
+- [billing/webhook_processor.py:1-200](file://app/backend/services/billing/webhook_processor.py#L1-L200)
+- [sso_service.py:1-200](file://app/backend/services/sso_service.py#L1-L200)
+- [usage_alert_service.py:1-200](file://app/backend/services/usage_alert_service.py#L1-L200)
 - [queue_manager.py:1-612](file://app/backend/services/queue_manager.py#L1-L612)
 - [analysis_service.py:1-121](file://app/backend/services/analysis_service.py#L1-L121)
 - [audit_service.py:1-40](file://app/backend/services/audit_service.py#L1-L40)
 - [feature_flag_service.py:1-94](file://app/backend/services/feature_flag_service.py#L1-L94)
 - [webhook_service.py:1-138](file://app/backend/services/webhook_service.py#L1-L138)
 - [database.py:1-50](file://app/backend/db/database.py#L1-L50)
-- [db_models.py:11-431](file://app/backend/models/db_models.py#L11-L431)
+- [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 - [script.py.mako:1-29](file://alembic/script.py.mako#L1-L29)
 - [008_analysis_queue_system.py:1-347](file://alembic/versions/008_analysis_queue_system.py#L1-L347)
@@ -149,6 +193,21 @@ M --> N
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 - [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
 - [017_interview_kit_enhancement.py:1-61](file://alembic/versions/017_interview_kit_enhancement.py#L1-L61)
+- [018_ats_evolution.py:1-75](file://alembic/versions/018_ats_evolution.py#L1-L75)
+- [019_candidate_profile_enhancements.py:1-66](file://alembic/versions/019_candidate_profile_enhancements.py#L1-L66)
+- [020_doc_to_pdf_conversion.py:1-46](file://alembic/versions/020_doc_to_pdf_conversion.py#L1-L46)
+- [021_enterprise_platform_admin.py:1-179](file://alembic/versions/021_enterprise_platform_admin.py#L1-L179)
+- [022_historical_learning_system.py:1-166](file://alembic/versions/022_historical_learning_system.py#L1-L166)
+- [023_skill_template_persistence.py:1-35](file://alembic/versions/023_skill_template_persistence.py#L1-L35)
+- [024_audit_fixes.py:1-40](file://alembic/versions/024_audit_fixes.py#L1-L40)
+- [025_template_skill_overrides.py:1-23](file://alembic/versions/025_template_skill_overrides.py#L1-L23)
+- [026_audit_log_system.py:1-33](file://alembic/versions/026_audit_log_system.py#L1-L33)
+- [027_billing_events.py:1-30](file://alembic/versions/027_billing_events.py#L1-L30)
+- [028_invoices.py:1-37](file://alembic/versions/028_invoices.py#L1-L37)
+- [029_dunning_system.py:1-43](file://alembic/versions/029_dunning_system.py#L1-L43)
+- [030_usage_alerts.py:1-31](file://alembic/versions/030_usage_alerts.py#L1-L31)
+- [031_onboarding_flag.py:1-21](file://alembic/versions/031_onboarding_flag.py#L1-L21)
+- [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
 - [eligibility_service.py:1-80](file://app/backend/services/eligibility_service.py#L1-L80)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
@@ -164,7 +223,7 @@ This section documents the core entities and their attributes relevant to the mu
 - Tenant
   - Purpose: Multi-tenant container with subscription and usage tracking.
   - Key fields: id, name, slug, plan_id, timestamps.
-  - Enhanced fields: subscription_status, current_period_start/end, analyses_count_this_month, storage_used_bytes, usage_reset_at, stripe_customer_id, stripe_subscription_id, subscription_updated_at, suspended_at, suspended_reason, metadata_json.
+  - Enhanced fields: subscription_status, current_period_start/end, analyses_count_this_month, storage_used_bytes, usage_reset_at, stripe_customer_id, stripe_subscription_id, subscription_updated_at, suspended_at, suspended_reason, metadata_json, onboarding_completed, onboarding_completed_at, scoring_weights.
   - Indexes: subscription_status, stripe_customer_id; relationships: plan, users, candidates, templates, results, team_members, usage_logs.
   - Constraints: plan_id FK to subscription_plans; default subscription_status active; usage counters initialized to zero.
 
@@ -175,25 +234,28 @@ This section documents the core entities and their attributes relevant to the mu
 
 - User
   - Purpose: Tenant member with role and authentication linkage.
-  - Key fields: id, tenant_id (FK), email (unique), hashed_password, role, is_active, is_platform_admin, timestamps.
+  - Key fields: id, tenant_id (FK), email (unique), hashed_password, role, is_active, is_platform_admin, platform_role, timestamps.
+  - **Updated** Enhanced with platform_role field supporting granular roles: super_admin, billing_admin, support, security_admin, readonly.
   - Indexes: email; relationships: tenant, team_member, comments, usage_logs.
 
 - Candidate
   - Purpose: Resume/profile storage with enrichment and caching fields, now including native file storage.
-  - Key fields: id, tenant_id (FK), name, email, phone, timestamps; enrichment: resume_file_hash (MD5), resume_filename (String 255), resume_file_data (LargeBinary/BYTEA), raw_resume_text, parsed_skills/education/work_exp, gap_analysis_json, current_role/company, total_years_exp, profile_quality, profile_updated_at; parser_snapshot_json.
+  - Key fields: id, tenant_id (FK), name, email, phone, timestamps; enrichment: resume_file_hash (MD5), resume_filename (String 255), resume_file_data (LargeBinary/BYTEA), resume_converted_pdf_data (LargeBinary), raw_resume_text, parsed_skills/education/work_exp, gap_analysis_json, current_role/company, total_years_exp, profile_quality, profile_updated_at; parser_snapshot_json.
+  - **Updated** Enhanced with ai_professional_summary (Text) and candidate_notes relationship.
   - Indexes: email, resume_file_hash; relationships: tenant, results, transcript_analyses.
-  - **Updated** Enhanced with native resume file storage capabilities for direct file access and download.
 
 - ScreeningResult
   - Purpose: Stores analysis outputs for a candidate/job combination with deterministic scoring framework.
   - Key fields: id, tenant_id (FK), candidate_id (FK), role_template_id (FK), resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
   - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
+  - **Updated** Enhanced with status_updated_at timestamp for tracking screening result status changes.
   - **Updated** Interview evaluation relationships: evaluations (one-to-many), overall_assessment (one-to-many).
-  - Indexes: candidate_id, timestamp; relationships: tenant, candidate, role_template, comments, training_examples.
+  - Indexes: candidate_id, timestamp, tenant_id+timestamp.
 
 - RoleTemplate
   - Purpose: Job description templates with scoring weights and tags.
-  - Key fields: id, tenant_id (FK), name, jd_text, scoring_weights (JSON), tags, timestamps.
+  - Key fields: id, tenant_id (FK), name, jd_text, scoring_weights (JSON), tags, required_skills_override, nice_to_have_skills_override, timestamps.
+  - **Updated** Enhanced with skill template persistence fields.
   - Relationships: tenant, results, transcript_analyses.
 
 - InterviewEvaluation
@@ -266,8 +328,36 @@ This section documents the core entities and their attributes relevant to the mu
   - AnalysisArtifacts: Store input files and intermediate data with deduplication support.
   - JobMetrics: Performance and quality metrics for monitoring queue operations.
 
+- Enterprise Security Tables
+  - **New** impersonation_sessions: Manages admin impersonation with token hashing and expiration tracking.
+  - **New** security_events: Comprehensive security event logging with tenant/user context.
+  - **New** plan_features: Links subscription plans to feature flags with enablement control.
+  - **New** erasure_logs: GDPR-compliant data erasure tracking and audit trail.
+
+- Historical Learning Tables
+  - **New** hiring_outcomes: Captures hiring decisions with candidate, role, and feedback data.
+  - **New** team_skill_profiles: Maintains team skill composition and evolution tracking.
+  - **New** skill_trend_snapshots: Time-series skill demand and supply tracking.
+  - **New** outcome_skill_patterns: Analytical patterns linking skills to hiring outcomes.
+
+- Billing System Tables
+  - **New** invoices: Payment receipt tracking with period coverage and line items.
+  - **New** dunning_records: Failed payment retry tracking with configurable schedules.
+  - **New** billing_events: Webhook audit logging for payment processor events.
+  - **New** usage_alerts: Threshold-based usage notification tracking.
+
+- SSO Configuration Tables
+  - **New** sso_configs: SAML/OIDC identity provider configuration management.
+
+- Audit System Tables
+  - **New** field_audit_logs: Field-level change tracking for candidate and screening result modifications.
+
+- Enhanced Candidate Tables
+  - **New** candidate_notes: Collaborative note-taking with user and tenant association.
+  - **New** skill_classification_templates: Persistent skill classification templates for role templates.
+
 **Section sources**
-- [db_models.py:11-431](file://app/backend/models/db_models.py#L11-L431)
+- [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
 
 ## Architecture Overview
 The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations. Recent enhancements included token revocation support, strategic indexing for improved performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment.
@@ -283,23 +373,33 @@ TENANTS ||--o{ TEAM_MEMBERS : "has"
 TENANTS ||--o{ USAGE_LOGS : "generates"
 TENANTS ||--o{ WEBHOOKS : "configures"
 TENANTS ||--o{ RATE_LIMIT_CONFIGS : "has"
+TENANTS ||--o{ IMPERSONATION_SESSIONS : "manages"
+TENANTS ||--o{ SECURITY_EVENTS : "generates"
+TENANTS ||--o{ SKILL_TREND_SNAPSHOTS : "tracks"
+TENANTS ||--o{ USAGE_ALERTS : "monitors"
 USERS ||--o{ TEAM_MEMBERS : "member_of"
 USERS ||--o{ COMMENTS : "authored"
 USERS ||--o{ USAGE_LOGS : "performed"
 USERS ||--o{ PLATFORM_CONFIGS : "updates"
 USERS ||--o{ INTERVIEW_EVALUATIONS : "creates"
 USERS ||--o{ OVERALL_ASSESSMENTS : "creates"
+USERS ||--o{ CANDIDATE_NOTES : "writes"
+USERS ||--o{ FIELD_AUDIT_LOGS : "creates"
 CANDIDATES ||--o{ SCREENING_RESULTS : "analyzed"
 CANDIDATES ||--o{ TRANSCRIPT_ANALYSES : "analyzed"
+CANDIDATES ||--o{ CANDIDATE_NOTES : "has"
 ROLE_TEMPLATES ||--o{ SCREENING_RESULTS : "used_in"
-ROLE_TEMPLATES ||--o{ TRANSCRIPT_ANALYSES : "used_in"
+ROLE_TEMPLATES ||--o{ SKILL_CLASSIFICATION_TEMPLATES : "uses"
+ROLE_TEMPLATES ||--o{ OUTCOME_SKILL_PATTERNS : "influences"
 SCREENING_RESULTS ||--o{ COMMENTS : "commented_on"
 SCREENING_RESULTS ||--o{ TRAINING_EXAMPLES : "generates"
 SCREENING_RESULTS ||--o{ INTERVIEW_EVALUATIONS : "evaluated_by"
 SCREENING_RESULTS ||--o{ OVERALL_ASSESSMENTS : "assessed_by"
+SCREENING_RESULTS ||--o{ HIRING_OUTCOMES : "leads_to"
 REVOKED_TOKENS ||--|| USERS : "tracks"
 AUDIT_LOGS ||--|| USERS : "recorded_by"
 FEATURE_FLAGS ||--o{ TENANT_FEATURE_OVERRIDES : "overridden_by"
+FEATURE_FLAGS ||--o{ PLAN_FEATURES : "controlled_by"
 TENANT_FEATURE_OVERRIDES ||--o{ TENANTS : "affects"
 WEBHOOKS ||--o{ WEBHOOK_DELIVERIES : "triggers"
 WEBHOOK_DELIVERIES ||--|| WEBHOOKS : "records"
@@ -314,10 +414,19 @@ INTERVIEW_EVALUATIONS ||--|| SCREENING_RESULTS : "evaluates"
 OVERALL_ASSESSMENTS ||--|| SCREENING_RESULTS : "assesses"
 ELIGIBILITY_SERVICE ||--|| SCREENING_RESULTS : "evaluates"
 FIT_SCORER ||--|| SCREENING_RESULTS : "computes"
+INVOICES ||--|| TENANTS : "billed_to"
+DUNNING_RECORDS ||--|| TENANTS : "managed_by"
+BILLING_EVENTS ||--|| TENANTS : "audits"
+SSO_CONFIGS ||--|| TENANTS : "configured_for"
+FIELD_AUDIT_LOGS ||--|| USERS : "logged_by"
+HIRING_OUTCOMES ||--|| SCREENING_RESULTS : "records"
+TEAM_SKILL_PROFILES ||--|| TENANTS : "maintains"
+SKILL_TREND_SNAPSHOTS ||--|| TENANTS : "captures"
+OUTCOME_SKILL_PATTERNS ||--|| ROLE_TEMPLATES : "analyzes"
 ```
 
 **Diagram sources**
-- [db_models.py:11-431](file://app/backend/models/db_models.py#L11-L431)
+- [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
 
 ## Detailed Component Analysis
 
@@ -325,8 +434,9 @@ FIT_SCORER ||--|| SCREENING_RESULTS : "computes"
 - Tenant isolation is achieved by requiring tenant_id on all entities participating in multi-tenant operations (e.g., Users, Candidates, ScreeningResults, RoleTemplates, UsageLogs, Webhooks, RateLimitConfigs, InterviewEvaluations, OverallAssessments).
 - Route handlers filter queries by tenant_id to prevent cross-tenant data leakage.
 - Usage enforcement ensures actions are permitted within plan limits per tenant.
-- **Updated** Enhanced Tenant model now includes suspension capabilities and comprehensive billing integration fields.
+- **Updated** Enhanced Tenant model now includes suspension capabilities, comprehensive billing integration fields, onboarding tracking, and tenant-level scoring weights.
 - **Updated** Interview Kit evaluation framework maintains strict tenant isolation with per-user evaluation constraints.
+- **Updated** Enterprise security features enforce granular access control with platform roles and impersonation sessions.
 
 ```mermaid
 sequenceDiagram
@@ -394,8 +504,198 @@ API-->>Client : Complete interview evaluation report
 
 **Section sources**
 - [interview_kit.py:39-221](file://app/backend/routes/interview_kit.py#L39-L221)
-- [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
+- [db_models.py:276-316](file://app/backend/models/db_models.py#L276-L316)
 - [017_interview_kit_enhancement.py:23-53](file://alembic/versions/017_interview_kit_enhancement.py#L23-L53)
+
+### Enterprise Security and Administrative Features
+- **New** Comprehensive impersonation session management allowing super_admin users to temporarily act as target users for troubleshooting and support.
+- **New** Security event logging captures all security-relevant activities with tenant and user context for compliance and auditing.
+- **New** Granular platform roles replacing simple is_platform_admin flag with super_admin, billing_admin, support, security_admin, and readonly roles.
+- **New** Plan features table links subscription plans to feature flags with enablement control for precise feature management.
+- **New** GDPR-compliant erasure logging tracks data deletion requests with status tracking and audit trails.
+- **New** Enhanced tenant model with onboarding completion tracking and tenant-level scoring weights for personalized defaults.
+
+```mermaid
+sequenceDiagram
+participant Admin as "Super Admin"
+participant Security as "enterprise_security.py"
+participant Impersonation as "impersonation_sessions"
+participant Audit as "audit_service.py"
+participant DB as "Database"
+Admin->>Security : Create impersonation session
+Security->>DB : INSERT impersonation_session with token_hash, expires_at
+Security->>Audit : log_audit(action="impersonation.start", details={admin_id, target_id})
+Admin->>Security : End impersonation session
+Security->>DB : UPDATE impersonation_session SET revoked_at
+Security->>Audit : log_audit(action="impersonation.end", details={session_id})
+```
+
+**Diagram sources**
+- [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
+- [021_enterprise_platform_admin.py:66-82](file://alembic/versions/021_enterprise_platform_admin.py#L66-L82)
+
+**Section sources**
+- [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
+- [021_enterprise_platform_admin.py:1-179](file://alembic/versions/021_enterprise_platform_admin.py#L1-L179)
+
+### Historical Learning Analytics System
+- **New** Comprehensive hiring outcomes tracking capturing candidate decisions, feedback, and metadata for analytical insights.
+- **New** Team skill profiles maintaining organizational skill composition and evolution over time.
+- **New** Skill trend snapshots providing time-series analysis of skill demand versus supply across categories and dates.
+- **New** Outcome skill patterns analyzing correlations between skills and hiring success/failure rates.
+- **New** Advanced indexing strategy supporting complex analytical queries across time dimensions and categorical filters.
+
+```mermaid
+sequenceDiagram
+participant Analytics as "Analytics Service"
+participant Hiring as "hiring_outcomes"
+participant Trends as "skill_trend_snapshots"
+participant Patterns as "outcome_skill_patterns"
+participant DB as "Database"
+Analytics->>DB : Query hiring_outcomes by tenant, decision, date range
+DB->>Hiring : Return decision metrics and feedback ratings
+Analytics->>DB : Query skill_trend_snapshots by tenant, category, skill, date
+DB->>Trends : Return trend direction and growth percentages
+Analytics->>DB : Query outcome_skill_patterns by tenant, template, skill
+DB->>Patterns : Return correlation scores and success rates
+Analytics->>Analytics : Aggregate results for dashboard presentation
+```
+
+**Diagram sources**
+- [022_historical_learning_system.py:40-132](file://alembic/versions/022_historical_learning_system.py#L40-L132)
+
+**Section sources**
+- [022_historical_learning_system.py:1-166](file://alembic/versions/022_historical_learning_system.py#L1-L166)
+
+### Enhanced Candidate Profile Management
+- **New** AI professional summary field providing LLM-generated candidate summaries for quick review and comparison.
+- **New** Candidate notes system enabling collaborative annotation with user and tenant associations for team-based evaluation.
+- **New** DOC to PDF conversion support storing converted PDF data for improved document compatibility and viewing.
+- **New** Skill classification templates persisting role-specific skill categorization for consistent evaluation standards.
+
+```mermaid
+sequenceDiagram
+participant Recruiter as "Recruiter"
+participant Candidate as "Candidate Model"
+participant Notes as "candidate_notes"
+participant AI as "AI Summary Service"
+participant DB as "Database"
+Recruiter->>AI : Generate professional summary
+AI->>DB : Update candidate.ai_professional_summary
+Recruiter->>Notes : Create candidate note
+Notes->>DB : INSERT candidate_note with user_id, tenant_id
+Recruiter->>DB : Query candidates with ai_professional_summary
+DB->>Recruiter : Return candidate with summary and notes
+```
+
+**Diagram sources**
+- [019_candidate_profile_enhancements.py:37-57](file://alembic/versions/019_candidate_profile_enhancements.py#L37-L57)
+- [020_doc_to_pdf_conversion.py:29-37](file://alembic/versions/020_doc_to_pdf_conversion.py#L29-L37)
+- [023_skill_template_persistence.py:17-30](file://alembic/versions/023_skill_template_persistence.py#L17-L30)
+
+**Section sources**
+- [019_candidate_profile_enhancements.py:1-66](file://alembic/versions/019_candidate_profile_enhancements.py#L1-L66)
+- [020_doc_to_pdf_conversion.py:1-46](file://alembic/versions/020_doc_to_pdf_conversion.py#L1-L46)
+- [023_skill_template_persistence.py:1-35](file://alembic/versions/023_skill_template_persistence.py#L1-L35)
+
+### Advanced Billing and Financial Management
+- **New** Invoice tracking system with period coverage, line items, and payment provider integration.
+- **New** Dunning records managing failed payment retry cycles with configurable schedules and automatic suspension.
+- **New** Billing events audit logging for webhook processing and payment processor communication.
+- **New** Usage alerts for threshold-based notification tracking and proactive customer management.
+- **New** Enhanced platform configuration system supporting billing dunning configurations and provider settings.
+
+```mermaid
+sequenceDiagram
+participant Customer as "Customer"
+participant Billing as "billing/invoice_service.py"
+participant Dunning as "billing/dunning_service.py"
+participant Events as "billing/webhook_processor.py"
+participant DB as "Database"
+Customer->>Billing : Process payment
+Billing->>DB : INSERT invoice with status, amount, period
+Customer->>Billing : Payment fails
+Dunning->>DB : INSERT dunning_record with retry schedule
+Dunning->>Customer : Send dunning email (day 1, 3, 7, 14)
+Customer->>Billing : Retry payment
+Billing->>Events : Process webhook from payment provider
+Events->>DB : INSERT billing_event with event_type, result
+Billing->>DB : UPDATE invoice SET status=paid, paid_at
+```
+
+**Diagram sources**
+- [billing/invoice_service.py:1-200](file://app/backend/services/billing/invoice_service.py#L1-L200)
+- [billing/dunning_service.py:1-200](file://app/backend/services/billing/dunning_service.py#L1-L200)
+- [billing/webhook_processor.py:1-200](file://app/backend/services/billing/webhook_processor.py#L1-L200)
+- [027_billing_events.py:14-25](file://alembic/versions/027_billing_events.py#L14-L25)
+- [028_invoices.py:14-30](file://alembic/versions/028_invoices.py#L14-L30)
+- [029_dunning_system.py:14-26](file://alembic/versions/029_dunning_system.py#L14-L26)
+- [030_usage_alerts.py:14-26](file://alembic/versions/030_usage_alerts.py#L14-L26)
+
+**Section sources**
+- [billing/invoice_service.py:1-200](file://app/backend/services/billing/invoice_service.py#L1-L200)
+- [billing/dunning_service.py:1-200](file://app/backend/services/billing/dunning_service.py#L1-L200)
+- [billing/webhook_processor.py:1-200](file://app/backend/services/billing/webhook_processor.py#L1-L200)
+- [027_billing_events.py:1-30](file://alembic/versions/027_billing_events.py#L1-L30)
+- [028_invoices.py:1-37](file://alembic/versions/028_invoices.py#L1-L37)
+- [029_dunning_system.py:1-43](file://alembic/versions/029_dunning_system.py#L1-L43)
+- [030_usage_alerts.py:1-31](file://alembic/versions/030_usage_alerts.py#L1-L31)
+
+### Single Sign-On (SSO) Configuration Management
+- **New** Comprehensive SAML/OIDC identity provider configuration management with certificate handling and attribute mapping.
+- **New** Tenant-specific SSO configuration with activation/deactivation controls and provider type selection.
+- **New** Auto-provisioning capabilities for new user creation based on SSO attributes.
+- **New** Role mapping from SSO attributes to local platform roles with default role assignment.
+
+```mermaid
+sequenceDiagram
+participant Admin as "Tenant Admin"
+participant SSO as "sso_service.py"
+participant Config as "sso_configs"
+participant IDP as "Identity Provider"
+participant DB as "Database"
+Admin->>SSO : Configure SSO settings
+SSO->>DB : INSERT sso_configs with IDP metadata
+Admin->>IDP : Redirect user to SSO login
+IDP->>SSO : POST SAML/OIDC assertion
+SSO->>DB : Lookup user by SSO attributes
+SSO->>DB : Create user if auto_provision enabled
+SSO->>Admin : User authenticated and redirected
+```
+
+**Diagram sources**
+- [sso_service.py:1-200](file://app/backend/services/sso_service.py#L1-L200)
+- [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
+
+**Section sources**
+- [sso_service.py:1-200](file://app/backend/services/sso_service.py#L1-L200)
+- [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
+
+### Field-Level Audit Logging System
+- **New** Comprehensive field-level audit logging capturing all changes to candidate and screening result data.
+- **New** Detailed change tracking including old/new values, changed_by user, and optional change reasons.
+- **New** Indexing strategy supporting efficient querying by entity type, entity_id, and change timestamps.
+- **New** Integration with candidate profile enhancements and screening result modifications.
+
+```mermaid
+sequenceDiagram
+participant System as "System Component"
+participant Audit as "field_audit_logs"
+participant Candidate as "Candidate Model"
+participant User as "User"
+participant DB as "Database"
+System->>DB : Update candidate.field_name
+DB->>Audit : INSERT field_audit_log with old_value, new_value, changed_by
+Audit->>DB : Store change with timestamp and reason
+System->>DB : Query field_audit_logs by entity_type, entity_id
+DB->>System : Return change history with user details
+```
+
+**Diagram sources**
+- [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
+
+**Section sources**
+- [026_audit_log_system.py:1-33](file://alembic/versions/026_audit_log_system.py#L1-L33)
 
 ### Subscription and Usage Management
 - SubscriptionPlan defines pricing and limits via JSON fields (limits, features).
@@ -461,6 +761,7 @@ Route-->>Admin : {"message" : "Tenant suspended"}
 - **New** In-memory caching with TTL for performance optimization.
 - **New** Default seeding of core platform features (video_analysis, batch_analysis, custom_weights, api_access, etc.).
 - **New** Cache invalidation mechanism for real-time flag updates.
+- **New** Plan features integration linking subscription plans to feature availability.
 
 ```mermaid
 flowchart TD
@@ -562,7 +863,7 @@ Candidates->>Client : Stream file with proper MIME type
 **Section sources**
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
-- [db_models.py:102-133](file://app/backend/models/db_models.py#L102-L133)
+- [db_models.py:118-153](file://app/backend/models/db_models.py#L118-L153)
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 
 ### Deterministic Scoring Framework and Eligibility Gating
@@ -596,7 +897,7 @@ DB-->>Hybrid : Persist scoring results
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
 - [eligibility_service.py:17-80](file://app/backend/services/eligibility_service.py#L17-L80)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
-- [db_models.py:157-162](file://app/backend/models/db_models.py#L157-L162)
+- [db_models.py:171-208](file://app/backend/models/db_models.py#L171-L208)
 
 ### Enhanced Authentication and Token Management
 - Token revocation system prevents reuse of invalidated refresh tokens.
@@ -620,16 +921,16 @@ Auth-->>Client : Clear cookies and return success
 
 **Diagram sources**
 - [auth_routes.py:211-254](file://app/backend/routes/auth.py#L211-L254)
-- [db_models.py:267-275](file://app/backend/models/db_models.py#L267-L275)
+- [db_models.py:378-386](file://app/backend/models/db_models.py#L378-L386)
 
 **Section sources**
 - [auth_routes.py:211-254](file://app/backend/routes/auth.py#L211-L254)
-- [db_models.py:267-275](file://app/backend/models/db_models.py#L267-L275)
+- [db_models.py:378-386](file://app/backend/models/db_models.py#L378-L386)
 
 ### Migration System and Schema Evolution
 - Alembic env registers models and binds metadata to the configured DATABASE_URL.
 - Migrations are idempotent and guard against pre-existing tables/columns.
-- **Updated** Version history with new administrative, notification, file storage, deterministic scoring, and interview evaluation features:
+- **Updated** Version history with new administrative, notification, file storage, deterministic scoring, interview evaluation, enterprise security, historical learning, billing, SSO, and audit features:
   - 001: Enrich candidates with profile fields; add jd_cache and skills tables.
   - 002: Add parser_snapshot_json to candidates.
   - 003: Enhance subscription_plans, add tenant usage fields, create usage_logs, seed plans, link existing tenants to default plan.
@@ -647,6 +948,21 @@ Auth-->>Client : Clear cookies and return success
   - 015: **New** Resume file storage with resume_filename and resume_file_data columns.
   - 016: **New** Deterministic scoring fields (deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason) added to screening_results.
   - 017: **New** Interview Kit Evaluation Framework with interview_evaluations and overall_assessments tables.
+  - 018: **New** ATS evolution with tenant email configurations and screening status tracking.
+  - 019: **New** Candidate profile enhancements with AI summaries and candidate notes.
+  - 020: **New** DOC to PDF conversion support for enhanced document compatibility.
+  - 021: **New** Enterprise platform admin with impersonation sessions, security events, plan features, and erasure logs.
+  - 022: **New** Historical learning system with hiring outcomes, team skill profiles, skill trends, and outcome patterns.
+  - 023: **New** Skill template persistence for role-specific skill classification.
+  - 024: **New** Audit fixes including tenant_id constraints and composite indexing.
+  - 025: **New** Template skill overrides for flexible role template customization.
+  - 026: **New** Field audit log system for comprehensive change tracking.
+  - 027: **New** Billing events table for webhook audit logging.
+  - 028: **New** Invoices table for payment receipt tracking.
+  - 029: **New** Dunning system for failed payment retry tracking.
+  - 030: **New** Usage alerts for threshold notification tracking.
+  - 031: **New** Onboarding flag for tenant onboarding completion tracking.
+  - 032: **New** SSO configuration for SAML/OIDC identity provider integration.
 
 ```mermaid
 graph LR
@@ -667,6 +983,21 @@ N --> O["014: Billing system"]
 O --> P["015: Resume file storage"]
 P --> Q["016: Deterministic scoring fields"]
 Q --> R["017: Interview Kit Evaluation Framework"]
+R --> S["018: ATS evolution"]
+S --> T["019: Candidate profile enhancements"]
+T --> U["020: DOC to PDF conversion"]
+U --> V["021: Enterprise platform admin"]
+V --> W["022: Historical learning system"]
+W --> X["023: Skill template persistence"]
+X --> Y["024: Audit fixes"]
+Y --> Z["025: Template skill overrides"]
+Z --> AA["026: Field audit log system"]
+AA --> BB["027: Billing events"]
+BB --> CC["028: Invoices"]
+CC --> DD["029: Dunning system"]
+DD --> EE["030: Usage alerts"]
+EE --> FF["031: Onboarding flag"]
+FF --> GG["032: SSO configuration"]
 ```
 
 **Diagram sources**
@@ -688,6 +1019,21 @@ Q --> R["017: Interview Kit Evaluation Framework"]
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 - [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
 - [017_interview_kit_enhancement.py:1-61](file://alembic/versions/017_interview_kit_enhancement.py#L1-L61)
+- [018_ats_evolution.py:1-75](file://alembic/versions/018_ats_evolution.py#L1-L75)
+- [019_candidate_profile_enhancements.py:1-66](file://alembic/versions/019_candidate_profile_enhancements.py#L1-L66)
+- [020_doc_to_pdf_conversion.py:1-46](file://alembic/versions/020_doc_to_pdf_conversion.py#L1-L46)
+- [021_enterprise_platform_admin.py:1-179](file://alembic/versions/021_enterprise_platform_admin.py#L1-L179)
+- [022_historical_learning_system.py:1-166](file://alembic/versions/022_historical_learning_system.py#L1-L166)
+- [023_skill_template_persistence.py:1-35](file://alembic/versions/023_skill_template_persistence.py#L1-L35)
+- [024_audit_fixes.py:1-40](file://alembic/versions/024_audit_fixes.py#L1-L40)
+- [025_template_skill_overrides.py:1-23](file://alembic/versions/025_template_skill_overrides.py#L1-L23)
+- [026_audit_log_system.py:1-33](file://alembic/versions/026_audit_log_system.py#L1-L33)
+- [027_billing_events.py:1-30](file://alembic/versions/027_billing_events.py#L1-L30)
+- [028_invoices.py:1-37](file://alembic/versions/028_invoices.py#L1-L37)
+- [029_dunning_system.py:1-43](file://alembic/versions/029_dunning_system.py#L1-L43)
+- [030_usage_alerts.py:1-31](file://alembic/versions/030_usage_alerts.py#L1-L31)
+- [031_onboarding_flag.py:1-21](file://alembic/versions/031_onboarding_flag.py#L1-L21)
+- [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
 
 **Section sources**
 - [env.py:1-51](file://alembic/env.py#L1-L51)
@@ -709,6 +1055,21 @@ Q --> R["017: Interview Kit Evaluation Framework"]
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 - [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
 - [017_interview_kit_enhancement.py:1-61](file://alembic/versions/017_interview_kit_enhancement.py#L1-L61)
+- [018_ats_evolution.py:1-75](file://alembic/versions/018_ats_evolution.py#L1-L75)
+- [019_candidate_profile_enhancements.py:1-66](file://alembic/versions/019_candidate_profile_enhancements.py#L1-L66)
+- [020_doc_to_pdf_conversion.py:1-46](file://alembic/versions/020_doc_to_pdf_conversion.py#L1-L46)
+- [021_enterprise_platform_admin.py:1-179](file://alembic/versions/021_enterprise_platform_admin.py#L1-L179)
+- [022_historical_learning_system.py:1-166](file://alembic/versions/022_historical_learning_system.py#L1-L166)
+- [023_skill_template_persistence.py:1-35](file://alembic/versions/023_skill_template_persistence.py#L1-L35)
+- [024_audit_fixes.py:1-40](file://alembic/versions/024_audit_fixes.py#L1-L40)
+- [025_template_skill_overrides.py:1-23](file://alembic/versions/025_template_skill_overrides.py#L1-L23)
+- [026_audit_log_system.py:1-33](file://alembic/versions/026_audit_log_system.py#L1-L33)
+- [027_billing_events.py:1-30](file://alembic/versions/027_billing_events.py#L1-L30)
+- [028_invoices.py:1-37](file://alembic/versions/028_invoices.py#L1-L37)
+- [029_dunning_system.py:1-43](file://alembic/versions/029_dunning_system.py#L1-L43)
+- [030_usage_alerts.py:1-31](file://alembic/versions/030_usage_alerts.py#L1-L31)
+- [031_onboarding_flag.py:1-21](file://alembic/versions/031_onboarding_flag.py#L1-L21)
+- [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
 
 ### Data Validation Rules and Business Logic Constraints
 - Tenant isolation: All sensitive routes filter by tenant_id.
@@ -726,6 +1087,10 @@ Q --> R["017: Interview Kit Evaluation Framework"]
 - **Updated** Deterministic scoring: Eligibility gating applies hard caps (domain match < 0.3 → cap 35, core skill < 0.3 → cap 40) with integer scoring in range 0-100.
 - **Updated** Interview evaluation validation: Category must be one of {technical, behavioral, culture_fit}; rating must be one of {strong, adequate, weak}; recommendation must be one of {advance, hold, reject}.
 - **Updated** Interview evaluation uniqueness: Prevents duplicate evaluations for the same question by the same user.
+- **Updated** Enterprise security: Impersonation sessions require token hashing and expiration management.
+- **Updated** Historical learning: Composite indexes ensure analytical queries perform efficiently.
+- **Updated** Field audit logging: Comprehensive change tracking with old/new value preservation.
+- **Updated** SSO configuration: Identity provider metadata validation and certificate handling.
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -739,7 +1104,11 @@ Q --> R["017: Interview Kit Evaluation Framework"]
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [interview_kit.py:450-488](file://app/backend/routes/interview_kit.py#L450-L488)
-- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-L488)
+- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-488)
+- [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
+- [022_historical_learning_system.py:61-131](file://alembic/versions/022_historical_learning_system.py#L61-L131)
+- [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
+- [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
 
 ### Referential Integrity and Indexes
 - Foreign keys:
@@ -765,12 +1134,27 @@ Q --> R["017: Interview Kit Evaluation Framework"]
   - AnalysisResults.job_id -> AnalysisJobs.id (CASCADE), tenant_id -> Tenant.id (CASCADE), candidate_id -> Candidate.id (SET NULL)
   - AnalysisArtifacts.tenant_id -> Tenant.id (CASCADE)
   - JobMetrics.job_id -> AnalysisJobs.id (CASCADE), tenant_id -> Tenant.id (CASCADE)
+  - **Updated** ImpersonationSession.admin_user_id -> User.id (CASCADE)
+  - **Updated** ImpersonationSession.target_user_id -> User.id (CASCADE)
+  - **Updated** SecurityEvent.tenant_id -> Tenant.id (SET NULL), user_id -> User.id (SET NULL)
+  - **Updated** PlanFeature.plan_id -> SubscriptionPlan.id (CASCADE), feature_flag_id -> FeatureFlag.id (CASCADE)
+  - **Updated** ErasureLog.tenant_id -> Tenant.id (CASCADE), actor_user_id -> User.id (SET NULL)
+  - **Updated** HiringOutcome.tenant_id -> Tenant.id, screening_result_id -> ScreeningResult.id (unique)
+  - **Updated** TeamSkillProfile.tenant_id -> Tenant.id, created_by_user_id -> User.id (SET NULL)
+  - **Updated** SkillTrendSnapshot.tenant_id -> Tenant.id
+  - **Updated** OutcomeSkillPattern.tenant_id -> Tenant.id, role_template_id -> RoleTemplate.id (SET NULL)
+  - **Updated** Invoice.tenant_id -> Tenant.id (CASCADE)
+  - **Updated** DunningRecord.tenant_id -> Tenant.id (CASCADE)
+  - **Updated** BillingEvent.tenant_id -> Tenant.id (SET NULL)
+  - **Updated** UsageAlert.tenant_id -> Tenant.id (CASCADE)
+  - **Updated** SSOSession.tenant_id -> Tenant.id (CASCADE)
+  - **Updated** FieldAuditLog.changed_by -> User.id
 - Indexes:
   - Candidate.email, Candidate.resume_file_hash
   - SubscriptionPlans(is_active, sort_order)
   - Tenants(subscription_status), Tenants(stripe_customer_id)
   - UsageLogs(tenant_id, action), UsageLogs(tenant_id, created_at), UsageLogs(created_at)
-  - ScreeningResults(candidate_id), ScreeningResults(timestamp)
+  - ScreeningResults(candidate_id), ScreeningResults(timestamp), **Updated** ScreeningResults(tenant_id, timestamp)
   - InterviewEvaluations(result_id), InterviewEvaluations(user_id), InterviewEvaluations(question_category), InterviewEvaluations(question_index)
   - OverallAssessments(result_id), OverallAssessments(user_id)
   - RevokedTokens(id), RevokedTokens(jti)
@@ -787,6 +1171,20 @@ Q --> R["017: Interview Kit Evaluation Framework"]
   - **Updated** ScreeningResults(deterministic_score), ScreeningResults(eligibility_status), ScreeningResults(core_skill_score)
   - **Updated** Candidate.resume_filename, Candidate.resume_file_data (nullable)
   - **Updated** Unique constraints for InterviewEvaluations and OverallAssessments
+  - **Updated** ImpersonationSessions(admin_user_id), ImpersonationSessions(target_user_id), ImpersonationSessions(expires_at)
+  - **Updated** SecurityEvents(event_type), SecurityEvents(created_at), SecurityEvents(user_id), SecurityEvents(tenant_id)
+  - **Updated** PlanFeatures(plan_id), PlanFeatures(feature_flag_id)
+  - **Updated** ErasureLogs(tenant_id), ErasureLogs(status)
+  - **Updated** HiringOutcomes(tenant_id), HiringOutcomes(role_template_id), HiringOutcomes(tenant_id, decision, created_at)
+  - **Updated** TeamSkillProfiles(tenant_id)
+  - **Updated** SkillTrendSnapshots(tenant_id, role_category, period_date), SkillTrendSnapshots(tenant_id, skill_name, period_date)
+  - **Updated** OutcomeSkillPatterns(tenant_id, role_template_id)
+  - **Updated** Invoices(tenant_id, issued_at)
+  - **Updated** DunningRecords(tenant_id)
+  - **Updated** BillingEvents(provider), BillingEvents(event_type), BillingEvents(tenant_id)
+  - **Updated** UsageAlerts(tenant_id)
+  - **Updated** SSOSessions(tenant_id)
+  - **Updated** FieldAuditLogs(entity_type, entity_id), FieldAuditLogs(tenant_id)
 
 **Section sources**
 - [db_models.py:34-59](file://app/backend/models/db_models.py#L34-L59)
@@ -815,6 +1213,21 @@ Q --> R["017: Interview Kit Evaluation Framework"]
 - [015_add_resume_file_storage.py:29-48](file://alembic/versions/015_add_resume_file_storage.py#L29-L48)
 - [016_deterministic_scoring_fields.py:33-73](file://alembic/versions/016_deterministic_scoring_fields.py#L33-L73)
 - [017_interview_kit_enhancement.py:23-53](file://alembic/versions/017_interview_kit_enhancement.py#L23-L53)
+- [018_ats_evolution.py:39-66](file://alembic/versions/018_ats_evolution.py#L39-L66)
+- [019_candidate_profile_enhancements.py:47-57](file://alembic/versions/019_candidate_profile_enhancements.py#L47-L57)
+- [020_doc_to_pdf_conversion.py:33-37](file://alembic/versions/020_doc_to_pdf_conversion.py#L33-L37)
+- [021_enterprise_platform_admin.py:68-101](file://alembic/versions/021_enterprise_platform_admin.py#L68-L101)
+- [022_historical_learning_system.py:61-131](file://alembic/versions/022_historical_learning_system.py#L61-L131)
+- [023_skill_template_persistence.py:29-30](file://alembic/versions/023_skill_template_persistence.py#L29-L30)
+- [024_audit_fixes.py:21-29](file://alembic/versions/024_audit_fixes.py#L21-L29)
+- [025_template_skill_overrides.py:14-16](file://alembic/versions/025_template_skill_overrides.py#L14-L16)
+- [026_audit_log_system.py:27-28](file://alembic/versions/026_audit_log_system.py#L27-L28)
+- [027_billing_events.py:17-25](file://alembic/versions/027_billing_events.py#L17-L25)
+- [028_invoices.py:31](file://alembic/versions/028_invoices.py#L31)
+- [029_dunning_system.py:28-37](file://alembic/versions/029_dunning_system.py#L28-L37)
+- [030_usage_alerts.py:25](file://alembic/versions/030_usage_alerts.py#L25)
+- [031_onboarding_flag.py:14-15](file://alembic/versions/031_onboarding_flag.py#L14-L15)
+- [032_sso_config.py:31](file://alembic/versions/032_sso_config.py#L31)
 
 ### Data Access Patterns, Caching, and Performance
 - Data access patterns:
@@ -829,7 +1242,11 @@ Q --> R["017: Interview Kit Evaluation Framework"]
   - **Updated** Resume file storage: Direct database access eliminates network latency and external dependencies.
   - **Updated** Deterministic scoring: Efficient querying by deterministic_score, eligibility_status, and core_skill_score for filtering and reporting.
   - **Updated** Interview evaluation aggregation: Efficient grouping by category and index for scorecard generation.
-  - **Updated** Interview evaluation caching: Results cached in memory for scorecard generation.
+  - **Updated** Interview evaluation caching: Results cached in memory for scorecard aggregation.
+  - **Updated** Enterprise security: Impersonation sessions with token hashing and expiration management.
+  - **Updated** Historical learning: Composite indexing supports complex analytical queries across time dimensions.
+  - **Updated** Field audit logging: Efficient querying by entity type and timestamp for change tracking.
+  - **Updated** SSO configuration: Tenant-specific configuration with activation/deactivation controls.
 - Caching strategies:
   - JdCache stores parsed job descriptions keyed by hash to avoid repeated parsing.
   - Candidate enrichment fields reduce repeated parsing costs.
@@ -840,6 +1257,8 @@ Q --> R["017: Interview Kit Evaluation Framework"]
   - **Updated** Resume files stored directly in database eliminate need for external caching.
   - **Updated** Eligibility decisions cached in hybrid pipeline to avoid repeated computations.
   - **Updated** Interview evaluation data cached in memory for scorecard aggregation.
+  - **Updated** Historical learning data cached for dashboard performance.
+  - **Updated** SSO configuration cached for authentication performance.
 - Performance considerations:
   - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp, deterministic_score, eligibility_status, question_category, question_index).
   - Prefer batch operations for inserts (bulk insert for plans).
@@ -852,6 +1271,9 @@ Q --> R["017: Interview Kit Evaluation Framework"]
   - **Updated** Native resume storage reduces I/O complexity and improves reliability.
   - **Updated** Deterministic scoring computation optimized with early gating and capped scoring.
   - **Updated** Interview evaluation framework optimized with unique constraints and efficient aggregation queries.
+  - **Updated** Enterprise security features optimized with token hashing and expiration indexing.
+  - **Updated** Historical learning system optimized with composite indexing for analytical queries.
+  - **Updated** Field audit logging optimized with entity-type indexing for change tracking.
 
 **Section sources**
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
@@ -869,6 +1291,10 @@ Q --> R["017: Interview Kit Evaluation Framework"]
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [interview_kit.py:140-221](file://app/backend/routes/interview_kit.py#L140-L221)
+- [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
+- [022_historical_learning_system.py:61-131](file://alembic/versions/022_historical_learning_system.py#L61-L131)
+- [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
+- [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
 
 ### Data Lifecycle, Retention, and Backup
 - Data lifecycle:
@@ -888,6 +1314,11 @@ Q --> R["017: Interview Kit Evaluation Framework"]
   - **Updated** Deterministic scoring data: permanent storage of eligibility decisions and scoring rationale.
   - **Updated** Interview evaluation data: structured scoring data with unique constraints for data integrity.
   - **Updated** Overall assessment data: hiring manager recommendations with unique constraints.
+  - **Updated** Enterprise security: impersonation sessions with expiration-based cleanup.
+  - **Updated** Security events: comprehensive security activity tracking with tenant context.
+  - **Updated** Historical learning: time-series data with configurable retention for analytics.
+  - **Updated** Field audit logs: change tracking with configurable retention for compliance.
+  - **Updated** SSO configurations: tenant-specific settings with audit trail.
 - Retention:
   - No explicit retention policies are defined in code; implement administrative controls to archive or purge historical data.
   - AnalysisArtifacts have automatic expiration (30 days) for cleanup.
@@ -899,6 +1330,9 @@ Q --> R["017: Interview Kit Evaluation Framework"]
   - **Updated** Deterministic scoring data: retain for compliance and decision transparency.
   - **Updated** Interview evaluation data: retain for interview process documentation and compliance.
   - **Updated** Overall assessment data: retain for hiring decision transparency and legal compliance.
+  - **Updated** Enterprise security data: impersonation sessions with expiration-based cleanup.
+  - **Updated** Historical learning data: time-series retention for analytical insights.
+  - **Updated** Field audit logs: retention for compliance and change tracking.
 - Backup:
   - Use database-native backups (e.g., pg_dump for PostgreSQL, SQLite backup mechanisms) and regular snapshots.
   - Consider logical backups for portable deployments.
@@ -906,6 +1340,9 @@ Q --> R["017: Interview Kit Evaluation Framework"]
   - **Updated** Resume file storage requires consideration of binary data backup strategies.
   - **Updated** Deterministic scoring fields require backup for compliance and analytics continuity.
   - **Updated** Interview evaluation and overall assessment tables require backup for compliance and legal requirements.
+  - **Updated** Enterprise security tables require backup for compliance and audit requirements.
+  - **Updated** Historical learning tables require backup for analytical continuity.
+  - **Updated** Field audit logs require backup for compliance and change tracking.
 
 ### Sample Queries and Reporting Scenarios
 - Monthly usage by tenant
@@ -943,6 +1380,12 @@ Q --> R["017: Interview Kit Evaluation Framework"]
   - Query: select recruiter_recommendation, count(*) as count, avg(rating) as avg_rating from overall_assessments oa join screening_results sr on oa.result_id = sr.id where sr.tenant_id = ? group by recruiter_recommendation order by count desc.
 - **Updated** Interview evaluation completeness
   - Query: select sr.id, count(ie.id) as evaluations_completed, (select count(*) from analysis_result where sr.id = result_id) as total_questions from screening_results sr left join interview_evaluations ie on sr.id = ie.result_id where sr.tenant_id = ? group by sr.id order by evaluations_completed desc.
+- **Updated** Enterprise security audit
+  - Query: select event_type, count(*) as count, min(created_at) as first_occurrence, max(created_at) as last_occurrence from security_events where tenant_id = ? group by event_type order by count desc.
+- **Updated** Historical learning trends
+  - Query: select role_category, skill_name, period_date, jd_mention_count, resume_present_count, hired_with_skill from skill_trend_snapshots where tenant_id = ? order by period_date desc limit 100.
+- **Updated** Field audit log analysis
+  - Query: select entity_type, field_name, count(*) as change_count, min(changed_at) as first_change, max(changed_at) as last_change from field_audit_logs where tenant_id = ? group by entity_type, field_name order by change_count desc.
 
 **Section sources**
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
@@ -958,6 +1401,9 @@ Q --> R["017: Interview Kit Evaluation Framework"]
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [interview_kit.py:268-400](file://app/backend/routes/interview_kit.py#L268-L400)
+- [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
+- [022_historical_learning_system.py:40-132](file://alembic/versions/022_historical_learning_system.py#L40-L132)
+- [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
 
 ## Dependency Analysis
 The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements included connection pooling configuration, token revocation support, queue system implementation, intelligent scoring capabilities, platform administration, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
@@ -983,6 +1429,10 @@ EL["eligibility_service.py<br/>services"] --> D
 FS["fit_scorer.py<br/>services"] --> D
 HP["hybrid_pipeline.py<br/>services"] --> D
 IK["interview_kit.py<br/>routes"] --> D
+ES["enterprise_security.py<br/>services"] --> D
+BI["billing/*<br/>services"] --> D
+SSO["sso_service.py<br/>services"] --> D
+UA["usage_alert_service.py<br/>services"] --> D
 D --> CP["Connection Pooling<br/>PostgreSQL"]
 D --> RT["Revoked Tokens<br/>Token Management"]
 D --> QS["Queue System<br/>Scalable Processing"]
@@ -993,6 +1443,11 @@ D --> PC["Platform Config<br/>Billing Management"]
 D --> RF["Resume Files<br/>Native Storage"]
 D --> DS["Deterministic Scoring<br/>Eligibility Gating"]
 D --> IE["Interview Evaluations<br/>Structured Scoring"]
+D --> ES["Enterprise Security<br/>Impersonation & Auditing"]
+D --> HL["Historical Learning<br/>Analytics"]
+D --> BL["Billing System<br/>Invoices & Dunning"]
+D --> SSO["SSO Integration<br/>Identity Providers"]
+D --> FA["Field Audit Logs<br/>Change Tracking"]
 ```
 
 **Diagram sources**
@@ -1017,6 +1472,12 @@ D --> IE["Interview Evaluations<br/>Structured Scoring"]
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
 - [interview_kit.py:1-221](file://app/backend/routes/interview_kit.py#L1-L221)
+- [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
+- [billing/invoice_service.py:1-200](file://app/backend/services/billing/invoice_service.py#L1-L200)
+- [billing/dunning_service.py:1-200](file://app/backend/services/billing/dunning_service.py#L1-L200)
+- [billing/webhook_processor.py:1-200](file://app/backend/services/billing/webhook_processor.py#L1-L200)
+- [sso_service.py:1-200](file://app/backend/services/sso_service.py#L1-L200)
+- [usage_alert_service.py:1-200](file://app/backend/services/usage_alert_service.py#L1-L200)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
@@ -1039,6 +1500,9 @@ D --> IE["Interview Evaluations<br/>Structured Scoring"]
 - **Updated** Deterministic scoring performance: Early gating reduces computational overhead; capped scoring ensures consistent performance.
 - **Updated** Interview evaluation performance: Unique constraints prevent duplicate writes; efficient aggregation queries for scorecards.
 - **Updated** Overall assessment performance: Unique constraints ensure single assessment per user per result; efficient retrieval for scorecards.
+- **Updated** Enterprise security performance: Token hashing and expiration indexing support efficient impersonation management.
+- **Updated** Historical learning performance: Composite indexing enables efficient analytical queries across time dimensions.
+- **Updated** Field audit logging performance: Entity-type indexing supports efficient change tracking queries.
 
 ## Troubleshooting Guide
 - Database connectivity
@@ -1085,6 +1549,21 @@ D --> IE["Interview Evaluations<br/>Structured Scoring"]
   - Tenant isolation failures: Check that result_id belongs to current user's tenant.
   - Data validation errors: Verify category, rating, and recommendation values meet validation constraints.
   - Performance: Interview evaluation queries can be optimized with proper indexing on question_category and question_index.
+- **Updated** Enterprise security issues
+  - Impersonation session failures: Check token hashing and expiration management.
+  - Security event logging: Verify event_type indexing and tenant context.
+  - Role assignment: Ensure platform_role values match expected enumeration.
+- **Updated** Historical learning issues
+  - Analytics query performance: Verify composite index usage for time-series queries.
+  - Data freshness: Check skill_trend_snapshots and outcome_skill_patterns update frequencies.
+  - Trend analysis: Validate role_category and skill_name indexing for performance.
+- **Updated** Field audit logging issues
+  - Change tracking gaps: Verify entity_type and entity_id indexing.
+  - Audit log queries: Ensure proper tenant scoping for compliance reporting.
+- **Updated** SSO configuration issues
+  - Identity provider connectivity: Verify IDP metadata and certificate configuration.
+  - Attribute mapping: Check SSO attribute-to-local field mapping.
+  - Auto-provisioning: Verify user creation and role assignment on first login.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -1103,35 +1582,45 @@ D --> IE["Interview Evaluations<br/>Structured Scoring"]
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
 - [interview_kit.py:28-80](file://app/backend/routes/interview_kit.py#L28-L80)
-- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-L488)
+- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-488)
+- [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
+- [022_historical_learning_system.py:61-131](file://alembic/versions/022_historical_learning_system.py#L61-L131)
+- [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
+- [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
 
 ## Conclusion
 The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model now provides comprehensive deterministic scoring with eligibility gating, structured decision rationale, and detailed scoring breakdowns. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. The Interview Kit Evaluation Framework introduces sophisticated interview scoring capabilities with per-question evaluations, overall assessments, and automated scorecard generation. The deterministic scoring system with hard gating rules ensures fair and transparent candidate evaluation processes. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
+
+**Updated** The system now includes comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, and extensive candidate profile enhancements, making it suitable for enterprise-scale deployment with full compliance and security coverage.
 
 ## Appendices
 
 ### Appendix A: Entity Field Reference
 - Tenant
   - Fields: id, name, slug, plan_id, timestamps.
-  - Enhanced fields: subscription_status, current_period_start, current_period_end, analyses_count_this_month, storage_used_bytes, usage_reset_at, stripe_customer_id, stripe_subscription_id, subscription_updated_at, suspended_at, suspended_reason, metadata_json.
+  - Enhanced fields: subscription_status, current_period_start, current_period_end, analyses_count_this_month, storage_used_bytes, usage_reset_at, stripe_customer_id, stripe_subscription_id, subscription_updated_at, suspended_at, suspended_reason, metadata_json, onboarding_completed, onboarding_completed_at, scoring_weights.
   - Indexes: subscription_status, stripe_customer_id.
 - SubscriptionPlan
   - Fields: id, name (unique), display_name, description, limits (JSON), price_monthly, price_yearly, currency, features (JSON), is_active, sort_order, timestamps.
   - Indexes: (is_active, sort_order).
 - User
-  - Fields: id, tenant_id, email (unique), hashed_password, role, is_active, is_platform_admin, timestamps.
+  - Fields: id, tenant_id, email (unique), hashed_password, role, is_active, is_platform_admin, platform_role, timestamps.
+  - **Updated** Enhanced with platform_role field supporting granular roles.
   - Indexes: email.
 - Candidate
-  - Fields: id, tenant_id, name, email, phone, timestamps; enrichment: resume_file_hash, resume_filename (String 255), resume_file_data (LargeBinary/BYTEA), raw_resume_text, parsed_skills/education/work_exp, gap_analysis_json, current_role/company, total_years_exp, profile_quality, profile_updated_at; parser_snapshot_json.
+  - Fields: id, tenant_id, name, email, phone, timestamps; enrichment: resume_file_hash, resume_filename (String 255), resume_file_data (LargeBinary), resume_converted_pdf_data (LargeBinary), raw_resume_text, parsed_skills/education/work_exp, gap_analysis_json, current_role/company, total_years_exp, profile_quality, profile_updated_at; parser_snapshot_json.
+  - **Updated** Enhanced with ai_professional_summary (Text) and candidate_notes relationship.
   - Indexes: email, resume_file_hash.
-  - **Updated** Enhanced with native resume file storage capabilities.
 - ScreeningResult
   - Fields: id, tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
   - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
+  - **Updated** Enhanced with status_updated_at timestamp for tracking screening result status changes.
   - **Updated** Interview evaluation relationships: evaluations (one-to-many), overall_assessment (one-to-many).
-  - Indexes: candidate_id, timestamp.
+  - Indexes: candidate_id, timestamp, tenant_id+timestamp.
 - RoleTemplate
-  - Fields: id, tenant_id, name, jd_text, scoring_weights (JSON), tags, timestamps.
+  - Fields: id, tenant_id, name, jd_text, scoring_weights (JSON), tags, required_skills_override, nice_to_have_skills_override, timestamps.
+  - **Updated** Enhanced with skill template persistence fields.
+  - Indexes: tenant_id.
 - InterviewEvaluation
   - Fields: id, result_id (FK), user_id (FK), question_category (String 30), question_index (Integer), rating (String 10), notes (Text), created_at, updated_at.
   - **New** Unique constraint: (result_id, user_id, question_category, question_index).
@@ -1180,9 +1669,48 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - JobMetrics
   - Fields: id, job_id, tenant_id, queue_wait_time_ms, parsing_time_ms, llm_time_ms, narrative_time_ms, total_time_ms, resource usage metrics, quality metrics, stage timings, error metrics, worker info, created_at.
   - Indexes: job_id, tenant_id, created_at, total_time_ms.
+- **Updated** ImpersonationSession
+  - Fields: id, admin_user_id (FK, CASCADE), target_user_id (FK, CASCADE), token_hash (String 64, unique, indexed), expires_at, created_at, revoked_at, ip_address.
+  - Indexes: admin_user_id, target_user_id, expires_at.
+- **Updated** SecurityEvent
+  - Fields: id, tenant_id (FK, SET NULL), user_id (FK, SET NULL), event_type (String 50), ip_address (String 45), user_agent (String 500), details (Text), created_at.
+  - Indexes: event_type, created_at, user_id, tenant_id.
+- **Updated** PlanFeature
+  - Fields: id, plan_id (FK, CASCADE), feature_flag_id (FK, CASCADE), enabled, created_at.
+  - Unique constraint: (plan_id, feature_flag_id).
+  - Indexes: plan_id, feature_flag_id.
+- **Updated** ErasureLog
+  - Fields: id, tenant_id (FK, CASCADE), actor_user_id (FK, SET NULL), status (String 20, default "requested"), started_at, completed_at, records_affected (Integer, default 0), details (Text), created_at.
+  - Indexes: tenant_id, status.
+- **Updated** HiringOutcome
+  - Fields: id, tenant_id (FK), screening_result_id (FK, unique), candidate_id (FK), role_template_id (FK), decision (String 20), decision_stage (String 50), decision_date, decision_by_user_id (FK), feedback_rating (Integer), feedback_notes (Text), source (String 20, default "manual"), metadata_json (Text), created_at, updated_at.
+  - Indexes: tenant_id, role_template_id.
+- **Updated** TeamSkillProfile
+  - Fields: id, tenant_id (FK), team_name (String 200), skills_json (Text), job_functions (Text), member_count (Integer), created_by_user_id (FK), created_at, updated_at.
+- **Updated** SkillTrendSnapshot
+  - Fields: id, tenant_id (FK), role_category (String 50), skill_name (String 200), period_date (Date), jd_mention_count (Integer, default 0), resume_present_count (Integer, default 0), hired_with_skill (Integer, default 0), total_hired (Integer, default 0), trend_direction (String 10), growth_pct (Float), created_at.
+- **Updated** OutcomeSkillPattern
+  - Fields: id, tenant_id (FK), role_template_id (FK), role_category (String 50), skill_name (String 200), correlation_score (Float), present_in_hired_pct (Float), present_in_rejected_pct (Float), sample_size (Integer), last_computed_at, created_at.
+- **Updated** Invoice
+  - Fields: id, tenant_id (FK, CASCADE), invoice_number (String 50, unique), status (String 20, default "paid"), amount (Integer), currency (String 3, default "usd"), description (String 500), line_items (JSON), payment_provider (String 20), provider_invoice_id (String 255), period_start, period_end, issued_at, paid_at.
+- **Updated** DunningRecord
+  - Fields: id (String 36), tenant_id (FK, CASCADE), status (String 20, default "active"), retry_count (Integer, default 0), max_retries (Integer, default 4), next_retry_at, last_retry_at, failure_reason (String 500), resolved_at, created_at.
+- **Updated** BillingEvent
+  - Fields: id, provider (String 20, indexed), event_type (String 100, indexed), tenant_id (FK, SET NULL), raw_payload (Text), result (String 20, default "pending"), error_detail (Text), processed_at, created_at.
+- **Updated** UsageAlert
+  - Fields: id (String 36), tenant_id (FK, CASCADE), alert_type (String 50), threshold_percent (Integer), metric_name (String 50), current_value (Integer), limit_value (Integer), notified_at, period_key (String 10), UniqueConstraint(tenant_id, alert_type, period_key).
+- **Updated** SSOSession
+  - Fields: id (Integer, indexed), tenant_id (FK, CASCADE, unique, indexed), provider_type (String 20, default "saml2"), idp_entity_id (String 500), idp_sso_url (String 500), idp_slo_url (String 500), idp_certificate (Text), sp_entity_id (String 500), sp_acs_url (String 500), enforce_sso (Boolean, default 0), auto_provision (Boolean, default 1), default_role (String 50, default "viewer"), is_active (Boolean, default 0), created_at, updated_at.
+- **Updated** FieldAuditLog
+  - Fields: id, tenant_id (String 100, nullable=False, indexed), entity_type (String 50, nullable=False), entity_id (Integer, nullable=False, indexed), field_name (String 100, nullable=False), old_value (Text), new_value (Text), changed_by (Integer, FK), changed_at (DateTime, nullable=False, default now), change_reason (String 500).
+- **Updated** CandidateNote
+  - Fields: id, candidate_id (FK), user_id (FK), tenant_id (FK), text (Text, nullable=False), created_at, updated_at.
+- **Updated** SkillClassificationTemplate
+  - Fields: id, tenant_id (FK), name (String 255, nullable=False), role_template_id (FK), required_skills (Text, default "[]"), nice_to_have_skills (Text, default "[]"), created_by (FK), created_at, updated_at.
+  - Indexes: tenant_id, name.
 
 **Section sources**
-- [db_models.py:11-431](file://app/backend/models/db_models.py#L11-L431)
+- [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
 - [001_enrich_candidates_add_caches.py:75-110](file://alembic/versions/001_enrich_candidates_add_caches.py#L75-L110)
 - [003_subscription_system.py:66-117](file://alembic/versions/003_subscription_system.py#L66-L117)
 - [004_narrative_json.py:8](file://alembic/versions/004_narrative_json.py#L8)
@@ -1195,6 +1723,21 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [015_add_resume_file_storage.py:29-48](file://alembic/versions/015_add_resume_file_storage.py#L29-L48)
 - [016_deterministic_scoring_fields.py:33-73](file://alembic/versions/016_deterministic_scoring_fields.py#L33-L73)
 - [017_interview_kit_enhancement.py:23-53](file://alembic/versions/017_interview_kit_enhancement.py#L23-L53)
+- [018_ats_evolution.py:39-66](file://alembic/versions/018_ats_evolution.py#L39-L66)
+- [019_candidate_profile_enhancements.py:37-57](file://alembic/versions/019_candidate_profile_enhancements.py#L37-L57)
+- [020_doc_to_pdf_conversion.py:33-37](file://alembic/versions/020_doc_to_pdf_conversion.py#L33-L37)
+- [021_enterprise_platform_admin.py:45-143](file://alembic/versions/021_enterprise_platform_admin.py#L45-L143)
+- [022_historical_learning_system.py:40-132](file://alembic/versions/022_historical_learning_system.py#L40-L132)
+- [023_skill_template_persistence.py:17-30](file://alembic/versions/023_skill_template_persistence.py#L17-L30)
+- [024_audit_fixes.py:13-39](file://alembic/versions/024_audit_fixes.py#L13-L39)
+- [025_template_skill_overrides.py:13-22](file://alembic/versions/025_template_skill_overrides.py#L13-L22)
+- [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
+- [027_billing_events.py:14-25](file://alembic/versions/027_billing_events.py#L14-L25)
+- [028_invoices.py:14-30](file://alembic/versions/028_invoices.py#L14-L30)
+- [029_dunning_system.py:14-37](file://alembic/versions/029_dunning_system.py#L14-L37)
+- [030_usage_alerts.py:14-26](file://alembic/versions/030_usage_alerts.py#L14-L26)
+- [031_onboarding_flag.py:14-15](file://alembic/versions/031_onboarding_flag.py#L14-L15)
+- [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
 - [eligibility_service.py:10-14](file://app/backend/services/eligibility_service.py#L10-L14)
 
 ### Appendix B: Migration History
@@ -1215,6 +1758,21 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - 015: **New** Resume file storage with resume_filename and resume_file_data columns.
 - 016: **New** Deterministic scoring fields (deterministic_score, domain_match_score, core_skill_score, eligibility_status, eligibility_reason) added to screening_results.
 - 017: **New** Interview Kit Evaluation Framework with interview_evaluations and overall_assessments tables.
+- 018: **New** ATS evolution with tenant email configurations and screening status tracking.
+- 019: **New** Candidate profile enhancements with AI summaries and candidate notes.
+- 020: **New** DOC to PDF conversion support for enhanced document compatibility.
+- 021: **New** Enterprise platform admin with impersonation sessions, security events, plan features, and erasure logs.
+- 022: **New** Historical learning system with hiring outcomes, team skill profiles, skill trends, and outcome patterns.
+- 023: **New** Skill template persistence for role-specific skill classification.
+- 024: **New** Audit fixes including tenant_id constraints and composite indexing.
+- 025: **New** Template skill overrides for flexible role template customization.
+- 026: **New** Field audit log system for comprehensive change tracking.
+- 027: **New** Billing events table for webhook audit logging.
+- 028: **New** Invoices table for payment receipt tracking.
+- 029: **New** Dunning system for failed payment retry tracking.
+- 030: **New** Usage alerts for threshold notification tracking.
+- 031: **New** Onboarding flag for tenant onboarding completion tracking.
+- 032: **New** SSO configuration for SAML/OIDC identity provider integration.
 
 **Section sources**
 - [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
@@ -1234,3 +1792,18 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [015_add_resume_file_storage.py:1-49](file://alembic/versions/015_add_resume_file_storage.py#L1-L49)
 - [016_deterministic_scoring_fields.py:1-74](file://alembic/versions/016_deterministic_scoring_fields.py#L1-L74)
 - [017_interview_kit_enhancement.py:1-61](file://alembic/versions/017_interview_kit_enhancement.py#L1-L61)
+- [018_ats_evolution.py:1-75](file://alembic/versions/018_ats_evolution.py#L1-L75)
+- [019_candidate_profile_enhancements.py:1-66](file://alembic/versions/019_candidate_profile_enhancements.py#L1-L66)
+- [020_doc_to_pdf_conversion.py:1-46](file://alembic/versions/020_doc_to_pdf_conversion.py#L1-L46)
+- [021_enterprise_platform_admin.py:1-179](file://alembic/versions/021_enterprise_platform_admin.py#L1-L179)
+- [022_historical_learning_system.py:1-166](file://alembic/versions/022_historical_learning_system.py#L1-L166)
+- [023_skill_template_persistence.py:1-35](file://alembic/versions/023_skill_template_persistence.py#L1-L35)
+- [024_audit_fixes.py:1-40](file://alembic/versions/024_audit_fixes.py#L1-L40)
+- [025_template_skill_overrides.py:1-23](file://alembic/versions/025_template_skill_overrides.py#L1-L23)
+- [026_audit_log_system.py:1-33](file://alembic/versions/026_audit_log_system.py#L1-L33)
+- [027_billing_events.py:1-30](file://alembic/versions/027_billing_events.py#L1-L30)
+- [028_invoices.py:1-37](file://alembic/versions/028_invoices.py#L1-L37)
+- [029_dunning_system.py:1-43](file://alembic/versions/029_dunning_system.py#L1-L43)
+- [030_usage_alerts.py:1-31](file://alembic/versions/030_usage_alerts.py#L1-L31)
+- [031_onboarding_flag.py:1-21](file://alembic/versions/031_onboarding_flag.py#L1-L21)
+- [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
