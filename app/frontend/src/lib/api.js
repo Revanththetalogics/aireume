@@ -55,9 +55,16 @@ const PUBLIC_PATHS = ['/login', '/register']
 
 let isRefreshing = false
 let refreshFailedQueue = []
+let lastSuccessfulAuthTime = 0
 
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    // Track last successful authenticated response
+    if (res.status >= 200 && res.status < 300) {
+      lastSuccessfulAuthTime = Date.now()
+    }
+    return res
+  },
   async (error) => {
     const original = error.config
     const reqPath = original?.url || ''
@@ -85,8 +92,11 @@ api.interceptors.response.use(
         // Refresh failed - reject all queued requests
         refreshFailedQueue.forEach(({ reject }) => reject(refreshError))
         refreshFailedQueue = []
-        // Dispatch custom event so React can navigate without a full page reload
-        window.dispatchEvent(new CustomEvent('auth:logout', { detail: { reason: 'refresh_failed' } }))
+        // Only force logout if session is genuinely expired (no recent successful auth)
+        const timeSinceLastAuth = Date.now() - lastSuccessfulAuthTime
+        if (timeSinceLastAuth > 10000) {
+          window.dispatchEvent(new CustomEvent('auth:logout', { detail: { reason: 'refresh_failed' } }))
+        }
         return Promise.reject(refreshError)
       } finally {
         isRefreshing = false  // ALWAYS reset, even on success or failure
