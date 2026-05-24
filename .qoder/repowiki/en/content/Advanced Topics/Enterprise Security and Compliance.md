@@ -13,16 +13,17 @@
 - [db_models.py](file://app/backend/models/db_models.py)
 - [impersonation_service.py](file://app/backend/services/impersonation_service.py)
 - [test_phase5_enterprise_security.py](file://app/backend/tests/test_phase5_enterprise_security.py)
+- [test_rate_limiting.py](file://app/backend/tests/test_rate_limiting.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced PII redaction system with dual implementation (regex-based fallback and Presidio enterprise-grade)
-- Expanded compliance audit logging with framework-specific tagging (GDPR, CCPA, EEOC, SOC 2)
-- Added comprehensive security event monitoring with suspicious activity detection
-- Strengthened impersonation services with enhanced session management and security controls
-- Integrated enterprise integration hub for ATS/HRIS system connectivity
-- Added new enterprise security service with comprehensive compliance controls
+- Enhanced rate limiting with detailed logging for tenant extraction failures and configuration lookup errors
+- Expanded whitelist coverage for new authentication endpoints including refresh and deep health checks
+- Improved error handling for rate limit configuration failures with comprehensive logging
+- Strengthened CSRF protection with timing-safe comparison algorithms using `secrets.compare_digest`
+- Added comprehensive CSRF token rotation after successful state-changing requests
+- Enhanced rate limit configuration management with cache invalidation and audit logging
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -58,8 +59,8 @@ The enhanced security and compliance features are implemented across multiple la
 graph TB
 subgraph "Enhanced Security Framework"
 AUTH["Authentication<br/>JWT + RBAC + Impersonation"]
-CSRF["CSRF Protection<br/>Double-submit Cookie"]
-RL["Rate Limiting<br/>Token Bucket"]
+CSRF["CSRF Protection<br/>Double-submit Cookie + Timing-safe Comparison"]
+RL["Rate Limiting<br/>Token Bucket + Detailed Logging"]
 END
 subgraph "Enterprise Security Services"
 PII["Enhanced PII Redactor<br/>Regex + Presidio"]
@@ -89,8 +90,8 @@ IMPL --> DB_MODELS
 
 **Diagram sources**
 - [auth.py:79-239](file://app/backend/middleware/auth.py#L79-L239)
-- [csrf.py:1-95](file://app/backend/middleware/csrf.py#L1-L95)
-- [rate_limit.py:1-144](file://app/backend/middleware/rate_limit.py#L1-L144)
+- [csrf.py:1-105](file://app/backend/middleware/csrf.py#L1-L105)
+- [rate_limit.py:1-149](file://app/backend/middleware/rate_limit.py#L1-L149)
 - [enterprise_security.py:1-376](file://app/backend/services/enterprise_security.py#L1-L376)
 - [pii_redaction_service.py:1-234](file://app/backend/services/pii_redaction_service.py#L1-L234)
 - [admin.py:1-2990](file://app/backend/routes/admin.py#L1-L2990)
@@ -102,8 +103,8 @@ IMPL --> DB_MODELS
 - [enterprise_security.py:1-376](file://app/backend/services/enterprise_security.py#L1-L376)
 - [pii_redaction_service.py:1-234](file://app/backend/services/pii_redaction_service.py#L1-L234)
 - [auth.py:79-239](file://app/backend/middleware/auth.py#L79-L239)
-- [csrf.py:1-95](file://app/backend/middleware/csrf.py#L1-L95)
-- [rate_limit.py:1-144](file://app/backend/middleware/rate_limit.py#L1-L144)
+- [csrf.py:1-105](file://app/backend/middleware/csrf.py#L1-L105)
+- [rate_limit.py:1-149](file://app/backend/middleware/rate_limit.py#L1-L149)
 - [admin.py:1-2990](file://app/backend/routes/admin.py#L1-L2990)
 - [security_event_service.py:1-180](file://app/backend/services/security_event_service.py#L1-L180)
 - [audit_service.py:1-81](file://app/backend/services/audit_service.py#L1-L81)
@@ -240,34 +241,46 @@ The authentication middleware provides enterprise-grade access control:
 - Integration with external identity providers (SSO)
 
 ### Enhanced CSRF Protection
-The CSRF middleware provides comprehensive cross-site request forgery prevention:
+The CSRF middleware provides comprehensive cross-site request forgery prevention with strengthened security measures:
 
 **Protection Mechanisms:**
 - Double-submit cookie pattern for browser-based authentication
-- Exemption system for safe methods and specific paths
-- Token rotation after successful state-changing requests
+- Exemption system for safe methods and specific paths including new authentication endpoints
+- Token rotation after successful state-changing requests with timing-safe comparison
 - Secure cookie handling with environment-specific security settings
 
 **Advanced Features:**
-- Automatic CSRF token generation and validation
+- Automatic CSRF token generation and validation using `secrets.compare_digest` for timing-safe comparison
 - Integration with authentication middleware for seamless protection
-- Configurable exemption paths for API endpoints
+- Configurable exemption paths for API endpoints including refresh, deep health, and webhook endpoints
 - Production-ready security settings with secure cookie attributes
 
+**Enhanced Security Measures:**
+- Timing-safe token comparison prevents timing attacks
+- CSRF token rotation after successful state-changing requests
+- Comprehensive exemption system for legitimate API endpoints
+- Environment-aware security settings with production-specific configurations
+
 ### Enhanced Rate Limiting
-The rate limiting middleware provides enterprise-grade traffic control:
+The rate limiting middleware provides enterprise-grade traffic control with comprehensive monitoring, detailed logging, and improved error handling:
 
 **Per-Tenant Control:**
 - Token bucket algorithm with configurable requests per minute
-- Caching mechanism for rate limit configuration
-- Whitelist system for health checks and public endpoints
+- Caching mechanism for rate limit configuration with TTL-based invalidation
+- Expanded whitelist system for health checks, authentication endpoints, and public resources
 - Atomic operations for thread-safe concurrent access
 
-**Advanced Features:**
-- Tenant ID extraction from JWT tokens
-- Dynamic rate limit configuration with caching
-- Retry-after header support for client guidance
-- Integration with database for persistent rate limit settings
+**Enhanced Features:**
+- Tenant ID extraction from JWT tokens with comprehensive error handling and logging
+- Dynamic rate limit configuration with caching and cache invalidation
+- Retry-after header support for client guidance with precise timing
+- Integration with database for persistent rate limit settings with robust error handling
+
+**Improved Error Handling:**
+- Detailed logging for tenant extraction failures with exception context
+- Comprehensive error handling for rate limit configuration lookups
+- Graceful degradation when database operations fail
+- Configurable logging levels for different types of failures
 
 **Monitoring:**
 - Real-time rate limit tracking and analytics
@@ -283,8 +296,8 @@ The rate limiting middleware provides enterprise-grade traffic control:
 - [security_event_service.py:24-180](file://app/backend/services/security_event_service.py#L24-L180)
 - [impersonation_service.py:17-109](file://app/backend/services/impersonation_service.py#L17-L109)
 - [auth.py:79-239](file://app/backend/middleware/auth.py#L79-L239)
-- [csrf.py:15-95](file://app/backend/middleware/csrf.py#L15-L95)
-- [rate_limit.py:16-144](file://app/backend/middleware/rate_limit.py#L16-L144)
+- [csrf.py:15-105](file://app/backend/middleware/csrf.py#L15-L105)
+- [rate_limit.py:16-149](file://app/backend/middleware/rate_limit.py#L16-L149)
 
 ## Architecture Overview
 The enhanced security architecture integrates multiple layers of protection with comprehensive monitoring and compliance capabilities.
@@ -293,8 +306,8 @@ The enhanced security architecture integrates multiple layers of protection with
 sequenceDiagram
 participant Client as "Client Application"
 participant Auth as "Enhanced Auth Middleware"
-participant CSRF as "CSRF Protection"
-participant RL as "Rate Limiting"
+participant CSRF as "Enhanced CSRF Protection"
+participant RL as "Enhanced Rate Limiting"
 participant Admin as "Admin Security Endpoint"
 participant Audit as "Compliance Audit Service"
 participant SecEvt as "Security Event Service"
@@ -302,9 +315,9 @@ participant PII as "PII Redaction Service"
 Client->>Auth : "Request with JWT or Cookie"
 Auth-->>Client : "Authenticated User or 401"
 Auth->>CSRF : "Dispatch with CSRF Validation"
-CSRF-->>Auth : "CSRF Token Verification"
-Auth->>RL : "Dispatch with Rate Limit Check"
-RL-->>Auth : "Allowed or 429 Response"
+CSRF-->>Auth : "CSRF Token Verification with Timing-safe Comparison"
+Auth->>RL : "Dispatch with Rate Limit Check and Detailed Logging"
+RL-->>Auth : "Allowed or 429 Response with Retry-After"
 Auth->>Admin : "Authorized Access with Security Controls"
 Admin->>PII : "PII Redaction for Sensitive Data"
 PII-->>Admin : "Redacted Content with Audit Trail"
@@ -315,8 +328,8 @@ Admin-->>Client : "Response with Security Headers"
 
 **Diagram sources**
 - [auth.py:79-137](file://app/backend/middleware/auth.py#L79-L137)
-- [csrf.py:52-95](file://app/backend/middleware/csrf.py#L52-L95)
-- [rate_limit.py:123-144](file://app/backend/middleware/rate_limit.py#L123-L144)
+- [csrf.py:52-105](file://app/backend/middleware/csrf.py#L52-L105)
+- [rate_limit.py:123-149](file://app/backend/middleware/rate_limit.py#L123-L149)
 - [admin.py:193-262](file://app/backend/routes/admin.py#L193-L262)
 - [audit_service.py:12-44](file://app/backend/services/audit_service.py#L12-L44)
 - [security_event_service.py:24-114](file://app/backend/services/security_event_service.py#L24-L114)
@@ -557,19 +570,25 @@ CheckSuspension --> |Suspended| Deny403["403 Forbidden"]
 - [auth.py:79-137](file://app/backend/middleware/auth.py#L79-L137)
 
 ### Enhanced CSRF Protection
-The enhanced CSRF middleware provides comprehensive cross-site request forgery prevention with advanced security features.
+The enhanced CSRF middleware provides comprehensive cross-site request forgery prevention with strengthened security measures and improved token management.
 
 **Protection Mechanisms:**
 - Double-submit cookie pattern for browser-based authentication
-- Exemption system for safe methods and specific paths
-- Token rotation after successful state-changing requests
+- Exemption system for safe methods and specific paths including new authentication endpoints
+- Token rotation after successful state-changing requests with timing-safe comparison
 - Secure cookie handling with environment-specific security settings
 
 **Advanced Features:**
-- Automatic CSRF token generation and validation
+- Automatic CSRF token generation and validation using `secrets.compare_digest` for timing-safe comparison
 - Integration with authentication middleware for seamless protection
-- Configurable exemption paths for API endpoints
+- Configurable exemption paths for API endpoints including refresh, deep health, and webhook endpoints
 - Production-ready security settings with secure cookie attributes
+
+**Enhanced Security Measures:**
+- Timing-safe token comparison prevents timing attacks
+- CSRF token rotation after successful state-changing requests
+- Comprehensive exemption system for legitimate API endpoints
+- Environment-aware security settings with production-specific configurations
 
 ```mermaid
 flowchart TD
@@ -579,35 +598,41 @@ MethodCheck --> |No| PathExempt{"Exempt Path?"}
 PathExempt --> |Yes| Next1
 PathExempt --> |No| AuthHeader{"Authorization Header?"}
 AuthHeader --> |Yes| Next1
-AuthHeader --> |No| TokenCheck["Compare Cookie vs Header Token"]
+AuthHeader --> |No| TokenCheck["Compare Cookie vs Header Token<br/>with Timing-safe Algorithm"]
 TokenCheck --> |Mismatch| Block["403 CSRF Error"]
 TokenCheck --> |Match| Proceed["Execute Request"]
 Proceed --> Rotate{"Success + State-changing + Cookie Auth?"}
-Rotate --> |Yes| SetCookie["Set New CSRF Token Cookie"]
+Rotate --> |Yes| SetCookie["Set New CSRF Token Cookie<br/>with Secure Attributes"]
 Rotate --> |No| End([Response])
 SetCookie --> End
 ```
 
 **Diagram sources**
-- [csrf.py:52-95](file://app/backend/middleware/csrf.py#L52-L95)
+- [csrf.py:52-105](file://app/backend/middleware/csrf.py#L52-L105)
 
 **Section sources**
-- [csrf.py:52-95](file://app/backend/middleware/csrf.py#L52-L95)
+- [csrf.py:52-105](file://app/backend/middleware/csrf.py#L52-L105)
 
 ### Enhanced Rate Limiting
-The enhanced rate limiting middleware provides enterprise-grade traffic control with comprehensive monitoring and analytics.
+The enhanced rate limiting middleware provides enterprise-grade traffic control with comprehensive monitoring, detailed logging, and improved error handling.
 
 **Per-Tenant Control:**
 - Token bucket algorithm with configurable requests per minute
-- Caching mechanism for rate limit configuration
-- Whitelist system for health checks and public endpoints
+- Caching mechanism for rate limit configuration with TTL-based invalidation
+- Expanded whitelist system for health checks, authentication endpoints, and public resources
 - Atomic operations for thread-safe concurrent access
 
-**Advanced Features:**
-- Tenant ID extraction from JWT tokens
-- Dynamic rate limit configuration with caching
-- Retry-after header support for client guidance
-- Integration with database for persistent rate limit settings
+**Enhanced Features:**
+- Tenant ID extraction from JWT tokens with comprehensive error handling and logging
+- Dynamic rate limit configuration with caching and cache invalidation
+- Retry-after header support for client guidance with precise timing
+- Integration with database for persistent rate limit settings with robust error handling
+
+**Improved Error Handling:**
+- Detailed logging for tenant extraction failures with exception context
+- Comprehensive error handling for rate limit configuration lookups
+- Graceful degradation when database operations fail
+- Configurable logging levels for different types of failures
 
 **Monitoring:**
 - Real-time rate limit tracking and analytics
@@ -619,18 +644,18 @@ The enhanced rate limiting middleware provides enterprise-grade traffic control 
 flowchart TD
 Start([Dispatch]) --> Whitelist{"Whitelisted Path?"}
 Whitelist --> |Yes| Next1["Allow"]
-Whitelist --> |No| ExtractTenant["Extract Tenant from JWT"]
-ExtractTenant --> GetConfig["Get RPM from Cache or DB"]
+Whitelist --> |No| ExtractTenant["Extract Tenant from JWT<br/>with Detailed Logging"]
+ExtractTenant --> GetConfig["Get RPM from Cache or DB<br/>with Error Handling"]
 GetConfig --> Consume{"Consume Token?"}
 Consume --> |Yes| Next1
-Consume --> |No| Block["429 Too Many Requests<br/>Retry-After"]
+Consume --> |No| Block["429 Too Many Requests<br/>Retry-After with Precise Timing"]
 ```
 
 **Diagram sources**
-- [rate_limit.py:123-144](file://app/backend/middleware/rate_limit.py#L123-L144)
+- [rate_limit.py:123-149](file://app/backend/middleware/rate_limit.py#L123-L149)
 
 **Section sources**
-- [rate_limit.py:123-144](file://app/backend/middleware/rate_limit.py#L123-L144)
+- [rate_limit.py:123-149](file://app/backend/middleware/rate_limit.py#L123-L149)
 
 ## Dependency Analysis
 The enhanced security framework components interact through well-defined interfaces and shared models, creating a comprehensive enterprise-grade security ecosystem.
@@ -654,8 +679,8 @@ PII_SERVICE --> DB_MODELS["PII Models"]
 
 **Diagram sources**
 - [auth.py:79-239](file://app/backend/middleware/auth.py#L79-L239)
-- [csrf.py:15-95](file://app/backend/middleware/csrf.py#L15-L95)
-- [rate_limit.py:16-144](file://app/backend/middleware/rate_limit.py#L16-L144)
+- [csrf.py:15-105](file://app/backend/middleware/csrf.py#L15-L105)
+- [rate_limit.py:16-149](file://app/backend/middleware/rate_limit.py#L16-L149)
 - [admin.py:193-2990](file://app/backend/routes/admin.py#L193-L2990)
 - [enterprise_security.py:15-376](file://app/backend/services/enterprise_security.py#L15-L376)
 - [pii_redaction_service.py:26-234](file://app/backend/services/pii_redaction_service.py#L26-L234)
@@ -777,6 +802,12 @@ The enhanced enterprise security framework includes comprehensive troubleshootin
 - **Resolution**: Increase RPM for tenant, adjust whitelist, honor retry-after guidance, check rate limit configuration
 - **Advanced**: Monitor rate limit performance, check token bucket efficiency, validate tenant ID extraction
 
+**Enhanced Rate Limiting Configuration Troubleshooting:**
+- **Symptoms**: Rate limit configuration failures or inconsistent behavior
+- **Checks**: Verify database connectivity, check rate limit configuration caching, monitor detailed logging
+- **Resolution**: Clear cache, restart middleware, check database permissions, validate configuration values
+- **Advanced**: Monitor tenant extraction failures, check JWT decoding errors, validate cache invalidation
+
 **Section sources**
 - [enterprise_security.py:15-121](file://app/backend/services/enterprise_security.py#L15-L121)
 - [enterprise_security.py:123-273](file://app/backend/services/enterprise_security.py#L123-L273)
@@ -785,8 +816,8 @@ The enhanced enterprise security framework includes comprehensive troubleshootin
 - [security_event_service.py:117-180](file://app/backend/services/security_event_service.py#L117-L180)
 - [impersonation_service.py:44-109](file://app/backend/services/impersonation_service.py#L44-L109)
 - [auth.py:79-137](file://app/backend/middleware/auth.py#L79-L137)
-- [csrf.py:52-95](file://app/backend/middleware/csrf.py#L52-L95)
-- [rate_limit.py:123-144](file://app/backend/middleware/rate_limit.py#L123-L144)
+- [csrf.py:52-105](file://app/backend/middleware/csrf.py#L52-L105)
+- [rate_limit.py:123-149](file://app/backend/middleware/rate_limit.py#L123-L149)
 
 ## Conclusion
 The enhanced Enterprise Security and Compliance implementation delivers a comprehensive foundation for protecting sensitive data, ensuring regulatory adherence, and enabling scalable enterprise operations. The system combines advanced PII redaction with enterprise-grade detection, immutable audit logging with framework-specific compliance, comprehensive security event monitoring with real-time threat detection, and strict access controls with tenant-level RBAC and platform-level roles.
@@ -794,3 +825,8 @@ The enhanced Enterprise Security and Compliance implementation delivers a compre
 Key enhancements include the dual implementation approach for PII redaction (regex-based fallback and Presidio enterprise-grade), comprehensive compliance audit logging with automatic framework tagging, advanced security event monitoring with suspicious activity detection, enhanced impersonation services with strict session management, and enterprise integration capabilities for ATS/HRIS system connectivity.
 
 The implementation maintains enterprise-grade security while providing flexibility for future enhancements, with comprehensive monitoring, testing, and adherence to best practices ensuring a robust security posture. Regular updates to security measures, continuous monitoring of threat landscapes, and adherence to evolving regulatory requirements will further strengthen the platform's security framework.
+
+**Updated Enhancements:**
+- **Enhanced Rate Limiting**: Added detailed logging for tenant extraction failures and configuration lookup errors, expanded whitelist coverage for new authentication endpoints, improved error handling for rate limit configuration failures
+- **Strengthened CSRF Protection**: Implemented timing-safe comparison algorithms using `secrets.compare_digest`, added comprehensive CSRF token rotation after successful state-changing requests, enhanced exemption system for legitimate API endpoints
+- **Improved Security Controls**: Enhanced security measures across all components with better error handling, logging, and monitoring capabilities

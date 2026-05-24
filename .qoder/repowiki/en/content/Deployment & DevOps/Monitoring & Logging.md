@@ -22,15 +22,11 @@
 
 ## Update Summary
 **Changes Made**
-- Expanded Prometheus metrics system with 15 new counters covering guardrail operations
-- Added comprehensive hallucination detection monitoring with node-specific labeling
-- Integrated injection blocking detection with dedicated counter tracking
-- Implemented schema validation failure monitoring with node identification
-- Added inconsistency correction tracking for cross-node data consistency
-- Introduced HITL (Human-In-The-Loop) flag generation monitoring with severity levels
-- Enhanced circuit breaker activation monitoring with node-specific metrics
-- Added token budget exceedance tracking with tenant identification
-- Updated guardrail service with structured event emission and Prometheus integration
+- Enhanced health check system with new `/api/health` endpoint validating database connectivity and LLM service availability
+- Expanded monitoring capabilities with detailed error reporting and status categorization
+- Added Ollama health sentinel for continuous LLM monitoring and automatic model warming
+- Improved deep health check with comprehensive dependency validation and disk space monitoring
+- Enhanced LLM status endpoint with detailed diagnostic information and model readiness assessment
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -48,7 +44,7 @@
 ## Introduction
 This document provides comprehensive monitoring and logging guidance for Resume AI by ThetaLogics. It covers application logging configuration using Python's logging module, structured logging for analysis operations, and strategies for log aggregation. It also explains health check endpoints, service monitoring, uptime tracking, performance monitoring for AI model inference, database queries, and API response times, along with error tracking, exception handling, alerting mechanisms, metrics collection, log rotation and retention, compliance considerations, and troubleshooting procedures. Centralized logging with ELK stack, APM tools, and custom dashboards is addressed.
 
-**Updated** Expanded with comprehensive guardrail metrics system including hallucination detection, injection blocking, schema validation failures, inconsistency corrections, HITL flag generation, circuit breaker activations, and token budget exceedances.
+**Updated** Enhanced with comprehensive health check system featuring new `/api/health` endpoint, Ollama health sentinel, and detailed monitoring capabilities with status categorization and error reporting.
 
 ## Project Structure
 The monitoring and logging surface spans several layers:
@@ -56,6 +52,7 @@ The monitoring and logging surface spans several layers:
 - Database connectivity and ORM session management
 - Route handlers that perform structured logging for analysis operations
 - LLM service integration with timeouts and fallbacks
+- **New** Ollama health sentinel for continuous monitoring and automatic model warming
 - Guardrail service with comprehensive monitoring and alerting
 - Container orchestration with health checks and environment configuration
 - Nginx proxy configuration for streaming and timeouts
@@ -75,6 +72,7 @@ CSRF["CSRF Middleware"]
 CORR["Request Correlation ID Middleware"]
 METRICS["Custom Metrics Module<br/>Guardrail & LLM Metrics"]
 GR["Guardrail Events<br/>Hallucination Detection<br/>Injection Blocking<br/>Schema Validation<br/>Inconsistency Fixes<br/>HITL Flags<br/>Circuit Breakers<br/>Token Budgets"]
+HS["Ollama Health Sentinel<br/>Continuous Monitoring<br/>Automatic Model Warming"]
 end
 subgraph "Infrastructure"
 NGINX["Nginx Proxy<br/>Streaming & Timeouts"]
@@ -89,6 +87,7 @@ R --> A
 R --> CSRF
 R --> CORR
 S --> GR
+S --> HS
 S --> OLL
 M --> PG
 M --> METRICS
@@ -101,7 +100,7 @@ NGINX --> PG
 **Diagram sources**
 - [app/backend/main.py:174-260](file://app/backend/main.py#L174-L260)
 - [app/backend/routes/analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
-- [app/backend/services/llm_service.py:13-58](file://app/backend/services/llm_service.py#L13-L58)
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 - [app/backend/db/database.py:1-33](file://app/backend/db/database.py#L1-L33)
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/backend/middleware/csrf.py:40-69](file://app/backend/middleware/csrf.py#L40-L69)
@@ -115,7 +114,7 @@ NGINX --> PG
 - [app/backend/main.py:174-260](file://app/backend/main.py#L174-L260)
 - [app/backend/db/database.py:1-33](file://app/backend/db/database.py#L1-L33)
 - [app/backend/routes/analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
-- [app/backend/services/llm_service.py:13-58](file://app/backend/services/llm_service.py#L13-L58)
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/backend/middleware/csrf.py:40-69](file://app/backend/middleware/csrf.py#L40-L69)
 - [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
@@ -126,10 +125,11 @@ NGINX --> PG
 
 ## Core Components
 - Application startup checks and banner printing for dependency readiness
-- Health endpoints for database and LLM connectivity
+- **New** Enhanced health endpoints for database and LLM connectivity validation
 - Structured logging in analysis routes for operational insights
 - Database engine configuration with pooling and pre-ping
 - LLM service with timeouts and fallback responses
+- **New** Ollama health sentinel with continuous monitoring and automatic model warming
 - **New** Comprehensive guardrail service with 4-tier monitoring framework
 - **New** 15 new Prometheus counters for guardrail operations
 - Streaming endpoints with Nginx buffering and timeout tuning
@@ -140,24 +140,27 @@ NGINX --> PG
 
 **Section sources**
 - [app/backend/main.py:68-169](file://app/backend/main.py#L68-L169)
-- [app/backend/main.py:228-259](file://app/backend/main.py#L228-L259)
+- [app/backend/main.py:425-480](file://app/backend/main.py#L425-L480)
+- [app/backend/main.py:482-576](file://app/backend/main.py#L482-L576)
 - [app/backend/routes/analyze.py:491-501](file://app/backend/routes/analyze.py#L491-L501)
 - [app/backend/db/database.py:20-33](file://app/backend/db/database.py#L20-L33)
 - [app/backend/services/llm_service.py:53-57](file://app/backend/services/llm_service.py#L53-L57)
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 - [app/backend/services/guardrail_service.py:1-12](file://app/backend/services/guardrail_service.py#L1-L12)
 - [app/backend/services/metrics.py:23-61](file://app/backend/services/metrics.py#L23-L61)
 - [app/nginx/nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [docker-compose.yml:18-46](file://docker-compose.yml#L18-L46)
-- [docker-compose.prod.yml:34-112](file://docker-compose.prod.yml#L34-L112)
+- [docker-compose.prod.yml:75-145](file://docker-compose.prod.yml#L75-L145)
 - [app/backend/services/metrics.py:1-34](file://app/backend/services/metrics.py#L1-L34)
 - [app/backend/main.py:44-56](file://app/backend/main.py#L44-L56)
 
 ## Architecture Overview
 The monitoring architecture integrates:
 - Startup checks and banner reporting for immediate visibility
-- Active health checks for DB and LLM
+- **New** Enhanced active health checks for DB and LLM with detailed error reporting
 - Structured JSON logs emitted during analysis
-- **New** Guardrail service with comprehensive monitoring and alerting
+- **New** Ollama health sentinel with continuous monitoring and automatic model warming
+- **New** Comprehensive guardrail service with monitoring and alerting
 - **New** 15 new Prometheus counters for guardrail operations
 - Container-level health checks feeding uptime metrics
 - Nginx proxy timeouts and streaming behavior for SSE
@@ -170,6 +173,7 @@ sequenceDiagram
 participant Client as "Client"
 participant Nginx as "Nginx"
 participant API as "FastAPI App"
+participant Sentinel as "Ollama Health Sentinel"
 participant Guardrail as "Guardrail Service"
 participant Metrics as "Prometheus Metrics"
 participant DB as "Postgres"
@@ -178,23 +182,28 @@ Client->>Nginx : GET /health
 Nginx->>API : GET /health
 API->>DB : SELECT 1
 API->>LLM : GET /api/tags
-API-->>Nginx : {status, db, ollama}
+API-->>Nginx : {status, timestamp}
 Nginx-->>Client : 200 OK
-Client->>Nginx : POST /api/analyze
-Nginx->>API : POST /api/analyze
-API->>Guardrail : Process with Guardrails
-Guardrail->>Guardrail : Detect Hallucinations
-Guardrail->>Metrics : Increment Hallucination Counter
-Guardrail->>Guardrail : Block Injection Attempts
-Guardrail->>Metrics : Increment Injection Blocked Counter
-API->>API : Structured log emit (JSON)
-API->>Metrics : Record LLM call duration
-API-->>Client : Analysis result
+Client->>Nginx : GET /api/health
+Nginx->>API : GET /api/health
+API->>DB : SELECT 1
+API->>LLM : GET /api/tags
+API-->>Nginx : {status, database, llm, errors}
+Nginx-->>Client : 200 OK or 503
+Client->>Nginx : GET /api/health/deep
+Nginx->>API : GET /api/health/deep
+API->>DB : SELECT 1 (latency_ms)
+API->>Sentinel : get_status()
+Sentinel->>LLM : /api/ps (latency_ms)
+API->>API : Check disk space
+API-->>Nginx : {status, checks, response_time_ms}
+Nginx-->>Client : 200 OK
 ```
 
 **Diagram sources**
-- [app/backend/main.py:228-259](file://app/backend/main.py#L228-L259)
-- [app/backend/routes/analyze.py:491-501](file://app/backend/routes/analyze.py#L491-L501)
+- [app/backend/main.py:425-480](file://app/backend/main.py#L425-L480)
+- [app/backend/main.py:482-576](file://app/backend/main.py#L482-L576)
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 - [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
 - [app/backend/services/metrics.py:11-20](file://app/backend/services/metrics.py#L11-L20)
 - [app/nginx/nginx.prod.conf:97-100](file://app/nginx/nginx.prod.conf#L97-L100)
@@ -259,31 +268,38 @@ Persist --> End(["Return Response"])
 **Section sources**
 - [app/backend/routes/analyze.py:491-501](file://app/backend/routes/analyze.py#L491-L501)
 
-### Health Check Endpoints and Service Monitoring
-- Active health check endpoint validates database connectivity and Ollama reachability.
-- LLM status endpoint reports model readiness and diagnosis for troubleshooting.
+### Enhanced Health Check Endpoints and Service Monitoring
+- **New** Enhanced shallow health check endpoint (`/health`) provides fast process alive check with timestamp.
+- **New** Comprehensive health check endpoint (`/api/health`) validates database connectivity and LLM service availability with detailed error reporting.
+- **New** Deep health check endpoint (`/api/health/deep`) performs comprehensive dependency validation including database connectivity, Ollama sentinel state, and disk space monitoring.
+- **New** LLM status endpoint (`/api/llm-status`) provides detailed diagnostic information including model readiness, running models, and plain-English diagnosis.
 - Container health checks are defined for Postgres, Ollama, backend, and Nginx.
 
 Monitoring outcomes:
+- **New** Status categorization: healthy, degraded, or unhealthy based on dependency validation
+- **New** Detailed error reporting with specific error messages for database and LLM connectivity issues
+- **New** Continuous monitoring through Ollama health sentinel with automatic model warming
 - Uptime tracking via container health checks
 - Load balancer routing decisions based on health responses
 - Proactive alerts when status degrades
 
 **Section sources**
-- [app/backend/main.py:228-259](file://app/backend/main.py#L228-L259)
-- [app/backend/main.py:262-326](file://app/backend/main.py#L262-L326)
+- [app/backend/main.py:425-480](file://app/backend/main.py#L425-L480)
+- [app/backend/main.py:482-576](file://app/backend/main.py#L482-L576)
+- [app/backend/main.py:579-662](file://app/backend/main.py#L579-L662)
 - [docker-compose.yml:18-46](file://docker-compose.yml#L18-L46)
-- [docker-compose.prod.yml:34-112](file://docker-compose.prod.yml#L34-L112)
+- [docker-compose.prod.yml:113-153](file://docker-compose.prod.yml#L113-L153)
 
 ### Performance Monitoring for AI Model Inference
 - LLM service sets a strict timeout for LLM calls and returns a deterministic fallback on failure.
 - Hybrid pipeline initializes a singleton LLM client with constrained context and prediction sizes to reduce memory footprint and improve throughput.
+- **New** Ollama health sentinel continuously monitors model readiness and automatically warms up models when needed.
 - Streaming endpoint supports long-running LLM narratives with explicit proxy buffering and timeout configuration.
 - **New** Custom Prometheus histograms track LLM call durations with predefined bucket ranges.
 
 Metrics and observability:
 - Structured logs capture total_ms for analysis completion
-- LLM status endpoint provides model hot/cold diagnostics
+- **New** LLM status endpoint provides model hot/cold diagnostics and detailed readiness assessment
 - Container resource limits and Ollama environment variables tune performance
 - **New** LLM_CALL_DURATION histogram tracks call durations with buckets: [5, 10, 20, 30, 60, 120, 180, 300] seconds
 - **New** LLM_FALLBACK_TOTAL counter tracks fallback occurrences
@@ -291,6 +307,7 @@ Metrics and observability:
 **Section sources**
 - [app/backend/services/llm_service.py:53-57](file://app/backend/services/llm_service.py#L53-L57)
 - [app/backend/services/llm_service.py:128-136](file://app/backend/services/llm_service.py#L128-L136)
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 - [app/backend/services/hybrid_pipeline.py:45-66](file://app/backend/services/hybrid_pipeline.py#L45-L66)
 - [app/backend/services/metrics.py:11-20](file://app/backend/services/metrics.py#L11-L20)
 - [app/nginx/nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
@@ -298,7 +315,7 @@ Metrics and observability:
 ### Database Connectivity and Query Monitoring
 - Database engine is configured with connection pooling and pre-ping enabled.
 - Session management ensures proper closure and rollback handling.
-- Health check endpoint executes a simple query to validate connectivity.
+- **New** Health check endpoint executes a simple query to validate connectivity with error reporting.
 
 Best practices:
 - Monitor slow queries and connection pool saturation
@@ -307,7 +324,7 @@ Best practices:
 
 **Section sources**
 - [app/backend/db/database.py:20-33](file://app/backend/db/database.py#L20-L33)
-- [app/backend/main.py:239-247](file://app/backend/main.py#L239-L247)
+- [app/backend/main.py:448-479](file://app/backend/main.py#L448-L479)
 
 ### API Response Times and Streaming Behavior
 - Nginx proxy configurations define timeouts and buffering behavior for streaming endpoints.
@@ -327,13 +344,16 @@ Operational guidance:
 - LLM service wraps calls with retries and returns a fallback response on errors.
 - Analysis route catches parsing and pipeline errors, returning graceful fallback results.
 - Structured logs include pipeline errors for traceability.
+- **New** Enhanced health check endpoints provide detailed error reporting for troubleshooting.
+- **New** Ollama health sentinel automatically manages model warming and provides status monitoring.
 - **New** Guardrail service emits structured events for monitoring and alerting.
 
 Alerting recommendations:
-- Monitor health endpoint status transitions
+- Monitor health endpoint status transitions and categorization
 - Alert on frequent fallback responses from LLM service
 - Track structured log fields for anomaly detection
 - **New** Monitor guardrail event counters for security and quality issues
+- **New** Track Ollama sentinel status for model readiness issues
 
 **Section sources**
 - [app/backend/main.py:164-169](file://app/backend/main.py#L164-L169)
@@ -341,11 +361,13 @@ Alerting recommendations:
 - [app/backend/routes/analyze.py:279-290](file://app/backend/routes/analyze.py#L279-L290)
 - [app/backend/routes/analyze.py:312-314](file://app/backend/routes/analyze.py#L312-L314)
 - [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
+- [app/backend/main.py:482-576](file://app/backend/main.py#L482-L576)
 
 ### Metrics Collection for Usage Analytics and Benchmarks
 - Structured logs include fit_score, skills_found, quality, and total_ms for performance benchmarking.
 - Usage enforcement increments counters and records usage per tenant.
-- LLM status endpoint provides model readiness diagnostics for capacity planning.
+- **New** LLM status endpoint provides model readiness diagnostics for capacity planning.
+- **New** Ollama health sentinel provides continuous monitoring metrics.
 - **New** Custom Prometheus metrics provide detailed performance insights.
 - **New** Guardrail metrics provide comprehensive security and quality monitoring.
 
@@ -358,11 +380,12 @@ Suggested metrics:
 - **New** Resume parsing duration distributions
 - **New** Batch operation size distributions
 - **New** Guardrail event rates and distributions
+- **New** Ollama model readiness and warming metrics
 
 **Section sources**
 - [app/backend/routes/analyze.py:491-501](file://app/backend/routes/analyze.py#L491-L501)
 - [app/backend/routes/analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
-- [app/backend/main.py:262-326](file://app/backend/main.py#L262-L326)
+- [app/backend/main.py:579-662](file://app/backend/main.py#L579-L662)
 - [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
 
 ### Request Correlation and Distributed Tracing
@@ -405,7 +428,7 @@ Instrumentation configuration:
 **Section sources**
 - [app/backend/main.py:291-298](file://app/backend/main.py#L291-L298)
 - [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
-- [requirements.txt:47](file://requirements.txt#L47)
+- [requirements.txt:52](file://requirements.txt#L52)
 
 ### Log Rotation, Retention, and Compliance
 - Container logs are written to stdout/stderr by default.
@@ -425,6 +448,7 @@ Instrumentation configuration:
 - Custom dashboards can track health status, usage trends, and performance metrics.
 - **New** Prometheus metrics enable advanced visualization and alerting capabilities.
 - **New** Guardrail metrics enable comprehensive security and quality monitoring dashboards.
+- **New** Ollama health sentinel metrics provide continuous monitoring insights.
 
 **Section sources**
 - [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
@@ -485,6 +509,7 @@ The monitoring and logging ecosystem depends on:
 - FastAPI app lifecycle and health endpoints
 - Database engine and sessions
 - LLM service and hybrid pipeline
+- **New** Ollama health sentinel with continuous monitoring
 - **New** Guardrail service with comprehensive monitoring framework
 - Nginx proxy configuration
 - Container health checks
@@ -504,6 +529,7 @@ ANALYZE --> GUARDRAIL["Guardrail Service"]
 GUARDRAIL --> GR_METRICS["Guardrail Metrics"]
 GUARDRAIL --> LLM
 LLM --> OLL["Ollama"]
+LLM --> SENTINEL["Ollama Health Sentinel"]
 API --> AUTH["Auth Middleware"]
 API --> CSRF["CSRF Middleware"]
 NGINX["Nginx"] --> API
@@ -514,7 +540,7 @@ NGINX --> DB
 **Diagram sources**
 - [app/backend/main.py:174-260](file://app/backend/main.py#L174-L260)
 - [app/backend/routes/analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
-- [app/backend/services/llm_service.py:13-58](file://app/backend/services/llm_service.py#L13-L58)
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 - [app/backend/db/database.py:20-33](file://app/backend/db/database.py#L20-L33)
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/backend/middleware/csrf.py:40-69](file://app/backend/middleware/csrf.py#L40-L69)
@@ -525,7 +551,7 @@ NGINX --> DB
 **Section sources**
 - [app/backend/main.py:174-260](file://app/backend/main.py#L174-L260)
 - [app/backend/routes/analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
-- [app/backend/services/llm_service.py:13-58](file://app/backend/services/llm_service.py#L13-L58)
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 - [app/backend/db/database.py:20-33](file://app/backend/db/database.py#L20-L33)
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/backend/middleware/csrf.py:40-69](file://app/backend/middleware/csrf.py#L40-L69)
@@ -539,7 +565,7 @@ NGINX --> DB
   - Streaming endpoint disables proxy buffering to prevent delays.
 - Memory and model loading:
   - Hybrid pipeline constrains context and prediction sizes to reduce memory usage.
-  - Ollama warmup ensures models are loaded into RAM for predictable latency.
+  - **New** Ollama health sentinel ensures models are loaded into RAM for predictable latency.
 - Database performance:
   - Pool pre-ping and connection arguments improve reliability under load.
 - **New** Metrics-driven performance optimization:
@@ -547,6 +573,7 @@ NGINX --> DB
   - Fallback tracking helps identify performance bottlenecks
   - Batch size monitoring optimizes throughput
   - **New** Guardrail metrics help identify security and quality performance issues
+  - **New** Ollama health sentinel metrics provide continuous monitoring insights
 - **New** Guardrail service overhead:
   - Minimal performance impact through best-effort metric emission
   - Structured logging with appropriate severity levels
@@ -559,17 +586,22 @@ NGINX --> DB
 - [app/backend/db/database.py:20-33](file://app/backend/db/database.py#L20-L33)
 - [app/backend/services/metrics.py:11-76](file://app/backend/services/metrics.py#L11-L76)
 - [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 
 ## Troubleshooting Guide
 Common scenarios and resolutions:
 - Database connectivity issues:
+  - **New** Use `/api/health` endpoint to validate database connectivity with detailed error reporting.
   - Verify health endpoint status and database URL configuration.
   - Check connection pool exhaustion and slow queries.
 - LLM unavailability or slowness:
-  - Use LLM status endpoint to diagnose model readiness.
+  - **New** Use `/api/health` endpoint to validate LLM service availability with detailed error reporting.
+  - **New** Use `/api/health/deep` endpoint for comprehensive LLM status including model readiness and latency.
+  - **New** Use `/api/llm-status` endpoint for detailed diagnostic information including model hot/cold status.
   - Confirm Ollama warmup and model hot/cold status.
   - Adjust LLM service timeout and retry settings.
   - **New** Monitor LLM_CALL_DURATION histogram for performance regressions.
+  - **New** Monitor Ollama health sentinel status for model readiness issues.
 - Streaming endpoint delays:
   - Ensure proxy buffering is disabled for SSE.
   - Increase proxy timeouts for long-running LLM narratives.
@@ -584,6 +616,7 @@ Common scenarios and resolutions:
   - **New** Monitor GUARDRAIL_HALLUCINATION_TOTAL for hallucination detection rates.
   - **New** Check GUARDRAIL_INJECTION_BLOCKED_TOTAL for security incidents.
   - **New** Analyze GUARDRAIL_SCHEMA_VALIDATION_FAILED_TOTAL for validation issues.
+  - **New** Track Ollama health sentinel status for model readiness problems.
 - **New** Guardrail-specific troubleshooting:
   - Investigate circuit breaker activations in GUARDRAIL_CIRCUIT_BREAKER_TOTAL.
   - Monitor token budget exceedances in GUARDRAIL_TOKEN_BUDGET_EXCEEDED_TOTAL.
@@ -593,17 +626,19 @@ Common scenarios and resolutions:
   - Correlate logs with distributed tracing systems.
 
 **Section sources**
-- [app/backend/main.py:228-259](file://app/backend/main.py#L228-L259)
-- [app/backend/main.py:262-326](file://app/backend/main.py#L262-L326)
+- [app/backend/main.py:425-480](file://app/backend/main.py#L425-L480)
+- [app/backend/main.py:482-576](file://app/backend/main.py#L482-L576)
+- [app/backend/main.py:579-662](file://app/backend/main.py#L579-L662)
 - [app/backend/middleware/auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [app/nginx/nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [docker-compose.prod.yml:147-184](file://docker-compose.prod.yml#L147-L184)
 - [app/backend/services/metrics.py:11-76](file://app/backend/services/metrics.py#L11-L76)
 - [app/backend/main.py:44-56](file://app/backend/main.py#L44-L56)
 - [app/backend/services/guardrail_service.py:1067-1128](file://app/backend/services/guardrail_service.py#L1067-L1128)
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 
 ## Conclusion
-The Resume AI platform integrates startup checks, health endpoints, structured logging, containerized health checks, and comprehensive observability through Prometheus metrics to provide robust monitoring and observability. The addition of structured JSON logging for production, request correlation IDs, detailed performance metrics collection, and the comprehensive guardrail metrics system significantly enhances the platform's monitoring capabilities. The 15 new Prometheus counters provide extensive coverage of security, quality, and operational aspects of the AI analysis pipeline. By leveraging these components and adopting centralized logging and APM practices, operators can achieve reliable uptime, performance insights, efficient troubleshooting, and comprehensive operational visibility with strong security and quality monitoring.
+The Resume AI platform integrates startup checks, enhanced health endpoints, structured logging, containerized health checks, and comprehensive observability through Prometheus metrics to provide robust monitoring and observability. The addition of structured JSON logging for production, request correlation IDs, detailed performance metrics collection, and the comprehensive guardrail metrics system significantly enhances the platform's monitoring capabilities. The **new enhanced health check system** with `/api/health` endpoint, Ollama health sentinel, and detailed error reporting provides comprehensive service monitoring with status categorization and proactive troubleshooting capabilities. The 15 new Prometheus counters provide extensive coverage of security, quality, and operational aspects of the AI analysis pipeline. By leveraging these components and adopting centralized logging and APM practices, operators can achieve reliable uptime, performance insights, efficient troubleshooting, and comprehensive operational visibility with strong security and quality monitoring.
 
 ## Appendices
 
@@ -615,6 +650,7 @@ The Resume AI platform integrates startup checks, health endpoints, structured l
 - **New** ENVIRONMENT variable controls JSON logging format
 - **New** CORS_ORIGINS variable for cross-origin configuration
 - **New** GUARDRAIL_* environment variables for guardrail configuration
+- **New** OLLAMA_* environment variables for Ollama health sentinel configuration
 
 **Section sources**
 - [app/backend/db/database.py:5-18](file://app/backend/db/database.py#L5-L18)
@@ -629,10 +665,11 @@ The Resume AI platform integrates startup checks, health endpoints, structured l
 - **New** prometheus-fastapi-instrumentator for metrics instrumentation
 - **New** prometheus_client for custom metrics definition
 - **New** Guardrail service dependencies for comprehensive monitoring
+- **New** Ollama health sentinel dependencies for continuous monitoring
 
 **Section sources**
-- [requirements.txt:1-54](file://requirements.txt#L1-L54)
-- [requirements.txt:47](file://requirements.txt#L47)
+- [requirements.txt:1-59](file://requirements.txt#L1-L59)
+- [requirements.txt:52](file://requirements.txt#L52)
 - [alembic.ini:124-147](file://alembic.ini#L124-L147)
 
 ### Appendix C: Custom Metrics Reference
@@ -651,7 +688,29 @@ The Resume AI platform integrates startup checks, health endpoints, structured l
 **Section sources**
 - [app/backend/services/metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
 
-### Appendix D: Guardrail Event Types and Definitions
+### Appendix D: Health Check Endpoints and Status Categories
+- **/health**: Fast process alive check with timestamp (healthy)
+- **/api/health**: Comprehensive dependency validation with database and LLM connectivity (healthy, degraded)
+- **/api/health/deep**: Deep health check with database, Ollama sentinel, and disk space monitoring (healthy, degraded, unhealthy)
+- **/api/llm-status**: Detailed LLM diagnostic with model readiness assessment
+
+**Section sources**
+- [app/backend/main.py:425-480](file://app/backend/main.py#L425-L480)
+- [app/backend/main.py:482-576](file://app/backend/main.py#L482-L576)
+- [app/backend/main.py:579-662](file://app/backend/main.py#L579-L662)
+
+### Appendix E: Ollama Health Sentinel Features
+- **Continuous Monitoring**: Background loop that periodically probes LLM service health
+- **Automatic Model Warming**: Triggers model loading when not in RAM (local Ollama)
+- **State Management**: Tracks model states: cold, warming, hot, error
+- **Latency Tracking**: Measures probe latency and last probe time
+- **Cloud Detection**: Handles Ollama Cloud differently from local installations
+- **Status Reporting**: Provides detailed status information for monitoring and diagnostics
+
+**Section sources**
+- [app/backend/services/llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
+
+### Appendix F: Guardrail Event Types and Definitions
 - **hallucination_detected**: AI-generated content that appears to be false or misleading
 - **prompt_injection_blocked**: Malicious attempts to influence AI behavior through crafted prompts
 - **schema_validation_failed**: Output that doesn't match expected data structure

@@ -547,6 +547,15 @@ class OverallAssessmentUpsert(BaseModel):
                 raise ValueError(f'recruiter_recommendation must be one of {allowed}')
         return v
 
+class EvaluatorInfo(BaseModel):
+    """Attribution info for a single question evaluation."""
+    user_id: int
+    email: str
+    rating: str
+    question_index: int
+    notes: Optional[str] = None
+
+
 class ScorecardDimension(BaseModel):
     """Summary of one evaluation dimension."""
     category: str
@@ -556,6 +565,7 @@ class ScorecardDimension(BaseModel):
     adequate_count: int = 0
     weak_count: int = 0
     key_notes: List[str] = []
+    evaluators: List[EvaluatorInfo] = []  # Who rated what
 
 class ScorecardOut(BaseModel):
     """HM-facing scorecard aggregating evaluations."""

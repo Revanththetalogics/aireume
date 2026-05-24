@@ -26,16 +26,17 @@
 - [009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
 - [WeightSuggestionPanel.jsx](file://app/frontend/src/components/WeightSuggestionPanel.jsx)
 - [UniversalWeightsPanel.jsx](file://app/frontend/src/components/UniversalWeightsPanel.jsx)
+- [rate_limit.py](file://app/backend/middleware/rate_limit.py)
+- [subscription.py](file://app/backend/routes/subscription.py)
+- [quota.py](file://app/backend/services/billing/quota.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced hybrid pipeline with comprehensive weight conversion integration supporting legacy, old backend, and new universal schemas
-- Implemented intelligent weight suggestion system with LLM-based recommendations and fallback mechanisms
-- Added comprehensive database migration for intelligent scoring weights with version management
-- Enhanced error handling with safe dictionary access patterns and improved tenant customization capabilities
-- Integrated weight mapper functionality with adaptive role-based labeling and intelligent schema detection
-- Added weight suggestion endpoint with frontend integration for dynamic weight recommendations
+- Enhanced resume analysis pipeline with comprehensive resource management: PDF page limits (500 pages maximum), parse timeout controls (30-second maximum), and tenant-based quota locking to prevent double-spending on concurrent requests
+- Improved streaming analysis endpoint with cancellation support: client disconnection detection, early result persistence, and graceful cleanup
+- Enhanced usage enforcement with hard quota checks: pre-analysis quota validation and monthly usage tracking
+- Comprehensive error handling improvements: graceful degradation for resource-constrained environments and robust retry mechanisms
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -57,41 +58,43 @@
 17. [PII Redaction and Bias Mitigation](#pii-redaction-and-bias-mitigation)
 18. [Evidence Validation and Deterministic Behavior](#evidence-validation-and-deterministic-behavior)
 19. [Guardrail Service Integration](#guardrail-service-integration)
-20. [Dependency Analysis](#dependency-analysis)
-21. [Performance Considerations](#performance-considerations)
-22. [Troubleshooting Guide](#troubleshooting-guide)
-23. [Conclusion](#conclusion)
-24. [Appendices](#appendices)
+20. [Usage Enforcement and Quota Management](#usage-enforcement-and-quota-management)
+21. [Dependency Analysis](#dependency-analysis)
+22. [Performance Considerations](#performance-considerations)
+23. [Troubleshooting Guide](#troubleshooting-guide)
+24. [Conclusion](#conclusion)
+25. [Appendices](#appendices)
 
 ## Introduction
 This document explains the analysis engine powering Resume AI by ThetaLogics. It focuses on the hybrid pipeline architecture that combines Python-first deterministic processing with a single LLM call for narrative generation, the LangGraph-based agent pipeline for complex multi-step analysis with comprehensive guardrail integration, the enhanced resume parsing service supporting PDF and DOCX formats with multi-tier extraction strategies, the employment gap detection algorithm, the skills registry system, LLM service integration with Ollama, scoring and recommendation logic, risk assessment criteria, performance optimization techniques, memory management, error handling strategies, and extension points for custom evaluation criteria.
 
-**Updated** The analysis engine now features a comprehensive 4-tier LLM guardrail framework that provides robust reliability, security, governance, and operational controls. The guardrail service integrates seamlessly with the agent pipeline to ensure consistent, high-quality analysis results through retry mechanisms, schema validation, cross-node consistency checks, and ensemble processing capabilities. The weight suggestion service has been enhanced with intelligent schema conversion and comprehensive database migration support for intelligent scoring weights.
+**Updated** The analysis engine now features comprehensive resource management with PDF parsing limits (500 pages maximum), parse timeout controls (30-second maximum parsing time), tenant-based quota locking to prevent double-spending on concurrent requests, and enhanced streaming analysis with proper client disconnection handling and early result persistence. The system includes robust usage enforcement with per-tenant analysis limits and storage quotas, ensuring fair resource allocation and preventing abuse.
 
 ## Project Structure
 The backend is organized around FastAPI routes, SQLAlchemy models, and modular services. The analysis engine spans:
-- Routes orchestrating the end-to-end flow with robust JSON serialization
-- Services implementing parsing, gap detection, hybrid scoring, and LLM integration
+- Routes orchestrating the end-to-end flow with robust JSON serialization and enhanced resource management
+- Services implementing parsing, gap detection, hybrid scoring, and LLM integration with comprehensive error handling
 - Guardrail service providing comprehensive 4-tier LLM safety controls
 - Models defining persistence for candidates, screening results, and caches
 - Startup and health checks coordinating environment readiness
 - Queue management system with automatic retry mechanisms
 - Enhanced PII redaction capabilities with enterprise-grade Presidio integration
 - Evidence validation service for transcript analysis
-- **Enhanced Weight Management System**: Comprehensive schema conversion, intelligent suggestions, and database migration support
+- **Enhanced Resource Management**: Comprehensive PDF limits, parse timeouts, tenant quota locking, and usage enforcement
+- **Improved Streaming**: Client disconnection handling and early result persistence for better user experience
 
 ```mermaid
 graph TB
 subgraph "Routes"
-A["analyze.py<br/>JSON Serialization Utilities<br/>SSE Streaming Endpoints<br/>Weight Suggestion Endpoint"]
+A["analyze.py<br/>JSON Serialization Utilities<br/>SSE Streaming Endpoints<br/>Weight Suggestion Endpoint<br/>PDF Limits & Timeouts<br/>Tenant Quota Locking<br/>Cancellation Support"]
 end
 subgraph "Services"
-B["parser_service.py<br/>Multi-tier Extraction Strategies"]
+B["parser_service.py<br/>Multi-tier Extraction Strategies<br/>PDF Page Limits<br/>Parse Timeout Controls"]
 C["gap_detector.py"]
 D["hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Exponential Backoff<br/>Guardrails<br/>Weight Conversion"]
 E["agent_pipeline.py<br/>Anti-Hallucination Guardrails<br/>Ensemble Processing"]
 F["analysis_service.py"]
-G["llm_service.py<br/>Semaphore Control<br/>Health Monitoring"]
+G["llm_service.py<br/>Semaphore Control<br/>Health Monitoring<br/>Timeout Management"]
 H["llm_contact_extractor.py<br/>Enhanced LLM Contact Extraction"]
 I["weight_mapper.py<br/>Schema Conversion<br/>Intelligent Mapping"]
 J["weight_suggester.py<br/>LLM Weight Suggestions<br/>Adaptive Labels<br/>Fallback Mechanisms"]
@@ -103,15 +106,18 @@ O["adverse_action_service.py<br/>Bias Documentation"]
 P["guardrail_service.py<br/>4-Tier LLM Guardrails<br/>Ensemble Processing<br/>Monitoring Hooks"]
 Q["constants.py<br/>Weight Schema Definitions<br/>Default Configurations"]
 R["009_intelligent_scoring_weights.py<br/>Database Migration<br/>Version Management"]
+S["rate_limit.py<br/>Per-Tenant Rate Limiting<br/>Usage Enforcement"]
+T["subscription.py<br/>Analysis Limits<br/>Storage Quotas<br/>Usage Checking"]
+U["quota.py<br/>Hard Quota Enforcement<br/>Pre-Analysis Checks"]
 end
 subgraph "Models"
-S["db_models.py"]
+U["db_models.py"]
 end
 subgraph "App"
-T["main.py<br/>Background Task Management<br/>Health Monitoring"]
-U["nginx.prod.conf<br/>Streaming Configuration"]
-V["WeightSuggestionPanel.jsx<br/>Frontend Integration<br/>Dynamic UI"]
-W["UniversalWeightsPanel.jsx<br/>Tenant Customization<br/>Adaptive Labels"]
+V["main.py<br/>Background Task Management<br/>Health Monitoring"]
+W["nginx.prod.conf<br/>Streaming Configuration<br/>Timeout Settings"]
+X["WeightSuggestionPanel.jsx<br/>Frontend Integration<br/>Dynamic UI"]
+Y["UniversalWeightsPanel.jsx<br/>Tenant Customization<br/>Adaptive Labels"]
 end
 A --> B
 A --> C
@@ -130,22 +136,24 @@ A --> O
 A --> P
 A --> Q
 A --> R
-S --> P
-T --> A
-T --> G
-U --> A
+A --> S
+A --> T
+A --> U
+U --> P
 V --> A
+V --> G
 W --> A
+X --> A
+Y --> A
 ```
 
 **Diagram sources**
-- [analyze.py:470-493](file://app/backend/routes/analyze.py#L470-L493)
-- [weight_mapper.py:197-230](file://app/backend/services/weight_mapper.py#L197-L230)
-- [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
-- [constants.py:128-158](file://app/backend/services/constants.py#L128-L158)
-- [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
-- [WeightSuggestionPanel.jsx:16-43](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L16-L43)
-- [UniversalWeightsPanel.jsx:1-200](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L200)
+- [analyze.py:88-88](file://app/backend/routes/analyze.py#L88)
+- [analyze.py:150-160](file://app/backend/routes/analyze.py#L150-L160)
+- [analyze.py:175-179](file://app/backend/routes/analyze.py#L175-L179)
+- [rate_limit.py:80-116](file://app/backend/middleware/rate_limit.py#L80-L116)
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
 
 **Section sources**
 - [README.md:273-333](file://README.md#L273-L333)
@@ -155,7 +163,7 @@ W --> A
 - Hybrid Pipeline: Python-first deterministic scoring (skills, education, experience/timeline, domain/architecture) followed by a single LLM call for narrative synthesis and interview questions with enhanced error handling, anti-hallucination guardrails, and deterministic behavior.
 - LangGraph Agent Pipeline: Multi-agent, multi-stage workflow with structured nodes for JD parsing, combined resume analysis, and scoring with explainability, cross-node consistency checks, and comprehensive guardrail integration.
 - Guardrail Service: 4-tier LLM safety framework providing retry mechanisms, schema validation, cross-node consistency, prompt injection detection, 3x voting ensemble, HITL gates, token budget management, and monitoring hooks.
-- Enhanced Resume Parser: Robust text extraction from PDF and DOCX with multi-tier fallbacks, deduplication, and normalization.
+- Enhanced Resume Parser: Robust text extraction from PDF and DOCX with multi-tier fallbacks, deduplication, normalization, and comprehensive resource limits.
 - Gap Detector: Mechanical date parsing and interval merging to compute objective timeline metrics.
 - Skills Registry: Dynamic, DB-backed registry with in-memory flashtext processor and hot reload capability.
 - LLM Integration: Ollama-backed ChatOllama clients with singletons, timeouts, JSON parsing utilities, comprehensive error handling, and health monitoring.
@@ -164,11 +172,12 @@ W --> A
 - **Enhanced AI Pipeline**: Sophisticated score rationales and structured risk analysis with detailed explanations.
 - **AI-Enhanced Narratives**: Distinction system between LLM-generated and fallback narratives using `ai_enhanced` flag.
 - **Enhanced Error Handling**: Comprehensive retry mechanisms with exponential backoff for rate limiting and connection failures.
-- **Resource Management**: Semaphore-based concurrency control and health monitoring for external LLM services.
+- **Resource Management**: Semaphore-based concurrency control, PDF page limits (500 pages maximum), parse timeout controls (30-second maximum), and tenant-based quota locking.
 - **Anti-Hallucination Guardrails**: Cache versioning, circuit breaker monitoring, and deterministic behavior enforcement.
 - **PII Redaction**: Enterprise-grade PII detection and anonymization with regex fallback capabilities.
 - **Evidence Validation**: Comprehensive validation of LLM claims against transcript evidence to prevent hallucinations.
 - **Enhanced Weight Management**: Intelligent schema conversion, LLM-based weight suggestions, database migration support, and tenant customization capabilities.
+- **Usage Enforcement**: Per-tenant analysis limits, storage quotas, and comprehensive usage checking with graceful degradation.
 
 **Section sources**
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
@@ -185,16 +194,20 @@ W --> A
 - [pii_redaction_service.py:1-233](file://app/backend/services/pii_redaction_service.py#L1-L233)
 - [transcript_service.py:330-374](file://app/backend/services/transcript_service.py#L330-L374)
 - [evidence_validation_service.py:1-200](file://app/backend/services/evidence_validation_service.py#L1-L200)
+- [rate_limit.py:80-116](file://app/backend/middleware/rate_limit.py#L80-L116)
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
 
 ## Architecture Overview
-The system uses a hybrid approach with comprehensive guardrail integration and enhanced error handling:
+The system uses a hybrid approach with comprehensive guardrail integration and enhanced resource management:
 - Phase 1 (Python, ~1–2s): parse_jd_rules → parse_resume_rules → match_skills_rules → score_education/experience/domain → compute_fit_score → generate score rationales and risk summary
 - Phase 2 (LLM, ~40s): explain_with_llm (generates strengths, weaknesses, rationale, interview questions) with exponential backoff retry for rate limiting and anti-hallucination guardrails
 - Fallback: deterministic narrative when LLM is unavailable or times out
 - Background Processing: LLM narrative generated as background task with graceful shutdown handling
 - Bias Mitigation: PII redaction and evidence validation throughout the pipeline
 - **Guardrail Integration**: 4-tier safety framework with retry mechanisms, schema validation, cross-node consistency, and ensemble processing
-- **Enhanced Weight Management**: Intelligent schema conversion, LLM-based weight suggestions, database migration with version management, and tenant customization
+- **Enhanced Resource Management**: PDF page limits (500 pages maximum), parse timeout controls (30-second maximum), tenant-based quota locking, and usage enforcement
+- **Improved Streaming**: Client disconnection handling with heartbeat pings and early result persistence for better user experience
 
 ```mermaid
 sequenceDiagram
@@ -209,8 +222,15 @@ participant Contact as "llm_contact_extractor.py"
 participant PII as "pii_redaction_service.py"
 participant WeightMapper as "weight_mapper.py"
 participant WeightSuggester as "weight_suggester.py"
-participant LLM as "Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails"
-Route->>Parser : parse_resume(file)
+participant LLM as "Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails<br/>Timeout Management"
+participant RateLimit as "rate_limit.py<br/>Tenant Quota Locking"
+participant Subscription as "subscription.py<br/>Usage Enforcement"
+participant Quota as "quota.py<br/>Hard Quota Checks"
+Route->>Quota : check_quota(tenant_id, db)
+Quota-->>Route : UsageCheckResponse
+Route->>RateLimit : _get_tenant_lock(tenant_id)
+RateLimit-->>Route : asyncio.Lock
+Route->>Parser : parse_resume(file)<br/>PDF : ≤500 pages<br/>Timeout : ≤30s
 Parser-->>Route : parsed_data
 Route->>Contact : extract_contact_with_llm(raw_text)
 Contact-->>Route : contact_info
@@ -220,7 +240,7 @@ Route->>WeightMapper : convert_to_new_schema(weights)
 WeightMapper-->>Route : converted_weights
 Route->>Agent : run_agent_pipeline(...)
 Agent->>Guardrail : llm_invoke_with_retry()
-Guardrail->>LLM : Retry with exponential backoff
+Guardrail->>LLM : Retry with exponential backoff<br/>Timeout : ≤30s
 LLM-->>Guardrail : Response or Error
 Guardrail-->>Agent : Validated result or fallback
 Agent->>Guardrail : validate_jd_output()
@@ -234,7 +254,9 @@ Route->>PII : redact_pii(resume_text)
 PII-->>Route : redacted_text
 Route->>WeightSuggester : suggest_weights_for_jd(jd_text)
 WeightSuggester-->>Route : weight suggestion or fallback
-Route-->>Client : AnalysisResponse with guardrail metadata
+Route->>Subscription : usage_check(analyses_limit)
+Subscription-->>Route : UsageCheckResponse
+Route-->>Client : AnalysisResponse with guardrail metadata<br/>Early persistence & streaming
 ```
 
 **Diagram sources**
@@ -243,15 +265,170 @@ Route-->>Client : AnalysisResponse with guardrail metadata
 - [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-L168)
 - [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-L214)
 - [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-L371)
-- [guardrail_service.py:684-752](file://app/backend/services/guardrail_service.py#L684-752)
+- [guardrail_service.py:684-752](file://app/backend/services/guardrail_service.py#L684-L752)
 - [parser_service.py:547-552](file://app/backend/services/parser_service.py#L547-L552)
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
 - [pii_redaction_service.py:53-66](file://app/backend/services/pii_redaction_service.py#L53-L66)
 - [weight_mapper.py:197-230](file://app/backend/services/weight_mapper.py#L197-L230)
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
+- [rate_limit.py:175-179](file://app/backend/middleware/rate_limit.py#L175-L179)
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
 
 ## Detailed Component Analysis
+
+### Enhanced Parser Service
+**Updated** The enhanced parser service now includes comprehensive resource management with PDF page limits and parse timeout controls:
+
+- **PDF Resource Limits**: PyMuPDF primary with 500-page maximum limit; scanned PDF guard with best-effort page counting
+- **Parse Timeout Controls**: 30-second maximum parsing time with graceful degradation
+- **DOCX Processing**: Multi-stage extraction with headers, textboxes, tables, paragraphs, and XML fallback
+- **DOC/RTF/HTML/ODT/TXT**: Best-effort extraction with Unicode normalization and deduplication
+- **Advanced contact extraction**: LLM-powered merging strategy for accuracy
+- **Resume parsing**: work experience, skills, education, contact info with enrichment
+
+```mermaid
+flowchart TD
+A["extract_text(file_bytes, filename)"] --> B{"PDF?"}
+B --> |Yes| C["PyMuPDF -> text<br/>MAX_PDF_PAGES = 500"]
+C --> D{"Page count ≤ 500?"}
+D --> |Yes| E["Parse with timeout ≤30s"]
+D --> |No| F["HTTPException: PDF exceeds 500 pages"]
+E --> G{"Empty?"}
+G --> |Yes| H["pdfplumber fallback"]
+G --> |No| Z["Return text"]
+B --> |No| I{"DOCX?"}
+I --> |Yes| J["Multi-stage DOCX extraction:<br/>Headers → Textboxes → Tables → Paragraphs → XML Fallback"]
+I --> |No| K{"Other formats?"}
+K --> |Yes| L["Decode with encodings"]
+K --> |No| M["Raise unsupported format"]
+J --> N["Return text"]
+L --> O{"Readable?"}
+O --> |Yes| Z
+O --> |No| M
+```
+
+**Diagram sources**
+- [analyze.py:88-88](file://app/backend/routes/analyze.py#L88)
+- [analyze.py:150-160](file://app/backend/routes/analyze.py#L150-L160)
+- [parser_service.py:240-313](file://app/backend/services/parser_service.py#L240-L313)
+- [parser_service.py:343-492](file://app/backend/services/parser_service.py#L343-L492)
+- [parser_service.py:542-737](file://app/backend/services/parser_service.py#L542-L737)
+
+**Section sources**
+- [analyze.py:88-88](file://app/backend/routes/analyze.py#L88)
+- [analyze.py:150-160](file://app/backend/routes/analyze.py#L150-L160)
+- [parser_service.py:1-552](file://app/backend/services/parser_service.py#L1-L552)
+
+### Tenant-Based Quota Locking
+**Updated** The analysis engine implements comprehensive tenant-based quota locking to prevent double-spending on concurrent requests:
+
+- **Quota Lock Management**: `_tenant_quota_locks: dict[int, asyncio.Lock]` stores per-tenant locks
+- **Lock Retrieval**: `_get_tenant_lock(tenant_id)` returns existing lock or creates new one
+- **Concurrent Request Protection**: Ensures only one analysis request per tenant at a time
+- **Double-Spending Prevention**: Prevents race conditions in concurrent analysis requests
+- **Graceful Degradation**: Falls back to sequential processing when locks are unavailable
+
+```mermaid
+flowchart TD
+Start["Tenant Analysis Request"] --> GetLock["_get_tenant_lock(tenant_id)"]
+GetLock --> Acquire{"Acquire Lock?"}
+Acquire --> |Yes| Process["Process Analysis Request"]
+Acquire --> |No| Wait["Wait for Available Lock"]
+Wait --> Acquire
+Process --> Release["Release Lock"]
+Release --> End["Analysis Complete"]
+```
+
+**Diagram sources**
+- [analyze.py:175-179](file://app/backend/routes/analyze.py#L175-L179)
+
+**Section sources**
+- [analyze.py:175-179](file://app/backend/routes/analyze.py#L175-L179)
+
+### Enhanced Streaming Endpoint Integration
+**Updated** The streaming endpoint now features improved client disconnection handling and early result persistence:
+
+- **Immediate Python Results**: Yields parsing stage with Python scores within 2 seconds
+- **Background LLM Processing**: Continues LLM analysis while streaming
+- **Heartbeat Pings**: Prevents timeouts with periodic SSE comments
+- **Client Disconnection Handling**: Graceful handling of disconnected clients with cancellation support
+- **Early Result Persistence**: Saves partial results immediately for recovery
+- **Polling Support**: Provides analysis_id for frontend polling after initial streaming
+- **Cancellation Support**: Uses asyncio.Event to detect client disconnections and cancel processing
+
+```mermaid
+sequenceDiagram
+participant Client as "Client"
+participant Route as "analyze_stream_endpoint"
+participant Cancel as "asyncio.Event"
+participant Hybrid as "astream_hybrid_pipeline"
+participant DB as "Database"
+Client->>Route : POST /api/analyze/stream
+Route->>Route : Validate & Create ScreeningResult
+Route->>Cancel : asyncio.Event()
+Route->>Hybrid : Start streaming pipeline
+Hybrid->>Route : Check request.is_disconnected()
+Route->>Route : Yield {"stage" : "parsing", "result" : python_scores}
+Route->>Client : SSE : parsing event
+Route->>DB : Early save with Python scores
+Hybrid->>Hybrid : Background LLM processing
+Hybrid->>Route : Check request.is_disconnected()
+Route->>Cancel : set() on disconnect
+Route->>Hybrid : Stop processing on cancel
+Route->>Client : SSE : complete event
+Route->>DB : Final save with LLM results
+```
+
+**Diagram sources**
+- [analyze.py:669-868](file://app/backend/routes/analyze.py#L669-L868)
+- [hybrid_pipeline.py:2190-2284](file://app/backend/services/hybrid_pipeline.py#L2190-L2284)
+
+**Section sources**
+- [analyze.py:669-868](file://app/backend/routes/analyze.py#L669-L868)
+- [hybrid_pipeline.py:2190-2284](file://app/backend/services/hybrid_pipeline.py#L2190-L2284)
+
+### Usage Enforcement and Quota Management
+**Updated** The system implements comprehensive usage enforcement with per-tenant analysis limits and storage quotas:
+
+- **Analysis Limits**: Configurable per-tenant analysis limits with unlimited option (-1)
+- **Storage Quotas**: GB-based storage limits with byte-level precision
+- **Usage Checking**: Projected usage calculation with remaining quota display
+- **Graceful Degradation**: Returns UsageCheckResponse with detailed messaging
+- **Monthly Tracking**: Tenant analysis counts tracked per calendar month
+- **Hard Quota Enforcement**: Pre-analysis quota validation using billing/quota.py
+
+```mermaid
+flowchart TD
+Start["Usage Check Request"] --> CheckAction{"Action Type?"}
+CheckAction --> |analyses| CheckAnalyses["Check analyses_limit"]
+CheckAction --> |storage_upload| CheckStorage["Check storage_gb limit"]
+CheckAnalyses --> Unlimited{"analyses_limit < 0?"}
+Unlimited --> |Yes| Allow["allowed=True, limit=-1"]
+Unlimited --> |No| Project["projected_usage = current + quantity"]
+Project --> Exceeded{"projected_usage > limit?"}
+Exceeded --> |Yes| Deny["allowed=False, message with remaining"]
+Exceeded --> |No| Approve["allowed=True"]
+CheckStorage --> StorageExceeded{"storage_used_bytes >= limit_bytes?"}
+StorageExceeded --> |Yes| StorageDeny["allowed=False, storage exceeded message"]
+StorageExceeded --> |No| StorageApprove["allowed=True"]
+Allow --> End["UsageCheckResponse"]
+Approve --> End
+Deny --> End
+StorageDeny --> End
+StorageApprove --> End
+```
+
+**Diagram sources**
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [subscription.py:345-356](file://app/backend/routes/subscription.py#L345-L356)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
+
+**Section sources**
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [subscription.py:345-356](file://app/backend/routes/subscription.py#L345-L356)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
 
 ### Hybrid Pipeline
 The hybrid pipeline executes deterministic Python logic first, then a single LLM call for narrative with enhanced error handling and anti-hallucination guardrails. It includes:
@@ -349,7 +526,7 @@ Agent-->>Client : assembled result with guardrail metadata
 - [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-L168)
 - [guardrail_service.py:180-214](file://app/backend/services/guardrail_service.py#L180-L214)
 - [guardrail_service.py:299-371](file://app/backend/services/guardrail_service.py#L299-L371)
-- [guardrail_service.py:684-752](file://app/backend/services/guardrail_service.py#L684-752)
+- [guardrail_service.py:684-752](file://app/backend/services/guardrail_service.py#L684-L752)
 
 **Section sources**
 - [agent_pipeline.py:1-1138](file://app/backend/services/agent_pipeline.py#L1-L1138)
@@ -403,40 +580,6 @@ Tier4 --> Monitoring["Event Emission + Metrics"]
 
 **Section sources**
 - [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-L1128)
-
-### Enhanced Parser Service
-The enhanced parser supports:
-- PDF: PyMuPDF primary, pdfplumber fallback with table extraction; scanned PDF guard
-- DOCX: Multi-stage extraction with headers, textboxes, tables, paragraphs, and XML fallback
-- DOC/RTF/HTML/ODT/TXT: Best-effort extraction with Unicode normalization and deduplication
-- Advanced contact extraction with LLM-powered merging strategy
-- Resume parsing: work experience, skills, education, contact info with enrichment
-
-```mermaid
-flowchart TD
-A["extract_text(file_bytes, filename)"] --> B{"PDF?"}
-B --> |Yes| C["PyMuPDF -> text"]
-C --> D{"Empty?"}
-D --> |Yes| E["pdfplumber fallback"]
-D --> |No| Z["Return text"]
-B --> |No| F{"DOCX?"}
-F --> |Yes| G["Multi-stage DOCX extraction:<br/>Headers → Textboxes → Tables → Paragraphs → XML Fallback"]
-F --> |No| H{"Other formats?"}
-H --> |Yes| I["Decode with encodings"]
-H --> |No| J["Raise unsupported format"]
-G --> K["Return text"]
-I --> L{"Readable?"}
-L --> |Yes| Z
-L --> |No| J
-```
-
-**Diagram sources**
-- [parser_service.py:240-313](file://app/backend/services/parser_service.py#L240-L313)
-- [parser_service.py:343-492](file://app/backend/services/parser_service.py#L343-L492)
-- [parser_service.py:542-737](file://app/backend/services/parser_service.py#L542-L737)
-
-**Section sources**
-- [parser_service.py:1-552](file://app/backend/services/parser_service.py#L1-L552)
 
 ### Employment Gap Detection Algorithm
 The gap detector performs:
@@ -516,13 +659,14 @@ Integration points:
 - **Enhanced**: Semaphore-based concurrency control with auto-detection for cloud vs local
 - **Robust**: Comprehensive error handling with exponential backoff for rate limiting
 - **Guardrails**: Prompt injection sanitization and deterministic behavior enforcement
+- **Timeout Management**: 30-second maximum parsing time for LLM operations
 
 ```mermaid
 sequenceDiagram
 participant Service as "llm_service.py"
 participant Ollama as "Ollama API"
 Service->>Service : get_ollama_semaphore()<br/>Auto-detect cloud/local
-Service->>Ollama : POST /api/generate (JSON format)
+Service->>Ollama : POST /api/generate (JSON format)<br/>Timeout : ≤30s
 Ollama-->>Service : response JSON
 Service->>Service : _parse_json_response()
 Service-->>Caller : validated result or fallback
@@ -569,6 +713,9 @@ The analyze route:
 - Implements candidate deduplication and profile storage
 - **Enhanced JSON serialization**: Comprehensive datetime, date, and Decimal handling
 - **Weight Suggestion Endpoint**: New endpoint for AI-powered weight recommendations
+- **Tenant Quota Locking**: Prevents double-spending on concurrent requests
+- **Usage Enforcement**: Checks per-tenant analysis limits and storage quotas
+- **Cancellation Support**: Detects client disconnections and cancels processing
 
 ```mermaid
 sequenceDiagram
@@ -578,7 +725,10 @@ participant Parser as "parser_service.py"
 participant Gap as "gap_detector.py"
 participant Hybrid as "hybrid_pipeline.py"
 participant DB as "db_models.py"
+participant RateLimit as "rate_limit.py"
+participant Subscription as "subscription.py"
 Client->>Route : POST /api/analyze
+Route->>RateLimit : _get_tenant_lock(tenant_id)
 Route->>Parser : parse_resume(...)
 Parser-->>Route : parsed_data
 Route->>Gap : analyze_gaps(parsed_data.work_experience)
@@ -597,7 +747,7 @@ Route-->>Client : AnalysisResponse
 
 ## Enhanced AI Pipeline Capabilities
 
-**Updated** The analysis engine now features sophisticated score rationales and comprehensive risk analysis capabilities that provide detailed explanations for each score dimension and structured risk summaries, enhanced by comprehensive guardrail integration.
+**Updated** The analysis engine now features sophisticated score rationales and comprehensive risk analysis capabilities that provide detailed explanations for each score dimension and structured risk summaries, enhanced by comprehensive guardrail integration and improved resource management.
 
 ### Score Rationale Generation
 
@@ -860,21 +1010,29 @@ The streaming endpoint provides real-time analysis updates:
 2. **Background LLM Processing**: Continues LLM analysis while streaming
 3. **Heartbeat Pings**: Prevents timeouts with periodic SSE comments
 4. **Polling Support**: Provides analysis_id for frontend polling after initial streaming
+5. **Early Result Persistence**: Saves partial results immediately for recovery
+6. **Client Disconnection Handling**: Graceful handling of disconnected clients with cancellation support
+7. **Cancellation Support**: Uses asyncio.Event to detect client disconnections and cancel processing
 
 ```mermaid
 sequenceDiagram
 participant Client as "Client"
 participant Route as "analyze_stream_endpoint"
+participant Cancel as "asyncio.Event"
 participant Hybrid as "astream_hybrid_pipeline"
 participant DB as "Database"
 Client->>Route : POST /api/analyze/stream
 Route->>Route : Validate & Create ScreeningResult
+Route->>Cancel : asyncio.Event()
 Route->>Hybrid : Start streaming pipeline
-Hybrid->>Route : Yield {"stage" : "parsing", "result" : python_scores}
+Hybrid->>Route : Check request.is_disconnected()
+Route->>Route : Yield {"stage" : "parsing", "result" : python_scores}
 Route->>Client : SSE : parsing event
 Route->>DB : Early save with Python scores
 Hybrid->>Hybrid : Background LLM processing
-Hybrid->>Route : Yield {"stage" : "complete", "result" : with analysis_id}
+Hybrid->>Route : Check request.is_disconnected()
+Route->>Cancel : set() on disconnect
+Route->>Hybrid : Stop processing on cancel
 Route->>Client : SSE : complete event
 Route->>DB : Final save with LLM results
 ```
@@ -1243,12 +1401,25 @@ The guardrail service implements additional resource management:
 - **Async Locking**: Thread-safe operations with asyncio locks for concurrent access
 - **Resource Cleanup**: Proper cleanup of guardrail resources on shutdown
 
+### Enhanced Resource Limits
+
+**Updated** The system now includes comprehensive resource management:
+
+- **PDF Page Limits**: 500 pages maximum per PDF file
+- **Parse Timeouts**: 30-second maximum parsing time for all file types
+- **Tenant Quota Locking**: Prevents double-spending on concurrent requests
+- **Usage Enforcement**: Per-tenant analysis limits and storage quotas
+- **Graceful Degradation**: Fallback mechanisms for resource-constrained environments
+
 **Section sources**
 - [llm_service.py:35-66](file://app/backend/services/llm_service.py#L35-L66)
 - [llm_service.py:74-171](file://app/backend/services/llm_service.py#L74-L171)
 - [hybrid_pipeline.py:34-50](file://app/backend/services/hybrid_pipeline.py#L34-L50)
 - [main.py:260-297](file://app/backend/main.py#L260-L297)
 - [guardrail_service.py:943-1004](file://app/backend/services/guardrail_service.py#L943-L1004)
+- [analyze.py:88-88](file://app/backend/routes/analyze.py#L88)
+- [analyze.py:150-160](file://app/backend/routes/analyze.py#L150-L160)
+- [analyze.py:175-179](file://app/backend/routes/analyze.py#L175-L179)
 
 ## Anti-Hallucination Guardrails
 
@@ -1591,6 +1762,68 @@ The system provides comprehensive event emission for monitoring and alerting:
 - [agent_pipeline.py:609-682](file://app/backend/services/agent_pipeline.py#L609-L682)
 - [agent_pipeline.py:728-895](file://app/backend/services/agent_pipeline.py#L728-L895)
 
+## Usage Enforcement and Quota Management
+
+**Updated** The analysis engine now features comprehensive usage enforcement with per-tenant analysis limits and storage quotas to ensure fair resource allocation and prevent abuse.
+
+### Per-Tenant Analysis Limits
+
+The system implements configurable analysis limits per tenant:
+
+- **Unlimited Option**: analyses_limit < 0 allows unlimited analyses
+- **Projected Usage Calculation**: Calculates projected usage before processing
+- **Graceful Degradation**: Returns detailed UsageCheckResponse with remaining quota
+- **Monthly Tracking**: Tracks analyses_count_this_month for billing purposes
+
+### Storage Quota Management
+
+Storage quotas are enforced with precise byte-level tracking:
+
+- **GB-Based Limits**: Configurable storage_gb limits with automatic conversion
+- **Byte-Level Precision**: storage_limit_bytes calculated from GB input
+- **Usage Monitoring**: storage_used_bytes tracked for accurate enforcement
+- **Detailed Messaging**: Clear error messages with current usage and limit information
+
+### Usage Check Response Format
+
+The system returns comprehensive UsageCheckResponse objects:
+
+- **allowed**: Boolean indicating whether request can proceed
+- **current_usage**: Current usage count or storage in appropriate units
+- **limit**: Configured limit or -1 for unlimited
+- **message**: Detailed error message for exceeded limits
+
+```mermaid
+flowchart TD
+Start["Usage Check Request"] --> CheckAction{"Action Type?"}
+CheckAction --> |analyses| CheckAnalyses["Check analyses_limit"]
+CheckAction --> |storage_upload| CheckStorage["Check storage_gb limit"]
+CheckAnalyses --> Unlimited{"analyses_limit < 0?"}
+Unlimited --> |Yes| Allow["allowed=True, limit=-1"]
+Unlimited --> |No| Project["projected_usage = current + quantity"]
+Project --> Exceeded{"projected_usage > limit?"}
+Exceeded --> |Yes| Deny["allowed=False, message with remaining"]
+Exceeded --> |No| Approve["allowed=True"]
+CheckStorage --> StorageExceeded{"storage_used_bytes >= limit_bytes?"}
+StorageExceeded --> |Yes| StorageDeny["allowed=False, storage exceeded message"]
+StorageExceeded --> |No| StorageApprove["allowed=True"]
+Allow --> End["UsageCheckResponse"]
+Approve --> End
+Deny --> End
+StorageDeny --> End
+StorageApprove --> End
+```
+
+**Diagram sources**
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [subscription.py:345-356](file://app/backend/routes/subscription.py#L345-L356)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
+
+**Section sources**
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [subscription.py:345-356](file://app/backend/routes/subscription.py#L345-L356)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
+
 ## Dependency Analysis
 Key dependencies and relationships:
 - Routes depend on parser, gap detector, hybrid pipeline, and models
@@ -1604,16 +1837,19 @@ Key dependencies and relationships:
 - **Enhanced Contact Extraction**: LLM-powered contact extraction with merging strategy
 - **Enhanced Weight Management**: Comprehensive weight mapping, suggestion system, database migration, and tenant customization
 - **Enhanced Error Handling**: Exponential backoff retry mechanisms for LLM services
-- **Resource Management**: Semaphore-based concurrency control and health monitoring
+- **Resource Management**: Semaphore-based concurrency control, PDF limits (500 pages), parse timeouts (30s), tenant quota locking
 - **Queue Integration**: Automatic retry mechanisms with exponential backoff
 - **Anti-Hallucination Guardrails**: Cache versioning, circuit breaker monitoring, and deterministic behavior
 - **PII Redaction**: Enterprise-grade PII detection and anonymization service
 - **Evidence Validation**: Comprehensive validation of LLM claims against transcript evidence
 - **Guardrail Integration**: 4-tier safety framework with comprehensive monitoring and metrics
+- **Usage Enforcement**: Per-tenant analysis limits and storage quotas with graceful degradation
+- **Rate Limiting**: Per-tenant rate limiting with caching and token bucket implementation
+- **Hard Quota Enforcement**: Pre-analysis quota validation using billing/quota.py
 
 ```mermaid
 graph LR
-Route["routes/analyze.py<br/>JSON Utils<br/>SSE Streaming<br/>Weight Suggestion Endpoint"] --> Parser["services/parser_service.py"]
+Route["routes/analyze.py<br/>JSON Utils<br/>SSE Streaming<br/>Weight Suggestion Endpoint<br/>PDF Limits<br/>Tenant Quota Locking<br/>Cancellation Support<br/>Hard Quota Checks"] --> Parser["services/parser_service.py<br/>PDF Page Limits<br/>Parse Timeout Controls"]
 Route --> Gap["services/gap_detector.py"]
 Route --> Hybrid["services/hybrid_pipeline.py<br/>Enhanced Error Handling<br/>Guardrails<br/>Weight Conversion"]
 Route --> Agent["services/agent_pipeline.py<br/>Anti-Hallucination Guardrails<br/>Ensemble Processing"]
@@ -1628,8 +1864,11 @@ Route --> Adverse["services/adverse_action_service.py<br/>Bias Documentation"]
 Route --> Guardrail["services/guardrail_service.py<br/>4-Tier LLM Guardrails<br/>Monitoring Hooks"]
 Route --> Constants["services/constants.py<br/>Weight Schema Definitions<br/>Default Configurations"]
 Route --> Migration["alembic/versions/009_intelligent_scoring_weights.py<br/>Database Migration<br/>Version Management"]
+Route --> RateLimit["middleware/rate_limit.py<br/>Per-Tenant Rate Limiting<br/>Usage Enforcement"]
+Route --> Subscription["routes/subscription.py<br/>Analysis Limits<br/>Storage Quotas<br/>Usage Checking"]
+Route --> Quota["services/billing/quota.py<br/>Hard Quota Enforcement<br/>Pre-Analysis Checks"]
 Hybrid --> Skills["skills registry"]
-Hybrid --> Ollama["Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails"]
+Hybrid --> Ollama["Ollama (ChatOllama)<br/>Enhanced Error Handling<br/>Guardrails<br/>Timeout Management"]
 Agent --> Ollama
 Agent --> Guardrail
 Guardrail --> Models["models/db_models.py"]
@@ -1637,7 +1876,7 @@ Route --> Models
 Main["main.py<br/>Background Task Management<br/>Health Monitoring"] --> Route
 Main --> Ollama
 Main --> Guardrail
-Nginx["nginx.prod.conf<br/>Streaming Config"] --> Route
+Nginx["nginx.prod.conf<br/>Streaming Config<br/>Timeout Settings"] --> Route
 WeightPanel["WeightSuggestionPanel.jsx<br/>Frontend Integration<br/>Dynamic UI"] --> Route
 UniversalPanel["UniversalWeightsPanel.jsx<br/>Tenant Customization<br/>Adaptive Labels"] --> Route
 ```
@@ -1650,6 +1889,9 @@ UniversalPanel["UniversalWeightsPanel.jsx<br/>Tenant Customization<br/>Adaptive 
 - [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
 - [WeightSuggestionPanel.jsx:16-43](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L16-L43)
 - [UniversalWeightsPanel.jsx:1-200](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L200)
+- [rate_limit.py:80-116](file://app/backend/middleware/rate_limit.py#L80-L116)
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
 
 **Section sources**
 - [analyze.py:32-38](file://app/backend/routes/analyze.py#L32-L38)
@@ -1682,6 +1924,11 @@ UniversalPanel["UniversalWeightsPanel.jsx<br/>Tenant Customization<br/>Adaptive 
 - **Cross-Node Consistency**: Automated validation reduces manual intervention and improves throughput
 - **Weight Management Performance**: Enhanced schema conversion and suggestion system with optimized database migrations
 - **Frontend Integration**: Weight suggestion panels provide real-time feedback with minimal latency
+- **Resource Limits**: PDF page limits (500 pages maximum) and parse timeouts (30-second maximum) prevent resource exhaustion
+- **Tenant Quota Locking**: Prevents double-spending and ensures fair resource allocation
+- **Usage Enforcement**: Per-tenant analysis limits and storage quotas prevent abuse and ensure system stability
+- **Rate Limiting**: Per-tenant rate limiting with caching prevents API abuse and ensures fair usage
+- **Hard Quota Enforcement**: Pre-analysis quota validation prevents resource exhaustion before processing
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -1712,16 +1959,28 @@ Common issues and resolutions:
 - **Retry Exhaustion**: Check GUARDRAIL_MAX_RETRIES and LLM_PER_CALL_TIMEOUT configuration
 - **Schema Validation Errors**: Review validation error messages and fix LLM output formatting
 - **Cross-Node Consistency Issues**: Check consistency report and fix detected violations
-- **Token Budget Exceeded**: Monitor token usage and adjust DEFAULT_LLM_TOKEN_BUDGET configuration
+- **Token Budget Exceeded**: Monitor token usage and adjust DEFAULT_LMM_TOKEN_BUDGET configuration
 - **Weight Suggestion Import Errors**: Fixed syntax error resolves critical import failures in weight suggestion service
 - **Database Migration Issues**: Check alembic migration logs for intelligent scoring weights setup
 - **Frontend Integration Problems**: Verify WeightSuggestionPanel and UniversalWeightsPanel communication with backend endpoints
+- **PDF Resource Limits**: 500-page maximum limit prevents memory exhaustion; consider splitting large PDFs
+- **Parse Timeout Issues**: 30-second maximum parsing time prevents hanging operations; optimize file preparation
+- **Tenant Quota Locking**: Concurrent request protection prevents race conditions; monitor lock acquisition times
+- **Usage Enforcement Errors**: Check subscription limits and storage quotas; verify monthly tracking accuracy
+- **Rate Limiting Problems**: Verify rate limit configuration and cache TTL settings; monitor bucket refill rates
+- **Hard Quota Enforcement**: Pre-analysis quota validation prevents processing when limits exceeded
+- **Cancellation Support**: Client disconnection detection prevents wasted processing time and resource usage
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
 - [main.py:262-327](file://app/backend/main.py#L262-L327)
 - [parser_service.py:175-181](file://app/backend/services/parser_service.py#L175-L181)
 - [README.md:337-375](file://README.md#L337-L375)
+- [analyze.py:88-88](file://app/backend/routes/analyze.py#L88)
+- [analyze.py:150-160](file://app/backend/routes/analyze.py#L150-L160)
+- [analyze.py:175-179](file://app/backend/routes/analyze.py#L175-L179)
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
 
 ## Conclusion
 The analysis engine blends efficient Python-first processing with a single, well-configured LLM call to deliver fast, deterministic scoring and rich narrative insights. The LangGraph agent pipeline enables scalable, multi-step workflows with structured nodes and robust fallbacks, enhanced by comprehensive guardrail integration. The enhanced resume parsing service and gap detection provide reliable inputs, while the skills registry and scoring logic offer extensible, configurable evaluation criteria suitable for customization and growth.
@@ -1730,9 +1989,9 @@ The analysis engine blends efficient Python-first processing with a single, well
 
 The integration of comprehensive 4-tier guardrail framework provides robust safety controls across all pipeline stages, including retry mechanisms, schema validation, cross-node consistency checks, prompt injection detection, 3x voting ensemble processing, HITL gates, token budget management, and comprehensive monitoring hooks. The guardrail service enhances system reliability, prevents hallucinations, ensures deterministic behavior, and provides comprehensive observability through structured event emission and Prometheus metrics integration.
 
-The enhanced PII redaction capabilities with enterprise-grade Presidio integration and improved validation mechanisms ensure unbiased analysis results. The evidence validation service prevents hallucinations by ensuring all LLM claims are supported by actual transcript evidence. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing and heartbeat mechanisms. The queue system integration adds automatic retry capabilities with exponential backoff, ensuring resilient job processing even under adverse conditions.
+The enhanced PII redaction capabilities with enterprise-grade Presidio integration and improved validation mechanisms ensure unbiased analysis results. The evidence validation service prevents hallucinations by ensuring all LLM claims are supported by actual transcript evidence. The streaming endpoint enhancements provide real-time user feedback while maintaining system reliability through background processing, heartbeat mechanisms, client disconnection handling, cancellation support, and early result persistence. The queue system integration adds automatic retry capabilities with exponential backoff, ensuring resilient job processing even under adverse conditions.
 
-**Updated** The enhanced weight management system provides comprehensive schema conversion, intelligent LLM-based weight suggestions, database migration support with version management, and tenant customization capabilities. The weight suggestion endpoint integrates seamlessly with the frontend WeightSuggestionPanel component, providing dynamic weight recommendations based on job requirements. The database migration ensures backward compatibility while enabling future enhancements to the intelligent scoring system.
+**Updated** The enhanced resource management system provides comprehensive PDF parsing limits (500 pages maximum), parse timeout controls (30-second maximum), tenant-based quota locking to prevent double-spending on concurrent requests, and usage enforcement with per-tenant analysis limits and storage quotas. The improved streaming analysis features proper client disconnection handling and early result persistence for better user experience. The enhanced weight management system provides comprehensive schema conversion, intelligent LLM-based weight suggestions, database migration support with version management, and tenant customization capabilities. The rate limiting middleware ensures fair resource allocation with per-tenant rate limiting and caching mechanisms.
 
 ## Appendices
 
@@ -1741,7 +2000,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 - Introduce custom risk signals: append to risk_signals computation
 - Extend skills registry: add canonical skills and aliases; hot-reload via rebuild
 - Customize LLM prompts: adjust explain_with_llm and agent pipeline prompts with bias mitigation rules
-- Add new resume sections: extend parser_service extraction logic
+- Add new resume sections: extend parser_service extraction logic with resource limits
 - **Enhanced AI Pipeline**: Leverage score rationales and risk summary structures for new evaluation criteria
 - **Model Configuration**: Adjust gemma4:31b-cloud parameters for specialized use cases
 - **AI-Enhanced Narratives**: Use `ai_enhanced` flag to indicate content origin
@@ -1754,6 +2013,10 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 - **Evidence Validation**: Add comprehensive claim validation for custom analysis components
 - **Monitoring Integration**: Add custom metrics and alerts for guardrail events and system performance
 - **Frontend Integration**: Extend WeightSuggestionPanel and UniversalWeightsPanel for custom weight management features
+- **Usage Enforcement**: Implement per-tenant analysis limits and storage quotas for custom resource management
+- **Rate Limiting**: Add per-tenant rate limiting with caching and token bucket implementation
+- **Tenant Quota Locking**: Implement tenant-based quota locking for custom concurrent request protection
+- **Hard Quota Enforcement**: Implement pre-analysis quota validation using billing/quota.py patterns
 
 **Section sources**
 - [hybrid_pipeline.py:953-1058](file://app/backend/services/hybrid_pipeline.py#L953-L1058)
@@ -1765,6 +2028,9 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 - [weight_mapper.py:212-246](file://app/backend/services/weight_mapper.py#L212-L246)
 - [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
 - [agent_pipeline.py:414-421](file://app/backend/services/agent_pipeline.py#L414-L421)
+- [rate_limit.py:80-116](file://app/backend/middleware/rate_limit.py#L80-L116)
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
 
 ### JSON Serialization Best Practices
 
@@ -1782,7 +2048,10 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 10. **Guardrail Integration**: Ensure new components respect anti-hallucination guardrails and bias mitigation rules
 11. **Guardrail Event Emission**: Use the structured event emission format for consistent monitoring and alerting
 12. **Weight Management Integration**: Follow the enhanced weight management patterns for schema conversion and tenant customization
-13. **Database Migration**: Ensure new fields are properly handled in database migrations with backward compatibility
+13. **Resource Limits Integration**: Ensure new components respect PDF page limits (500 pages maximum) and parse timeout controls (30-second maximum)
+14. **Usage Enforcement Integration**: Implement per-tenant analysis limits and storage quotas for fair resource allocation
+15. **Rate Limiting Integration**: Add per-tenant rate limiting with caching for fair usage distribution
+16. **Hard Quota Enforcement Integration**: Implement pre-analysis quota validation using billing/quota.py patterns
 
 **Section sources**
 - [analyze.py:48-56](file://app/backend/routes/analyze.py#L48-L56)
@@ -1810,6 +2079,9 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 14. **Guardrail Configuration**: Ensure cache versioning and circuit breaker thresholds are appropriately tuned
 15. **Retry Parameters**: Configure GUARDRAIL_MAX_RETRIES, GUARDRAIL_RETRY_DELAY, and GUARDRAIL_PER_CALL_TIMEOUT for optimal reliability
 16. **Weight Management Performance**: Ensure proper model configuration for weight suggestion LLM calls with enhanced schema conversion
+17. **Resource Limits**: Configure PDF page limits (500 pages maximum) and parse timeouts (30-second maximum) for optimal performance
+18. **Usage Enforcement**: Set appropriate per-tenant analysis limits and storage quotas for fair resource allocation
+19. **Hard Quota Enforcement**: Implement pre-analysis quota validation using billing/quota.py patterns
 
 **Section sources**
 - [hybrid_pipeline.py:82-107](file://app/backend/services/hybrid_pipeline.py#L82-L107)
@@ -1831,6 +2103,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 9. **Retry Mechanisms**: Implement exponential backoff for rate-limited LLM calls
 10. **Bias Mitigation**: Ensure contact extraction doesn't compromise PII protection measures
 11. **Weight Management Integration**: Ensure contact extraction doesn't interfere with enhanced weight management systems
+12. **Resource Limits**: Respect PDF page limits and parse timeout controls when processing contact information
 
 **Section sources**
 - [llm_contact_extractor.py:23-164](file://app/backend/services/llm_contact_extractor.py#L23-L164)
@@ -1852,6 +2125,9 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 10. **Bias Mitigation**: Ensure weight schemes don't introduce systematic bias in evaluation
 11. **Database Migration**: Follow the migration patterns from 009_intelligent_scoring_weights.py for version management
 12. **Frontend Integration**: Ensure weight suggestion API endpoints integrate properly with WeightSuggestionPanel and UniversalWeightsPanel components
+13. **Usage Enforcement**: Consider per-tenant weight suggestion limits to prevent abuse
+14. **Rate Limiting**: Implement per-tenant rate limiting for weight suggestion API endpoints
+15. **Hard Quota Enforcement**: Implement pre-analysis quota validation for weight suggestion services
 
 **Section sources**
 - [weight_mapper.py:179-246](file://app/backend/services/weight_mapper.py#L179-L246)
@@ -1878,12 +2154,19 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 13. **Retry Parameters**: Configure GUARDRAIL_MAX_RETRIES, GUARDRAIL_RETRY_DELAY, and GUARDRAIL_PER_CALL_TIMEOUT
 14. **Event Emission**: Use structured event emission for consistent monitoring and alerting
 15. **Weight Management Error Handling**: Implement comprehensive error handling for weight suggestion and conversion failures
+16. **Resource Limits**: Implement PDF page limits and parse timeout controls for custom extensions
+17. **Usage Enforcement**: Add per-tenant analysis limits and storage quotas for custom resource management
+18. **Rate Limiting**: Implement per-tenant rate limiting with caching for custom usage enforcement
+19. **Hard Quota Enforcement**: Implement pre-analysis quota validation using billing/quota.py patterns
 
 **Section sources**
 - [hybrid_pipeline.py:1359-1500](file://app/backend/services/hybrid_pipeline.py#L1359-L1500)
 - [guardrail_service.py:130-168](file://app/backend/services/guardrail_service.py#L130-L168)
 - [queue_manager.py:456-478](file://app/backend/services/queue_manager.py#L456-L478)
 - [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
+- [rate_limit.py:80-116](file://app/backend/middleware/rate_limit.py#L80-L116)
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)
 
 ### Anti-Hallucination Guardrail Implementation Guidelines
 
@@ -1904,6 +2187,9 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 13. **Retry Integration**: Implement exponential backoff retry mechanisms for reliability
 14. **Schema Validation**: Use Pydantic models for strict output validation
 15. **Weight Management Guardrails**: Implement anti-hallucination measures for weight suggestion and conversion systems
+16. **Resource Limits Guardrails**: Ensure custom components respect PDF page limits and parse timeout controls
+17. **Usage Enforcement Guardrails**: Implement per-tenant analysis limits and storage quotas for custom components
+18. **Hard Quota Enforcement Guardrails**: Implement pre-analysis quota validation using billing/quota.py patterns
 
 **Section sources**
 - [agent_pipeline.py:349-350](file://app/backend/services/agent_pipeline.py#L349-L350)
@@ -1928,6 +2214,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 10. **Monitoring**: Track redaction effectiveness and identify potential privacy risks
 11. **Integration Points**: Ensure PII redaction is applied consistently across all analysis components
 12. **Weight Management Privacy**: Ensure weight management systems don't expose sensitive information
+13. **Resource Limits**: Consider PII redaction performance impact on resource-constrained environments
 
 **Section sources**
 - [pii_redaction_service.py:34-66](file://app/backend/services/pii_redaction_service.py#L34-L66)
@@ -1950,6 +2237,7 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 10. **Continuous Improvement**: Regularly update validation strategies based on performance metrics
 11. **Integration Points**: Ensure evidence validation is applied consistently across all analysis components
 12. **Weight Management Validation**: Implement evidence validation for weight suggestion and conversion claims
+13. **Resource Limits**: Consider validation performance impact on large documents and resource-constrained environments
 
 **Section sources**
 - [evidence_validation_service.py:56-70](file://app/backend/services/evidence_validation_service.py#L56-L70)
@@ -1975,9 +2263,44 @@ The enhanced PII redaction capabilities with enterprise-grade Presidio integrati
 13. **Integration Points**: Ensure guardrail integration is consistent across all analysis components
 14. **Testing and Validation**: Implement comprehensive testing for guardrail functionality
 15. **Weight Management Guardrails**: Implement comprehensive guardrail integration for weight management systems
+16. **Resource Limits Guardrails**: Ensure custom components respect PDF page limits and parse timeout controls
+17. **Usage Enforcement Guardrails**: Implement per-tenant analysis limits and storage quotas for custom components
+18. **Hard Quota Enforcement Guardrails**: Implement pre-analysis quota validation using billing/quota.py patterns
 
 **Section sources**
 - [guardrail_service.py:1-1128](file://app/backend/services/guardrail_service.py#L1-L1128)
 - [agent_pipeline.py:385-500](file://app/backend/services/agent_pipeline.py#L385-L500)
 - [agent_pipeline.py:609-682](file://app/backend/services/agent_pipeline.py#L609-L682)
 - [agent_pipeline.py:728-895](file://app/backend/services/agent_pipeline.py#L728-L895)
+
+### Resource Management Integration Guidelines
+
+**Updated** For implementing comprehensive resource management in custom components:
+
+1. **PDF Limits**: Implement 500-page maximum limit for PDF processing
+2. **Parse Timeouts**: Set 30-second maximum parsing time for all file types
+3. **Tenant Quota Locking**: Implement tenant-based quota locking to prevent double-spending
+4. **Usage Enforcement**: Add per-tenant analysis limits and storage quotas
+5. **Rate Limiting**: Implement per-tenant rate limiting with caching and token bucket
+6. **Memory Management**: Optimize memory usage for large document processing
+7. **Concurrency Control**: Use semaphores to prevent resource contention
+8. **Health Monitoring**: Implement continuous monitoring for resource utilization
+9. **Graceful Degradation**: Provide fallback mechanisms for resource-constrained environments
+10. **Performance Optimization**: Balance resource usage with processing speed requirements
+11. **Error Handling**: Implement comprehensive error handling for resource-related failures
+12. **Logging and Monitoring**: Track resource utilization and performance metrics
+13. **Testing**: Validate resource management under various load conditions
+14. **Scaling**: Design components to handle increased load with proper resource allocation
+15. **Security**: Ensure resource management doesn't introduce security vulnerabilities
+16. **Compliance**: Meet regulatory requirements for resource usage and data protection
+17. **Maintenance**: Implement proper cleanup and resource deallocation
+18. **Documentation**: Provide clear guidance for resource management configuration
+19. **Hard Quota Enforcement**: Implement pre-analysis quota validation using billing/quota.py patterns
+
+**Section sources**
+- [analyze.py:88-88](file://app/backend/routes/analyze.py#L88)
+- [analyze.py:150-160](file://app/backend/routes/analyze.py#L150-L160)
+- [analyze.py:175-179](file://app/backend/routes/analyze.py#L175-L179)
+- [rate_limit.py:80-116](file://app/backend/middleware/rate_limit.py#L80-L116)
+- [subscription.py:320-343](file://app/backend/routes/subscription.py#L320-L343)
+- [quota.py:42-116](file://app/backend/services/billing/quota.py#L42-L116)

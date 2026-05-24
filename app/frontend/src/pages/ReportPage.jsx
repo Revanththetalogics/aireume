@@ -790,12 +790,12 @@ export default function ReportPage() {
 
           {hasDeterministicData && <ResultCard result={result} defaultExpandEducation />}
 
-          {/* Interview Scorecard Section */}
+          {/* Recruiter Scorecard Section */}
           {result?.interview_questions && result.result_id && (
             <div className="mt-6">
               <div className="flex items-center gap-2 mb-4">
                 <FileText className="w-5 h-5 text-brand-600" />
-                <h2 className="text-lg font-bold text-slate-900">Interview Scorecard</h2>
+                <h2 className="text-lg font-bold text-slate-900">Recruiter Scorecard</h2>
               </div>
               <InterviewScorecard resultId={result.result_id} />
             </div>

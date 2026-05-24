@@ -39,6 +39,8 @@
 - [030_usage_alerts.py](file://alembic/versions/030_usage_alerts.py)
 - [031_onboarding_flag.py](file://alembic/versions/031_onboarding_flag.py)
 - [032_sso_config.py](file://alembic/versions/032_sso_config.py)
+- [033_unique_constraints.py](file://alembic/versions/033_unique_constraints.py)
+- [034_password_reset_tokens.py](file://alembic/versions/034_password_reset_tokens.py)
 - [main.py](file://app/backend/main.py)
 - [auth.py](file://app/backend/middleware/auth.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
@@ -64,18 +66,17 @@
 - [billing/webhook_processor.py](file://app/backend/services/billing/webhook_processor.py)
 - [sso_service.py](file://app/backend/services/sso_service.py)
 - [usage_alert_service.py](file://app/backend/services/usage_alert_service.py)
+- [test_candidate_dedup.py](file://app/backend/tests/test_candidate_dedup.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for new enterprise security features including impersonation sessions, security events, and granular platform roles
-- Enhanced historical learning system with hiring outcomes, team skill profiles, skill trend snapshots, and outcome patterns
-- Expanded candidate profile capabilities with AI professional summaries and candidate notes
-- Integrated billing ecosystem with invoices, dunning records, usage alerts, and billing events
-- Added SSO configuration management for SAML/OIDC integration
-- Implemented field-level audit logging system for candidate and screening result change tracking
-- Enhanced tenant management with onboarding completion tracking
-- Updated migration documentation to include all new enterprise-grade features
+- Added comprehensive documentation for sophisticated database migration system with multi-step deduplication logic for candidates and screening results
+- Enhanced migration documentation to include unique constraint implementation with careful foreign key violation prevention
+- Updated candidate deduplication system documentation with three-layer matching strategy (email → file hash → name+phone)
+- Added detailed analysis of deduplication migration steps and their ordering requirements
+- Enhanced screening result deduplication documentation with foreign key safety measures
+- Updated migration system documentation to reflect comprehensive data integrity improvements
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -92,7 +93,7 @@
 ## Introduction
 This document describes the database design for Resume AI by ThetaLogics. It covers the entity relationship model, field definitions, indexes, constraints, multi-tenant architecture, subscription and usage tracking, the Alembic migration system, data validation rules, business logic constraints, referential integrity, data access patterns, caching strategies, performance considerations, data lifecycle and retention, backup strategies, and representative queries and reporting scenarios.
 
-**Updated** Enhanced with comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, and extensive candidate profile enhancements
+**Updated** Enhanced with comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, and sophisticated database migration system with multi-step deduplication logic for candidates and screening results
 
 ## Project Structure
 The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements included connection pooling for PostgreSQL, token revocation support, strategic indexing for improved query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
@@ -117,48 +118,52 @@ N["Enterprise Security<br/>enterprise_security.py"]
 O["Billing Services<br/>invoice_service.py / dunning_service.py / webhook_processor.py"]
 P["SSO Service<br/>sso_service.py"]
 Q["Usage Alert Service<br/>usage_alert_service.py"]
+R["Deduplication System<br/>analyze.py / test_candidate_dedup.py"]
 end
 subgraph "Database Layer"
-R["SQLAlchemy Engine & Session<br/>database.py"]
-S["Declarative Models<br/>db_models.py"]
-T["Alembic Env & Script<br/>env.py / script.py.mako"]
-U["Enhanced Models<br/>Enterprise Security, Historical Learning, Billing, SSO, Audit Logs"]
-V["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016 / 017 / 018 / 019 / 020 / 021 / 022 / 023 / 024 / 025 / 026 / 027 / 028 / 029 / 030 / 031 / 032"]
-W["Enterprise Security<br/>impersonation_sessions, security_events, plan_features, erasure_logs"]
-X["Historical Learning<br/>hiring_outcomes, team_skill_profiles, skill_trend_snapshots, outcome_skill_patterns"]
-Y["Billing System<br/>invoices, dunning_records, billing_events, usage_alerts"]
-Z["SSO Integration<br/>sso_configs"]
-AA["Audit System<br/>field_audit_logs"]
-BB["Enhanced Candidates<br/>ai_professional_summary, candidate_notes, resume_converted_pdf_data"]
-CC["Tenant Enhancements<br/>scoring_weights, onboarding_completed"]
+S["SQLAlchemy Engine & Session<br/>database.py"]
+T["Declarative Models<br/>db_models.py"]
+U["Alembic Env & Script<br/>env.py / script.py.mako"]
+V["Enhanced Models<br/>Enterprise Security, Historical Learning, Billing, SSO, Audit Logs"]
+W["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016 / 017 / 018 / 019 / 020 / 021 / 022 / 023 / 024 / 025 / 026 / 027 / 028 / 029 / 030 / 031 / 032 / 033 / 034"]
+X["Enterprise Security<br/>impersonation_sessions, security_events, plan_features, erasure_logs"]
+Y["Historical Learning<br/>hiring_outcomes, team_skill_profiles, skill_trend_snapshots, outcome_skill_patterns"]
+Z["Billing System<br/>invoices, dunning_records, billing_events, usage_alerts"]
+AA["SSO Integration<br/>sso_configs"]
+BB["Audit System<br/>field_audit_logs"]
+CC["Enhanced Candidates<br/>ai_professional_summary, candidate_notes, resume_converted_pdf_data"]
+DD["Tenant Enhancements<br/>scoring_weights, onboarding_completed"]
+EE["Deduplication System<br/>Unique Constraints, Multi-step Cleanup"]
 end
 A --> B
 A --> C
 C --> D
 D --> E
 C --> I
-I --> R
-A --> R
-R --> S
-R --> T
-R --> V
-R --> W
-R --> X
-R --> Y
-R --> Z
-R --> AA
-R --> BB
-R --> CC
+I --> S
+A --> S
+S --> T
 S --> U
+S --> V
+S --> W
+S --> X
+S --> Y
+S --> Z
+S --> AA
+S --> BB
+S --> CC
+S --> DD
+S --> EE
 T --> U
-T --> V
-N --> R
-O --> R
-P --> R
-Q --> R
+U --> U
+N --> S
+O --> S
+P --> S
+Q --> S
 L --> J
 L --> K
-M --> R
+M --> S
+R --> S
 ```
 
 **Diagram sources**
@@ -208,9 +213,12 @@ M --> R
 - [030_usage_alerts.py:1-31](file://alembic/versions/030_usage_alerts.py#L1-L31)
 - [031_onboarding_flag.py:1-21](file://alembic/versions/031_onboarding_flag.py#L1-L21)
 - [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
+- [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
+- [034_password_reset_tokens.py:1-33](file://alembic/versions/034_password_reset_tokens.py#L1-L33)
 - [eligibility_service.py:1-80](file://app/backend/services/eligibility_service.py#L1-L80)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
+- [test_candidate_dedup.py:1-686](file://app/backend/tests/test_candidate_dedup.py#L1-L686)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
@@ -218,7 +226,7 @@ M --> R
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Core Components
-This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, native resume file storage capabilities, the new deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
+This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, native resume file storage capabilities, the new deterministic scoring framework with eligibility gating, the Interview Kit Evaluation Framework for structured interview scoring, and the sophisticated deduplication system with multi-step cleanup processes.
 
 - Tenant
   - Purpose: Multi-tenant container with subscription and usage tracking.
@@ -239,9 +247,10 @@ This section documents the core entities and their attributes relevant to the mu
   - Indexes: email; relationships: tenant, team_member, comments, usage_logs.
 
 - Candidate
-  - Purpose: Resume/profile storage with enrichment and caching fields, now including native file storage.
+  - Purpose: Resume/profile storage with enrichment and caching fields, now including native file storage and sophisticated deduplication system.
   - Key fields: id, tenant_id (FK), name, email, phone, timestamps; enrichment: resume_file_hash (MD5), resume_filename (String 255), resume_file_data (LargeBinary/BYTEA), resume_converted_pdf_data (LargeBinary), raw_resume_text, parsed_skills/education/work_exp, gap_analysis_json, current_role/company, total_years_exp, profile_quality, profile_updated_at; parser_snapshot_json.
   - **Updated** Enhanced with ai_professional_summary (Text) and candidate_notes relationship.
+  - **Updated** Sophisticated deduplication system with three-layer matching: email → file hash → name+phone within tenant scope.
   - Indexes: email, resume_file_hash; relationships: tenant, results, transcript_analyses.
 
 - ScreeningResult
@@ -249,7 +258,7 @@ This section documents the core entities and their attributes relevant to the mu
   - Key fields: id, tenant_id (FK), candidate_id (FK), role_template_id (FK), resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
   - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
   - **Updated** Enhanced with status_updated_at timestamp for tracking screening result status changes.
-  - **Updated** Interview evaluation relationships: evaluations (one-to-many), overall_assessment (one-to-many).
+  - **Updated** Enhanced with unique constraint on (tenant_id, candidate_id, role_template_id) with partial index for foreign key safety.
   - Indexes: candidate_id, timestamp, tenant_id+timestamp.
 
 - RoleTemplate
@@ -356,11 +365,17 @@ This section documents the core entities and their attributes relevant to the mu
   - **New** candidate_notes: Collaborative note-taking with user and tenant association.
   - **New** skill_classification_templates: Persistent skill classification templates for role templates.
 
+- Deduplication System Tables
+  - **New** Unique candidate constraints: Partial unique indexes on (tenant_id, email) and (tenant_id, resume_file_hash) to prevent duplicates.
+  - **New** Unique screening result constraints: Partial unique index on (tenant_id, candidate_id, role_template_id) with foreign key safety measures.
+  - **New** Multi-step cleanup process: Carefully ordered SQL operations to prevent foreign key constraint violations during deduplication.
+
 **Section sources**
 - [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
+- [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
 
 ## Architecture Overview
-The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations. Recent enhancements included token revocation support, strategic indexing for improved performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment.
+The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations and sophisticated deduplication logic. Recent enhancements included token revocation support, strategic indexing for improved performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
 
 ```mermaid
 erDiagram
@@ -423,6 +438,8 @@ HIRING_OUTCOMES ||--|| SCREENING_RESULTS : "records"
 TEAM_SKILL_PROFILES ||--|| TENANTS : "maintains"
 SKILL_TREND_SNAPSHOTS ||--|| TENANTS : "captures"
 OUTCOME_SKILL_PATTERNS ||--|| ROLE_TEMPLATES : "analyzes"
+CANDIDATES ||--|| UNIQUE_CONSTRAINTS : "enforced_by"
+SCREENING_RESULTS ||--|| UNIQUE_CONSTRAINTS : "enforced_by"
 ```
 
 **Diagram sources**
@@ -930,7 +947,7 @@ Auth-->>Client : Clear cookies and return success
 ### Migration System and Schema Evolution
 - Alembic env registers models and binds metadata to the configured DATABASE_URL.
 - Migrations are idempotent and guard against pre-existing tables/columns.
-- **Updated** Version history with new administrative, notification, file storage, deterministic scoring, interview evaluation, enterprise security, historical learning, billing, SSO, and audit features:
+- **Updated** Version history with new administrative, notification, file storage, deterministic scoring, interview evaluation, enterprise security, historical learning, billing, SSO, audit features, and sophisticated deduplication system:
   - 001: Enrich candidates with profile fields; add jd_cache and skills tables.
   - 002: Add parser_snapshot_json to candidates.
   - 003: Enhance subscription_plans, add tenant usage fields, create usage_logs, seed plans, link existing tenants to default plan.
@@ -963,6 +980,8 @@ Auth-->>Client : Clear cookies and return success
   - 030: **New** Usage alerts for threshold notification tracking.
   - 031: **New** Onboarding flag for tenant onboarding completion tracking.
   - 032: **New** SSO configuration for SAML/OIDC identity provider integration.
+  - 033: **New** Sophisticated deduplication system with multi-step cleanup process for candidates and screening results.
+  - 034: **New** Password reset tokens table with unique constraint.
 
 ```mermaid
 graph LR
@@ -998,6 +1017,8 @@ CC --> DD["029: Dunning system"]
 DD --> EE["030: Usage alerts"]
 EE --> FF["031: Onboarding flag"]
 FF --> GG["032: SSO configuration"]
+GG --> HH["033: Sophisticated deduplication system"]
+HH --> II["034: Password reset tokens"]
 ```
 
 **Diagram sources**
@@ -1034,6 +1055,8 @@ FF --> GG["032: SSO configuration"]
 - [030_usage_alerts.py:1-31](file://alembic/versions/030_usage_alerts.py#L1-L31)
 - [031_onboarding_flag.py:1-21](file://alembic/versions/031_onboarding_flag.py#L1-L21)
 - [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
+- [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
+- [034_password_reset_tokens.py:1-33](file://alembic/versions/034_password_reset_tokens.py#L1-L33)
 
 **Section sources**
 - [env.py:1-51](file://alembic/env.py#L1-L51)
@@ -1070,11 +1093,13 @@ FF --> GG["032: SSO configuration"]
 - [030_usage_alerts.py:1-31](file://alembic/versions/030_usage_alerts.py#L1-L31)
 - [031_onboarding_flag.py:1-21](file://alembic/versions/031_onboarding_flag.py#L1-L21)
 - [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
+- [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
+- [034_password_reset_tokens.py:1-33](file://alembic/versions/034_password_reset_tokens.py#L1-L33)
 
 ### Data Validation Rules and Business Logic Constraints
 - Tenant isolation: All sensitive routes filter by tenant_id.
 - Usage limits: Monthly analysis counts enforced per plan limits; storage usage computed from text lengths.
-- Deduplication: Candidate matching by resume_file_hash and fallback by email/tenant.
+- **Updated** Sophisticated deduplication: Candidate matching by resume_file_hash and fallback by email/tenant with multi-step cleanup process to prevent foreign key constraint violations.
 - Authentication: JWT decoding and active user lookup; admin-only routes gated by role.
 - Token revocation: Refresh tokens checked against revoked_tokens table during refresh operations.
 - Data types: JSON fields for parsed_data, analysis_result, limits, features; numeric counters for usage; timestamps with timezone support.
@@ -1091,6 +1116,7 @@ FF --> GG["032: SSO configuration"]
 - **Updated** Historical learning: Composite indexes ensure analytical queries perform efficiently.
 - **Updated** Field audit logging: Comprehensive change tracking with old/new value preservation.
 - **Updated** SSO configuration: Identity provider metadata validation and certificate handling.
+- **Updated** Deduplication system: Multi-step cleanup process with careful ordering to prevent foreign key constraint violations.
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -1109,6 +1135,8 @@ FF --> GG["032: SSO configuration"]
 - [022_historical_learning_system.py:61-131](file://alembic/versions/022_historical_learning_system.py#L61-L131)
 - [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
 - [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
+- [033_unique_constraints.py:15-28](file://alembic/versions/033_unique_constraints.py#L15-L28)
+- [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
 
 ### Referential Integrity and Indexes
 - Foreign keys:
@@ -1154,7 +1182,7 @@ FF --> GG["032: SSO configuration"]
   - SubscriptionPlans(is_active, sort_order)
   - Tenants(subscription_status), Tenants(stripe_customer_id)
   - UsageLogs(tenant_id, action), UsageLogs(tenant_id, created_at), UsageLogs(created_at)
-  - ScreeningResults(candidate_id), ScreeningResults(timestamp), **Updated** ScreeningResults(tenant_id, timestamp)
+  - ScreeningResults(candidate_id), ScreeningResults(timestamp), **Updated** ScreeningResults(tenant_id, candidate_id, role_template_id) with partial unique index
   - InterviewEvaluations(result_id), InterviewEvaluations(user_id), InterviewEvaluations(question_category), InterviewEvaluations(question_index)
   - OverallAssessments(result_id), OverallAssessments(user_id)
   - RevokedTokens(id), RevokedTokens(jti)
@@ -1185,6 +1213,12 @@ FF --> GG["032: SSO configuration"]
   - **Updated** UsageAlerts(tenant_id)
   - **Updated** SSOSessions(tenant_id)
   - **Updated** FieldAuditLogs(entity_type, entity_id), FieldAuditLogs(tenant_id)
+  - **Updated** Unique candidate constraints: (tenant_id, email) and (tenant_id, resume_file_hash) with partial indexes
+  - **Updated** Unique screening result constraints: (tenant_id, candidate_id, role_template_id) with foreign key safety
+- **Updated** Deduplication constraints:
+  - Partial unique index on candidates (tenant_id, email) WHERE email IS NOT NULL
+  - Partial unique index on candidates (tenant_id, resume_file_hash) WHERE resume_file_hash IS NOT NULL
+  - Partial unique index on screening_results (tenant_id, candidate_id, role_template_id) WHERE candidate_id IS NOT NULL AND role_template_id IS NOT NULL
 
 **Section sources**
 - [db_models.py:34-59](file://app/backend/models/db_models.py#L34-L59)
@@ -1228,6 +1262,8 @@ FF --> GG["032: SSO configuration"]
 - [030_usage_alerts.py:25](file://alembic/versions/030_usage_alerts.py#L25)
 - [031_onboarding_flag.py:14-15](file://alembic/versions/031_onboarding_flag.py#L14-L15)
 - [032_sso_config.py:31](file://alembic/versions/032_sso_config.py#L31)
+- [033_unique_constraints.py:87-121](file://alembic/versions/033_unique_constraints.py#L87-L121)
+- [034_password_reset_tokens.py:23-28](file://alembic/versions/034_password_reset_tokens.py#L23-L28)
 
 ### Data Access Patterns, Caching, and Performance
 - Data access patterns:
@@ -1247,6 +1283,7 @@ FF --> GG["032: SSO configuration"]
   - **Updated** Historical learning: Composite indexing supports complex analytical queries across time dimensions.
   - **Updated** Field audit logging: Efficient querying by entity type and timestamp for change tracking.
   - **Updated** SSO configuration: Tenant-specific configuration with activation/deactivation controls.
+  - **Updated** Deduplication system: Multi-step cleanup process with careful ordering for optimal performance.
 - Caching strategies:
   - JdCache stores parsed job descriptions keyed by hash to avoid repeated parsing.
   - Candidate enrichment fields reduce repeated parsing costs.
@@ -1259,6 +1296,7 @@ FF --> GG["032: SSO configuration"]
   - **Updated** Interview evaluation data cached in memory for scorecard aggregation.
   - **Updated** Historical learning data cached for dashboard performance.
   - **Updated** SSO configuration cached for authentication performance.
+  - **Updated** Deduplication system uses unique constraints to prevent duplicate inserts.
 - Performance considerations:
   - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp, deterministic_score, eligibility_status, question_category, question_index).
   - Prefer batch operations for inserts (bulk insert for plans).
@@ -1274,6 +1312,7 @@ FF --> GG["032: SSO configuration"]
   - **Updated** Enterprise security features optimized with token hashing and expiration indexing.
   - **Updated** Historical learning system optimized with composite indexing for analytical queries.
   - **Updated** Field audit logging optimized with entity-type indexing for change tracking.
+  - **Updated** Deduplication system optimized with multi-step cleanup process and unique constraints.
 
 **Section sources**
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
@@ -1295,6 +1334,8 @@ FF --> GG["032: SSO configuration"]
 - [022_historical_learning_system.py:61-131](file://alembic/versions/022_historical_learning_system.py#L61-L131)
 - [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
 - [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
+- [033_unique_constraints.py:12-28](file://alembic/versions/033_unique_constraints.py#L12-L28)
+- [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
 
 ### Data Lifecycle, Retention, and Backup
 - Data lifecycle:
@@ -1319,6 +1360,7 @@ FF --> GG["032: SSO configuration"]
   - **Updated** Historical learning: time-series data with configurable retention for analytics.
   - **Updated** Field audit logs: change tracking with configurable retention for compliance.
   - **Updated** SSO configurations: tenant-specific settings with audit trail.
+  - **Updated** Deduplication system: unique constraints prevent duplicate data entry.
 - Retention:
   - No explicit retention policies are defined in code; implement administrative controls to archive or purge historical data.
   - AnalysisArtifacts have automatic expiration (30 days) for cleanup.
@@ -1333,6 +1375,7 @@ FF --> GG["032: SSO configuration"]
   - **Updated** Enterprise security data: impersonation sessions with expiration-based cleanup.
   - **Updated** Historical learning data: time-series retention for analytical insights.
   - **Updated** Field audit logs: retention for compliance and change tracking.
+  - **Updated** Deduplication system: unique constraints ensure data integrity without additional cleanup requirements.
 - Backup:
   - Use database-native backups (e.g., pg_dump for PostgreSQL, SQLite backup mechanisms) and regular snapshots.
   - Consider logical backups for portable deployments.
@@ -1343,6 +1386,7 @@ FF --> GG["032: SSO configuration"]
   - **Updated** Enterprise security tables require backup for compliance and audit requirements.
   - **Updated** Historical learning tables require backup for analytical continuity.
   - **Updated** Field audit logs require backup for compliance and change tracking.
+  - **Updated** Deduplication system requires backup of unique constraints and indexes for full data integrity restoration.
 
 ### Sample Queries and Reporting Scenarios
 - Monthly usage by tenant
@@ -1386,6 +1430,12 @@ FF --> GG["032: SSO configuration"]
   - Query: select role_category, skill_name, period_date, jd_mention_count, resume_present_count, hired_with_skill from skill_trend_snapshots where tenant_id = ? order by period_date desc limit 100.
 - **Updated** Field audit log analysis
   - Query: select entity_type, field_name, count(*) as change_count, min(changed_at) as first_change, max(changed_at) as last_change from field_audit_logs where tenant_id = ? group by entity_type, field_name order by change_count desc.
+- **Updated** Deduplication system effectiveness
+  - Query: select 'candidates' as table_name, count(*) as total, count(distinct (tenant_id, email)) as unique_emails, count(*) - count(distinct (tenant_id, email)) as duplicates from candidates where email is not null
+  - union all
+  - select 'candidates' as table_name, count(*) as total, count(distinct (tenant_id, resume_file_hash)) as unique_hashes, count(*) - count(distinct (tenant_id, resume_file_hash)) as duplicates from candidates where resume_file_hash is not null
+  - union all
+  - select 'screening_results' as table_name, count(*) as total, count(distinct (tenant_id, candidate_id, role_template_id)) as unique_combinations, count(*) - count(distinct (tenant_id, candidate_id, role_template_id)) as duplicates from screening_results where candidate_id is not null and role_template_id is not null;
 
 **Section sources**
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
@@ -1404,6 +1454,8 @@ FF --> GG["032: SSO configuration"]
 - [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
 - [022_historical_learning_system.py:40-132](file://alembic/versions/022_historical_learning_system.py#L40-L132)
 - [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
+- [033_unique_constraints.py:15-28](file://alembic/versions/033_unique_constraints.py#L15-L28)
+- [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
 
 ## Dependency Analysis
 The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements included connection pooling configuration, token revocation support, queue system implementation, intelligent scoring capabilities, platform administration, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
@@ -1448,6 +1500,7 @@ D --> HL["Historical Learning<br/>Analytics"]
 D --> BL["Billing System<br/>Invoices & Dunning"]
 D --> SSO["SSO Integration<br/>Identity Providers"]
 D --> FA["Field Audit Logs<br/>Change Tracking"]
+D --> DU["Deduplication System<br/>Multi-step Cleanup"]
 ```
 
 **Diagram sources**
@@ -1503,6 +1556,7 @@ D --> FA["Field Audit Logs<br/>Change Tracking"]
 - **Updated** Enterprise security performance: Token hashing and expiration indexing support efficient impersonation management.
 - **Updated** Historical learning performance: Composite indexing enables efficient analytical queries across time dimensions.
 - **Updated** Field audit logging performance: Entity-type indexing supports efficient change tracking queries.
+- **Updated** Deduplication system performance: Unique constraints prevent duplicate inserts; multi-step cleanup process optimizes data integrity.
 
 ## Troubleshooting Guide
 - Database connectivity
@@ -1564,6 +1618,11 @@ D --> FA["Field Audit Logs<br/>Change Tracking"]
   - Identity provider connectivity: Verify IDP metadata and certificate configuration.
   - Attribute mapping: Check SSO attribute-to-local field mapping.
   - Auto-provisioning: Verify user creation and role assignment on first login.
+- **Updated** Deduplication system issues
+  - Duplicate candidate creation: Verify unique constraints are properly applied.
+  - Screening result duplication: Check foreign key safety measures in multi-step cleanup process.
+  - Migration failures: Ensure deduplication steps are executed in correct order to prevent foreign key violations.
+  - Performance: Monitor unique constraint performance impact on write operations.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -1582,16 +1641,18 @@ D --> FA["Field Audit Logs<br/>Change Tracking"]
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
 - [interview_kit.py:28-80](file://app/backend/routes/interview_kit.py#L28-L80)
-- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-488)
+- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-L488)
 - [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
 - [022_historical_learning_system.py:61-131](file://alembic/versions/022_historical_learning_system.py#L61-L131)
 - [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
 - [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
+- [033_unique_constraints.py:15-28](file://alembic/versions/033_unique_constraints.py#L15-L28)
+- [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
 
 ## Conclusion
 The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model now provides comprehensive deterministic scoring with eligibility gating, structured decision rationale, and detailed scoring breakdowns. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. The Interview Kit Evaluation Framework introduces sophisticated interview scoring capabilities with per-question evaluations, overall assessments, and automated scorecard generation. The deterministic scoring system with hard gating rules ensures fair and transparent candidate evaluation processes. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
 
-**Updated** The system now includes comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, and extensive candidate profile enhancements, making it suitable for enterprise-scale deployment with full compliance and security coverage.
+**Updated** The system now includes comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, and a sophisticated deduplication system with multi-step cleanup processes that prevent foreign key constraint violations during data integrity maintenance. This comprehensive approach ensures data consistency while maintaining system performance and reliability.
 
 ## Appendices
 
@@ -1610,12 +1671,13 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - Candidate
   - Fields: id, tenant_id, name, email, phone, timestamps; enrichment: resume_file_hash, resume_filename (String 255), resume_file_data (LargeBinary), resume_converted_pdf_data (LargeBinary), raw_resume_text, parsed_skills/education/work_exp, gap_analysis_json, current_role/company, total_years_exp, profile_quality, profile_updated_at; parser_snapshot_json.
   - **Updated** Enhanced with ai_professional_summary (Text) and candidate_notes relationship.
+  - **Updated** Sophisticated deduplication system with three-layer matching: email → file hash → name+phone within tenant scope.
   - Indexes: email, resume_file_hash.
 - ScreeningResult
   - Fields: id, tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
   - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
   - **Updated** Enhanced with status_updated_at timestamp for tracking screening result status changes.
-  - **Updated** Interview evaluation relationships: evaluations (one-to-many), overall_assessment (one-to-many).
+  - **Updated** Enhanced with unique constraint on (tenant_id, candidate_id, role_template_id) with partial index for foreign key safety.
   - Indexes: candidate_id, timestamp, tenant_id+timestamp.
 - RoleTemplate
   - Fields: id, tenant_id, name, jd_text, scoring_weights (JSON), tags, required_skills_override, nice_to_have_skills_override, timestamps.
@@ -1708,6 +1770,10 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - **Updated** SkillClassificationTemplate
   - Fields: id, tenant_id (FK), name (String 255, nullable=False), role_template_id (FK), required_skills (Text, default "[]"), nice_to_have_skills (Text, default "[]"), created_by (FK), created_at, updated_at.
   - Indexes: tenant_id, name.
+- **Updated** Deduplication System
+  - Fields: Unique candidate constraints (tenant_id, email) and (tenant_id, resume_file_hash) with partial indexes.
+  - Fields: Unique screening result constraint (tenant_id, candidate_id, role_template_id) with foreign key safety.
+  - Fields: Multi-step cleanup process with careful ordering to prevent foreign key violations.
 
 **Section sources**
 - [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
@@ -1738,6 +1804,8 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [030_usage_alerts.py:14-26](file://alembic/versions/030_usage_alerts.py#L14-L26)
 - [031_onboarding_flag.py:14-15](file://alembic/versions/031_onboarding_flag.py#L14-L15)
 - [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
+- [033_unique_constraints.py:87-121](file://alembic/versions/033_unique_constraints.py#L87-L121)
+- [034_password_reset_tokens.py:23-28](file://alembic/versions/034_password_reset_tokens.py#L23-L28)
 - [eligibility_service.py:10-14](file://app/backend/services/eligibility_service.py#L10-L14)
 
 ### Appendix B: Migration History
@@ -1773,6 +1841,8 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - 030: **New** Usage alerts for threshold notification tracking.
 - 031: **New** Onboarding flag for tenant onboarding completion tracking.
 - 032: **New** SSO configuration for SAML/OIDC identity provider integration.
+- 033: **New** Sophisticated deduplication system with multi-step cleanup process for candidates and screening results.
+- 034: **New** Password reset tokens table with unique constraint.
 
 **Section sources**
 - [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
@@ -1807,3 +1877,21 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [030_usage_alerts.py:1-31](file://alembic/versions/030_usage_alerts.py#L1-L31)
 - [031_onboarding_flag.py:1-21](file://alembic/versions/031_onboarding_flag.py#L1-L21)
 - [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
+- [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
+- [034_password_reset_tokens.py:1-33](file://alembic/versions/034_password_reset_tokens.py#L1-L33)
+
+### Appendix C: Deduplication System Details
+- **Multi-step Cleanup Process**: Carefully ordered SQL operations to prevent foreign key constraint violations during deduplication
+  - Step 1: Deduplicate screening_results first (required before candidate dedup)
+  - Step 2: Delete screening_results belonging to duplicate candidates (FK safety)
+  - Step 3: Deduplicate candidates by email
+  - Step 4: Deduplicate candidates by file hash
+  - Step 5: Create unique constraints for data integrity
+- **Three-Layer Candidate Matching**: Email → File Hash → Name + Phone within tenant scope
+- **Foreign Key Safety Measures**: Unique constraints with partial indexes prevent duplicate inserts
+- **Migration Testing**: Comprehensive test suite validates deduplication logic and data integrity
+
+**Section sources**
+- [033_unique_constraints.py:12-121](file://alembic/versions/033_unique_constraints.py#L12-L121)
+- [analyze.py:380-450](file://app/backend/routes/analyze.py#L380-L450)
+- [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)

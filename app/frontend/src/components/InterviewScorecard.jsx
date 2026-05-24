@@ -11,10 +11,17 @@ function safeStr(v) {
   try { return JSON.stringify(v) } catch { return String(v) }
 }
 
+const RATING_COLOR = {
+  strong: 'text-emerald-600 bg-emerald-50',
+  adequate: 'text-amber-600 bg-amber-50',
+  weak: 'text-red-600 bg-red-50',
+}
+
 function DimensionCard({ dimension, label, icon: Icon }) {
   if (!dimension) return null
   const total = dimension.total_questions || 0
   const evaluated = dimension.evaluated_count || 0
+  const evaluators = dimension.evaluators || []
 
   return (
     <div className="p-4 bg-white rounded-xl ring-1 ring-slate-200">
@@ -51,10 +58,26 @@ function DimensionCard({ dimension, label, icon: Icon }) {
       </div>
 
       {dimension.key_notes?.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-1 mb-3">
           {dimension.key_notes.map((note, i) => (
             <p key={i} className="text-xs text-slate-500 pl-3 border-l-2 border-slate-200">{note}</p>
           ))}
+        </div>
+      )}
+
+      {evaluators.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-slate-100">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Team Evaluations</p>
+          <div className="space-y-1">
+            {evaluators.map((ev, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <span className="text-slate-500 truncate max-w-[60%]" title={ev.email}>{ev.email}</span>
+                <span className={`px-1.5 py-0.5 rounded text-xs font-semibold capitalize ${RATING_COLOR[ev.rating] || 'text-slate-500 bg-slate-100'}`}>
+                  Q{ev.question_index + 1}: {ev.rating}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -158,7 +181,7 @@ export default function InterviewScorecard({ resultId }) {
           <DimensionCard dimension={scorecard.technical_summary} label="Technical" icon={FileText} />
           <DimensionCard dimension={scorecard.behavioral_summary} label="Behavioral" icon={CheckCircle} />
           <DimensionCard dimension={scorecard.culture_fit_summary} label="Culture Fit" icon={AlertCircle} />
-          <DimensionCard dimension={scorecard.experience_deep_dive_summary} label="Experience" icon={FileText} />
+          <DimensionCard dimension={scorecard.experience_deep_dive_summary} label="Experience Deep-Dive" icon={FileText} />
         </div>
 
         {/* Strengths & Concerns */}

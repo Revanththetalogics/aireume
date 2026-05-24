@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from typing import List
 
@@ -15,7 +15,7 @@ from app.backend.models.db_models import (
 from app.backend.models.schemas import (
     EvaluationUpsert, EvaluationOut,
     OverallAssessmentUpsert,
-    ScorecardDimension, ScorecardOut,
+    EvaluatorInfo, ScorecardDimension, ScorecardOut,
 )
 
 logger = logging.getLogger(__name__)
@@ -153,12 +153,11 @@ def get_scorecard(
     contact = parsed.get("contact_info", {})
     jd_analysis = analysis.get("jd_analysis", {})
 
-    # Get user's evaluations
-    evals = db.query(InterviewEvaluation).filter(
-        and_(
-            InterviewEvaluation.result_id == result_id,
-            InterviewEvaluation.user_id == current_user.id,
-        )
+    # Get ALL team evaluations (with evaluator info eager-loaded)
+    evals = db.query(InterviewEvaluation).options(
+        joinedload(InterviewEvaluation.evaluator)
+    ).filter(
+        InterviewEvaluation.result_id == result_id,
     ).all()
 
     # Get interview questions to count totals
@@ -175,14 +174,25 @@ def get_scorecard(
         adequate = sum(1 for e in cat_evals if e.rating == "adequate")
         weak = sum(1 for e in cat_evals if e.rating == "weak")
         key_notes = [e.notes for e in cat_evals if e.notes and e.notes.strip()]
+        evaluators = [
+            EvaluatorInfo(
+                user_id=e.user_id,
+                email=e.evaluator.email if e.evaluator else "Unknown",
+                rating=e.rating,
+                question_index=e.question_index,
+                notes=e.notes,
+            )
+            for e in cat_evals if e.rating
+        ]
         return ScorecardDimension(
             category=category,
             total_questions=total,
-            evaluated_count=len(cat_evals),
+            evaluated_count=len([e for e in cat_evals if e.rating]),
             strong_count=strong,
             adequate_count=adequate,
             weak_count=weak,
             key_notes=key_notes[:5],
+            evaluators=evaluators,
         )
 
     tech_summary = build_dimension("technical", tech_total)
@@ -194,7 +204,7 @@ def get_scorecard(
     strengths = [e.notes for e in evals if e.rating == "strong" and e.notes and e.notes.strip()]
     concerns = [e.notes for e in evals if e.rating == "weak" and e.notes and e.notes.strip()]
 
-    # Get overall assessment
+    # Get overall assessment (by current user, for the editable field)
     overall = db.query(OverallAssessment).filter(
         and_(
             OverallAssessment.result_id == result_id,
@@ -202,15 +212,20 @@ def get_scorecard(
         )
     ).first()
 
-    # Find latest evaluation timestamp
+    # Find latest evaluation timestamp across ALL team evaluations
     latest_eval = max((e.updated_at for e in evals), default=None) if evals else None
+
+    # Unique evaluators across all dimensions
+    evaluator_emails = list({
+        e.evaluator.email for e in evals if e.evaluator
+    })
 
     return ScorecardOut(
         candidate_name=contact.get("name", "Unknown"),
         role_title=jd_analysis.get("role_title", "N/A"),
         fit_score=analysis.get("fit_score"),
         recommendation=analysis.get("final_recommendation"),
-        evaluator_email=current_user.email,
+        evaluator_email=", ".join(evaluator_emails) if evaluator_emails else current_user.email,
         evaluated_at=latest_eval,
         technical_summary=tech_summary,
         behavioral_summary=beh_summary,

@@ -594,7 +594,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     setExpandedGuidance(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // Load existing evaluations when Interview Kit is expanded
+  // Load existing evaluations when Recruiter Screen Kit is expanded
   useEffect(() => {
     if (showInterviewKit && result?.result_id && !evalLoaded) {
       const loadEvals = async () => {
@@ -1347,7 +1347,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
           </CollapsibleSection>
         )}
 
-        {/* Interview Kit */}
+        {/* Recruiter Screen Kit */}
         {interview_questions && (
           <div className="ring-1 ring-brand-200 rounded-2xl bg-brand-50/40 overflow-hidden">
             <button
@@ -1356,7 +1356,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
             >
               <div className="flex items-center gap-2.5">
                 <ClipboardList className="w-4 h-4 text-brand-600" />
-                <span className="font-bold text-brand-800 text-sm">Interview Kit</span>
+                <span className="font-bold text-brand-800 text-sm">Recruiter Screen Kit</span>
                 <span className="text-xs bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-semibold">
                   {(interview_questions.technical_questions?.length || 0) +
                    (interview_questions.behavioral_questions?.length || 0) +
