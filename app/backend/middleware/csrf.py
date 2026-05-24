@@ -6,6 +6,7 @@ the CSRF token in the cookie matches the X-CSRF-Token header.
 API clients using Authorization header bypass CSRF checks.
 """
 import os
+import re
 import secrets
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -43,14 +44,22 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/metrics",
     }
 
+    # Regex patterns for paths that should be CSRF-exempt (e.g. dynamic path segments)
+    EXEMPT_PATTERNS = [
+        re.compile(r"^/api/candidates/\d+/name$"),  # PUT candidate name (auth-protected)
+    ]
+
     def _is_exempt(self, path: str) -> bool:
-        """Check if a path is CSRF-exempt (exact match or prefix match)."""
+        """Check if a path is CSRF-exempt (exact match, prefix match, or pattern match)."""
         if path in self.EXEMPT_PATHS:
             return True
         for exempt in self.EXEMPT_PATHS:
             if exempt.endswith("/") and path.startswith(exempt):
                 return True
             if not exempt.endswith("/") and path.startswith(exempt + "/"):
+                return True
+        for pattern in self.EXEMPT_PATTERNS:
+            if pattern.match(path):
                 return True
         return False
 

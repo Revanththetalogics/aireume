@@ -11,22 +11,35 @@
 - [VideoPage.jsx](file://app/frontend/src/pages/VideoPage.jsx)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Enhanced team collaboration features with comprehensive team evaluation visibility
+- Introduced new EvaluatorInfo schema for detailed evaluator attribution
+- Standardized UI labels with consistent "Team Evaluations" terminology
+- Improved scorecard calculation logic with enhanced evaluator attribution
+- Updated dimension summary cards to display team evaluation data
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
+6. [Enhanced Team Collaboration Features](#enhanced-team-collaboration-features)
+7. [EvaluatorInfo Schema Integration](#evaluatorinfo-schema-integration)
+8. [UI Label Standardization](#ui-label-standardization)
+9. [Dependency Analysis](#dependency-analysis)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
 
 ## Introduction
 
-The Interview Scorecard Component is a comprehensive evaluation and reporting system designed for AI-powered interview analysis. This component provides recruiters and hiring managers with a professional, printable scorecard that aggregates interview evaluation data, displays dimension summaries, and enables collaborative assessment workflows.
+The Interview Scorecard Component is a comprehensive evaluation and reporting system designed for AI-powered interview analysis. This component provides recruiters and hiring managers with a professional, printable scorecard that aggregates interview evaluation data, displays dimension summaries, and enables collaborative assessment workflows with enhanced team visibility.
 
 The system integrates seamlessly with the broader ARIA (AI Resume Intelligence) platform, offering multi-modal interview analysis capabilities including transcript evaluation, video interview analysis, and structured scoring systems. The Interview Scorecard serves as the central hub for interview assessment, combining quantitative metrics with qualitative insights to support informed hiring decisions.
+
+**Updated** Enhanced with comprehensive team collaboration features that provide visibility into all team member evaluations, detailed evaluator attribution through the new EvaluatorInfo schema, and standardized UI labeling for consistent user experience.
 
 ## Project Structure
 
@@ -67,8 +80,8 @@ DB --> SR
 - [api.js:1-997](file://app/frontend/src/lib/api.js#L1-L997)
 
 **Section sources**
-- [InterviewScorecard.jsx:1-232](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L232)
-- [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-L224)
+- [InterviewScorecard.jsx:1-255](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L255)
+- [interview_kit.py:1-239](file://app/backend/routes/interview_kit.py#L1-L239)
 
 ## Core Components
 
@@ -83,6 +96,7 @@ The Interview Scorecard Component is implemented as a React functional component
 - Overall assessment editing with recommendation selection
 - PDF export functionality for sharing with hiring managers
 - Responsive design with professional styling
+- **Enhanced** Comprehensive team evaluation visibility with detailed evaluator attribution
 
 **Data Flow Architecture:**
 ```mermaid
@@ -96,10 +110,10 @@ User->>IS : Load Scorecard
 IS->>API : getScorecard(resultId)
 API->>BE : GET /api/results/{result_id}/scorecard
 BE->>DB : Query ScreeningResult + Evaluations
-DB-->>BE : Aggregated Data
-BE-->>API : Scorecard JSON
+DB-->>BE : Aggregated Data with EvaluatorInfo
+BE-->>API : Scorecard JSON with Team Evaluations
 API-->>IS : Render Scorecard
-IS-->>User : Display Evaluation Cards
+IS-->>User : Display Evaluation Cards with Team Visibility
 User->>IS : Edit Overall Assessment
 IS->>API : saveOverallAssessment()
 API->>BE : PUT /api/results/{result_id}/evaluations/overall
@@ -112,7 +126,7 @@ API-->>IS : Update UI
 **Diagram sources**
 - [InterviewScorecard.jsx:64-117](file://app/frontend/src/components/InterviewScorecard.jsx#L64-L117)
 - [api.js:1-997](file://app/frontend/src/lib/api.js#L1-L997)
-- [interview_kit.py:142-224](file://app/backend/routes/interview_kit.py#L142-L224)
+- [interview_kit.py:142-239](file://app/backend/routes/interview_kit.py#L142-L239)
 
 ### Backend Interview Kit Service
 
@@ -122,13 +136,13 @@ The backend service provides comprehensive interview evaluation management throu
 - `PUT /api/results/{result_id}/evaluations` - Upsert individual question evaluations
 - `GET /api/results/{result_id}/evaluations` - Retrieve all evaluations for a result
 - `PUT /api/results/{result_id}/evaluations/overall` - Save overall recruiter assessment
-- `GET /api/results/{result_id}/scorecard` - Generate comprehensive scorecard
+- `GET /api/results/{result_id}/scorecard` - Generate comprehensive scorecard with team evaluation visibility
 
 **Data Processing Logic:**
-The backend service aggregates evaluation data from multiple sources, builds dimension summaries, and constructs a comprehensive scorecard report that combines AI-generated insights with human evaluator input.
+The backend service aggregates evaluation data from multiple sources, builds dimension summaries, and constructs a comprehensive scorecard report that combines AI-generated insights with human evaluator input. **Enhanced** with comprehensive team evaluation visibility through the EvaluatorInfo schema.
 
 **Section sources**
-- [interview_kit.py:23-224](file://app/backend/routes/interview_kit.py#L23-L224)
+- [interview_kit.py:23-239](file://app/backend/routes/interview_kit.py#L23-L239)
 - [schemas.py:440-517](file://app/backend/models/schemas.py#L440-L517)
 
 ## Architecture Overview
@@ -170,8 +184,8 @@ Export --> UI
 ```
 
 **Diagram sources**
-- [InterviewScorecard.jsx:1-232](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L232)
-- [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-L224)
+- [InterviewScorecard.jsx:1-255](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L255)
+- [interview_kit.py:1-239](file://app/backend/routes/interview_kit.py#L1-L239)
 - [main.py:324-390](file://app/backend/main.py#L324-L390)
 
 The architecture ensures:
@@ -211,7 +225,7 @@ InterviewScorecard --> SafeStr : "uses"
 
 **Diagram sources**
 - [InterviewScorecard.jsx:14-62](file://app/frontend/src/components/InterviewScorecard.jsx#L14-L62)
-- [InterviewScorecard.jsx:64-232](file://app/frontend/src/components/InterviewScorecard.jsx#L64-L232)
+- [InterviewScorecard.jsx:64-255](file://app/frontend/src/components/InterviewScorecard.jsx#L64-L255)
 
 **Key Implementation Features:**
 
@@ -221,6 +235,7 @@ InterviewScorecard --> SafeStr : "uses"
    - Total question count and evaluated count
    - Color-coded strength indicators (Emerald for Strong, Amber for Adequate, Red for Weak)
    - Key notes aggregation
+   - **Enhanced** Team evaluation visibility showing individual evaluator ratings and question indices
    - Responsive grid layout
 
 3. **Interactive Assessment Editor**: Recruiters can:
@@ -235,7 +250,7 @@ InterviewScorecard --> SafeStr : "uses"
    - Image-based rendering for consistent cross-browser compatibility
 
 **Section sources**
-- [InterviewScorecard.jsx:1-232](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L232)
+- [InterviewScorecard.jsx:1-255](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L255)
 
 ### Backend Data Model Integration
 
@@ -295,11 +310,12 @@ The backend service orchestrates complex data aggregation:
 2. **Analysis Data Parsing**: Extracts structured data from JSON analysis results
 3. **Evaluation Aggregation**: Collects and processes individual question evaluations
 4. **Dimension Building**: Constructs summary statistics for each evaluation category
-5. **Strengths/Concerns Extraction**: Identifies notable evaluation patterns
-6. **Overall Assessment Integration**: Combines AI insights with human evaluator input
+5. **Evaluator Attribution**: **Enhanced** Integrates EvaluatorInfo schema for detailed team evaluation visibility
+6. **Strengths/Concerns Extraction**: Identifies notable evaluation patterns
+7. **Overall Assessment Integration**: Combines AI insights with human evaluator input
 
 **Section sources**
-- [interview_kit.py:28-224](file://app/backend/routes/interview_kit.py#L28-L224)
+- [interview_kit.py:28-239](file://app/backend/routes/interview_kit.py#L28-L239)
 - [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
 
 ### API Integration Patterns
@@ -307,7 +323,7 @@ The backend service orchestrates complex data aggregation:
 The frontend API client provides comprehensive interview evaluation functionality:
 
 **API Methods:**
-- `getScorecard(resultId)`: Retrieves complete interview scorecard data
+- `getScorecard(resultId)`: Retrieves complete interview scorecard data with team evaluation visibility
 - `saveOverallAssessment(resultId, assessment)`: Persists recruiter assessment
 - `getEvaluations(resultId)`: Fetches individual question evaluations
 - `upsertEvaluation(resultId, evaluation)`: Creates or updates evaluations
@@ -325,11 +341,11 @@ FC->>API : getScorecard(resultId)
 API->>AUTH : Apply JWT + CSRF
 AUTH->>ROUTER : Route to /api/results/{result_id}/scorecard
 ROUTER->>SVC : Call get_scorecard()
-SVC->>DB : Query ScreeningResult + Evaluations
-DB-->>SVC : Aggregated Results
-SVC-->>ROUTER : Scorecard Data
+SVC->>DB : Query ScreeningResult + Evaluations with EvaluatorInfo
+DB-->>SVC : Aggregated Results with Team Evaluations
+SVC-->>ROUTER : Scorecard Data with Evaluator Attribution
 ROUTER-->>API : JSON Response
-API-->>FC : Render Scorecard
+API-->>FC : Render Scorecard with Team Visibility
 FC->>API : saveOverallAssessment()
 API->>AUTH : Apply CSRF Protection
 AUTH->>ROUTER : Route to /api/results/{result_id}/evaluations/overall
@@ -348,6 +364,83 @@ API-->>FC : Update UI
 **Section sources**
 - [api.js:1-997](file://app/frontend/src/lib/api.js#L1-L997)
 - [interview_kit.py:101-138](file://app/backend/routes/interview_kit.py#L101-L138)
+
+## Enhanced Team Collaboration Features
+
+The Interview Scorecard Component now provides comprehensive team collaboration capabilities through enhanced evaluation visibility:
+
+### Team Evaluation Visibility
+
+**Key Features:**
+- **Comprehensive Team View**: Displays all team member evaluations in dimension summary cards
+- **Individual Evaluator Attribution**: Shows email addresses and evaluation timestamps
+- **Question-Level Detail**: Displays which question was evaluated and the rating provided
+- **Real-Time Collaboration**: Enables team members to see each other's evaluations instantly
+- **Transparent Assessment Process**: Provides complete audit trail of evaluation decisions
+
+**Implementation Details:**
+```mermaid
+graph LR
+subgraph "Team Evaluation Flow"
+A[Individual Evaluator] --> B[Question Rating]
+B --> C[Team Evaluation Card]
+C --> D[Dimension Summary]
+D --> E[Overall Scorecard]
+end
+```
+
+**Diagram sources**
+- [InterviewScorecard.jsx:68-82](file://app/frontend/src/components/InterviewScorecard.jsx#L68-L82)
+- [interview_kit.py:177-186](file://app/backend/routes/interview_kit.py#L177-L186)
+
+**Section sources**
+- [InterviewScorecard.jsx:68-82](file://app/frontend/src/components/InterviewScorecard.jsx#L68-L82)
+- [interview_kit.py:156-239](file://app/backend/routes/interview_kit.py#L156-L239)
+
+## EvaluatorInfo Schema Integration
+
+The new EvaluatorInfo schema provides detailed attribution for all team evaluations:
+
+### Schema Definition
+
+**EvaluatorInfo Fields:**
+- `user_id`: Unique identifier of the evaluating team member
+- `email`: Email address of the evaluator for attribution
+- `rating`: Evaluation rating (strong, adequate, weak)
+- `question_index`: Index of the evaluated question (0-based)
+- `notes`: Additional evaluation notes provided by the team member
+
+**Integration Benefits:**
+- **Enhanced Transparency**: Complete visibility into who evaluated what and when
+- **Accountability**: Clear attribution for all evaluation decisions
+- **Audit Trail**: Comprehensive record of team evaluation activities
+- **Performance Insights**: Ability to track evaluator consistency and expertise
+
+**Section sources**
+- [schemas.py:550-557](file://app/backend/models/schemas.py#L550-L557)
+- [interview_kit.py:177-186](file://app/backend/routes/interview_kit.py#L177-L186)
+
+## UI Label Standardization
+
+The Interview Scorecard Component now features standardized UI labels for consistent user experience:
+
+### Standardized Terminology
+
+**Key Label Changes:**
+- **Team Evaluations**: Consistent use of "Team Evaluations" across all dimension cards
+- **Evaluator Attribution**: Standardized display of evaluator emails and timestamps
+- **Rating Labels**: Unified "Q{question_index}: {rating}" format for question-level ratings
+- **Consistent Styling**: Standardized color schemes and typography for evaluation indicators
+
+**UI Components:**
+- **Dimension Cards**: Consistent card layout with standardized header formatting
+- **Evaluator Lists**: Uniform display of team member evaluations with clear visual hierarchy
+- **Rating Indicators**: Standardized color coding (Emerald, Amber, Red) for evaluation strength
+- **Metadata Display**: Consistent formatting for evaluator attribution and timestamps
+
+**Section sources**
+- [InterviewScorecard.jsx:69-82](file://app/frontend/src/components/InterviewScorecard.jsx#L69-L82)
+- [InterviewScorecard.jsx:14-18](file://app/frontend/src/components/InterviewScorecard.jsx#L14-L18)
 
 ## Dependency Analysis
 
@@ -445,6 +538,11 @@ The Interview Scorecard Component is designed with several performance optimizat
    - Check user authentication and tenant access permissions
    - Monitor network connectivity to backend services
 
+4. **Team Evaluation Visibility Issues**
+   - **Enhanced** Verify that team members have proper access permissions
+   - Check database relationships for evaluator attribution
+   - Ensure EvaluatorInfo schema is properly populated
+
 **Backend Issues:**
 1. **Database Connection Problems**
    - Verify PostgreSQL service availability
@@ -460,6 +558,11 @@ The Interview Scorecard Component is designed with several performance optimizat
    - Validate JWT token expiration and signature
    - Check tenant membership and role permissions
    - Verify CSRF token validation process
+
+4. **EvaluatorInfo Schema Issues**
+   - **Enhanced** Verify proper database relationships
+   - Check for missing evaluator data in InterviewEvaluation table
+   - Ensure User table contains complete email information
 
 **Diagnostic Tools:**
 - **Frontend**: React Developer Tools, browser network tab
@@ -477,9 +580,11 @@ The Interview Scorecard Component represents a sophisticated integration of fron
 **Key Achievements:**
 - **Seamless Integration**: Works harmoniously with existing transcript and video analysis systems
 - **Professional Presentation**: Produces printable, shareable scorecards with consistent branding
-- **Collaborative Workflow**: Supports multi-user evaluation with proper access controls
+- **Collaborative Workflow**: **Enhanced** Supports multi-user evaluation with comprehensive team visibility
 - **Scalable Architecture**: Designed for horizontal scaling and tenant isolation
 - **Robust Error Handling**: Comprehensive error management and user feedback
+- **Standardized UI**: **Enhanced** Consistent labeling and visual hierarchy across evaluation components
+- **Detailed Attribution**: **Enhanced** Complete evaluator attribution through EvaluatorInfo schema
 
 **Future Enhancement Opportunities:**
 - **Advanced Analytics**: Integration of evaluation trend analysis and competency mapping
@@ -487,5 +592,6 @@ The Interview Scorecard Component represents a sophisticated integration of fron
 - **Integration APIs**: Third-party system integrations for HRIS and ATS compatibility
 - **AI Assistance**: Intelligent evaluation suggestions and pattern recognition
 - **Workflow Automation**: Automated scorecard generation and distribution workflows
+- **Enhanced Collaboration**: Advanced team evaluation features and real-time collaboration tools
 
-The component serves as a cornerstone of the ARIA platform's interview analysis capabilities, providing a solid foundation for advanced recruitment technology solutions.
+The component serves as a cornerstone of the ARIA platform's interview analysis capabilities, providing a solid foundation for advanced recruitment technology solutions with enhanced team collaboration features and comprehensive evaluator attribution.

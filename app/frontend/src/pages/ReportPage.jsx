@@ -448,6 +448,17 @@ export default function ReportPage() {
               if (result.candidate_id) {
                 getCandidateAuditLog(result.candidate_id).then(setAuditLogs).catch(() => {})
               }
+              // Re-fetch full result so updated fit_summary / narrative is reflected
+              const rid = result?.result_id || result?.id
+              if (rid) {
+                getScreeningResult(rid)
+                  .then(data => {
+                    setResult(data)
+                    setCandidateName(resolveName(data))
+                    try { sessionStorage.setItem(`report_${rid}`, JSON.stringify(data)) } catch {}
+                  })
+                  .catch(() => {})
+              }
             }}
           />
           {/* Audit trail: "Last edited" indicator */}

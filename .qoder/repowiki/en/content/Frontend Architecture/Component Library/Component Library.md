@@ -13,6 +13,7 @@
 - [ScoreGauge.jsx](file://app/frontend/src/components/ScoreGauge.jsx)
 - [Timeline.jsx](file://app/frontend/src/components/Timeline.jsx)
 - [SkillsRadar.jsx](file://app/frontend/src/components/SkillsRadar.jsx)
+- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
 - [ComparisonView.jsx](file://app/frontend/src/components/ComparisonView.jsx)
 - [Dashboard.jsx](file://app/frontend/src/pages/Dashboard.jsx)
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
@@ -30,10 +31,10 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive XSS protection documentation through centralized safeStr utility function
-- Documented safeStr implementation across multiple components for universal string conversion and sanitization
-- Updated component documentation to reflect safe string coercion utilities preventing runtime errors
-- Enhanced security considerations for data rendering in all text-display components
+- Updated UI label standardization: Interview Scorecard renamed to Recruiter Scorecard and Interview Kit renamed to Recruiter Screen Kit throughout the component library
+- Enhanced component documentation to reflect standardized terminology
+- Updated component references and usage patterns to use new Recruiter Scorecard terminology
+- Maintained all existing functionality while standardizing user-facing labels
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -51,7 +52,7 @@
 ## Introduction
 This document describes the reusable UI component library used by Resume AI's frontend. It covers layout and navigation wrappers, authentication gating, and specialized analysis visualization components. For each component, we outline purpose, props interface, event handlers, composition patterns, styling customization with TailwindCSS, accessibility considerations, and integration examples. The components are designed for responsiveness, cross-browser compatibility, and maintainable composition across pages.
 
-**Security Enhancement**: All components now implement centralized XSS protection through the safeStr utility function, providing universal string conversion and sanitization across the entire frontend ecosystem.
+**UI Label Standardization**: All components now use standardized terminology with "Recruiter Scorecard" replacing "Interview Scorecard" and "Recruiter Screen Kit" replacing "Interview Kit" throughout the user interface.
 
 ## Project Structure
 The frontend is a React application bootstrapped with Vite and routed via React Router. Components live under src/components, pages under src/pages, shared contexts under src/contexts, and shared hooks under src/hooks. Styling leverages TailwindCSS with a consistent brand palette and backdrop blur effects.
@@ -84,6 +85,7 @@ ResultCard["ResultCard.jsx"]
 ScoreGauge["ScoreGauge.jsx"]
 Timeline["Timeline.jsx"]
 SkillsRadar["SkillsRadar.jsx"]
+InterviewScorecard["InterviewScorecard.jsx"]
 ComparisonView["ComparisonView.jsx"]
 end
 Routes --> AuthProvider
@@ -122,6 +124,7 @@ DashboardNew --> ResultCard
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
 - [Timeline.jsx:3-115](file://app/frontend/src/components/Timeline.jsx#L3-L115)
 - [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
+- [InterviewScorecard.jsx:1-255](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L255)
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 
 **Section sources**
@@ -137,6 +140,7 @@ DashboardNew --> ResultCard
 - ScoreGauge: A circular gauge indicating recommendation fit level with thresholds and pending state.
 - Timeline: Employment history visualization with short-tenure indicators and gap severity. Now includes safe string coercion utilities for robust data rendering.
 - SkillsRadar: A category-based skills visualization with matched/missing counts and a bar chart breakdown.
+- InterviewScorecard: **Updated** Recruiter Scorecard component for comprehensive candidate evaluation with dimension summaries, strengths/concerns display, and overall assessment functionality.
 - ComparisonView: Side-by-side comparison component with scoring weights and results analysis. Includes safe string utilities for consistent data rendering.
 - CandidatesPage: Candidate management interface with detailed candidate information and application history. Implements safe string conversion for all text displays.
 - ComparePage: Multi-candidate comparison interface with historical analysis and scoring comparisons. Utilizes safe string utilities for XSS protection.
@@ -152,6 +156,7 @@ DashboardNew --> ResultCard
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
 - [Timeline.jsx:3-115](file://app/frontend/src/components/Timeline.jsx#L3-L115)
 - [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
+- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [CandidatesPage.jsx:1-200](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L200)
 - [ComparePage.jsx:1-200](file://app/frontend/src/pages/ComparePage.jsx#L1-L200)
@@ -360,7 +365,7 @@ BatchPage --> FailedUploadsSection : "shows failed uploads"
 ### ResultCard
 **Enhanced** The ResultCard component has been significantly expanded with comprehensive new features and adaptive polling logic for optimal user experience during AI analysis generation. Now includes robust safe string coercion utilities for reliable data rendering.
 
-- Purpose: Presents a comprehensive analysis report with recommendation, score breakdown, strengths/weaknesses/risk signals, explainability, education analysis, domain fit, and interview kit. Now includes enhanced features for concerns section, executive summary banners, risk flag displays, seniority alignment indicators, skill depth counts, and adaptive polling optimization. Includes safe string coercion utilities for robust data rendering during SSE streaming.
+- Purpose: Presents a comprehensive analysis report with recommendation, score breakdown, strengths/weaknesses/risk signals, explainability, education analysis, domain fit, and **Updated** Recruiter Screen Kit. Now includes enhanced features for concerns section, executive summary banners, risk flag displays, seniority alignment indicators, skill depth counts, and adaptive polling optimization. Includes safe string coercion utilities for robust data rendering during SSE streaming.
 - Props: result(object) with enhanced keys including fit_summary, concerns, risk_summary, skill_depth, score_rationales, and expanded analysis fields.
 - Enhanced Features:
   - **Adaptive Polling Logic**: Implements a two-tier polling approach with rapid polling for initial cloud model completion and slower polling for local model processing
@@ -372,6 +377,7 @@ BatchPage --> FailedUploadsSection : "shows failed uploads"
   - **Enhanced Explainability**: Improved explainability sections with fallback to score rationales
   - **Expanded Analysis Quality**: Enhanced analysis source badges with quality indicators
   - **Safe String Coercion**: Robust string conversion utilities prevent runtime errors from null/undefined/non-string values
+  - **Recruiter Screen Kit**: **Updated** Comprehensive interview preparation toolkit with technical, behavioral, culture fit, and experience deep-dive questions
 - Safe String Coercion Utilities:
   - Converts null/undefined to empty strings
   - Converts numbers and booleans to strings
@@ -386,12 +392,20 @@ BatchPage --> FailedUploadsSection : "shows failed uploads"
 - Accessibility: Expandable/collapsible sections with chevrons; copy buttons with tooltips; readable typography hierarchy; comprehensive color-coded risk indicators.
 - Styling: Card-based layout with brand accents, colored badges, subtle shadows, and enhanced visual hierarchy for improved readability.
 
+**Updated** Recruiter Screen Kit Integration:
+- **Recruiter Screen Kit Section**: Dedicated collapsible section with clipboard icon and "Recruiter Screen Kit" label
+- **Question Categories**: Technical, Behavioral, Culture Fit, and Experience Deep-Dive questions
+- **Candidate Briefing**: Contextual information for interviewers
+- **Export Functionality**: PDF export capability for sharing with hiring managers
+- **Evaluation Integration**: Seamless integration with InterviewScorecard for comprehensive candidate assessment
+
 ```mermaid
 classDiagram
 class ResultCard {
 +props result
 +defaultExpandEducation boolean
 +enhancedFeatures concerns, executiveSummary, riskFlags, seniorityAlignment, skillDepth
++recruiterScreenKit integrated
 +narrativePolling adaptive, two-tier
 +safeStringCoercion utilities
 }
@@ -415,6 +429,14 @@ class SafeStringUtilities {
 +jsonSerializationFallback
 +preventRuntimeErrors
 }
+class RecruiterScreenKit {
++technicalQuestions
++behavioralQuestions
++cultureFitQuestions
++experienceDeepDiveQuestions
++candidateBriefing
++exportPDF
+}
 ResultCard --> SkillsRadar : "renders"
 ResultCard --> ScoreBar : "uses"
 ResultCard --> RiskBadge : "uses"
@@ -425,6 +447,7 @@ ResultCard --> AnalysisSourceBadge : "renders"
 ResultCard --> PendingBanner : "shows"
 ResultCard --> AdaptivePolling : "implements"
 ResultCard --> SafeStringUtilities : "uses"
+ResultCard --> RecruiterScreenKit : "integrates"
 ```
 
 **Diagram sources**
@@ -437,6 +460,7 @@ ResultCard --> SafeStringUtilities : "uses"
 - [ResultCard.jsx:94-194](file://app/frontend/src/components/ResultCard.jsx#L94-L194)
 - [ResultCard.jsx:198-247](file://app/frontend/src/components/ResultCard.jsx#L198-L247)
 - [ResultCard.jsx:251-261](file://app/frontend/src/components/ResultCard.jsx#L251-L261)
+- [ResultCard.jsx:1350-1379](file://app/frontend/src/components/ResultCard.jsx#L1350-L1379)
 
 **Section sources**
 - [ResultCard.jsx:265-705](file://app/frontend/src/components/ResultCard.jsx#L265-L705)
@@ -447,6 +471,7 @@ ResultCard --> SafeStringUtilities : "uses"
 - [ResultCard.jsx:94-194](file://app/frontend/src/components/ResultCard.jsx#L94-L194)
 - [ResultCard.jsx:198-247](file://app/frontend/src/components/ResultCard.jsx#L198-L247)
 - [ResultCard.jsx:251-261](file://app/frontend/src/components/ResultCard.jsx#L251-L261)
+- [ResultCard.jsx:1350-1379](file://app/frontend/src/components/ResultCard.jsx#L1350-L1379)
 - [ResultCard.test.jsx:14-133](file://app/frontend/src/__tests__/ResultCard.test.jsx#L14-L133)
 
 ### ScoreGauge
@@ -491,6 +516,64 @@ ResultCard --> SafeStringUtilities : "uses"
 
 **Section sources**
 - [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
+
+### InterviewScorecard
+**Updated** The InterviewScorecard component has been renamed to Recruiter Scorecard and now provides comprehensive candidate evaluation functionality.
+
+- Purpose: **Updated** Recruiter Scorecard for comprehensive candidate evaluation with dimension summaries, strengths/concerns display, and overall assessment functionality.
+- Props: resultId(number) - unique identifier for the screening result.
+- Enhanced Features:
+  - **Dimension Summaries**: Technical, Behavioral, Culture Fit, and Experience Deep-Dive question categories with evaluation metrics
+  - **Strengths & Concerns**: Dedicated sections for confirmed strengths and identified concerns
+  - **Overall Assessment**: Editable textarea for recruiter's comprehensive evaluation
+  - **Recommendation System**: Dropdown selection for advance/hold/reject recommendations
+  - **Team Evaluations**: Display of evaluator ratings and notes for transparency
+  - **PDF Export**: One-click export functionality for sharing with hiring managers
+  - **Safe String Coercion**: Robust data rendering with XSS protection
+- Composition: Uses dimension cards, evaluation summaries, and assessment forms with comprehensive data binding.
+- Accessibility: Clear form controls with proper labeling; editable text areas with focus management; accessible export button.
+- Styling: Card-based layout with dimension-specific styling, gradient headers for strengths, and red-themed sections for concerns.
+
+**Updated** Terminology Standardization:
+- Component name remains "InterviewScorecard.jsx" but displays "Recruiter Scorecard" in UI
+- All user-facing labels now use "Recruiter Scorecard" terminology
+- Consistent with backend API and database models
+
+```mermaid
+classDiagram
+class InterviewScorecard {
++props resultId
++state scorecard, loading, error, overall, recommendation
++dimensionSummaries technical, behavioral, cultureFit, experienceDeepDive
++strengthsConcernsSections
++overallAssessmentEditable
++recommendationDropdown
++teamEvaluationsDisplay
++pdfExportFunctionality
++safeStringCoercion
+}
+class DimensionCard {
++props dimension, label, icon
++evaluatedCount
++ratingCounts
++keyNotesDisplay
++evaluatorRatings
+}
+class RecruiterScorecardAPI {
++getScorecard(resultId)
++saveOverallAssessment(resultId, data)
+}
+InterviewScorecard --> DimensionCard : "renders"
+InterviewScorecard --> RecruiterScorecardAPI : "uses"
+```
+
+**Diagram sources**
+- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
+- [InterviewScorecard.jsx:20-85](file://app/frontend/src/components/InterviewScorecard.jsx#L20-L85)
+
+**Section sources**
+- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
+- [InterviewScorecard.jsx:20-85](file://app/frontend/src/components/InterviewScorecard.jsx#L20-L85)
 
 ### ComparisonView
 **Enhanced** The ComparisonView component now includes comprehensive safe string coercion utilities for secure data rendering across all comparison displays.
@@ -588,6 +671,12 @@ All text-rendering components now utilize safeStr for XSS protection:
 - Category names and skill labels
 - Chart data and tooltips
 
+**InterviewScorecard.jsx** (Lines 6-12, 160-161, 174, 247-248):
+- Candidate names and role titles
+- Dimension labels and ratings
+- Overall assessment text
+- Evaluator information
+
 **ComparisonView.jsx** (Lines 3-9, 114-115, 139-140, 177-178, 213-214):
 - Version recommendations
 - Weight reasoning text
@@ -646,6 +735,10 @@ Components consistently apply safeStr in rendering contexts:
 - [Timeline.jsx:57-62](file://app/frontend/src/components/Timeline.jsx#L57-L62)
 - [Timeline.jsx:81-88](file://app/frontend/src/components/Timeline.jsx#L81-L88)
 - [SkillsRadar.jsx:3-9](file://app/frontend/src/components/SkillsRadar.jsx#L3-L9)
+- [InterviewScorecard.jsx:6-12](file://app/frontend/src/components/InterviewScorecard.jsx#L6-12)
+- [InterviewScorecard.jsx:160-161](file://app/frontend/src/components/InterviewScorecard.jsx#L160-L161)
+- [InterviewScorecard.jsx:174](file://app/frontend/src/components/InterviewScorecard.jsx#L174)
+- [InterviewScorecard.jsx:247-248](file://app/frontend/src/components/InterviewScorecard.jsx#L247-L248)
 - [ComparisonView.jsx:3-9](file://app/frontend/src/components/ComparisonView.jsx#L3-L9)
 - [ComparisonView.jsx:114-115](file://app/frontend/src/components/ComparisonView.jsx#L114-L115)
 - [ComparisonView.jsx:139-140](file://app/frontend/src/components/ComparisonView.jsx#L139-L140)
@@ -665,6 +758,7 @@ Components consistently apply safeStr in rendering contexts:
 - BatchPage provides batch processing capabilities with enhanced error reporting and integrates with UploadForm for file selection.
 - ReportPage renders ResultCard with enhanced features for comprehensive analysis display and includes safe string coercion utilities.
 - ResultCard composes SkillsRadar and Timeline for visualization with robust data rendering.
+- InterviewScorecard provides comprehensive candidate evaluation with dimension summaries and overall assessment functionality.
 - AuthContext supplies authentication state to NavBar and ProtectedRoute.
 - Backend API provides adaptive polling endpoints for LLM narrative generation.
 - All components utilize safe string coercion utilities for reliable data rendering during SSE streaming and XSS protection.
@@ -694,11 +788,13 @@ Dash --> Time["Timeline.jsx"]
 Report --> Time
 Report --> Gauge["ScoreGauge.jsx"]
 Result --> Polling["Adaptive Polling API"]
-Time --> SafeStr["Safe String Utilities"]
+Result --> RecruiterKit["Recruiter Screen Kit"]
+Result --> SafeStr["Safe String Utilities"]
+Time --> SafeStr
 Report --> SafeStr
 Candidates --> SafeStr
 Compare --> SafeStr
-DashboardNew --> SafeStr
+InterviewScorecard --> SafeStr
 ```
 
 **Diagram sources**
@@ -719,6 +815,7 @@ DashboardNew --> SafeStr
 - [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
 - [Timeline.jsx:3-115](file://app/frontend/src/components/Timeline.jsx#L3-L115)
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
+- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
 - [api.js:413-416](file://app/frontend/src/lib/api.js#L413-L416)
 
 **Section sources**
@@ -737,6 +834,7 @@ DashboardNew --> SafeStr
 - **Enhanced Batch Processing**: Optimized chunked upload handling for large batch operations with progress tracking.
 - **Safe String Coercion Performance**: Efficient string conversion utilities prevent unnecessary re-renders and runtime errors.
 - **Centralized Security**: Single safeStr utility reduces code duplication and improves maintainability across components.
+- **UI Label Standardization**: Consistent terminology improves user experience and reduces confusion across the application.
 
 ## Troubleshooting Guide
 - Authentication not persisting:
@@ -775,6 +873,10 @@ DashboardNew --> SafeStr
   - **Injection attacks**: Verify that all dynamic content uses safeStr for XSS protection.
   - **Data type errors**: Check that safeStr handles unexpected data types gracefully.
   - **Memory leaks**: Ensure safeStr usage doesn't create unnecessary string conversions in performance-critical paths.
+- **UI Label Standardization Issues**:
+  - **Terminology inconsistencies**: Verify all components use "Recruiter Scorecard" and "Recruiter Screen Kit" terminology.
+  - **Component naming conflicts**: Ensure InterviewScorecard component continues to function with updated UI labels.
+  - **Backend API alignment**: Confirm backend endpoints and database models support the new terminology.
 
 **Section sources**
 - [AuthContext.jsx:11-27](file://app/frontend/src/contexts/AuthContext.jsx#L11-L27)
@@ -790,7 +892,7 @@ DashboardNew --> SafeStr
 - [Timeline.jsx:96-114](file://app/frontend/src/components/Timeline.jsx#L96-L114)
 
 ## Conclusion
-The component library emphasizes composability, accessibility, and responsive design. Layout and navigation are centralized via AppShell and NavBar, while ProtectedRoute ensures secure access. UploadForm and ResultCard integrate tightly with page-level state to deliver a seamless analysis workflow. The enhanced UploadForm now provides comprehensive file format support including .txt, .rtf, and .odt documents with improved validation and user feedback. BatchPage offers advanced batch processing capabilities with detailed error reporting for failed uploads. The enhanced ResultCard now provides comprehensive candidate evaluation with executive summaries, risk assessments, and detailed skill analysis. The adaptive polling system optimizes user experience during AI analysis generation with intelligent two-tier polling logic. Visualization components (ScoreGauge, Timeline, SkillsRadar) provide actionable insights with clear thresholds and category breakdowns. **The implementation of centralized safeStr utility functions across all components ensures robust XSS protection and prevents runtime errors from malformed or incomplete data, creating a secure and reliable user experience throughout the application.**
+The component library emphasizes composability, accessibility, and responsive design. Layout and navigation are centralized via AppShell and NavBar, while ProtectedRoute ensures secure access. UploadForm and ResultCard integrate tightly with page-level state to deliver a seamless analysis workflow. The enhanced UploadForm now provides comprehensive file format support including .txt, .rtf, and .odt documents with improved validation and user feedback. BatchPage offers advanced batch processing capabilities with detailed error reporting for failed uploads. The enhanced ResultCard now provides comprehensive candidate evaluation with executive summaries, risk assessments, and detailed skill analysis. The adaptive polling system optimizes user experience during AI analysis generation with intelligent two-tier polling logic. Visualization components (ScoreGauge, Timeline, SkillsRadar) provide actionable insights with clear thresholds and category breakdowns. **The implementation of centralized safeStr utility functions across all components ensures robust XSS protection and prevents runtime errors from malformed or incomplete data, creating a secure and reliable user experience throughout the application.** **UI label standardization has been successfully implemented with "Recruiter Scorecard" replacing "Interview Scorecard" and "Recruiter Screen Kit" replacing "Interview Kit" throughout the user interface, providing consistent terminology across all components.**
 
 ## Appendices
 
@@ -802,6 +904,7 @@ The component library emphasizes composability, accessibility, and responsive de
 - **Enhanced Batch Processing**: BatchPage orchestrates UploadForm for file selection, processes multiple files with chunked upload, and displays results with comprehensive error reporting.
 - **Safe String Coercion Pattern**: All text-rendering components now utilize safe string coercion utilities to prevent runtime errors during data streaming and XSS protection.
 - **Centralized Security Pattern**: Single safeStr utility provides consistent XSS protection across all components without code duplication.
+- **UI Label Standardization Pattern**: All user-facing components now use consistent "Recruiter Scorecard" and "Recruiter Screen Kit" terminology.
 
 **Section sources**
 - [App.jsx:29-37](file://app/frontend/src/App.jsx#L29-L37)
@@ -820,6 +923,7 @@ The component library emphasizes composability, accessibility, and responsive de
 - ScoreGauge and Timeline handle null/undefined inputs and render safe defaults.
 - **Safe String Coercion Error Handling**: Prevents runtime errors from null/undefined/non-string values across all text-rendering components.
 - **XSS Protection Error Handling**: Centralized safeStr function prevents injection attacks and ensures secure data rendering.
+- **UI Label Standardization Error Handling**: Consistent terminology prevents user confusion and ensures proper component identification.
 
 **Section sources**
 - [UploadForm.jsx:190-194](file://app/frontend/src/components/UploadForm.jsx#L190-L194)
@@ -843,6 +947,7 @@ The component library emphasizes composability, accessibility, and responsive de
 - **Adaptive Polling Accessibility**: Optimized polling intervals reduce user frustration during long waits.
 - **Safe String Coercion Accessibility**: Prevents runtime errors that could disrupt screen reader navigation and accessibility features.
 - **Centralized Security Accessibility**: Safe string utilities ensure consistent data rendering without accessibility barriers.
+- **UI Label Standardization Accessibility**: Consistent terminology improves screen reader comprehension and user experience.
 
 **Section sources**
 - [NavBar.jsx:67-111](file://app/frontend/src/components/NavBar.jsx#L67-L111)
@@ -862,6 +967,7 @@ The component library emphasizes composability, accessibility, and responsive de
 - **Adaptive Polling Visual Feedback**: Loading indicators and status badges provide clear user feedback during polling.
 - **Safe String Coercion Styling**: Consistent fallback styling ensures text elements always render properly regardless of data type.
 - **Centralized Security Styling**: Safe string utilities enable consistent styling across all components without security concerns.
+- **UI Label Standardization Styling**: Consistent terminology improves visual consistency and user recognition across the interface.
 
 **Section sources**
 - [AppShell.jsx:5](file://app/frontend/src/components/AppShell.jsx#L5)
@@ -884,6 +990,7 @@ The component library emphasizes composability, accessibility, and responsive de
 - **Enhanced Batch State**: BatchPage manages upload progress, overall progress, and failed uploads state.
 - **Safe String Coercion State**: Components maintain consistent data rendering state across all text-display elements.
 - **Centralized Security State**: Safe string utilities ensure consistent XSS protection without additional state management.
+- **UI Label Standardization State**: Components maintain consistent terminology state across all user-facing labels.
 
 **Section sources**
 - [Dashboard.jsx:209-214](file://app/frontend/src/pages/Dashboard.jsx#L209-L214)
@@ -907,6 +1014,7 @@ The enhanced ResultCard includes comprehensive testing for new features:
 - **Batch Processing Testing**: Testing for failed uploads section and error reporting
 - **Safe String Coercion Testing**: Comprehensive testing for null/undefined value handling and XSS protection
 - **Centralized Security Testing**: Testing for safeStr utility function across all components
+- **UI Label Standardization Testing**: Testing for consistent "Recruiter Scorecard" and "Recruiter Screen Kit" terminology
 
 **Section sources**
 - [ResultCard.test.jsx:50-133](file://app/frontend/src/__tests__/ResultCard.test.jsx#L50-L133)
@@ -1008,6 +1116,7 @@ The BatchPage component provides comprehensive error reporting for failed upload
 - **ResultCard**: Extensively used for recommendation text, executive summaries, skill lists, risk flags, and explainability sections
 - **Timeline**: Used for job titles, company names, gap durations, and severity indicators
 - **SkillsRadar**: Used for category names and chart data
+- **InterviewScorecard**: Used for candidate names, role titles, dimension labels, and assessment text
 - **ComparisonView**: Used for version recommendations and weight reasoning
 - **CandidatesPage**: Used for candidate names, emails, and application details
 - **ComparePage**: Used for candidate names and analysis results
@@ -1024,10 +1133,44 @@ The BatchPage component provides comprehensive error reporting for failed upload
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
 - [Timeline.jsx:3-9](file://app/frontend/src/components/Timeline.jsx#L3-L9)
 - [SkillsRadar.jsx:3-9](file://app/frontend/src/components/SkillsRadar.jsx#L3-L9)
+- [InterviewScorecard.jsx:6-12](file://app/frontend/src/components/InterviewScorecard.jsx#L6-L12)
+- [InterviewScorecard.jsx:160-161](file://app/frontend/src/components/InterviewScorecard.jsx#L160-L161)
+- [InterviewScorecard.jsx:174](file://app/frontend/src/components/InterviewScorecard.jsx#L174)
+- [InterviewScorecard.jsx:247-248](file://app/frontend/src/components/InterviewScorecard.jsx#L247-L248)
 - [ComparisonView.jsx:3-9](file://app/frontend/src/components/ComparisonView.jsx#L3-L9)
 - [CandidatesPage.jsx:6-12](file://app/frontend/src/pages/CandidatesPage.jsx#L6-L12)
 - [ComparePage.jsx:6-12](file://app/frontend/src/pages/ComparePage.jsx#L6-L12)
 - [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
+
+### UI Label Standardization Implementation
+**New** The component library has been updated with comprehensive UI label standardization to improve user experience and consistency.
+
+**Standardization Changes**:
+- **Interview Scorecard** → **Recruiter Scorecard** throughout all user-facing components
+- **Interview Kit** → **Recruiter Screen Kit** throughout all user-facing components
+- **Stage 3 Label**: Updated from "Scoring & Interview Kit" to "Scoring & Recruiter Screen Kit"
+- **Component Naming**: InterviewScorecard component continues to function while displaying "Recruiter Scorecard" in UI
+- **Backend Alignment**: Database models and API endpoints support the new terminology
+
+**Implementation Details**:
+- **ResultCard.jsx**: Line 1358 displays "Recruiter Screen Kit" in the collapsible section header
+- **ReportPage.jsx**: Line 797 displays "Recruiter Scorecard" in the section title
+- **Dashboard.jsx**: Line 46 updates stage label to "Stage 3 — Scoring & Recruiter Screen Kit"
+- **InterviewScorecard.jsx**: Component continues to function with "Recruiter Scorecard" UI label
+- **Safe String Coercion**: All components utilize safeStr for XSS protection with standardized labels
+
+**Benefits**:
+- **Consistent Terminology**: Users receive consistent messaging across all components
+- **Professional Branding**: "Recruiter Scorecard" and "Recruiter Screen Kit" provide clearer professional context
+- **Reduced Confusion**: Eliminates ambiguity between different types of scorecards and kits
+- **Maintained Functionality**: All underlying functionality remains unchanged while improving user experience
+- **Centralized Management**: Single safeStr utility ensures consistent XSS protection across all standardized labels
+
+**Section sources**
+- [ResultCard.jsx:1358](file://app/frontend/src/components/ResultCard.jsx#L1358)
+- [ReportPage.jsx:797](file://app/frontend/src/pages/ReportPage.jsx#L797)
+- [Dashboard.jsx:46](file://app/frontend/src/pages/Dashboard.jsx#L46)
+- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
 
 ### Batch Processing Error Reporting
 The BatchPage component provides comprehensive error reporting for failed uploads:

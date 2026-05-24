@@ -513,6 +513,70 @@ def update_candidate_name(
     )
     candidate.name = body.name
     candidate.profile_updated_at = datetime.utcnow()
+
+    # Propagate name change into screening_result analysis_result & narrative_json
+    if old_name and old_name != body.name:
+        results = db.query(ScreeningResult).filter(
+            ScreeningResult.candidate_id == candidate_id
+        ).all()
+        for sr in results:
+            # --- analysis_result ---
+            if sr.analysis_result:
+                try:
+                    analysis = json.loads(sr.analysis_result) if isinstance(sr.analysis_result, str) else sr.analysis_result
+                except (json.JSONDecodeError, TypeError):
+                    analysis = sr.analysis_result if isinstance(sr.analysis_result, dict) else {}
+
+                if isinstance(analysis, dict):
+                    # Detect old name from the analysis itself
+                    detected_old = (
+                        analysis.get("candidate_name")
+                        or (analysis.get("contact_info") or {}).get("name")
+                        or old_name
+                    )
+                    # Replace in fit_summary
+                    fit_summary = analysis.get("fit_summary", "")
+                    if fit_summary and detected_old in fit_summary:
+                        analysis["fit_summary"] = fit_summary.replace(detected_old, body.name)
+                    # Replace in candidate_profile_summary
+                    profile_summary = analysis.get("candidate_profile_summary", "")
+                    if profile_summary and detected_old in profile_summary:
+                        analysis["candidate_profile_summary"] = profile_summary.replace(detected_old, body.name)
+                    # Update name fields
+                    analysis["candidate_name"] = body.name
+                    contact = analysis.get("contact_info")
+                    if isinstance(contact, dict):
+                        contact["name"] = body.name
+
+                    sr.analysis_result = json.dumps(analysis) if isinstance(sr.analysis_result, str) else analysis
+
+            # --- narrative_json ---
+            if sr.narrative_json:
+                try:
+                    narrative = json.loads(sr.narrative_json) if isinstance(sr.narrative_json, str) else sr.narrative_json
+                except (json.JSONDecodeError, TypeError):
+                    narrative = sr.narrative_json if isinstance(sr.narrative_json, dict) else {}
+
+                if isinstance(narrative, dict):
+                    detected_old_narr = (
+                        narrative.get("candidate_name")
+                        or (narrative.get("contact_info") or {}).get("name")
+                        or old_name
+                    )
+                    narr_summary = narrative.get("fit_summary", "")
+                    if narr_summary and detected_old_narr in narr_summary:
+                        narrative["fit_summary"] = narr_summary.replace(detected_old_narr, body.name)
+                    narr_profile = narrative.get("candidate_profile_summary", "")
+                    if narr_profile and detected_old_narr in narr_profile:
+                        narrative["candidate_profile_summary"] = narr_profile.replace(detected_old_narr, body.name)
+                    if "candidate_name" in narrative:
+                        narrative["candidate_name"] = body.name
+                    narr_contact = narrative.get("contact_info")
+                    if isinstance(narr_contact, dict):
+                        narr_contact["name"] = body.name
+
+                    sr.narrative_json = json.dumps(narrative) if isinstance(sr.narrative_json, str) else narrative
+
     db.commit()
     db.refresh(candidate)
     return {"id": candidate.id, "name": candidate.name}
