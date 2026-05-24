@@ -194,6 +194,56 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def _upsert_screening_result(
+    db: Session,
+    tenant_id: int,
+    candidate_id: int,
+    role_template_id: int | None,
+    resume_text: str,
+    jd_text: str,
+    parsed_data: str,
+    analysis_result: str,
+    narrative_status: str | None = None,
+) -> ScreeningResult:
+    """Insert or update a ScreeningResult, respecting the unique constraint."""
+    existing = db.query(ScreeningResult).filter(
+        ScreeningResult.tenant_id == tenant_id,
+        ScreeningResult.candidate_id == candidate_id,
+        ScreeningResult.role_template_id == role_template_id,
+    ).first()
+
+    if existing:
+        existing.resume_text = resume_text
+        existing.jd_text = jd_text
+        existing.parsed_data = parsed_data
+        existing.analysis_result = analysis_result
+        existing.is_active = True
+        existing.version_number = (existing.version_number or 1) + 1
+        existing.status_updated_at = datetime.utcnow()
+        if narrative_status is not None:
+            existing.narrative_status = narrative_status
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    new_result = ScreeningResult(
+        tenant_id=tenant_id,
+        candidate_id=candidate_id,
+        role_template_id=role_template_id,
+        resume_text=resume_text,
+        jd_text=jd_text,
+        parsed_data=parsed_data,
+        analysis_result=analysis_result,
+    )
+    if narrative_status is not None:
+        new_result.narrative_status = narrative_status
+
+    db.add(new_result)
+    db.commit()
+    db.refresh(new_result)
+    return new_result
+
+
 def _apply_skill_overrides(jd_analysis: dict, overrides: dict | None) -> dict:
     """Apply user-specified skill overrides to jd_analysis in-place.
 
@@ -1429,19 +1479,17 @@ async def analyze_endpoint(
                 db, current_user.tenant_id, jd_analysis, team_id=team_id,
             )
 
-            # Create result record first for background LLM
-            db_result = ScreeningResult(
+            # Create or update result record for background LLM
+            db_result = _upsert_screening_result(
+                db,
                 tenant_id=current_user.tenant_id,
                 candidate_id=existing.id,
+                role_template_id=template_id,
                 resume_text=existing.raw_resume_text,
                 jd_text=job_description,
                 parsed_data=json.dumps(parsed_data, default=_json_default),
-                analysis_result="{}",  # Placeholder
-                role_template_id=template_id,
+                analysis_result="{}",
             )
-            db.add(db_result)
-            db.commit()
-            db.refresh(db_result)
 
             result = await run_hybrid_pipeline(
                 resume_text=existing.raw_resume_text,
@@ -1514,18 +1562,16 @@ async def analyze_endpoint(
         converted_pdf_content=pdf_bytes,
     )
 
-    db_result = ScreeningResult(
+    db_result = _upsert_screening_result(
+        db,
         tenant_id=current_user.tenant_id,
         candidate_id=candidate_id,
+        role_template_id=template_id,
         resume_text=parsed_data.get("raw_text", ""),
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
-        analysis_result="{}",  # Placeholder — will be updated
-        role_template_id=template_id,
+        analysis_result="{}",
     )
-    db.add(db_result)
-    db.commit()
-    db.refresh(db_result)
 
     # Run pipeline with background LLM
     result = await run_hybrid_pipeline(
@@ -1787,19 +1833,16 @@ async def analyze_stream_endpoint(
         converted_pdf_content=pdf_bytes,
     )
     
-    # Create placeholder result to get the ID
-    db_result = ScreeningResult(
+    db_result = _upsert_screening_result(
+        db,
         tenant_id=tenant_id,
         candidate_id=candidate_id,
+        role_template_id=template_id,
         resume_text=parsed_data.get("raw_text", ""),
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
-        analysis_result="{}",  # Placeholder — will be updated
-        role_template_id=template_id,
+        analysis_result="{}",
     )
-    db.add(db_result)
-    db.commit()
-    db.refresh(db_result)
     screening_result_id = db_result.id
 
     # Cancellation token: set when client disconnects so pipeline can break early
@@ -2211,19 +2254,17 @@ async def batch_analyze_chunked_endpoint(
                 filename=filename,
             )
 
-            db_result = ScreeningResult(
+            db_result = _upsert_screening_result(
+                db,
                 tenant_id=current_user.tenant_id,
                 candidate_id=candidate_id,
+                role_template_id=template_id,
                 resume_text=parsed_data.get("raw_text", ""),
                 jd_text=job_description,
                 parsed_data=json.dumps(parsed_data),
                 analysis_result=json.dumps(raw),
-                role_template_id=template_id,
                 narrative_status="pending",
             )
-            db.add(db_result)
-            db.flush()
-            db.commit()
             raw["result_id"] = db_result.id
 
             # Spawn background LLM narrative generation
@@ -2582,19 +2623,17 @@ async def batch_analyze_stream_endpoint(
                         filename=filename,
                     )
 
-                db_result = ScreeningResult(
+                db_result = _upsert_screening_result(
+                    save_db,
                     tenant_id=tenant_id,
                     candidate_id=candidate_id,
+                    role_template_id=_template_id,
                     resume_text=parsed_data.get("raw_text", ""),
                     jd_text=job_description,
                     parsed_data=json.dumps(parsed_data, default=_json_default),
                     analysis_result=json.dumps(raw, default=_json_default),
-                    role_template_id=_template_id,
                     narrative_status="pending",
                 )
-                save_db.add(db_result)
-                save_db.commit()
-                save_db.refresh(db_result)
 
                 screening_result_id = db_result.id
 
@@ -2839,18 +2878,17 @@ async def batch_analyze_endpoint(
             converted_pdf_content=pdf_bytes,
         )
 
-        db_result = ScreeningResult(
+        db_result = _upsert_screening_result(
+            db,
             tenant_id=current_user.tenant_id,
             candidate_id=candidate_id,
+            role_template_id=template_id,
             resume_text=parsed_data.get("raw_text", ""),
             jd_text=job_description,
             parsed_data=json.dumps(parsed_data),
             analysis_result=json.dumps(raw),
-            role_template_id=template_id,
             narrative_status="pending",
         )
-        db.add(db_result)
-        db.flush()
         raw["result_id"] = db_result.id
 
         # Spawn background LLM narrative generation

@@ -33,6 +33,7 @@
 - [useOptimisticUpdate.js](file://app/frontend/src/hooks/useOptimisticUpdate.js)
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 - [002_parser_snapshot_json.py](file://alembic/versions/002_parser_snapshot_json.py)
+- [004_narrative_json.py](file://alembic/versions/004_narrative_json.py)
 - [008_analysis_queue_system.py](file://alembic/versions/008_analysis_queue_system.py)
 - [009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
 - [015_add_resume_file_storage.py](file://alembic/versions/015_add_resume_file_storage.py)
@@ -46,12 +47,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced candidate profile pages with comprehensive candidate profile management, activity timeline, and status management
-- Implemented collaborative note-taking system with user avatars, timestamps, and moderation controls
-- Added comparison matrix with sortable candidate comparison metrics and team gap analysis
-- Integrated audit trail system with comprehensive field-level change tracking and compliance framework support
-- Enhanced candidate CRUD operations with optimistic UI updates, real-time status management, and timeline visualization
-- Implemented hiring decision tracking with confidence scoring and action item management
+- Enhanced candidate name propagation system with comprehensive automatic name updates across ScreeningResult records
+- Added robust error handling for JSON parsing and field updates in analysis_result and narrative_json
+- Implemented comprehensive name change propagation to both analysis_result and narrative_json fields
+- Enhanced field-level merge strategy with priority-based name resolution ensuring recruiter-edited values take precedence
+- Added comprehensive audit trail integration for name change operations with field-level change tracking
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -68,7 +68,7 @@
 ## Introduction
 This document describes the enhanced candidate management system for Resume AI by ThetaLogics. The system now features comprehensive candidate profile pages with activity timelines, collaborative note-taking capabilities, comparison matrices, and enhanced CRUD operations with optimistic UI updates. It covers how candidate profiles are stored, how resumes are parsed and analyzed, how deduplication works across resumes and analysis results, and how search, filtering, history, and analysis results are managed. The system includes advanced audit trail capabilities, field-level change tracking, and comprehensive collaboration features for team-based candidate evaluation workflows.
 
-**Updated** Enhanced with comprehensive candidate profile management featuring activity timelines, collaborative note-taking with user avatars and moderation, comparison matrices with sortable metrics, audit trail integration with field-level change tracking, and optimistic UI updates for real-time status management.
+**Updated** Enhanced with comprehensive name propagation mechanisms that automatically update candidate names across all related ScreeningResult records, including analysis_result and narrative_json field updates with robust error handling.
 
 ## Project Structure
 The enhanced candidate management system spans models, services, routes, and frontend components:
@@ -175,6 +175,7 @@ RAUD --> FAL
 - **Updated**: Comparison matrix with sortable candidate metrics and team gap analysis
 - **Updated**: Audit trail system with field-level change tracking and compliance framework support
 - **Updated**: Optimistic UI updates for real-time status management and enhanced user experience
+- **Updated**: Enhanced name propagation system that automatically updates candidate names across all related ScreeningResult records with robust error handling
 
 **Section sources**
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
@@ -240,6 +241,44 @@ Route-->>Client : analysis_result + candidate_id/result_id
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
 
 ## Detailed Component Analysis
+
+### Enhanced Candidate Name Propagation System with Automatic Cross-Record Updates
+**New Feature**: Comprehensive name propagation system that automatically updates candidate names across all related ScreeningResult records with robust error handling.
+
+- **Automatic Propagation**: When a candidate name is updated, the system automatically propagates the change to all related ScreeningResult records
+- **Dual Field Updates**: Updates both analysis_result and narrative_json fields to ensure consistency across all stored data
+- **Robust Error Handling**: Implements comprehensive JSON parsing error handling with fallback mechanisms for malformed data
+- **Priority-Based Detection**: Detects old name from analysis_result, contact_info, or falls back to previous candidate name
+- **Field-Level Updates**: Updates candidate_name, contact_info.name, fit_summary, and candidate_profile_summary fields
+- **Audit Trail Integration**: Logs all name change operations with field-level change tracking
+- **Tenant Isolation**: Ensures name propagation respects tenant boundaries for data privacy
+
+```mermaid
+flowchart TD
+StartNameUpdate["PUT /api/candidates/{candidate_id}/name"] --> ValidateCandidate["Validate candidate exists and belongs to tenant"]
+ValidateCandidate --> LogAudit["Log field change audit"]
+LogAudit --> UpdateCandidate["Update candidate.name"]
+UpdateCandidate --> CheckNameChange{"old_name != new_name?"}
+CheckNameChange --> |Yes| QueryResults["Query all ScreeningResult records for candidate"]
+CheckNameChange --> |No| CommitUpdate["Commit and refresh candidate"]
+QueryResults --> LoopResults["For each ScreeningResult"]
+LoopResults --> ParseAnalysis["Parse analysis_result JSON with error handling"]
+ParseAnalysis --> UpdateAnalysis["Update analysis fields and name references"]
+UpdateAnalysis --> ParseNarrative["Parse narrative_json JSON with error handling"]
+ParseNarrative --> UpdateNarrative["Update narrative fields and name references"]
+UpdateNarrative --> NextResult{"More results?"}
+NextResult --> |Yes| LoopResults
+NextResult --> |No| CommitAll["Commit all changes and refresh candidate"]
+CommitAll --> ReturnResponse["Return updated candidate data"]
+```
+
+**Diagram sources**
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
+- [candidates.py:517-582](file://app/backend/routes/candidates.py#L517-L582)
+
+**Section sources**
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
+- [candidates.py:517-582](file://app/backend/routes/candidates.py#L517-L582)
 
 ### Enhanced Candidate Profile Pages with Activity Timeline and Status Management
 **New Feature**: Comprehensive candidate profile management system featuring activity timelines, status management, and collaborative features.
@@ -1217,8 +1256,31 @@ Export-->>Client : CSV stream with unified structure
 - [adverse_action_service.py:71-102](file://app/backend/services/adverse_action_service.py#L71-L102)
 - [test_audit_service.py:1-124](file://app/backend/tests/test_audit_service.py#L1-L124)
 
+### Enhanced Name Propagation System Implementation Details
+**New Feature**: Comprehensive name propagation system that automatically updates candidate names across all related ScreeningResult records with robust error handling.
+
+- **Automatic Detection**: System detects when a candidate name has changed and triggers propagation
+- **Dual Field Processing**: Updates both analysis_result and narrative_json fields for complete consistency
+- **Error Handling**: Implements comprehensive JSON parsing error handling with fallback mechanisms
+- **Field Detection**: Detects old name from analysis_result.candidate_name, contact_info.name, or falls back to previous candidate name
+- **Field Updates**: Updates candidate_name, contact_info.name, fit_summary, and candidate_profile_summary fields
+- **Audit Trail**: Logs all name change operations with field-level change tracking
+- **Tenant Isolation**: Ensures name propagation respects tenant boundaries
+
+**Processing Logic**:
+- Parses analysis_result JSON with error handling for malformed data
+- Detects old name from multiple sources with priority-based resolution
+- Replaces old name references in fit_summary and candidate_profile_summary
+- Updates candidate_name and contact_info.name fields
+- Processes narrative_json similarly with separate error handling
+- Commits all changes atomically
+
+**Section sources**
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
+- [candidates.py:517-582](file://app/backend/routes/candidates.py#L517-L582)
+
 ## Dependency Analysis
-The following diagram shows key dependencies among modules involved in candidate management with enhanced API response unification, field-level data protection, Interview Kit Evaluation Framework integration, and comprehensive audit trail system.
+The following diagram shows key dependencies among modules involved in candidate management with enhanced API response unification, field-level data protection, Interview Kit Evaluation Framework integration, comprehensive audit trail system, and enhanced name propagation capabilities.
 
 ```mermaid
 graph LR
@@ -1289,6 +1351,9 @@ ES["enterprise_security.py"] --> AUD
 - **Updated**: Audit trail system provides efficient filtering and search capabilities with proper indexing
 - **Updated**: Collaborative note-taking system includes efficient real-time updates and conflict resolution
 - **Updated**: Comparison matrix provides optimized sorting and rendering for multiple candidate evaluation
+- **Updated**: Name propagation system processes all related ScreeningResult records efficiently with batch updates
+- **Updated**: JSON parsing error handling prevents performance issues from malformed data in name propagation
+- **Updated**: Field-level merge strategy ensures name changes propagate consistently across analysis_result and narrative_json
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -1319,6 +1384,9 @@ Common issues and resolutions:
 - **Updated**: Collaborative note-taking failures: Verify user authentication and tenant isolation; check note text validation and character limits
 - **Updated**: Comparison matrix failures: Verify candidate_ids format and JD analysis integration; check team gap data validation
 - **Updated**: Optimistic UI update failures: Verify API endpoints are reachable; check rollback mechanism for failed updates
+- **Updated**: Name propagation failures: Verify candidate exists and belongs to tenant; check JSON parsing error handling; ensure proper field updates
+- **Updated**: JSON parsing errors in name propagation: Malformed analysis_result or narrative_json automatically handled with fallback mechanisms; check data integrity
+- **Updated**: Field-level merge failures in name propagation: Core analysis fields remain intact; verify proper error handling and fallback mechanisms
 
 **Section sources**
 - [parser_service.py:175-181](file://app/backend/services/parser_service.py#L175-L181)
@@ -1337,9 +1405,10 @@ Common issues and resolutions:
 - [CandidateProfilePage.jsx:930-1027](file://app/frontend/src/pages/CandidateProfilePage.jsx#L930-L1027)
 - [ComparisonMatrix.jsx:5-67](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L67)
 - [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
 
 ## Conclusion
-The enhanced candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and comprehensive auditability. The system now features comprehensive candidate profile pages with activity timelines, collaborative note-taking capabilities, comparison matrices, and optimistic UI updates for real-time status management. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. The redesigned candidate comparison algorithm with comprehensive JSON safety checks provides robust comparison operations with priority-based data sources and multiple fallback mechanisms. **Updated**: The system now includes comprehensive JD-scoped candidate ranking with dedicated endpoints for job description-specific management, bulk status operations for efficient workflow management, and enriched candidate profiles with current role, company, and experience metrics. **Updated**: The Interview Kit Evaluation Framework extends beyond basic screening to support full interview evaluation processes, including per-question evaluation tracking, assessment workflows, and comprehensive interview scorecard generation with dimension summaries and recommendation tracking across four evaluation categories: technical, behavioral, culture_fit, and experience_deep_dive. **Updated**: The Interview Kit Framework provides tenant isolation and security measures for evaluation data, with comprehensive validation and atomic operations. **Updated**: Critical syntax error in weight suggestion service has been resolved, improving import stability and service reliability. **Updated**: Enhanced candidate name resolution with priority rules ensures recruiter-edited values take precedence over parsed data, providing better data governance and user control over candidate information. **Updated**: Experience Deep-Dive category provides comprehensive evaluation of candidate's career depth, adaptability, and professional evolution, enhancing the overall interview evaluation process. **Updated**: Deterministic scoring system with hard-capped fit scores ensures consistent candidate ranking and evaluation across all job descriptions and screening results. **Updated**: Comprehensive audit trail system provides enterprise-grade compliance framework support with field-level change tracking and evidence logging for explainable AI and adverse action reporting. **Updated**: Collaborative note-taking system enables team-based candidate evaluation with user attribution, timestamps, and moderation controls for transparent decision-making. **Updated**: Comparison matrix provides advanced candidate evaluation with sortable metrics, team gap analysis, and actionable insights for informed hiring decisions.
+The enhanced candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and comprehensive auditability. The system now features comprehensive candidate profile pages with activity timelines, collaborative note-taking capabilities, comparison matrices, and optimistic UI updates for real-time status management. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. The redesigned candidate comparison algorithm with comprehensive JSON safety checks provides robust comparison operations with priority-based data sources and multiple fallback mechanisms. **Updated**: The system now includes comprehensive JD-scoped candidate ranking with dedicated endpoints for job description-specific management, bulk status operations for efficient workflow management, and enriched candidate profiles with current role, company, and experience metrics. **Updated**: The Interview Kit Evaluation Framework extends beyond basic screening to support full interview evaluation processes, including per-question evaluation tracking, assessment workflows, and comprehensive interview scorecard generation with dimension summaries and recommendation tracking across four evaluation categories: technical, behavioral, culture_fit, and experience_deep_dive. **Updated**: The Interview Kit Framework provides tenant isolation and security measures for evaluation data, with comprehensive validation and atomic operations. **Updated**: Critical syntax error in weight suggestion service has been resolved, improving import stability and service reliability. **Updated**: Enhanced candidate name resolution with priority rules ensures recruiter-edited values take precedence over parsed data, providing better data governance and user control over candidate information. **Updated**: Experience Deep-Dive category provides comprehensive evaluation of candidate's career depth, adaptability, and professional evolution, enhancing the overall interview evaluation process. **Updated**: Deterministic scoring system with hard-capped fit scores ensures consistent candidate ranking and evaluation across all job descriptions and screening results. **Updated**: Comprehensive audit trail system provides enterprise-grade compliance framework support with field-level change tracking and evidence logging for explainable AI and adverse action reporting. **Updated**: Collaborative note-taking system enables team-based candidate evaluation with user attribution, timestamps, and moderation controls for transparent decision-making. **Updated**: Comparison matrix provides advanced candidate evaluation with sortable metrics, team gap analysis, and actionable insights for informed hiring decisions. **Updated**: Enhanced name propagation system provides comprehensive automatic name updates across all related ScreeningResult records with robust error handling, ensuring consistency across analysis_result and narrative_json fields while maintaining data integrity.
 
 ## Appendices
 
@@ -1367,6 +1436,7 @@ The enhanced candidate management system integrates robust parsing, deduplicatio
 - **Updated**: GET /api/audit/trail: Retrieve audit trail with filtering and search capabilities
 - **Updated**: POST /api/candidates/{candidate_id}/notes: Add collaborative notes to candidate profile
 - **Updated**: GET /api/candidates/{candidate_id}/notes: Retrieve candidate notes with user attribution
+- **Updated**: PUT /api/candidates/{candidate_id}/name: Update candidate name with automatic propagation to all related ScreeningResult records
 
 **Section sources**
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
@@ -1385,6 +1455,7 @@ The enhanced candidate management system integrates robust parsing, deduplicatio
 - [candidates.py:671-721](file://app/backend/routes/candidates.py#L671-L721)
 - [audit_service.py:12-44](file://app/backend/services/audit_service.py#L12-L44)
 - [CandidateProfilePage.jsx:930-1027](file://app/frontend/src/pages/CandidateProfilePage.jsx#L930-L1027)
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
 
 ### Intelligent Scoring Weights Schema
 - **Legacy 4-weight**: skills, experience, stability, education
@@ -1580,7 +1651,7 @@ The enhanced candidate management system integrates robust parsing, deduplicatio
 - Dedicated endpoints for note creation, retrieval, and deletion
 - Real-time note loading with skeleton loaders and error handling
 - User avatar generation with unique color assignment
-- Timestamp calculation with relative time display
+- Timestamp calculation with relative time formatting
 
 **User Experience**:
 - Rich text input with character limits and validation
@@ -1628,3 +1699,26 @@ The enhanced candidate management system integrates robust parsing, deduplicatio
 
 **Section sources**
 - [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+
+### Enhanced Name Propagation System Implementation Details
+**Endpoint Implementation**:
+- PUT /api/candidates/{candidate_id}/name: Updates candidate name and propagates changes to all related ScreeningResult records
+- Automatic detection of name changes and triggering of propagation logic
+- Comprehensive error handling for JSON parsing and field updates
+
+**Processing Logic**:
+- Queries all ScreeningResult records for the candidate
+- Parses analysis_result JSON with error handling for malformed data
+- Detects old name from multiple sources with priority-based resolution
+- Updates candidate_name, contact_info.name, fit_summary, and candidate_profile_summary fields
+- Processes narrative_json similarly with separate error handling
+- Commits all changes atomically with proper error handling
+
+**Security Measures**:
+- Tenant validation ensures name propagation respects tenant boundaries
+- Audit trail logging tracks all name change operations
+- Field-level change tracking preserves old/new values for compliance
+
+**Section sources**
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
+- [candidates.py:517-582](file://app/backend/routes/candidates.py#L517-L582)
