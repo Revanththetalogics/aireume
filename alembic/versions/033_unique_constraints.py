@@ -12,33 +12,9 @@ depends_on = None
 def upgrade():
     conn = op.get_bind()
 
-    # --- Step 1: Deduplicate candidates by email before creating unique index ---
-    # Keep the row with the highest ID (most recent) for each (tenant_id, email) group
-    conn.execute(sa.text("""
-        DELETE FROM candidates
-        WHERE id NOT IN (
-            SELECT MAX(id)
-            FROM candidates
-            WHERE email IS NOT NULL
-            GROUP BY tenant_id, email
-        )
-        AND email IS NOT NULL
-    """))
-
-    # --- Step 2: Deduplicate candidates by file hash before creating unique index ---
-    conn.execute(sa.text("""
-        DELETE FROM candidates
-        WHERE id NOT IN (
-            SELECT MAX(id)
-            FROM candidates
-            WHERE resume_file_hash IS NOT NULL
-            GROUP BY tenant_id, resume_file_hash
-        )
-        AND resume_file_hash IS NOT NULL
-    """))
-
-    # --- Step 3: Deduplicate screening_results before creating unique index ---
-    # Keep the row with the highest ID (most recent) for each (tenant_id, candidate_id, role_template_id) group
+    # --- Step 1: Deduplicate screening_results first (required before candidate dedup) ---
+    # Keep the row with the highest ID (most recent) for each (tenant_id, candidate_id, role_template_id) group.
+    # Must run BEFORE candidate dedup to avoid FK violations when deleting duplicate candidates.
     conn.execute(sa.text("""
         DELETE FROM screening_results
         WHERE id NOT IN (
@@ -51,7 +27,64 @@ def upgrade():
         AND role_template_id IS NOT NULL
     """))
 
-    # --- Step 4: Create unique indexes (idempotent — skip if already exist) ---
+    # --- Step 2: Delete screening_results belonging to duplicate candidates (FK safety) ---
+    # Duplicate candidates (by email) that will be deleted in Step 3 may still have
+    # screening_results pointing to them. Remove those first to avoid FK constraint violations.
+    conn.execute(sa.text("""
+        DELETE FROM screening_results
+        WHERE candidate_id IN (
+            SELECT id FROM candidates
+            WHERE email IS NOT NULL
+            AND id NOT IN (
+                SELECT MAX(id)
+                FROM candidates
+                WHERE email IS NOT NULL
+                GROUP BY tenant_id, email
+            )
+        )
+    """))
+
+    # Also handle duplicates by file hash
+    conn.execute(sa.text("""
+        DELETE FROM screening_results
+        WHERE candidate_id IN (
+            SELECT id FROM candidates
+            WHERE resume_file_hash IS NOT NULL
+            AND id NOT IN (
+                SELECT MAX(id)
+                FROM candidates
+                WHERE resume_file_hash IS NOT NULL
+                GROUP BY tenant_id, resume_file_hash
+            )
+        )
+    """))
+
+    # --- Step 3: Deduplicate candidates by email ---
+    # Keep the row with the highest ID (most recent) for each (tenant_id, email) group.
+    conn.execute(sa.text("""
+        DELETE FROM candidates
+        WHERE email IS NOT NULL
+        AND id NOT IN (
+            SELECT MAX(id)
+            FROM candidates
+            WHERE email IS NOT NULL
+            GROUP BY tenant_id, email
+        )
+    """))
+
+    # --- Step 4: Deduplicate candidates by file hash ---
+    conn.execute(sa.text("""
+        DELETE FROM candidates
+        WHERE resume_file_hash IS NOT NULL
+        AND id NOT IN (
+            SELECT MAX(id)
+            FROM candidates
+            WHERE resume_file_hash IS NOT NULL
+            GROUP BY tenant_id, resume_file_hash
+        )
+    """))
+
+    # --- Step 5: Create unique indexes (idempotent — skip if already exist) ---
 
     # 1. Unique candidate per tenant by email (partial: only where email IS NOT NULL)
     result = conn.execute(sa.text(

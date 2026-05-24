@@ -2,7 +2,6 @@
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy import inspect
 
 revision = "034_password_reset_tokens"
 down_revision = "033_unique_constraints"
@@ -12,13 +11,18 @@ depends_on = None
 
 def upgrade():
     conn = op.get_bind()
-    inspector = inspect(conn)
-    if "password_reset_tokens" not in inspector.get_table_names():
+    # Idempotent: skip if table already exists
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema = 'public' AND table_name = 'password_reset_tokens'"
+    )).fetchone()
+    if not result:
         op.create_table(
             "password_reset_tokens",
-            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
             sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-            sa.Column("token", sa.String(255), unique=True, nullable=False, index=True),
+            # unique=True already creates a unique index; index=True is intentionally omitted to avoid duplicate index
+            sa.Column("token", sa.String(255), unique=True, nullable=False),
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
             sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         )
