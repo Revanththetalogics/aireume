@@ -18,6 +18,9 @@
 
 ## Update Summary
 **Changes Made**
+- Enhanced authentication context with race condition fix using reference counter mechanism
+- Implemented authGenRef to prevent stale loadUser from overwriting successful login state
+- Updated AuthContext provider with improved state synchronization and race condition prevention
 - Enhanced API interceptor with AUTH_PATHS array to prevent login loops and improve authentication flow reliability
 - Added comprehensive CSRF protection middleware with exemption for authentication endpoints
 - Improved token refresh handling to skip refresh logic for auth endpoints
@@ -36,17 +39,17 @@
 9. [Conclusion](#conclusion)
 
 ## Introduction
-This document explains the frontend authentication system for the Resume AI by ThetaLogics application. It covers the AuthContext provider, authentication state management, automatic cookie-based session persistence, enhanced logout functionality, protected routing, authentication guards, and integration with API calls. The system now uses httpOnly cookies for secure token storage and automatic cookie transmission, eliminating localStorage vulnerabilities while maintaining seamless user experience. Recent enhancements include improved API interceptors with AUTH_PATHS array to prevent login loops and comprehensive CSRF protection middleware.
+This document explains the frontend authentication system for the Resume AI by ThetaLogics application. It covers the AuthContext provider, authentication state management, automatic cookie-based session persistence, enhanced logout functionality, protected routing, authentication guards, and integration with API calls. The system now uses httpOnly cookies for secure token storage and automatic cookie transmission, eliminating localStorage vulnerabilities while maintaining seamless user experience. Recent enhancements include a race condition fix using a reference counter mechanism to prevent stale loadUser from overwriting successful login state, along with improved API interceptors with AUTH_PATHS array to prevent login loops and comprehensive CSRF protection middleware.
 
 ## Project Structure
-The frontend authentication system is organized around a React Context provider, route protection, and a shared API client with enhanced interceptors. The provider is mounted at the root of the application and exposes authentication state and actions to all routed components. Protected routes wrap page shells to enforce authentication. The system now relies on automatic cookie transmission for seamless authentication without manual token management, with enhanced security through CSRF protection.
+The frontend authentication system is organized around a React Context provider with race condition protection, route protection, and a shared API client with enhanced interceptors. The provider is mounted at the root of the application and exposes authentication state and actions to all routed components. Protected routes wrap page shells to enforce authentication. The system now relies on automatic cookie transmission for seamless authentication without manual token management, with enhanced security through CSRF protection and race condition prevention.
 
 ```mermaid
 graph TB
 subgraph "Frontend Root"
 MAIN["main.jsx<br/>BrowserRouter"]
 APP["App.jsx<br/>AuthProvider + Routes"]
-AUTH["AuthContext.jsx<br/>AuthProvider + useAuth()"]
+AUTH["AuthContext.jsx<br/>AuthProvider + useAuth() + Race Condition Fix"]
 API["api.js<br/>Axios + Enhanced Interceptors"]
 ENDPOINTS["Auth Endpoints<br/>/auth/*"]
 end
@@ -63,6 +66,7 @@ end
 subgraph "Security Layer"
 CSRF["CSRF Middleware<br/>Double-submit Pattern"]
 EXEMPT["Exempt Paths<br/>Auth endpoints"]
+RACE["Race Condition Fix<br/>authGenRef Reference Counter"]
 end
 MAIN --> APP
 APP --> AUTH
@@ -77,12 +81,13 @@ AUTH --> API
 API --> ENDPOINTS
 API --> CSRF
 CSRF --> EXEMPT
+AUTH --> RACE
 ```
 
 **Diagram sources**
 - [main.jsx:1-14](file://app/frontend/src/main.jsx#L1-L14)
 - [App.jsx:1-64](file://app/frontend/src/App.jsx#L1-L64)
-- [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [AuthContext.jsx:1-81](file://app/frontend/src/contexts/AuthContext.jsx#L1-L81)
 - [api.js:1-420](file://app/frontend/src/lib/api.js#L1-L420)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
@@ -96,7 +101,7 @@ CSRF --> EXEMPT
 - [App.jsx:1-64](file://app/frontend/src/App.jsx#L1-L64)
 
 ## Core Components
-- **AuthProvider**: Manages authentication state, loads persisted sessions via automatic cookie validation, and exposes login, register, and logout actions that work seamlessly with httpOnly cookies.
+- **AuthProvider with Race Condition Fix**: Manages authentication state with authGenRef reference counter to prevent stale loadUser from overwriting successful login state, loads persisted sessions via automatic cookie validation, and exposes login, register, and logout actions that work seamlessly with httpOnly cookies.
 - **useAuth**: Hook to access authentication state and actions from any component.
 - **ProtectedRoute**: Route guard that blocks unauthenticated users and shows a loader while checking session state using automatic cookie authentication.
 - **Enhanced API Client**: Axios instance configured with `withCredentials: true` for automatic cookie transmission, CSRF token injection for non-GET requests, automatic refresh on 401 errors, and AUTH_PATHS array to prevent login loops.
@@ -106,6 +111,7 @@ CSRF --> EXEMPT
 
 Key responsibilities:
 - **Authentication state**: user, tenant, loading
+- **Race condition prevention**: authGenRef reference counter mechanism
 - **Token storage**: httpOnly cookies (access_token, refresh_token) and CSRF token
 - **Session persistence**: automatic validation via cookie-based authentication on app load
 - **Token refresh**: automatic refresh on 401 with AUTH_PATHS array preventing login loops
@@ -114,7 +120,7 @@ Key responsibilities:
 - **Login loop prevention**: AUTH_PATHS array in API interceptor prevents infinite refresh cycles
 
 **Section sources**
-- [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [AuthContext.jsx:1-81](file://app/frontend/src/contexts/AuthContext.jsx#L1-L81)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [api.js:1-420](file://app/frontend/src/lib/api.js#L1-L420)
 - [LoginPage.jsx:1-121](file://app/frontend/src/pages/LoginPage.jsx#L1-L121)
@@ -123,7 +129,7 @@ Key responsibilities:
 - [csrf.py:13-40](file://app/backend/middleware/csrf.py#L13-L40)
 
 ## Architecture Overview
-The authentication flow integrates React Context, automatic cookie-based authentication, route protection, CSRF token handling, and enhanced security measures. On app load, the provider validates the stored access_token via automatic cookie transmission and hydrates user/tenant state. API calls automatically attach cookies and handle 401 responses by refreshing tokens, with the AUTH_PATHS array preventing login loops. Protected routes render a loading spinner while resolving authentication state and redirect unauthenticated users to the login page.
+The authentication flow integrates React Context with race condition protection, automatic cookie-based authentication, route protection, CSRF token handling, and enhanced security measures. The authGenRef reference counter prevents stale loadUser promises from overwriting successful login state. On app load, the provider validates the stored access_token via automatic cookie transmission and hydrates user/tenant state. API calls automatically attach cookies and handle 401 responses by refreshing tokens, with the AUTH_PATHS array preventing login loops. Protected routes render a loading spinner while resolving authentication state and redirect unauthenticated users to the login page.
 
 ```mermaid
 sequenceDiagram
@@ -133,6 +139,7 @@ participant API as "Enhanced API Client"
 participant CSRF as "CSRF Middleware"
 participant Backend as "Backend Auth API"
 Browser->>Provider : Initialize AuthProvider
+Provider->>Provider : Increment authGenRef.current
 Provider->>API : GET /auth/me (automatic cookie transmission)
 API->>CSRF : Validate CSRF token
 CSRF-->>API : CSRF validation passed
@@ -140,8 +147,10 @@ API->>Backend : Request with httpOnly cookies
 Backend-->>API : 200 {user, tenant} or 401
 API-->>Provider : Resolve or reject
 alt 200 OK
+Provider->>Provider : Check gen === authGenRef.current
 Provider->>Provider : Set user, tenant, loading=false
 else 401 Unauthorized
+Provider->>Provider : Check gen === authGenRef.current
 Provider->>Provider : Clear state, loading=false
 end
 Browser->>API : Subsequent requests
@@ -166,7 +175,7 @@ end
 ```
 
 **Diagram sources**
-- [AuthContext.jsx:11-29](file://app/frontend/src/contexts/AuthContext.jsx#L11-L29)
+- [AuthContext.jsx:10-31](file://app/frontend/src/contexts/AuthContext.jsx#L10-L31)
 - [api.js:33-57](file://app/frontend/src/lib/api.js#L33-L57)
 - [csrf.py:34-40](file://app/backend/middleware/csrf.py#L34-L40)
 - [auth.py:192-198](file://app/backend/routes/auth.py#L192-L198)
@@ -209,40 +218,44 @@ Implementation highlights:
 **Section sources**
 - [api.js:33-57](file://app/frontend/src/lib/api.js#L33-L57)
 
-### AuthContext Provider and Hooks
-The provider initializes state, validates session via automatic cookie authentication, and exposes actions to mutate state. The hook ensures consumers are within the provider and throws if not used correctly.
+### AuthContext Provider with Race Condition Fix
+**Updated** Enhanced AuthContext provider with race condition fix using authGenRef reference counter mechanism
+
+The provider now implements a sophisticated race condition prevention system using a reference counter (authGenRef) to ensure that stale loadUser promises don't overwrite successful login state. The authGenRef.current is incremented on each authentication operation and checked against the generation number in async operations to prevent race conditions.
 
 ```mermaid
-classDiagram
-class AuthProvider {
-+user : object|null
-+tenant : object|null
-+loading : boolean
-+loadUser() : Promise<void>
-+login(email, password) : Promise<object>
-+register(companyName, email, password) : Promise<object>
-+logout() : Promise<void>
-}
-class useAuth {
-+returns : {user, tenant, loading, login, register, logout}
-}
-AuthProvider --> useAuth : "exposes via context"
+flowchart TD
+Start(["Auth Operation"]) --> IncGen["Increment authGenRef.current"]
+IncGen --> LoadUser["loadUser() called"]
+LoadUser --> GenCheck["const gen = ++authGenRef.current"]
+GenCheck --> APIReq["API Request"]
+APIReq --> APISuccess{"API Success?"}
+APISuccess --> |Yes| GenCompare["if (gen !== authGenRef.current) return"]
+GenCompare --> |Same gen| SetState["Set user, tenant state"]
+GenCompare --> |Different gen| Return["Return early"]
+APISuccess --> |No| GenCompare2["if (gen !== authGenRef.current) return"]
+GenCompare2 --> |Same gen| ClearState["Clear user, tenant state"]
+GenCompare2 --> |Different gen| Return2["Return early"]
+SetState --> LoadingFalse["Set loading=false"]
+ClearState --> LoadingFalse
+Return --> End(["End"])
+Return2 --> End
+LoadingFalse --> End
 ```
 
 **Diagram sources**
-- [AuthContext.jsx:6-70](file://app/frontend/src/contexts/AuthContext.jsx#L6-L70)
-
-**Updated** Removed localStorage token handling and replaced with automatic cookie-based authentication
+- [AuthContext.jsx:10-31](file://app/frontend/src/contexts/AuthContext.jsx#L10-L31)
 
 Implementation highlights:
-- **Session restoration**: On mount, provider calls `/auth/me` which automatically transmits cookies for validation
-- **Automatic cookie handling**: login/register receive httpOnly cookies from server, no manual localStorage manipulation
-- **Enhanced logout**: logout calls server endpoint that clears all httpOnly cookies and CSRF tokens
-- **Error handling**: On failed `/auth/me`, state is cleared and loading completes
-- **State management**: Maintains user, tenant, and loading state for UI components
+- **authGenRef reference counter**: Tracks current authentication generation to prevent race conditions
+- **Race condition prevention**: Each async operation captures current gen and validates against authGenRef.current
+- **Stale promise protection**: Prevents stale loadUser from overwriting successful login state
+- **Login/registration invalidation**: Increments authGenRef.current to invalidate in-flight loadUser requests
+- **State consistency**: Ensures only the latest authentication state is applied
+- **Session restoration**: On mount, provider calls `/auth/me` with race condition protection
 
 **Section sources**
-- [AuthContext.jsx:6-70](file://app/frontend/src/contexts/AuthContext.jsx#L6-L70)
+- [AuthContext.jsx:10-31](file://app/frontend/src/contexts/AuthContext.jsx#L10-L31)
 
 ### ProtectedRoute Component
 Protects routes by checking authentication state and rendering a loading indicator while resolving. Unauthenticated users are redirected to the login page.
@@ -450,12 +463,12 @@ Exempt --> Allow
 - [csrf.py:13-40](file://app/backend/middleware/csrf.py#L13-L40)
 
 ## Dependency Analysis
-**Updated** Enhanced dependencies with CSRF protection, AUTH_PATHS array, and improved authentication flow
+**Updated** Enhanced dependencies with CSRF protection, AUTH_PATHS array, race condition fix, and improved authentication flow
 
 The frontend authentication stack depends on:
-- AuthProvider for state and actions
+- AuthProvider for state and actions with race condition protection
 - ProtectedRoute for route-level guards
-- Enhanced API client for transport with automatic cookie transmission, CSRF protection, and AUTH_PATHS array
+- Enhanced API client for transport with automatic cookie transmission, CSRF protection, AUTH_PATHS array, and race condition prevention
 - Backend auth endpoints for registration, login, refresh, logout, and profile retrieval
 - Server middleware for cookie-based authentication, CSRF token validation, and authentication endpoint exemptions
 
@@ -469,21 +482,23 @@ AppShell --> Pages
 EnhancedApiClient --> AuthProvider
 EnhancedApiClient --> BackendAuth["/auth/*"]
 EnhancedApiClient --> AUTH_PATHS["AUTH_PATHS Array"]
+EnhancedApiClient --> RACE["authGenRef Race Condition Fix"]
 BackendAuth --> AuthProvider
 BackendAuth --> CSRF["CSRF Token Validation"]
 CSRF --> AuthProvider
 AUTH_PATHS --> EnhancedApiClient
+RACE --> AuthProvider
 ```
 
 **Diagram sources**
-- [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [AuthContext.jsx:1-81](file://app/frontend/src/contexts/AuthContext.jsx#L1-L81)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [api.js:1-420](file://app/frontend/src/lib/api.js#L1-L420)
 - [auth.py:57-208](file://app/backend/routes/auth.py#L57-L208)
 - [csrf.py:13-40](file://app/backend/middleware/csrf.py#L13-L40)
 
 **Section sources**
-- [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [AuthContext.jsx:1-81](file://app/frontend/src/contexts/AuthContext.jsx#L1-L81)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [api.js:1-420](file://app/frontend/src/lib/api.js#L1-L420)
 - [auth.py:57-208](file://app/backend/routes/auth.py#L57-L208)
@@ -491,15 +506,17 @@ AUTH_PATHS --> EnhancedApiClient
 
 ## Performance Considerations
 - **Automatic cookie optimization**: No manual token serialization/deserialization overhead
+- **Race condition prevention**: authGenRef reference counter prevents redundant state updates
 - **Minimize unnecessary re-renders**: Memoize callbacks in AuthProvider using useCallback
 - **Centralized refresh logic**: Keep token refresh logic in the API client to prevent duplicated logic
 - **Cookie caching**: Rely on browser cookie caching for reduced network overhead
 - **CSRF token efficiency**: Single CSRF token per session reduces token management complexity
 - **Login loop prevention**: AUTH_PATHS array prevents unnecessary refresh attempts for auth endpoints
 - **Smart retry logic**: Only non-auth endpoints trigger automatic refresh to reduce network overhead
+- **Reference counter efficiency**: Minimal memory overhead for race condition prevention
 
 ## Troubleshooting Guide
-**Updated** Enhanced troubleshooting for cookie-based authentication and AUTH_PATHS array
+**Updated** Enhanced troubleshooting for cookie-based authentication, AUTH_PATHS array, and race condition fix
 
 Common issues and resolutions:
 - **Stuck on loading spinner**: Verify that cookies are being sent to `/auth/me` and that server is returning valid authentication
@@ -507,16 +524,18 @@ Common issues and resolutions:
 - **401 errors despite valid cookies**: Ensure CSRF token is present for non-GET requests and that cookie paths match server configuration
 - **Logout does not work**: Check that server is sending `Set-Cookie` headers to clear all authentication cookies
 - **Login loops during authentication**: Verify that AUTH_PATHS array includes all authentication endpoints and that CSRF middleware is properly configured
+- **Race condition issues**: Check that authGenRef reference counter is properly incrementing and that stale promises are being prevented
 - **Cross-origin issues**: Verify CORS configuration allows cookie transmission and CSRF token access
 - **HTTPS-only cookies**: Ensure development environment properly handles https for cookie security
 - **CSRF validation failures**: Check that authentication endpoints are properly exempted from CSRF validation
 
 Relevant implementation references:
-- AuthProvider session restoration via automatic cookie validation
+- AuthProvider session restoration via automatic cookie validation with race condition protection
 - Enhanced API interceptor for 401 handling with AUTH_PATHS array and cookie-based refresh
 - ProtectedRoute loading and redirect behavior
 - Server-side cookie clearing on logout
 - CSRF middleware with double-submit pattern and authentication endpoint exemptions
+- authGenRef reference counter mechanism for race condition prevention
 
 **Section sources**
 - [AuthContext.jsx:11-29](file://app/frontend/src/contexts/AuthContext.jsx#L11-L29)
@@ -525,6 +544,6 @@ Relevant implementation references:
 - [csrf.py:13-40](file://app/backend/middleware/csrf.py#L13-L40)
 
 ## Conclusion
-**Updated** Enhanced conclusion reflecting cookie-based authentication improvements and AUTH_PATHS array implementation
+**Updated** Enhanced conclusion reflecting cookie-based authentication improvements, AUTH_PATHS array implementation, and race condition fix
 
-The frontend authentication system now centers on a robust AuthProvider that manages user state and leverages automatic cookie-based authentication for seamless, secure token management. The system eliminates localStorage vulnerabilities by using httpOnly cookies and provides enhanced security through comprehensive CSRF protection with double-submit cookie patterns. The recent addition of the AUTH_PATHS array in the API interceptor significantly improves authentication flow reliability by preventing login loops and optimizing refresh logic. ProtectedRoute enforces authentication across pages, while LoginPage and RegisterPage provide secure onboarding with automatic cookie handling. The NavBar offers a practical logout flow that clears all authentication cookies and tokens. The enhanced cookie-based approach with AUTH_PATHS array provides better security, automatic token management, improved user experience, and reliable authentication flow while maintaining the same developer-friendly interface.
+The frontend authentication system now centers on a robust AuthProvider with race condition protection that manages user state and leverages automatic cookie-based authentication for seamless, secure token management. The system eliminates localStorage vulnerabilities by using httpOnly cookies and provides enhanced security through comprehensive CSRF protection with double-submit cookie patterns. The recent addition of the authGenRef reference counter mechanism significantly improves authentication reliability by preventing stale loadUser promises from overwriting successful login state. The enhanced API interceptor with AUTH_PATHS array provides better security, automatic token management, improved user experience, and reliable authentication flow while maintaining the same developer-friendly interface. ProtectedRoute enforces authentication across pages, while LoginPage and RegisterPage provide secure onboarding with automatic cookie handling. The NavBar offers a practical logout flow that clears all authentication cookies and tokens. Together, these enhancements create a more robust, secure, and user-friendly authentication system.

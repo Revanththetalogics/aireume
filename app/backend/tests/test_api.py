@@ -337,6 +337,41 @@ class TestNarrativePollingEndpoint:
         assert data["narrative"]["fit_summary"] == "Strong candidate"
         assert "Python expert" in data["narrative"]["strengths"]
 
+    def test_narrative_fallback_state(self, auth_client, db):
+        """Returns fallback with narrative when LLM failed but fallback was generated."""
+        from app.backend.models.db_models import ScreeningResult, Tenant
+        import json
+
+        tenant = db.query(Tenant).first()
+
+        narrative = {
+            "fit_summary": "Fallback summary",
+            "strengths": ["Python"],
+            "narrative_fallback": True,
+        }
+        result = ScreeningResult(
+            tenant_id=tenant.id,
+            candidate_id=None,
+            resume_text="test resume",
+            jd_text="test jd",
+            parsed_data="{}",
+            analysis_result="{}",
+            narrative_json=json.dumps(narrative),
+            narrative_status="fallback",
+            narrative_error="AI analysis timed out",
+        )
+        db.add(result)
+        db.commit()
+        db.refresh(result)
+
+        response = auth_client.get(f"/api/analysis/{result.id}/narrative")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "fallback"
+        assert data["narrative"]["fit_summary"] == "Fallback summary"
+        assert data["narrative"]["narrative_fallback"] is True
+        assert "timed out" in data["error"]
+
     def test_narrative_not_found(self, auth_client):
         """Returns 404 for non-existent analysis ID."""
         response = auth_client.get("/api/analysis/99999/narrative")
@@ -502,7 +537,9 @@ class TestBackgroundNarrativeTask:
         # Query fresh from DB to check the narrative was written
         result = db.query(ScreeningResult).filter(ScreeningResult.id == result_id).first()
         assert result.narrative_json is not None
+        assert result.narrative_status == "fallback"
         narrative = json.loads(result.narrative_json)
         # Fallback narrative should have deterministic content
         assert "fit_summary" in narrative
         assert "strengths" in narrative
+        assert narrative.get("narrative_fallback") is True

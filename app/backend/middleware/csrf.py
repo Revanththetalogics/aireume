@@ -29,12 +29,17 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/api/auth/register",
         "/api/auth/refresh",
         "/api/auth/logout",
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
         "/api/billing/webhook",
         "/api/sso/callback",
+        "/api/webhooks/",
         "/health",
         "/api/health",
         "/api/health/deep",
         "/api/llm-status",
+        "/docs",
+        "/openapi.json",
         "/metrics",
     }
 
@@ -67,7 +72,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         cookie_token = request.cookies.get("csrf_token")
         header_token = request.headers.get("x-csrf-token")
         
-        if not cookie_token or not header_token or cookie_token != header_token:
+        if not cookie_token or not header_token:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF token missing or invalid"}
+            )
+        if not secrets.compare_digest(cookie_token, header_token):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "CSRF token missing or invalid"}

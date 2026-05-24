@@ -221,20 +221,20 @@ export default function ReportPage() {
           }))
           setNarrativePolling(false)
           clearInterval(pollInterval)
-        } else if (narrativeData.status === 'failed') {
+        } else if (narrativeData.status === 'fallback' || narrativeData.status === 'failed') {
           // Use fallback narrative if available
           if (narrativeData.narrative) {
             setResult(prev => ({
               ...prev,
               ...narrativeData.narrative,
-              narrative_status: 'failed',
+              narrative_status: narrativeData.status,
               narrative_error: narrativeData.error,
               ai_enhanced: false,
             }))
           } else {
             setResult(prev => ({
               ...prev,
-              narrative_status: 'failed',
+              narrative_status: narrativeData.status,
               narrative_error: narrativeData.error,
             }))
           }
@@ -288,7 +288,7 @@ export default function ReportPage() {
 
   const hasDeterministicData = result.fit_score != null
   const isNarrativeReady = result.narrative_status === 'ready'
-  const isReportComplete = isNarrativeReady || result.narrative_status === 'failed' || !result.narrative_status
+  const isReportComplete = isNarrativeReady || result.narrative_status === 'fallback' || result.narrative_status === 'failed' || !result.narrative_status
 
   const role      = (result.job_role && result.job_role !== 'Not specified') ? result.job_role : ''
   const timestamp = result.analyzed_at
@@ -516,8 +516,8 @@ export default function ReportPage() {
             AI Enhanced Report
           </div>
         )}
-        {/* Failed status */}
-        {result.narrative_status === 'failed' && (
+        {/* Fallback / Failed status */}
+        {(result.narrative_status === 'fallback' || result.narrative_status === 'failed') && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 ring-1 ring-amber-200 text-xs font-semibold text-amber-700">
             <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
             Using standard analysis

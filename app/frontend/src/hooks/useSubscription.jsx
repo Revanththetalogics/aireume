@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 const SubscriptionContext = createContext(null)
 
 export function SubscriptionProvider({ children }) {
-  const { user, loading: authLoading } = useAuth()
+  const { user, tenant, loading: authLoading } = useAuth()
   const [subscription, setSubscription] = useState(null)
   const [availablePlans, setAvailablePlans] = useState([])
   const [loading, setLoading] = useState(false)
@@ -109,15 +109,15 @@ export function SubscriptionProvider({ children }) {
 
   // Initial fetch on mount — only when user is authenticated
   useEffect(() => {
-    if (authLoading || !user) {
-      // Clear subscription data when user logs out
+    if (authLoading || !user || !tenant) {
+      // Clear subscription data when user logs out or tenant not loaded
       setSubscription(null)
       setAvailablePlans([])
       return
     }
     fetchSubRef.current()
     fetchPlansRef.current()
-  }, [authLoading, user])
+  }, [authLoading, user, tenant])
 
   // Refresh subscription after analysis operations
   const refreshAfterAnalysis = useCallback(async (analysisCount = 1) => {

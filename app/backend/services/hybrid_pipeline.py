@@ -1844,6 +1844,7 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
     # Return with both 'concerns' (new) and 'weaknesses' (backward compat)
     return {
         "ai_enhanced": False,  # Marks this as a fallback narrative, not LLM-generated
+        "narrative_fallback": True,  # Explicit flag so frontend knows this is template-based
         "candidate_profile_summary": fallback_summary,
         "fit_summary": fit_summary,
         "strengths":   strengths,
@@ -2726,7 +2727,7 @@ async def _background_llm_narrative(
             elapsed,
         )
         LLM_FALLBACK_TOTAL.inc()
-        narrative_status = "failed"
+        narrative_status = "fallback"
         narrative_error = "AI analysis timed out. Showing standard analysis."
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
     except Exception as e:
@@ -2737,7 +2738,7 @@ async def _background_llm_narrative(
             str(e)[:200],
         )
         LLM_FALLBACK_TOTAL.inc()
-        narrative_status = "failed"
+        narrative_status = "fallback"
         narrative_error = str(e)[:200]
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
 

@@ -22,6 +22,8 @@ const Dashboard    = lazy(() => import('./pages/Dashboard'))
 const ReportPage   = lazy(() => import('./pages/ReportPage'))
 const LoginPage    = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const CandidatesPage = lazy(() => import('./pages/CandidatesPage'))
 const CandidateProfilePage = lazy(() => import('./pages/CandidateProfilePage'))
 const KanbanBoard    = lazy(() => import('./pages/KanbanBoard'))
@@ -64,8 +66,8 @@ function OnboardingGate({ children }) {
   const { isOnboardingComplete, statusLoading } = useOnboarding()
   const { user, tenant, loading: authLoading } = useAuth()
 
-  // Wait for both auth and onboarding status to load before deciding
-  const isLoading = authLoading || statusLoading
+  // Wait for auth, onboarding status, and tenant to all be loaded before deciding
+  const isLoading = authLoading || statusLoading || !user || !tenant
 
   if (isLoading) {
     return <PageLoader />
@@ -92,6 +94,8 @@ function App() {
               {/* Public routes */}
               <Route path="/login"      element={<LoginPage />} />
               <Route path="/register"   element={<RegisterPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
               
               {/* Onboarding direct-access route */}
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingWizard /></ProtectedRoute>} />

@@ -125,6 +125,12 @@ class Candidate(Base):
     phone      = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # ── Deduplication constraints (enforced via partial unique indexes in migration 033) ──
+    # - uq_candidate_tenant_email:     UNIQUE (tenant_id, email)          WHERE email IS NOT NULL
+    # - uq_candidate_tenant_file_hash: UNIQUE (tenant_id, resume_file_hash) WHERE resume_file_hash IS NOT NULL
+    # SQLAlchemy UniqueConstraint is not used here because partial indexes are not natively
+    # supported in __table_args__; constraints are managed exclusively via Alembic migration.
+
     # ── Enriched profile (stored once, re-used for every JD re-analysis) ──────
     resume_file_hash   = Column(String(64),  nullable=True, index=True)  # MD5(file bytes)
     resume_filename    = Column(String(255), nullable=True)              # Original filename
@@ -383,6 +389,17 @@ class RevokedToken(Base):
     jti         = Column(String(64), unique=True, index=True, nullable=False)  # JWT ID (UUID)
     revoked_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     expires_at  = Column(DateTime(timezone=True), nullable=False)  # When token would have expired
+
+
+class PasswordResetToken(Base):
+    """Tracks password reset tokens for secure password reset flow."""
+    __tablename__ = "password_reset_tokens"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token      = Column(String(255), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
 
 
 class AuditLog(Base):

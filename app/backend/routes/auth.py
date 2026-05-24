@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, SECRET_KEY, ALGORITHM
-from app.backend.models.db_models import Tenant, User, RevokedToken, SSOConfig
+from app.backend.models.db_models import Tenant, User, RevokedToken, SSOConfig, PasswordResetToken
 from app.backend.models.schemas import (
     RegisterRequest, LoginRequest, TokenResponse, RefreshRequest
 )
@@ -236,10 +236,22 @@ def refresh_token(request: Request, body: RefreshRequest = None, db: Session = D
         if revoked:
             raise HTTPException(status_code=401, detail="Token has been revoked")
 
-    user   = db.query(User).filter(User.id == user_id, User.is_active == True).first()
-    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user else None
+    # Check if user exists at all (regardless of active status)
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    if not user.is_active:
+        # User was deactivated — revoke this refresh token permanently
+        if jti:
+            existing_revoked = db.query(RevokedToken).filter(RevokedToken.jti == jti).first()
+            if not existing_revoked:
+                revoked_entry = RevokedToken(jti=jti, expires_at=datetime.utcnow() + timedelta(days=30))
+                db.add(revoked_entry)
+                db.commit()
+        raise HTTPException(status_code=401, detail="User account has been deactivated")
+
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 
     access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     new_refresh   = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
@@ -300,3 +312,69 @@ async def logout(request: Request, db: Session = Depends(get_db)):
     response.delete_cookie("refresh_token", path="/")
     response.delete_cookie("csrf_token", path="/")
     return response
+
+
+@router.post("/forgot-password")
+def forgot_password(request_data: dict, db: Session = Depends(get_db)):
+    """Generate password reset token. Always returns 200 to prevent email enumeration."""
+    email = request_data.get("email", "").strip().lower()
+
+    # Always return success to prevent email enumeration
+    user = db.query(User).filter(User.email == email, User.is_active == True).first()
+    if not user:
+        return {"message": "If an account with that email exists, a reset link has been sent."}
+
+    # Delete any existing tokens for this user
+    db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user.id).delete()
+
+    # Create new token
+    token = secrets.token_urlsafe(32)
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token=token,
+        expires_at=datetime.utcnow() + timedelta(hours=1)
+    )
+    db.add(reset_token)
+    db.commit()
+
+    # Log the reset URL (email integration is a future TODO)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Password reset token generated for user {user.id}: /reset-password/{token}")
+
+    return {"message": "If an account with that email exists, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+def reset_password(request_data: dict, db: Session = Depends(get_db)):
+    """Reset password using token."""
+    token = request_data.get("token", "")
+    new_password = request_data.get("new_password", "")
+
+    if not token or not new_password:
+        raise HTTPException(status_code=400, detail="Token and new password are required")
+
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    # Find valid token
+    reset_token = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token == token,
+        PasswordResetToken.expires_at > datetime.utcnow()
+    ).first()
+
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    # Update password
+    user = db.query(User).filter(User.id == reset_token.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+
+    user.hashed_password = _hash_password(new_password)
+
+    # Delete used token
+    db.delete(reset_token)
+    db.commit()
+
+    return {"message": "Password has been reset successfully"}

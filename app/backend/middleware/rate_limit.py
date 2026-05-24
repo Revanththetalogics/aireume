@@ -3,6 +3,7 @@ Per-tenant rate limiting middleware using an in-memory token bucket.
 """
 import time
 import threading
+import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -12,15 +13,19 @@ from app.backend.middleware.auth import SECRET_KEY, ALGORITHM
 from app.backend.db import database
 from app.backend.models.db_models import RateLimitConfig
 
+logger = logging.getLogger(__name__)
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     WHITELIST_PREFIXES = [
         "/health",
+        "/api/health",
         "/metrics",
         "/api/auth/login",
         "/api/auth/register",
-        "/api/auth/refresh",
         "/api/auth/logout",
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
         "/docs",
         "/openapi.json",
     ]
@@ -69,8 +74,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             user = db.query(User).filter(User.id == int(user_id)).first()
             if user:
                 return user.tenant_id
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Rate limit tenant extraction failed: {e}")
         finally:
             db.close()
         return None
@@ -89,8 +94,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             ).first()
             if config:
                 rpm = config.requests_per_minute
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Rate limit config lookup failed: {e}")
         finally:
             db.close()
 

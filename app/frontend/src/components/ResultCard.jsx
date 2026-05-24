@@ -759,8 +759,8 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
           // Narrative is ready, stop polling and merge data
           setNarrativeData(response.narrative)
           stopPolling()
-        } else if (response.status === 'failed') {
-          // Narrative failed, use fallback data and show error
+        } else if (response.status === 'fallback' || response.status === 'failed') {
+          // Narrative failed or fallback, use fallback data and show error
           setNarrativeData(response.narrative || {})
           setNarrativeError(response.error || 'AI enhancement failed')
           stopPolling()
@@ -857,6 +857,13 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
             analysisQuality={analysis_quality}
             aiEnhanced={aiEnhanced}
           />
+        )}
+
+        {/* Fallback indicator — shown when narrative was generated from template */}
+        {(narrativeData?.narrative_fallback || result?.narrative_fallback) && (
+          <div className="text-xs text-slate-500 italic mb-2">
+            Automated summary — AI narrative was unavailable
+          </div>
         )}
 
         {/* Narrative error banner — shown when AI enhancement failed */}

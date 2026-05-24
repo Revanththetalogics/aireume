@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
@@ -431,6 +432,51 @@ async def health_check():
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@app.get("/api/health")
+async def api_health_check():
+    """
+    Health check with dependency validation.
+    Checks DB connectivity and Ollama/LLM reachability.
+    Returns 200 if healthy, 503 if degraded.
+    """
+    errors = []
+    db_status = "connected"
+    llm_status = "connected"
+
+    # Check database
+    try:
+        from sqlalchemy import text
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+    except Exception as e:
+        db_status = "disconnected"
+        errors.append(f"Database: {str(e)}")
+
+    # Check Ollama/LLM
+    try:
+        from app.backend.services.llm_service import get_ollama_headers
+        ollama_host = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        headers = get_ollama_headers(ollama_host)
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{ollama_host}/api/tags", headers=headers)
+            if resp.status_code != 200:
+                raise Exception(f"Ollama returned {resp.status_code}")
+    except Exception as e:
+        llm_status = "disconnected"
+        errors.append(f"LLM: {str(e)}")
+
+    status = "healthy" if not errors else "degraded"
+    status_code = 200 if not errors else 503
+
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": status, "database": db_status, "llm": llm_status, "errors": errors},
+    )
 
 
 @app.get("/api/health/deep")
