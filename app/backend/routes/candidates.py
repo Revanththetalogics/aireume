@@ -1323,12 +1323,14 @@ async def analyze_existing_candidate(
 @router.get("/{candidate_id}/resume")
 def download_candidate_resume(
     candidate_id: int,
+    inline: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Download or view the original uploaded resume file.
     PDFs are served inline for browser preview; DOCX/DOC/ODT force download.
+    Pass ?inline=true to always receive a browser-renderable response (PDF or plain text).
     """
     candidate = db.query(Candidate).filter(
         Candidate.id == candidate_id,
@@ -1347,6 +1349,31 @@ def download_candidate_resume(
     filename = candidate.resume_filename or f"resume_{candidate_id}"
     lower_name = filename.lower()
 
+    # ── Inline mode: always return something the browser can render ─────────
+    if inline:
+        # Already a PDF → serve inline
+        if lower_name.endswith(".pdf"):
+            return Response(
+                content=candidate.resume_file_data,
+                media_type="application/pdf",
+                headers={"Content-Disposition": "inline"},
+            )
+        # .doc or .docx with a converted PDF → serve the PDF inline
+        if lower_name.endswith((".doc", ".docx")) and candidate.resume_converted_pdf_data:
+            return Response(
+                content=candidate.resume_converted_pdf_data,
+                media_type="application/pdf",
+                headers={"Content-Disposition": "inline"},
+            )
+        # Fallback: return raw resume text as plain text
+        raw_text = getattr(candidate, "raw_resume_text", None) or getattr(candidate, "resume_text", None) or ""
+        return Response(
+            content=raw_text.encode("utf-8"),
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": "inline"},
+        )
+
+    # ── Standard download/view mode ─────────────────────────────────────────
     # For .doc files with a converted PDF, serve the PDF inline for browser viewing
     if lower_name.endswith(".doc") and candidate.resume_converted_pdf_data:
         return Response(

@@ -116,6 +116,8 @@ export default function ReportPage() {
   const [screenMode, setScreenMode] = useState(false)
   const [resumeBlobUrl, setResumeBlobUrl] = useState(null)
   const [resumeLoading, setResumeLoading] = useState(false)
+  const [resumeIsText, setResumeIsText] = useState(false)
+  const [resumeText, setResumeText] = useState('')
 
   /** Resolve name from all possible result paths — returns null if unknown */
   const resolveName = (r) =>
@@ -274,15 +276,27 @@ export default function ReportPage() {
   // Load resume blob when entering screen mode
   useEffect(() => {
     if (!screenMode || !result?.candidate_id) return
-    if (resumeBlobUrl) return // already loaded
+    if (resumeBlobUrl || resumeIsText) return // already loaded
     let objectUrl = null
     const loadResume = async () => {
       setResumeLoading(true)
       try {
-        const resp = await api.get(`/candidates/${result.candidate_id}/resume`, { responseType: 'blob' })
-        const type = resp.headers['content-type'] || 'application/pdf'
-        objectUrl = URL.createObjectURL(new Blob([resp.data], { type }))
-        setResumeBlobUrl(objectUrl)
+        const resp = await api.get(`/candidates/${result.candidate_id}/resume?inline=true`, { responseType: 'blob' })
+        const blob = resp.data
+        const contentType = blob.type || resp.headers['content-type'] || ''
+        if (contentType.includes('application/pdf')) {
+          objectUrl = URL.createObjectURL(blob)
+          setResumeBlobUrl(objectUrl)
+          setResumeIsText(false)
+        } else if (contentType.startsWith('text/')) {
+          const text = await blob.text()
+          setResumeText(text)
+          setResumeIsText(true)
+        } else {
+          // Fallback: use raw_resume_text from result data
+          setResumeText(result?.raw_resume_text || result?.resume_text || 'Resume preview not available for this file format.')
+          setResumeIsText(true)
+        }
       } catch (e) {
         console.warn('PhoneScreen: failed to load resume blob', e)
       } finally {
@@ -297,9 +311,13 @@ export default function ReportPage() {
 
   // Revoke blob URL when exiting screen mode
   useEffect(() => {
-    if (!screenMode && resumeBlobUrl) {
-      URL.revokeObjectURL(resumeBlobUrl)
-      setResumeBlobUrl(null)
+    if (!screenMode) {
+      if (resumeBlobUrl) {
+        URL.revokeObjectURL(resumeBlobUrl)
+        setResumeBlobUrl(null)
+      }
+      setResumeIsText(false)
+      setResumeText('')
     }
   }, [screenMode])
 
@@ -490,7 +508,11 @@ export default function ReportPage() {
                   <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
                 </div>
               )}
-              {resumeBlobUrl ? (
+              {resumeIsText ? (
+                <div className="flex-1 overflow-y-auto p-6 h-full">
+                  <pre className="whitespace-pre-wrap text-sm text-slate-700 font-sans leading-relaxed">{resumeText}</pre>
+                </div>
+              ) : resumeBlobUrl ? (
                 <iframe
                   src={resumeBlobUrl}
                   className="w-full h-full border-0"
@@ -498,22 +520,18 @@ export default function ReportPage() {
                 />
               ) : !resumeLoading ? (
                 <div className="p-6 overflow-y-auto h-full">
-                  {result?.resume_text ? (
-                    <pre className="whitespace-pre-wrap text-sm text-slate-700 font-sans leading-relaxed">{result.resume_text}</pre>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
-                      <FileText className="w-10 h-10 opacity-30" />
-                      <p className="text-sm">Resume not available for inline preview.</p>
-                      {result?.candidate_id && (
-                        <button
-                          onClick={async () => { try { await viewCandidateResume(result.candidate_id) } catch { /* silent */ } }}
-                          className="px-4 py-2 text-sm font-semibold bg-brand-50 text-brand-700 ring-1 ring-brand-200 rounded-lg hover:bg-brand-100 transition-colors"
-                        >
-                          Open in new tab
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
+                    <FileText className="w-10 h-10 opacity-30" />
+                    <p className="text-sm">Resume not available for inline preview.</p>
+                    {result?.candidate_id && (
+                      <button
+                        onClick={async () => { try { await viewCandidateResume(result.candidate_id) } catch { /* silent */ } }}
+                        className="px-4 py-2 text-sm font-semibold bg-brand-50 text-brand-700 ring-1 ring-brand-200 rounded-lg hover:bg-brand-100 transition-colors"
+                      >
+                        Open in new tab
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : null}
             </div>

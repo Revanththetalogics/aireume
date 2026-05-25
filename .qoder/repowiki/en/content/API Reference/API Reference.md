@@ -21,19 +21,22 @@
 - [interview_kit.py](file://app/backend/routes/interview_kit.py)
 - [dashboard.py](file://app/backend/routes/dashboard.py)
 - [admin.py](file://app/backend/routes/admin.py)
+- [transcript.py](file://app/backend/routes/transcript.py)
+- [transcript_service.py](file://app/backend/services/transcript_service.py)
 - [weight_mapper.py](file://app/backend/services/weight_mapper.py)
 - [weight_suggester.py](file://app/backend/services/weight_suggester.py)
 - [api.js](file://app/frontend/src/lib/api.js)
+- [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive dashboard endpoints for summary, activity feed, and screening analytics
-- Implemented JD-scoped candidate management APIs with ranking and bulk status updates
-- Enhanced analytics endpoints with period-based filtering and JD effectiveness tracking
-- Added HM Handoff Package export for shortlisted candidates with comparison matrices
-- Integrated Interview Kit evaluation system with Experience Deep-Dive category support
-- Expanded admin analytics with platform-wide metrics and usage trend reporting
+- Added comprehensive phone screening endpoints for structured interview evaluation and debrief generation
+- Implemented transcript analysis API for unbiased candidate evaluation from audio/video transcripts
+- Enhanced interview kit functionality with Experience Deep-Dive category and comprehensive debrief system
+- Integrated recruiter debrief generation with LLM-powered structured analysis and scoring
+- Added transcript analysis service with PII redaction and evidence validation capabilities
+- Extended frontend PhoneScreenKit component with debrief generation workflow
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -58,12 +61,12 @@ This document provides a comprehensive API reference for Resume AI by ThetaLogic
 - Subscription and usage tracking
 - Team collaboration and comments
 - Email generation, export, comparison, training, and diagnostics
-- **NEW** Dashboard endpoints for comprehensive screening operations
-- **NEW** JD-scoped candidate management with bulk operations
-- **NEW** Enhanced analytics with period-based filtering and JD effectiveness tracking
-- **NEW** HM Handoff Package export with comparison matrices
-- **NEW** Interview Kit Evaluation system for structured interview scoring with Experience Deep-Dive category support
-- **NEW** Admin analytics for platform-wide metrics and usage trends
+- **NEW** Phone screening endpoints for structured interview evaluation and debrief generation
+- **NEW** Transcript analysis API for unbiased candidate evaluation from audio/video transcripts
+- **NEW** Enhanced interview kit functionality with Experience Deep-Dive category support
+- **NEW** Comprehensive debrief generation system with LLM-powered structured analysis
+- **NEW** Transcript analysis service with PII redaction and evidence validation capabilities
+- **NEW** Frontend PhoneScreenKit integration with debrief generation workflow
 
 The API is versioned and served under a base URL (default /api). Authentication is JWT-based and enforced via a bearer token.
 
@@ -89,11 +92,15 @@ R_QUEUE["Routes: queue_api.py"]
 R_INTKIT["Routes: interview_kit.py"]
 R_DASHBOARD["Routes: dashboard.py"]
 R_ADMIN["Routes: admin.py"]
+R_TRANSCRIPT["Routes: transcript.py"]
 MW["Middleware: auth.py"]
 SC["Models: schemas.py"]
 DBM["Models: db_models.py"]
 WS["Services: weight_suggester.py"]
 WM["Services: weight_mapper.py"]
+TS["Service: transcript_service.py"]
+ENDPHONE["Endpoint: generate-debrief"]
+PHONESCREEN["Component: PhoneScreenKit.jsx"]
 end
 subgraph "Frontend"
 FE["Client: api.js"]
@@ -113,6 +120,7 @@ M --> R_QUEUE
 M --> R_INTKIT
 M --> R_DASHBOARD
 M --> R_ADMIN
+M --> R_TRANSCRIPT
 R_AUTH --> MW
 R_ANALYZE --> MW
 R_CAND --> MW
@@ -128,6 +136,7 @@ R_QUEUE --> MW
 R_INTKIT --> MW
 R_DASHBOARD --> MW
 R_ADMIN --> MW
+R_TRANSCRIPT --> MW
 FE --> M
 MW --> DBM
 R_ANALYZE --> DBM
@@ -144,10 +153,10 @@ R_QUEUE --> DBM
 R_INTKIT --> DBM
 R_DASHBOARD --> DBM
 R_ADMIN --> DBM
-R_ANALYZE --> WS
-R_ANALYZE --> WM
-R_UPLOAD --> WS
-R_QUEUE --> WM
+R_TRANSCRIPT --> DBM
+R_TRANSCRIPT --> TS
+R_INTKIT --> ENDPHONE
+PHONESCREEN --> FE
 ```
 
 **Diagram sources**
@@ -170,9 +179,12 @@ R_QUEUE --> WM
 - [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-224)
 - [dashboard.py:1-382](file://app/backend/routes/dashboard.py#L1-382)
 - [admin.py:1-1119](file://app/backend/routes/admin.py#L1-1119)
+- [transcript.py:1-220](file://app/backend/routes/transcript.py#L1-220)
 - [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-360)
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-307)
+- [transcript_service.py:1-374](file://app/backend/services/transcript_service.py#L1-374)
 - [api.js:1-395](file://app/frontend/src/lib/api.js#L1-L395)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
 
 **Section sources**
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
@@ -204,26 +216,21 @@ R_QUEUE --> WM
   - Storage of original uploaded resume files
   - Support for multiple file formats (PDF, DOCX, DOC, ODT, TXT, RTF)
   - Inline preview for PDFs, forced download for other formats
-- **NEW** Dashboard System
-  - Comprehensive screening analytics with period-based filtering
-  - Pipeline visualization by job description
-  - Activity feed with recent screening results
-  - JD effectiveness tracking and pass-through funnel analysis
-- **NEW** JD-Scoped Candidate Management
-  - Rank candidates by fit score, name, or date
-  - Bulk status updates for screening results
-  - Status filtering and sorting capabilities
-  - Tenant-scoped candidate ranking
-- **NEW** HM Handoff Package Export
-  - Structured export for shortlisted candidates
-  - Comparison matrix with five key dimensions
-  - Interview evaluation integration
-  - PDF export capability
-- **NEW** Interview Kit Evaluation System
-  - Structured interview scoring with per-question ratings across four categories
-  - Multi-category evaluation framework: technical, behavioral, culture_fit, and experience_deep_dive
-  - Overall recruiter assessment with recommendation system
-  - Automated scorecard generation with dimension summaries including experience_deep_dive_summary
+- **NEW** Phone Screening System
+  - Structured interview evaluation with Experience Deep-Dive category
+  - Comprehensive debrief generation with LLM-powered analysis
+  - Recruiter assessment scoring and recommendation system
+  - Integration with frontend PhoneScreenKit component
+- **NEW** Transcript Analysis System
+  - Unbiased candidate evaluation from audio/video transcripts
+  - Support for VTT, SRT, and plain text formats
+  - PII redaction and evidence validation capabilities
+  - Structured analysis with fit scores and recommendations
+- **NEW** Enhanced Interview Kit Functionality
+  - Four-category evaluation framework: technical, behavioral, culture_fit, experience_deep_dive
+  - Structured debrief generation with sentiment analysis
+  - Recruiter score calculation combining rating distribution and sentiment
+  - Overall assessment with recommendation system
 - **NEW** Admin Analytics
   - Platform-wide metrics overview
   - Usage trend analysis with customizable periods
@@ -242,8 +249,10 @@ R_QUEUE --> WM
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 - [interview_kit.py:217-257](file://app/backend/routes/interview_kit.py#L217-L257)
 - [dashboard.py:61-381](file://app/backend/routes/dashboard.py#L61-L381)
-- [export.py:162-308](file://app/backend/routes/export.py#L162-308)
-- [admin.py:700-899](file://app/backend/routes/admin.py#L700-899)
+- [export.py:162-308](file://app/backend/routes/export.py#L162-L308)
+- [admin.py:700-899](file://app/backend/routes/admin.py#L700-L899)
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-132)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-374)
 
 ## Architecture Overview
 The API follows a layered architecture:
@@ -253,10 +262,9 @@ The API follows a layered architecture:
 - Database models persist state, usage metrics, and job queues
 - Queue system manages asynchronous job processing with priority scheduling
 - File storage system handles resume file management with multiple format support
-- **NEW** Dashboard system provides comprehensive screening analytics and pipeline visualization
-- **NEW** JD-scoped candidate management enables focused candidate ranking and bulk operations
-- **NEW** HM Handoff Package export delivers structured data for hiring managers
-- **NEW** Interview evaluation system provides structured scoring and assessment capabilities across four evaluation categories
+- **NEW** Phone screening system provides structured interview evaluation and debrief generation
+- **NEW** Transcript analysis system enables unbiased candidate evaluation from audio/video sources
+- **NEW** Enhanced interview kit functionality supports comprehensive evaluation across four categories
 - **NEW** Admin analytics offers platform-wide insights and usage trend analysis
 
 ```mermaid
@@ -264,13 +272,15 @@ sequenceDiagram
 participant C as "Client"
 participant A as "Auth Router"
 participant U as "User"
-participant T as "Tenant"
+participante T as "Tenant"
 participant S as "Subscription Router"
 participant Q as "Queue Manager"
 participant F as "File Storage"
 participant D as "Dashboard Router"
 participant J as "JD Candidates Router"
 participant E as "Export Router"
+participant I as "Interview Kit Router"
+participant TSC as "Transcript Service"
 C->>A : POST /api/auth/register
 A->>U : Create admin user
 A->>T : Create tenant
@@ -294,10 +304,14 @@ E->>E : Build HM Handoff Package
 E-->>C : Structured package with comparison matrix
 C->>I : PUT /api/results/{result_id}/evaluations
 I->>I : Store per-question evaluation (including experience_deep_dive)
-I-->>C : Evaluation saved
 C->>I : GET /api/results/{result_id}/scorecard
 I->>I : Generate automated scorecard with experience_deep_dive_summary
-I-->>C : Scorecard with dimension summaries including Experience Deep-Dive
+C->>I : POST /api/results/{result_id}/generate-debrief
+I->>I : Generate LLM-powered debrief with recruiter score
+I-->>C : DebriefResponse with structured analysis
+C->>TSC : POST /api/transcript/analyze
+TSC->>TSC : Parse transcript and analyze with PII redaction
+TSC-->>C : TranscriptAnalysisResponse with unbiased evaluation
 ```
 
 **Diagram sources**
@@ -307,8 +321,9 @@ I-->>C : Scorecard with dimension summaries including Experience Deep-Dive
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 - [dashboard.py:61-186](file://app/backend/routes/dashboard.py#L61-L186)
 - [candidates.py:575-721](file://app/backend/routes/candidates.py#L575-L721)
-- [export.py:162-308](file://app/backend/routes/export.py#L162-308)
+- [export.py:162-308](file://app/backend/routes/export.py#L162-L308)
 - [interview_kit.py:40-224](file://app/backend/routes/interview_kit.py#L40-L224)
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-132)
 
 ## Detailed Component Analysis
 
@@ -572,14 +587,47 @@ Priority system:
   - Response: ScorecardOut (aggregated evaluation summary)
   - Behavior: Combines evaluation data with analysis results to produce dimension summaries
   - Features: Technical/Behavioral/Culture Fit/Experience Deep-Dive summaries, strength/concern identification, overall assessment inclusion
+- POST /api/results/{result_id}/generate-debrief
+  - Purpose: Generate LLM-powered debrief from conversation summary and evaluations
+  - Body: DebriefRequest (conversation_summary)
+  - Response: DebriefResponse (structured debrief content, recruiter_score, recommendation)
+  - Behavior: Creates comprehensive debrief with sentiment analysis and recruiter scoring
+  - Features: Structured analysis with overview, strengths, concerns, recommendation rationale, recommendation (Advance/Hold/Reject)
 
 **Updated** Extended evaluation categories to include experience_deep_dive and enhanced scorecard generation to include experience_deep_dive_summary
 
 **Section sources**
 - [interview_kit.py:40-224](file://app/backend/routes/interview_kit.py#L40-L224)
+- [interview_kit.py:227-405](file://app/backend/routes/interview_kit.py#L227-L405)
 - [schemas.py:441-489](file://app/backend/models/schemas.py#L441-L489)
 - [schemas.py:490-517](file://app/backend/models/schemas.py#L490-L517)
 - [db_models.py:217-257](file://app/backend/models/db_models.py#L217-L257)
+
+### Transcript Analysis Endpoints
+**NEW** Unbiased candidate evaluation from audio/video transcripts with comprehensive analysis
+
+- POST /api/transcript/analyze
+  - Purpose: Upload transcript file or paste text, select candidate and job description, receive unbiased AI analysis
+  - Body: multipart/form-data with transcript_file or transcript_text, candidate_id, role_template_id, source_platform
+  - Response: TranscriptAnalysisResponse (analysis result with fit score, recommendations, evidence)
+  - Behavior: Parses VTT/SRT/plain text, applies PII redaction, analyzes against job description
+  - Features: Support for multiple formats, PII redaction, structured analysis with evidence citations
+- GET /api/transcript/analyses
+  - Purpose: List all transcript analyses for the tenant
+  - Response: { analyses: [...], total: int }
+  - Behavior: Returns paginated list of transcript analyses with candidate and template information
+- GET /api/transcript/analyses/{id}
+  - Purpose: Retrieve a single transcript analysis
+  - Response: TranscriptAnalysisResponse (detailed analysis with all fields)
+  - Behavior: Returns specific transcript analysis with full result details
+
+**Updated** Added comprehensive transcript analysis system with PII redaction and evidence validation
+
+**Section sources**
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
+- [transcript.py:135-177](file://app/backend/routes/transcript.py#L135-L177)
+- [transcript.py:180-220](file://app/backend/routes/transcript.py#L180-L220)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
 
 ### Template Management Endpoints
 - GET /api/templates
@@ -750,14 +798,18 @@ Key dependencies and relationships:
 - Weight management system provides intelligent scoring with AI suggestions
 - Candidate routes now include resume file storage and retrieval functionality
 - File storage system handles binary resume data with format detection
-- **NEW** Dashboard routes depend on ScreeningResult and RoleTemplate models for comprehensive analytics
-- **NEW** JD-scoped candidate management routes integrate with bulk status update operations
-- **NEW** HM Handoff Package routes depend on InterviewEvaluation and OverallAssessment models for structured data export
-- **NEW** Interview kit routes depend on InterviewEvaluation and OverallAssessment models for structured scoring across four categories
-- **NEW** Admin analytics routes depend on UsageLog and Tenant models for platform-wide metrics
-- Interview evaluation system integrates with ScreeningResult for tenant scoping and data aggregation
-- Experience Deep-Dive category extends evaluation coverage to include career depth and experience analysis
-- Dashboard system provides comprehensive screening analytics with period-based filtering and JD effectiveness tracking
+- **NEW** Phone screening system depends on InterviewEvaluation and OverallAssessment models for structured scoring
+- **NEW** Transcript analysis system depends on TranscriptAnalysis model and transcript_service for unbiased evaluation
+- **NEW** Debried generation system integrates with LLM service for structured analysis and scoring
+- **NEW** Frontend PhoneScreenKit component integrates with interview kit endpoints for complete workflow
+- **NEW** Interview evaluation system extends to include experience_deep_dive category with comprehensive coverage
+- **NEW** Overall assessment system now includes debrief_json and recruiter_score fields for enhanced analysis
+- Dashboard system uses efficient aggregation queries with minimal database overhead
+- JD-scoped candidate management leverages optimized joins and filtering for large datasets
+- HM Handoff Package export performs bulk data aggregation with pre-loaded relationships
+- Admin analytics endpoints use optimized SQL aggregations for platform-wide metrics
+- Scorecard generation performs efficient aggregation queries with minimal database overhead, including Experience Deep-Dive category
+- Experience Deep-Dive category adds minimal overhead as it follows the same evaluation pattern as other categories
 
 ```mermaid
 graph LR
@@ -776,6 +828,7 @@ QUEUE["Queue Router"] --> MW
 INTKIT["Interview Kit Router"] --> MW
 DASH["Dashboard Router"] --> MW
 ADMIN["Admin Router"] --> MW
+TRANSCRIPT["Transcript Router"] --> MW
 ANALYZE --> DBM["DB Models"]
 UPLOAD --> DBM
 QUEUE --> DBM
@@ -793,12 +846,18 @@ CAND --> RESUME["Resume File Storage"]
 INTKIT --> EVALS["Interview Evaluations"]
 INTKIT --> OVERALL["Overall Assessments"]
 INTKIT --> EXP_DEEP_DIVE["Experience Deep-Dive Category"]
+INTKIT --> DEBRIEF["Debrief Generation"]
+TRANSCRIPT --> TRANS_ANALYSIS["Transcript Analysis"]
+TRANSCRIPT --> PII_REDACTION["PII Redaction Service"]
+TRANSCRIPT --> EVIDENCE_VALID["Evidence Validation"]
 DASH --> SCREENING["Screening Analytics"]
 DASH --> PIPELINE["Pipeline Visualization"]
 ADMIN --> METRICS["Platform Metrics"]
 ADMIN --> USAGE["Usage Trends"]
 EXPORT --> HANDOFF["HM Handoff Package"]
 EXPORT --> MATRIX["Comparison Matrix"]
+PHONEKIT["PhoneScreenKit Component"] --> INTKIT
+PHONEKIT --> DEBRIEF
 ```
 
 **Diagram sources**
@@ -817,9 +876,12 @@ EXPORT --> MATRIX["Comparison Matrix"]
 - [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-224)
 - [dashboard.py:1-382](file://app/backend/routes/dashboard.py#L1-382)
 - [admin.py:1-1119](file://app/backend/routes/admin.py#L1-1119)
+- [transcript.py:1-220](file://app/backend/routes/transcript.py#L1-220)
 - [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
 - [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-360)
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-307)
+- [transcript_service.py:1-374](file://app/backend/services/transcript_service.py#L1-374)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -835,11 +897,16 @@ EXPORT --> MATRIX["Comparison Matrix"]
 - Intelligent weight system optimizes scoring accuracy with AI-powered suggestions
 - Frontend client sets reasonable timeouts for long-running operations
 - Resume file storage uses efficient binary storage with format-specific delivery optimization
-- **NEW** Dashboard system uses efficient aggregation queries with minimal database overhead
-- **NEW** JD-scoped candidate management leverages optimized joins and filtering for large datasets
-- **NEW** HM Handoff Package export performs bulk data aggregation with pre-loaded relationships
+- **NEW** Phone screening system provides real-time evaluation with structured debrief generation
+- **NEW** Transcript analysis system handles multiple file formats with efficient parsing and analysis
+- **NEW** Debried generation system uses LLM service with semaphore control for concurrent access
+- **NEW** Frontend PhoneScreenKit component implements efficient validation and submission workflows
 - **NEW** Interview evaluation system uses efficient indexing on result_id, user_id, and question identifiers across four categories
-- **NEW** Admin analytics endpoints use optimized SQL aggregations for platform-wide metrics
+- **NEW** Overall assessment system includes debrief_json and recruiter_score fields with optimized storage
+- Dashboard system uses efficient aggregation queries with minimal database overhead
+- JD-scoped candidate management leverages optimized joins and filtering for large datasets
+- HM Handoff Package export performs bulk data aggregation with pre-loaded relationships
+- Admin analytics endpoints use optimized SQL aggregations for platform-wide metrics
 - Scorecard generation performs efficient aggregation queries with minimal database overhead, including Experience Deep-Dive category
 - Experience Deep-Dive category adds minimal overhead as it follows the same evaluation pattern as other categories
 
@@ -852,22 +919,22 @@ Common errors and resolutions:
   - Cause: Non-admin attempting admin-only operation, tenant boundary violation
   - Resolution: Ensure admin role or proper tenant access
 - 400 Bad Request
-  - Cause: Invalid file type, oversized file, insufficient JD length, invalid JSON, chunk validation errors
+  - Cause: Invalid file type, oversized file, insufficient JD length, invalid JSON, chunk validation errors, transcript format issues, invalid evaluation categories
   - Resolution: Validate inputs and file constraints
 - 404 Not Found
-  - Cause: Resource not found (user, candidate, template, result, job, resume file, screening result, job description)
+  - Cause: Resource not found (user, candidate, template, result, job, resume file, screening result, job description, transcript analysis)
   - Resolution: Verify IDs and tenant scoping
 - 422 Unprocessable Entity
-  - Cause: Validation errors in interview evaluation categories, ratings, overall assessment recommendations, JD status updates
+  - Cause: Validation errors in interview evaluation categories, ratings, overall assessment recommendations, JD status updates, transcript analysis parameters
   - Resolution: Check allowed values: question_category (technical, behavioral, culture_fit, experience_deep_dive), rating (strong, adequate, weak), recommendation (advance, hold, reject), status (pending, shortlisted, rejected, in-review, hired)
 - 429 Too Many Requests
   - Cause: Monthly analysis limit exceeded
   - Resolution: Upgrade plan or wait for reset
 - 500 Internal Server Error
-  - Cause: Pipeline or LLM failures, queue processing errors, file storage failures, database constraint violations, dashboard analytics failures
+  - Cause: Pipeline or LLM failures, queue processing errors, file storage failures, database constraint violations, dashboard analytics failures, debrief generation errors, transcript analysis failures
   - Resolution: Retry or check /health and /api/llm-status
 - 503 Service Unavailable
-  - Cause: Queue system overloaded, LLM service unavailable, admin metrics system overwhelmed
+  - Cause: Queue system overloaded, LLM service unavailable, admin metrics system overwhelmed, transcript analysis service unavailable
   - Resolution: Retry with exponential backoff, check queue stats, verify database connectivity
 
 **Section sources**
@@ -880,10 +947,11 @@ Common errors and resolutions:
 - [queue_api.py:323-344](file://app/backend/routes/queue_api.py#L323-L344)
 - [candidates.py:519-526](file://app/backend/routes/candidates.py#L519-L526)
 - [interview_kit.py:441-489](file://app/backend/routes/interview_kit.py#L441-L489)
+- [transcript.py:56-66](file://app/backend/routes/transcript.py#L56-66)
 - [candidates.py:694-698](file://app/backend/routes/candidates.py#L694-L698)
 
 ## Conclusion
-This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. The new resume file management system provides comprehensive support for multiple file formats with format-specific delivery behavior. **NEW** The Dashboard system introduces comprehensive screening analytics with period-based filtering, pipeline visualization, and JD effectiveness tracking. **NEW** JD-scoped candidate management enables focused candidate ranking, bulk status updates, and tenant-scoped operations. **NEW** HM Handoff Package export delivers structured data for hiring managers with comparison matrices and interview evaluation integration. **NEW** The Interview Kit Evaluation system introduces structured interview scoring with per-question ratings across four categories, including the new Experience Deep-Dive category for comprehensive experience analysis. **NEW** Admin analytics provides platform-wide insights with metrics overview and usage trend reporting. Clients should implement token refresh, handle streaming events, respect rate limits, utilize the queue system for optimal performance, leverage the resume file management for seamless candidate file handling, integrate the dashboard system for comprehensive screening operations, use JD-scoped APIs for focused candidate management, export HM packages for hiring workflows, and integrate the interview evaluation system for comprehensive candidate assessment workflows. Administrators can manage plans, usage, and queue operations via dedicated endpoints while accessing platform-wide metrics and usage trends.
+This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. The new resume file management system provides comprehensive support for multiple file formats with format-specific delivery behavior. **NEW** The Phone screening system introduces structured interview evaluation with Experience Deep-Dive category support and comprehensive debrief generation with LLM-powered analysis. **NEW** The Transcript analysis system enables unbiased candidate evaluation from audio/video sources with PII redaction and evidence validation capabilities. **NEW** The enhanced interview kit functionality provides comprehensive evaluation across four categories with integrated debrief generation and scoring. **NEW** The Dashboard system introduces comprehensive screening analytics with period-based filtering, pipeline visualization, and JD effectiveness tracking. **NEW** JD-scoped candidate management enables focused candidate ranking, bulk status updates, and tenant-scoped operations. **NEW** HM Handoff Package export delivers structured data for hiring managers with comparison matrices and interview evaluation integration. **NEW** Admin analytics provides platform-wide insights with metrics overview and usage trend reporting. Clients should implement token refresh, handle streaming events, respect rate limits, utilize the queue system for optimal performance, leverage the resume file management for seamless candidate file handling, integrate the phone screening system for structured interview workflows, use transcript analysis for unbiased evaluation, integrate the enhanced interview kit for comprehensive assessment, and utilize the frontend PhoneScreenKit component for complete phone screening experience. Administrators can manage plans, usage, and queue operations via dedicated endpoints while accessing platform-wide metrics and usage trends.
 
 ## Appendices
 
@@ -942,6 +1010,44 @@ This API provides a robust foundation for AI-powered resume screening with stron
 **Section sources**
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 - [db_models.py:112-133](file://app/backend/models/db_models.py#L112-L133)
+
+### Phone Screening System
+**NEW** Structured interview evaluation and debrief generation system
+
+- PhoneScreenKit component:
+  - Four-category evaluation interface: technical, behavioral, culture_fit, experience_deep_dive
+  - Real-time question prioritization based on missing/matched skills
+  - Structured evaluation with rating and notes
+  - Conversation summary with validation and debrief generation
+  - Integration with frontend API for seamless workflow
+- Debried generation:
+  - LLM-powered structured analysis with sentiment scoring
+  - Combined rating distribution and sentiment for recruiter score
+  - Recommendation system (Advance/Hold/Reject) with rationale
+  - Structured content with overview, strengths, concerns, recommendation rationale
+
+**Updated** Added comprehensive phone screening system with structured evaluation and debrief generation
+
+**Section sources**
+- [PhoneScreenKit.jsx:86-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L86-L476)
+- [interview_kit.py:246-405](file://app/backend/routes/interview_kit.py#L246-L405)
+
+### Transcript Analysis System
+**NEW** Unbiased candidate evaluation from audio/video transcripts
+
+- Supported formats: VTT (Zoom/Teams), SRT, plain text
+- Automatic format detection and parsing
+- PII redaction service integration
+- Evidence validation for claim verification
+- Structured analysis with fit scores, recommendations, and detailed breakdown
+- Confidence scoring and bias mitigation
+
+**Updated** Added comprehensive transcript analysis system with PII redaction and evidence validation
+
+**Section sources**
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
+- [transcript_service.py:74-90](file://app/backend/services/transcript_service.py#L74-L90)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
 
 ### Dashboard and Analytics System
 **NEW** Comprehensive dashboard and analytics system for screening operations
@@ -1023,6 +1129,7 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Recruiter recommendation system: advance, hold, reject
   - Text-based overall assessment summary
   - Integration with automated scorecard generation
+  - New debrief_json and recruiter_score fields for enhanced analysis
 - Scorecard generation:
   - Aggregates evaluation data with analysis results across all four categories
   - Provides dimension summaries for each category including experience_deep_dive_summary
@@ -1032,11 +1139,17 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Focuses on comprehensive experience analysis and career progression
   - Includes specialized questions for deep experience exploration
   - Extends evaluation framework to cover career depth and expertise evolution
+- Debried generation:
+  - LLM-powered structured analysis combining rating distribution and sentiment
+  - Combined scoring: rating_score (40%) + sentiment_score (60%)
+  - Structured content with overview, strengths, concerns, recommendation rationale
+  - Automatic recommendation generation (Advance/Hold/Reject)
 
 **Updated** Extended evaluation categories to include experience_deep_dive and enhanced scorecard generation to include experience_deep_dive_summary
 
 **Section sources**
 - [interview_kit.py:217-257](file://app/backend/routes/interview_kit.py#L217-L257)
+- [interview_kit.py:246-405](file://app/backend/routes/interview_kit.py#L246-L405)
 - [db_models.py:217-257](file://app/backend/models/db_models.py#L217-L257)
 - [schemas.py:441-517](file://app/backend/models/schemas.py#L441-L517)
 
@@ -1073,6 +1186,8 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Queue job monitoring with polling
   - Batch uploads and exports
   - Resume file download and preview with format-specific behavior
+  - **NEW** Phone screening integration with structured evaluation and debrief generation
+  - **NEW** Transcript analysis integration with format detection and unbiased evaluation
   - **NEW** Dashboard integration with summary, activity feed, and analytics
   - **NEW** JD-scoped candidate management with ranking and bulk operations
   - **NEW** HM Handoff Package export with comparison matrix visualization
@@ -1084,7 +1199,9 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Manage bearer tokens and handle 401/429 responses
   - Implement chunked upload with proper error handling
   - Monitor queue jobs with retry logic
-  - Handle binary file downloads with appropriate response types
+  - Handle binary resume file downloads with appropriate response types
+  - **NEW** Phone screening evaluation and debrief generation workflows
+  - **NEW** Transcript analysis with PII redaction and evidence validation
   - **NEW** Dashboard analytics integration with period-based filtering
   - **NEW** JD-scoped candidate management with bulk status updates
   - **NEW** HM Handoff Package export with structured data handling
@@ -1095,6 +1212,8 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Implement JWT verification and bearer token parsing
   - Handle chunked upload streams and queue operations
   - Process binary resume file responses with proper MIME type handling
+  - **NEW** Phone screening system integration with structured evaluation
+  - **NEW** Transcript analysis API integration with format support
   - **NEW** Dashboard system integration with comprehensive analytics
   - **NEW** JD-scoped APIs integration with candidate ranking and bulk operations
   - **NEW** Interview evaluation API integration with structured data handling across all categories
@@ -1107,6 +1226,7 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [api.js:183-200](file://app/frontend/src/lib/api.js#L183-L200)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 - [api.js:984-1036](file://app/frontend/src/lib/api.js#L984-L1036)
+- [api.js:1209-1247](file://app/frontend/src/lib/api.js#L1209-L1247)
 
 ### Request/Response Schemas
 - AnalysisResponse
@@ -1128,6 +1248,18 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - role_category, seniority_level, suggested_weights, reasoning, confidence, role_excellence_label
 - ResumeFileResponse
   - Binary file stream with appropriate MIME type and Content-Disposition header
+- **NEW** Phone screening schemas:
+  - EvaluationUpsert: question_category, question_index, rating, notes
+  - EvaluationOut: id, question_category, question_index, rating, notes, updated_at
+  - OverallAssessmentUpsert: overall_assessment, recruiter_recommendation
+  - DebriefRequest: conversation_summary
+  - DebriefContent: overview, strengths, concerns, recommendation_rationale
+  - DebriefResponse: debrief, recruiter_score, recommendation
+  - ScorecardDimension: category, total_questions, evaluated_count, strong_count, adequate_count, weak_count, key_notes, evaluators
+  - ScorecardOut: comprehensive interview scorecard with dimension summaries including experience_deep_dive_summary
+- **NEW** Transcript analysis schemas:
+  - TranscriptAnalysisResponse: id, candidate_id, candidate_name, role_template_id, role_template_name, source_platform, analysis_result, created_at
+  - AnalysisResult: fit_score, technical_depth, communication_quality, jd_alignment, strengths, areas_for_improvement, red_flags, recommendation, recommendation_rationale
 - **NEW** Dashboard schemas:
   - DashboardSummaryResponse: action_items, pipeline_by_jd, weekly_metrics
   - ScreeningAnalyticsResponse: period, total_analyzed, avg_fit_score, recommendation_distribution, analyses_by_day, top_skill_gaps, score_distribution, pass_through_rates, jd_effectiveness
@@ -1138,12 +1270,6 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - **NEW** HM Handoff Package schemas:
   - HandoffPackageResponse: jd_name, jd_id, generated_at, generated_by, shortlisted_candidates array, comparison_matrix, total_shortlisted
   - ComparisonMatrixResponse: dimensions, candidates with score values
-- **NEW** InterviewEvaluation schemas:
-  - EvaluationUpsert: question_category, question_index, rating, notes
-  - EvaluationOut: id, question_category, question_index, rating, notes, updated_at
-  - OverallAssessmentUpsert: overall_assessment, recruiter_recommendation
-  - ScorecardDimension: category, total_questions, evaluated_count, strong_count, adequate_count, weak_count, key_notes
-  - ScorecardOut: comprehensive interview scorecard with dimension summaries including experience_deep_dive_summary
 - **NEW** Admin analytics schemas:
   - PlatformMetricsOverview: tenants, users, analyses, storage, plans, revenue
   - UsageTrendsResponse: period_days, analyses, signups
@@ -1156,10 +1282,13 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [queue_api.py:105-141](file://app/backend/routes/queue_api.py#L105-L141)
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 - [schemas.py:441-517](file://app/backend/models/schemas.py#L441-L517)
+- [schemas.py:536-554](file://app/backend/models/schemas.py#L536-L554)
 - [dashboard.py:61-381](file://app/backend/routes/dashboard.py#L61-L381)
 - [candidates.py:575-721](file://app/backend/routes/candidates.py#L575-L721)
 - [export.py:162-308](file://app/backend/routes/export.py#L162-L308)
 - [admin.py:700-814](file://app/backend/routes/admin.py#L700-L814)
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
 
 ### Data Model Overview
 ```mermaid
@@ -1238,12 +1367,16 @@ class RoleTemplate {
 +string jd_text
 +string scoring_weights
 +string tags
++string required_skills_override
++string nice_to_have_skills_override
++datetime created_at
 }
 class Comment {
 +int id
 +int result_id
 +int user_id
 +string text
++datetime created_at
 }
 class UsageLog {
 +int id
@@ -1320,8 +1453,20 @@ class OverallAssessment {
 +int user_id
 +Text overall_assessment
 +string recruiter_recommendation
++Text debrief_json
++int recruiter_score
 +datetime created_at
 +datetime updated_at
+}
+class TranscriptAnalysis {
++int id
++int tenant_id
++int candidate_id
++int role_template_id
++Text transcript_text
++string source_platform
++Text analysis_result
++datetime created_at
 }
 class InterviewScorecard {
 +string candidate_name
@@ -1338,6 +1483,8 @@ class InterviewScorecard {
 +string recruiter_recommendation
 +string[] strengths_confirmed
 +string[] concerns_identified
++DebriefContent debrief
++int recruiter_score
 }
 class DashboardSummary {
 +ActionItems action_items
@@ -1391,6 +1538,9 @@ ScreeningResult "1" --> "many" DashboardSummary : "dashboard"
 ScreeningResult "1" --> "many" ScreeningAnalytics : "analytics"
 ScreeningResult "1" --> "many" HandoffPackage : "handoff"
 Tenant "1" --> "many" PlatformMetrics : "platform"
+ScreeningResult "1" --> "many" TranscriptAnalysis : "transcripts"
+TranscriptAnalysis "1" --> "many" Candidate : "candidate"
+TranscriptAnalysis "1" --> "many" RoleTemplate : "role_template"
 ```
 
 **Diagram sources**
@@ -1400,3 +1550,5 @@ Tenant "1" --> "many" PlatformMetrics : "platform"
 - [dashboard.py:61-381](file://app/backend/routes/dashboard.py#L61-L381)
 - [export.py:162-308](file://app/backend/routes/export.py#L162-L308)
 - [admin.py:700-814](file://app/backend/routes/admin.py#L700-L814)
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)

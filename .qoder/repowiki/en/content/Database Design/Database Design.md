@@ -41,6 +41,7 @@
 - [032_sso_config.py](file://alembic/versions/032_sso_config.py)
 - [033_unique_constraints.py](file://alembic/versions/033_unique_constraints.py)
 - [034_password_reset_tokens.py](file://alembic/versions/034_password_reset_tokens.py)
+- [035_recruiter_debrief.py](file://alembic/versions/035_recruiter_debrief.py)
 - [main.py](file://app/backend/main.py)
 - [auth.py](file://app/backend/middleware/auth.py)
 - [subscription.py](file://app/backend/routes/subscription.py)
@@ -66,16 +67,17 @@
 - [billing/webhook_processor.py](file://app/backend/services/billing/webhook_processor.py)
 - [sso_service.py](file://app/backend/services/sso_service.py)
 - [usage_alert_service.py](file://app/backend/services/usage_alert_service.py)
+- [pdf_report_service.py](file://app/backend/services/pdf_report_service.py)
 - [test_candidate_dedup.py](file://app/backend/tests/test_candidate_dedup.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced documentation to include the new `_upsert_screening_result` function and its role in preventing unique constraint violations
-- Updated version management documentation to reflect automatic version incrementing through the `version_number` field
-- Added comprehensive coverage of the intelligent scoring weights system with version tracking
-- Enhanced deduplication system documentation with multi-step cleanup process and unique constraint implementation
-- Updated screening result model documentation with version management fields and automatic version incrementing
+- Enhanced OverallAssessment model documentation to include new debrief_json and recruiter_score columns
+- Updated migration system documentation to include new 035_recruiter_debrief migration
+- Added comprehensive coverage of the recruiter debrief system with structured debrief content and computed scores
+- Updated Interview Kit Evaluation Framework documentation to reflect new debrief generation capabilities
+- Enhanced scoring system documentation with weighted scoring methodology combining evaluation ratings and sentiment analysis
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -92,7 +94,7 @@
 ## Introduction
 This document describes the database design for Resume AI by ThetaLogics. It covers the entity relationship model, field definitions, indexes, constraints, multi-tenant architecture, subscription and usage tracking, the Alembic migration system, data validation rules, business logic constraints, referential integrity, data access patterns, caching strategies, performance considerations, data lifecycle and retention, backup strategies, and representative queries and reporting scenarios.
 
-**Updated** Enhanced with comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, sophisticated database migration system with multi-step deduplication logic for candidates and screening results, intelligent scoring weights system with version management, and automatic version incrementing through the `_upsert_screening_result` function.
+**Updated** Enhanced with comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, sophisticated database migration system with multi-step deduplication logic for candidates and screening results, intelligent scoring weights system with version management, automatic version incrementing through the `_upsert_screening_result` function, and the new recruiter debrief system with structured debrief content and computed scores.
 
 ## Project Structure
 The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements included connection pooling for PostgreSQL, token revocation support, strategic indexing for improved query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
@@ -120,57 +122,65 @@ Q["Usage Alert Service<br/>usage_alert_service.py"]
 R["Deduplication System<br/>analyze.py / test_candidate_dedup.py"]
 S["_upsert_screening_result<br/>analyze.py"]
 T["Version Management<br/>ScreeningResult.version_number"]
+U["Recruiter Debrief System<br/>debrief_json, recruiter_score"]
+V["PDF Report Service<br/>pdf_report_service.py"]
 end
 subgraph "Database Layer"
-U["SQLAlchemy Engine & Session<br/>database.py"]
-V["Declarative Models<br/>db_models.py"]
-W["Alembic Env & Script<br/>env.py / script.py.mako"]
-X["Enhanced Models<br/>Enterprise Security, Historical Learning, Billing, SSO, Audit Logs"]
-Y["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016 / 017 / 018 / 019 / 020 / 021 / 022 / 023 / 024 / 025 / 026 / 027 / 028 / 029 / 030 / 031 / 032 / 033 / 034"]
-Z["Enterprise Security<br/>impersonation_sessions, security_events, plan_features, erasure_logs"]
-AA["Historical Learning<br/>hiring_outcomes, team_skill_profiles, skill_trend_snapshots, outcome_skill_patterns"]
-BB["Billing System<br/>invoices, dunning_records, billing_events, usage_alerts"]
-CC["SSO Integration<br/>sso_configs"]
-DD["Audit System<br/>field_audit_logs"]
-EE["Enhanced Candidates<br/>ai_professional_summary, candidate_notes, resume_converted_pdf_data"]
-FF["Tenant Enhancements<br/>scoring_weights, onboarding_completed"]
-GG["Deduplication System<br/>Unique Constraints, Multi-step Cleanup"]
-HH["Intelligent Scoring<br/>version_number, is_active, role_category, weight_reasoning"]
-II["Version Management<br/>Automatic Increment, Active Version Tracking"]
+W["SQLAlchemy Engine & Session<br/>database.py"]
+X["Declarative Models<br/>db_models.py"]
+Y["Alembic Env & Script<br/>env.py / script.py.mako"]
+Z["Enhanced Models<br/>Enterprise Security, Historical Learning, Billing, SSO, Audit Logs"]
+AA["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016 / 017 / 018 / 019 / 020 / 021 / 022 / 023 / 024 / 025 / 026 / 027 / 028 / 029 / 030 / 031 / 032 / 033 / 034 / 035"]
+BB["Enterprise Security<br/>impersonation_sessions, security_events, plan_features, erasure_logs"]
+CC["Historical Learning<br/>hiring_outcomes, team_skill_profiles, skill_trend_snapshots, outcome_skill_patterns"]
+DD["Billing System<br/>invoices, dunning_records, billing_events, usage_alerts"]
+EE["SSO Integration<br/>sso_configs"]
+FF["Audit System<br/>field_audit_logs"]
+GG["Enhanced Candidates<br/>ai_professional_summary, candidate_notes, resume_converted_pdf_data"]
+HH["Tenant Enhancements<br/>scoring_weights, onboarding_completed"]
+II["Deduplication System<br/>Unique Constraints, Multi-step Cleanup"]
+JJ["Intelligent Scoring<br/>version_number, is_active, role_category, weight_reasoning"]
+KK["Version Management<br/>Automatic Increment, Active Version Tracking"]
+LL["Recruiter Debrief System<br/>debrief_json, recruiter_score"]
+MM["PDF Report Generation<br/>recruiter_score scaling to /5"]
 end
 A --> B
 A --> C
 C --> D
 D --> E
 C --> I
-I --> U
-A --> U
-U --> V
-U --> W
-U --> X
-U --> Y
-U --> Z
-U --> AA
-U --> BB
-U --> CC
-U --> DD
-U --> EE
-U --> FF
-U --> GG
-U --> HH
-U --> II
-V --> W
-W --> W
-N --> U
-O --> U
-P --> U
-Q --> U
+I --> W
+A --> W
+W --> X
+W --> Y
+W --> Z
+W --> AA
+W --> BB
+W --> CC
+W --> DD
+W --> EE
+W --> FF
+W --> GG
+W --> HH
+W --> II
+W --> JJ
+W --> KK
+W --> LL
+W --> MM
+X --> Y
+Y --> Y
+N --> W
+O --> W
+P --> W
+Q --> W
 L --> J
 L --> K
-M --> U
-R --> U
-S --> U
-T --> U
+M --> W
+R --> W
+S --> W
+T --> W
+U --> W
+V --> W
 ```
 
 **Diagram sources**
@@ -182,7 +192,7 @@ T --> U
 - [admin.py:1-800](file://app/backend/routes/admin.py#L1-L800)
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
-- [interview_kit.py:1-221](file://app/backend/routes/interview_kit.py#L1-L221)
+- [interview_kit.py:1-406](file://app/backend/routes/interview_kit.py#L1-L406)
 - [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
 - [billing/invoice_service.py:1-200](file://app/backend/services/billing/invoice_service.py#L1-L200)
 - [billing/dunning_service.py:1-200](file://app/backend/services/billing/dunning_service.py#L1-L200)
@@ -222,9 +232,11 @@ T --> U
 - [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
 - [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
 - [034_password_reset_tokens.py:1-33](file://alembic/versions/034_password_reset_tokens.py#L1-L33)
+- [035_recruiter_debrief.py:1-28](file://alembic/versions/035_recruiter_debrief.py#L1-L28)
 - [eligibility_service.py:1-80](file://app/backend/services/eligibility_service.py#L1-L80)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
+- [pdf_report_service.py:215-300](file://app/backend/services/pdf_report_service.py#L215-L300)
 - [test_candidate_dedup.py:1-686](file://app/backend/tests/test_candidate_dedup.py#L1-L686)
 
 **Section sources**
@@ -233,7 +245,7 @@ T --> U
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Core Components
-This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, native resume file storage capabilities, the new deterministic scoring framework with eligibility gating, the Interview Kit Evaluation Framework for structured interview scoring, the sophisticated deduplication system with multi-step cleanup processes, and the intelligent scoring weights system with version management and automatic version incrementing.
+This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, native resume file storage capabilities, the new deterministic scoring framework with eligibility gating, the Interview Kit Evaluation Framework for structured interview scoring, the sophisticated deduplication system with multi-step cleanup processes, the intelligent scoring weights system with version management, the new recruiter debrief system with structured debrief content and computed scores, and the comprehensive migration system with version history and schema evolution.
 
 - Tenant
   - Purpose: Multi-tenant container with subscription and usage tracking.
@@ -283,8 +295,10 @@ This section documents the core entities and their attributes relevant to the mu
   - Indexes: result_id, user_id, question_category, question_index.
 
 - OverallAssessment
-  - Purpose: Recruiter's overall assessment and recommendation for hiring manager scorecard.
-  - Key fields: id, result_id (FK), user_id (FK), overall_assessment (Text), recruiter_recommendation (String 10), created_at, updated_at.
+  - Purpose: Recruiter's overall assessment and recommendation for hiring manager scorecard with new debrief system.
+  - Key fields: id, result_id (FK), user_id (FK), overall_assessment (Text), recruiter_recommendation (String 10), debrief_json (Text), recruiter_score (Integer), created_at, updated_at.
+  - **Updated** Enhanced with debrief_json field for storing LLM-generated debrief content as structured JSON.
+  - **Updated** Enhanced with recruiter_score field for storing computed 0-100 score combining evaluation ratings and sentiment analysis.
   - **New** Unique constraint: (result_id, user_id).
   - Relationships: result (ScreeningResult), evaluator (User).
   - Indexes: result_id, user_id.
@@ -384,10 +398,16 @@ This section documents the core entities and their attributes relevant to the mu
   - **New** Automatic version incrementing: version_number increments on screening result updates.
   - **New** Active version tracking: is_active flag identifies current screening result version.
 
+- Recruiter Debrief System Tables
+  - **New** OverallAssessment debrief_json: Structured JSON content for LLM-generated debrief with overview, strengths, concerns, and recommendation rationale.
+  - **New** OverallAssessment recruiter_score: Computed 0-100 score combining evaluation ratings (40%) and sentiment analysis (60%).
+  - **New** Debriefer service: Computes weighted scores and generates structured debrief content from recruiter inputs.
+
 **Section sources**
 - [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
 - [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
 - [009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [035_recruiter_debrief.py:1-28](file://alembic/versions/035_recruiter_debrief.py#L1-L28)
 
 ## Architecture Overview
 The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations and sophisticated deduplication logic. Recent enhancements included token revocation support, strategic indexing for improved performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
@@ -442,6 +462,8 @@ CANDIDATES ||--|| RESUME_FILES : "stores"
 SCREENING_RESULTS ||--|| DETERMINISTIC_SCORES : "contains"
 INTERVIEW_EVALUATIONS ||--|| SCREENING_RESULTS : "evaluates"
 OVERALL_ASSESSMENTS ||--|| SCREENING_RESULTS : "assesses"
+OVERALL_ASSESSMENTS ||--|| DEBRIEF_JSON : "stores"
+OVERALL_ASSESSMENTS ||--|| RECRUITER_SCORE : "calculates"
 ELIGIBILITY_SERVICE ||--|| SCREENING_RESULTS : "evaluates"
 FIT_SCORER ||--|| SCREENING_RESULTS : "computes"
 INVOICES ||--|| TENANTS : "billed_to"
@@ -456,6 +478,7 @@ OUTCOME_SKILL_PATTERNS ||--|| ROLE_TEMPLATES : "analyzes"
 CANDIDATES ||--|| UNIQUE_CONSTRAINTS : "enforced_by"
 SCREENING_RESULTS ||--|| UNIQUE_CONSTRAINTS : "enforced_by"
 SCREENING_RESULTS ||--|| VERSION_MANAGEMENT : "tracked_by"
+OVERALL_ASSESSMENTS ||--|| RECRUITER_DEBRIEF : "enhances"
 ```
 
 **Diagram sources**
@@ -505,11 +528,13 @@ Admin-->>Client : Suspension confirmed
 ### Interview Kit Evaluation Framework
 - **New** Comprehensive Interview Kit Evaluation Framework for structured interview scoring and assessment.
 - **New** InterviewEvaluation table stores per-question evaluations with category, index, rating, and notes.
-- **New** OverallAssessment table captures recruiter's overall recommendation and final assessment.
+- **New** OverallAssessment table captures recruiter's overall recommendation and final assessment with new debrief system.
 - **New** Strict tenant isolation with unique constraints preventing cross-user and cross-question duplication.
 - **New** Interview Kit API endpoints for CRUD operations on evaluations and overall assessments.
 - **New** Scorecard generation that aggregates evaluation data and creates hiring manager reports.
 - **New** Data validation with category and rating constraints for consistent scoring.
+- **Updated** Enhanced OverallAssessment with debrief_json field for structured LLM-generated debrief content.
+- **Updated** Enhanced OverallAssessment with recruiter_score field for computed 0-100 score combining evaluation ratings and sentiment analysis.
 
 ```mermaid
 sequenceDiagram
@@ -517,6 +542,7 @@ participant Client as "Recruiter"
 participant API as "interview_kit.py"
 participant Eval as "InterviewEvaluation"
 participant OA as "OverallAssessment"
+participant Debriefer as "Debriefer Service"
 participant DB as "Database"
 Client->>API : PUT /api/results/{result_id}/evaluations
 API->>DB : UPSERT InterviewEvaluation (unique : result_id,user_id,category,index)
@@ -525,20 +551,63 @@ Eval->>DB : Store rating and notes
 Client->>API : PUT /api/results/{result_id}/evaluations/overall
 API->>DB : UPSERT OverallAssessment (unique : result_id,user_id)
 DB->>OA : Store overall assessment and recommendation
+Client->>API : POST /api/results/{result_id}/generate-debrief
+API->>Debriefer : Compute weighted score (ratings*0.4 + sentiment*0.6)
+Debriefer->>DB : Store debrief_json and recruiter_score
 Client->>API : GET /api/results/{result_id}/scorecard
 API->>DB : Aggregate evaluations and create scorecard
-DB->>API : Return structured scorecard with dimensions
-API-->>Client : Complete interview evaluation report
+DB->>API : Return structured scorecard with dimensions and debrief
+API-->>Client : Complete interview evaluation report with debrief
 ```
 
 **Diagram sources**
-- [interview_kit.py:39-221](file://app/backend/routes/interview_kit.py#L39-L221)
+- [interview_kit.py:39-406](file://app/backend/routes/interview_kit.py#L39-L406)
 - [017_interview_kit_enhancement.py:23-53](file://alembic/versions/017_interview_kit_enhancement.py#L23-L53)
 
 **Section sources**
-- [interview_kit.py:39-221](file://app/backend/routes/interview_kit.py#L39-L221)
-- [db_models.py:276-316](file://app/backend/models/db_models.py#L276-L316)
+- [interview_kit.py:39-406](file://app/backend/routes/interview_kit.py#L39-L406)
+- [db_models.py:276-323](file://app/backend/models/db_models.py#L276-L323)
 - [017_interview_kit_enhancement.py:23-53](file://alembic/versions/017_interview_kit_enhancement.py#L23-L53)
+
+### Recruiter Debrief System
+- **New** Comprehensive debrief system for structured recruiter assessment and recommendation.
+- **New** debrief_json field in OverallAssessment stores structured LLM-generated debrief content as JSON with fields: overview, strengths, concerns, recommendation_rationale.
+- **New** recruiter_score field in OverallAssessment stores computed 0-100 score combining evaluation ratings (40%) and sentiment analysis (60%).
+- **New** Debriefer service computes weighted scores using formula: `int(rating_score * 0.4 + sentiment_score * 0.6)` with clamping to 0-100 range.
+- **New** Structured debrief generation from recruiter conversation summary and evaluation data.
+- **New** Integration with PDF report service for displaying debrief content and scores in hiring manager reports.
+- **New** Data validation with recommendation normalization and constraint checking.
+
+```mermaid
+sequenceDiagram
+participant Recruiter as "Recruiter"
+participant API as "interview_kit.py"
+participant Debriefer as "Debriefer Service"
+participant OA as "OverallAssessment"
+participant PDF as "PDF Report Service"
+participant DB as "Database"
+Recruiter->>API : POST /api/results/{result_id}/generate-debrief
+API->>Debriefer : Extract rating_score and sentiment_score
+Debriefer->>Debriefer : Calculate weighted score = rating_score*0.4 + sentiment_score*0.6
+Debriefer->>Debriefer : Clamp to 0-100 range
+Debriefer->>DB : Store debrief_json and recruiter_score in OverallAssessment
+Recruiter->>API : GET /api/results/{result_id}/scorecard
+API->>DB : Retrieve OverallAssessment with debrief and score
+DB->>API : Return debrief content and recruiter_score
+API->>PDF : Generate PDF with debrief and score
+PDF->>Recruiter : Return PDF with structured debrief
+```
+
+**Diagram sources**
+- [interview_kit.py:244-406](file://app/backend/routes/interview_kit.py#L244-L406)
+- [pdf_report_service.py:215-300](file://app/backend/services/pdf_report_service.py#L215-L300)
+- [035_recruiter_debrief.py:12-28](file://alembic/versions/035_recruiter_debrief.py#L12-L28)
+
+**Section sources**
+- [interview_kit.py:244-406](file://app/backend/routes/interview_kit.py#L244-L406)
+- [db_models.py:305-323](file://app/backend/models/db_models.py#L305-L323)
+- [pdf_report_service.py:215-300](file://app/backend/services/pdf_report_service.py#L215-L300)
+- [035_recruiter_debrief.py:1-28](file://alembic/versions/035_recruiter_debrief.py#L1-L28)
 
 ### Enterprise Security and Administrative Features
 - **New** Comprehensive impersonation session management allowing super_admin users to temporarily act as target users for troubleshooting and support.
@@ -963,7 +1032,7 @@ Auth-->>Client : Clear cookies and return success
 ### Migration System and Schema Evolution
 - Alembic env registers models and binds metadata to the configured DATABASE_URL.
 - Migrations are idempotent and guard against pre-existing tables/columns.
-- **Updated** Version history with new administrative, notification, file storage, deterministic scoring, interview evaluation, enterprise security, historical learning, billing, SSO, audit features, sophisticated deduplication system, and intelligent scoring weights:
+- **Updated** Version history with new administrative, notification, file storage, deterministic scoring, interview evaluation, enterprise security, historical learning, billing, SSO, audit features, sophisticated deduplication system, intelligent scoring weights, and recruiter debrief system:
   - 001: Enrich candidates with profile fields; add jd_cache and skills tables.
   - 002: Add parser_snapshot_json to candidates.
   - 003: Enhance subscription_plans, add tenant usage fields, create usage_logs, seed plans, link existing tenants to default plan.
@@ -998,6 +1067,7 @@ Auth-->>Client : Clear cookies and return success
   - 032: **New** SSO configuration for SAML/OIDC identity provider integration.
   - 033: **New** Sophisticated deduplication system with multi-step cleanup process for candidates and screening results.
   - 034: **New** Password reset tokens table with unique constraint.
+  - 035: **New** Recruiter debrief system with debrief_json and recruiter_score columns added to overall_assessments table.
 
 ```mermaid
 graph LR
@@ -1035,6 +1105,7 @@ EE --> FF["031: Onboarding flag"]
 FF --> GG["032: SSO configuration"]
 GG --> HH["033: Sophisticated deduplication system"]
 HH --> II["034: Password reset tokens"]
+II --> JJ["035: Recruiter debrief system"]
 ```
 
 **Diagram sources**
@@ -1073,6 +1144,7 @@ HH --> II["034: Password reset tokens"]
 - [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
 - [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
 - [034_password_reset_tokens.py:1-33](file://alembic/versions/034_password_reset_tokens.py#L1-L33)
+- [035_recruiter_debrief.py:1-28](file://alembic/versions/035_recruiter_debrief.py#L1-L28)
 
 **Section sources**
 - [env.py:1-51](file://alembic/env.py#L1-L51)
@@ -1111,6 +1183,7 @@ HH --> II["034: Password reset tokens"]
 - [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
 - [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
 - [034_password_reset_tokens.py:1-33](file://alembic/versions/034_password_reset_tokens.py#L1-L33)
+- [035_recruiter_debrief.py:1-28](file://alembic/versions/035_recruiter_debrief.py#L1-L28)
 
 ### Data Validation Rules and Business Logic Constraints
 - Tenant isolation: All sensitive routes filter by tenant_id.
@@ -1136,6 +1209,8 @@ HH --> II["034: Password reset tokens"]
 - **Updated** Intelligent scoring weights: Version management with automatic version incrementing through the `_upsert_screening_result` function.
 - **Updated** Version management: Automatic version incrementing using `(existing.version_number or 1) + 1` pattern.
 - **Updated** Active version tracking: `is_active` flag identifies current screening result version for efficient querying.
+- **Updated** Recruiter debrief validation: debrief_json must be valid JSON; recruiter_score must be 0-100 integer; recommendation must be normalized to lowercase.
+- **Updated** PDF report integration: Recruiter score scaled from 0-100 to 0-5 scale for report display.
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -1156,6 +1231,7 @@ HH --> II["034: Password reset tokens"]
 - [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
 - [033_unique_constraints.py:15-28](file://alembic/versions/033_unique_constraints.py#L15-L28)
 - [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
+- [pdf_report_service.py:221-223](file://app/backend/services/pdf_report_service.py#L221-L223)
 
 ### Referential Integrity and Indexes
 - Foreign keys:
@@ -1196,6 +1272,8 @@ HH --> II["034: Password reset tokens"]
   - **Updated** UsageAlert.tenant_id -> Tenant.id (CASCADE)
   - **Updated** SSOSession.tenant_id -> Tenant.id (CASCADE)
   - **Updated** FieldAuditLog.changed_by -> User.id
+  - **Updated** OverallAssessment.debrief_json -> OverallAssessment.debrief_json (self-reference for debrief content)
+  - **Updated** OverallAssessment.recruiter_score -> OverallAssessment.recruiter_score (self-reference for computed score)
 - Indexes:
   - Candidate.email, Candidate.resume_file_hash
   - SubscriptionPlans(is_active, sort_order)
@@ -1203,7 +1281,7 @@ HH --> II["034: Password reset tokens"]
   - UsageLogs(tenant_id, action), UsageLogs(tenant_id, created_at), UsageLogs(created_at)
   - ScreeningResults(candidate_id), ScreeningResults(timestamp), **Updated** ScreeningResults(tenant_id, candidate_id, role_template_id) with partial unique index
   - InterviewEvaluations(result_id), InterviewEvaluations(user_id), InterviewEvaluations(question_category), InterviewEvaluations(question_index)
-  - OverallAssessments(result_id), OverallAssessments(user_id)
+  - OverallAssessments(result_id), OverallAssessments(user_id), **Updated** OverallAssessments(debrief_json), **Updated** OverallAssessments(recruiter_score)
   - RevokedTokens(id), RevokedTokens(jti)
   - AuditLogs(action), AuditLogs(created_at)
   - FeatureFlags(key)
@@ -1235,6 +1313,7 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Unique candidate constraints: (tenant_id, email) and (tenant_id, resume_file_hash) with partial indexes
   - **Updated** Unique screening result constraints: (tenant_id, candidate_id, role_template_id) with foreign key safety
   - **Updated** Intelligent scoring weights indexes: ScreeningResults(is_active, candidate_id), ScreeningResults(candidate_id, version_number)
+  - **Updated** Recruiter debrief indexes: OverallAssessments(debrief_json), OverallAssessments(recruiter_score)
 - **Updated** Deduplication constraints:
   - Partial unique index on candidates (tenant_id, email) WHERE email IS NOT NULL
   - Partial unique index on candidates (tenant_id, resume_file_hash) WHERE resume_file_hash IS NOT NULL
@@ -1243,6 +1322,10 @@ HH --> II["034: Password reset tokens"]
   - Automatic version incrementing through the `_upsert_screening_result` function using `(existing.version_number or 1) + 1` pattern
   - `is_active` boolean flag for tracking current screening result version
   - Composite indexes for efficient version querying: (is_active, candidate_id) and (candidate_id, version_number)
+- **Updated** Recruiter debrief constraints:
+  - debrief_json field stores structured JSON content with overview, strengths, concerns, recommendation_rationale
+  - recruiter_score field stores computed 0-100 integer score
+  - Unique constraint on (result_id, user_id) prevents duplicate debrief entries per user per result
 
 **Section sources**
 - [db_models.py:34-59](file://app/backend/models/db_models.py#L34-L59)
@@ -1288,6 +1371,7 @@ HH --> II["034: Password reset tokens"]
 - [032_sso_config.py:31](file://alembic/versions/032_sso_config.py#L31)
 - [033_unique_constraints.py:87-121](file://alembic/versions/033_unique_constraints.py#L87-L121)
 - [034_password_reset_tokens.py:23-28](file://alembic/versions/034_password_reset_tokens.py#L23-L28)
+- [035_recruiter_debrief.py:12-28](file://alembic/versions/035_recruiter_debrief.py#L12-L28)
 
 ### Data Access Patterns, Caching, and Performance
 - Data access patterns:
@@ -1310,6 +1394,8 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Deduplication system: Multi-step cleanup process with careful ordering for optimal performance.
   - **Updated** Intelligent scoring weights: Efficient querying by is_active and version_number for version management.
   - **Updated** Version management: Composite indexing for active version tracking and version history queries.
+  - **Updated** Recruiter debrief access: Efficient querying by debrief_json and recruiter_score for report generation.
+  - **Updated** PDF report generation: Cached debrief content and scaled scores for efficient report rendering.
 - Caching strategies:
   - JdCache stores parsed job descriptions keyed by hash to avoid repeated parsing.
   - Candidate enrichment fields reduce repeated parsing costs.
@@ -1324,8 +1410,10 @@ HH --> II["034: Password reset tokens"]
   - **Updated** SSO configuration cached for authentication performance.
   - **Updated** Deduplication system uses unique constraints to prevent duplicate inserts.
   - **Updated** Intelligent scoring weights cached for version management operations.
+  - **Updated** Recruiter debrief content cached in OverallAssessment for efficient access.
+  - **Updated** PDF report service caches scaled scores for efficient report generation.
 - Performance considerations:
-  - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp, deterministic_score, eligibility_status, question_category, question_index).
+  - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp, deterministic_score, eligibility_status, question_category, question_index, debrief_json, recruiter_score).
   - Prefer batch operations for inserts (bulk insert for plans).
   - Avoid N+1 queries by using joined eager loading where appropriate.
   - Connection pooling reduces connection overhead for PostgreSQL deployments.
@@ -1342,6 +1430,8 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Deduplication system optimized with multi-step cleanup process and unique constraints.
   - **Updated** Intelligent scoring weights system optimized with composite indexing for version queries.
   - **Updated** Version management optimized with automatic incrementing and active version tracking.
+  - **Updated** Recruiter debrief system optimized with structured JSON storage and computed score caching.
+  - **Updated** PDF report generation optimized with cached scaled scores and debrief content.
 
 **Section sources**
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
@@ -1358,18 +1448,19 @@ HH --> II["034: Password reset tokens"]
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
-- [interview_kit.py:140-221](file://app/backend/routes/interview_kit.py#L140-L221)
+- [interview_kit.py:140-406](file://app/backend/routes/interview_kit.py#L140-L406)
 - [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
 - [022_historical_learning_system.py:61-131](file://alembic/versions/022_historical_learning_system.py#L61-L131)
 - [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
 - [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
 - [033_unique_constraints.py:12-28](file://alembic/versions/033_unique_constraints.py#L12-L28)
 - [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
+- [pdf_report_service.py:215-300](file://app/backend/services/pdf_report_service.py#L215-L300)
 
 ### Data Lifecycle, Retention, and Backup
 - Data lifecycle:
   - Candidates: enriched once and reused for subsequent analyses; parser snapshots retained for auditability; resume files stored natively for direct access.
-  - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights; deterministic scoring fields provide permanent record of decision rationale; interview evaluations and overall assessments provide structured interview scoring data; intelligent scoring weights system maintains version history with automatic version incrementing.
+  - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights; deterministic scoring fields provide permanent record of decision rationale; interview evaluations and overall assessments provide structured interview scoring data; intelligent scoring weights system maintains version history with automatic version incrementing; recruiter debrief system stores structured debrief content and computed scores.
   - AnalysisArtifacts: temporary storage of parsed data with expiration for deduplication and reuse.
   - AnalysisJobs: queue management with automatic cleanup of failed or cancelled jobs.
   - AnalysisResults: immutable storage of completed analyses with quality assurance.
@@ -1383,7 +1474,7 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Resume files: stored directly in database with automatic cleanup policies.
   - **Updated** Deterministic scoring data: permanent storage of eligibility decisions and scoring rationale with version management.
   - **Updated** Interview evaluation data: structured scoring data with unique constraints for data integrity.
-  - **Updated** Overall assessment data: hiring manager recommendations with unique constraints.
+  - **Updated** Overall assessment data: structured debrief content and computed scores with unique constraints.
   - **Updated** Enterprise security: impersonation sessions with expiration-based cleanup.
   - **Updated** Security events: comprehensive security activity tracking with tenant context.
   - **Updated** Historical learning: time-series data with configurable retention for analytics.
@@ -1391,6 +1482,7 @@ HH --> II["034: Password reset tokens"]
   - **Updated** SSO configurations: tenant-specific settings with audit trail.
   - **Updated** Deduplication system: unique constraints prevent duplicate data entry.
   - **Updated** Intelligent scoring weights: version history maintained with automatic version incrementing.
+  - **Updated** Recruiter debrief system: structured JSON content and computed scores with retention policies.
 - Retention:
   - No explicit retention policies are defined in code; implement administrative controls to archive or purge historical data.
   - AnalysisArtifacts have automatic expiration (30 days) for cleanup.
@@ -1402,11 +1494,13 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Deterministic scoring data: retain for compliance and decision transparency.
   - **Updated** Interview evaluation data: retain for interview process documentation and compliance.
   - **Updated** Overall assessment data: retain for hiring decision transparency and legal compliance.
+  - **Updated** Recruiter debrief data: retain for structured assessment documentation and compliance.
   - **Updated** Enterprise security data: impersonation sessions with expiration-based cleanup.
   - **Updated** Historical learning data: time-series retention for analytical insights.
   - **Updated** Field audit logs: retention for compliance and change tracking.
   - **Updated** Deduplication system: unique constraints ensure data integrity without additional cleanup requirements.
   - **Updated** Intelligent scoring weights: version history retained for compliance and decision tracking.
+  - **Updated** Recruiter debrief system: structured JSON content and computed scores retained for compliance and decision tracking.
 - Backup:
   - Use database-native backups (e.g., pg_dump for PostgreSQL, SQLite backup mechanisms) and regular snapshots.
   - Consider logical backups for portable deployments.
@@ -1414,6 +1508,7 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Resume file storage requires consideration of binary data backup strategies.
   - **Updated** Deterministic scoring fields require backup for compliance and analytics continuity.
   - **Updated** Interview evaluation and overall assessment tables require backup for compliance and legal requirements.
+  - **Updated** Recruiter debrief system requires backup of debrief_json and recruiter_score fields for full continuity.
   - **Updated** Enterprise security tables require backup for compliance and audit requirements.
   - **Updated** Historical learning tables require backup for analytical continuity.
   - **Updated** Field audit logs require backup for compliance and change tracking.
@@ -1472,6 +1567,12 @@ HH --> II["034: Password reset tokens"]
   - Query: select candidate_id, version_number, is_active, role_category, created_at from screening_results where is_active = true and tenant_id = ? order by candidate_id, version_number desc;
 - **Updated** Version history analysis
   - Query: select candidate_id, count(*) as version_count, max(version_number) as latest_version, min(created_at) as first_analysis, max(created_at) as last_analysis from screening_results where tenant_id = ? group by candidate_id order by version_count desc;
+- **Updated** Recruiter debrief analysis
+  - Query: select count(*) as total_assessments, avg(recruiter_score) as avg_score, min(recruiter_score) as min_score, max(recruiter_score) as max_score from overall_assessments where recruiter_score is not null and tenant_id = ?;
+- **Updated** Debriefer content analysis
+  - Query: select count(*) as total_debriefs, avg(length(debrief_json)) as avg_content_length from overall_assessments where debrief_json is not null and tenant_id = ?;
+- **Updated** Debriefer recommendation effectiveness
+  - Query: select recruiter_recommendation, count(*) as count, avg(recruiter_score) as avg_score from overall_assessments where tenant_id = ? group by recruiter_recommendation order by count desc;
 
 **Section sources**
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
@@ -1486,12 +1587,13 @@ HH --> II["034: Password reset tokens"]
 - [candidates.py:504-559](file://app/backend/routes/candidates.py#L504-L559)
 - [eligibility_service.py:38-79](file://app/backend/services/eligibility_service.py#L38-L79)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
-- [interview_kit.py:268-400](file://app/backend/routes/interview_kit.py#L268-L400)
+- [interview_kit.py:268-406](file://app/backend/routes/interview_kit.py#L268-L406)
 - [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
 - [022_historical_learning_system.py:40-132](file://alembic/versions/022_historical_learning_system.py#L40-L132)
 - [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
 - [033_unique_constraints.py:15-28](file://alembic/versions/033_unique_constraints.py#L15-L28)
 - [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
+- [pdf_report_service.py:215-300](file://app/backend/services/pdf_report_service.py#L215-L300)
 
 ## Dependency Analysis
 The application initializes database tables at startup and registers models for Alembic. Routes depend on models and middleware for tenant isolation and usage enforcement. Recent enhancements included connection pooling configuration, token revocation support, queue system implementation, intelligent scoring capabilities, platform administration, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
@@ -1539,6 +1641,8 @@ D --> FA["Field Audit Logs<br/>Change Tracking"]
 D --> DU["Deduplication System<br/>Multi-step Cleanup"]
 D --> IS["Intelligent Scoring<br/>Version Management"]
 D --> VM["Version Management<br/>Automatic Increment"]
+D --> RD["Recruiter Debrief<br/>Structured Content & Scores"]
+D --> PRS["PDF Report Scaling<br/>0-100 to 0-5 Scale"]
 ```
 
 **Diagram sources**
@@ -1562,20 +1666,21 @@ D --> VM["Version Management<br/>Automatic Increment"]
 - [eligibility_service.py:1-80](file://app/backend/services/eligibility_service.py#L1-L80)
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
-- [interview_kit.py:1-221](file://app/backend/routes/interview_kit.py#L1-L221)
+- [interview_kit.py:1-406](file://app/backend/routes/interview_kit.py#L1-L406)
 - [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
 - [billing/invoice_service.py:1-200](file://app/backend/services/billing/invoice_service.py#L1-L200)
 - [billing/dunning_service.py:1-200](file://app/backend/services/billing/dunning_service.py#L1-L200)
 - [billing/webhook_processor.py:1-200](file://app/backend/services/billing/webhook_processor.py#L1-L200)
 - [sso_service.py:1-200](file://app/backend/services/sso_service.py#L1-L200)
 - [usage_alert_service.py:1-200](file://app/backend/services/usage_alert_service.py#L1-L200)
+- [pdf_report_service.py:215-300](file://app/backend/services/pdf_report_service.py#L215-L300)
 
 **Section sources**
 - [main.py:152-172](file://app/backend/main.py#L152-L172)
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Performance Considerations
-- Indexing: Ensure tenant_id, email, resume_file_hash, candidate_id, timestamp, deterministic_score, eligibility_status, question_category, question_index are indexed for fast filtering and deduplication.
+- Indexing: Ensure tenant_id, email, resume_file_hash, candidate_id, timestamp, deterministic_score, eligibility_status, question_category, question_index, debrief_json, recruiter_score are indexed for fast filtering and deduplication.
 - Query patterns: Use composite indexes for common filters (tenant_id + action, tenant_id + created_at).
 - Caching: Reuse JdCache and candidate enrichment to minimize parsing overhead.
 - Concurrency: Use SQLAlchemy sessions per request and avoid long transactions.
@@ -1591,12 +1696,14 @@ D --> VM["Version Management<br/>Automatic Increment"]
 - **Updated** Deterministic scoring performance: Early gating reduces computational overhead; capped scoring ensures consistent performance.
 - **Updated** Interview evaluation performance: Unique constraints prevent duplicate writes; efficient aggregation queries for scorecards.
 - **Updated** Overall assessment performance: Unique constraints ensure single assessment per user per result; efficient retrieval for scorecards.
-- **Updated** Enterprise security performance: Token hashing and expiration indexing support efficient impersonation management.
+- **Updated** Enterprise security performance: Token hashing and expiration indexing supports efficient impersonation management.
 - **Updated** Historical learning performance: Composite indexing enables efficient analytical queries across time dimensions.
 - **Updated** Field audit logging performance: Entity-type indexing supports efficient change tracking queries.
 - **Updated** Deduplication system performance: Unique constraints prevent duplicate inserts; multi-step cleanup process optimizes data integrity.
 - **Updated** Intelligent scoring weights performance: Composite indexing for version queries ensures efficient version management.
 - **Updated** Version management performance: Automatic incrementing reduces write conflicts; active version tracking optimizes query performance.
+- **Updated** Recruiter debrief performance: Structured JSON storage and computed score caching improve access performance.
+- **Updated** PDF report performance: Cached scaled scores and debrief content improve report generation performance.
 
 ## Troubleshooting Guide
 - Database connectivity
@@ -1672,6 +1779,12 @@ D --> VM["Version Management<br/>Automatic Increment"]
   - Version conflicts: Check for concurrent updates causing version number inconsistencies.
   - Query performance: Optimize version history queries with proper indexing.
   - Data retention: Implement version cleanup policies for older screening result versions.
+- **Updated** Recruiter debrief issues
+  - Debrief generation failures: Check debrief_json validation and JSON structure.
+  - Score calculation errors: Verify rating_score and sentiment_score inputs are valid integers.
+  - Data integrity: Ensure unique constraint on (result_id, user_id) prevents duplicate debrief entries.
+  - Performance: Monitor debrief_json storage and recruiter_score computation performance.
+  - PDF report integration: Verify scaled score conversion from 0-100 to 0-5 scale for report display.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -1690,18 +1803,19 @@ D --> VM["Version Management<br/>Automatic Increment"]
 - [fit_scorer.py:117-230](file://app/backend/services/fit_scorer.py#L117-L230)
 - [hybrid_pipeline.py:1266-1357](file://app/backend/services/hybrid_pipeline.py#L1266-L1357)
 - [interview_kit.py:28-80](file://app/backend/routes/interview_kit.py#L28-L80)
-- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-L488)
+- [schemas.py:450-488](file://app/backend/models/schemas.py#L450-488)
 - [enterprise_security.py:1-200](file://app/backend/services/enterprise_security.py#L1-L200)
 - [022_historical_learning_system.py:61-131](file://alembic/versions/022_historical_learning_system.py#L61-L131)
 - [026_audit_log_system.py:14-28](file://alembic/versions/026_audit_log_system.py#L14-L28)
 - [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
 - [033_unique_constraints.py:15-28](file://alembic/versions/033_unique_constraints.py#L15-L28)
 - [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
+- [pdf_report_service.py:221-223](file://app/backend/services/pdf_report_service.py#L221-L223)
 
 ## Conclusion
-The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model now provides comprehensive deterministic scoring with eligibility gating, structured decision rationale, and detailed scoring breakdowns. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. The Interview Kit Evaluation Framework introduces sophisticated interview scoring capabilities with per-question evaluations, overall assessments, and automated scorecard generation. The deterministic scoring system with hard gating rules ensures fair and transparent candidate evaluation processes. The intelligent scoring weights system with version management provides comprehensive tracking of analysis versions with automatic version incrementing through the `_upsert_screening_result` function. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
+The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model now provides comprehensive deterministic scoring with eligibility gating, structured decision rationale, and detailed scoring breakdowns. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. The Interview Kit Evaluation Framework introduces sophisticated interview scoring capabilities with per-question evaluations, overall assessments, and automated scorecard generation. The deterministic scoring system with hard gating rules ensures fair and transparent candidate evaluation processes. The intelligent scoring weights system with version management provides comprehensive tracking of analysis versions with automatic version incrementing through the `_upsert_screening_result` function. The new recruiter debrief system enhances the assessment process with structured debrief content and computed scores, providing comprehensive hiring manager insights. The comprehensive migration system with version history and schema evolution ensures backward compatibility while introducing powerful new features. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
 
-**Updated** The system now includes comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, sophisticated deduplication system with multi-step cleanup processes that prevent foreign key constraint violations during data integrity maintenance, intelligent scoring weights system with version management and automatic version incrementing, and the `_upsert_screening_result` function that prevents unique constraint violations through careful upsert logic. This comprehensive approach ensures data consistency while maintaining system performance and reliability.
+**Updated** The system now includes comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, sophisticated deduplication system with multi-step cleanup processes that prevent foreign key constraint violations during data integrity maintenance, intelligent scoring weights system with version management and automatic version incrementing, and the `_upsert_screening_result` function that prevents unique constraint violations through careful upsert logic. The new recruiter debrief system with structured debrief content and computed scores provides comprehensive hiring insights and integrates seamlessly with PDF report generation. This comprehensive approach ensures data consistency while maintaining system performance and reliability.
 
 ## Appendices
 
@@ -1738,7 +1852,9 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
   - **New** Unique constraint: (result_id, user_id, question_category, question_index).
   - Indexes: result_id, user_id, question_category, question_index.
 - OverallAssessment
-  - Fields: id, result_id (FK), user_id (FK), overall_assessment (Text), recruiter_recommendation (String 10), created_at, updated_at.
+  - Fields: id, result_id (FK), user_id (FK), overall_assessment (Text), recruiter_recommendation (String 10), debrief_json (Text), recruiter_score (Integer), created_at, updated_at.
+  - **Updated** Enhanced with debrief_json field for storing LLM-generated debrief content as structured JSON.
+  - **Updated** Enhanced with recruiter_score field for storing computed 0-100 score combining evaluation ratings and sentiment analysis.
   - **New** Unique constraint: (result_id, user_id).
   - Indexes: result_id, user_id.
 - UsageLog
@@ -1833,6 +1949,11 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
   - Fields: `_upsert_screening_result` function prevents unique constraint violations through careful upsert logic.
   - Fields: Automatic version incrementing using `(existing.version_number or 1) + 1` pattern.
   - Fields: Composite indexes for efficient version querying: (is_active, candidate_id) and (candidate_id, version_number).
+- **Updated** Recruiter Debrief System
+  - Fields: OverallAssessment debrief_json: Structured JSON content with overview, strengths, concerns, recommendation_rationale.
+  - Fields: OverallAssessment recruiter_score: Computed 0-100 score using formula: rating_score*0.4 + sentiment_score*0.6.
+  - Fields: Debriefer service: Validates inputs and computes weighted scores.
+  - Fields: PDF report integration: Scales scores from 0-100 to 0-5 for report display.
 
 **Section sources**
 - [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
@@ -1865,6 +1986,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [032_sso_config.py:14-31](file://alembic/versions/032_sso_config.py#L14-L31)
 - [033_unique_constraints.py:87-121](file://alembic/versions/033_unique_constraints.py#L87-L121)
 - [034_password_reset_tokens.py:23-28](file://alembic/versions/034_password_reset_tokens.py#L23-L28)
+- [035_recruiter_debrief.py:12-28](file://alembic/versions/035_recruiter_debrief.py#L12-L28)
 - [eligibility_service.py:10-14](file://app/backend/services/eligibility_service.py#L10-L14)
 
 ### Appendix B: Migration History
@@ -1902,6 +2024,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - 032: **New** SSO configuration for SAML/OIDC identity provider integration.
 - 033: **New** Sophisticated deduplication system with multi-step cleanup process for candidates and screening results.
 - 034: **New** Password reset tokens table with unique constraint.
+- 035: **New** Recruiter debrief system with debrief_json and recruiter_score columns added to overall_assessments table.
 
 **Section sources**
 - [001_enrich_candidates_add_caches.py:1-129](file://alembic/versions/001_enrich_candidates_add_caches.py#L1-L129)
@@ -1938,6 +2061,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [032_sso_config.py:1-36](file://alembic/versions/032_sso_config.py#L1-L36)
 - [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
 - [034_password_reset_tokens.py:1-33](file://alembic/versions/034_password_reset_tokens.py#L1-L33)
+- [035_recruiter_debrief.py:1-28](file://alembic/versions/035_recruiter_debrief.py#L1-L28)
 
 ### Appendix C: Deduplication System Details
 - **Multi-step Cleanup Process**: Carefully ordered SQL operations to prevent foreign key constraint violations during deduplication
@@ -1974,3 +2098,29 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 - [analyze.py:196-244](file://app/backend/routes/analyze.py#L196-L244)
 - [db_models.py:177-214](file://app/backend/models/db_models.py#L177-L214)
+
+### Appendix E: Recruiter Debrief System Details
+- **Debrief Content Structure**: Structured JSON content with four key fields for comprehensive assessment
+  - **Overview**: High-level summary of candidate performance and fit
+  - **Strengths**: Positive aspects and qualifications demonstrated
+  - **Concerns**: Areas of weakness or red flags identified
+  - **Recommendation Rationale**: Justification for hiring recommendation
+- **Weighted Score Calculation**: Formula combining evaluation ratings and sentiment analysis
+  - **Formula**: `int(rating_score * 0.4 + sentiment_score * 0.6)` with clamping to 0-100 range
+  - **Rating Score**: Average of interview evaluation ratings (0-100)
+  - **Sentiment Score**: Sentiment analysis of conversation summary (0-100)
+  - **Weight Distribution**: 40% evaluation ratings, 60% sentiment analysis
+- **Data Validation and Normalization**
+  - **Recommendation Normalization**: Converts to capitalized form and validates against allowed values
+  - **Score Clamping**: Ensures final score stays within 0-100 range
+  - **JSON Validation**: Ensures debrief_json contains valid structured content
+- **Integration Points**
+  - **PDF Report Service**: Scales score from 0-100 to 0-5 for report display
+  - **Unique Constraint**: Prevents duplicate debrief entries per user per result
+  - **Schema Migration**: Adds debrief_json and recruiter_score columns to overall_assessments table
+
+**Section sources**
+- [035_recruiter_debrief.py:1-28](file://alembic/versions/035_recruiter_debrief.py#L1-L28)
+- [interview_kit.py:244-406](file://app/backend/routes/interview_kit.py#L244-L406)
+- [db_models.py:305-323](file://app/backend/models/db_models.py#L305-L323)
+- [pdf_report_service.py:221-223](file://app/backend/services/pdf_report_service.py#L221-L223)
