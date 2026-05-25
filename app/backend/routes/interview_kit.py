@@ -1,5 +1,6 @@
 """Interview Kit evaluation and scorecard API."""
 import json
+import re
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,6 +19,7 @@ from app.backend.models.schemas import (
     EvaluatorInfo, ScorecardDimension, ScorecardOut,
     DebriefRequest, DebriefContent, DebriefResponse,
 )
+from app.backend.services.llm_service import LLMService, get_ollama_semaphore
 
 logger = logging.getLogger(__name__)
 
@@ -297,10 +299,10 @@ async def generate_debrief(
 ## AI Fit Score: {fit_score}%
 
 ## Rating Distribution from Phone Screen:
-- Technical: {rating_summary.get('technical', {{}})}
-- Behavioral: {rating_summary.get('behavioral', {{}})}
-- Culture Fit: {rating_summary.get('culture_fit', {{}})}
-- Experience Deep-Dive: {rating_summary.get('experience_deep_dive', {{}})}
+- Technical: {rating_summary['technical']}
+- Behavioral: {rating_summary['behavioral']}
+- Culture Fit: {rating_summary['culture_fit']}
+- Experience Deep-Dive: {rating_summary['experience_deep_dive']}
 
 ## Recruiter's Conversation Summary:
 {body.conversation_summary}
@@ -319,8 +321,6 @@ Generate a JSON response with exactly this structure:
 IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
 
     # 6. Call LLM via the same Ollama service used elsewhere
-    import re
-    from app.backend.services.llm_service import LLMService, get_ollama_semaphore
 
     debrief_data = None
     try:
