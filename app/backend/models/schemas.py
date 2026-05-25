@@ -533,6 +533,26 @@ class EvaluationOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class DebriefRequest(BaseModel):
+    """Request body for LLM debrief generation."""
+    conversation_summary: str
+
+
+class DebriefContent(BaseModel):
+    """Structured LLM-generated debrief content."""
+    overview: str = ""
+    strengths: str = ""
+    concerns: str = ""
+    recommendation_rationale: str = ""
+
+
+class DebriefResponse(BaseModel):
+    """Response from debrief generation endpoint."""
+    debrief: DebriefContent
+    recruiter_score: int
+    recommendation: str  # "Advance" | "Hold" | "Reject"
+
+
 class OverallAssessmentUpsert(BaseModel):
     """Request body for overall recruiter assessment."""
     overall_assessment: str
@@ -583,3 +603,5 @@ class ScorecardOut(BaseModel):
     recruiter_recommendation: Optional[str] = None
     strengths_confirmed: List[str] = []
     concerns_identified: List[str] = []
+    debrief: Optional[DebriefContent] = None
+    recruiter_score: Optional[int] = None

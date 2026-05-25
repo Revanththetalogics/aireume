@@ -1,25 +1,25 @@
 # ARIA Resume Intelligence Platform - Complete Product Specification
 
-**Version**: 2.0.0  
+**Version**: 2.1.0  
 **Company**: ThetaLogics  
 **License**: MIT (Open Source)  
 **Architecture**: Multi-tenant SaaS, Self-hosted  
-**Last Updated**: May 2026
+**Last Updated**: May 25, 2026
 
 ---
 
 ## Executive Summary
 
-ARIA is an enterprise-grade, AI-powered resume intelligence platform designed for modern hiring teams. Unlike cloud-based ATS solutions that send candidate data to third-party AI services, ARIA runs entirely on customer infrastructure with local LLM inference via Ollama, ensuring complete data privacy and sovereignty.
+ARIA is an enterprise-grade, AI-powered resume intelligence platform designed for modern hiring teams. ARIA supports both cloud-based LLM inference via Ollama Cloud (default) and fully self-hosted local LLM deployment, giving organizations flexibility between ease of setup and complete data sovereignty.
 
 ### Core Value Propositions
 
-1. **Data Privacy First** — All AI inference runs locally; sensitive candidate data never leaves customer infrastructure
+1. **Flexible Deployment** — Default cloud LLM (Ollama Cloud) for easy setup, OR fully self-hosted local LLM for complete data privacy
 2. **Enterprise-Grade Compliance** — EEOC/GDPR compliant with PII redaction, evidence-based decisions, and full audit trails
 3. **AI-Powered Intelligence** — Advanced NLP for skills extraction, gap detection, fit scoring, and narrative generation
 4. **Multi-Tenant SaaS** — Support for unlimited organizations with complete data isolation
-5. **Self-Hosted & Open Source** — Full control over recruitment stack with MIT licensing
-6. **Production-Ready** — 663+ tests, CI/CD pipeline, monitoring, and enterprise admin capabilities
+5. **Self-Hostable Platform** — Full control over application stack; optional local LLM for air-gapped deployments
+6. **Production-Ready** — 65+ tests, CI/CD pipeline, monitoring, and enterprise admin capabilities
 
 ---
 
@@ -29,25 +29,27 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Backend Framework** | FastAPI 0.115.6 (Python 3.11) | RESTful API development |
-| **ASGI Server** | Uvicorn 0.34.0 (4 workers) | Production server |
+| **Backend Framework** | FastAPI 0.115.5 (Python 3.11) | RESTful API development |
+| **ASGI Server** | Uvicorn 0.32.1 (4 workers) | Production server |
 | **Database (Prod)** | PostgreSQL 16 | Primary datastore with multi-tenant isolation |
-| **ORM** | SQLAlchemy 2.0.38 | Database abstraction |
-| **Migrations** | Alembic 1.13.3 | Schema versioning (21 migrations) |
+| **ORM** | SQLAlchemy 2.0.36 | Database abstraction |
+| **Migrations** | Alembic 1.14.0 | Schema versioning (34 migrations) |
 | **Frontend Framework** | React 18.3.1 | Modern UI library |
 | **Build Tool** | Vite 6.0.5 | Frontend bundling |
 | **Styling** | TailwindCSS 3.4.17 | Utility-first CSS |
 | **Charts** | Recharts 3.x | Data visualization |
 | **LLM Runtime** | Ollama (Cloud + Local) | AI inference engine |
-| **LLM Models** | gemma4:31b-cloud (primary, single model) | AI analysis |
-| **LLM Framework** | LangChain 0.2.0+ / LangGraph 0.3.0+ | LLM orchestration |
+| **LLM Models** | gemma4:31b-cloud (default), configurable | AI analysis |
+| **LLM Framework** | LangChain + LangGraph | LLM orchestration |
 | **Authentication** | python-jose + bcrypt | JWT tokens + password hashing |
 | **PDF Parsing** | pdfplumber + PyMuPDF | Document extraction |
-| **NLP** | spaCy 3.7+ + rapidfuzz 3.6+ | Text processing & fuzzy matching |
+| **NLP** | spaCy 3.8.2 + rapidfuzz | Text processing & fuzzy matching |
 | **Video Processing** | faster-whisper 1.1.0 + yt-dlp | Transcription |
 | **PII Redaction** | Microsoft Presidio | Enterprise-grade PII detection |
-| **Export** | pandas 2.2.3 + openpyxl | Data export |
+| **Export** | pandas (Excel export) | Data export |
 | **Monitoring** | Prometheus + FastAPI Instrumentator | Metrics collection |
+| **Task Queue** | Celery 5.4.0 + Redis 5.2.0 | Background task processing |
+| **Scheduling** | APScheduler 3.10.4 | Task scheduling |
 | **Testing** | pytest 8.3.4 + vitest 2.1.8 | Backend + frontend testing |
 | **Reverse Proxy** | Nginx | SSL termination, static files, load balancing |
 
@@ -105,7 +107,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 **Phase 1 - Deterministic Python Scoring (~1-2s)**:
 - Resume parsing with contact info extraction
-- Skills matching against 676+ skill registry with fuzzy matching
+- Skills matching against 951+ skill registry with fuzzy matching
 - Employment gap detection with severity classification (negligible/minor/moderate/critical)
 - Education validation with degree relevance scoring
 - Experience calculation with timeline analysis
@@ -588,6 +590,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - **RBAC**: Role-based access (admin/recruiter/viewer)
 - **Platform Roles**: Granular platform admin roles
 - **Tenant Isolation**: All queries scoped by tenant_id
+- **SSO/SAML 2.0**: Enterprise single sign-on support per tenant
 
 #### 17.2 Data Protection
 - **Multi-Tenant Isolation**: Complete data separation by tenant_id
@@ -687,7 +690,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 #### 19.4 Analysis & Transcript
 - **TranscriptAnalysis**: Interview transcript analyses with PII redaction metadata
 - **JdCache**: JD parse cache with MD5 keys
-- **Skill**: Dynamic skills registry (676+ skills) with aliases, domains, frequency
+- **Skill**: Dynamic skills registry (951+ skills) with aliases, domains, frequency
 
 #### 19.5 Administration
 - **AuditLog**: Platform admin audit trail
@@ -702,6 +705,16 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 #### 19.6 Caches & Tokens
 - **RevokedToken**: Revoked JWT tokens with expiration
 - **JdCache**: Job description parse cache
+- **PasswordResetToken**: Password reset tokens with expiration
+
+#### 19.7 SSO & Authentication
+- **SSOConfig**: Per-tenant SSO/SAML 2.0 configuration
+
+#### 19.8 Billing & Invoicing
+- **BillingEvent**: Billing event tracking
+- **Invoice**: Invoice records with status tracking
+- **DunningRecord**: Failed payment retry tracking
+- **UsageAlert**: Usage threshold alerts
 
 ### 20. API Endpoints (Complete Reference)
 
@@ -711,6 +724,14 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - `POST /api/auth/refresh` - Refresh access token
 - `GET /api/auth/me` - Get current user
 - `POST /api/auth/logout` - Revoke tokens
+- `POST /api/auth/forgot-password` - Request password reset token
+- `POST /api/auth/reset-password` - Reset password with token
+
+#### 20.1b SSO (`/api/sso`)
+- `GET /api/sso/config/{tenant_slug}` - Get SSO configuration (public)
+- `GET /api/sso/login/{tenant_slug}` - Initiate SSO login
+- `POST /api/sso/callback/{tenant_slug}` - SSO callback handler
+- `GET /api/sso/metadata/{tenant_slug}` - Get SAML metadata
 
 #### 20.2 Analysis (`/api/analyze`)
 - `POST /api/analyze` - Single resume analysis
@@ -766,6 +787,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 #### 20.10 Export (`/api/export`)
 - `GET /api/export/csv` - Export as CSV
 - `GET /api/export/excel` - Export as Excel
+- `GET /api/export/{result_id}/pdf-report` - Generate PDF interview kit report
 
 #### 20.11 Training (`/api/training`)
 - `POST /api/training/label` - Label outcome
@@ -784,15 +806,22 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - `GET /api/billing/subscription/{tenant_id}` - Get subscription status
 - `POST /api/billing/cancel/{tenant_id}` - Cancel subscription
 
-#### 20.14 Dashboard (`/api/dashboard`)
+#### 20.14 Onboarding (`/api/onboarding`)
+- `GET /api/onboarding/status` - Get onboarding completion status
+- `POST /api/onboarding/organization` - Set up organization details
+- `POST /api/onboarding/plan` - Select subscription plan
+- `POST /api/onboarding/first-jd` - Create first job description
+- `POST /api/onboarding/complete` - Mark onboarding as complete
+
+#### 20.15 Dashboard (`/api/dashboard`)
 - `GET /api/dashboard/summary` - Dashboard summary and metrics
 - `GET /api/analytics/screening` - Screening analytics
 
-#### 20.15 Queue Management (`/api/queue`)
+#### 20.16 Queue Management (`/api/queue`)
 - `GET /api/queue/status` - Queue worker status
 - `POST /api/queue/process` - Trigger queue processing
 
-#### 20.16 Admin (`/api/admin`)
+#### 20.17 Admin (`/api/admin`)
 - `GET /api/admin/tenants` - List all tenants
 - `GET /api/admin/tenants/{id}` - Tenant details
 - `POST /api/admin/tenants` - Create tenant
@@ -829,11 +858,11 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - `GET /api/admin/rate-limits` - List rate limit configs
 - `PUT /api/admin/rate-limits/{tenant_id}` - Update rate limit
 
-#### 20.17 Upload (`/api/upload`)
+#### 20.18 Upload (`/api/upload`)
 - `POST /api/upload/chunk` - Upload file chunk
 - `POST /api/upload/finalize` - Finalize chunked upload
 
-#### 20.18 Health & Monitoring
+#### 20.19 Health & Monitoring
 - `GET /health` - Basic health check
 - `GET /api/health/deep` - Deep health check
 - `GET /api/llm-status` - LLM service status
@@ -841,30 +870,33 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 ### 21. Frontend Features
 
-#### 21.1 Pages (21 total)
+#### 21.1 Pages (23 total)
 - **Dashboard**: Overview with action items, pipeline, metrics
 - **Upload**: Resume upload with JD input
 - **Batch Upload**: Multi-file batch processing
 - **Candidates**: Candidate list with search, filters, pagination
-- **Candidate Detail**: Full candidate profile with analysis history
+- **Candidate Profile**: Full candidate profile with analysis history
+- **JD Candidates**: Candidates filtered by specific JD
+- **JD Library**: Job description template library
+- **Kanban Board**: Visual candidate pipeline board
 - **Results**: Screening result detail with scores, narrative, recommendations
 - **Comparison**: Side-by-side candidate comparison
 - **Interview Kit**: Scorecard and interview evaluations
+- **Report**: PDF report generation and viewing
 - **Transcript Analysis**: Upload and view transcript analyses
+- **Video**: Video interview upload and analysis
 - **Templates**: JD template management
 - **Team**: Team member management
-- **Subscription**: Plan details, usage, upgrade options
+- **Team Skills**: Team skills overview
 - **Settings**: Tenant settings and configuration
-- **Admin Platform**: Platform admin dashboard (admin only)
-- **Admin Tenants**: Tenant management
-- **Admin Audit Logs**: Audit trail viewer
-- **Admin Security Events**: Security monitoring
-- **Admin Feature Flags**: Feature flag management
-- **Admin Billing**: Billing configuration
 - **Analytics**: Screening analytics and trends
-- **Login/Register**: Authentication pages
+- **Admin Dashboard**: Platform admin dashboard (admin only)
+- **Login**: Authentication page
+- **Register**: Account creation page
+- **Forgot Password**: Password reset request page
+- **Reset Password**: Password reset with token page
 
-#### 21.2 Components (17+ major components)
+#### 21.2 Components (33+ major components)
 - **ResultCard**: Screening result display with scores
 - **InterviewScorecard**: Interview evaluation interface
 - **UniversalWeightsPanel**: Weight adjustment UI
@@ -937,15 +969,15 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - `EVIDENCE_FUZZY_THRESHOLD`: Fuzzy match threshold (default: 0.75)
 
 #### 22.4 Database Migrations
-- **21 Migrations**: From initial schema to enterprise platform admin
+- **34 Migrations**: From initial schema to enterprise platform admin with password reset tokens
 - **Alembic**: Migration management
 - **Idempotent Migrations**: Safe to run multiple times
 - **Production Migration**: alembic upgrade head
 
 #### 22.5 Testing
-- **Backend Tests**: 572 tests across 19+ test files
-- **Frontend Tests**: 91 tests across 6 test files
-- **Total**: 663 tests
+- **Backend Tests**: 59 test files
+- **Frontend Tests**: 6 test files
+- **Total**: 65+ tests
 - **Coverage**: pytest --cov=app --cov-report=html
 - **Test Types**: Unit, integration, API, service tests
 
@@ -1030,10 +1062,11 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 ### 26. Competitive Advantages
 
-#### 26.1 Data Privacy
-- **Self-Hosted**: Complete data sovereignty
-- **Local LLM**: No third-party AI services
-- **Open Source**: Code auditable by customers
+#### 26.1 Deployment Flexibility
+- **Cloud-First Default**: Ollama Cloud for immediate setup, no GPU required
+- **Self-Hosted Option**: Local Ollama deployment for complete data sovereignty
+- **Hybrid Support**: Switch between cloud and local via environment variables
+- **Open Source**: Application code auditable by customers
 - **MIT License**: Permissive licensing
 
 #### 26.2 Enterprise Features
@@ -1082,8 +1115,25 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - **Finance**: Banks, fintech, insurance
 - **Manufacturing**: Production, supply chain
 - **Retail**: E-commerce, brick-and-mortar
-- **Government**: Federal, state, local agencies
+- **Government**: Federal, state, local agencies (requires local LLM deployment)
 - **Education**: Universities, edtech
+
+### 27.4 Deployment Models
+
+**Cloud LLM Mode (Default)**:
+- LLM Runtime: Ollama Cloud (https://ollama.com)
+- Setup: Requires OLLAMA_API_KEY
+- Use Case: Quick deployment, no GPU hardware needed
+- Data Flow: Resume/JD data sent to Ollama Cloud for inference
+- Privacy: PII redacted before sending to cloud (when enabled)
+
+**Self-Hosted LLM Mode**:
+- LLM Runtime: Local Ollama instance
+- Setup: Requires GPU server, model download
+- Use Case: Air-gapped environments, strict data sovereignty
+- Data Flow: All inference stays on-premises
+- Privacy: Complete data isolation, no external API calls
+- Hardware: 8+ GB VRAM recommended for 31B+ models
 
 ### 28. Pricing Strategy (Reference)
 
@@ -1141,7 +1191,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 ✅ Queue system  
 ✅ Monitoring & health checks  
 ✅ CI/CD pipeline  
-✅ 663 tests  
+✅ 65+ tests  
 
 #### 29.2 In Progress
 🔄 Adverse action report system  
@@ -1159,13 +1209,13 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 ### 30. Key Differentiators Summary
 
-1. **Data Privacy**: Self-hosted, local LLM, no third-party AI
+1. **Deployment Flexibility**: Cloud-first default with self-hosted option
 2. **Compliance**: EEOC/GDPR compliant, audit trails, evidence-based
 3. **AI Quality**: Hybrid pipeline, hallucination prevention, PII redaction
 4. **Enterprise-Grade**: Multi-tenant, granular RBAC, webhooks, rate limiting
 5. **Open Source**: MIT license, fully auditable
 6. **Customizable**: Adaptive weights, custom training, feature flags
-7. **Production-Ready**: 663 tests, CI/CD, monitoring, health checks
+7. **Production-Ready**: 65+ tests, CI/CD, monitoring, health checks
 8. **Comprehensive API**: 100+ endpoints, OpenAPI docs
 9. **Explainability**: Transparent scoring, decision explanations
 10. **Scalable**: Async architecture, queue system, caching
@@ -1183,8 +1233,9 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 ---
 
-**Document Version**: 1.0  
+**Document Version**: 1.1  
 **Created**: May 2026  
+**Last Audited**: May 25, 2026  
 **Status**: Complete and Production-Verified  
 
 This document is the single source of truth for ARIA's features, architecture, and capabilities. It is verified against the actual codebase and reflects the production-ready state as of May 2026.

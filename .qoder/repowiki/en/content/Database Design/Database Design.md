@@ -71,12 +71,11 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for sophisticated database migration system with multi-step deduplication logic for candidates and screening results
-- Enhanced migration documentation to include unique constraint implementation with careful foreign key violation prevention
-- Updated candidate deduplication system documentation with three-layer matching strategy (email → file hash → name+phone)
-- Added detailed analysis of deduplication migration steps and their ordering requirements
-- Enhanced screening result deduplication documentation with foreign key safety measures
-- Updated migration system documentation to reflect comprehensive data integrity improvements
+- Enhanced documentation to include the new `_upsert_screening_result` function and its role in preventing unique constraint violations
+- Updated version management documentation to reflect automatic version incrementing through the `version_number` field
+- Added comprehensive coverage of the intelligent scoring weights system with version tracking
+- Enhanced deduplication system documentation with multi-step cleanup process and unique constraint implementation
+- Updated screening result model documentation with version management fields and automatic version incrementing
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -93,7 +92,7 @@
 ## Introduction
 This document describes the database design for Resume AI by ThetaLogics. It covers the entity relationship model, field definitions, indexes, constraints, multi-tenant architecture, subscription and usage tracking, the Alembic migration system, data validation rules, business logic constraints, referential integrity, data access patterns, caching strategies, performance considerations, data lifecycle and retention, backup strategies, and representative queries and reporting scenarios.
 
-**Updated** Enhanced with comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, and sophisticated database migration system with multi-step deduplication logic for candidates and screening results
+**Updated** Enhanced with comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, sophisticated database migration system with multi-step deduplication logic for candidates and screening results, intelligent scoring weights system with version management, and automatic version incrementing through the `_upsert_screening_result` function.
 
 ## Project Structure
 The database layer is implemented with SQLAlchemy declarative models and Alembic migrations. The application bootstraps database tables on startup and exposes tenant-aware APIs that enforce usage limits and track consumption. Recent enhancements included connection pooling for PostgreSQL, token revocation support, strategic indexing for improved query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
@@ -119,51 +118,59 @@ O["Billing Services<br/>invoice_service.py / dunning_service.py / webhook_proces
 P["SSO Service<br/>sso_service.py"]
 Q["Usage Alert Service<br/>usage_alert_service.py"]
 R["Deduplication System<br/>analyze.py / test_candidate_dedup.py"]
+S["_upsert_screening_result<br/>analyze.py"]
+T["Version Management<br/>ScreeningResult.version_number"]
 end
 subgraph "Database Layer"
-S["SQLAlchemy Engine & Session<br/>database.py"]
-T["Declarative Models<br/>db_models.py"]
-U["Alembic Env & Script<br/>env.py / script.py.mako"]
-V["Enhanced Models<br/>Enterprise Security, Historical Learning, Billing, SSO, Audit Logs"]
-W["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016 / 017 / 018 / 019 / 020 / 021 / 022 / 023 / 024 / 025 / 026 / 027 / 028 / 029 / 030 / 031 / 032 / 033 / 034"]
-X["Enterprise Security<br/>impersonation_sessions, security_events, plan_features, erasure_logs"]
-Y["Historical Learning<br/>hiring_outcomes, team_skill_profiles, skill_trend_snapshots, outcome_skill_patterns"]
-Z["Billing System<br/>invoices, dunning_records, billing_events, usage_alerts"]
-AA["SSO Integration<br/>sso_configs"]
-BB["Audit System<br/>field_audit_logs"]
-CC["Enhanced Candidates<br/>ai_professional_summary, candidate_notes, resume_converted_pdf_data"]
-DD["Tenant Enhancements<br/>scoring_weights, onboarding_completed"]
-EE["Deduplication System<br/>Unique Constraints, Multi-step Cleanup"]
+U["SQLAlchemy Engine & Session<br/>database.py"]
+V["Declarative Models<br/>db_models.py"]
+W["Alembic Env & Script<br/>env.py / script.py.mako"]
+X["Enhanced Models<br/>Enterprise Security, Historical Learning, Billing, SSO, Audit Logs"]
+Y["Migrations<br/>001 / 002 / 003 / 004 / 005 / 006 / 007 / 008 / 009 / 010 / 011 / 012 / 013 / 014 / 015 / 016 / 017 / 018 / 019 / 020 / 021 / 022 / 023 / 024 / 025 / 026 / 027 / 028 / 029 / 030 / 031 / 032 / 033 / 034"]
+Z["Enterprise Security<br/>impersonation_sessions, security_events, plan_features, erasure_logs"]
+AA["Historical Learning<br/>hiring_outcomes, team_skill_profiles, skill_trend_snapshots, outcome_skill_patterns"]
+BB["Billing System<br/>invoices, dunning_records, billing_events, usage_alerts"]
+CC["SSO Integration<br/>sso_configs"]
+DD["Audit System<br/>field_audit_logs"]
+EE["Enhanced Candidates<br/>ai_professional_summary, candidate_notes, resume_converted_pdf_data"]
+FF["Tenant Enhancements<br/>scoring_weights, onboarding_completed"]
+GG["Deduplication System<br/>Unique Constraints, Multi-step Cleanup"]
+HH["Intelligent Scoring<br/>version_number, is_active, role_category, weight_reasoning"]
+II["Version Management<br/>Automatic Increment, Active Version Tracking"]
 end
 A --> B
 A --> C
 C --> D
 D --> E
 C --> I
-I --> S
-A --> S
-S --> T
-S --> U
-S --> V
-S --> W
-S --> X
-S --> Y
-S --> Z
-S --> AA
-S --> BB
-S --> CC
-S --> DD
-S --> EE
-T --> U
-U --> U
-N --> S
-O --> S
-P --> S
-Q --> S
+I --> U
+A --> U
+U --> V
+U --> W
+U --> X
+U --> Y
+U --> Z
+U --> AA
+U --> BB
+U --> CC
+U --> DD
+U --> EE
+U --> FF
+U --> GG
+U --> HH
+U --> II
+V --> W
+W --> W
+N --> U
+O --> U
+P --> U
+Q --> U
 L --> J
 L --> K
-M --> S
-R --> S
+M --> U
+R --> U
+S --> U
+T --> U
 ```
 
 **Diagram sources**
@@ -226,7 +233,7 @@ R --> S
 - [env.py:1-51](file://alembic/env.py#L1-L51)
 
 ## Core Components
-This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, native resume file storage capabilities, the new deterministic scoring framework with eligibility gating, the Interview Kit Evaluation Framework for structured interview scoring, and the sophisticated deduplication system with multi-step cleanup processes.
+This section documents the core entities and their attributes relevant to the multi-tenant architecture, screening, templates, usage tracking, enhanced security features, platform administration, webhook notifications, billing configuration, native resume file storage capabilities, the new deterministic scoring framework with eligibility gating, the Interview Kit Evaluation Framework for structured interview scoring, the sophisticated deduplication system with multi-step cleanup processes, and the intelligent scoring weights system with version management and automatic version incrementing.
 
 - Tenant
   - Purpose: Multi-tenant container with subscription and usage tracking.
@@ -254,10 +261,11 @@ This section documents the core entities and their attributes relevant to the mu
   - Indexes: email, resume_file_hash; relationships: tenant, results, transcript_analyses.
 
 - ScreeningResult
-  - Purpose: Stores analysis outputs for a candidate/job combination with deterministic scoring framework.
+  - Purpose: Stores analysis outputs for a candidate/job combination with deterministic scoring framework and version management.
   - Key fields: id, tenant_id (FK), candidate_id (FK), role_template_id (FK), resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
   - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
   - **Updated** Enhanced with status_updated_at timestamp for tracking screening result status changes.
+  - **Updated** Enhanced with intelligent scoring weights system: is_active (Boolean), version_number (Integer), role_category (String 50), weight_reasoning (Text), suggested_weights_json (Text).
   - **Updated** Enhanced with unique constraint on (tenant_id, candidate_id, role_template_id) with partial index for foreign key safety.
   - Indexes: candidate_id, timestamp, tenant_id+timestamp.
 
@@ -370,9 +378,16 @@ This section documents the core entities and their attributes relevant to the mu
   - **New** Unique screening result constraints: Partial unique index on (tenant_id, candidate_id, role_template_id) with foreign key safety measures.
   - **New** Multi-step cleanup process: Carefully ordered SQL operations to prevent foreign key constraint violations during deduplication.
 
+- Intelligent Scoring System Tables
+  - **New** ScreeningResult version management: is_active (Boolean), version_number (Integer) for tracking analysis versions.
+  - **New** Role detection and weight metadata: role_category (String 50), weight_reasoning (Text), suggested_weights_json (Text).
+  - **New** Automatic version incrementing: version_number increments on screening result updates.
+  - **New** Active version tracking: is_active flag identifies current screening result version.
+
 **Section sources**
 - [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
 - [033_unique_constraints.py:1-128](file://alembic/versions/033_unique_constraints.py#L1-L128)
+- [009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
 
 ## Architecture Overview
 The system enforces tenant isolation by scoping all entities to a tenant_id foreign key. Usage enforcement occurs at the route layer by checking plan limits and incrementing counters, with detailed usage recorded in UsageLog. The Alembic migration system evolves schema safely with idempotent operations and sophisticated deduplication logic. Recent enhancements included token revocation support, strategic indexing for improved performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities, webhook notifications, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring.
@@ -440,6 +455,7 @@ SKILL_TREND_SNAPSHOTS ||--|| TENANTS : "captures"
 OUTCOME_SKILL_PATTERNS ||--|| ROLE_TEMPLATES : "analyzes"
 CANDIDATES ||--|| UNIQUE_CONSTRAINTS : "enforced_by"
 SCREENING_RESULTS ||--|| UNIQUE_CONSTRAINTS : "enforced_by"
+SCREENING_RESULTS ||--|| VERSION_MANAGEMENT : "tracked_by"
 ```
 
 **Diagram sources**
@@ -477,14 +493,14 @@ Admin-->>Client : Suspension confirmed
 - [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
 - [subscription.py:72-92](file://app/backend/routes/subscription.py#L72-L92)
 - [subscription.py:427-476](file://app/backend/routes/subscription.py#L427-L476)
-- [admin.py:301-329](file://app/backend/routes/admin.py#L301-L329)
+- [admin.py:301-329](file://app/backend/routes/admin.py#L301-329)
 
 **Section sources**
 - [interview_kit.py:28-80](file://app/backend/routes/interview_kit.py#L28-L80)
 - [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
 - [subscription.py:72-92](file://app/backend/routes/subscription.py#L72-L92)
 - [subscription.py:427-476](file://app/backend/routes/subscription.py#L427-L476)
-- [admin.py:301-329](file://app/backend/routes/admin.py#L301-L329)
+- [admin.py:301-329](file://app/backend/routes/admin.py#L301-329)
 
 ### Interview Kit Evaluation Framework
 - **New** Comprehensive Interview Kit Evaluation Framework for structured interview scoring and assessment.
@@ -947,7 +963,7 @@ Auth-->>Client : Clear cookies and return success
 ### Migration System and Schema Evolution
 - Alembic env registers models and binds metadata to the configured DATABASE_URL.
 - Migrations are idempotent and guard against pre-existing tables/columns.
-- **Updated** Version history with new administrative, notification, file storage, deterministic scoring, interview evaluation, enterprise security, historical learning, billing, SSO, audit features, and sophisticated deduplication system:
+- **Updated** Version history with new administrative, notification, file storage, deterministic scoring, interview evaluation, enterprise security, historical learning, billing, SSO, audit features, sophisticated deduplication system, and intelligent scoring weights:
   - 001: Enrich candidates with profile fields; add jd_cache and skills tables.
   - 002: Add parser_snapshot_json to candidates.
   - 003: Enhance subscription_plans, add tenant usage fields, create usage_logs, seed plans, link existing tenants to default plan.
@@ -956,7 +972,7 @@ Auth-->>Client : Clear cookies and return success
   - 006: Add strategic indexes and created_at column to jd_cache.
   - 007: Add narrative_status field to screening_results.
   - 008: Implement comprehensive queue system with analysis_jobs, analysis_results, analysis_artifacts, and job_metrics tables.
-  - 009: Add intelligent scoring weights support to screening_results.
+  - 009: **New** Intelligent scoring weights system with version management (is_active, version_number, role_category, weight_reasoning, suggested_weights_json).
   - 010: Add jd_text column and indexes for screening_results.
   - 011: Add narrative_generated_at timestamp and backfill narrative_status.
   - 012: **New** Admin foundation with audit logs, feature flags, rate limits, and tenant suspension capabilities.
@@ -993,7 +1009,7 @@ E --> F["005: Revoked tokens table"]
 F --> G["006: Strategic indexes + created_at"]
 G --> H["007: Narrative status field"]
 H --> I["008: Queue system implementation"]
-I --> J["009: Intelligent scoring weights"]
+I --> J["009: Intelligent scoring weights + version management"]
 J --> K["010: JD text enhancement"]
 K --> L["011: Narrative tracking enhancement"]
 L --> M["012: Admin foundation"]
@@ -1117,6 +1133,9 @@ HH --> II["034: Password reset tokens"]
 - **Updated** Field audit logging: Comprehensive change tracking with old/new value preservation.
 - **Updated** SSO configuration: Identity provider metadata validation and certificate handling.
 - **Updated** Deduplication system: Multi-step cleanup process with careful ordering to prevent foreign key constraint violations.
+- **Updated** Intelligent scoring weights: Version management with automatic version incrementing through the `_upsert_screening_result` function.
+- **Updated** Version management: Automatic version incrementing using `(existing.version_number or 1) + 1` pattern.
+- **Updated** Active version tracking: `is_active` flag identifies current screening result version for efficient querying.
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -1215,10 +1234,15 @@ HH --> II["034: Password reset tokens"]
   - **Updated** FieldAuditLogs(entity_type, entity_id), FieldAuditLogs(tenant_id)
   - **Updated** Unique candidate constraints: (tenant_id, email) and (tenant_id, resume_file_hash) with partial indexes
   - **Updated** Unique screening result constraints: (tenant_id, candidate_id, role_template_id) with foreign key safety
+  - **Updated** Intelligent scoring weights indexes: ScreeningResults(is_active, candidate_id), ScreeningResults(candidate_id, version_number)
 - **Updated** Deduplication constraints:
   - Partial unique index on candidates (tenant_id, email) WHERE email IS NOT NULL
   - Partial unique index on candidates (tenant_id, resume_file_hash) WHERE resume_file_hash IS NOT NULL
   - Partial unique index on screening_results (tenant_id, candidate_id, role_template_id) WHERE candidate_id IS NOT NULL AND role_template_id IS NOT NULL
+- **Updated** Version management constraints:
+  - Automatic version incrementing through the `_upsert_screening_result` function using `(existing.version_number or 1) + 1` pattern
+  - `is_active` boolean flag for tracking current screening result version
+  - Composite indexes for efficient version querying: (is_active, candidate_id) and (candidate_id, version_number)
 
 **Section sources**
 - [db_models.py:34-59](file://app/backend/models/db_models.py#L34-L59)
@@ -1284,6 +1308,8 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Field audit logging: Efficient querying by entity type and timestamp for change tracking.
   - **Updated** SSO configuration: Tenant-specific configuration with activation/deactivation controls.
   - **Updated** Deduplication system: Multi-step cleanup process with careful ordering for optimal performance.
+  - **Updated** Intelligent scoring weights: Efficient querying by is_active and version_number for version management.
+  - **Updated** Version management: Composite indexing for active version tracking and version history queries.
 - Caching strategies:
   - JdCache stores parsed job descriptions keyed by hash to avoid repeated parsing.
   - Candidate enrichment fields reduce repeated parsing costs.
@@ -1297,6 +1323,7 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Historical learning data cached for dashboard performance.
   - **Updated** SSO configuration cached for authentication performance.
   - **Updated** Deduplication system uses unique constraints to prevent duplicate inserts.
+  - **Updated** Intelligent scoring weights cached for version management operations.
 - Performance considerations:
   - Use indexes on frequently filtered columns (email, resume_file_hash, tenant_id, candidate_id, timestamp, deterministic_score, eligibility_status, question_category, question_index).
   - Prefer batch operations for inserts (bulk insert for plans).
@@ -1313,6 +1340,8 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Historical learning system optimized with composite indexing for analytical queries.
   - **Updated** Field audit logging optimized with entity-type indexing for change tracking.
   - **Updated** Deduplication system optimized with multi-step cleanup process and unique constraints.
+  - **Updated** Intelligent scoring weights system optimized with composite indexing for version queries.
+  - **Updated** Version management optimized with automatic incrementing and active version tracking.
 
 **Section sources**
 - [db_models.py:229-236](file://app/backend/models/db_models.py#L229-L236)
@@ -1340,7 +1369,7 @@ HH --> II["034: Password reset tokens"]
 ### Data Lifecycle, Retention, and Backup
 - Data lifecycle:
   - Candidates: enriched once and reused for subsequent analyses; parser snapshots retained for auditability; resume files stored natively for direct access.
-  - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights; deterministic scoring fields provide permanent record of decision rationale; interview evaluations and overall assessments provide structured interview scoring data.
+  - ScreeningResults: persisted per analysis with separate narrative_json for asynchronous processing; comments and training examples augment insights; deterministic scoring fields provide permanent record of decision rationale; interview evaluations and overall assessments provide structured interview scoring data; intelligent scoring weights system maintains version history with automatic version incrementing.
   - AnalysisArtifacts: temporary storage of parsed data with expiration for deduplication and reuse.
   - AnalysisJobs: queue management with automatic cleanup of failed or cancelled jobs.
   - AnalysisResults: immutable storage of completed analyses with quality assurance.
@@ -1352,7 +1381,7 @@ HH --> II["034: Password reset tokens"]
   - **Updated** WebhookDeliveries: delivery attempt history with success/failure tracking.
   - **Updated** PlatformConfigs: configuration history with change tracking.
   - **Updated** Resume files: stored directly in database with automatic cleanup policies.
-  - **Updated** Deterministic scoring data: permanent storage of eligibility decisions and scoring rationale.
+  - **Updated** Deterministic scoring data: permanent storage of eligibility decisions and scoring rationale with version management.
   - **Updated** Interview evaluation data: structured scoring data with unique constraints for data integrity.
   - **Updated** Overall assessment data: hiring manager recommendations with unique constraints.
   - **Updated** Enterprise security: impersonation sessions with expiration-based cleanup.
@@ -1361,6 +1390,7 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Field audit logs: change tracking with configurable retention for compliance.
   - **Updated** SSO configurations: tenant-specific settings with audit trail.
   - **Updated** Deduplication system: unique constraints prevent duplicate data entry.
+  - **Updated** Intelligent scoring weights: version history maintained with automatic version incrementing.
 - Retention:
   - No explicit retention policies are defined in code; implement administrative controls to archive or purge historical data.
   - AnalysisArtifacts have automatic expiration (30 days) for cleanup.
@@ -1376,6 +1406,7 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Historical learning data: time-series retention for analytical insights.
   - **Updated** Field audit logs: retention for compliance and change tracking.
   - **Updated** Deduplication system: unique constraints ensure data integrity without additional cleanup requirements.
+  - **Updated** Intelligent scoring weights: version history retained for compliance and decision tracking.
 - Backup:
   - Use database-native backups (e.g., pg_dump for PostgreSQL, SQLite backup mechanisms) and regular snapshots.
   - Consider logical backups for portable deployments.
@@ -1387,6 +1418,7 @@ HH --> II["034: Password reset tokens"]
   - **Updated** Historical learning tables require backup for analytical continuity.
   - **Updated** Field audit logs require backup for compliance and change tracking.
   - **Updated** Deduplication system requires backup of unique constraints and indexes for full data integrity restoration.
+  - **Updated** Intelligent scoring weights system requires backup of version management data for full continuity.
 
 ### Sample Queries and Reporting Scenarios
 - Monthly usage by tenant
@@ -1436,6 +1468,10 @@ HH --> II["034: Password reset tokens"]
   - select 'candidates' as table_name, count(*) as total, count(distinct (tenant_id, resume_file_hash)) as unique_hashes, count(*) - count(distinct (tenant_id, resume_file_hash)) as duplicates from candidates where resume_file_hash is not null
   - union all
   - select 'screening_results' as table_name, count(*) as total, count(distinct (tenant_id, candidate_id, role_template_id)) as unique_combinations, count(*) - count(distinct (tenant_id, candidate_id, role_template_id)) as duplicates from screening_results where candidate_id is not null and role_template_id is not null;
+- **Updated** Intelligent scoring weights version management
+  - Query: select candidate_id, version_number, is_active, role_category, created_at from screening_results where is_active = true and tenant_id = ? order by candidate_id, version_number desc;
+- **Updated** Version history analysis
+  - Query: select candidate_id, count(*) as version_count, max(version_number) as latest_version, min(created_at) as first_analysis, max(created_at) as last_analysis from screening_results where tenant_id = ? group by candidate_id order by version_count desc;
 
 **Section sources**
 - [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
@@ -1501,6 +1537,8 @@ D --> BL["Billing System<br/>Invoices & Dunning"]
 D --> SSO["SSO Integration<br/>Identity Providers"]
 D --> FA["Field Audit Logs<br/>Change Tracking"]
 D --> DU["Deduplication System<br/>Multi-step Cleanup"]
+D --> IS["Intelligent Scoring<br/>Version Management"]
+D --> VM["Version Management<br/>Automatic Increment"]
 ```
 
 **Diagram sources**
@@ -1557,6 +1595,8 @@ D --> DU["Deduplication System<br/>Multi-step Cleanup"]
 - **Updated** Historical learning performance: Composite indexing enables efficient analytical queries across time dimensions.
 - **Updated** Field audit logging performance: Entity-type indexing supports efficient change tracking queries.
 - **Updated** Deduplication system performance: Unique constraints prevent duplicate inserts; multi-step cleanup process optimizes data integrity.
+- **Updated** Intelligent scoring weights performance: Composite indexing for version queries ensures efficient version management.
+- **Updated** Version management performance: Automatic incrementing reduces write conflicts; active version tracking optimizes query performance.
 
 ## Troubleshooting Guide
 - Database connectivity
@@ -1623,6 +1663,15 @@ D --> DU["Deduplication System<br/>Multi-step Cleanup"]
   - Screening result duplication: Check foreign key safety measures in multi-step cleanup process.
   - Migration failures: Ensure deduplication steps are executed in correct order to prevent foreign key violations.
   - Performance: Monitor unique constraint performance impact on write operations.
+- **Updated** Intelligent scoring weights issues
+  - Version management failures: Check automatic version incrementing in `_upsert_screening_result` function.
+  - Active version tracking: Verify `is_active` flag properly identifies current screening result version.
+  - Version query performance: Ensure composite indexes on (is_active, candidate_id) and (candidate_id, version_number) are properly utilized.
+  - Data integrity: Verify version_number increments correctly using `(existing.version_number or 1) + 1` pattern.
+- **Updated** Version management issues
+  - Version conflicts: Check for concurrent updates causing version number inconsistencies.
+  - Query performance: Optimize version history queries with proper indexing.
+  - Data retention: Implement version cleanup policies for older screening result versions.
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -1650,9 +1699,9 @@ D --> DU["Deduplication System<br/>Multi-step Cleanup"]
 - [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
 
 ## Conclusion
-The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model now provides comprehensive deterministic scoring with eligibility gating, structured decision rationale, and detailed scoring breakdowns. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. The Interview Kit Evaluation Framework introduces sophisticated interview scoring capabilities with per-question evaluations, overall assessments, and automated scorecard generation. The deterministic scoring system with hard gating rules ensures fair and transparent candidate evaluation processes. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
+The database design centers on robust multi-tenancy with tenant-scoped entities, strict usage enforcement via SubscriptionPlan and UsageLog, and a well-defined Alembic migration history. Recent enhancements included connection pooling for improved PostgreSQL performance, token revocation support for enhanced security, strategic indexing for better query performance, a comprehensive queue system for scalable analysis processing, platform administration capabilities with audit logging, webhook notifications with security features, billing configuration management, native resume file storage with download functionality, deterministic scoring framework with eligibility gating, and the Interview Kit Evaluation Framework for structured interview scoring and assessment. The schema supports caching, efficient indexing, clear business rules for screening, template management, and team collaboration. The enhanced screening result model now provides comprehensive deterministic scoring with eligibility gating, structured decision rationale, and detailed scoring breakdowns. The addition of native resume file storage significantly improves the system's reliability and reduces infrastructure complexity. The Interview Kit Evaluation Framework introduces sophisticated interview scoring capabilities with per-question evaluations, overall assessments, and automated scorecard generation. The deterministic scoring system with hard gating rules ensures fair and transparent candidate evaluation processes. The intelligent scoring weights system with version management provides comprehensive tracking of analysis versions with automatic version incrementing through the `_upsert_screening_result` function. Operational practices around retention, backup, and monitoring will ensure reliability and scalability with full compliance and security coverage.
 
-**Updated** The system now includes comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, and a sophisticated deduplication system with multi-step cleanup processes that prevent foreign key constraint violations during data integrity maintenance. This comprehensive approach ensures data consistency while maintaining system performance and reliability.
+**Updated** The system now includes comprehensive enterprise security features, historical learning analytics, advanced billing management, SSO integration, field-level audit trails, extensive candidate profile enhancements, sophisticated deduplication system with multi-step cleanup processes that prevent foreign key constraint violations during data integrity maintenance, intelligent scoring weights system with version management and automatic version incrementing, and the `_upsert_screening_result` function that prevents unique constraint violations through careful upsert logic. This comprehensive approach ensures data consistency while maintaining system performance and reliability.
 
 ## Appendices
 
@@ -1677,6 +1726,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
   - Fields: id, tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data (JSON), analysis_result (JSON), narrative_json (TEXT, nullable), narrative_status, narrative_error, status, is_active, version_number, role_category, weight_reasoning, suggested_weights_json, timestamp.
   - **Updated** Deterministic scoring fields: deterministic_score (Integer), domain_match_score (Float), core_skill_score (Float), eligibility_status (Boolean), eligibility_reason (String 100).
   - **Updated** Enhanced with status_updated_at timestamp for tracking screening result status changes.
+  - **Updated** Enhanced with intelligent scoring weights system: is_active (Boolean), version_number (Integer), role_category (String 50), weight_reasoning (Text), suggested_weights_json (Text).
   - **Updated** Enhanced with unique constraint on (tenant_id, candidate_id, role_template_id) with partial index for foreign key safety.
   - Indexes: candidate_id, timestamp, tenant_id+timestamp.
 - RoleTemplate
@@ -1774,6 +1824,15 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
   - Fields: Unique candidate constraints (tenant_id, email) and (tenant_id, resume_file_hash) with partial indexes.
   - Fields: Unique screening result constraint (tenant_id, candidate_id, role_template_id) with foreign key safety.
   - Fields: Multi-step cleanup process with careful ordering to prevent foreign key violations.
+- **Updated** Intelligent Scoring System
+  - Fields: ScreeningResult version management: is_active (Boolean), version_number (Integer) for tracking analysis versions.
+  - Fields: Role detection and weight metadata: role_category (String 50), weight_reasoning (Text), suggested_weights_json (Text).
+  - Fields: Automatic version incrementing: version_number increments on screening result updates.
+  - Fields: Active version tracking: is_active flag identifies current screening result version.
+- **Updated** Version Management System
+  - Fields: `_upsert_screening_result` function prevents unique constraint violations through careful upsert logic.
+  - Fields: Automatic version incrementing using `(existing.version_number or 1) + 1` pattern.
+  - Fields: Composite indexes for efficient version querying: (is_active, candidate_id) and (candidate_id, version_number).
 
 **Section sources**
 - [db_models.py:11-816](file://app/backend/models/db_models.py#L11-L816)
@@ -1817,7 +1876,7 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - 006: Add strategic indexes and created_at column to jd_cache.
 - 007: Add narrative_status field to screening_results.
 - 008: Implement comprehensive queue system with analysis_jobs, analysis_results, analysis_artifacts, and job_metrics tables.
-- 009: Add intelligent scoring weights support to screening_results.
+- 009: **New** Intelligent scoring weights system with version management (is_active, version_number, role_category, weight_reasoning, suggested_weights_json).
 - 010: Add jd_text column and indexes for screening_results.
 - 011: Add narrative_generated_at timestamp and backfill narrative_status.
 - 012: **New** Admin foundation with audit logs, feature flags, rate limits, and tenant suspension capabilities.
@@ -1895,3 +1954,23 @@ The database design centers on robust multi-tenancy with tenant-scoped entities,
 - [033_unique_constraints.py:12-121](file://alembic/versions/033_unique_constraints.py#L12-L121)
 - [analyze.py:380-450](file://app/backend/routes/analyze.py#L380-L450)
 - [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
+
+### Appendix D: Intelligent Scoring Weights System Details
+- **Version Management Implementation**: Comprehensive system for tracking screening result versions with automatic incrementing
+  - **_upsert_screening_result Function**: Prevents unique constraint violations through careful upsert logic
+  - **Automatic Version Incrementing**: Uses `(existing.version_number or 1) + 1` pattern for seamless version updates
+  - **Active Version Tracking**: `is_active` boolean flag identifies current screening result version
+  - **Composite Indexes**: Optimized for version querying with (is_active, candidate_id) and (candidate_id, version_number)
+- **Intelligent Scoring Weights**: Role detection and weight metadata system
+  - **Role Category Classification**: Technical, sales, HR, marketing, operations, leadership categorization
+  - **Weight Reasoning**: JSON field explaining suggested scoring weights
+  - **Suggested Weights JSON**: Stored scoring weights for analysis reproducibility
+- **Migration Implementation**: Alembic migration (009) adds comprehensive version management support
+  - **Backward Compatibility**: All new columns are nullable with sensible defaults
+  - **Existing Records**: Automatically set to `is_active=True, version_number=1`
+  - **Index Optimization**: Composite indexes for efficient version querying
+
+**Section sources**
+- [009_intelligent_scoring_weights.py:1-93](file://alembic/versions/009_intelligent_scoring_weights.py#L1-L93)
+- [analyze.py:196-244](file://app/backend/routes/analyze.py#L196-L244)
+- [db_models.py:177-214](file://app/backend/models/db_models.py#L177-L214)

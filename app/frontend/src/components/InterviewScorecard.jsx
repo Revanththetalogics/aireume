@@ -184,6 +184,75 @@ export default function InterviewScorecard({ resultId }) {
           <DimensionCard dimension={scorecard.experience_deep_dive_summary} label="Experience Deep-Dive" icon={FileText} />
         </div>
 
+        {/* Recruiter Debrief Section */}
+        {scorecard?.debrief && (
+          <div className="mt-6 p-5 bg-gradient-to-br from-brand-50 to-indigo-50 rounded-2xl ring-1 ring-brand-200">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-brand-600" />
+                <h3 className="font-bold text-brand-800">Recruiter Debrief</h3>
+              </div>
+              <div className="flex items-center gap-3">
+                {/* Recruiter Score Badge */}
+                {scorecard.recruiter_score != null && (
+                  <div className={`px-3 py-1 rounded-full text-sm font-bold ${
+                    scorecard.recruiter_score >= 70 ? 'bg-emerald-100 text-emerald-700' :
+                    scorecard.recruiter_score >= 40 ? 'bg-amber-100 text-amber-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {scorecard.recruiter_score}/100
+                  </div>
+                )}
+                {/* Recommendation Label */}
+                {scorecard.recruiter_recommendation && (
+                  <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                    scorecard.recruiter_recommendation.toLowerCase() === 'advance' ? 'bg-green-100 text-green-700' :
+                    scorecard.recruiter_recommendation.toLowerCase() === 'hold' ? 'bg-amber-100 text-amber-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {scorecard.recruiter_recommendation.charAt(0).toUpperCase() + scorecard.recruiter_recommendation.slice(1)}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Debrief Content */}
+            <div className="space-y-3">
+              {scorecard.debrief.overview && (
+                <div>
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Overview</span>
+                  <p className="text-sm text-slate-700 mt-1">{scorecard.debrief.overview}</p>
+                </div>
+              )}
+              {scorecard.debrief.strengths && (
+                <div>
+                  <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Strengths Observed</span>
+                  <p className="text-sm text-slate-700 mt-1">{scorecard.debrief.strengths}</p>
+                </div>
+              )}
+              {scorecard.debrief.concerns && (
+                <div>
+                  <span className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Concerns</span>
+                  <p className="text-sm text-slate-700 mt-1">{scorecard.debrief.concerns}</p>
+                </div>
+              )}
+              {scorecard.debrief.recommendation_rationale && (
+                <div>
+                  <span className="text-xs font-semibold text-brand-600 uppercase tracking-wide">Recommendation Rationale</span>
+                  <p className="text-sm text-slate-700 mt-1">{scorecard.debrief.recommendation_rationale}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Empty state when no debrief yet */}
+        {!scorecard?.debrief && scorecard && (
+          <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-dashed border-slate-300 text-center">
+            <p className="text-sm text-slate-500">Recruiter debrief not generated yet. Complete the phone screen and submit a conversation summary to generate.</p>
+          </div>
+        )}
+
         {/* Strengths & Concerns */}
         {(scorecard.strengths_confirmed?.length > 0 || scorecard.concerns_identified?.length > 0) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

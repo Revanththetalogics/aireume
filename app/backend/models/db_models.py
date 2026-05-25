@@ -310,6 +310,8 @@ class OverallAssessment(Base):
     user_id                  = Column(Integer, ForeignKey("users.id"), nullable=False)
     overall_assessment       = Column(Text, nullable=True)
     recruiter_recommendation = Column(String(10), nullable=True)
+    debrief_json             = Column(Text, nullable=True)        # JSON string of LLM-generated debrief
+    recruiter_score          = Column(Integer, nullable=True)       # 0-100 computed score
     created_at               = Column(DateTime(timezone=True), server_default=func.now())
     updated_at               = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

@@ -16,6 +16,7 @@ from app.backend.models.schemas import (
     EvaluationUpsert, EvaluationOut,
     OverallAssessmentUpsert,
     EvaluatorInfo, ScorecardDimension, ScorecardOut,
+    DebriefRequest, DebriefContent, DebriefResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -235,4 +236,170 @@ def get_scorecard(
         recruiter_recommendation=overall.recruiter_recommendation if overall else None,
         strengths_confirmed=strengths[:5],
         concerns_identified=concerns[:5],
+        debrief=DebriefContent(**json.loads(overall.debrief_json)) if overall and overall.debrief_json else None,
+        recruiter_score=overall.recruiter_score if overall else None,
+    )
+
+
+# ─── Endpoint 5: Generate LLM debrief ─────────────────────────────────────────
+
+@router.post("/{result_id}/generate-debrief", response_model=DebriefResponse)
+async def generate_debrief(
+    result_id: int,
+    body: DebriefRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate an LLM-powered debrief from recruiter conversation summary and evaluations."""
+    result = _verify_result_access(result_id, current_user, db)
+
+    # 1. Load analysis data
+    analysis = json.loads(result.analysis_result) if result.analysis_result else {}
+    parsed = json.loads(result.parsed_data) if result.parsed_data else {}
+
+    # 2. Load all evaluations for this result
+    evals = db.query(InterviewEvaluation).filter(
+        InterviewEvaluation.result_id == result_id,
+    ).all()
+
+    # 3. Compute rating distribution
+    categories = ["technical", "behavioral", "culture_fit", "experience_deep_dive"]
+    rating_summary = {}
+    for cat in categories:
+        cat_evals = [e for e in evals if e.question_category == cat]
+        rating_summary[cat] = {
+            "strong": sum(1 for e in cat_evals if e.rating == "strong"),
+            "adequate": sum(1 for e in cat_evals if e.rating == "adequate"),
+            "weak": sum(1 for e in cat_evals if e.rating == "weak"),
+            "total_rated": len([e for e in cat_evals if e.rating]),
+        }
+
+    # 4. Calculate recruiter score (40% rating distribution + 60% LLM sentiment)
+    total_ratings = sum(r["total_rated"] for r in rating_summary.values())
+    if total_ratings > 0:
+        total_strong = sum(r["strong"] for r in rating_summary.values())
+        total_adequate = sum(r["adequate"] for r in rating_summary.values())
+        # Strong = 100, Adequate = 60, Weak = 20
+        rating_score = ((total_strong * 100) + (total_adequate * 60) +
+                        ((total_ratings - total_strong - total_adequate) * 20)) / total_ratings
+    else:
+        rating_score = 50  # neutral default
+
+    # 5. Build LLM prompt
+    candidate_name = parsed.get("contact_info", {}).get("name", "the candidate")
+    role_title = analysis.get("jd_analysis", {}).get("role_title", "the role")
+    fit_score = analysis.get("fit_score", "N/A")
+
+    prompt = f"""You are a senior recruiting analyst. Based on the following data, generate a structured debrief of a phone screening call.
+
+## Candidate: {candidate_name}
+## Role: {role_title}
+## AI Fit Score: {fit_score}%
+
+## Rating Distribution from Phone Screen:
+- Technical: {rating_summary.get('technical', {{}})}
+- Behavioral: {rating_summary.get('behavioral', {{}})}
+- Culture Fit: {rating_summary.get('culture_fit', {{}})}
+- Experience Deep-Dive: {rating_summary.get('experience_deep_dive', {{}})}
+
+## Recruiter's Conversation Summary:
+{body.conversation_summary}
+
+## Instructions:
+Generate a JSON response with exactly this structure:
+{{
+  "overview": "2-3 sentence overview of the candidate's phone screen performance",
+  "strengths": "Key strengths observed during the call (2-3 points)",
+  "concerns": "Key concerns or gaps identified (2-3 points)",
+  "recommendation_rationale": "Why you recommend the following action",
+  "recommendation": "Advance" or "Hold" or "Reject",
+  "sentiment_score": "<number 0-100 reflecting overall positive/negative sentiment of the recruiter's summary>"
+}}
+
+IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
+
+    # 6. Call LLM via the same Ollama service used elsewhere
+    import re
+    from app.backend.services.llm_service import LLMService, get_ollama_semaphore
+
+    debrief_data = None
+    try:
+        llm_service = LLMService()
+        sem = get_ollama_semaphore()
+        async with sem:
+            llm_response = await llm_service._call_ollama(prompt)
+        # Parse JSON response
+        json_match = re.search(r'\{[\s\S]*\}', llm_response)
+        if json_match:
+            debrief_data = json.loads(json_match.group())
+        else:
+            debrief_data = json.loads(llm_response)
+    except Exception as e:
+        logger.error("LLM debrief generation failed: %s", e)
+        debrief_data = None
+
+    # Fallback if LLM failed
+    if debrief_data is None:
+        debrief_data = {
+            "overview": f"Phone screen completed for {candidate_name} for {role_title}.",
+            "strengths": "See recruiter summary for details.",
+            "concerns": "See recruiter summary for details.",
+            "recommendation_rationale": "Based on rating distribution.",
+            "recommendation": "Hold",
+            "sentiment_score": 50,
+        }
+
+    # 7. Compute final recruiter score
+    sentiment_score = debrief_data.get("sentiment_score", 50)
+    if isinstance(sentiment_score, str):
+        try:
+            sentiment_score = int(sentiment_score)
+        except (ValueError, TypeError):
+            sentiment_score = 50
+    recruiter_score = int(rating_score * 0.4 + sentiment_score * 0.6)
+    recruiter_score = max(0, min(100, recruiter_score))  # Clamp to 0-100
+    recommendation = debrief_data.get("recommendation", "Hold")
+    # Normalize recommendation to capitalized form
+    recommendation = recommendation.capitalize()
+    if recommendation not in ("Advance", "Hold", "Reject"):
+        recommendation = "Hold"
+
+    # 8. Store in OverallAssessment
+    overall = db.query(OverallAssessment).filter(
+        and_(
+            OverallAssessment.result_id == result_id,
+            OverallAssessment.user_id == current_user.id,
+        )
+    ).first()
+
+    debrief_content = {
+        "overview": debrief_data.get("overview", ""),
+        "strengths": debrief_data.get("strengths", ""),
+        "concerns": debrief_data.get("concerns", ""),
+        "recommendation_rationale": debrief_data.get("recommendation_rationale", ""),
+    }
+
+    if overall:
+        overall.debrief_json = json.dumps(debrief_content)
+        overall.recruiter_score = recruiter_score
+        overall.recruiter_recommendation = recommendation.lower()  # Stored as lowercase per existing convention
+        overall.overall_assessment = body.conversation_summary
+        overall.updated_at = datetime.now(timezone.utc)
+    else:
+        overall = OverallAssessment(
+            result_id=result_id,
+            user_id=current_user.id,
+            overall_assessment=body.conversation_summary,
+            debrief_json=json.dumps(debrief_content),
+            recruiter_score=recruiter_score,
+            recruiter_recommendation=recommendation.lower(),
+        )
+        db.add(overall)
+
+    db.commit()
+
+    return DebriefResponse(
+        debrief=DebriefContent(**debrief_content),
+        recruiter_score=recruiter_score,
+        recommendation=recommendation,
     )

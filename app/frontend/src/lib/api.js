@@ -1235,6 +1235,13 @@ export async function getScorecard(resultId) {
   return res.data
 }
 
+export async function generateDebrief(resultId, conversationSummary) {
+  const resp = await api.post(`/results/${resultId}/generate-debrief`, {
+    conversation_summary: conversationSummary,
+  })
+  return resp.data
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export async function seedSampleData() {
