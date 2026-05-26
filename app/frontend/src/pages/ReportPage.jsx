@@ -557,10 +557,6 @@ export default function ReportPage() {
               {/* Scorecard at the bottom */}
               {result?.result_id && (
                 <div className="px-4 pb-6 pt-2 border-t border-slate-100">
-                  <div className="flex items-center gap-2 mb-3">
-                    <FileText className="w-4 h-4 text-brand-600" />
-                    <span className="font-bold text-slate-800 text-sm">Recruiter Scorecard</span>
-                  </div>
                   <InterviewScorecard key={scorecardKey} resultId={result.result_id} />
                 </div>
               )}
@@ -1012,11 +1008,7 @@ export default function ReportPage() {
           {/* Recruiter Scorecard Section */}
           {result?.interview_questions && result.result_id && (
             <div className="mt-6">
-              <div className="flex items-center gap-2 mb-4">
-                <FileText className="w-5 h-5 text-brand-600" />
-                <h2 className="text-lg font-bold text-slate-900">Recruiter Scorecard</h2>
-              </div>
-              <InterviewScorecard key={scorecardKey} resultId={result.result_id} />
+              <InterviewScorecard key={scorecardKey} resultId={result.result_id} showHeading />
             </div>
           )}
 

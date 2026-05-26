@@ -2523,7 +2523,7 @@ def _merge_llm_into_result(python_result: Dict[str, Any], llm_result: Dict[str, 
         "recommendation_rationale": llm_result.get("recommendation_rationale", ""),
         "explainability":         llm_result.get("explainability", {}),
         "interview_questions":    llm_result.get("interview_questions"),
-        "education_analysis":     llm_result.get("explainability", {}).get("skill_rationale"),
+        "education_analysis":     llm_result.get("education_analysis", "") or llm_result.get("explainability", {}).get("education_rationale", ""),
     })
     # Remove internal keys
     merged.pop("_required_years", None)

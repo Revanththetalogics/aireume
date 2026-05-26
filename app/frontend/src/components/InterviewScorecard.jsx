@@ -84,7 +84,7 @@ function DimensionCard({ dimension, label, icon: Icon }) {
   )
 }
 
-export default function InterviewScorecard({ resultId }) {
+export default function InterviewScorecard({ resultId, showHeading = false }) {
   const [scorecard, setScorecard] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -151,6 +151,14 @@ export default function InterviewScorecard({ resultId }) {
 
   return (
     <div className="space-y-4">
+      {/* Section heading — only when showHeading is true */}
+      {showHeading && (
+        <div className="flex items-center gap-2 mb-4">
+          <FileText className="w-5 h-5 text-brand-600" />
+          <h2 className="text-lg font-bold text-slate-900">Recruiter Scorecard</h2>
+        </div>
+      )}
+
       {/* Export Button */}
       <div className="flex justify-end gap-2">
         <button

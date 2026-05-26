@@ -16,13 +16,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced scorecard refresh mechanism with key-based rendering system that forces React re-rendering when debrief data becomes available
-- Improved integration with debrief generation workflow to ensure users see updated information immediately after generation completes
-- Enhanced debrief display capabilities with improved Python 3.11 compatibility and refined rating summary formatting
-- Updated LLM service with enhanced semaphore management and improved Python 3.11 compatibility
-- Refined debrief generation endpoint with better error handling and fallback mechanisms
-- Improved rating summary formatting in debrief content with enhanced validation
-- Enhanced frontend debrief display with structured content sections and color-coded recommendations
+- Enhanced InterviewScorecard.jsx with automatic content visibility mechanism that calculates evaluation counts and automatically hides empty scorecards when no assessments have been completed
+- Improved debrief display capabilities with comprehensive team evaluation visibility and structured content sections
+- Enhanced phone screening workflow with validation and automated debrief generation
+- Updated backend integration with comprehensive debrief generation and recruiter score calculation
+- Enhanced frontend debrief display with color-coded recommendations and structured content formatting
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -33,15 +31,16 @@
 6. [Enhanced Debrief Display Capabilities](#enhanced-debrief-display-capabilities)
 7. [Recruiter Score Integration System](#recruiter-score-integration-system)
 8. [Phone Screening Workflow Enhancement](#phone-screening-workflow-enhancement)
-9. [Structured Debrief Content Management](#structured-debrief-content-management)
-10. [Recruiter Score Calculation Algorithm](#recruiter-score-calculation-algorithm)
-11. [Conversation Summary Validation](#conversation-summary-validation)
-12. [Fallback Mechanisms and Reliability](#fallback-mechanisms-and-reliability)
-13. [UI Integration and Display](#ui-integration-and-display)
-14. [Dependency Analysis](#dependency-analysis)
-15. [Performance Considerations](#performance-considerations)
-16. [Troubleshooting Guide](#troubleshooting-guide)
-17. [Conclusion](#conclusion)
+9. [Automatic Content Visibility Mechanism](#automatic-content-visibility-mechanism)
+10. [Structured Debrief Content Management](#structured-debrief-content-management)
+11. [Recruiter Score Calculation Algorithm](#recruiter-score-calculation-algorithm)
+12. [Conversation Summary Validation](#conversation-summary-validation)
+13. [Fallback Mechanisms and Reliability](#fallback-mechanisms-and-reliability)
+14. [UI Integration and Display](#ui-integration-and-display)
+15. [Dependency Analysis](#dependency-analysis)
+16. [Performance Considerations](#performance-considerations)
+17. [Troubleshooting Guide](#troubleshooting-guide)
+18. [Conclusion](#conclusion)
 
 ## Introduction
 
@@ -99,9 +98,9 @@ DB --> RS
 - [api.js:1237-1243](file://app/frontend/src/lib/api.js#L1237-L1243)
 
 **Section sources**
-- [InterviewScorecard.jsx:1-324](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L324)
-- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
-- [interview_kit.py:1-406](file://app/backend/routes/interview_kit.py#L1-L406)
+- [InterviewScorecard.jsx:1-327](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L327)
+- [PhoneScreenKit.jsx:1-484](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L484)
+- [interview_kit.py:1-415](file://app/backend/routes/interview_kit.py#L1-L415)
 
 ## Core Components
 
@@ -119,7 +118,7 @@ The Interview Scorecard Component is implemented as a React functional component
 - **Enhanced** Comprehensive team evaluation visibility with detailed evaluator attribution
 - **Enhanced** Recruiter debrief display with structured content sections
 - **Enhanced** Recruiter score badge with color-coded recommendations
-- **Enhanced** Key-based rendering system that forces React re-rendering when debrief data becomes available
+- **Enhanced** Automatic content visibility mechanism that calculates evaluation counts and automatically hides empty scorecards when no assessments have been completed
 
 **Data Flow Architecture:**
 ```mermaid
@@ -173,7 +172,7 @@ The backend service provides comprehensive interview evaluation management throu
 The backend service aggregates evaluation data from multiple sources, builds dimension summaries, and constructs a comprehensive scorecard report that combines AI-generated insights with human evaluator input. **Enhanced** with comprehensive team evaluation visibility through the EvaluatorInfo schema and integrated LLM debrief generation with improved Python 3.11 compatibility.
 
 **Section sources**
-- [interview_kit.py:23-406](file://app/backend/routes/interview_kit.py#L23-L406)
+- [interview_kit.py:23-415](file://app/backend/routes/interview_kit.py#L23-L415)
 - [schemas.py:440-608](file://app/backend/models/schemas.py#L440-L608)
 
 ## Architecture Overview
@@ -220,9 +219,9 @@ Export --> UI
 ```
 
 **Diagram sources**
-- [InterviewScorecard.jsx:1-324](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L324)
-- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
-- [interview_kit.py:1-406](file://app/backend/routes/interview_kit.py#L1-L406)
+- [InterviewScorecard.jsx:1-327](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L327)
+- [PhoneScreenKit.jsx:1-484](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L484)
+- [interview_kit.py:1-415](file://app/backend/routes/interview_kit.py#L1-L415)
 - [main.py:324-390](file://app/backend/main.py#L324-L390)
 
 The architecture ensures:
@@ -270,7 +269,7 @@ InterviewScorecard --> DebriefSection : "renders"
 **Diagram sources**
 - [InterviewScorecard.jsx:14-62](file://app/frontend/src/components/InterviewScorecard.jsx#L14-L62)
 - [InterviewScorecard.jsx:187-247](file://app/frontend/src/components/InterviewScorecard.jsx#L187-L247)
-- [InterviewScorecard.jsx:256-324](file://app/frontend/src/components/InterviewScorecard.jsx#L256-L324)
+- [InterviewScorecard.jsx:256-327](file://app/frontend/src/components/InterviewScorecard.jsx#L256-L327)
 
 **Key Implementation Features:**
 
@@ -301,10 +300,14 @@ InterviewScorecard --> DebriefSection : "renders"
    - Recommendation Rationale explaining decision-making process
    - Recruiter Score badge with color-coded recommendations
 
-6. **Key-Based Rendering System**: **New** The component implements a key-based rendering system that forces React re-rendering when debrief data becomes available, ensuring immediate UI updates without stale content display.
+6. **Automatic Content Visibility Mechanism**: **New** The component implements an automatic content visibility mechanism that:
+   - Calculates evaluation counts across all dimensions
+   - Automatically hides empty scorecards when no assessments have been completed
+   - Prevents users from seeing blank or incomplete scorecards
+   - Improves user experience by only displaying relevant content
 
 **Section sources**
-- [InterviewScorecard.jsx:1-324](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L324)
+- [InterviewScorecard.jsx:1-327](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L327)
 
 ### Backend Data Model Integration
 
@@ -373,7 +376,7 @@ The backend service orchestrates complex data aggregation:
 9. **Recruiter Score Calculation**: **New** Computes weighted score combining evaluation ratings and sentiment analysis
 
 **Section sources**
-- [interview_kit.py:28-406](file://app/backend/routes/interview_kit.py#L28-L406)
+- [interview_kit.py:28-415](file://app/backend/routes/interview_kit.py#L28-L415)
 - [db_models.py:218-417](file://app/backend/models/db_models.py#L218-L417)
 
 ### API Integration Patterns
@@ -426,7 +429,7 @@ API-->>FC : Update UI with Debrief
 
 **Section sources**
 - [api.js:1-1515](file://app/frontend/src/lib/api.js#L1-L1515)
-- [interview_kit.py:101-406](file://app/backend/routes/interview_kit.py#L101-L406)
+- [interview_kit.py:101-415](file://app/backend/routes/interview_kit.py#L101-L415)
 
 ## Enhanced Debrief Display Capabilities
 
@@ -525,6 +528,46 @@ API-->>PSK : Update UI with Debrief
 **Section sources**
 - [PhoneScreenKit.jsx:174-214](file://app/frontend/src/components/PhoneScreenKit.jsx#L174-L214)
 - [interview_kit.py:244-406](file://app/backend/routes/interview_kit.py#L244-L406)
+
+## Automatic Content Visibility Mechanism
+
+The Interview Scorecard Component now features an automatic content visibility mechanism that enhances user experience by intelligently controlling when scorecard content is displayed.
+
+### Evaluation Count Calculation
+
+The component implements a sophisticated evaluation count calculation system:
+
+**Evaluation Count Logic:**
+```javascript
+const evaluatedCount =
+  (scorecard.technical_summary?.evaluated_count || 0) +
+  (scorecard.behavioral_summary?.evaluated_count || 0) +
+  (scorecard.culture_fit_summary?.evaluated_count || 0) +
+  (scorecard.experience_deep_dive_summary?.evaluated_count || 0)
+```
+
+**Visibility Control:**
+```javascript
+if (evaluatedCount === 0 && !scorecard.debrief && !scorecard.overall_assessment) {
+  return null
+}
+```
+
+**Mechanism Features:**
+- **Comprehensive Counting**: Sums evaluated counts across all four evaluation dimensions
+- **Empty State Detection**: Checks for zero evaluations AND absence of debrief/assessment
+- **Conditional Rendering**: Returns null (empty) when no content should be displayed
+- **User Experience**: Prevents users from seeing blank or incomplete scorecards
+- **Performance Optimization**: Avoids unnecessary rendering of empty components
+
+**Benefits:**
+- **Clean Interface**: Users only see scorecards when there's meaningful content
+- **Reduced Confusion**: Eliminates confusion from empty scorecard displays
+- **Resource Efficiency**: Prevents rendering of unused components
+- **Better UX**: Focuses attention on completed assessments
+
+**Section sources**
+- [InterviewScorecard.jsx:142-150](file://app/frontend/src/components/InterviewScorecard.jsx#L142-L150)
 
 ## Structured Debrief Content Management
 
@@ -666,7 +709,11 @@ The enhanced UI provides intuitive integration of debrief content and recruiter 
 - **Call-to-Action**: Prominent buttons to initiate phone screening
 - **Visual Hierarchy**: Maintains focus on available evaluation data
 
-**Enhanced Key-Based Rendering System**: **New** The UI implements a key-based rendering system that forces React to re-render components when debrief data becomes available, ensuring users see updated information immediately without stale content display.
+**Enhanced Automatic Content Visibility**: **New** The UI implements an automatic content visibility mechanism that:
+- Calculates evaluation counts across all dimensions
+- Automatically hides empty scorecards when no assessments have been completed
+- Provides clean, focused user experience
+- Prevents confusion from blank displays
 
 **Section sources**
 - [InterviewScorecard.jsx:187-254](file://app/frontend/src/components/InterviewScorecard.jsx#L187-L254)
@@ -737,8 +784,8 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **State Optimization**: Minimal re-renders through proper state management
 - **Memory Management**: Cleanup of event listeners and timers
 - **Responsive Design**: Optimized layouts for mobile and desktop devices
+- **Enhanced** Automatic Content Visibility**: Prevents rendering of empty scorecards, reducing DOM complexity
 - **Enhanced** Debief Caching**: Store debrief content to avoid repeated LLM calls
-- **Enhanced** Key-Based Rendering**: Optimized re-rendering strategy for immediate UI updates
 
 **Backend Performance:**
 - **Database Indexing**: Strategic indexing on frequently queried fields
@@ -760,6 +807,7 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **Health Checks**: Comprehensive health endpoints for system status
 - **Error Tracking**: Structured logging with contextual information
 - **Enhanced** LLM Performance Metrics**: Track debrief generation latency and success rates
+- **Enhanced** Content Visibility Performance**: Monitor evaluation count calculations and rendering optimization
 
 **Python 3.11 Compatibility Enhancements:**
 - **Improved Type Hints**: Enhanced type annotations for better static analysis
@@ -767,7 +815,11 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **Memory Efficiency**: Reduced memory footprint with improved garbage collection
 - **Error Handling**: Better exception handling and traceback formatting
 
-**Enhanced Key-Based Rendering Performance**: **New** The key-based rendering system optimizes React re-rendering by forcing component updates only when debrief data changes, reducing unnecessary re-renders and improving overall performance.
+**Enhanced Automatic Content Visibility Performance**: **New** The automatic content visibility mechanism optimizes performance by:
+- Preventing unnecessary component rendering when no content exists
+- Reducing DOM complexity and memory usage
+- Improving initial load times for empty scorecards
+- Providing immediate feedback to users about content availability
 
 **Section sources**
 - [InterviewScorecard.jsx:1-5](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L5)
@@ -805,7 +857,13 @@ The Interview Scorecard Component is designed with several performance optimizat
    - **Enhanced** Verify LLM service availability and configuration
    - Check conversation summary validation requirements
    - Monitor fallback mechanism activation
-   - **Enhanced** Verify key-based rendering system is functioning correctly
+   - **Enhanced** Verify automatic content visibility mechanism is functioning correctly
+
+6. **Empty Scorecard Display Issues**
+   - **Enhanced** Check evaluation count calculation logic
+   - Verify that evaluatedCount is properly computed across all dimensions
+   - Ensure debrief and overall_assessment properties are correctly checked
+   - **Enhanced** Confirm automatic content visibility mechanism prevents premature rendering
 
 **Backend Issues:**
 1. **Database Connection Problems**
@@ -833,14 +891,18 @@ The Interview Scorecard Component is designed with several performance optimizat
    - Check semaphore limits for concurrent LLM requests
    - Monitor fallback mechanism for error recovery
    - **Enhanced** Verify Python 3.11 compatibility with async patterns
-   - **Enhanced** Check key-based rendering system for proper debrief updates
+   - **Enhanced** Check automatic content visibility system for proper evaluation counting
 
 **Diagnostic Tools:**
 - **Frontend**: React Developer Tools, browser network tab, console logging
 - **Backend**: PostgreSQL query logs, FastAPI debug mode, LLM service logs
 - **Infrastructure**: Docker container logs, system resource monitoring, LLM service health checks
 
-**Enhanced Troubleshooting for Key-Based Rendering**: **New** When debrief data appears stale or not updating, check the key-based rendering system to ensure proper re-rendering triggers and verify that the debrief data is being properly stored and retrieved from the database.
+**Enhanced Troubleshooting for Automatic Content Visibility**: **New** When scorecards appear blank or not displaying as expected, check:
+- Verify evaluation count calculation across all four dimensions
+- Ensure debrief and overall_assessment properties are properly checked
+- Confirm that the conditional rendering logic prevents empty displays
+- Test with actual evaluation data to verify visibility mechanism works correctly
 
 **Section sources**
 - [InterviewScorecard.jsx:73-117](file://app/frontend/src/components/InterviewScorecard.jsx#L73-L117)
@@ -862,7 +924,7 @@ The Interview Scorecard Component represents a sophisticated integration of fron
 - **Enhanced** AI-Powered Insights**: Comprehensive debrief generation with structured content and recruiter scoring
 - **Enhanced** Phone Screening Workflow**: Streamlined evaluation process with validation and automated recommendations
 - **Enhanced** Python 3.11 Compatibility**: Improved async patterns, type hints, and performance optimizations
-- **Enhanced** Key-Based Rendering System**: Forces React re-rendering when debrief data becomes available for immediate UI updates
+- **Enhanced** Automatic Content Visibility**: Intelligent mechanism that calculates evaluation counts and automatically hides empty scorecards when no assessments have been completed
 
 **Future Enhancement Opportunities:**
 - **Advanced Analytics**: Integration of evaluation trend analysis and competency mapping
@@ -873,6 +935,6 @@ The Interview Scorecard Component represents a sophisticated integration of fron
 - **Enhanced Collaboration**: Advanced team evaluation features and real-time collaboration tools
 - **Enhanced** Performance Monitoring**: Comprehensive metrics for debrief generation and LLM service utilization
 - **Enhanced** Python 3.11 Migration**: Continued improvements to async patterns and memory efficiency
-- **Enhanced** Key-Based Rendering Optimization**: Further optimization of re-rendering strategy for better performance
+- **Enhanced** Content Visibility Optimization**: Further optimization of evaluation count calculations and rendering performance
 
-The component serves as a cornerstone of the ARIA platform's interview analysis capabilities, providing a solid foundation for advanced recruitment technology solutions with enhanced team collaboration features, comprehensive evaluator attribution, and sophisticated AI-powered debrief generation for streamlined phone screening workflows. The recent enhancements ensure compatibility with modern Python versions while maintaining backward compatibility and improving overall system reliability, with the new key-based rendering system guaranteeing immediate UI updates when debrief data becomes available.
+The component serves as a cornerstone of the ARIA platform's interview analysis capabilities, providing a solid foundation for advanced recruitment technology solutions with enhanced team collaboration features, comprehensive evaluator attribution, and sophisticated AI-powered debrief generation for streamlined phone screening workflows. The recent enhancements ensure compatibility with modern Python versions while maintaining backward compatibility and improving overall system reliability, with the new automatic content visibility mechanism guaranteeing optimal user experience by intelligently controlling when scorecard content is displayed based on actual evaluation activity.
