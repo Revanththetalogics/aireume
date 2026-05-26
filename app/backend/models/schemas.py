@@ -537,6 +537,13 @@ class DebriefRequest(BaseModel):
     """Request body for LLM debrief generation."""
     conversation_summary: str
 
+    @field_validator('conversation_summary')
+    @classmethod
+    def validate_summary_length(cls, v):
+        if len(v.strip()) < 100:
+            raise ValueError('Conversation summary must be at least 100 characters')
+        return v.strip()
+
 
 class DebriefContent(BaseModel):
     """Structured LLM-generated debrief content."""

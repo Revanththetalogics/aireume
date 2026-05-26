@@ -114,6 +114,7 @@ export default function ReportPage() {
 
   // ── Phone Screen split-view state ─────────────────────────────────────────
   const [screenMode, setScreenMode] = useState(false)
+  const [scorecardKey, setScorecardKey] = useState(0)
   const [resumeBlobUrl, setResumeBlobUrl] = useState(null)
   const [resumeLoading, setResumeLoading] = useState(false)
   const [resumeIsText, setResumeIsText] = useState(false)
@@ -550,6 +551,7 @@ export default function ReportPage() {
                   missing_skills: result?.analysis_result?.missing_skills || result?.missing_skills || [],
                   matched_skills: result?.analysis_result?.matched_skills || result?.matched_skills || [],
                 }}
+                onDebriefGenerated={() => setScorecardKey(prev => prev + 1)}
               />
 
               {/* Scorecard at the bottom */}
@@ -559,7 +561,7 @@ export default function ReportPage() {
                     <FileText className="w-4 h-4 text-brand-600" />
                     <span className="font-bold text-slate-800 text-sm">Recruiter Scorecard</span>
                   </div>
-                  <InterviewScorecard resultId={result.result_id} />
+                  <InterviewScorecard key={scorecardKey} resultId={result.result_id} />
                 </div>
               )}
             </div>
@@ -1014,7 +1016,7 @@ export default function ReportPage() {
                 <FileText className="w-5 h-5 text-brand-600" />
                 <h2 className="text-lg font-bold text-slate-900">Recruiter Scorecard</h2>
               </div>
-              <InterviewScorecard resultId={result.result_id} />
+              <InterviewScorecard key={scorecardKey} resultId={result.result_id} />
             </div>
           )}
 

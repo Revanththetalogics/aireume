@@ -214,6 +214,12 @@ class LLMService:
 
         return self._fallback_response("Max retries exceeded")
 
+    async def generate_text(self, prompt: str) -> str:
+        """Public interface for text generation via Ollama.
+
+        Use this instead of _call_ollama for any non-resume-analysis prompts."""
+        return await self._call_ollama(prompt)
+
     async def _call_ollama(self, prompt: str) -> str:
         url = f"{self.base_url}/api/generate"
 

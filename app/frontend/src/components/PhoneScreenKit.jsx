@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   ChevronDown, ChevronUp, ClipboardList, User, Eye, MessageCircle, Loader2,
-  MessageSquare,
+  MessageSquare, CheckCircle,
 } from 'lucide-react'
 import { getEvaluations, saveEvaluation, saveOverallAssessment, generateDebrief, getScorecard } from '../lib/api'
 
@@ -92,6 +92,7 @@ export default function PhoneScreenKit({ interview_questions, resultId, analysis
   const [conversationSummary, setConversationSummary] = useState('')
   const [summaryError, setSummaryError] = useState('')
   const [submittingSummary, setSubmittingSummary] = useState(false)
+  const [debriefGenerated, setDebriefGenerated] = useState(false)
 
   const QTABS = [
     { key: 'technical',           label: 'Technical',           questions: interview_questions?.technical_questions            || [] },
@@ -204,6 +205,7 @@ export default function PhoneScreenKit({ interview_questions, resultId, analysis
       await saveOverallAssessment(resultId, { overall_assessment: conversationSummary })
       // Then generate debrief
       const debrief = await generateDebrief(resultId, conversationSummary)
+      setDebriefGenerated(true)
       // Notify parent of successful debrief generation (optional callback)
       if (onDebriefGenerated) onDebriefGenerated(debrief)
     } catch (err) {
@@ -458,6 +460,12 @@ export default function PhoneScreenKit({ interview_questions, resultId, analysis
         />
         {summaryError && (
           <p className="mt-2 text-xs text-red-600">{summaryError}</p>
+        )}
+        {debriefGenerated && (
+          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+            <span className="text-sm text-green-700 font-medium">Debrief generated successfully! View it in the Recruiter Scorecard below.</span>
+          </div>
         )}
         <div className="flex items-center justify-between mt-3">
           <span className="text-xs text-slate-400">{conversationSummary.length} characters (min 100)</span>

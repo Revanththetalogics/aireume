@@ -327,7 +327,7 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
         llm_service = LLMService()
         sem = get_ollama_semaphore()
         async with sem:
-            llm_response = await llm_service._call_ollama(prompt)
+            llm_response = await llm_service.generate_text(prompt)
         # Parse JSON response
         json_match = re.search(r'\{[\s\S]*\}', llm_response)
         if json_match:
@@ -340,13 +340,24 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
 
     # Fallback if LLM failed
     if debrief_data is None:
+        # Derive recommendation from rating distribution
+        if rating_score >= 70:
+            fallback_rec = "advance"
+            fallback_sentiment = 70
+        elif rating_score >= 40:
+            fallback_rec = "hold"
+            fallback_sentiment = 50
+        else:
+            fallback_rec = "reject"
+            fallback_sentiment = 30
+
         debrief_data = {
-            "overview": f"Phone screen completed for {candidate_name} for {role_title}.",
-            "strengths": "See recruiter summary for details.",
-            "concerns": "See recruiter summary for details.",
-            "recommendation_rationale": "Based on rating distribution.",
-            "recommendation": "Hold",
-            "sentiment_score": 50,
+            "overview": f"Phone screen completed for {candidate_name} for {role_title}. AI-generated debrief unavailable; this summary is based on rating distribution only.",
+            "strengths": "Refer to recruiter's conversation summary for observed strengths.",
+            "concerns": "Refer to recruiter's conversation summary for identified concerns.",
+            "recommendation_rationale": f"Recommendation based on rating distribution score ({int(rating_score)}/100). LLM analysis was not available.",
+            "recommendation": fallback_rec,
+            "sentiment_score": fallback_sentiment,
         }
 
     # 7. Compute final recruiter score
@@ -358,11 +369,9 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
             sentiment_score = 50
     recruiter_score = int(rating_score * 0.4 + sentiment_score * 0.6)
     recruiter_score = max(0, min(100, recruiter_score))  # Clamp to 0-100
-    recommendation = debrief_data.get("recommendation", "Hold")
-    # Normalize recommendation to capitalized form
-    recommendation = recommendation.capitalize()
-    if recommendation not in ("Advance", "Hold", "Reject"):
-        recommendation = "Hold"
+    recommendation = debrief_data.get("recommendation", "hold").lower().strip()
+    if recommendation not in ("advance", "hold", "reject"):
+        recommendation = "hold"
 
     # 8. Store in OverallAssessment
     overall = db.query(OverallAssessment).filter(
@@ -382,7 +391,7 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
     if overall:
         overall.debrief_json = json.dumps(debrief_content)
         overall.recruiter_score = recruiter_score
-        overall.recruiter_recommendation = recommendation.lower()  # Stored as lowercase per existing convention
+        overall.recruiter_recommendation = recommendation
         overall.overall_assessment = body.conversation_summary
         overall.updated_at = datetime.now(timezone.utc)
     else:
@@ -392,7 +401,7 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
             overall_assessment=body.conversation_summary,
             debrief_json=json.dumps(debrief_content),
             recruiter_score=recruiter_score,
-            recruiter_recommendation=recommendation.lower(),
+            recruiter_recommendation=recommendation,
         )
         db.add(overall)
 
@@ -401,5 +410,5 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
     return DebriefResponse(
         debrief=DebriefContent(**debrief_content),
         recruiter_score=recruiter_score,
-        recommendation=recommendation,
+        recommendation=recommendation.capitalize(),
     )
