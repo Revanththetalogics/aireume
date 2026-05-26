@@ -2,14 +2,14 @@ import {
   ThumbsUp, ThumbsDown, AlertTriangle, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Target, TrendingUp, Shield, ClipboardList,
   Copy, Check, Mail, X, Loader2, Lightbulb, BookOpen, Compass, Cpu,
-  Sparkles, Info, UserCheck, User, Eye, MessageCircle, Star,
+  Sparkles, Info, UserCheck, Eye, Star,
   Flame, CheckCircle2,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import SkillsRadar from './SkillsRadar'
 import AnimatedScore from './AnimatedScore'
 import StreamingText from './StreamingText'
-import { generateEmail, getNarrative, getEvaluations, saveEvaluation, recordOutcome, recordOutcomeFeedback } from '../lib/api'
+import { generateEmail, getNarrative, recordOutcome, recordOutcomeFeedback } from '../lib/api'
 import { safeStr } from '../lib/utils'
 
 // ─── Small reusable components ────────────────────────────────────────────────
@@ -556,15 +556,7 @@ function PendingBanner() {
 // ─── Main ResultCard ──────────────────────────────────────────────────────────
 
 export default function ResultCard({ result, defaultExpandEducation = false }) {
-  const [showInterviewKit, setShowInterviewKit] = useState(false)
-  const [showEmailModal, setShowEmailModal]     = useState(false)
-  const [activeQTab, setActiveQTab]             = useState('technical')
-  const [expandedGuidance, setExpandedGuidance] = useState({})
-
-  // Per-question evaluation state
-  const [evaluations, setEvaluations] = useState({})   // { "technical_0": { rating: "strong", notes: "..." }, ... }
-  const [savingEval, setSavingEval]   = useState({})   // { "technical_0": true } — loading states
-  const [evalLoaded, setEvalLoaded]   = useState(false)
+  const [showEmailModal, setShowEmailModal] = useState(false)
 
   // Outcome feedback state
   const [outcomeStatus, setOutcomeStatus]       = useState(null) // null | 'hired' | 'rejected' | 'withdrawn'
@@ -578,65 +570,6 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
   const [feedbackNotes, setFeedbackNotes]       = useState('')
   const [savingFeedback, setSavingFeedback]     = useState(false)
   const [outcomeError, setOutcomeError]         = useState(null)
-
-  // Normalize interview question to structured format (backward compat)
-  const normalizeQ = (q) => {
-    if (typeof q === 'string') return { text: q, what_to_listen_for: [], follow_ups: [] };
-    if (q && typeof q === 'object') return {
-      text: q.text || String(q),
-      what_to_listen_for: q.what_to_listen_for || [],
-      follow_ups: q.follow_ups || [],
-    };
-    return { text: String(q), what_to_listen_for: [], follow_ups: [] };
-  };
-
-  const toggleGuidance = (key) => {
-    setExpandedGuidance(prev => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  // Load existing evaluations when Recruiter Screen Kit is expanded
-  useEffect(() => {
-    if (showInterviewKit && result?.result_id && !evalLoaded) {
-      const loadEvals = async () => {
-        try {
-          const data = await getEvaluations(result.result_id)
-          const evalMap = {}
-          data.forEach(e => {
-            evalMap[`${e.question_category}_${e.question_index}`] = {
-              rating: e.rating,
-              notes: e.notes || '',
-            }
-          })
-          setEvaluations(evalMap)
-        } catch (err) {
-          console.error('Failed to load evaluations:', err)
-        }
-        setEvalLoaded(true)
-      }
-      loadEvals()
-    }
-  }, [showInterviewKit, result?.result_id, evalLoaded])
-
-  // Save evaluation handler
-  const handleSaveEval = async (category, index, field, value) => {
-    const key = `${category}_${index}`
-    const current = evaluations[key] || {}
-    const updated = { ...current, [field]: value }
-    setEvaluations(prev => ({ ...prev, [key]: updated }))
-
-    setSavingEval(prev => ({ ...prev, [key]: true }))
-    try {
-      await saveEvaluation(result.result_id, {
-        question_category: category,
-        question_index: index,
-        rating: updated.rating || null,
-        notes: updated.notes || null,
-      })
-    } catch (err) {
-      console.error('Failed to save evaluation:', err)
-    }
-    setSavingEval(prev => ({ ...prev, [key]: false }))
-  }
 
   // Outcome handler
   const handleOutcome = (decision) => {
@@ -697,7 +630,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     fit_score, strengths, weaknesses, education_analysis,
     risk_signals, final_recommendation, score_breakdown,
     matched_skills, missing_skills, risk_level,
-    interview_questions, result_id, candidate_id,
+    result_id, candidate_id,
     explainability, adjacent_skills,
     skill_analysis, edu_timeline_analysis, jd_analysis,
     recommendation_rationale,
@@ -814,13 +747,6 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     BadgeIcon  = AlertTriangle
   }
 
-  const QTABS = [
-    { key: 'technical',   label: 'Technical',   questions: interview_questions?.technical_questions   || [] },
-    { key: 'behavioral',  label: 'Behavioral',  questions: interview_questions?.behavioral_questions  || [] },
-    { key: 'culture_fit', label: 'Culture Fit', questions: interview_questions?.culture_fit_questions || [] },
-    { key: 'experience_deep_dive', label: 'Experience Deep-Dive', questions: interview_questions?.experience_deep_dive_questions || [] },
-  ]
-  
   // Merge narrative data with existing result data
   const mergedStrengths = narrativeData?.strengths || strengths || []
   const mergedConcerns = narrativeData?.concerns || narrativeData?.weaknesses || concerns || weaknesses || []
@@ -1345,243 +1271,6 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               )}
             </div>
           </CollapsibleSection>
-        )}
-
-        {/* Recruiter Screen Kit */}
-        {interview_questions && (
-          <div className="ring-1 ring-brand-200 rounded-2xl bg-brand-50/40 overflow-hidden">
-            <button
-              onClick={() => setShowInterviewKit(!showInterviewKit)}
-              className="w-full flex items-center justify-between p-4 hover:bg-brand-50 transition-colors"
-            >
-              <div className="flex items-center gap-2.5">
-                <ClipboardList className="w-4 h-4 text-brand-600" />
-                <span className="font-bold text-brand-800 text-sm">Recruiter Screen Kit</span>
-                <span className="text-xs bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-semibold">
-                  {(interview_questions.technical_questions?.length || 0) +
-                   (interview_questions.behavioral_questions?.length || 0) +
-                   (interview_questions.culture_fit_questions?.length || 0) +
-                   (interview_questions.experience_deep_dive_questions?.length || 0)} questions
-                </span>
-              </div>
-              {showInterviewKit
-                ? <ChevronUp className="w-4 h-4 text-brand-600" />
-                : <ChevronDown className="w-4 h-4 text-brand-600" />}
-            </button>
-
-            {showInterviewKit && (
-              <div className="px-4 pb-4 border-t border-brand-100">
-
-                {/* Candidate Briefing */}
-                {interview_questions?.candidate_briefing && (
-                  <div className="mx-0 mt-3 mb-2 p-4 bg-gradient-to-r from-brand-50 to-indigo-50 rounded-xl ring-1 ring-brand-200">
-                    <div className="flex items-center gap-2 mb-3">
-                      <User className="w-4 h-4 text-brand-600" />
-                      <span className="font-bold text-brand-800 text-sm">Candidate Briefing</span>
-                    </div>
-
-                    {/* Profile Snapshot */}
-                    {interview_questions.candidate_briefing.profile_snapshot && (
-                      <p className="text-sm text-slate-700 mb-3 leading-relaxed">
-                        {interview_questions.candidate_briefing.profile_snapshot}
-                      </p>
-                    )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {/* Strengths to Confirm */}
-                      {interview_questions.candidate_briefing.strengths_to_confirm?.length > 0 && (
-                        <div>
-                          <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Strengths to Confirm</span>
-                          <ul className="mt-1 space-y-1">
-                            {interview_questions.candidate_briefing.strengths_to_confirm.map((s, i) => (
-                              <li key={i} className="flex items-start gap-1.5 text-sm text-slate-600">
-                                <span className="text-emerald-500 mt-0.5">&#10003;</span>
-                                {s}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* Areas to Probe */}
-                      {interview_questions.candidate_briefing.areas_to_probe?.length > 0 && (
-                        <div>
-                          <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Areas to Probe</span>
-                          <ul className="mt-1 space-y-1">
-                            {interview_questions.candidate_briefing.areas_to_probe.map((a, i) => (
-                              <li key={i} className="flex items-start gap-1.5 text-sm text-slate-600">
-                                <span className="text-amber-500 mt-0.5">&#9679;</span>
-                                {a}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Context Notes — collapsible */}
-                    {interview_questions.candidate_briefing.context_notes?.length > 0 && (
-                      <div className="mt-3">
-                        <button
-                          onClick={() => setExpandedGuidance(prev => ({ ...prev, briefing_context: !prev.briefing_context }))}
-                          className="text-xs font-semibold text-brand-600 hover:text-brand-800 flex items-center gap-1"
-                        >
-                          {expandedGuidance.briefing_context ? 'Hide' : 'Show'} question context
-                          {expandedGuidance.briefing_context
-                            ? <ChevronUp className="w-3 h-3" />
-                            : <ChevronDown className="w-3 h-3" />}
-                        </button>
-                        {expandedGuidance.briefing_context && (
-                          <ul className="mt-2 space-y-1 pl-2 border-l-2 border-brand-200">
-                            {interview_questions.candidate_briefing.context_notes.map((n, i) => (
-                              <li key={i} className="text-xs text-slate-500 italic">{n}</li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Question Tabs */}
-                <div className="flex gap-1.5 mb-4 mt-3">
-                  {QTABS.filter(t => t.questions.length > 0).map(t => (
-                    <button
-                      key={t.key}
-                      onClick={() => setActiveQTab(t.key)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                        activeQTab === t.key
-                          ? 'bg-brand-600 text-white shadow-brand-sm'
-                          : 'bg-white text-slate-600 ring-1 ring-brand-200 hover:bg-brand-50 hover:text-brand-700'
-                      }`}
-                    >
-                      {t.label} ({t.questions.length})
-                    </button>
-                  ))}
-                </div>
-
-                {/* Enhanced Question Cards */}
-                {QTABS.filter(t => t.key === activeQTab).map(t => (
-                  <ol key={t.key} className="space-y-3">
-                    {t.questions.map((rawQ, i) => {
-                      const q = normalizeQ(rawQ);
-                      const guidanceKey = `${t.key}_${i}`;
-                      const hasGuidance = q.what_to_listen_for.length > 0 || q.follow_ups.length > 0;
-
-                      return (
-                        <li key={i} className="p-3 bg-white rounded-xl ring-1 ring-brand-100">
-                          {/* Question text + copy */}
-                          <div className="flex items-start gap-3">
-                            <span className="text-xs font-bold text-brand-400 mt-0.5 w-5 shrink-0">{i + 1}.</span>
-                            <p className="text-sm text-slate-700 flex-1">{q.text}</p>
-                            <CopyButton text={q.text} />
-                          </div>
-
-                          {/* Expandable guidance toggle */}
-                          {hasGuidance && (
-                            <div className="ml-8 mt-2">
-                              <button
-                                onClick={() => toggleGuidance(guidanceKey)}
-                                className="text-xs font-semibold text-brand-500 hover:text-brand-700 flex items-center gap-1 transition-colors"
-                              >
-                                {expandedGuidance[guidanceKey] ? 'Hide guidance' : 'Show guidance'}
-                                {expandedGuidance[guidanceKey]
-                                  ? <ChevronUp className="w-3 h-3" />
-                                  : <ChevronDown className="w-3 h-3" />}
-                              </button>
-
-                              {expandedGuidance[guidanceKey] && (
-                                <div className="mt-2 space-y-3">
-                                  {/* What to Listen For */}
-                                  {q.what_to_listen_for.length > 0 && (
-                                    <div className="p-2.5 bg-brand-50/60 rounded-lg">
-                                      <span className="text-xs font-semibold text-brand-700 uppercase tracking-wide flex items-center gap-1">
-                                        <Eye className="w-3 h-3" /> What to Listen For
-                                      </span>
-                                      <ul className="mt-1.5 space-y-1">
-                                        {q.what_to_listen_for.map((item, j) => (
-                                          <li key={j} className="text-xs text-slate-600 flex items-start gap-1.5">
-                                            <span className="text-brand-400 mt-0.5">&#8226;</span>
-                                            {item}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  )}
-
-                                  {/* Follow-Up Questions */}
-                                  {q.follow_ups.length > 0 && (
-                                    <div className="p-2.5 bg-indigo-50/60 rounded-lg">
-                                      <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wide flex items-center gap-1">
-                                        <MessageCircle className="w-3 h-3" /> Follow-Up Questions
-                                      </span>
-                                      <ul className="mt-1.5 space-y-1">
-                                        {q.follow_ups.map((fu, j) => (
-                                          <li key={j} className="text-xs text-slate-600 flex items-start gap-1.5">
-                                            <span className="text-indigo-400 mt-0.5">&#8594;</span>
-                                            {fu}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Evaluation Section */}
-                          <div className="ml-8 mt-3 pt-3 border-t border-slate-100">
-                            {/* Rating Buttons */}
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="text-xs font-semibold text-slate-500">Rate:</span>
-                              {[
-                                { value: 'strong', label: 'Strong', activeClass: 'bg-emerald-100 text-emerald-700 ring-emerald-300' },
-                                { value: 'adequate', label: 'Adequate', activeClass: 'bg-amber-100 text-amber-700 ring-amber-300' },
-                                { value: 'weak', label: 'Weak', activeClass: 'bg-red-100 text-red-700 ring-red-300' },
-                              ].map(opt => {
-                                const evalKey = `${t.key}_${i}`
-                                const isActive = evaluations[evalKey]?.rating === opt.value
-                                return (
-                                  <button
-                                    key={opt.value}
-                                    onClick={() => handleSaveEval(t.key, i, 'rating', opt.value)}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold ring-1 transition-all ${
-                                      isActive
-                                        ? opt.activeClass
-                                        : 'bg-white text-slate-400 ring-slate-200 hover:ring-slate-300'
-                                    }`}
-                                  >
-                                    {opt.label}
-                                  </button>
-                                )
-                              })}
-                              {savingEval[`${t.key}_${i}`] && (
-                                <span className="text-xs text-slate-400 italic">Saving...</span>
-                              )}
-                            </div>
-
-                            {/* Notes Text Area */}
-                            <textarea
-                              placeholder="Add interview notes for this question..."
-                              value={evaluations[`${t.key}_${i}`]?.notes || ''}
-                              onChange={(e) => {
-                                const key = `${t.key}_${i}`
-                                setEvaluations(prev => ({ ...prev, [key]: { ...prev[key], notes: e.target.value } }))
-                              }}
-                              onBlur={(e) => handleSaveEval(t.key, i, 'notes', e.target.value)}
-                              rows={2}
-                              className="w-full text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-300 placeholder:text-slate-300"
-                            />
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                ))}
-              </div>
-            )}
-          </div>
         )}
 
         {/* Outcome Feedback Section */}

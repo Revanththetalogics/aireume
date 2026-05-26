@@ -139,6 +139,16 @@ export default function InterviewScorecard({ resultId }) {
   if (error) return <div className="text-center text-sm text-red-400 py-8">{error}</div>
   if (!scorecard) return null
 
+  const evaluatedCount =
+    (scorecard.technical_summary?.evaluated_count || 0) +
+    (scorecard.behavioral_summary?.evaluated_count || 0) +
+    (scorecard.culture_fit_summary?.evaluated_count || 0) +
+    (scorecard.experience_deep_dive_summary?.evaluated_count || 0)
+
+  if (evaluatedCount === 0 && !scorecard.debrief && !scorecard.overall_assessment) {
+    return null
+  }
+
   return (
     <div className="space-y-4">
       {/* Export Button */}
@@ -243,13 +253,6 @@ export default function InterviewScorecard({ resultId }) {
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* Empty state when no debrief yet */}
-        {!scorecard?.debrief && scorecard && (
-          <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-dashed border-slate-300 text-center">
-            <p className="text-sm text-slate-500">Recruiter debrief not generated yet. Complete the phone screen and submit a conversation summary to generate.</p>
           </div>
         )}
 
