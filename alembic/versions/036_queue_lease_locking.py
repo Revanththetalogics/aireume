@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 
 revision = "036_queue_lease_locking"
-down_revision = "035_recruiter_debrief"
+down_revision = "036_fix_audit_tenant_id"
 branch_labels = None
 depends_on = None
 

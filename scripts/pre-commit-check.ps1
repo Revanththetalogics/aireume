@@ -88,6 +88,20 @@ if (Test-Path "alembic\versions\003_subscription_system.py") {
     Write-Host "[WARN] Migration 003 not found" -ForegroundColor Yellow
 }
 
+# Single-head check: fail if Alembic migration graph has multiple heads
+Write-Host "Checking for multiple Alembic heads..."
+$headsOutput = python -m alembic heads 2>&1
+$headLines = ($headsOutput | Where-Object { $_ -match '\(head\)' })
+$headCount = @($headLines).Count
+if ($headCount -eq 1) {
+    Write-Host "[OK] Single Alembic head detected" -ForegroundColor Green
+} elseif ($headCount -eq 0) {
+    Write-Host "[WARN] Could not determine Alembic heads (no DB or alembic not found)" -ForegroundColor Yellow
+} else {
+    Write-Host "[FAIL] Multiple Alembic heads detected ($headCount heads). Run 'python -m alembic heads' to inspect." -ForegroundColor Red
+    $exitCode = 1
+}
+
 # Step 4: Frontend Files
 Write-Header "STEP 4: Frontend Files"
 

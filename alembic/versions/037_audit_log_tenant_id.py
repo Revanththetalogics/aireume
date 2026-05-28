@@ -1,7 +1,7 @@
 """Add tenant_id to audit_logs table"""
 
 revision = "037_audit_log_tenant_id"
-down_revision = "036_fix_audit_tenant_id"
+down_revision = "036_queue_lease_locking"
 branch_labels = None
 depends_on = None
 

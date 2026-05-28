@@ -7,7 +7,7 @@ case "${DATABASE_URL:-}" in
     echo "[entrypoint] Creating base tables (if not exist)..."
     cd /app && python -c "from app.backend.db.database import Base, engine; Base.metadata.create_all(bind=engine)"
     echo "[entrypoint] Running Alembic migrations..."
-    cd /app && alembic -c alembic.ini upgrade head
+    cd /app && alembic -c alembic.ini upgrade heads
     echo "[entrypoint] Migrations complete."
     ;;
   *)
