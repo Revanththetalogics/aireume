@@ -21,7 +21,20 @@ log = logging.getLogger(__name__)
 class UsageAlertService:
     """Checks usage against plan limits and sends threshold alerts."""
 
-    THRESHOLDS = [80, 100]
+    DEFAULT_THRESHOLDS = [80, 100]
+
+    def _get_alert_thresholds(self, db: Session, tenant_id: int) -> list[int]:
+        """Get configurable alert thresholds for tenant."""
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if tenant and tenant.metadata_json:
+            try:
+                metadata = json.loads(tenant.metadata_json) if isinstance(tenant.metadata_json, str) else tenant.metadata_json
+                thresholds = metadata.get("alert_thresholds")
+                if thresholds and isinstance(thresholds, list):
+                    return sorted([int(t) for t in thresholds if 0 < int(t) <= 100])
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+        return self.DEFAULT_THRESHOLDS
 
     # ------------------------------------------------------------------
     # Public API
@@ -49,7 +62,9 @@ class UsageAlertService:
 
         period_key = self._current_period_key()
 
-        for threshold in self.THRESHOLDS:
+        thresholds = self._get_alert_thresholds(db, tenant_id)
+
+        for threshold in thresholds:
             if percent_used < threshold:
                 continue
 
@@ -90,6 +105,23 @@ class UsageAlertService:
                 if tenant:
                     for alert in created_alerts:
                         self._dispatch_alert(db, tenant, alert)
+                        # Create admin notification for 100% threshold (critical)
+                        if alert.threshold_percent >= 100:
+                            try:
+                                from app.backend.services.notification_service import create_admin_notification
+                                create_admin_notification(
+                                    db=db,
+                                    type="quota_warning",
+                                    severity="critical",
+                                    title=f"Quota exhausted: {alert.metric_name}",
+                                    message=(
+                                        f"Tenant '{tenant.name}' has reached 100%% of their "
+                                        f"{alert.metric_name} limit ({alert.current_value}/{alert.limit_value})."
+                                    ),
+                                    tenant_id=tenant_id,
+                                )
+                            except Exception:
+                                log.exception("Failed to create admin notification for usage alert")
             except Exception:
                 db.rollback()
                 log.exception("Failed to commit usage alerts for tenant %d", tenant_id)
@@ -139,6 +171,7 @@ class UsageAlertService:
         """Fire usage.threshold_reached webhook event (fire-and-forget)."""
         try:
             from app.backend.services.webhook_service import dispatch_event_background
+            from app.backend.db.database import SessionLocal
 
             payload = {
                 "metric": alert.metric_name,
@@ -148,7 +181,7 @@ class UsageAlertService:
                 "period": alert.period_key,
             }
             dispatch_event_background(
-                None, tenant.id, "usage.threshold_reached", payload
+                SessionLocal, tenant.id, "usage.threshold_reached", payload
             )
         except Exception:
             log.exception(

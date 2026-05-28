@@ -4,6 +4,7 @@ Tests for subscription plan CRUD admin endpoints.
 import json
 import pytest
 from app.backend.models.db_models import Tenant, User, SubscriptionPlan, AuditLog
+from app.backend.tests.test_helpers import _verify_user_via_api
 
 
 # ─── Fixtures ───────────────────────────────────────────────────────────────────
@@ -19,6 +20,8 @@ def billing_admin_client(client, db):
     }
     reg_resp = client.post("/api/auth/register", json=register_payload)
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+
+    _verify_user_via_api("billingadmin@test.com")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "billingadmin@test.com",
@@ -47,6 +50,8 @@ def super_admin_client(client, db):
     }
     reg_resp = client.post("/api/auth/register", json=register_payload)
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+
+    _verify_user_via_api("superadmin@test.com")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "superadmin@test.com",
@@ -239,7 +244,7 @@ class TestCreatePlan:
             "price_monthly": 0,
             "price_yearly": 0,
         })
-        assert resp.status_code == 403
+        assert resp.status_code == 401  # Auth middleware blocks unauthenticated requests
 
 
 # ─── Update Plan ────────────────────────────────────────────────────────────────

@@ -53,6 +53,7 @@ class Tenant(Base):
     subscription_updated_at = Column(DateTime(timezone=True), nullable=True)
     suspended_at    = Column(DateTime(timezone=True), nullable=True)
     suspended_reason = Column(Text, nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     metadata_json   = Column(Text, nullable=False, default="{}")
     
     # Tenant-level default scoring weights (JSON string)
@@ -78,7 +79,7 @@ class User(Base):
 
     id              = Column(Integer, primary_key=True, index=True)
     tenant_id       = Column(Integer, ForeignKey("tenants.id"), nullable=False)
-    email           = Column(String(255), unique=True, nullable=False, index=True)
+    email           = Column(String(255), nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     role            = Column(String(50), nullable=False, default="recruiter")  # admin / recruiter / viewer
     is_active       = Column(Boolean, default=True)
@@ -86,10 +87,19 @@ class User(Base):
     platform_role   = Column(String(50), nullable=True)  # super_admin | billing_admin | support | security_admin | readonly
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Email verification
+    email_verified             = Column(Boolean, nullable=False, server_default='false', default=False)
+    email_verification_token   = Column(String(255), nullable=True)
+    email_verification_sent_at = Column(DateTime(timezone=True), nullable=True)
+
     tenant       = relationship("Tenant", back_populates="users")
     team_member  = relationship("TeamMember", back_populates="user", uselist=False)
     comments     = relationship("Comment", back_populates="author")
     usage_logs   = relationship("UsageLog", back_populates="user")
+
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'email', name='uq_users_tenant_email'),
+    )
 
     @property
     def is_platform_admin_compat(self) -> bool:
@@ -411,6 +421,7 @@ class AuditLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     actor_email = Column(String(255), nullable=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
     action = Column(String(100), nullable=False, index=True)
     resource_type = Column(String(50), nullable=False)
     resource_id = Column(Integer, nullable=True)
@@ -424,7 +435,7 @@ class FieldAuditLog(Base):
     __tablename__ = "field_audit_logs"
 
     id            = Column(Integer, primary_key=True, index=True)
-    tenant_id     = Column(String(100), nullable=False, index=True)
+    tenant_id     = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     entity_type   = Column(String(50), nullable=False)    # 'candidate', 'screening_result'
     entity_id     = Column(Integer, nullable=False, index=True)
     field_name    = Column(String(100), nullable=False)
@@ -811,6 +822,22 @@ class OutcomeSkillPattern(Base):
 
 
 # ─── Usage alerts ────────────────────────────────────────────────────────────────
+
+class AdminNotification(Base):
+    """Platform admin notification center entries."""
+    __tablename__ = "admin_notifications"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    type       = Column(String(50), nullable=False)   # quota_warning, dunning_exhausted, webhook_failure
+    severity   = Column(String(20), nullable=False, server_default='info')  # info, warning, critical
+    title      = Column(String(200), nullable=False)
+    message    = Column(Text, nullable=False)
+    tenant_id  = Column(Integer, ForeignKey('tenants.id'), nullable=True)
+    is_read    = Column(Boolean, nullable=False, server_default='false', default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship('Tenant', backref='admin_notifications')
+
 
 class UsageAlert(Base):
     """Tracks usage threshold alerts sent to tenants."""

@@ -14,6 +14,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.backend.models.db_models import Candidate, RoleTemplate
+from app.backend.tests.test_helpers import _verify_user_via_api
 
 
 # ─── Shared mock Ollama response ─────────────────────────────────────────────
@@ -119,7 +120,7 @@ class TestTranscriptAuthGuard:
             "/api/transcript/analyze",
             data={"transcript_text": SAMPLE_PLAIN_TRANSCRIPT, "role_template_id": 1},
         )
-        assert resp.status_code == 403  # CSRF middleware blocks before auth check
+        assert resp.status_code == 401  # Auth middleware blocks unauthenticated requests
 
     def test_list_analyses_unauthenticated_returns_401(self, client):
         assert client.get("/api/transcript/analyses").status_code == 401
@@ -321,6 +322,7 @@ class TestAnalyzeTranscriptEndpoint:
             "email": "a@tenanta.com",
             "password": "PassA123!",
         })
+        _verify_user_via_api("a@tenanta.com")
         login_a = client.post("/api/auth/login", json={
             "email": "a@tenanta.com", "password": "PassA123!"
         })
@@ -339,6 +341,7 @@ class TestAnalyzeTranscriptEndpoint:
             "email": "b@tenantb.com",
             "password": "PassB123!",
         })
+        _verify_user_via_api("b@tenantb.com")
         login_b = client.post("/api/auth/login", json={
             "email": "b@tenantb.com", "password": "PassB123!"
         })
@@ -428,6 +431,7 @@ class TestListTranscriptAnalyses:
             client.post("/api/auth/register", json={
                 "company_name": company, "email": email, "password": pwd
             })
+            _verify_user_via_api(email)
 
         # Tenant X creates a template and an analysis
         login_x = client.post("/api/auth/login", json={"email": "x@corpx.com", "password": "PassX123!"})
@@ -501,6 +505,7 @@ class TestGetTranscriptAnalysis:
             client.post("/api/auth/register", json={
                 "company_name": company, "email": email, "password": pwd
             })
+            _verify_user_via_api(email)
 
         # Tenant Alpha creates an analysis
         login_a = client.post("/api/auth/login", json={"email": "alpha@alpha.com", "password": "AlphaPass1!"})

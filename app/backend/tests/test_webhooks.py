@@ -3,7 +3,7 @@ Tests for webhook system: service layer + admin endpoints.
 """
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from app.backend.models.db_models import (
     Tenant, User, Webhook, WebhookDelivery, SubscriptionPlan,
@@ -62,8 +62,7 @@ class TestHMACSignature:
 
 # ─── Service-level dispatch tests ───────────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_dispatch_event_matching(db):
+def test_dispatch_event_matching(db):
     """Webhook only fires for matching events."""
     tenant, _ = _make_tenant_and_admin(db)
 
@@ -77,23 +76,22 @@ async def test_dispatch_event_matching(db):
     db.add(wh)
     db.commit()
 
-    with patch("app.backend.services.webhook_service._send_webhook", new_callable=AsyncMock) as mock_send:
+    with patch("app.backend.services.webhook_service._send_webhook") as mock_send:
         mock_send.return_value = (200, "ok", True)
 
         # Dispatch matching event
-        await dispatch_event(db, tenant.id, "analysis.completed", {"result_id": 1})
+        dispatch_event(db, tenant.id, "analysis.completed", {"result_id": 1})
         assert mock_send.call_count == 1
 
-    with patch("app.backend.services.webhook_service._send_webhook", new_callable=AsyncMock) as mock_send:
+    with patch("app.backend.services.webhook_service._send_webhook") as mock_send:
         mock_send.return_value = (200, "ok", True)
 
         # Dispatch non-matching event — webhook should NOT fire
-        await dispatch_event(db, tenant.id, "subscription.changed", {"new_plan": "pro"})
+        dispatch_event(db, tenant.id, "subscription.changed", {"new_plan": "pro"})
         assert mock_send.call_count == 0
 
 
-@pytest.mark.asyncio
-async def test_dispatch_event_wildcard(db):
+def test_dispatch_event_wildcard(db):
     """Webhook with '*' event matches everything."""
     tenant, _ = _make_tenant_and_admin(db)
 
@@ -106,15 +104,14 @@ async def test_dispatch_event_wildcard(db):
     db.add(wh)
     db.commit()
 
-    with patch("app.backend.services.webhook_service._send_webhook", new_callable=AsyncMock) as mock_send:
+    with patch("app.backend.services.webhook_service._send_webhook") as mock_send:
         mock_send.return_value = (200, "ok", True)
 
-        await dispatch_event(db, tenant.id, "any.event", {})
+        dispatch_event(db, tenant.id, "any.event", {})
         assert mock_send.call_count == 1
 
 
-@pytest.mark.asyncio
-async def test_dispatch_event_records_delivery(db):
+def test_dispatch_event_records_delivery(db):
     """Delivery is recorded in the database on dispatch."""
     tenant, _ = _make_tenant_and_admin(db)
 
@@ -127,10 +124,10 @@ async def test_dispatch_event_records_delivery(db):
     db.add(wh)
     db.commit()
 
-    with patch("app.backend.services.webhook_service._send_webhook", new_callable=AsyncMock) as mock_send:
+    with patch("app.backend.services.webhook_service._send_webhook") as mock_send:
         mock_send.return_value = (200, "ok", True)
 
-        await dispatch_event(db, tenant.id, "test.event", {"key": "value"})
+        dispatch_event(db, tenant.id, "test.event", {"key": "value"})
 
     deliveries = db.query(WebhookDelivery).filter(WebhookDelivery.webhook_id == wh.id).all()
     assert len(deliveries) >= 1
@@ -146,8 +143,7 @@ async def test_dispatch_event_records_delivery(db):
     assert wh.last_triggered_at is not None
 
 
-@pytest.mark.asyncio
-async def test_dispatch_event_failed_delivery(db):
+def test_dispatch_event_failed_delivery(db):
     """Failed delivery increments failure_count and records failed delivery."""
     tenant, _ = _make_tenant_and_admin(db)
 
@@ -160,11 +156,11 @@ async def test_dispatch_event_failed_delivery(db):
     db.add(wh)
     db.commit()
 
-    with patch("app.backend.services.webhook_service._send_webhook", new_callable=AsyncMock) as mock_send:
+    with patch("app.backend.services.webhook_service._send_webhook") as mock_send:
         mock_send.return_value = (500, "error", False)
         # Short-circuit sleep to avoid delays in tests
-        with patch("app.backend.services.webhook_service.asyncio.sleep", new_callable=AsyncMock):
-            await dispatch_event(db, tenant.id, "test.fail", {})
+        with patch("app.backend.services.webhook_service.time.sleep"):
+            dispatch_event(db, tenant.id, "test.fail", {})
 
     db.refresh(wh)
     assert wh.failure_count == 3  # MAX_RETRIES = 3
@@ -177,8 +173,7 @@ async def test_dispatch_event_failed_delivery(db):
     assert len(deliveries) == 3
 
 
-@pytest.mark.asyncio
-async def test_auto_disable_after_failures(db):
+def test_auto_disable_after_failures(db):
     """Webhook is auto-disabled after MAX_FAILURE_COUNT consecutive failures."""
     tenant, _ = _make_tenant_and_admin(db)
 
@@ -192,10 +187,10 @@ async def test_auto_disable_after_failures(db):
     db.add(wh)
     db.commit()
 
-    with patch("app.backend.services.webhook_service._send_webhook", new_callable=AsyncMock) as mock_send:
+    with patch("app.backend.services.webhook_service._send_webhook") as mock_send:
         mock_send.return_value = (500, "error", False)
-        with patch("app.backend.services.webhook_service.asyncio.sleep", new_callable=AsyncMock):
-            await dispatch_event(db, tenant.id, "test.disable", {})
+        with patch("app.backend.services.webhook_service.time.sleep"):
+            dispatch_event(db, tenant.id, "test.disable", {})
 
     db.refresh(wh)
     assert wh.is_active is False

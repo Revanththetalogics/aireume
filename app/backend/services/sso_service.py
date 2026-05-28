@@ -5,6 +5,7 @@ This is a simplified implementation using only Python stdlib + cryptography.
 For production hardening, consider swapping to python3-saml or pysaml2.
 """
 import base64
+import logging
 import uuid
 import zlib
 import secrets
@@ -19,6 +20,12 @@ from cryptography.exceptions import InvalidSignature
 from sqlalchemy.orm import Session
 
 from app.backend.models.db_models import SSOConfig, User, Tenant
+
+logger = logging.getLogger(__name__)
+
+# ─── Allowed SSO roles ────────────────────────────────────────────────────────
+
+ALLOWED_SSO_ROLES = {"viewer", "recruiter", "admin"}
 
 # ─── SAML Namespaces ──────────────────────────────────────────────────────────
 
@@ -311,6 +318,15 @@ class SSOService:
         if not sso_config.auto_provision:
             raise ValueError("User not found and auto-provisioning is disabled")
 
+        # Determine and validate role for auto-provisioned user
+        role = sso_config.default_role or "viewer"
+        if role not in ALLOWED_SSO_ROLES:
+            logger.warning(
+                "Invalid SSO default_role '%s' for tenant %s, falling back to 'viewer'",
+                role, tenant_id,
+            )
+            role = "viewer"
+
         # Auto-provision user with random unusable password
         random_password = secrets.token_urlsafe(32)
         # Import hash function from auth module
@@ -320,7 +336,7 @@ class SSOService:
             tenant_id=tenant_id,
             email=email,
             hashed_password=_hash_password(random_password),
-            role=sso_config.default_role or "viewer",
+            role=role,
             is_active=True,
         )
         db.add(user)

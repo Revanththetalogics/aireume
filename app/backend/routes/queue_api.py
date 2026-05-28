@@ -9,7 +9,8 @@ Provides endpoints for:
 - Admin operations (retry, cancel, etc.)
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import hashlib
 from typing import Optional, List
 from uuid import UUID
 
@@ -30,6 +31,12 @@ from app.backend.services.queue_manager import (
 )
 
 router = APIRouter(prefix="/queue", tags=["Queue Management"])
+
+
+def _compute_content_hash(tenant_id: int, candidate_id: Optional[int]) -> str:
+    """Generate a deduplication hash for tenant+candidate-based 60s window check."""
+    content = f"{tenant_id}:{candidate_id}"
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 # ============================================================================
@@ -54,6 +61,20 @@ async def submit_analysis_job(
     - 3-5: Normal priority (default)
     - 6-10: Low priority (batch jobs, background)
     """
+    # Content-hash deduplication: reject identical tenant+candidate jobs within 60s
+    content_hash = _compute_content_hash(current_user.tenant_id, candidate_id)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=60)
+    existing = db.query(AnalysisJob).filter(
+        AnalysisJob.content_hash == content_hash,
+        AnalysisJob.status.in_(['queued', 'processing']),
+        AnalysisJob.queued_at > cutoff,
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Duplicate job detected within last 60 seconds. Existing job ID: {existing.id}",
+        )
+
     queue_manager = get_queue_manager()
     
     try:
@@ -66,12 +87,20 @@ async def submit_analysis_job(
             user_id=current_user.id,
             priority=priority,
         )
+
+        # Store content_hash on the newly created job
+        new_job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
+        if new_job and new_job.content_hash is None:
+            new_job.content_hash = content_hash
+            db.commit()
         
         return {
             "job_id": str(job_id),
             "status": "queued",
             "message": "Analysis job submitted successfully",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to submit job: {str(e)}")
 
@@ -344,10 +373,18 @@ async def retry_job(
             detail=f"Cannot retry job with status: {job.status}"
         )
     
+    # Enforce max_retries ceiling
+    if job.retry_count >= job.max_retries:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job has exceeded maximum retries ({job.max_retries}). Cannot retry further."
+        )
+    
     # Reset job for retry
     job.status = 'queued'
-    job.retry_count = 0
-    job.queued_at = datetime.utcnow()
+    job.retry_count += 1
+    job.leased_until = None
+    job.queued_at = datetime.now(timezone.utc)
     job.started_at = None
     job.completed_at = None
     job.failed_at = None

@@ -10,15 +10,17 @@
 - [analyze.py](file://app/backend/routes/analyze.py)
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
 - [test_eligibility_service.py](file://app/backend/tests/test_eligibility_service.py)
+- [llm_service.py](file://app/backend/services/llm_service.py)
+- [schemas.py](file://app/backend/models/schemas.py)
+- [ResultCard.jsx](file://app/frontend/src/components/ResultCard.jsx)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- **Added similarity-based domain matching**: Implemented `_compute_domain_similarity` function that mirrors eligibility service implementation for cosine similarity calculations
-- **Updated Python phase processing**: Modified domain matching logic to use similarity calculations instead of simple domain name matching
-- **Enhanced eligibility gates**: Integrated similarity-based domain matching into the eligibility checking system with configurable thresholds
-- **Improved domain detection accuracy**: Added sophisticated vector-based similarity calculations for better domain classification
-- **Added comprehensive testing**: Included unit tests for similarity calculations and eligibility service integration
+- **Fixed critical education analysis data mapping bug**: Corrected the merge function to properly map education_analysis from LLM results instead of skill rationale data
+- **Enhanced fallback mechanism**: Improved fallback handling from LLM result to explainability education rationale
+- **Updated merge logic**: Modified _merge_llm_into_result to ensure proper education analysis data flow
+- **Added comprehensive testing**: Included unit tests for education analysis data mapping and fallback mechanisms
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -38,7 +40,7 @@
 
 The Hybrid Pipeline represents a sophisticated resume analysis system that combines the speed and reliability of pure Python processing with the contextual understanding of Large Language Models (LLMs). This architecture optimizes for both performance and accuracy by implementing a two-phase analysis approach: a fast Python-based scoring phase followed by an LLM-powered narrative generation phase.
 
-**Updated** The system has undergone significant enhancements to address domain matching accuracy through the introduction of similarity-based domain matching. The new `_compute_domain_similarity` function implements cosine similarity calculations between job description and candidate domain score vectors, mirroring the eligibility service's approach. This enhancement provides more nuanced domain classification beyond simple name matching, enabling better discrimination between related domains like embedded systems and hardware engineering.
+**Updated** The system has undergone a critical fix to address an education analysis data mapping bug where education_analysis was incorrectly pulling skill rationale data instead of actual education analysis. The fix ensures proper fallback mechanism from LLM result to explainability education rationale, maintaining data integrity and user experience.
 
 The system processes resumes and job descriptions through a carefully designed pipeline that extracts meaningful insights while maintaining sub-second response times for initial scoring results. The LLM component handles the generation of comprehensive narratives, strengths, weaknesses, and interview recommendations, ensuring that recruiters receive both quantitative scores and qualitative insights.
 
@@ -133,6 +135,7 @@ The architecture implements several key design principles:
 - **Structured-First Approach**: Tiered confidence model prioritizing structured skills over text-scanned skills
 - **Sophisticated Collision Detection**: Automated high-collision skill validation preventing false positives
 - **Similarity-Based Domain Matching**: Enhanced domain classification using cosine similarity calculations
+- **Critical Education Analysis Fix**: Proper data mapping ensuring education_analysis displays correct educational insights
 
 ## Core Components
 
@@ -309,6 +312,8 @@ Python->>Python : domain_architecture_rules()
 Python->>Python : compute_deterministic_score()
 Python->>Python : _compute_domain_similarity()
 Python->>Python : check_eligibility()
+Python->>Python : _merge_llm_into_result()
+Python->>Python : _build_fallback_narrative()
 Python-->>Hybrid : Deterministic Scores
 Hybrid->>Background : Start LLM Task
 Background->>LLM : explain_with_llm()
@@ -317,6 +322,7 @@ UltraShort-->>LLM : Ultra-Short Response Detected
 UltraShort->>LLM : Retry with Higher Temperature (0.3)
 LLM-->>Background : Valid LLM Results
 Background->>Merge : _merge_llm_into_result()
+Merge->>Merge : Fixed Education Analysis Mapping
 Merge-->>Background : Merged Analysis
 Background->>Route : Update DB with Merged Result
 Route-->>Client : Immediate Deterministic Results
@@ -913,6 +919,7 @@ The system maintains backward compatibility while extending functionality with d
 - **Tiered Confidence Model Tests**: Testing structured-first approach and validation hierarchy
 - **Similarity Calculation Tests**: Testing cosine similarity implementation and domain matching
 - **Eligibility Integration Tests**: Testing similarity-based domain matching in eligibility checking
+- **Education Analysis Mapping Tests**: Testing critical fix for proper education analysis data mapping
 
 **Key Test Areas:**
 - **JD Parsing**: Validates role title extraction, experience requirements, and domain classification
@@ -938,6 +945,7 @@ The system maintains backward compatibility while extending functionality with d
 - **Similarity Calculation**: Tests cosine similarity implementation and threshold validation
 - **Domain Matching Integration**: Tests similarity-based domain matching in eligibility checking
 - **match_skills API Tests**: Tests simplified function signature with named parameters
+- **Education Analysis Mapping Tests**: Tests critical fix ensuring education_analysis displays correct data
 
 ### Enhanced Mock-Based Testing
 
@@ -950,6 +958,7 @@ The system maintains backward compatibility while extending functionality with d
 - **Network Mocks**: Test error handling and retry logic with cloud detection
 - **Deterministic Engine Mocks**: Test fallback mechanisms when scoring fails
 - **Similarity Calculation Mocks**: Test domain matching logic with various similarity scenarios
+- **Education Analysis Mocks**: Test critical fix for proper data mapping and fallback mechanisms
 
 **Status Tracking Tests:**
 - **Background Task Lifecycle**: Validates task registration, completion, and cleanup
@@ -968,6 +977,7 @@ The system maintains backward compatibility while extending functionality with d
 - **Backward Compatibility**: Validates handling of both old and new LLM result formats
 - **Error Handling**: Tests robustness when LLM results are incomplete or malformed
 - **Fallback Mechanism Tests**: Validates systematic narrative merging using python_result as base
+- **Education Analysis Mapping Tests**: Tests critical fix ensuring proper data flow from LLM to education_analysis
 
 **Enhanced Streaming Tests:**
 - **Timeout Handling**: Tests improved timeout management and graceful degradation
@@ -1025,6 +1035,12 @@ The system maintains backward compatibility while extending functionality with d
 - **Raw Text Fallback Scan**: Tests enhanced validation with text_scanned_skills and structured_skills parameters
 - **Parameter Clarity**: Validates that all function calls use named parameters for better readability
 - **Backward Compatibility**: Ensures existing functionality remains intact with new API design
+
+**Enhanced Education Analysis Mapping Tests:**
+- **Critical Bug Fix Validation**: Tests proper mapping from LLM education_analysis to final result
+- **Fallback Mechanism Testing**: Validates fallback from LLM result to explainability education rationale
+- **Data Integrity Testing**: Ensures education analysis data flows correctly through merge function
+- **Frontend Display Testing**: Validates proper display of education analysis in ResultCard component
 
 **Section sources**
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
@@ -1280,6 +1296,12 @@ The system maintains backward compatibility while extending functionality with d
 - **Solutions**: Validate similarity thresholds, check eligibility gate logic, review domain matching integration
 - **Monitoring**: Watch for eligibility integration warnings and domain mismatch detection patterns
 
+**Enhanced Education Analysis Mapping Issues:**
+- **Symptoms**: Education analysis displaying skill rationale instead of actual education insights
+- **Causes**: Critical bug in merge function data mapping
+- **Solutions**: Verify _merge_llm_into_result function, check education_analysis data flow
+- **Monitoring**: Watch for proper education analysis display in ResultCard component
+
 ### Enhanced Diagnostic Tools
 
 **Health Monitoring:**
@@ -1329,6 +1351,7 @@ The system maintains backward compatibility while extending functionality with d
 - **Background Task Health Monitoring**: Continuous monitoring of background processing health
 - **Candidate History View Validation**: Ensuring complete reports appear correctly in candidate history
 - **Fallback Mechanism Validation**: Monitoring systematic narrative merging using python_result as base
+- **Education Analysis Mapping Diagnostics**: Validating proper data flow from LLM to final result
 
 **Enhanced Streaming Diagnostics:**
 - **Timeout Handling Logs**: Detailed logging of streaming timeout scenarios
@@ -1401,6 +1424,12 @@ The system maintains backward compatibility while extending functionality with d
 - **API Clarity Metrics**: Tracking improved readability through named parameter usage
 - **Backward Compatibility Validation**: Ensuring existing functionality remains intact
 
+**Enhanced Education Analysis Mapping Diagnostics:**
+- **Critical Bug Fix Validation**: Monitoring proper education analysis data mapping
+- **Fallback Mechanism Validation**: Ensuring fallback from LLM result to explainability education rationale
+- **Data Flow Monitoring**: Tracking education analysis data through merge function
+- **Frontend Display Validation**: Ensuring proper education analysis display in ResultCard component
+
 **Section sources**
 - [hybrid_pipeline.py:135-147](file://app/backend/services/hybrid_pipeline.py#L135-L147)
 - [llm_service.py:20-33](file://app/backend/services/llm_service.py#L20-L33)
@@ -1433,6 +1462,8 @@ The system maintains backward compatibility while extending functionality with d
 
 **Enhanced Eligibility Integration**: **New** The similarity-based domain matching is seamlessly integrated into the eligibility checking system, providing structured reasoning for domain mismatch decisions with confidence scores.
 
+**Enhanced Critical Education Analysis Fix**: **New** The system now includes a critical fix that ensures education_analysis displays proper educational insights instead of skill rationale data. The fix modifies the merge function to properly map education_analysis from LLM results and includes comprehensive fallback mechanisms from LLM result to explainability education rationale.
+
 **Enhanced Reliability Features:**
 - **Simplified Python Phase**: Reduced complexity while maintaining core functionality
 - **Four-State Status Tracking**: Comprehensive status monitoring with proper state transitions
@@ -1458,8 +1489,9 @@ The system maintains backward compatibility while extending functionality with d
 - **Enhanced Risk Calculation**: Improved penalty calculation with structured risk signals
 - **Tiered Confidence Model**: Structured-first approach with comprehensive validation hierarchy
 - **Enhanced match_skills API**: Enhanced function signature with named parameters for clarity
-- **Enhanced Similarity Calculation**: Sophisticated cosine similarity implementation for domain matching
+- **Enhanced Similarity-Based Domain Matching**: Sophisticated cosine similarity implementation for domain matching
 - **Enhanced Eligibility Integration**: Seamless integration of similarity-based domain matching
+- **Enhanced Education Analysis Mapping**: Critical fix ensuring proper data flow and display
 
 **Key advantages of this approach include:**
 - **Sub-second response times** for immediate scoring results through deterministic framework
@@ -1487,9 +1519,10 @@ The system maintains backward compatibility while extending functionality with d
 - **Enhanced Skills Validation** preventing false positives through domain co-occurrence requirements
 - **Enhanced Risk Calculation** providing accurate penalty assessments
 - **Tiered Confidence Model** structured-first approach with comprehensive validation hierarchy
-- **Enhanced match_skills API** improved function signature with named parameters
+- **Enhanced match_skills API** improved function signature with named parameters improves clarity
 - **Enhanced Similarity-Based Domain Matching** providing more accurate domain classification
 - **Enhanced Eligibility Integration** seamless integration of similarity calculations
+- **Enhanced Education Analysis Mapping** ensuring proper data flow and display
 
 The system provides a solid foundation for AI-powered recruitment solutions, offering both quantitative metrics and qualitative insights essential for modern hiring processes. The comprehensive status tracking and polling architecture ensure reliable operation in production environments while maintaining responsive user experiences.
 
@@ -1518,6 +1551,7 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Enhanced match_skills API**: Simplified function signature with named parameters improves clarity
 - **Enhanced Similarity-Based Domain Matching**: More accurate domain classification improves eligibility checking
 - **Enhanced Eligibility Integration**: Seamless integration of similarity calculations improves system reliability
+- **Enhanced Education Analysis Mapping**: Critical fix ensures proper data flow and display
 
 **Enhanced Data Persistence Benefits:**
 - **Reliable Report Availability**: Complete analysis data remains accessible even when LLM processing fails
@@ -1535,6 +1569,8 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Tiered Confidence Model Reliability**: Structured-first approach with comprehensive validation hierarchy
 - **Enhanced match_skills API Reliability**: Simplified function signature with named parameters ensures consistency
 - **Enhanced Similarity Calculation Reliability**: Accurate cosine similarity calculations improve domain matching
+- **Enhanced Eligibility Integration Reliability**: Seamless integration of similarity calculations improves system accuracy
+- **Enhanced Education Analysis Mapping Reliability**: Critical fix ensures proper data flow and display
 
 **Enhanced Streaming Benefits:**
 - **Robust Timeout Handling**: Improved timeout management and graceful degradation
@@ -1588,7 +1624,6 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Reliability**: Mathematical foundation ensures consistent results
 - **Performance**: Optimized calculations minimize processing overhead
 - **Quality**: Better discrimination between related domains improves system accuracy
-- **Scalability**: Efficient vector operations scale with domain taxonomy growth
 - **Integration**: Seamless integration with eligibility checking system
 
 **Enhanced Eligibility Integration Benefits:**
@@ -1597,6 +1632,20 @@ The system provides a solid foundation for AI-powered recruitment solutions, off
 - **Performance**: Cached similarity results improve processing speed
 - **Quality**: More accurate domain mismatch detection
 - **Integration**: Seamless integration with other eligibility features
+
+**Enhanced match_skills API Benefits:**
+- **Clarity**: Simplified function signature with named parameters improves code readability
+- **Validation**: Proper utilization of text_scanned_skills and structured_skills parameters improves validation accuracy
+- **Backward Compatibility**: Existing functionality preserved while improving API design
+- **Error Reduction**: Named parameters reduce likelihood of parameter ordering errors
+- **Maintainability**: Clear parameter names improve code maintainability and debugging
+
+**Enhanced Education Analysis Mapping Benefits:**
+- **Critical Fix**: Ensures education_analysis displays proper educational insights
+- **Data Integrity**: Prevents skill rationale data from appearing in education analysis
+- **User Experience**: Proper education analysis display improves recruiter understanding
+- **Fallback Mechanism**: Seamless fallback from LLM result to explainability education rationale
+- **System Reliability**: Critical bug fix prevents data mapping errors
 
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -1621,6 +1670,7 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced match_skills API**: Simplified function signature with named parameters improves code clarity
 - **Enhanced Similarity-Based Domain Matching**: More accurate domain classification improves system performance
 - **Enhanced Eligibility Integration**: Seamless integration of similarity calculations improves system reliability
+- **Enhanced Education Analysis Mapping**: Critical fix ensures proper data flow and display
 
 **Enhanced Data Merging Benefits:**
 - **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
@@ -1641,6 +1691,7 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced match_skills API Reliability**: Simplified function signature with named parameters ensures consistent usage
 - **Enhanced Similarity Calculation Reliability**: Accurate cosine similarity calculations improve domain matching
 - **Enhanced Eligibility Integration Reliability**: Seamless integration of similarity calculations improves system accuracy
+- **Enhanced Education Analysis Mapping Reliability**: Critical fix ensures proper data flow and display
 
 **Enhanced Skills Validation Benefits:**
 - **Systematic Accuracy**: Sophisticated two-pass validation prevents false positives consistently
@@ -1672,10 +1723,17 @@ The system's architecture demonstrates best practices in modern AI application d
 
 **Enhanced match_skills API Benefits:**
 - **Systematic Clarity**: Simplified function signature with named parameters improves code readability
-- **Enhanced Validation**: Proper utilization of text_scanned_skills and structured_skills parameters improves validation accuracy
+- **Enhanced Validation**: Proper parameter usage improves domain context validation accuracy
 - **Backward Compatibility**: Existing functionality preserved while improving API design
-- **Error Reduction**: Named parameters reduce likelihood of parameter ordering errors
+- **Error Reduction**: Named parameters reduce misuse and confusion
 - **Maintainability**: Clear parameter names improve code maintainability and debugging
+
+**Enhanced Education Analysis Mapping Benefits:**
+- **Systematic Data Integrity**: Critical fix ensures proper education analysis data flow
+- **Robust Reliability**: Prevents skill rationale data from appearing in education analysis
+- **Performance Optimization**: Minimal overhead while ensuring proper data mapping
+- **Quality Enhancement**: Improves recruiter understanding through accurate education insights
+- **Integration Enhancement**: Seamless integration with frontend display components
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
@@ -1692,6 +1750,7 @@ The system's architecture represents a mature balance between functionality and 
 - **Enhanced match_skills API Reliability**: Simplified function signature with named parameters ensures consistent and readable code
 - **Enhanced Similarity Calculation Reliability**: Accurate cosine similarity calculations improve domain matching consistently
 - **Enhanced Eligibility Integration Reliability**: Seamless integration of similarity calculations improves system accuracy consistently
+- **Enhanced Education Analysis Mapping Reliability**: Critical fix ensures proper data flow and display consistently
 
 **Enhanced Streaming Error Handling Benefits:**
 - **Robust Timeout Management**: Improved timeout handling ensures system stability during LLM operations
@@ -1767,6 +1826,13 @@ The system's architecture represents a mature balance between functionality and 
 - **Error Reduction**: Named parameters reduce misuse and confusion
 - **Maintainability**: Clear parameter names improve code maintainability and debugging
 
+**Enhanced Education Analysis Mapping Benefits:**
+- **Systematic Data Integrity**: Critical fix ensures proper education analysis data flow
+- **Robust Reliability**: Prevents skill rationale data from appearing in education analysis
+- **Performance Optimization**: Minimal overhead while ensuring proper data mapping
+- **Quality Enhancement**: Improves recruiter understanding through accurate education insights
+- **Integration Enhancement**: Seamless integration with frontend display components
+
 The system's architecture demonstrates best practices in modern AI application development, combining efficient rule-based processing with powerful LLM capabilities while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.
 
 **Enhanced Architecture Benefits:**
@@ -1790,6 +1856,7 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced match_skills API**: Simplified function signature with named parameters improves code clarity
 - **Enhanced Similarity-Based Domain Matching**: More accurate domain classification improves system performance
 - **Enhanced Eligibility Integration**: Seamless integration of similarity calculations improves system reliability
+- **Enhanced Education Analysis Mapping**: Critical fix ensures proper data flow and display
 
 **Enhanced Data Merging Benefits:**
 - **Rapid Issue Resolution**: Position tracking and character context enable quick identification of parsing problems
@@ -1810,6 +1877,7 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Enhanced match_skills API Reliability**: Simplified function signature with named parameters ensures consistent usage
 - **Enhanced Similarity Calculation Reliability**: Accurate cosine similarity calculations improve domain matching
 - **Enhanced Eligibility Integration Reliability**: Seamless integration of similarity calculations improves system accuracy
+- **Enhanced Education Analysis Mapping Reliability**: Critical fix ensures proper data flow and display
 
 **Enhanced Skills Validation Benefits:**
 - **Sophisticated Two-Pass Validation**: Prevents false positives through domain co-occurrence requirements
@@ -1845,5 +1913,13 @@ The system's architecture demonstrates best practices in modern AI application d
 - **Improved Code Readability**: Named parameters make function calls self-documenting
 - **Reduced Error Likelihood**: Clear parameter names reduce misuse and confusion
 - **Backward Compatibility**: Existing functionality preserved while improving API design
+
+**Enhanced Education Analysis Mapping Benefits:**
+- **Critical Bug Fix**: Systematic correction of education analysis data mapping error
+- **Enhanced Data Integrity**: Prevents skill rationale data from appearing in education analysis
+- **Robust Reliability**: Seamless fallback mechanism ensures proper data flow
+- **Performance Optimization**: Minimal overhead while ensuring proper data mapping
+- **Quality Enhancement**: Improves recruiter understanding through accurate education insights
+- **Integration Enhancement**: Seamless integration with frontend display components
 
 The system's architecture represents a mature balance between functionality and simplicity, providing both immediate actionable insights and comprehensive qualitative analysis while maintaining operational excellence through comprehensive monitoring, testing, and error handling strategies.

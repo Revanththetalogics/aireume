@@ -18,6 +18,7 @@ class PaymentProvider(ABC):
         plan: str,
         success_url: str,
         cancel_url: str,
+        stripe_customer_id: str = "",
     ) -> Dict[str, Any]:
         """Create a checkout session for a subscription purchase.
 

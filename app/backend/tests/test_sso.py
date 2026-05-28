@@ -207,6 +207,7 @@ class TestSSOEnforcement:
             hashed_password=_hash_password("password123"),
             role="admin",
             is_active=True,
+            email_verified=True,
         )
         db.add(user)
         db.commit()
@@ -243,6 +244,7 @@ class TestSSOEnforcement:
             hashed_password=_hash_password("password123"),
             role="admin",
             is_active=True,
+            email_verified=True,
         )
         db.add(user)
         db.commit()
@@ -263,6 +265,7 @@ class TestSSOEnforcement:
             hashed_password=_hash_password("password123"),
             role="admin",
             is_active=True,
+            email_verified=True,
         )
         db.add(user)
         db.commit()
@@ -368,6 +371,7 @@ class TestSSOCallback:
             hashed_password=_hash_password("oldpassword"),
             role="recruiter",
             is_active=True,
+            email_verified=True,
         )
         db.add(existing_user)
         db.commit()
@@ -501,6 +505,7 @@ class TestSSOService:
             hashed_password=_hash_password("pw"),
             role="admin",
             is_active=True,
+            email_verified=True,
         )
         db.add(existing)
         db.commit()

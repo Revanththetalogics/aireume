@@ -41,6 +41,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/api/llm-status",
         "/docs",
         "/openapi.json",
+        "/redoc",
         "/metrics",
     }
 
@@ -79,14 +80,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         
         # For cookie-based auth, require CSRF token
         cookie_token = request.cookies.get("csrf_token")
+        if not cookie_token:
+            # No CSRF cookie set - skip validation (might be API client)
+            return await call_next(request)
+
         header_token = request.headers.get("x-csrf-token")
-        
-        if not cookie_token or not header_token:
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "CSRF token missing or invalid"}
-            )
-        if not secrets.compare_digest(cookie_token, header_token):
+        if not header_token or not secrets.compare_digest(cookie_token, header_token):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "CSRF token missing or invalid"}

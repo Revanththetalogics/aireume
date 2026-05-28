@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from jose import jwt
 
 from app.backend.middleware.auth import SECRET_KEY, ALGORITHM
+from app.backend.tests.test_helpers import _verify_user_via_api
 
 
 REGISTER_PAYLOAD = {
@@ -47,6 +48,7 @@ class TestLogin:
 
     def test_login_success_returns_tokens(self, client):
         client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        _verify_user_via_api(REGISTER_PAYLOAD["email"])
         resp = client.post("/api/auth/login", json={
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
@@ -101,6 +103,7 @@ class TestMe:
 class TestRefresh:
     def test_refresh_returns_new_access_token(self, client):
         client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        _verify_user_via_api(REGISTER_PAYLOAD["email"])
         login = client.post("/api/auth/login", json={
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
@@ -126,6 +129,7 @@ class TestTokenRevocation:
         
         # Register and login
         client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        _verify_user_via_api(REGISTER_PAYLOAD["email"])
         login_resp = client.post("/api/auth/login", json={
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
@@ -153,6 +157,7 @@ class TestTokenRevocation:
         
         # Register and login
         client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        _verify_user_via_api(REGISTER_PAYLOAD["email"])
         login_resp = client.post("/api/auth/login", json={
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
@@ -182,6 +187,7 @@ class TestTokenRevocation:
         
         # Register and login
         client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        _verify_user_via_api(REGISTER_PAYLOAD["email"])
         login_resp = client.post("/api/auth/login", json={
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
@@ -244,23 +250,78 @@ class TestTokenRevocation:
         assert "tenant_id" in refresh_payload, "Refresh token should have tenant_id"
 
 
+class TestEmailVerification:
+    """Tests for email verification blocking login."""
+
+    def test_unverified_user_gets_403_on_login(self, client):
+        """Newly registered user cannot login until email is verified."""
+        client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        resp = client.post("/api/auth/login", json={
+            "email": REGISTER_PAYLOAD["email"],
+            "password": REGISTER_PAYLOAD["password"],
+        })
+        assert resp.status_code == 403
+        assert "verify your email" in resp.json()["detail"].lower()
+
+    def test_verify_email_endpoint_then_login_succeeds(self, client, db):
+        """User can login after verifying email via the token endpoint."""
+        from app.backend.models.db_models import User
+
+        reg_resp = client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        assert reg_resp.status_code in (200, 201)
+
+        # Get the verification token from the DB (email sending is mocked in tests)
+        user = db.query(User).filter(User.email == REGISTER_PAYLOAD["email"]).first()
+        assert user is not None
+        assert user.email_verified is False
+        verification_token = user.email_verification_token
+        assert verification_token is not None
+
+        # Verify email via the endpoint
+        verify_resp = client.get(f"/api/auth/verify-email/{verification_token}")
+        assert verify_resp.status_code == 200
+        assert verify_resp.json()["message"] == "Email verified successfully"
+
+        # Now login should succeed
+        login_resp = client.post("/api/auth/login", json={
+            "email": REGISTER_PAYLOAD["email"],
+            "password": REGISTER_PAYLOAD["password"],
+        })
+        assert login_resp.status_code == 200
+        assert "access_token" in login_resp.json()
+
+    def test_invalid_verification_token_returns_400(self, client):
+        """Invalid token returns 400."""
+        resp = client.get("/api/auth/verify-email/nonexistent-token")
+        assert resp.status_code == 400
+        assert "invalid" in resp.json()["detail"].lower()
+
+    def test_register_response_includes_verification_message(self, client):
+        """Register response tells user to verify email."""
+        resp = client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        assert resp.status_code in (200, 201)
+        data = resp.json()
+        assert "verify" in data.get("message", "").lower()
+
+
 class TestLogout:
     """Tests for logout functionality."""
-    
+
     def test_logout_clears_cookies(self, client):
         """Logout should clear all auth cookies."""
         # Register and login
         client.post("/api/auth/register", json=REGISTER_PAYLOAD)
+        _verify_user_via_api(REGISTER_PAYLOAD["email"])
         client.post("/api/auth/login", json={
             "email": REGISTER_PAYLOAD["email"],
             "password": REGISTER_PAYLOAD["password"],
         })
-        
+
         # Logout
         resp = client.post("/api/auth/logout")
         assert resp.status_code == 200
         assert resp.json()["message"] == "Logged out successfully"
-    
+
     def test_logout_without_token_still_succeeds(self, client):
         """Logout should succeed even without a refresh token."""
         resp = client.post("/api/auth/logout")

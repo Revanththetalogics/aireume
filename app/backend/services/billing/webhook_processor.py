@@ -16,6 +16,7 @@ from app.backend.models.db_models import BillingEvent, Tenant
 from app.backend.services.billing.dunning_service import dunning_service
 from app.backend.services.billing.invoice_service import create_invoice_from_payment
 from app.backend.services.webhook_service import dispatch_event_background
+from app.backend.db.database import SessionLocal
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ def _fire_subscription_changed(tenant_id: int, new_status: str):
     """Fire the subscription.changed webhook event via the existing dispatch service."""
     try:
         dispatch_event_background(
-            db_factory=None,  # dispatch_event_background creates its own session
+            db_session_factory=SessionLocal,
             tenant_id=tenant_id,
             event="subscription.changed",
             payload={
@@ -110,6 +111,55 @@ def _fire_subscription_changed(tenant_id: int, new_status: str):
 
 
 # ─── Stripe event handlers ──────────────────────────────────────────────────
+
+def _handle_stripe_checkout_completed(db: Session, data: dict, raw_payload: str):
+    """checkout.session.completed → store customer_id and subscription_id on tenant."""
+    session_obj = data.get("object", {}) if isinstance(data, dict) else {}
+    tenant_id_str = session_obj.get("metadata", {}).get("tenant_id")
+
+    tenant = None
+    if tenant_id_str:
+        try:
+            tenant = _find_tenant_by_id(db, int(tenant_id_str))
+        except (ValueError, TypeError):
+            pass
+
+    # Fall back to customer lookup if metadata is missing
+    customer_id = session_obj.get("customer", "")
+    if tenant is None and customer_id:
+        tenant = _find_tenant_by_stripe_customer_id(db, customer_id)
+
+    if tenant is None:
+        _log_billing_event(
+            db, provider="stripe", event_type="checkout.session.completed",
+            tenant_id=None, raw_payload=raw_payload, result="error",
+            error_detail=f"No tenant found for tenant_id={tenant_id_str} customer_id={customer_id}",
+        )
+        db.commit()
+        return
+
+    subscription_id = session_obj.get("subscription", "")
+
+    # Persist customer and subscription IDs so future webhooks can look up tenant
+    if customer_id and not tenant.stripe_customer_id:
+        tenant.stripe_customer_id = customer_id
+    if subscription_id and not tenant.stripe_subscription_id:
+        tenant.stripe_subscription_id = subscription_id
+
+    # Mark subscription active on successful checkout
+    old_status = tenant.subscription_status
+    tenant.subscription_status = "active"
+    tenant.subscription_updated_at = datetime.now(timezone.utc)
+
+    _log_billing_event(
+        db, provider="stripe", event_type="checkout.session.completed",
+        tenant_id=tenant.id, raw_payload=raw_payload, result="success",
+    )
+    db.commit()
+
+    if old_status != "active":
+        _fire_subscription_changed(tenant.id, "active")
+
 
 def _handle_stripe_invoice_paid(db: Session, data: dict, raw_payload: str):
     """invoice.paid → set subscription_status = active, update period dates."""
@@ -636,6 +686,7 @@ def _resolve_plan_name(tenant: Tenant) -> str:
 # Maps (provider_name, event_type) → handler callable
 _HANDLER_MAP: Dict[tuple[str, str], Callable] = {
     # Stripe
+    ("stripe", "checkout.session.completed"): _handle_stripe_checkout_completed,
     ("stripe", "invoice.paid"): _handle_stripe_invoice_paid,
     ("stripe", "invoice.payment_failed"): _handle_stripe_invoice_payment_failed,
     ("stripe", "customer.subscription.updated"): _handle_stripe_subscription_updated,

@@ -46,9 +46,9 @@ function Toast({ message, type = 'success', onDone }) {
 
 function formatPrice(cents, currency = 'usd') {
   if (cents === undefined || cents === null) return '—'
-  const dollars = (cents / 100).toFixed(2)
-  const symbol = currency === 'usd' ? '$' : currency === 'eur' ? '€' : currency === 'gbp' ? '£' : currency === 'inr' ? '₹' : ''
-  return `${symbol}${dollars}`
+  const isoMap = { usd: 'USD', eur: 'EUR', gbp: 'GBP', inr: 'INR' }
+  const iso = isoMap[currency] || 'USD'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: iso }).format(cents / 100)
 }
 
 function priceToCents(dollars) {
@@ -302,6 +302,12 @@ export default function PlanManagementPage() {
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             {error}
+            <button
+              onClick={fetchPlans}
+              className="ml-auto px-3 py-1 text-xs font-bold bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
+            >
+              Retry
+            </button>
           </div>
         </div>
       )}
@@ -323,8 +329,19 @@ export default function PlanManagementPage() {
       {/* Plans Table */}
       <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
         {loading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+          <div className="p-6 space-y-4">
+            {/* Skeleton table rows */}
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center gap-6 animate-pulse">
+                <div className="h-5 w-24 bg-slate-200 rounded" />
+                <div className="h-5 w-20 bg-slate-200 rounded" />
+                <div className="h-5 w-16 bg-slate-200 rounded" />
+                <div className="h-5 w-16 bg-slate-200 rounded" />
+                <div className="h-5 w-12 bg-slate-200 rounded" />
+                <div className="h-5 w-16 bg-slate-200 rounded" />
+                <div className="flex-1" />
+              </div>
+            ))}
           </div>
         ) : filteredPlans.length === 0 ? (
           <div className="px-6 py-12 text-center text-slate-400 text-sm">
@@ -503,9 +520,10 @@ export default function PlanManagementPage() {
                     min="0"
                     value={form.price_monthly}
                     onChange={(e) => setForm({ ...form, price_monthly: e.target.value })}
-                    placeholder="29.00"
+                    placeholder="49.00"
                     className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
                   />
+                  <p className="text-xs text-slate-400 mt-1">Enter amount in dollars (e.g., 49.00). Stored in cents internally.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1.5">
@@ -517,9 +535,10 @@ export default function PlanManagementPage() {
                     min="0"
                     value={form.price_yearly}
                     onChange={(e) => setForm({ ...form, price_yearly: e.target.value })}
-                    placeholder="290.00"
+                    placeholder="490.00"
                     className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
                   />
+                  <p className="text-xs text-slate-400 mt-1">Enter amount in dollars (e.g., 490.00). Stored in cents internally.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1.5">

@@ -10,17 +10,18 @@
 - [db_models.py](file://app/backend/models/db_models.py)
 - [TranscriptPage.jsx](file://app/frontend/src/pages/TranscriptPage.jsx)
 - [VideoPage.jsx](file://app/frontend/src/pages/VideoPage.jsx)
+- [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
 - [llm_service.py](file://app/backend/services/llm_service.py)
 - [requirements.txt](file://requirements.txt)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced InterviewScorecard.jsx with automatic content visibility mechanism that calculates evaluation counts and automatically hides empty scorecards when no assessments have been completed
-- Improved debrief display capabilities with comprehensive team evaluation visibility and structured content sections
-- Enhanced phone screening workflow with validation and automated debrief generation
-- Updated backend integration with comprehensive debrief generation and recruiter score calculation
-- Enhanced frontend debrief display with color-coded recommendations and structured content formatting
+- Enhanced InterviewScorecard.jsx with conditional heading visibility control via showHeading prop
+- Added showHeading prop that allows controlling whether 'Recruiter Scorecard' heading appears
+- Improved component reusability across different contexts with flexible heading display
+- Updated ReportPage.jsx usage to demonstrate both showHeading and hideHeading scenarios
+- Enhanced component flexibility for embedding in various page layouts
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,15 +33,16 @@
 7. [Recruiter Score Integration System](#recruiter-score-integration-system)
 8. [Phone Screening Workflow Enhancement](#phone-screening-workflow-enhancement)
 9. [Automatic Content Visibility Mechanism](#automatic-content-visibility-mechanism)
-10. [Structured Debrief Content Management](#structured-debrief-content-management)
-11. [Recruiter Score Calculation Algorithm](#recruiter-score-calculation-algorithm)
-12. [Conversation Summary Validation](#conversation-summary-validation)
-13. [Fallback Mechanisms and Reliability](#fallback-mechanisms-and-reliability)
-14. [UI Integration and Display](#ui-integration-and-display)
-15. [Dependency Analysis](#dependency-analysis)
-16. [Performance Considerations](#performance-considerations)
-17. [Troubleshooting Guide](#troubleshooting-guide)
-18. [Conclusion](#conclusion)
+10. [Conditional Heading Visibility Control](#conditional-heading-visibility-control)
+11. [Structured Debrief Content Management](#structured-debrief-content-management)
+12. [Recruiter Score Calculation Algorithm](#recruiter-score-calculation-algorithm)
+13. [Conversation Summary Validation](#conversation-summary-validation)
+14. [Fallback Mechanisms and Reliability](#fallback-mechanisms-and-reliability)
+15. [UI Integration and Display](#ui-integration-and-display)
+16. [Dependency Analysis](#dependency-analysis)
+17. [Performance Considerations](#performance-considerations)
+18. [Troubleshooting Guide](#troubleshooting-guide)
+19. [Conclusion](#conclusion)
 
 ## Introduction
 
@@ -48,7 +50,7 @@ The Interview Scorecard Component is a comprehensive evaluation and reporting sy
 
 The system integrates seamlessly with the broader ARIA (AI Resume Intelligence) platform, offering multi-modal interview analysis capabilities including transcript evaluation, video interview analysis, and structured scoring systems. The Interview Scorecard serves as the central hub for interview assessment, combining quantitative metrics with qualitative insights to support informed hiring decisions.
 
-**Updated** Enhanced with comprehensive debrief display capabilities featuring LLM-generated recruiter debrief content, integrated recruiter score calculation system, and streamlined phone screening workflow that generates structured recommendations based on evaluation ratings and sentiment analysis. The system now includes improved Python 3.11 compatibility and refined rating summary formatting for enhanced debrief generation accuracy.
+**Updated** Enhanced with comprehensive debrief display capabilities featuring LLM-generated recruiter debrief content, integrated recruiter score calculation system, streamlined phone screening workflow that generates structured recommendations based on evaluation ratings and sentiment analysis, and conditional heading visibility control for improved component reusability across different contexts.
 
 ## Project Structure
 
@@ -61,6 +63,7 @@ IS[InterviewScorecard.jsx]
 PSK[PhoneScreenKit.jsx]
 TP[TranscriptPage.jsx]
 VP[VideoPage.jsx]
+RP[ReportPage.jsx]
 API[api.js]
 end
 subgraph "Backend Layer"
@@ -80,6 +83,7 @@ IS --> API
 PSK --> API
 TP --> API
 VP --> API
+RP --> IS
 API --> IK
 IK --> SC
 IK --> DB
@@ -92,14 +96,18 @@ DB --> RS
 ```
 
 **Diagram sources**
-- [InterviewScorecard.jsx:64-232](file://app/frontend/src/components/InterviewScorecard.jsx#L64-L232)
+- [InterviewScorecard.jsx:87-110](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L110)
 - [PhoneScreenKit.jsx:83-209](file://app/frontend/src/components/PhoneScreenKit.jsx#L83-L209)
+- [ReportPage.jsx:559](file://app/frontend/src/pages/ReportPage.jsx#L559)
+- [ReportPage.jsx:1010](file://app/frontend/src/pages/ReportPage.jsx#L1010)
 - [interview_kit.py:244-406](file://app/backend/routes/interview_kit.py#L244-L406)
 - [api.js:1237-1243](file://app/frontend/src/lib/api.js#L1237-L1243)
 
 **Section sources**
-- [InterviewScorecard.jsx:1-327](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L327)
+- [InterviewScorecard.jsx:1-335](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L335)
 - [PhoneScreenKit.jsx:1-484](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L484)
+- [ReportPage.jsx:555-565](file://app/frontend/src/pages/ReportPage.jsx#L555-L565)
+- [ReportPage.jsx:1008-1013](file://app/frontend/src/pages/ReportPage.jsx#L1008-L1013)
 - [interview_kit.py:1-415](file://app/backend/routes/interview_kit.py#L1-L415)
 
 ## Core Components
@@ -119,6 +127,7 @@ The Interview Scorecard Component is implemented as a React functional component
 - **Enhanced** Recruiter debrief display with structured content sections
 - **Enhanced** Recruiter score badge with color-coded recommendations
 - **Enhanced** Automatic content visibility mechanism that calculates evaluation counts and automatically hides empty scorecards when no assessments have been completed
+- **Enhanced** Conditional heading visibility control via showHeading prop for improved component reusability
 
 **Data Flow Architecture:**
 ```mermaid
@@ -153,7 +162,7 @@ API-->>IS : Update UI with Debrief
 ```
 
 **Diagram sources**
-- [InterviewScorecard.jsx:64-117](file://app/frontend/src/components/InterviewScorecard.jsx#L64-L117)
+- [InterviewScorecard.jsx:96-111](file://app/frontend/src/components/InterviewScorecard.jsx#L96-L111)
 - [PhoneScreenKit.jsx:174-214](file://app/frontend/src/components/PhoneScreenKit.jsx#L174-L214)
 - [interview_kit.py:244-406](file://app/backend/routes/interview_kit.py#L244-L406)
 
@@ -186,6 +195,7 @@ UI[React Components]
 PDF[PDF Generation]
 Export[Export Functionality]
 PSK[PhoneScreenKit]
+RP[ReportPage]
 end
 subgraph "Application Layer"
 Auth[Authentication]
@@ -216,11 +226,14 @@ VideoAnalysis --> PostgreSQL
 LLMService --> PostgreSQL
 PDF --> Export
 Export --> UI
+RP --> UI
 ```
 
 **Diagram sources**
-- [InterviewScorecard.jsx:1-327](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L327)
+- [InterviewScorecard.jsx:1-335](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L335)
 - [PhoneScreenKit.jsx:1-484](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L484)
+- [ReportPage.jsx:555-565](file://app/frontend/src/pages/ReportPage.jsx#L555-L565)
+- [ReportPage.jsx:1008-1013](file://app/frontend/src/pages/ReportPage.jsx#L1008-L1013)
 - [interview_kit.py:1-415](file://app/backend/routes/interview_kit.py#L1-L415)
 - [main.py:324-390](file://app/backend/main.py#L324-L390)
 
@@ -242,7 +255,7 @@ The InterviewScorecard component demonstrates sophisticated React patterns and s
 ```mermaid
 classDiagram
 class InterviewScorecard {
-+props : resultId
++props : resultId, showHeading=false
 +state : scorecard, loading, error, overall, recommendation
 +useEffect : loadScorecard()
 +handleSaveOverall() : Promise
@@ -267,9 +280,9 @@ InterviewScorecard --> DebriefSection : "renders"
 ```
 
 **Diagram sources**
-- [InterviewScorecard.jsx:14-62](file://app/frontend/src/components/InterviewScorecard.jsx#L14-L62)
+- [InterviewScorecard.jsx:20-85](file://app/frontend/src/components/InterviewScorecard.jsx#L20-L85)
 - [InterviewScorecard.jsx:187-247](file://app/frontend/src/components/InterviewScorecard.jsx#L187-L247)
-- [InterviewScorecard.jsx:256-327](file://app/frontend/src/components/InterviewScorecard.jsx#L256-L327)
+- [InterviewScorecard.jsx:256-335](file://app/frontend/src/components/InterviewScorecard.jsx#L256-L335)
 
 **Key Implementation Features:**
 
@@ -306,8 +319,14 @@ InterviewScorecard --> DebriefSection : "renders"
    - Prevents users from seeing blank or incomplete scorecards
    - Improves user experience by only displaying relevant content
 
+7. **Conditional Heading Visibility Control**: **New** The component now supports flexible heading display:
+   - `showHeading` prop with default value `false`
+   - Conditional rendering of "Recruiter Scorecard" heading based on prop value
+   - Improved component reusability across different page contexts
+   - Allows embedding in layouts where space is limited or headings are handled elsewhere
+
 **Section sources**
-- [InterviewScorecard.jsx:1-327](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L327)
+- [InterviewScorecard.jsx:1-335](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L335)
 
 ### Backend Data Model Integration
 
@@ -459,10 +478,10 @@ end
 ```
 
 **Diagram sources**
-- [InterviewScorecard.jsx:187-247](file://app/frontend/src/components/InterviewScorecard.jsx#L187-L247)
+- [InterviewScorecard.jsx:206-265](file://app/frontend/src/components/InterviewScorecard.jsx#L206-L265)
 
 **Section sources**
-- [InterviewScorecard.jsx:187-247](file://app/frontend/src/components/InterviewScorecard.jsx#L187-L247)
+- [InterviewScorecard.jsx:206-265](file://app/frontend/src/components/InterviewScorecard.jsx#L206-L265)
 - [interview_kit.py:293-319](file://app/backend/routes/interview_kit.py#L293-L319)
 
 ## Recruiter Score Integration System
@@ -488,7 +507,7 @@ Where:
 
 **Section sources**
 - [interview_kit.py:352-366](file://app/backend/routes/interview_kit.py#L352-L366)
-- [InterviewScorecard.jsx:196-215](file://app/frontend/src/components/InterviewScorecard.jsx#L196-L215)
+- [InterviewScorecard.jsx:214-234](file://app/frontend/src/components/InterviewScorecard.jsx#L214-L234)
 
 ## Phone Screening Workflow Enhancement
 
@@ -568,6 +587,45 @@ if (evaluatedCount === 0 && !scorecard.debrief && !scorecard.overall_assessment)
 
 **Section sources**
 - [InterviewScorecard.jsx:142-150](file://app/frontend/src/components/InterviewScorecard.jsx#L142-L150)
+
+## Conditional Heading Visibility Control
+
+The Interview Scorecard Component now features flexible heading visibility control through the `showHeading` prop, significantly improving component reusability across different contexts.
+
+### Prop Implementation
+
+**Component Signature:**
+```javascript
+export default function InterviewScorecard({ resultId, showHeading = false })
+```
+
+**Conditional Rendering Logic:**
+```javascript
+{/* Section heading — only when showHeading is true */}
+{showHeading && (
+  <div className="flex items-center gap-2 mb-4">
+    <FileText className="w-5 h-5 text-brand-600" />
+    <h2 className="text-lg font-bold text-slate-900">Recruiter Scorecard</h2>
+  </div>
+)}
+```
+
+**Usage Scenarios:**
+
+1. **With Heading (Report Page)**: `{showHeading}` - Used when the scorecard is the main focus of the page
+2. **Without Heading (Embedded Context)**: No prop passed - Used when the scorecard is embedded within other content where headings are handled elsewhere
+
+**Implementation Benefits:**
+- **Enhanced Flexibility**: Component can be used in various page layouts and contexts
+- **Space Optimization**: Prevents redundant headings in compact layouts
+- **Consistent Branding**: Maintains professional appearance while adapting to different contexts
+- **Improved User Experience**: Reduces visual clutter in embedded scenarios
+
+**Section sources**
+- [InterviewScorecard.jsx:87](file://app/frontend/src/components/InterviewScorecard.jsx#L87)
+- [InterviewScorecard.jsx:153-160](file://app/frontend/src/components/InterviewScorecard.jsx#L153-L160)
+- [ReportPage.jsx:559](file://app/frontend/src/pages/ReportPage.jsx#L559)
+- [ReportPage.jsx:1010](file://app/frontend/src/pages/ReportPage.jsx#L1010)
 
 ## Structured Debrief Content Management
 
@@ -715,8 +773,15 @@ The enhanced UI provides intuitive integration of debrief content and recruiter 
 - Provides clean, focused user experience
 - Prevents confusion from blank displays
 
+**Enhanced Conditional Heading Control**: **New** The UI now supports flexible heading display:
+- Conditional rendering based on showHeading prop
+- Improved integration with different page layouts
+- Better space utilization in embedded contexts
+- Consistent branding across all usage scenarios
+
 **Section sources**
 - [InterviewScorecard.jsx:187-254](file://app/frontend/src/components/InterviewScorecard.jsx#L187-L254)
+- [InterviewScorecard.jsx:153-160](file://app/frontend/src/components/InterviewScorecard.jsx#L153-L160)
 
 ## Dependency Analysis
 
@@ -735,6 +800,7 @@ API[api.js]
 SC[Schemas]
 CM[Component Models]
 PSK[PhoneScreenKit]
+RP[ReportPage]
 end
 subgraph "UI Dependencies"
 RC[React]
@@ -746,11 +812,13 @@ InterviewScorecard --> HP
 InterviewScorecard --> LR
 InterviewScorecard --> API
 InterviewScorecard --> PSK
+InterviewScorecard --> RP
 API --> SC
 API --> CM
 PhoneScreenKit --> AX
 PhoneScreenKit --> API
 PhoneScreenKit --> PSK
+ReportPage --> InterviewScorecard
 InterviewScorecard --> RC
 InterviewScorecard --> TS
 InterviewScorecard --> CH
@@ -769,10 +837,13 @@ InterviewScorecard --> CH
 - Email notification system for scorecard sharing
 - Analytics tracking for evaluation workflows
 - **Enhanced** Ollama service for debrief generation with Python 3.11 compatibility
+- **Enhanced** ReportPage for conditional heading usage scenarios
 
 **Section sources**
 - [InterviewScorecard.jsx:1-5](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L5)
 - [PhoneScreenKit.jsx:1-6](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L6)
+- [ReportPage.jsx:555-565](file://app/frontend/src/pages/ReportPage.jsx#L555-L565)
+- [ReportPage.jsx:1008-1013](file://app/frontend/src/pages/ReportPage.jsx#L1008-L1013)
 - [interview_kit.py:1-23](file://app/backend/routes/interview_kit.py#L1-L23)
 
 ## Performance Considerations
@@ -786,6 +857,7 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **Responsive Design**: Optimized layouts for mobile and desktop devices
 - **Enhanced** Automatic Content Visibility**: Prevents rendering of empty scorecards, reducing DOM complexity
 - **Enhanced** Debief Caching**: Store debrief content to avoid repeated LLM calls
+- **Enhanced** Conditional Rendering**: showHeading prop reduces unnecessary DOM elements when not needed
 
 **Backend Performance:**
 - **Database Indexing**: Strategic indexing on frequently queried fields
@@ -800,6 +872,7 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **Asynchronous Processing**: Background tasks for heavy computations
 - **CDN Integration**: Static asset optimization for global distribution
 - **Enhanced** Debief Generation**: Asynchronous LLM processing with progress tracking
+- **Enhanced** Conditional Prop Usage**: showHeading prop reduces rendering overhead in embedded contexts
 
 **Performance Monitoring:**
 - **Metrics Collection**: Built-in Prometheus metrics for system monitoring
@@ -808,6 +881,7 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **Error Tracking**: Structured logging with contextual information
 - **Enhanced** LLM Performance Metrics**: Track debrief generation latency and success rates
 - **Enhanced** Content Visibility Performance**: Monitor evaluation count calculations and rendering optimization
+- **Enhanced** Prop Optimization**: Track usage patterns of showHeading prop across different contexts
 
 **Python 3.11 Compatibility Enhancements:**
 - **Improved Type Hints**: Enhanced type annotations for better static analysis
@@ -821,9 +895,17 @@ The Interview Scorecard Component is designed with several performance optimizat
 - Improving initial load times for empty scorecards
 - Providing immediate feedback to users about content availability
 
+**Enhanced Conditional Heading Performance**: **New** The showHeading prop optimization improves performance by:
+- Reducing DOM element creation when heading is not needed
+- Minimizing unnecessary conditional rendering logic
+- Improving component initialization speed in embedded contexts
+- Reducing bundle size through conditional import patterns
+
 **Section sources**
 - [InterviewScorecard.jsx:1-5](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L5)
 - [PhoneScreenKit.jsx:1-6](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L6)
+- [ReportPage.jsx:555-565](file://app/frontend/src/pages/ReportPage.jsx#L555-L565)
+- [ReportPage.jsx:1008-1013](file://app/frontend/src/pages/ReportPage.jsx#L1008-L1013)
 - [interview_kit.py:1-23](file://app/backend/routes/interview_kit.py#L1-L23)
 - [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
 - [requirements.txt:1-59](file://requirements.txt#L1-L59)
@@ -865,6 +947,12 @@ The Interview Scorecard Component is designed with several performance optimizat
    - Ensure debrief and overall_assessment properties are correctly checked
    - **Enhanced** Confirm automatic content visibility mechanism prevents premature rendering
 
+7. **Conditional Heading Issues**
+   - **Enhanced** Verify showHeading prop is properly passed to component
+   - Check for typos in prop name (should be showHeading, not showHeading)
+   - Ensure prop value is boolean (true/false) rather than string
+   - **Enhanced** Test both showHeading and default behavior scenarios
+
 **Backend Issues:**
 1. **Database Connection Problems**
    - Verify PostgreSQL service availability
@@ -904,9 +992,17 @@ The Interview Scorecard Component is designed with several performance optimizat
 - Confirm that the conditional rendering logic prevents empty displays
 - Test with actual evaluation data to verify visibility mechanism works correctly
 
+**Enhanced Troubleshooting for Conditional Heading**: **New** When headings appear unexpectedly or are missing, check:
+- Verify showHeading prop is correctly passed as boolean
+- Check for proper prop destructuring in component signature
+- Ensure conditional rendering logic uses strict boolean comparison
+- Test component usage in both ReportPage contexts (with and without heading)
+
 **Section sources**
 - [InterviewScorecard.jsx:73-117](file://app/frontend/src/components/InterviewScorecard.jsx#L73-L117)
 - [PhoneScreenKit.jsx:174-214](file://app/frontend/src/components/PhoneScreenKit.jsx#L174-L214)
+- [ReportPage.jsx:555-565](file://app/frontend/src/pages/ReportPage.jsx#L555-L565)
+- [ReportPage.jsx:1008-1013](file://app/frontend/src/pages/ReportPage.jsx#L1008-L1013)
 - [interview_kit.py:28-35](file://app/backend/routes/interview_kit.py#L28-L35)
 
 ## Conclusion
@@ -925,6 +1021,7 @@ The Interview Scorecard Component represents a sophisticated integration of fron
 - **Enhanced** Phone Screening Workflow**: Streamlined evaluation process with validation and automated recommendations
 - **Enhanced** Python 3.11 Compatibility**: Improved async patterns, type hints, and performance optimizations
 - **Enhanced** Automatic Content Visibility**: Intelligent mechanism that calculates evaluation counts and automatically hides empty scorecards when no assessments have been completed
+- **Enhanced** Conditional Heading Control**: Flexible component reusability with showHeading prop for improved integration across different contexts
 
 **Future Enhancement Opportunities:**
 - **Advanced Analytics**: Integration of evaluation trend analysis and competency mapping
@@ -936,5 +1033,6 @@ The Interview Scorecard Component represents a sophisticated integration of fron
 - **Enhanced** Performance Monitoring**: Comprehensive metrics for debrief generation and LLM service utilization
 - **Enhanced** Python 3.11 Migration**: Continued improvements to async patterns and memory efficiency
 - **Enhanced** Content Visibility Optimization**: Further optimization of evaluation count calculations and rendering performance
+- **Enhanced** Conditional Prop Optimization**: Performance improvements for showHeading prop usage patterns
 
-The component serves as a cornerstone of the ARIA platform's interview analysis capabilities, providing a solid foundation for advanced recruitment technology solutions with enhanced team collaboration features, comprehensive evaluator attribution, and sophisticated AI-powered debrief generation for streamlined phone screening workflows. The recent enhancements ensure compatibility with modern Python versions while maintaining backward compatibility and improving overall system reliability, with the new automatic content visibility mechanism guaranteeing optimal user experience by intelligently controlling when scorecard content is displayed based on actual evaluation activity.
+The component serves as a cornerstone of the ARIA platform's interview analysis capabilities, providing a solid foundation for advanced recruitment technology solutions with enhanced team collaboration features, comprehensive evaluator attribution, and sophisticated AI-powered debrief generation for streamlined phone screening workflows. The recent enhancements ensure compatibility with modern Python versions while maintaining backward compatibility and improving overall system reliability, with the new automatic content visibility mechanism guaranteeing optimal user experience by intelligently controlling when scorecard content is displayed based on actual evaluation activity, and the new conditional heading control providing improved component flexibility for diverse usage scenarios across the application.

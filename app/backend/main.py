@@ -80,6 +80,7 @@ from app.backend.routes import interview_kit
 from app.backend.routes import dashboard
 from app.backend.routes import onboarding
 from app.backend.routes import sso
+from app.backend.routes import webhook_docs
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -303,6 +304,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.exception("Failed to start O*NET background sync thread: %s", e)
 
+    # Start background scheduler (dunning retries, etc.)
+    try:
+        from app.backend.services.scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        log.exception("Failed to start background scheduler: %s", e)
+
     yield
 
     # Shutdown: stop the sentinel gracefully
@@ -319,6 +327,13 @@ async def lifespan(app: FastAPI):
         log.info("Queue worker stopped")
     except Exception as e:
         log.exception("Error stopping queue worker: %s", e)
+
+    # Stop background scheduler
+    try:
+        from app.backend.services.scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception as e:
+        log.exception("Error stopping background scheduler: %s", e)
 
     # Cancel the cleanup tasks
     cleanup_task.cancel()
@@ -409,6 +424,7 @@ app.include_router(interview_kit.router)
 app.include_router(dashboard.router)
 app.include_router(onboarding.router)
 app.include_router(sso.sso_router)
+app.include_router(webhook_docs.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

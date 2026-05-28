@@ -17,7 +17,6 @@ from app.backend.middleware.auth import get_current_user, require_admin
 from app.backend.models.db_models import (
     Tenant, User, SubscriptionPlan, UsageLog, Candidate, UsageAlert
 )
-from app.backend.models.schemas import SubscriptionResponse, PlanInfo, UsageStats
 from app.backend.services.metadata_utils import safe_parse_metadata
 
 logger = logging.getLogger(__name__)
@@ -85,6 +84,19 @@ class UsageCheckResponse(BaseModel):
 class AlertPreferencesRequest(BaseModel):
     email_alerts: Optional[bool] = None
     webhook_alerts: Optional[bool] = None
+    alert_thresholds: Optional[list[int]] = None
+
+
+def _get_tenant_alert_thresholds(metadata_json) -> list[int]:
+    """Extract alert thresholds from tenant metadata."""
+    prefs = safe_parse_metadata(metadata_json)
+    thresholds = prefs.get("alert_thresholds")
+    if thresholds and isinstance(thresholds, list):
+        try:
+            return sorted([int(t) for t in thresholds if 0 < int(t) <= 100])
+        except (ValueError, TypeError):
+            pass
+    return [80, 100]  # Default
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -134,18 +146,24 @@ def _plan_to_response(plan: SubscriptionPlan) -> PlanResponse:
     )
 
 
-def _calculate_storage_usage(db: Session, tenant_id: int) -> int:
-    """Calculate actual storage used by tenant in bytes."""
-    # Sum of resume file sizes (approximate via text length)
+def _get_storage_used(tenant: Tenant) -> int:
+    """Return materialized storage value instead of recalculating.
+
+    The storage_used_bytes field is kept in sync incrementally by the
+    resume upload / update paths in analyze.py.  A full-scan fallback
+    is available via _recalculate_storage_usage() for admin reconciliation.
+    """
+    return tenant.storage_used_bytes or 0
+
+
+def _recalculate_storage_usage(db: Session, tenant_id: int) -> int:
+    """Full-scan recalculation of storage for admin reconciliation."""
     total_bytes = db.query(func.sum(func.length(Candidate.raw_resume_text))).filter(
         Candidate.tenant_id == tenant_id
     ).scalar() or 0
-    
-    # Add parser snapshot sizes
     snapshot_bytes = db.query(func.sum(func.length(Candidate.parser_snapshot_json))).filter(
         Candidate.tenant_id == tenant_id
     ).scalar() or 0
-    
     return int(total_bytes + snapshot_bytes)
 
 
@@ -213,11 +231,8 @@ def get_my_subscription(
     
     limits = _get_plan_limits(plan)
     
-    # Calculate storage
-    actual_storage = _calculate_storage_usage(db, tenant.id)
-    if tenant.storage_used_bytes != actual_storage:
-        tenant.storage_used_bytes = actual_storage
-        db.commit()
+    # Use materialized storage value (incrementally maintained)
+    actual_storage = _get_storage_used(tenant)
     
     # Build current plan response
     billing_cycle = _determine_billing_cycle(tenant)
@@ -237,14 +252,10 @@ def get_my_subscription(
     storage_limit = limits.get("storage_gb", 1)
     team_limit = limits.get("team_members", 1)
     
-    # Count team members
-    team_count = db.query(func.count(Tenant.id)).filter(
-        Tenant.id == tenant.id
-    ).scalar() or 1
-    # Actually count users in tenant
-    from app.backend.models.db_models import User as UserModel
-    team_count = db.query(func.count(UserModel.id)).filter(
-        UserModel.tenant_id == tenant.id
+    # Count active team members in this tenant
+    team_count = db.query(func.count(User.id)).filter(
+        User.tenant_id == tenant.id,
+        User.is_active == True,
     ).scalar() or 1
     
     usage = UsageResponse(
@@ -416,6 +427,30 @@ def admin_reset_usage(
     }
 
 
+@router.post("/admin/recalculate-storage")
+def admin_recalculate_storage(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """Admin: Recalculate storage from full DB scan and update materialized value."""
+    tenant = db.query(Tenant).filter(Tenant.id == admin.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    
+    old_value = tenant.storage_used_bytes or 0
+    actual = _recalculate_storage_usage(db, tenant.id)
+    tenant.storage_used_bytes = actual
+    db.commit()
+    
+    return {
+        "message": "Storage recalculated",
+        "previous_bytes": old_value,
+        "actual_bytes": actual,
+        "previous_mb": round(old_value / (1024 * 1024), 2),
+        "actual_mb": round(actual / (1024 * 1024), 2),
+    }
+
+
 @router.post("/admin/change-plan/{plan_id}")
 def admin_change_plan(
     plan_id: int,
@@ -442,7 +477,8 @@ def admin_change_plan(
     # Webhook dispatch — never let webhook failure affect plan change
     try:
         from app.backend.services.webhook_service import dispatch_event_background
-        dispatch_event_background(None, tenant.id, "subscription.changed", {"old_plan": old_plan_name, "new_plan": new_plan.name})
+        from app.backend.db.database import SessionLocal
+        dispatch_event_background(SessionLocal, tenant.id, "subscription.changed", {"old_plan": old_plan_name, "new_plan": new_plan.name})
     except Exception:
         pass
 
@@ -557,10 +593,12 @@ def get_alert_preferences(
     user: User = Depends(get_current_user),
 ):
     """Get notification preferences for usage alerts."""
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    thresholds = _get_tenant_alert_thresholds(tenant.metadata_json) if tenant else [80, 100]
     return {
         "email_alerts": True,
         "webhook_alerts": True,
-        "thresholds": [80, 100],
+        "thresholds": thresholds,
     }
 
 
@@ -582,6 +620,14 @@ def update_alert_preferences(
         prefs["email_alerts"] = body.email_alerts
     if body.webhook_alerts is not None:
         prefs["webhook_alerts"] = body.webhook_alerts
+    if body.alert_thresholds is not None:
+        # Validate thresholds
+        validated = []
+        for t in body.alert_thresholds:
+            if not isinstance(t, int) or t <= 0 or t > 100:
+                raise HTTPException(status_code=400, detail=f"Invalid threshold {t}. Must be integer between 1 and 100.")
+            validated.append(t)
+        prefs["alert_thresholds"] = sorted(validated)
 
     tenant.metadata_json = json.dumps(prefs)
     db.commit()
@@ -589,5 +635,5 @@ def update_alert_preferences(
     return {
         "email_alerts": prefs.get("email_alerts", True),
         "webhook_alerts": prefs.get("webhook_alerts", True),
-        "thresholds": [80, 100],
+        "thresholds": _get_tenant_alert_thresholds(tenant.metadata_json),
     }

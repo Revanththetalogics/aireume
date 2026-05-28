@@ -387,8 +387,13 @@ def _store_candidate_profile(
     file_content: bytes | None = None,
     filename: str | None = None,
     converted_pdf_content: bytes | None = None,
+    db: Session | None = None,
 ) -> None:
     """Write parsed profile data into the Candidate row."""
+    # Track old storage bytes for incremental update
+    old_raw_bytes = len((candidate.raw_resume_text or "").encode("utf-8")) if candidate.raw_resume_text else 0
+    old_snapshot_bytes = len((candidate.parser_snapshot_json or "").encode("utf-8")) if candidate.parser_snapshot_json else 0
+
     work_exp = parsed_data.get("work_experience", [])
     candidate.resume_file_hash   = file_hash
     if filename:
@@ -403,6 +408,20 @@ def _store_candidate_profile(
     candidate.parsed_education   = json.dumps(parsed_data.get("education", []), default=_json_default)
     candidate.parsed_work_exp    = json.dumps(work_exp, default=_json_default)
     candidate.gap_analysis_json  = json.dumps(gap_analysis, default=_json_default)
+
+    # Incrementally update tenant storage_used_bytes
+    if db is not None:
+        try:
+            new_raw_bytes = len((candidate.raw_resume_text or "").encode("utf-8"))
+            new_snapshot_bytes = len((candidate.parser_snapshot_json or "").encode("utf-8"))
+            delta = (new_raw_bytes + new_snapshot_bytes) - (old_raw_bytes + old_snapshot_bytes)
+            if delta != 0:
+                from app.backend.models.db_models import Tenant as _Tenant
+                tenant_row = db.query(_Tenant).filter(_Tenant.id == candidate.tenant_id).first()
+                if tenant_row:
+                    tenant_row.storage_used_bytes = (tenant_row.storage_used_bytes or 0) + delta
+        except Exception:
+            log.warning("Failed to update storage_used_bytes for candidate %s", candidate.id, exc_info=True)
 
     # Truncate current_role and current_company to 255 chars to prevent DB truncation errors
     _raw_role = work_exp[0].get("title", "") if work_exp else None
@@ -481,7 +500,7 @@ def _get_or_create_candidate(
     if existing is not None:
         # Update profile when explicitly requested
         if action == "update_profile" and gap_analysis is not None:
-            _store_candidate_profile(existing, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content)
+            _store_candidate_profile(existing, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content, db=db)
         return existing.id, True
 
     # Create new candidate
@@ -495,7 +514,7 @@ def _get_or_create_candidate(
     db.flush()  # get the new id
 
     if gap_analysis is not None:
-        _store_candidate_profile(candidate, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content)
+        _store_candidate_profile(candidate, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content, db=db)
 
     return candidate.id, False
 
@@ -1598,6 +1617,7 @@ async def analyze_endpoint(
         result.get("analysis_quality", "medium"),
         file_content=content,
         filename=resume.filename,
+        db=db,
     )
     db.commit()
 
@@ -1652,7 +1672,8 @@ async def analyze_endpoint(
     # Webhook dispatch — never let webhook failure affect analysis
     try:
         from app.backend.services.webhook_service import dispatch_event_background
-        dispatch_event_background(None, current_user.tenant_id, "analysis.completed", {"result_id": db_result.id})
+        from app.backend.db.database import SessionLocal
+        dispatch_event_background(SessionLocal, current_user.tenant_id, "analysis.completed", {"result_id": db_result.id})
     except Exception:
         pass
 
@@ -1978,7 +1999,7 @@ async def analyze_stream_endpoint(
                     # Also update candidate profile
                     cand = save_db.query(Candidate).filter(Candidate.id == candidate_id).first()
                     if cand:
-                        _store_candidate_profile(cand, parsed_data, gap_analysis, file_hash, final_result.get("analysis_quality", "medium"), content, resume.filename)
+                        _store_candidate_profile(cand, parsed_data, gap_analysis, file_hash, final_result.get("analysis_quality", "medium"), content, resume.filename, db=save_db)
                     save_db.commit()
                     log.info("Final DB save completed for screening_result_id=%s (fit_score=%s)", screening_result_id, final_result.get("fit_score"))
 
@@ -2028,7 +2049,8 @@ async def analyze_stream_endpoint(
         # Webhook dispatch — never let webhook failure affect analysis
         try:
             from app.backend.services.webhook_service import dispatch_event_background
-            dispatch_event_background(None, tenant_id, "analysis.completed", {"result_id": screening_result_id})
+            from app.backend.db.database import SessionLocal
+            dispatch_event_background(SessionLocal, tenant_id, "analysis.completed", {"result_id": screening_result_id})
         except Exception:
             pass
 
@@ -2621,6 +2643,7 @@ async def batch_analyze_stream_endpoint(
                         raw.get("analysis_quality", "medium"),
                         file_content=content,
                         filename=filename,
+                        db=save_db,
                     )
 
                 db_result = _upsert_screening_result(

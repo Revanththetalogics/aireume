@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.backend.models.db_models import DunningRecord, PlatformConfig, Tenant
 from app.backend.services.webhook_service import dispatch_event_background
+from app.backend.db.database import SessionLocal
 
 log = logging.getLogger(__name__)
 
@@ -106,6 +107,22 @@ class DunningService:
                     "Dunning exhausted for tenant %s after %d retries",
                     tenant_id, record.retry_count,
                 )
+                # Admin notification
+                try:
+                    from app.backend.services.notification_service import create_admin_notification
+                    create_admin_notification(
+                        db=db,
+                        type="dunning_exhausted",
+                        severity="critical",
+                        title="Dunning exhausted",
+                        message=(
+                            f"All dunning retries exhausted for tenant_id={tenant_id} "
+                            f"after {record.retry_count} attempts."
+                        ),
+                        tenant_id=tenant_id,
+                    )
+                except Exception:
+                    log.exception("Failed to create admin notification for dunning exhausted")
             else:
                 record.next_retry_at = self._calculate_next_retry(
                     now, record.retry_count, schedule
@@ -225,6 +242,23 @@ class DunningService:
                             tenant.id, max_retries,
                         )
                         self._fire_subscription_changed(tenant.id, "suspended")
+
+                    # Admin notification
+                    try:
+                        from app.backend.services.notification_service import create_admin_notification
+                        create_admin_notification(
+                            db=db,
+                            type="dunning_exhausted",
+                            severity="critical",
+                            title="Dunning exhausted",
+                            message=(
+                                f"All dunning retries exhausted for tenant_id={tenant.id} "
+                                f"after {record.retry_count} attempts."
+                            ),
+                            tenant_id=tenant.id,
+                        )
+                    except Exception:
+                        log.exception("Failed to create admin notification for dunning exhausted")
 
                     results.append({
                         "tenant_id": tenant.id,
@@ -357,6 +391,11 @@ class DunningService:
     def _attempt_payment_retry(db: Session, tenant: Tenant) -> tuple:
         """Attempt a payment retry through the active provider.
 
+        For Stripe: retrieves the latest open invoice and calls Invoice.pay()
+        to trigger an immediate charge attempt.  If the subscription is already
+        active at the provider level (auto-retry succeeded), we resolve without
+        an explicit pay() call.
+
         Returns ``(success: bool, detail: str)``.
         """
         try:
@@ -366,21 +405,43 @@ class DunningService:
             if not tenant.stripe_subscription_id:
                 return False, "No subscription ID on tenant"
 
+            # ── Step 1: Check current subscription status at provider ──────────
             result = provider.get_subscription_status(
                 tenant.id, tenant.stripe_subscription_id
             )
             provider_status = result.get("status", "")
 
-            # If the provider reports the subscription is now active,
-            # the payment has gone through on their end
+            # If already active, the auto-retry succeeded on provider side
             if provider_status in ("active", "trialing"):
-                return True, "Subscription active at provider"
+                return True, "Subscription active at provider (auto-retry succeeded)"
 
-            # Try to trigger a retry — most providers auto-retry on their
-            # schedule, but we check status first.  For Stripe, invoice
-            # retries are automatic.  For Razorpay/Manual we mark as
-            # needing manual intervention.
-            return False, f"Subscription still {provider_status} at provider"
+            # ── Step 2: For Stripe, attempt to pay the latest open invoice ────
+            if provider.provider_name == "stripe":
+                try:
+                    import stripe as _stripe  # type: ignore
+
+                    # List open invoices for this subscription
+                    invoices = _stripe.Invoice.list(
+                        subscription=tenant.stripe_subscription_id,
+                        status="open",
+                        limit=1,
+                    )
+                    if invoices and invoices.data:
+                        invoice = invoices.data[0]
+                        paid_invoice = _stripe.Invoice.pay(invoice.id)
+                        if paid_invoice.status == "paid":
+                            return True, f"Invoice {invoice.id} paid successfully"
+                        return False, f"Invoice {invoice.id} pay attempt returned status={paid_invoice.status}"
+                    else:
+                        # No open invoices — subscription may be in a non-billable state
+                        return False, f"No open invoices found; subscription status={provider_status}"
+                except Exception as stripe_exc:
+                    return False, f"Stripe invoice pay failed: {stripe_exc}"
+
+            # ── Step 3: Non-Stripe providers (Razorpay, Manual) ──────────────
+            # These providers manage retries on their own schedule; we flag
+            # for manual review rather than attempting a programmatic retry.
+            return False, f"Subscription still {provider_status} at provider — manual retry required for {provider.provider_name}"
 
         except Exception as exc:
             log.exception("Payment retry attempt failed for tenant %s: %s", tenant.id, exc)
@@ -391,7 +452,7 @@ class DunningService:
         """Fire a dunning notification webhook event."""
         try:
             dispatch_event_background(
-                db_factory=None,
+                db_session_factory=SessionLocal,
                 tenant_id=tenant_id,
                 event="dunning.retry",
                 payload={
@@ -411,7 +472,7 @@ class DunningService:
         """Fire subscription.changed webhook event."""
         try:
             dispatch_event_background(
-                db_factory=None,
+                db_session_factory=SessionLocal,
                 tenant_id=tenant_id,
                 event="subscription.changed",
                 payload={
