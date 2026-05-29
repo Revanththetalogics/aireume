@@ -1500,6 +1500,11 @@ def get_platform_metrics_overview(
     ).filter(Tenant.subscription_status == "active").scalar()
 
     return {
+        # Flat fields for AdminOverviewPage
+        "active_users": total_users,
+        "total_analyses": int(analyses_this_month),
+        "mrr": round((mrr_result or 0) / 100, 2),
+        # Nested structure preserved for other consumers
         "tenants": tenant_counts,
         "users": {"total": total_users},
         "analyses": {

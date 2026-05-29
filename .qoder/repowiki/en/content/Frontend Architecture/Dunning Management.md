@@ -13,12 +13,12 @@
 
 ## Update Summary
 **Changes Made**
-- Updated Administrative Interface section to reflect the comprehensive DunningPage.jsx implementation with real-time retry status tracking, resolution actions, and tenant-level collections management
-- Enhanced Frontend Administration details with sophisticated UI components including KPI cards, progress visualization, and responsive design
-- Added new section covering tenant-level payment failure monitoring capabilities with advanced filtering and status tracking
-- Updated database schema documentation with DunningRecord model details and admin notification integration
-- Enhanced troubleshooting guide with new UI-specific diagnostic information and error handling mechanisms
-- Added comprehensive API integration details for the new administrative interface with real-time data synchronization
+- Enhanced error handling with new extractApiError() utility for consistent API error message extraction
+- Optimized pagination to 100 items per page for improved performance and reduced API calls
+- Updated Administrative Interface section to reflect comprehensive error handling improvements
+- Enhanced Frontend Administration details with sophisticated error management and user experience enhancements
+- Added new section covering enhanced error handling mechanisms and improved user feedback systems
+- Updated troubleshooting guide with new error handling diagnostic information and improved error messaging
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -28,11 +28,12 @@
 5. [Payment Retry Logic](#payment-retry-logic)
 6. [Webhook Integration](#webhook-integration)
 7. [Administrative Interface](#administrative-interface)
-8. [Database Schema](#database-schema)
-9. [Testing Strategy](#testing-strategy)
-10. [Operational Procedures](#operational-procedures)
-11. [Troubleshooting Guide](#troubleshooting-guide)
-12. [Conclusion](#conclusion)
+8. [Enhanced Error Handling](#enhanced-error-handling)
+9. [Database Schema](#database-schema)
+10. [Testing Strategy](#testing-strategy)
+11. [Operational Procedures](#operational-procedures)
+12. [Troubleshooting Guide](#troubleshooting-guide)
+13. [Conclusion](#conclusion)
 
 ## Introduction
 
@@ -40,7 +41,7 @@ The Dunning Management system is a critical component of the Resume AI platform'
 
 The system operates on a sophisticated retry schedule that progressively increases the time intervals between payment attempts, with configurable maximum retry limits and suspension policies. It integrates seamlessly with multiple payment providers (Stripe, Razorpay, Manual) and maintains comprehensive audit trails for all dunning activities.
 
-**Updated** The system now features a comprehensive tenant-level payment failure monitoring interface with real-time retry status tracking, resolution actions, and advanced collections management tools, providing administrators with granular control over payment recovery workflows. The new DunningPage.jsx component delivers a sophisticated React-based administrative interface with real-time monitoring capabilities and intuitive resolution workflows.
+**Updated** The system now features comprehensive error handling improvements with a centralized extractApiError() utility and optimized pagination to 100 items per page for enhanced performance. The new DunningPage.jsx component delivers sophisticated error management with user-friendly error messages, improved loading states, and enhanced troubleshooting capabilities.
 
 ## System Architecture
 
@@ -68,6 +69,7 @@ subgraph "Administrative Interface"
 AdminAPI[Admin API Routes]
 Frontend[React Admin Interface]
 DunningPage[DunningPage.jsx]
+ErrorHandling[Enhanced Error Handling]
 end
 Stripe --> WebhookProcessor
 Razorpay --> WebhookProcessor
@@ -78,6 +80,8 @@ DunningService --> Tenant
 DunningService --> AdminNotification
 AdminAPI --> DunningService
 DunningPage --> AdminAPI
+DunningPage --> ErrorHandling
+ErrorHandling --> ExtractApiError[extractApiError Utility]
 DunningService --> NotificationService
 DunningService --> PlatformConfig
 ```
@@ -253,11 +257,17 @@ Processor-->>Webhook : Processed
 
 ## Administrative Interface
 
-**Updated** The administrative interface now features a comprehensive React-based DunningPage.jsx component that provides tenant-level payment failure monitoring with advanced retry status tracking and resolution actions. This sophisticated interface delivers real-time visibility into payment recovery workflows with intuitive administrative controls.
+**Updated** The administrative interface now features comprehensive error handling improvements with the new extractApiError() utility, providing consistent and user-friendly error messages across all administrative operations. The DunningPage.jsx component delivers sophisticated error management with enhanced user experience and troubleshooting capabilities.
 
 ### DunningPage.jsx Implementation
 
-The new DunningPage.jsx component delivers a sophisticated administrative interface with the following key features:
+The new DunningPage.jsx component delivers a sophisticated administrative interface with enhanced error handling and user experience improvements:
+
+#### Enhanced Error Handling
+- **Consistent Error Messages**: Uses extractApiError() utility for standardized error message extraction from API responses
+- **Multi-format Support**: Handles string, array, and complex error objects from FastAPI validation errors
+- **Fallback Mechanisms**: Provides graceful fallback messages when API error details are unavailable
+- **User-Friendly Display**: Presents errors in accessible toast notifications with clear dismissal options
 
 #### Real-Time Monitoring Dashboard
 - **KPI Cards**: Three comprehensive summary cards displaying Active Dunning (retrying), Exhausted (failed), and Recovered (resolved) tenant counts with color-coded visual indicators
@@ -274,7 +284,7 @@ The new DunningPage.jsx component delivers a sophisticated administrative interf
 - **One-Click Resolution**: Direct resolution button for manually resolving dunning records with confirmation workflow
 - **Confirmation Workflow**: User confirmation prompts to prevent accidental resolutions with modal dialogs
 - **Real-time Status Updates**: Immediate UI updates after successful resolution actions with success notifications
-- **Error Handling**: Comprehensive error messaging for failed resolution attempts with dismissible notification system
+- **Enhanced Error Handling**: Comprehensive error messaging for failed resolution attempts with dismissible notification system
 
 #### User Experience Features
 - **Loading States**: Skeleton loaders during data fetching operations with animated pulse effects
@@ -290,12 +300,14 @@ KPI[KPI Cards]
 Filter[Status Filter]
 Table[Data Table]
 Actions[Resolution Actions]
+ErrorHandling[Enhanced Error Handling]
 Notifications[Toast Notifications]
 end
 subgraph "Backend Integration"
 API[API Functions]
 AdminAPI[Admin Routes]
 DunningService[Dunning Service]
+ExtractApiError[extractApiError Utility]
 end
 KPI --> Table
 Filter --> Table
@@ -303,6 +315,8 @@ Table --> Actions
 Actions --> API
 API --> AdminAPI
 AdminAPI --> DunningService
+ErrorHandling --> ExtractApiError
+ExtractApiError --> API
 ```
 
 **Diagram sources**
@@ -328,6 +342,49 @@ The frontend integrates with comprehensive backend APIs:
 - [DunningPage.jsx:78-340](file://app/frontend/src/pages/admin/DunningPage.jsx#L78-L340)
 - [api.js:1210-1219](file://app/frontend/src/lib/api.js#L1210-L1219)
 - [admin.py:3147-3265](file://app/backend/routes/admin.py#L3147-L3265)
+
+## Enhanced Error Handling
+
+**Updated** The system now features comprehensive error handling improvements with the new extractApiError() utility, providing consistent and user-friendly error management across all administrative interfaces.
+
+### extractApiError() Utility
+
+The extractApiError() utility provides centralized error message extraction with support for various error formats:
+
+```mermaid
+flowchart TD
+ErrorInput[API Error Response] --> CheckDetail{Check Response Detail}
+CheckDetail --> |String| ReturnString[Return String Message]
+CheckDetail --> |Array| CheckArrayLen{Array Length > 0?}
+CheckDetail --> |Other| ReturnOther[Return String Conversion]
+CheckArrayLen --> |Yes| MapMessages[Map Individual Messages]
+CheckArrayLen --> |No| ReturnFallback[Return Fallback Message]
+MapMessages --> JoinMessages[Join with '; ' Separator]
+ReturnString --> DisplayMessage[Display User-Friendly Message]
+JoinMessages --> DisplayMessage
+ReturnOther --> DisplayMessage
+ReturnFallback --> DisplayMessage
+```
+
+**Diagram sources**
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
+
+#### Error Handling Capabilities
+- **String Errors**: Direct extraction and display of simple string error messages
+- **Array Errors**: Processing of FastAPI validation error arrays with individual message extraction
+- **Complex Objects**: Graceful handling of complex error objects with fallback to string conversion
+- **Fallback Support**: Configurable fallback messages when API error details are unavailable
+
+#### Integration Points
+- **Dunning Records Loading**: Error handling for dunning record retrieval with user-friendly messaging
+- **Resolution Operations**: Enhanced error feedback for manual dunning resolution actions
+- **API Interceptors**: Centralized error handling through axios interceptors for consistent behavior
+- **User Feedback**: Toast notifications with clear error descriptions and retry options
+
+**Section sources**
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
+- [DunningPage.jsx:96](file://app/frontend/src/pages/admin/DunningPage.jsx#L96)
+- [DunningPage.jsx:114](file://app/frontend/src/pages/admin/DunningPage.jsx#L114)
 
 ## Database Schema
 
@@ -402,6 +459,7 @@ The test suite covers critical scenarios including:
 - **Resolution Handling**: Validating successful payment resolution workflows
 - **Configuration Management**: Ensuring proper fallback and override behavior
 - **Provider Integration**: Testing different payment provider scenarios
+- **Error Handling**: Validating extractApiError() utility functionality and error message extraction
 
 ### Test Coverage Areas
 
@@ -412,6 +470,8 @@ The test suite covers critical scenarios including:
 | Provider Integration | Multi-provider support | Stripe, Razorpay, Manual provider handling |
 | Webhook Processing | Event-driven workflows | Payment failure/paid event handling |
 | Administrative | API endpoints and UI integration | Admin dunning management operations |
+| Error Handling | API error message extraction | `extractApiError()` utility testing |
+| Pagination | Performance optimization | 100-item per page pagination testing |
 
 **Section sources**
 - [test_dunning.py:1-683](file://app/backend/tests/test_dunning.py#L1-L683)
@@ -436,7 +496,7 @@ When dunning records reach maximum retry limits:
 3. **Manual Intervention**: Administrative staff review and resolve cases
 4. **Reinstatement Process**: Verified payments trigger tenant reinstatement
 
-**Updated** The new DunningPage.jsx interface enables administrators to monitor and resolve payment failures in real-time, significantly improving response times and operational efficiency. The interface provides comprehensive collections management tools including batch resolution capabilities and detailed retry analytics with sophisticated filtering and status tracking.
+**Updated** The new DunningPage.jsx interface with enhanced error handling enables administrators to monitor and resolve payment failures in real-time, significantly improving response times and operational efficiency. The interface provides comprehensive collections management tools including batch resolution capabilities and detailed retry analytics with sophisticated filtering and status tracking.
 
 ## Troubleshooting Guide
 
@@ -458,8 +518,9 @@ When dunning records reach maximum retry limits:
 - **Cause**: Misconfigured platform settings or calculation errors
 - **Solution**: Validate dunning configuration and schedule calculations
 
-**Updated** UI-Specific Troubleshooting:
-- **DunningPage.jsx Loading Issues**: Check network connectivity and API endpoint accessibility with error boundary handling
+**Updated** Enhanced Error Handling Troubleshooting:
+- **extractApiError() Issues**: Verify error response format and ensure proper error object structure
+- **DunningPage.jsx Error Display**: Check network connectivity and API endpoint accessibility with error boundary handling
 - **Filter Not Working**: Verify status filter parameters and backend filtering logic with real-time updates
 - **Resolution Button Disabled**: Confirm user permissions and tenant subscription status with loading state management
 - **Toast Notifications Missing**: Check browser notification permissions and JavaScript console errors with error boundary coverage
@@ -473,12 +534,13 @@ Administrative commands for system diagnostics:
 - **Process Due Retries**: `GET /api/admin/dunning/process-retries`
 - **Check Configuration**: Query `platform_configs` table for billing.dunning key
 - **UI Debugging**: Monitor browser console for API request/response errors and component lifecycle issues
+- **Error Handling Testing**: Test extractApiError() utility with various error response formats
 
 ## Conclusion
 
 The Dunning Management system represents a robust, scalable solution for automated payment recovery in subscription-based platforms. Its modular architecture, comprehensive provider integration, and administrative controls ensure reliable revenue collection while maintaining operational flexibility.
 
-**Updated** The recent enhancement with the comprehensive DunningPage.jsx interface demonstrates the system's evolution toward modern, user-friendly administrative experiences. The new tenant-level payment failure monitoring provides administrators with unprecedented visibility and control over payment recovery workflows.
+**Updated** The recent enhancements with comprehensive error handling improvements and optimized pagination demonstrate the system's evolution toward modern, user-friendly administrative experiences. The new extractApiError() utility and 100-item per page pagination optimizations significantly improve system reliability and user experience.
 
 Key strengths include:
 - **Automated Intelligence**: Sophisticated retry scheduling with intelligent escalation
@@ -489,5 +551,8 @@ Key strengths include:
 - **Modern UI**: Intuitive React-based interface with real-time monitoring and resolution capabilities
 - **Collections Management**: Advanced tools for managing payment recovery workflows and tenant relationships
 - **Real-Time Monitoring**: Live data synchronization with comprehensive status tracking and resolution workflows
+- **Enhanced Error Handling**: Centralized error management with user-friendly error messages and improved troubleshooting
+- **Performance Optimization**: Efficient pagination reducing API calls and improving system responsiveness
+- **Comprehensive Error Management**: Robust error handling across all administrative interfaces and operations
 
-The system's implementation demonstrates best practices in financial software development, combining reliability engineering principles with user-friendly administrative interfaces to create a comprehensive dunning management solution that continues to evolve with modern web application standards.
+The system's implementation demonstrates best practices in financial software development, combining reliability engineering principles with user-friendly administrative interfaces and comprehensive error management to create a robust dunning management solution that continues to evolve with modern web application standards.

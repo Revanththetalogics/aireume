@@ -16,12 +16,10 @@
 
 ## Update Summary
 **Changes Made**
-- Updated Core Components section to reflect the new comprehensive Recharts-based analytics interface
-- Enhanced Detailed Component Analysis with new chart components and data visualization features
-- Added new section on Interactive Data Visualization covering Recharts implementation
-- Updated Frontend Dashboard Implementation with detailed chart component analysis
-- Enhanced Dependency Analysis to include Recharts integration
-- Updated Architecture Overview to show the new chart-based data visualization flow
+- Enhanced error handling section to document the new extractApiError() utility function
+- Updated pagination configuration to reflect the 100-item per page limit for tenant listing
+- Added troubleshooting guidance for enhanced error handling
+- Updated frontend error handling implementation details
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -30,10 +28,12 @@
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Interactive Data Visualization](#interactive-data-visualization)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
+7. [Enhanced Error Handling](#enhanced-error-handling)
+8. [Pagination Optimization](#pagination-optimization)
+9. [Dependency Analysis](#dependency-analysis)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
 
 ## Introduction
 The Platform Metrics Dashboard is a comprehensive analytics solution for the Resume AI by ThetaLogics platform. It provides real-time visibility into platform-wide operations, tenant usage patterns, and key performance indicators. The dashboard combines backend metrics collection, advanced analytics endpoints, and a modern frontend interface featuring sophisticated Recharts-based data visualization to deliver actionable insights for platform administrators and stakeholders.
@@ -130,6 +130,7 @@ The React-based frontend delivers interactive visualizations using Recharts:
 - Real-time data refresh capabilities with loading states
 - Responsive design with skeleton loaders
 - Custom tooltip styling and formatting
+- **Updated**: Enhanced error handling with extractApiError() utility
 
 **Dashboard Components**: Multiple dashboard implementations
 - Primary user interface with usage tracking
@@ -266,6 +267,7 @@ class MetricsPage {
 +formatMs
 +fmtDateTick
 +customTooltipStyle
++extractApiError
 }
 class KPICard {
 +string label
@@ -361,6 +363,7 @@ The visualization system includes advanced interactive capabilities:
 - Comprehensive error state management
 - Retry button for failed data fetches
 - User-friendly error messaging
+- **Updated**: Enhanced error handling with extractApiError() utility
 
 **Custom Styling and Theming**
 - Brand-consistent color schemes
@@ -370,6 +373,63 @@ The visualization system includes advanced interactive capabilities:
 
 **Section sources**
 - [MetricsPage.jsx:139-432](file://app/frontend/src/pages/admin/MetricsPage.jsx#L139-L432)
+
+## Enhanced Error Handling
+
+The Platform Metrics Dashboard now features comprehensive error handling through the extractApiError() utility function, providing robust error management across all API interactions:
+
+### extractApiError() Utility Function
+The new extractApiError() function provides intelligent error message extraction from API responses:
+
+**Error Message Extraction Logic:**
+- Handles string-based error messages directly
+- Processes array-based validation errors from FastAPI
+- Extracts individual error messages with fallback handling
+- Provides user-friendly fallback messages when API details are unavailable
+
+**Integration Points:**
+- Used in MetricsPage.jsx for tenant data fetching errors
+- Applied consistently across all admin dashboard components
+- Supports both direct API errors and validation failures
+- Maintains backward compatibility with existing error handling
+
+**Enhanced Error Display:**
+- Prevents React crashes from malformed error objects
+- Provides clear, actionable feedback to users
+- Supports internationalization through consistent message formats
+- Integrates with the dashboard's retry mechanisms
+
+**Section sources**
+- [api.js:1072-1085](file://app/frontend/src/lib/api.js#L1072-L1085)
+- [MetricsPage.jsx:130-135](file://app/frontend/src/pages/admin/MetricsPage.jsx#L130-L135)
+
+## Pagination Optimization
+
+The backend has been optimized with enhanced pagination limits to improve performance and user experience:
+
+### Tenant Listing Pagination
+The tenant listing endpoint now supports larger page sizes for improved efficiency:
+
+**Pagination Configuration:**
+- Maximum page size increased to 100 items per page
+- Backward compatible with existing 20-item default
+- Range validation ensures safe limits (1-100 items)
+- Optimized database queries for larger result sets
+
+**Endpoint Behavior:**
+- `/api/admin/tenants` endpoint respects per_page parameter
+- Maintains efficient OFFSET/LIMIT queries for large datasets
+- Preserves sorting and filtering capabilities with pagination
+- Returns comprehensive pagination metadata (total, pages, per_page)
+
+**Performance Benefits:**
+- Reduced API round trips for large tenant lists
+- Improved dashboard responsiveness with fewer reloads
+- Better user experience for administrative tasks
+- Optimized database resource utilization
+
+**Section sources**
+- [admin.py:202-204](file://app/backend/routes/admin.py#L202-L204)
 
 ## Dependency Analysis
 
@@ -428,12 +488,12 @@ The dependency graph reveals a clean architecture where external libraries like 
 
 ## Performance Considerations
 
-The Platform Metrics Dashboard is designed with several performance optimization strategies, enhanced by the new Recharts-based visualization:
+The Platform Metrics Dashboard is designed with several performance optimization strategies, enhanced by the new Recharts-based visualization and improved error handling:
 
 ### Database Query Optimization
 - **Efficient Filtering**: Queries use appropriate WHERE clauses and indexes
 - **Aggregation Functions**: SUM and COUNT operations minimize data transfer
-- **Pagination Support**: Large datasets are processed in chunks
+- **Pagination Support**: Large datasets are processed in chunks with optimized limits
 - **Connection Pooling**: Database connections are managed efficiently
 
 ### Caching Strategies
@@ -447,6 +507,7 @@ The Platform Metrics Dashboard is designed with several performance optimization
 - **Rate Limiting**: API endpoints implement request throttling
 - **Resource Management**: Memory and CPU usage are monitored and controlled
 - **Chart Optimization**: Recharts components are optimized for large datasets
+- **Error Handling Optimization**: extractApiError() reduces error processing overhead
 
 ### Visualization Performance
 - **Responsive Containers**: Charts adapt to container size changes efficiently
@@ -469,6 +530,7 @@ The Platform Metrics Dashboard is designed with several performance optimization
 - Validate chart rendering performance
 - **Updated**: Check Recharts performance with large datasets
 - **Updated**: Monitor memory usage during chart rendering
+- **Updated**: Verify extractApiError() performance with complex error objects
 
 **Data Inconsistencies**
 - Confirm data synchronization between systems
@@ -486,19 +548,34 @@ The Platform Metrics Dashboard is designed with several performance optimization
 - **New**: Monitor chart container dimensions
 - **New**: Validate data format for Recharts components
 
+**Error Handling Issues**
+- **New**: Verify extractApiError() function is properly imported
+- **New**: Check error object structure for API responses
+- **New**: Validate fallback message handling for empty error details
+- **New**: Monitor error propagation in Promise.all chains
+
+**Pagination Problems**
+- **New**: Verify per_page parameter respects 100-item limit
+- **New**: Check OFFSET/LIMIT query generation for large page sizes
+- **New**: Validate pagination metadata accuracy
+- **New**: Monitor database performance with larger result sets
+
 **Section sources**
 - [test_admin_metrics.py:27-159](file://app/backend/tests/test_admin_metrics.py#L27-L159)
 
 ## Conclusion
 
-The Platform Metrics Dashboard represents a sophisticated analytics solution that successfully combines real-time monitoring with comprehensive business intelligence. The recent enhancement with Recharts-based visualization significantly improves the dashboard's analytical capabilities and user experience.
+The Platform Metrics Dashboard represents a sophisticated analytics solution that successfully combines real-time monitoring with comprehensive business intelligence. The recent enhancements with Recharts-based visualization, improved error handling through extractApiError(), and optimized pagination significantly improve the dashboard's analytical capabilities and user experience.
 
-Key strengths include comprehensive Prometheus integration, flexible analytics endpoints, and sophisticated interactive frontend visualizations. The dashboard effectively balances performance requirements with feature richness, making it suitable for both operational monitoring and strategic decision-making.
+Key strengths include comprehensive Prometheus integration, flexible analytics endpoints, sophisticated interactive frontend visualizations, robust error handling, and efficient pagination. The dashboard effectively balances performance requirements with feature richness, making it suitable for both operational monitoring and strategic decision-making.
 
-The new Recharts integration provides:
+The new enhancements provide:
 - **Enhanced Data Visualization**: Sophisticated chart components for better data interpretation
 - **Improved User Experience**: Interactive and responsive visualizations with smooth animations
 - **Better Performance**: Optimized rendering for large datasets and complex visualizations
 - **Modern Design**: Contemporary UI with brand-consistent styling and responsive layouts
+- **Robust Error Handling**: Intelligent error message extraction preventing UI crashes
+- **Optimized Pagination**: Efficient handling of large datasets with configurable limits
+- **Enhanced Reliability**: Comprehensive error handling and retry mechanisms
 
-Future enhancements could include expanded real-time streaming capabilities, advanced predictive analytics, enhanced customization options for different user roles, and integration of additional chart types for more specialized analytics use cases.
+Future enhancements could include expanded real-time streaming capabilities, advanced predictive analytics, enhanced customization options for different user roles, integration of additional chart types for more specialized analytics use cases, and further performance optimizations for extremely large datasets.

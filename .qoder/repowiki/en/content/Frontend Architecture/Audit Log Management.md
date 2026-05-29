@@ -16,9 +16,10 @@
 
 ## Update Summary
 **Changes Made**
-- Updated Frontend Interface section to reflect the comprehensive AuditLogPage.jsx implementation with advanced filtering capabilities, expandable details, CSV export, and sophisticated action type filtering
+- Updated Frontend Interface section to reflect enhanced error handling with `extractApiError()` utility and improved error display
 - Enhanced API Implementation section with detailed parameter mapping and export functionality
-- Added new sections covering Advanced Filtering Capabilities and Expandable Detail Views
+- Updated Performance Considerations section to reflect optimized pagination to 100 items per page
+- Added new section covering Enhanced Error Handling with extractApiError() utility
 - Updated Database Schema section with comprehensive table structures
 - Enhanced Performance Considerations with pagination and export optimizations
 
@@ -30,15 +31,16 @@
 5. [Database Schema](#database-schema)
 6. [API Implementation](#api-implementation)
 7. [Frontend Interface](#frontend-interface)
-8. [Advanced Filtering Capabilities](#advanced-filtering-capabilities)
-9. [Expandable Detail Views](#expandable-detail-views)
-10. [Field-Level Change Tracking](#field-level-change-tracking)
-11. [Migration Management](#migration-management)
-12. [Testing Strategy](#testing-strategy)
-13. [Performance Considerations](#performance-considerations)
-14. [Security Considerations](#security-considerations)
-15. [Troubleshooting Guide](#troubleshooting-guide)
-16. [Conclusion](#conclusion)
+8. [Enhanced Error Handling](#enhanced-error-handling)
+9. [Advanced Filtering Capabilities](#advanced-filtering-capabilities)
+10. [Expandable Detail Views](#expandable-detail-views)
+11. [Field-Level Change Tracking](#field-level-change-tracking)
+12. [Migration Management](#migration-management)
+13. [Testing Strategy](#testing-strategy)
+14. [Performance Considerations](#performance-considerations)
+15. [Security Considerations](#security-considerations)
+16. [Troubleshooting Guide](#troubleshooting-guide)
+17. [Conclusion](#conclusion)
 
 ## Introduction
 
@@ -46,7 +48,7 @@ The Audit Log Management system in Resume AI by ThetaLogics provides comprehensi
 
 The system consists of two primary audit log types: platform admin audit trails for high-level administrative actions and field-level change tracking for detailed modifications to candidate and screening result data. This dual approach enables both strategic oversight and granular operational visibility.
 
-**Updated** The frontend interface has been significantly enhanced with a comprehensive searchable log viewer featuring advanced filtering capabilities, expandable detail views, and sophisticated pagination controls. The AuditLogPage.jsx implementation now provides a sophisticated user experience with comprehensive filtering, CSV export, and interactive detail inspection.
+**Updated** The frontend interface has been significantly enhanced with improved error handling capabilities and optimized pagination performance. The AuditLogPage.jsx implementation now features sophisticated error management using the `extractApiError()` utility and streamlined pagination with 100 items per page for better performance.
 
 ## System Architecture
 
@@ -60,10 +62,12 @@ Filters[Advanced Filter Controls]
 Export[Export Functionality]
 Pagination[Pagination Controls]
 Details[Expandable Details]
+ErrorHandling[Enhanced Error Handling]
 end
 subgraph "API Layer"
 AdminAPI[Admin Audit API]
 ExportAPI[Export API]
+Utility[extractApiError Utility]
 end
 subgraph "Service Layer"
 AuditService[Audit Service]
@@ -77,10 +81,10 @@ Tenant[(Tenants)]
 end
 UI --> AdminAPI
 UI --> ExportAPI
-UI --> Pagination
-UI --> Details
+UI --> ErrorHandling
 AdminAPI --> AuditService
 ExportAPI --> AuditService
+ErrorHandling --> Utility
 AuditService --> AuditLog
 AuditService --> User
 AuditService --> Tenant
@@ -370,6 +374,62 @@ The interface implements comprehensive pagination with responsive loading states
 **Section sources**
 - [AuditLogPage.jsx:114-425](file://app/frontend/src/pages/admin/AuditLogPage.jsx#L114-L425)
 
+## Enhanced Error Handling
+
+### extractApiError Utility Implementation
+
+The system now features sophisticated error handling through the `extractApiError()` utility function:
+
+```mermaid
+flowchart TD
+ErrorOccurred[API Error Occurs] --> ExtractError[extractApiError Function]
+ExtractError --> CheckDetailType{Check detail type}
+CheckDetailType --> |String| ReturnString[Return detail string]
+CheckDetailType --> |Array| ProcessArray[Process array of objects]
+CheckDetailType --> |Object| ConvertToString[Convert object to string]
+CheckDetailType --> |None| ReturnFallback[Return fallback message]
+ProcessArray --> JoinMessages[Join individual messages with semicolons]
+JoinMessages --> ReturnJoined[Return joined string]
+ConvertToString --> ReturnConverted[Return converted string]
+ReturnString --> DisplayError[Display Error Message]
+ReturnJoined --> DisplayError
+ReturnConverted --> DisplayError
+ReturnFallback --> DisplayError
+DisplayError --> ShowToast[Show error toast notification]
+DisplayError --> ShowBanner[Show error banner with retry]
+```
+
+**Diagram sources**
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
+
+### Error Handling Features
+
+The `extractApiError()` utility provides robust error message extraction:
+
+| Error Type | Processing Logic | Output |
+|------------|------------------|--------|
+| String Detail | Direct return | Clean string message |
+| Array Detail | Map and join with semicolons | Single concatenated message |
+| Object Detail | String conversion | String representation |
+| Null/Undefined | Fallback message | User-friendly message |
+| Complex Objects | Property extraction | Descriptive message |
+
+### Frontend Error Display
+
+The AuditLogPage.jsx now implements enhanced error handling:
+
+| Error Scenario | Display Method | User Action |
+|----------------|----------------|-------------|
+| Network Errors | Red banner with retry | Click retry button |
+| Server Errors | Detailed error message | Retry operation |
+| Validation Errors | Joined array messages | Review form inputs |
+| Timeout Errors | Clear error indication | Refresh page |
+| Success/Error Toasts | Temporary notifications | Auto-dismiss after 3.5 seconds |
+
+**Section sources**
+- [AuditLogPage.jsx:150-155](file://app/frontend/src/pages/admin/AuditLogPage.jsx#L150-L155)
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
+
 ## Advanced Filtering Capabilities
 
 ### Comprehensive Filter Implementation
@@ -533,7 +593,7 @@ Data Standardization :2024-03-01, 20d
 |-----------|---------|--------------|--------|
 | `026_audit_log_system.py` | Initial field audit log table creation | `025_template_skill_overrides` | Creates field_audit_logs table |
 | `037_audit_log_tenant_id.py` | Add tenant_id to audit_logs table | `036_queue_lease_locking` | Enables tenant scoping |
-| `024_audit_fixes.py` | Data cleanup and indexing | `023_skill_template_persistence` | Improves query performance |
+| `024_audit_fixes.py` | Data cleanup and indexing | `023.skill_template_persistence` | Improves query performance |
 
 **Section sources**
 - [026_audit_log_system.py:13-33](file://alembic/versions/026_audit_log_system.py#L13-L33)
@@ -608,6 +668,18 @@ The AuditLogPage.jsx implements multiple frontend optimizations:
 | Efficient State Management | React hooks with proper dependencies | Optimal re-rendering |
 | Lazy Loading | Conditional tenant loading | Faster initial page load |
 | Skeleton Loading | Animated placeholders | Improved perceived performance |
+| Enhanced Error Handling | extractApiError utility | Better error recovery |
+
+### Optimized Pagination
+
+**Updated** The system now implements optimized pagination with 100 items per page for improved performance:
+
+| Feature | Implementation | Benefit |
+|---------|----------------|---------|
+| Increased Page Size | 100 items per page (vs 25) | Reduced API calls for large datasets |
+| Efficient Loading | Optimized tenant loading with per_page: 100 | Faster initial page load |
+| Better User Experience | Fewer pagination steps for large datasets | Improved navigation efficiency |
+| Memory Optimization | Larger batches reduce memory overhead | Better performance with limited resources |
 
 ### Scalability Factors
 
@@ -617,9 +689,11 @@ The AuditLogPage.jsx implements multiple frontend optimizations:
 | Query Patterns | Historical analysis | Optimized date range queries |
 | Export Operations | Large dataset exports | Bounded result sets |
 | Concurrent Access | Multiple simultaneous changes | Proper transaction isolation |
+| Error Handling | Robust error recovery | extractApiError utility for consistent messaging |
 
 **Section sources**
 - [AuditLogPage.jsx:136-154](file://app/frontend/src/pages/admin/AuditLogPage.jsx#L136-L154)
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
 
 ## Security Considerations
 
@@ -652,6 +726,7 @@ LogAttempt --> Complete
 | Export Limits | 10,000 row cap | Data leakage prevention |
 | CSRF Protection | Automatic token handling | Request forgery prevention |
 | XSS Prevention | React's built-in escaping | Cross-site scripting protection |
+| Enhanced Error Handling | extractApiError utility | Secure error message display |
 
 ## Troubleshooting Guide
 
@@ -665,6 +740,8 @@ LogAttempt --> Complete
 | Performance Degradation | Slow audit queries | Check database indexes and query optimization |
 | Filter Not Working | Filters don't apply | Check parameter mapping in frontend |
 | Pagination Issues | Wrong page count | Verify total count calculation |
+| Error Display Problems | Unclear error messages | Check extractApiError() usage |
+| Tenant Loading Delays | Slow tenant dropdown population | Verify per_page: 100 optimization |
 
 ### Debugging Steps
 
@@ -675,22 +752,27 @@ LogAttempt --> Complete
 5. **Test Queries**: Validate database query performance and results
 6. **Frontend Debugging**: Check React DevTools for component state issues
 7. **Network Inspection**: Use browser dev tools to inspect API requests and responses
+8. **Error Handling**: Verify extractApiError() utility is properly extracting error messages
+9. **Pagination Testing**: Confirm 100-item pagination is working correctly
 
 **Section sources**
 - [audit_service.py:12-84](file://app/backend/services/audit_service.py#L12-L84)
 - [AuditLogPage.jsx:136-154](file://app/frontend/src/pages/admin/AuditLogPage.jsx#L136-L154)
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
 
 ## Conclusion
 
 The Audit Log Management system in Resume AI by ThetaLogics provides a comprehensive solution for tracking administrative actions and field-level changes across multi-tenant environments. The system's dual approach of platform admin audit trails and field-level change tracking ensures both strategic oversight and granular operational visibility.
 
-**Updated** The recent enhancements to the AuditLogPage.jsx represent a significant advancement in user experience and functionality. The implementation now features:
+**Updated** The recent enhancements to the AuditLogPage.jsx represent significant improvements in user experience and system reliability. The implementation now features:
 
+- **Enhanced Error Handling**: Sophisticated error management through the `extractApiError()` utility with robust message extraction for various error types
+- **Optimized Performance**: Increased pagination to 100 items per page for better performance with large datasets
 - **Comprehensive Filtering**: Advanced actor email search, action type dropdown, tenant selection, and date range filtering
 - **Interactive Details**: Expandable detail views with JSON formatting for better log inspection
-- **Sophisticated Pagination**: 25-item pages with navigation controls and responsive design
+- **Improved User Experience**: Loading states, error handling, toast notifications, and mobile responsiveness
 - **Export Capabilities**: CSV and JSON export with configurable date ranges and action filters
-- **Enhanced User Experience**: Loading states, error handling, toast notifications, and mobile responsiveness
+- **Better Error Recovery**: Consistent error message display and retry mechanisms
 
 Key strengths of the system include:
 
@@ -698,8 +780,9 @@ Key strengths of the system include:
 - **Multi-tenant Support**: Proper tenant isolation and scoping for accurate reporting
 - **Advanced Filtering**: Sophisticated search capabilities for efficient log management
 - **Performance Optimization**: Efficient database design with appropriate indexing and frontend optimizations
+- **Enhanced Error Handling**: Robust error recovery through the extractApiError utility
 - **Flexible Export**: Multiple export formats with configurable limits for analysis and compliance
 - **Robust Testing**: Comprehensive unit tests ensuring reliability and accuracy
 - **Modern UI/UX**: Intuitive interface with expandable details and responsive design
 
-The system successfully balances functionality, performance, and security while providing intuitive interfaces for both administrative oversight and detailed operational analysis. Future enhancements could include real-time audit streaming, advanced analytics dashboards, enhanced compliance reporting capabilities, and integration with external audit systems.
+The system successfully balances functionality, performance, and security while providing intuitive interfaces for both administrative oversight and detailed operational analysis. The recent enhancements to error handling and pagination demonstrate ongoing commitment to improving user experience and system reliability. Future enhancements could include real-time audit streaming, advanced analytics dashboards, enhanced compliance reporting capabilities, and integration with external audit systems.

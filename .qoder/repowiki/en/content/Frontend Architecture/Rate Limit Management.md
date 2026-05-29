@@ -14,13 +14,11 @@
 
 ## Update Summary
 **Changes Made**
-- Updated frontend implementation section to reflect the sophisticated RateLimitsPage.jsx with comprehensive per-tenant rate limit editing capabilities
-- Added detailed analysis of the new admin interface with plan defaults comparison and real-time configuration adjustments
-- Enhanced backend API integration documentation with new rate limit management endpoints
-- Updated architecture diagrams to show the complete admin interface workflow
-- Added new section on frontend admin controls and user experience features
-- Documented the new ResetModal component and toast notification system
-- Added comprehensive comparison view between current and default limits
+- Enhanced error handling with new `extractApiError()` utility function for improved user experience
+- Optimized pagination to 100 items per page for better performance when loading large tenant lists
+- Updated frontend error handling to use the new utility function consistently
+- Improved error message formatting for validation errors and API responses
+- Enhanced user feedback through better error presentation and retry mechanisms
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -41,11 +39,11 @@ Rate Limit Management is a critical system component in the Resume AI platform t
 
 The rate limiting system operates at two levels: traditional request rate limiting using token buckets and specialized LLM concurrency limiting to prevent system overload during AI processing operations. The system now features a comprehensive admin interface that allows platform administrators to manage rate limits with real-time configuration adjustments and plan defaults comparison.
 
-**Updated** The RateLimitsPage.jsx has been transformed into a sophisticated per-tenant rate limit editing system with advanced features including real-time configuration editing, plan defaults comparison, and comprehensive user experience enhancements.
+**Updated** The system now includes enhanced error handling capabilities with the `extractApiError()` utility function and optimized pagination for improved performance when managing large tenant datasets.
 
 ## Project Structure
 
-The rate limiting system is distributed across several key components with enhanced frontend administration capabilities:
+The rate limiting system is distributed across several key components with enhanced frontend administration capabilities and improved error handling:
 
 ```mermaid
 graph TB
@@ -53,6 +51,7 @@ subgraph "Frontend Admin Interface"
 RLP[RateLimitsPage.jsx]
 ADP[AdminDashboardPage.jsx]
 API[api.js]
+EXTRACT[extractApiError Utility]
 END[Rate Limit Endpoints]
 RESET[ResetModal Component]
 TOAST[Toast Component]
@@ -75,8 +74,10 @@ TM[Tenant Manager]
 JWT[JWT Decoder]
 END
 RLP --> API
+RLP --> EXTRACT
 ADP --> END
 API --> AC
+EXTRACT --> API
 RL --> WH
 RL --> TL
 RL --> CL
@@ -93,7 +94,7 @@ RL --> TM
 **Diagram sources**
 - [RateLimitsPage.jsx:126-440](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L126-L440)
 - [admin.py:2631-2768](file://app/backend/routes/admin.py#L2631-L2768)
-- [api.js:1433-1454](file://app/frontend/src/lib/api.js#L1433-L1454)
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
 
 **Section sources**
 - [rate_limit.py:1-244](file://app/backend/middleware/rate_limit.py#L1-L244)
@@ -150,14 +151,17 @@ sequenceDiagram
 participant Admin as "Admin User"
 participant UI as "RateLimitsPage.jsx"
 participant API as "api.js"
+participant Extract as "extractApiError"
 participant Backend as "admin.py"
 participant Middleware as "RateLimitMiddleware"
 participant Config as "RateLimitConfig"
 participant DB as "Database"
 Admin->>UI : Select Tenant
-UI->>API : getAdminTenants()
-API->>Backend : GET /admin/tenants
-Backend->>DB : Query Tenants
+UI->>API : getAdminTenants({per_page : 100})
+API->>Extract : extractApiError(error)
+Extract-->>API : Formatted error message
+API->>Backend : GET /admin/tenants?per_page=100
+Backend->>DB : Query Tenants (max 100 per page)
 DB-->>Backend : Tenant List
 Backend-->>API : Tenant Data
 API-->>UI : Tenant List
@@ -168,6 +172,8 @@ DB-->>Backend : Config Data
 Backend-->>API : Rate Limit Info
 API-->>UI : Rate Limit Data
 UI->>API : updateTenantRateLimit(tenantId, config)
+API->>Extract : extractApiError(error)
+Extract-->>API : Formatted error message
 API->>Backend : PUT /admin/tenants/{tenantId}/rate-limit
 Backend->>DB : Update Config
 DB-->>Backend : Updated Config
@@ -179,7 +185,7 @@ UI->>UI : Show Success Toast
 
 **Diagram sources**
 - [RateLimitsPage.jsx:144-220](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L144-L220)
-- [api.js:1439-1454](file://app/frontend/src/lib/api.js#L1439-L1454)
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
 - [admin.py:2631-2768](file://app/backend/routes/admin.py#L2631-L2768)
 
 ## Detailed Component Analysis
@@ -345,7 +351,7 @@ AdminRoutes --> RateLimitConfig : "manages"
 The RateLimitsPage.jsx provides a sophisticated admin interface for per-tenant rate limit management with the following key features:
 
 **Enhanced Tenant Management:**
-- **Tenant Selection**: Dropdown with 200+ tenant options with pagination support
+- **Tenant Selection**: Dropdown with 200+ tenant options with pagination support (optimized to 100 items per page)
 - **Real-time Editing**: Direct inline editing of rate limits with immediate validation
 - **Plan Defaults Comparison**: Side-by-side comparison with plan defaults
 - **Visual Feedback**: Comprehensive toast notifications and loading states
@@ -385,13 +391,32 @@ LF --> EV[Edit Value Input]
 
 **Enhanced User Experience:**
 - **Loading States**: Skeleton loaders for smooth user experience
-- **Error Handling**: Comprehensive error messages with retry functionality
+- **Error Handling**: Comprehensive error messages with retry functionality using `extractApiError()`
 - **Success Feedback**: Toast notifications for all actions
 - **Confirmation Modals**: Safe reset operations with user confirmation
 - **Responsive Design**: Mobile-friendly interface with Tailwind CSS
 
 **Section sources**
 - [RateLimitsPage.jsx:126-440](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L126-L440)
+
+### extractApiError Utility Function
+
+**New** A comprehensive error extraction utility that provides user-friendly error messages:
+
+**Features:**
+- **String Error Handling**: Direct extraction of string error messages
+- **Array Error Processing**: Handles FastAPI validation errors with structured arrays
+- **Fallback Support**: Graceful fallback to default error messages
+- **Type Safety**: Robust handling of different error response formats
+- **Message Concatenation**: Combines multiple validation errors into readable format
+
+**Enhanced Error Handling Implementation:**
+- **Validation Errors**: Processes FastAPI validation arrays with `msg`, `message`, or string fallback
+- **API Responses**: Extracts detail fields from various API error response formats
+- **User-Friendly Messages**: Converts technical errors into understandable feedback
+
+**Section sources**
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
 
 ### ResetModal Component
 
@@ -401,7 +426,7 @@ LF --> EV[Edit Value Input]
 - **Confirmation Dialog**: Prevents accidental resets
 - **Visual Warning**: Amber color scheme for danger state
 - **Tenant Context**: Displays tenant name for confirmation
-- **Error Handling**: Comprehensive error messaging
+- **Error Handling**: Comprehensive error messaging using `extractApiError()`
 - **Loading States**: Disabled button during reset operation
 
 **Section sources**
@@ -439,7 +464,7 @@ The AdminDashboardPage.jsx includes a dedicated tab for bulk rate limit manageme
 
 **Features:**
 - **Search Functionality**: Filter tenants by name or slug
-- **Pagination Support**: Navigate through large tenant lists
+- **Pagination Support**: Navigate through large tenant lists with optimized 100-item pages
 - **Bulk Operations**: Manage rate limits across multiple tenants
 - **Audit Logging**: Track all rate limit changes
 
@@ -451,23 +476,23 @@ The AdminDashboardPage.jsx includes a dedicated tab for bulk rate limit manageme
 
 ### Frontend API Functions
 
-**Updated** The frontend integrates with comprehensive backend endpoints for rate limit management:
+**Updated** The frontend integrates with comprehensive backend endpoints for rate limit management with enhanced error handling:
 
 **API Functions:**
-- `getAdminTenants(params)`: Fetch tenant list with pagination
+- `getAdminTenants(params)`: Fetch tenant list with pagination (optimized to 100 items per page)
 - `getTenantRateLimit(tenantId)`: Get current rate limit configuration
 - `updateTenantRateLimit(tenantId, data)`: Update rate limit configuration
 - `deleteTenantRateLimit(tenantId)`: Reset to plan defaults
 
 **Enhanced Implementation Details:**
-- **Error Handling**: Comprehensive error handling with user-friendly messages
+- **Error Handling**: Comprehensive error handling with user-friendly messages using `extractApiError()`
 - **Authentication**: Automatic CSRF token injection for state-changing requests
 - **Retry Logic**: Automatic retry for transient network errors
 - **Loading States**: Proper loading indicators during API calls
 - **Audit Logging**: Full audit trail for all configuration changes
 
 **Section sources**
-- [api.js:1433-1454](file://app/frontend/src/lib/api.js#L1433-L1454)
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
 
 ### Backend Route Endpoints
 
@@ -489,6 +514,19 @@ The AdminDashboardPage.jsx includes a dedicated tab for bulk rate limit manageme
 **Section sources**
 - [admin.py:2631-2768](file://app/backend/routes/admin.py#L2631-L2768)
 
+### Enhanced Pagination Support
+
+**New** The backend now supports optimized pagination with increased limits:
+
+**Pagination Configuration:**
+- **Maximum Items per Page**: 100 (increased from previous 20)
+- **Minimum Items per Page**: 1
+- **Validation**: Server-side validation with `ge=1, le=100`
+- **Performance**: Optimized for large tenant datasets
+
+**Section sources**
+- [admin.py:203-204](file://app/backend/routes/admin.py#L203-L204)
+
 ## Dependency Analysis
 
 The rate limiting system has minimal external dependencies but integrates with several core systems:
@@ -509,6 +547,7 @@ Database[database module]
 Models[db_models]
 Routes[routes.admin]
 Main[main.py]
+Extract[extractApiError Utility]
 end
 RateLimit --> JWT
 RateLimit --> Starlette
@@ -522,13 +561,15 @@ API --> Axios
 RateLimitsPage --> API
 RateLimitsPage --> Lucide
 RateLimitsPage --> Tailwind
+RateLimitsPage --> Extract
 AdminDashboard --> API
 ```
 
 **Diagram sources**
 - [rate_limit.py:8-15](file://app/backend/middleware/rate_limit.py#L8-L15)
 - [main.py:61-61](file://app/backend/main.py#L61-L61)
-- [RateLimitsPage.jsx:1-18](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L1-L18)
+- [RateLimitsPage.jsx:18](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L18)
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
 
 **Key Dependencies:**
 - **JWT Library**: Token decoding and validation
@@ -562,9 +603,10 @@ The system maintains in-memory state that scales linearly with tenant count:
 - **Skeleton Loading**: Smooth loading states during data fetching
 
 **API Performance:**
-- **Pagination**: Up to 200 tenants per page for efficient loading
+- **Optimized Pagination**: Up to 100 tenants per page for efficient loading (increased from 20)
 - **Caching**: Local state caching for tenant selections
 - **Debouncing**: Input debouncing for search functionality
+- **Error Handling**: Efficient error message processing with `extractApiError()`
 
 ### Concurrency Handling
 
@@ -645,6 +687,17 @@ Thread-safe operations using locks:
 **Section sources**
 - [RateLimitsPage.jsx:196-208](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L196-L208)
 
+**Issue: Enhanced Error Messages Not Displaying Properly**
+
+**Symptoms:** Generic error messages instead of specific validation errors
+
+**Root Cause:** Missing or incorrect error handling implementation
+
+**Solution:** Ensure `extractApiError()` is used consistently for all API error handling
+
+**Section sources**
+- [api.js:1076-1085](file://app/frontend/src/lib/api.js#L1076-L1085)
+
 ### Testing and Validation
 
 The system includes comprehensive test coverage:
@@ -655,6 +708,7 @@ The system includes comprehensive test coverage:
 - Rate limit exhaustion returns 429 status
 - Retry-After header presence verified
 - Unauthenticated requests pass through
+- Enhanced error handling for validation failures
 
 **Section sources**
 - [test_rate_limiting.py:17-85](file://app/backend/tests/test_rate_limiting.py#L17-L85)
@@ -671,6 +725,8 @@ The Rate Limit Management system provides robust, per-tenant request throttling 
 - **Advanced Components**: Reusable components for consistent UX
 - **Toast Notifications**: Immediate feedback for all user actions
 - **Reset Confirmation**: Secure operations with user confirmation
+- **Enhanced Error Handling**: Professional error messages using `extractApiError()`
+- **Optimized Performance**: 100-item pagination for large tenant datasets
 
 **Backend Strengths:**
 - Clear per-tenant isolation
@@ -679,6 +735,7 @@ The Rate Limit Management system provides robust, per-tenant request throttling 
 - Database-backed configuration
 - Admin-friendly management interface
 - Audit logging for all changes
+- Optimized pagination support (100 items per page)
 
 **Areas for Enhancement:**
 - Distributed state persistence
@@ -689,4 +746,4 @@ The Rate Limit Management system provides robust, per-tenant request throttling 
 
 The system successfully prevents abuse while maintaining good user experience through burst capacity and reasonable default limits. The modular design allows for easy extension and customization as the platform evolves, with the new RateLimitsPage.jsx providing a comprehensive solution for per-tenant rate limit management with real-time configuration adjustments and plan defaults comparison.
 
-**Updated** The sophisticated RateLimitsPage.jsx transforms the rate limit management experience from basic configuration to an advanced, real-time editing interface with comprehensive comparison capabilities and user-friendly administrative tools.
+**Updated** The sophisticated RateLimitsPage.jsx transforms the rate limit management experience from basic configuration to an advanced, real-time editing interface with comprehensive comparison capabilities and user-friendly administrative tools. The enhanced error handling with `extractApiError()` utility and optimized 100-item pagination significantly improves the user experience and system performance when managing large tenant datasets.

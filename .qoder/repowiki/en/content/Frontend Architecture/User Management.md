@@ -15,12 +15,10 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced UsersPage.jsx documentation to reflect comprehensive cross-tenant user management implementation
-- Updated role-based access control section with platform-level and tenant-level permissions
-- Added detailed coverage of tenant filtering, role assignment interfaces, and user status management
-- Expanded bulk operations documentation with sophisticated filtering and pagination features
-- Updated API endpoints section to include tenant-specific user management operations
-- Enhanced frontend integration documentation with specific component implementations
+- Enhanced error handling documentation with extractApiError() utility function
+- Updated pagination implementation details to reflect 100 items per page optimization
+- Added comprehensive error handling patterns and user-friendly error messaging
+- Updated frontend integration documentation with improved error handling practices
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -473,6 +471,51 @@ TenantRoles --> Viewer[Viewer]
 - [UsersPage.jsx:26-32](file://app/frontend/src/pages/admin/UsersPage.jsx#L26-L32)
 - [admin_routes.py:969-985](file://app/backend/routes/admin.py#L969-L985)
 
+### Enhanced Error Handling with extractApiError()
+
+The system now implements comprehensive error handling using the extractApiError() utility function:
+
+```mermaid
+flowchart TD
+ErrorHandling[Error Handling Flow] --> ApiError[API Error Response]
+ApiError --> ExtractError[extractApiError Utility]
+ExtractError --> StringDetail[String Detail Check]
+ExtractError --> ArrayDetail[Array Detail Check]
+ExtractError --> Fallback[Fallback Message]
+StringDetail --> UserFriendly[User-Friendly Message]
+ArrayDetail --> JoinMessages[Join Multiple Messages]
+Fallback --> DefaultMessage[Default Error Message]
+JoinMessages --> UserFriendly
+UserFriendly --> DisplayError[Display Error to User]
+DefaultMessage --> DisplayError
+```
+
+**Diagram sources**
+- [api.js:1077-1085](file://app/frontend/src/lib/api.js#L1077-L1085)
+
+### Optimized Pagination Implementation
+
+The system now implements optimized pagination with 100 items per page for improved performance:
+
+```mermaid
+flowchart TD
+Pagination[Pagination System] --> PerPage[100 Items per Page]
+PerPage --> FetchTenants[Fetch Tenants with 100 per page]
+FetchTenants --> LocalPagination[Local Pagination Logic]
+LocalPagination --> SliceUsers[Slice Users Array]
+SliceUsers --> DisplayUsers[Display Current Page]
+DisplayUsers --> Navigation[Navigation Controls]
+Navigation --> PageButtons[Page Buttons]
+PageButtons --> NextPage[Next Page]
+PageButtons --> PreviousPage[Previous Page]
+NextPage --> SliceUsers
+PreviousPage --> SliceUsers
+```
+
+**Diagram sources**
+- [UsersPage.jsx:25](file://app/frontend/src/pages/admin/UsersPage.jsx#L25)
+- [UsersPage.jsx:324](file://app/frontend/src/pages/admin/UsersPage.jsx#L324)
+
 ### Advanced Filtering and Search
 
 The system implements comprehensive filtering capabilities with sophisticated search functionality:
@@ -532,6 +575,7 @@ Suspended --> Active : Tenant Reactivation
 
 **Section sources**
 - [UsersPage.jsx:295-649](file://app/frontend/src/pages/admin/UsersPage.jsx#L295-L649)
+- [api.js:1077-1085](file://app/frontend/src/lib/api.js#L1077-L1085)
 
 ## Multi-Tenant Architecture
 
@@ -805,9 +849,9 @@ UsersPage --> StatusBadge
 - [UsersPage.jsx:41-53](file://app/frontend/src/pages/admin/UsersPage.jsx#L41-L53)
 - [UsersPage.jsx:56-66](file://app/frontend/src/pages/admin/UsersPage.jsx#L56-L66)
 
-### API Integration Patterns
+### Enhanced API Integration Patterns
 
-The frontend integrates with backend APIs through a centralized API client with comprehensive error handling:
+The frontend integrates with backend APIs through a centralized API client with comprehensive error handling and optimized pagination:
 
 ```mermaid
 sequenceDiagram
@@ -815,39 +859,63 @@ participant UI as "React Component"
 participant API as "API Client"
 participant Auth as "Auth Service"
 participant Backend as "FastAPI Backend"
-UI->>API : getAdminTenants()
+UI->>API : getAdminTenants({per_page : 100})
 API->>Auth : Check Authentication
 Auth->>Auth : Validate Access Token
 Auth->>API : Token Refresh if Needed
-API->>Backend : GET /api/admin/tenants
+API->>Backend : GET /api/admin/tenants?page=1&per_page=100
 Backend->>Backend : RBAC Check
-Backend->>Backend : Load Data
-Backend->>API : Return JSON Response
-API->>UI : Process Response
+Backend->>Backend : Load Data with Pagination
+Backend->>API : Return JSON Response with Pagination
+API->>UI : Process Response with extractApiError()
 UI->>API : addUserToTenant()
 API->>Auth : Add CSRF Token
 API->>Backend : POST /api/admin/tenants/{id}/users
 Backend->>Backend : Validate Request
 Backend->>Backend : Create User
 Backend->>API : Return Success
-API->>UI : Update UI State
+API->>UI : Update UI State with Error Handling
 UI->>API : removeUserFromTenant()
 API->>Auth : Add CSRF Token
 API->>Backend : DELETE /api/admin/tenants/{id}/users/{userId}
 Backend->>Backend : Validate Request
 Backend->>Backend : Deactivate User
 Backend->>API : Return Success
-API->>UI : Update UI State
+API->>UI : Update UI State with extractApiError()
 ```
 
 **Diagram sources**
 - [UsersPage.jsx:320-354](file://app/frontend/src/pages/admin/UsersPage.jsx#L320-L354)
 - [api.js:1-140](file://app/frontend/src/lib/api.js#L1-L140)
+- [api.js:1077-1085](file://app/frontend/src/lib/api.js#L1077-L1085)
+
+### User-Friendly Error Messaging
+
+The system implements comprehensive user-friendly error messaging through the getUserFriendlyError() function:
+
+```mermaid
+flowchart TD
+ErrorDetection[Error Detection] --> NetworkError[Network Error]
+ErrorDetection --> HttpError[HTTP Error]
+NetworkError --> NetworkMessage[Network Error Message]
+HttpError --> StatusCheck[Check HTTP Status]
+StatusCheck --> FourHundred[4xx Error Mapping]
+StatusCheck --> FiveHundred[5xx Error Mapping]
+FourHundred --> FourHundredMessage[Specific 4xx Message]
+FiveHundred --> FiveHundredMessage[Specific 5xx Message]
+NetworkMessage --> DisplayError[Display Error]
+FourHundredMessage --> DisplayError
+FiveHundredMessage --> DisplayError
+```
+
+**Diagram sources**
+- [api.js:1046-1068](file://app/frontend/src/lib/api.js#L1046-L1068)
 
 **Section sources**
 - [UsersPage.jsx:295-649](file://app/frontend/src/pages/admin/UsersPage.jsx#L295-L649)
 - [AuthContext.jsx:1-112](file://app/frontend/src/contexts/AuthContext.jsx#L1-L112)
 - [api.js:1-140](file://app/frontend/src/lib/api.js#L1-L140)
+- [api.js:1046-1085](file://app/frontend/src/lib/api.js#L1046-L1085)
 
 ## API Endpoints
 
@@ -923,28 +991,30 @@ The system provides comprehensive authentication endpoints:
 
 1. **Progressive Enhancement**: Frontend gracefully handles authentication state changes
 2. **Loading States**: Comprehensive loading states improve user experience
-3. **Error Handling**: Clear error messages guide users through recovery
+3. **Enhanced Error Handling**: Clear error messages with extractApiError() guide users through recovery
 4. **Accessibility**: Components follow accessibility guidelines
 5. **Responsive Design**: Interface works across all device sizes
 6. **Advanced Filtering**: Sophisticated filtering reduces cognitive load
 7. **Bulk Operations**: Efficient bulk actions for administrative tasks
+8. **Optimized Pagination**: 100 items per page improves performance for large datasets
 
 ### Performance Considerations
 
 1. **Database Indexing**: Strategic indexing on frequently queried fields
-2. **Pagination**: All list endpoints support pagination
+2. **Optimized Pagination**: 100 items per page reduces API calls for large datasets
 3. **Caching**: JWT token validation results are cached
 4. **Connection Pooling**: Database connections are pooled for efficiency
 5. **Lazy Loading**: Frontend components use lazy loading for optimal performance
 6. **Component Optimization**: React.memo and useCallback for performance optimization
+7. **Error Handling Optimization**: extractApiError() prevents crashes from complex error responses
 
 ### Maintenance and Monitoring
 
 1. **Audit Logging**: All administrative actions are logged
 2. **Health Checks**: Regular health checks monitor system status
-3. **Error Tracking**: Comprehensive error tracking and reporting
+3. **Enhanced Error Tracking**: Comprehensive error tracking with user-friendly messages
 4. **Performance Metrics**: System performance metrics collection
 5. **Security Audits**: Regular security audits and vulnerability assessments
 6. **User Management Analytics**: Track user engagement and system usage patterns
 
-This comprehensive user management system provides a robust foundation for the Resume AI platform, supporting both individual user needs and enterprise-scale tenant management with strong security guarantees and excellent user experience. The advanced functionality in UsersPage.jsx enables efficient administrative oversight with sophisticated filtering, role management, and user lifecycle operations.
+This comprehensive user management system provides a robust foundation for the Resume AI platform, supporting both individual user needs and enterprise-scale tenant management with strong security guarantees and excellent user experience. The enhanced error handling with extractApiError() utility and optimized pagination to 100 items per page significantly improves the reliability and performance of the administrative user management interface.

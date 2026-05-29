@@ -18,12 +18,10 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced frontend invoice management interface with comprehensive filtering and status tracking
-- Added expandable invoice details with line item breakdowns
-- Implemented status badge system with visual indicators
-- Integrated admin-level invoice listing with tenant filtering
-- Added KPI cards for financial overview
-- Updated backend to support admin invoice endpoint
+- Enhanced error handling with extractApiError() utility for improved API error management
+- Optimized pagination to 100 items per page for admin invoice listings
+- Improved frontend error display and user experience with structured error messages
+- Enhanced admin invoice endpoint with better pagination support
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -32,10 +30,12 @@
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Frontend Enhancement Analysis](#frontend-enhancement-analysis)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
+7. [Error Handling Improvements](#error-handling-improvements)
+8. [Pagination Optimization](#pagination-optimization)
+9. [Dependency Analysis](#dependency-analysis)
+10. [Performance Considerations](#performance-considerations)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
 
 ## Introduction
 
@@ -43,7 +43,7 @@ The Invoice Management system is a comprehensive billing solution integrated int
 
 The system follows a modular architecture with clear separation of concerns between payment providers, invoice generation, and webhook processing. It ensures tenant isolation, maintains audit trails, and provides comprehensive reporting capabilities for both end-users and platform administrators.
 
-**Updated** The frontend has been significantly enhanced with a comprehensive admin interface that provides detailed invoice management capabilities, including filtering, status tracking, and expandable details for better billing administration. The backend now supports admin-level invoice access through dedicated endpoints.
+**Updated** The system now features enhanced error handling through the extractApiError() utility, which provides structured error messages for API responses. Additionally, pagination has been optimized to 100 items per page for admin invoice listings, improving performance and user experience when managing large invoice datasets.
 
 ## Project Structure
 
@@ -69,9 +69,10 @@ R[InvoicesPage.jsx] --> S[Enhanced Admin Interface]
 T[API Endpoints] --> U[RESTful Interface]
 V[StatusBadge Component] --> W[Visual Status Indicators]
 X[Expandable Details] --> Y[Line Item Breakdowns]
+Z[extractApiError Utility] --> AA[Structured Error Handling]
 end
-Z[Test Suite] --> AA[Unit Tests]
-Z --> AB[Integration Tests]
+BB[Test Suite] --> CC[Unit Tests]
+BB --> DD[Integration Tests]
 ```
 
 **Diagram sources**
@@ -79,6 +80,7 @@ Z --> AB[Integration Tests]
 - [billing.py:1-224](file://app/backend/routes/billing.py#L1-L224)
 - [admin.py:1700-1824](file://app/backend/routes/admin.py#L1700-L1824)
 - [db_models.py:612-640](file://app/backend/models/db_models.py#L612-L640)
+- [api.js:1072-1085](file://app/frontend/src/lib/api.js#L1072-L1085)
 
 **Section sources**
 - [invoice_service.py:1-134](file://app/backend/services/billing/invoice_service.py#L1-L134)
@@ -94,7 +96,7 @@ The core invoice service provides centralized functionality for invoice generati
 - **Sequential Number Generation**: Creates unique invoice numbers following the format `INV-{YYYY}-NNNNN`
 - **Invoice Creation**: Generates invoice records with comprehensive payment details
 - **Tenant Scoping**: Ensures invoices are properly isolated by tenant
-- **Pagination Support**: Provides efficient querying with limit/offset functionality
+- **Pagination Support**: Provides efficient querying with configurable limit/offset functionality
 
 ### Payment Provider Integration
 Supports multiple payment providers through a unified interface:
@@ -154,10 +156,10 @@ Webhook->>DB : Log Billing Event
 Webhook-->>Provider : Acknowledge Event
 Client->>API : List Invoices (Admin)
 API->>Invoice : get_tenant_invoices()
-Invoice->>DB : Query Invoices
+Invoice->>DB : Query Invoices (100/page)
 API-->>Client : Invoice List with Details
 AdminUI->>API : Filter/Expand Invoice Details
-API-->>AdminUI : Enhanced Invoice Data
+API-->>AdminUI : Enhanced Invoice Data with extractApiError()
 ```
 
 **Diagram sources**
@@ -165,6 +167,7 @@ API-->>AdminUI : Enhanced Invoice Data
 - [webhook_processor.py:705-772](file://app/backend/services/billing/webhook_processor.py#L705-L772)
 - [invoice_service.py:47-97](file://app/backend/services/billing/invoice_service.py#L47-L97)
 - [InvoicesPage.jsx:87-116](file://app/frontend/src/pages/admin/InvoicesPage.jsx#L87-L116)
+- [api.js:1221-1224](file://app/frontend/src/lib/api.js#L1221-L1224)
 
 The architecture ensures loose coupling between components while maintaining strong tenant isolation and comprehensive audit capabilities.
 
@@ -350,7 +353,7 @@ The InvoicesPage.jsx has been significantly enhanced with comprehensive administ
 
 ```mermaid
 flowchart TD
-A[Invoice List Page] --> B[Fetch Data]
+A[Invoice List Page] --> B[Fetch Data with extractApiError]
 B --> C[Display KPI Cards]
 C --> D[Show Filters]
 D --> E[Render Table]
@@ -365,10 +368,104 @@ I --> B
 
 **Diagram sources**
 - [InvoicesPage.jsx:87-383](file://app/frontend/src/pages/admin/InvoicesPage.jsx#L87-L383)
+- [api.js:1072-1085](file://app/frontend/src/lib/api.js#L1072-L1085)
 
 **Section sources**
 - [InvoicesPage.jsx:1-383](file://app/frontend/src/pages/admin/InvoicesPage.jsx#L1-L383)
-- [api.js:1205-1212](file://app/frontend/src/lib/api.js#L1205-L1212)
+- [api.js:1221-1224](file://app/frontend/src/lib/api.js#L1221-L1224)
+
+## Error Handling Improvements
+
+### Enhanced Error Management
+
+The system now features comprehensive error handling improvements through the extractApiError() utility:
+
+#### Structured Error Extraction
+- **FastAPI Validation Errors**: Handles array-based validation errors from FastAPI
+- **String Error Messages**: Direct string extraction for simple error responses
+- **Fallback Mechanisms**: Graceful fallback to default error messages
+- **Type Safety**: Robust type checking for various error response formats
+
+#### Frontend Error Display
+- **User-Friendly Messages**: Translates technical errors into readable messages
+- **Consistent Formatting**: Standardized error message presentation
+- **Retry Functionality**: Built-in retry mechanisms for failed operations
+- **Loading States**: Proper handling of loading states during error scenarios
+
+#### API Error Interception
+- **Response Interceptor**: Automatic error handling for all API responses
+- **Network Error Handling**: Special handling for network connectivity issues
+- **HTTP Status Mapping**: Contextual error messages based on HTTP status codes
+- **Exponential Backoff**: Intelligent retry logic for transient failures
+
+```mermaid
+flowchart TD
+A[API Error Response] --> B[extractApiError Utility]
+B --> C{Error Type Check}
+C --> |String Detail| D[Return String Message]
+C --> |Array Detail| E[Extract Array Messages]
+C --> |Object Detail| F[Stringify Object]
+C --> |No Detail| G[Return Fallback]
+E --> H[Join Multiple Messages]
+D --> I[Display Error]
+H --> I
+F --> I
+G --> I
+```
+
+**Diagram sources**
+- [api.js:1072-1085](file://app/frontend/src/lib/api.js#L1072-L1085)
+
+**Section sources**
+- [api.js:1072-1085](file://app/frontend/src/lib/api.js#L1072-L1085)
+- [InvoicesPage.jsx:110-115](file://app/frontend/src/pages/admin/InvoicesPage.jsx#L110-L115)
+
+## Pagination Optimization
+
+### Enhanced Pagination Support
+
+The Invoice Management system has been optimized with improved pagination capabilities:
+
+#### Admin Invoice Pagination
+- **Default Limit**: Optimized to 100 items per page for admin invoice listings
+- **Configurable Limits**: Support for up to 500 items per page with validation
+- **Efficient Queries**: Database-level pagination for optimal performance
+- **Client-Side Caching**: Reduced server load through intelligent caching
+
+#### Backend Pagination Implementation
+- **Query Optimization**: Efficient database queries with proper indexing
+- **Offset Management**: Proper offset calculation for large datasets
+- **Total Count Support**: Accurate total count calculation for pagination UI
+- **Validation**: Input validation for pagination parameters
+
+#### Frontend Pagination Experience
+- **Smooth Navigation**: Optimized user experience for navigating large invoice lists
+- **Performance**: Faster loading times with reduced data transfer
+- **Scalability**: Support for growing invoice datasets without performance degradation
+- **Responsive Design**: Adapts pagination to different screen sizes and devices
+
+```mermaid
+sequenceDiagram
+participant AdminUI as "Admin Interface"
+participant API as "Admin API"
+participant DB as "Database"
+AdminUI->>API : Request Invoices (limit=100)
+API->>DB : Query Invoices with LIMIT 100
+DB-->>API : Return 100 Invoices + Total Count
+API-->>AdminUI : Paginated Invoice List
+AdminUI->>API : Next Page Request
+API->>DB : Query Next 100 Invoices
+DB-->>API : Return Next 100 Invoices
+API-->>AdminUI : Updated Invoice List
+```
+
+**Diagram sources**
+- [admin.py:591-592](file://app/backend/routes/admin.py#L591-L592)
+- [api.js:1221-1224](file://app/frontend/src/lib/api.js#L1221-L1224)
+
+**Section sources**
+- [admin.py:591-592](file://app/backend/routes/admin.py#L591-L592)
+- [api.js:1221-1224](file://app/frontend/src/lib/api.js#L1221-L1224)
 
 ## Dependency Analysis
 
@@ -396,18 +493,19 @@ subgraph "Frontend Dependencies"
 P[InvoicesPage.jsx] --> Q[api.js]
 P --> R[lucide-react icons]
 P --> S[React Hooks]
-T[api.js] --> U[axios]
+Q --> T[extractApiError Utility]
+U[api.js] --> V[axios]
 end
 subgraph "External Dependencies"
-V[stripe library] --> H
-W[sqlalchemy] --> B
-X[fastapi] --> C
-Y[react] --> P
+W[stripe library] --> H
+X[sqlalchemy] --> B
+Y[fastapi] --> C
+Z[react] --> P
 end
 subgraph "Testing"
-Z[test_invoices.py] --> A
-Z --> F
-Z --> C
+AA[test_invoices.py] --> A
+AA --> F
+AA --> C
 end
 ```
 
@@ -415,7 +513,7 @@ end
 - [invoice_service.py:13](file://app/backend/services/billing/invoice_service.py#L13)
 - [billing.py:10-15](file://app/backend/routes/billing.py#L10-L15)
 - [webhook_processor.py:15-19](file://app/backend/services/billing/webhook_processor.py#L15-L19)
-- [InvoicesPage.jsx:1-13](file://app/frontend/src/pages/admin/InvoicesPage.jsx#L1-L13)
+- [InvoicesPage.jsx:13](file://app/frontend/src/pages/admin/InvoicesPage.jsx#L13)
 
 The dependency graph reveals a well-structured system with minimal circular dependencies and clear separation of concerns. The payment provider implementations depend only on the abstract base class, enabling easy extension and testing.
 
@@ -454,6 +552,7 @@ The Invoice Management system incorporates several performance optimization stra
 - **Multi-tenancy Isolation**: Automatic tenant scoping prevents cross-tenant data leakage
 - **Asynchronous Processing**: Webhook processing designed for concurrent operations
 - **Graceful Degradation**: System continues operating even if individual components fail
+- **Pagination Optimization**: 100-item per page limit reduces server load and improves responsiveness
 
 ## Troubleshooting Guide
 
@@ -484,6 +583,16 @@ The Invoice Management system incorporates several performance optimization stra
 - **Cause**: API response format changes or missing data
 - **Solution**: Check API responses and verify frontend data mapping
 
+**Error Handling Issues**
+- **Symptom**: Generic error messages instead of specific details
+- **Cause**: Missing or malformed error responses from backend
+- **Solution**: Implement proper error response formatting and use extractApiError()
+
+**Pagination Performance Issues**
+- **Symptom**: Slow loading of invoice lists with many pages
+- **Cause**: Large dataset without proper pagination limits
+- **Solution**: Use optimized pagination with 100-item per page limit
+
 ### Debugging Tools and Techniques
 
 The system includes comprehensive logging and monitoring capabilities:
@@ -493,17 +602,19 @@ The system includes comprehensive logging and monitoring capabilities:
 - **Performance Metrics**: Query timing and resource usage monitoring
 - **Health Checks**: Automated system health verification
 - **Frontend DevTools**: React DevTools for component debugging
+- **Error Boundary Integration**: ExtractApiError utility for structured error handling
 
 **Section sources**
 - [webhook_processor.py:742-772](file://app/backend/services/billing/webhook_processor.py#L742-L772)
 - [test_invoices.py:481-506](file://app/backend/tests/test_invoices.py#L481-L506)
 - [InvoicesPage.jsx:98-115](file://app/frontend/src/pages/admin/InvoicesPage.jsx#L98-L115)
+- [api.js:1072-1085](file://app/frontend/src/lib/api.js#L1072-L1085)
 
 ## Conclusion
 
 The Invoice Management system represents a robust, scalable solution for handling subscription billing and payment processing in a multi-tenant environment. The system's architecture emphasizes modularity, tenant isolation, and comprehensive audit capabilities while providing flexible payment provider integration.
 
-**Updated** The recent enhancements to the frontend interface significantly improve the administrative capabilities for billing management. The new status badge system, expandable details, and comprehensive filtering provide administrators with powerful tools for monitoring and managing tenant billing activities. The backend now supports admin-level invoice access through dedicated endpoints, enabling comprehensive billing administration across all tenant organizations.
+**Updated** The recent enhancements significantly improve the system's reliability and user experience. The introduction of the extractApiError() utility provides structured error handling that translates technical errors into user-friendly messages, while the optimization to 100 items per page for admin invoice pagination improves performance and scalability when managing large invoice datasets.
 
 Key strengths of the system include:
 
@@ -516,7 +627,10 @@ Key strengths of the system include:
 - **Visual Status Tracking**: Intuitive status indicators for quick invoice assessment
 - **Advanced Filtering**: Powerful filtering capabilities for invoice discovery
 - **Admin-Level Access**: Dedicated endpoints for comprehensive billing oversight
+- **Structured Error Handling**: extractApiError() utility for consistent error messaging
+- **Optimized Pagination**: 100-item per page limit for improved performance
+- **User-Friendly Error Display**: Enhanced frontend error handling and retry functionality
 
 The system successfully balances flexibility with reliability, providing a solid foundation for enterprise-grade billing operations while maintaining simplicity for development and maintenance.
 
-Future enhancements could include advanced reporting capabilities, automated reconciliation features, expanded payment provider support, and enhanced analytics dashboards to further enhance the system's capabilities.
+Future enhancements could include advanced reporting capabilities, automated reconciliation features, expanded payment provider support, enhanced analytics dashboards, and further performance optimizations for extremely large datasets.

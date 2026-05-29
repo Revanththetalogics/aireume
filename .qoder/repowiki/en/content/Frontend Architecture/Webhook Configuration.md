@@ -17,14 +17,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced WebhooksPage.jsx with comprehensive per-tenant management capabilities
-- Added sophisticated event selection with wildcard support and individual event filtering
-- Implemented delivery history tracking with visual indicators and expandable panels
-- Integrated modal dialogs for webhook creation and deletion with form validation
-- Introduced status badges for webhook health monitoring with auto-disable functionality
-- Added tenant selection dropdown for multi-tenant administration with contextual actions
-- Enhanced backend API endpoints for tenant-specific webhook management
+- Enhanced error handling with extractApiError() utility for consistent user-friendly error messages
+- Optimized pagination to 100 items per page for improved performance and user experience
+- Enhanced delivery history tracking with expanded panel support and improved visual indicators
 - Improved frontend API integration with comprehensive error handling and loading states
+- Enhanced tenant management with improved pagination and error handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -326,6 +323,16 @@ Enhanced modal dialogs with comprehensive form validation and user feedback:
 - **Loading States**: Disabled states during API operations with spinner indicators
 - **Error Handling**: Comprehensive error display with user-friendly messages
 
+### Enhanced Error Handling
+
+**Updated** The system now includes comprehensive error handling with the extractApiError() utility for consistent user-friendly error messages:
+
+- **Consistent Error Messages**: Unified error message formatting across all API interactions
+- **Validation Error Handling**: Special handling for FastAPI validation errors with detailed feedback
+- **Network Error Detection**: Automatic detection and user-friendly messaging for network failures
+- **Retry Logic Integration**: Error handling integrated with automatic retry mechanisms
+- **Fallback Error Handling**: Graceful degradation with fallback error messages when API responses are malformed
+
 **Section sources**
 - [WebhooksPage.jsx:1-594](file://app/frontend/src/pages/admin/WebhooksPage.jsx#L1-L594)
 
@@ -476,6 +483,9 @@ DeliveryHistory[Delivery History Tracking]
 TenantIsolation[Tenant Isolation Testing]
 ModalValidation[Modal Form Validation]
 StatusMonitoring[Status Monitoring Tests]
+ErrorHandling[Error Handling & Pagination Tests]
+extractApiError[extractApiError Utility Tests]
+Pagination[100-item Pagination Tests]
 end
 ServiceTests --> HMAC
 ServiceTests --> Delivery
@@ -487,6 +497,9 @@ EndpointTests --> DeliveryHistory
 EndpointTests --> TenantIsolation
 EndpointTests --> ModalValidation
 EndpointTests --> StatusMonitoring
+EndpointTests --> ErrorHandling
+EndpointTests --> extractApiError
+EndpointTests --> Pagination
 IntegrationTests --> HMAC
 IntegrationTests --> Delivery
 SecurityTests --> URLValidation
@@ -515,6 +528,9 @@ SecurityTests --> URLValidation
 | Modal Validation | Form validation and error handling | URL validation, event selection |
 | Status Monitoring | Health status calculation | Active/failing/disabled states |
 | Billing Integration | Provider-specific event handling | Stripe, Razorpay, Manual providers |
+| Error Handling | User-friendly error messages | extractApiError utility validation |
+| Pagination | Performance optimization | 100-item per-page limit testing |
+| Tenant Loading | Large tenant list handling | 100-tenant pagination performance |
 
 **Section sources**
 - [test_webhooks.py:44-61](file://app/backend/tests/test_webhooks.py#L44-L61)
@@ -575,6 +591,8 @@ The webhook system integrates seamlessly with the main application through FastA
 | Delivery History Not Loading | Empty delivery panel | Verify webhook expansion and API connectivity, check tenant selection |
 | Modal Form Errors | Validation failures | Check URL format, event selection, secret generation, verify form inputs are correct |
 | Status Display Issues | Incorrect status badges | Check webhook failure counts, verify auto-disable thresholds, review status calculation logic |
+| Error Message Display | Unclear error messages | Verify extractApiError utility is properly handling API responses |
+| Pagination Issues | Missing webhooks in tenant list | Check per_page parameter is set to 100 for optimal performance |
 
 ### Monitoring and Debugging
 
@@ -588,6 +606,8 @@ The webhook system integrates seamlessly with the main application through FastA
 - Delivery history refresh intervals
 - Tenant selection performance
 - Modal form validation success rates
+- Error message consistency across the system
+- Pagination performance with 100-item limits
 
 **Diagnostic Commands:**
 - Check webhook configuration status for specific tenant
@@ -599,6 +619,8 @@ The webhook system integrates seamlessly with the main application through FastA
 - Test event selection filtering logic and wildcard matching
 - Validate modal form validation and error handling
 - Check status badge calculation and auto-disable logic
+- Verify extractApiError utility is properly formatting error messages
+- Test pagination performance with large tenant lists (100+ items per page)
 
 **Section sources**
 - [webhook_service.py:114-130](file://app/backend/services/webhook_service.py#L114-L130)
