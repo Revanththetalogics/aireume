@@ -1109,6 +1109,19 @@ export async function getAdminAuditLogs(params = {}) {
   return response.data
 }
 
+export async function exportAuditLogs(params = {}) {
+  const response = await api.get('/admin/audit-logs/export', {
+    params,
+    responseType: 'blob',
+  })
+  return response.data
+}
+
+export async function getWebhookEvents() {
+  const response = await api.get('/webhooks/events')
+  return response.data
+}
+
 // ─── Platform Admin API — Phase 2 ──────────────────────────
 
 export async function getAdminFeatureFlags() {
@@ -1189,6 +1202,21 @@ export async function archivePlan(planId, force = false) {
 }
 
 // ─── Billing Admin API ──────────────────────────────────────────
+
+export async function getAdminInvoices(params = {}) {
+  const response = await api.get('/admin/invoices', { params })
+  return response.data
+}
+
+export async function getAdminDunningRecords(params = {}) {
+  const response = await api.get('/admin/dunning', { params })
+  return response.data
+}
+
+export async function resolveDunning(tenantId) {
+  const response = await api.post(`/admin/dunning/${tenantId}/resolve`)
+  return response.data
+}
 
 export async function getBillingConfig() {
   const response = await api.get('/admin/billing/config')
