@@ -41,8 +41,9 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
-      navigate('/')
+      const data = await login(email, password)
+      const isAdmin = data.user?.is_platform_admin === true || !!data.user?.platform_role
+      navigate(isAdmin ? '/admin' : '/')
     } catch (err) {
       const detail = err.response?.data?.detail
       if (detail && typeof detail === 'object' && detail.error_code === 'SSO_ENFORCED') {
