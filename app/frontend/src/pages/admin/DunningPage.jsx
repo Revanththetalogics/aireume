@@ -7,7 +7,7 @@ import {
   RotateCcw,
   Clock,
 } from 'lucide-react'
-import { getAdminDunningRecords, resolveDunning } from '../../lib/api'
+import { getAdminDunningRecords, resolveDunning, extractApiError } from '../../lib/api'
 
 function formatDate(iso) {
   if (!iso) return '—'
@@ -93,7 +93,7 @@ export default function DunningPage() {
       const items = data?.items || (Array.isArray(data) ? data : [])
       setRecords(items)
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Failed to load dunning records.')
+      setError(extractApiError(err, 'Failed to load dunning records.'))
     } finally {
       setLoading(false)
     }
@@ -111,7 +111,7 @@ export default function DunningPage() {
       setResolveSuccess(`Dunning resolved for ${tenantName}.`)
       fetchData()
     } catch (err) {
-      setResolveError(err?.response?.data?.detail || 'Failed to resolve dunning.')
+      setResolveError(extractApiError(err, 'Failed to resolve dunning.'))
     } finally {
       setResolving(null)
     }

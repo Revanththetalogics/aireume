@@ -1069,6 +1069,21 @@ export function getUserFriendlyError(error) {
 
 // ─── Platform Admin API ─────────────────────────────────────
 
+/**
+ * Safely extract a human-readable error message from an API error response.
+ * FastAPI validation errors return `detail` as an array of objects,
+ * which would crash React if rendered directly as a child.
+ */
+export function extractApiError(err, fallback = 'An error occurred') {
+  const detail = err?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map(e => e.msg || e.message || String(e)).join('; ')
+  }
+  if (detail) return String(detail)
+  return fallback
+}
+
 export async function getAdminTenants(params = {}) {
   const response = await api.get('/admin/tenants', { params })
   return response.data

@@ -10,7 +10,7 @@ import {
   ChevronUp,
   Loader2,
 } from 'lucide-react'
-import { getAdminInvoices, getAdminTenants } from '../../lib/api'
+import { getAdminInvoices, getAdminTenants, extractApiError } from '../../lib/api'
 
 function formatCurrency(cents) {
   if (cents === undefined || cents === null) return '—'
@@ -108,7 +108,7 @@ export default function InvoicesPage() {
       const tenantList = t?.items || t?.tenants || (Array.isArray(t) ? t : [])
       setTenants(tenantList)
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Failed to load invoices.')
+      setError(extractApiError(err, 'Failed to load invoices.'))
     } finally {
       setLoading(false)
     }

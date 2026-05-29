@@ -18,6 +18,7 @@ import {
   getAdminTenantDetail,
   addUserToTenant,
   removeUserFromTenant,
+  extractApiError,
 } from '../../lib/api'
 
 /* ── Constants ────────────────────────────────────────── */
@@ -98,7 +99,7 @@ function AddUserModal({ tenantId, tenantName, onClose, onAdded }) {
       onAdded()
       onClose()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to add user')
+      setError(extractApiError(err, 'Failed to add user'))
     } finally {
       setSaving(false)
     }
@@ -228,7 +229,7 @@ function ChangeRoleModal({ user, tenantId, onClose, onDone }) {
       onDone()
       onClose()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to change role')
+      setError(extractApiError(err, 'Failed to change role'))
     } finally {
       setSaving(false)
     }
@@ -321,11 +322,11 @@ export default function UsersPage() {
     setLoadingTenants(true)
     setError('')
     try {
-      const data = await getAdminTenants({ per_page: 200 })
+      const data = await getAdminTenants({ per_page: 100 })
       const items = data.tenants || data.items || data || []
       setTenants(items)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load tenants')
+      setError(extractApiError(err, 'Failed to load tenants'))
     } finally {
       setLoadingTenants(false)
     }
@@ -347,7 +348,7 @@ export default function UsersPage() {
       const detail = await getAdminTenantDetail(selectedTenantId)
       setUsers(detail.users || [])
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load users')
+      setError(extractApiError(err, 'Failed to load users'))
     } finally {
       setLoadingUsers(false)
     }
@@ -387,7 +388,7 @@ export default function UsersPage() {
           setToast({ message: `${user.email} removed from tenant.`, type: 'success' })
           fetchUsers()
         } catch (err) {
-          setToast({ message: err.response?.data?.detail || 'Failed to remove user', type: 'error' })
+          setToast({ message: extractApiError(err, 'Failed to remove user'), type: 'error' })
         }
         break
       case 'toggle-status':

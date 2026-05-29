@@ -20,6 +20,7 @@ import {
   deleteTenantWebhook,
   getWebhookDeliveries,
   getWebhookEvents,
+  extractApiError,
 } from '../../lib/api'
 
 /* ── Toast ─────────────────────────────────────────────── */
@@ -96,7 +97,7 @@ function CreateWebhookModal({ tenantId, events, onClose, onCreated }) {
       onCreated()
       onClose()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to create webhook')
+      setError(extractApiError(err, 'Failed to create webhook'))
     } finally {
       setSaving(false)
     }
@@ -240,7 +241,7 @@ function DeleteWebhookModal({ webhook, onClose, onDone }) {
       onDone()
       onClose()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to delete webhook')
+      setError(extractApiError(err, 'Failed to delete webhook'))
     } finally {
       setLoading(false)
     }
@@ -351,10 +352,10 @@ export default function WebhooksPage() {
     setLoadingTenants(true)
     setError('')
     try {
-      const data = await getAdminTenants({ per_page: 200 })
+      const data = await getAdminTenants({ per_page: 100 })
       setTenants(data.tenants || data.items || data || [])
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load tenants')
+      setError(extractApiError(err, 'Failed to load tenants'))
     } finally {
       setLoadingTenants(false)
     }
@@ -383,7 +384,7 @@ export default function WebhooksPage() {
       const data = await getTenantWebhooks(Number(selectedTenantId))
       setWebhooks(Array.isArray(data) ? data : [])
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load webhooks')
+      setError(extractApiError(err, 'Failed to load webhooks'))
     } finally {
       setLoadingWebhooks(false)
     }

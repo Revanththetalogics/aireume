@@ -15,6 +15,7 @@ import {
   getTenantRateLimit,
   updateTenantRateLimit,
   deleteTenantRateLimit,
+  extractApiError,
 } from '../../lib/api'
 
 /* ── Default Limits ────────────────────────────────────── */
@@ -78,7 +79,7 @@ function ResetModal({ tenantName, onClose, onDone }) {
       onDone()
       onClose()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to reset rate limits')
+      setError(extractApiError(err, 'Failed to reset rate limits'))
     } finally {
       setLoading(false)
     }
@@ -146,10 +147,10 @@ export default function RateLimitsPage() {
     setLoadingTenants(true)
     setError('')
     try {
-      const data = await getAdminTenants({ per_page: 200 })
+      const data = await getAdminTenants({ per_page: 100 })
       setTenants(data.tenants || data.items || data || [])
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load tenants')
+      setError(extractApiError(err, 'Failed to load tenants'))
     } finally {
       setLoadingTenants(false)
     }
@@ -178,7 +179,7 @@ export default function RateLimitsPage() {
         })
       }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load rate limits')
+      setError(extractApiError(err, 'Failed to load rate limits'))
     } finally {
       setLoadingRateLimit(false)
     }
@@ -201,7 +202,7 @@ export default function RateLimitsPage() {
       setToast({ message: 'Rate limits updated successfully.', type: 'success' })
       fetchRateLimit()
     } catch (err) {
-      setToast({ message: err.response?.data?.detail || 'Failed to update rate limits', type: 'error' })
+      setToast({ message: extractApiError(err, 'Failed to update rate limits'), type: 'error' })
     } finally {
       setSaving(false)
     }
@@ -214,7 +215,7 @@ export default function RateLimitsPage() {
       setToast({ message: 'Rate limits reset to defaults.', type: 'success' })
       fetchRateLimit()
     } catch (err) {
-      setToast({ message: err.response?.data?.detail || 'Failed to reset rate limits', type: 'error' })
+      setToast({ message: extractApiError(err, 'Failed to reset rate limits'), type: 'error' })
     }
   }
 

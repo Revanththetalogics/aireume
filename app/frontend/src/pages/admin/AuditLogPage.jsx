@@ -14,6 +14,7 @@ import {
   getAdminAuditLogs,
   exportAuditLogs,
   getAdminTenants,
+  extractApiError,
 } from '../../lib/api'
 
 /* ── Constants ────────────────────────────────────────── */
@@ -147,7 +148,7 @@ export default function AuditLogPage() {
       setLogs(data.items || [])
       setTotalCount(data.total || 0)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load audit logs')
+      setError(extractApiError(err, 'Failed to load audit logs'))
     } finally {
       setLoading(false)
     }
@@ -155,7 +156,7 @@ export default function AuditLogPage() {
 
   const fetchTenants = useCallback(async () => {
     try {
-      const data = await getAdminTenants({ per_page: 200 })
+      const data = await getAdminTenants({ per_page: 100 })
       setTenants(data.tenants || data.items || data || [])
     } catch {
       // Tenants list is optional for filter dropdown

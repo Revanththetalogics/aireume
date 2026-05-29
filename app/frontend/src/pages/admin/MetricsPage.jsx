@@ -23,7 +23,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { getAdminMetricsOverview, getAdminUsageTrends, getAdminTenants } from '../../lib/api'
+import { getAdminMetricsOverview, getAdminUsageTrends, getAdminTenants, extractApiError } from '../../lib/api'
 
 const TIME_RANGES = [
   { label: '7 days', value: 7 },
@@ -128,7 +128,7 @@ export default function MetricsPage() {
       const tenantList = t?.items || t?.tenants || (Array.isArray(t) ? t : [])
       setTenants(tenantList)
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Failed to load metrics.')
+      setError(extractApiError(err, 'Failed to load metrics.'))
     } finally {
       setLoading(false)
     }
