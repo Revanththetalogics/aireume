@@ -46,21 +46,22 @@
 - [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
 - [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
 - [useSubscription.jsx](file://app/frontend/src/hooks/useSubscription.jsx)
+- [AdminLayout.jsx](file://app/frontend/src/layouts/AdminLayout.jsx)
+- [Breadcrumbs.jsx](file://app/frontend/src/components/admin/Breadcrumbs.jsx)
+- [AdminOverviewPage.jsx](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx)
 - [package.json](file://app/frontend/package.json)
+- [vite.config.js](file://app/frontend/vite.config.js)
+- [tailwind.config.js](file://app/frontend/tailwind.config.js)
 - [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
 - [AUDIT.md](file://docs/AUDIT.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced resume display system with inline parameter support for mobile phone screen split-view experiences
-- Added comprehensive split-view phone screen mode with dual-panel layout for mobile optimization
-- Implemented inline resume preview with text rendering and iframe support for different file formats
-- Enhanced ReportPage with screen mode toggle and split-view functionality
-- Added SplitProfilePreview component for CandidatesPage split view
-- Integrated PhoneScreenKit component for phone screen preparation
-- Improved browser-renderable response handling across different file formats
-- Enhanced mobile phone screen split-view experiences with responsive design patterns
+- Complete transformation with introduction of new AdminLayout component and comprehensive suite of 18 new admin pages
+- Frontend routing structure reorganized to use nested routes under /admin including TenantDetailPage, TenantsPage, RevenuePage, SSOPage, and numerous other administrative interfaces
+- Navigation system streamlined to provide direct access to admin functionality through prominent buttons in the user menu
+- Removed conditional admin portal button from main navigation bar as admin portal remains accessible through new dedicated admin layout system
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -81,7 +82,7 @@
 16. [Conclusion](#conclusion)
 
 ## Introduction
-This document describes the frontend architecture for Resume AI by ThetaLogics. It covers the React 18 component model, routing, state management, component library, styling and responsiveness, API integration, authentication and subscription management, error handling and resilience patterns, XSS protection architecture, platform administration capabilities, and extension guidelines. The system emphasizes a clean separation of concerns, composable UI components, robust integration with backend services via Axios interceptors and dedicated hooks, comprehensive error handling for graceful degradation, universal string sanitization to prevent XSS vulnerabilities, and comprehensive administrative interfaces for platform-wide tenant management.
+This document describes the frontend architecture for Resume AI by ThetaLogics. It covers the React 18 component model, routing, state management, component library, styling and responsiveness, API integration, authentication and subscription management, error handling and resilience patterns, XSS protection architecture, comprehensive platform administration capabilities, and extension guidelines. The system emphasizes a clean separation of concerns, composable UI components, robust integration with backend services via Axios interceptors and dedicated hooks, comprehensive error handling for graceful degradation, universal string sanitization to prevent XSS vulnerabilities, and comprehensive administrative interfaces for platform-wide tenant management.
 
 ## Project Structure
 The frontend is organized around a classic React 18 + Vite setup with modular components, pages, contexts, hooks, and a centralized API client. Routing is handled by React Router v7 with lazy-loaded pages and protected routes. Styling leverages TailwindCSS with a consistent design system and brand palette. The architecture now includes comprehensive error handling through React ErrorBoundary components, enhanced API retry mechanisms, universal XSS protection through the safeStr utility function, and a comprehensive platform administration system with tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
@@ -97,10 +98,12 @@ subgraph "Routing"
 R["React Router v7<br/>lazy routes"]
 PR["ProtectedRoute.jsx"]
 PAR["PlatformAdminRoute.jsx"]
+AL["AdminLayout.jsx"]
 end
 subgraph "UI Shell"
 AS["AppShell.jsx"]
 NB["NavBar.jsx"]
+BC["Breadcrumbs.jsx"]
 end
 subgraph "Enhanced Landing Page"
 DN["DashboardNew.jsx"]
@@ -129,7 +132,7 @@ SP["SplitProfilePreview.jsx"]
 end
 subgraph "Admin Dashboard System"
 ADP["AdminDashboardPage.jsx"]
-PAR["PlatformAdminRoute.jsx"]
+AOP["AdminOverviewPage.jsx"]
 end
 subgraph "Pages"
 D["Dashboard.jsx"]
@@ -165,6 +168,10 @@ subgraph "API Layer"
 API["api.js"]
 UC["uploadChunked.js"]
 end
+subgraph "Build & Performance"
+VC["vite.config.js"]
+TC["tailwind.config.js"]
+end
 subgraph "Security Layer"
 SEC["XSS Protection"]
 CSP["Content Security Policy"]
@@ -175,6 +182,8 @@ EB --> R
 R --> PR
 PR --> AS
 AS --> NB
+AS --> AL
+AL --> BC
 AS --> DN
 DN --> GS
 AS --> OW
@@ -204,7 +213,7 @@ JD --> STC
 AS --> PB
 PB --> UAP
 AS --> ADP
-ADP --> PAR
+ADP --> AOP
 A --> API
 A --> AC
 A --> NC
@@ -214,16 +223,19 @@ RC --> SEC
 CV --> SEC
 UF --> SEC
 AS --> CSP
+VC --> TC
 ```
 
 **Diagram sources**
 - [main.jsx:1-23](file://app/frontend/src/main.jsx#L1-L23)
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
-- [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
-- [NavBar.jsx](file://app/frontend/src/components/NavBar.jsx)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
 - [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
 - [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
 - [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
@@ -236,6 +248,7 @@ AS --> CSP
 - [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
 - [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 - [ReportPage.jsx:1-1030](file://app/frontend/src/pages/ReportPage.jsx#L1-L1030)
 - [CandidatesPage.jsx:1-984](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L984)
 - [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
@@ -262,10 +275,12 @@ AS --> CSP
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
 - [api.js:1-967](file://app/frontend/src/lib/api.js#L1-L967)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
+- [vite.config.js:1-65](file://app/frontend/vite.config.js#L1-L65)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
 
 **Section sources**
 - [main.jsx:1-23](file://app/frontend/src/main.jsx#L1-L23)
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [package.json:1-42](file://app/frontend/package.json#L1-L42)
 
@@ -295,6 +310,7 @@ AS --> CSP
 - **JDLibraryPage**: Enhanced job description library with filtering, sorting, AI-optimized weights, and usage statistics.
 - **SkillTrendChart**: Role category analysis with trend visualization and growth metrics.
 - **AdminDashboardPage**: Comprehensive platform administration interface with tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- **AdminOverviewPage**: Comprehensive overview dashboard for platform administrators with key metrics and quick access links.
 - **PhoneScreenKit**: Standalone Screen Kit panel for split-view phone screen mode with technical, behavioral, culture fit, and experience deep-dive questions.
 - **InterviewScorecard**: Phone screen evaluation component for capturing candidate assessments and conversation summaries.
 - **SplitProfilePreview**: Inline candidate profile preview component for split-view candidate list functionality.
@@ -305,6 +321,8 @@ AS --> CSP
 - **Streaming Analysis**: SSE-based real-time updates for both single and batch analysis workflows.
 - **XSS Protection**: Universal string sanitization through safeStr utility function across all components.
 - **Platform Administration**: Complete administrative interface for tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- **AdminLayout**: Comprehensive admin layout with collapsible sidebar, breadcrumb navigation, responsive design, and 18 dedicated admin pages.
+- **Breadcrumbs**: Dynamic breadcrumb navigation for admin pages with path labels and clickable segments.
 - **Resume Access System**: **NEW**: Comprehensive resume file handling with proper MIME type detection, filename generation, and user experience improvements.
 - **Split-View Phone Screen Mode**: **NEW**: Mobile-optimized split-view experience with dual-panel layout for phone screen preparation.
 - **Inline Resume Preview**: **NEW**: Text rendering and iframe support for different file formats in split-view mode.
@@ -318,10 +336,13 @@ AS --> CSP
 - **useOptimisticUpdate**: **NEW**: Hook for immediate UI updates with rollback capability and undo support.
 - **useKeyboardShortcuts**: **NEW**: Keyboard navigation for candidate lists with J/K movement, S/R status changes, and Enter action.
 - **useAnalysisProgress**: **NEW**: Hook for batch analysis progress management and real-time updates.
+- **Enhanced Navigation System**: **NEW**: Sophisticated collapsible sidebar, breadcrumb navigation, and responsive mobile design with mobile bottom tab bar and desktop user menu.
+- **Vite Configuration**: **NEW**: Advanced build optimization with manual chunk splitting and vendor library separation.
+- **TailwindCSS Theming**: **NEW**: Enhanced color palette, typography, and animation system for consistent design language.
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
-- [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
@@ -345,6 +366,7 @@ AS --> CSP
 - [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
 - [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 - [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
 - [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
@@ -358,6 +380,11 @@ AS --> CSP
 - [useOptimisticUpdate.js:1-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L1-L81)
 - [useKeyboardShortcuts.js:1-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L1-L102)
 - [useAnalysisProgress.js:1-25](file://app/frontend/src/hooks/useAnalysisProgress.js#L1-L25)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [vite.config.js:1-65](file://app/frontend/vite.config.js#L1-L65)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
 
 ## Architecture Overview
 The frontend follows a layered architecture with enhanced error handling, redesigned analysis flow, comprehensive XSS protection, and comprehensive platform administration capabilities:
@@ -369,7 +396,8 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - OnboardingWizard provides comprehensive guided setup with 4-step flow and persistent state management.
 - AnalyzePage orchestrates the new 3-step analysis workflow with AI-powered features, streaming updates, and **intelligent auto-skip functionality**.
 - BatchPage provides enhanced batch processing with real-time progress tracking and ranked shortlist.
-- AdminDashboardPage provides comprehensive platform administration with tabbed navigation and administrative tools.
+- AdminLayout provides comprehensive admin interface with nested routes for 18 dedicated admin pages.
+- AdminOverviewPage serves as the main admin dashboard with key metrics and quick access links.
 - Pages orchestrate UI components and API interactions with improved error handling and XSS protection.
 - API client centralizes HTTP requests, JWT injection, automatic refresh, and enhanced retry mechanisms.
 - Contexts and hooks manage authentication, subscription state, onboarding progress, and analysis progress with robust error handling.
@@ -377,7 +405,7 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - Streaming analysis provides real-time updates via SSE for both single and batch workflows.
 - **NEW**: XSS Protection Layer provides universal string sanitization through safeStr utility function.
 - **NEW**: Security Headers and CSP configuration protect against XSS and other web vulnerabilities.
-- **NEW**: Platform Administration System provides comprehensive tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- **NEW**: Platform Administration System provides comprehensive tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications through dedicated admin pages.
 - **NEW**: Dual Job Context Persistence System provides seamless workflow continuity using both sessionStorage (for text-mode JDs) and IndexedDB (for file-mode JDs).
 - **NEW**: Resume Access System provides comprehensive resume file handling with proper MIME type detection, filename generation, and user experience improvements.
 - **NEW**: Enhanced Component Library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, and specialized hooks.
@@ -390,6 +418,9 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - **NEW**: Split-View Phone Screen Mode provides mobile-optimized dual-panel layout for phone screen preparation.
 - **NEW**: Inline Resume Preview supports text rendering and iframe display for different file formats.
 - **NEW**: Mobile Screen Optimization ensures responsive design patterns for phone screen experiences.
+- **NEW**: Enhanced Navigation System provides sophisticated collapsible sidebar, breadcrumb navigation, and responsive mobile design.
+- **NEW**: Vite configuration provides optimal build performance with advanced chunk splitting and vendor optimization.
+- **NEW**: TailwindCSS theming provides enhanced color palette, typography, and animation system.
 
 ```mermaid
 sequenceDiagram
@@ -399,6 +430,9 @@ participant R as "Router(App.jsx)"
 participant P as "ProtectedRoute"
 participant PAR as "PlatformAdminRoute"
 participant S as "AppShell"
+participant NB as "NavBar"
+participant AL as "AdminLayout"
+participant BC as "Breadcrumbs"
 participant DN as "DashboardNew"
 participant GS as "GettingStarted"
 participant OW as "OnboardingWizard"
@@ -408,9 +442,7 @@ participant CP as "CandidatesPage"
 participant CMP as "ComparePage"
 participant CM as "ComparisonMatrix"
 participant BP as "BatchPage"
-participant ADP as "AdminDashboardPage"
-participant UWP as "UniversalWeightsPanel"
-participant WSP as "WeightSuggestionPanel"
+participant AOP as "AdminOverviewPage"
 participant API as "api.js"
 participant UC as "uploadChunked.js"
 participant SSE as "SSE Streaming"
@@ -425,7 +457,8 @@ alt Not authenticated
 P-->>U : Redirect to "/login"
 else Authenticated
 P->>S : Render shell with CSP
-S->>DN : Render DashboardNew
+S->>NB : Render navigation
+NB->>DN : Render DashboardNew
 DN->>GS : Render GettingStarted
 S->>OW : Render OnboardingWizard (if needed)
 OW->>API : updateOrganization / selectOnboardingPlan
@@ -469,17 +502,28 @@ CP->>SEC : Apply XSS Protection
 CP->>S : Show resume in new tab or download
 CP->>S : Check split view mode
 CP->>S : Render split-view with candidate list + SplitProfilePreview
-S-->>U : Admin interface with tabs
+S-->>U : Admin interface with collapsible sidebar and breadcrumbs
+U->>R : Navigate to "/admin"
+R->>PAR : Check platform admin
+PAR->>AL : Render AdminLayout
+AL->>BC : Render breadcrumbs
+AL->>AOP : Render AdminOverviewPage
+AOP->>API : getAdminMetricsOverview / getAdminTenants
+API->>BE : Fetch admin metrics
+BE-->>AOP : Return metrics and tenant data
 end
 end
 ```
 
 **Diagram sources**
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
-- [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
 - [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
 - [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
 - [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
@@ -490,18 +534,279 @@ end
 - [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
 - [api.js:556-569](file://app/frontend/src/lib/api.js#L556-L569)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 **Section sources**
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [api.js:556-569](file://app/frontend/src/lib/api.js#L556-L569)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 ## Detailed Component Analysis
+
+### Enhanced Navigation System with Collapsible Sidebar and Breadcrumb Navigation
+**Updated** The navigation system now features sophisticated collapsible sidebar, breadcrumb navigation, and responsive mobile design:
+
+#### Desktop Navigation
+- **Primary Navigation**: Home, Jobs, Candidates with active state indicators
+- **User Menu**: Comprehensive dropdown with Analytics, Pipeline, Team, Team Skills, Interviews, Settings
+- **Admin Access**: Platform admin badge with direct access to admin portal
+- **Progress Badge**: Real-time analysis progress indicator
+- **Responsive Design**: Desktop-only navigation with backdrop blur and glass morphism effects
+
+#### Mobile Navigation
+- **Bottom Tab Bar**: Fixed bottom navigation with Home, Jobs, Candidates, and More tabs
+- **More Sheet**: Slide-up sheet containing additional navigation options with grid layout
+- **Mobile-First Design**: Touch-friendly controls with proper spacing and sizing
+- **Backdrop System**: Overlay backgrounds for mobile navigation sheets
+
+#### Admin Navigation
+- **Collapsible Sidebar**: Left sidebar with collapsible navigation groups
+- **Breadcrumb Navigation**: Dynamic breadcrumb trail with path labels
+- **Responsive Sidebar**: Mobile overlay with slide-out functionality
+- **Grouped Navigation**: Logical grouping of admin functions (Overview, Manage, Configure, Monitor, Billing, Compliance)
+
+```mermaid
+flowchart TD
+DesktopNav["Desktop Navigation"] --> PrimaryNav["Primary Navigation"]
+DesktopNav --> UserMenu["User Menu Dropdown"]
+DesktopNav --> AdminBadge["Platform Admin Badge"]
+DesktopNav --> ProgressBadge["Progress Badge"]
+MobileNav["Mobile Navigation"] --> BottomTabBar["Bottom Tab Bar"]
+MobileNav --> MoreSheet["Slide-up 'More' Sheet"]
+MobileNav --> Backdrop["Backdrop System"]
+AdminNav["Admin Navigation"] --> CollapsibleSidebar["Collapsible Sidebar"]
+AdminNav --> BreadcrumbNav["Breadcrumb Navigation"]
+AdminNav --> ResponsiveSidebar["Responsive Sidebar"]
+AdminNav --> GroupedNav["Grouped Navigation"]
+PrimaryNav --> Home["Home"]
+PrimaryNav --> Jobs["Jobs"]
+PrimaryNav --> Candidates["Candidates"]
+UserMenu --> Analytics["Analytics"]
+UserMenu --> Pipeline["Pipeline"]
+UserMenu --> Team["Team"]
+UserMenu --> TeamSkills["Team Skills"]
+UserMenu --> Interviews["Interviews"]
+UserMenu --> Settings["Settings"]
+BottomTabBar --> HomeTab["Home Tab"]
+BottomTabBar --> JobsTab["Jobs Tab"]
+BottomTabBar --> CandidatesTab["Candidates Tab"]
+BottomTabBar --> MoreTab["More Tab"]
+MoreSheet --> GridLayout["Grid Layout"]
+GridLayout --> AnalyticsSheet["Analytics"]
+GridLayout --> PipelineSheet["Pipeline"]
+GridLayout --> TeamSheet["Team"]
+GridLayout --> TeamSkillsSheet["Team Skills"]
+GridLayout --> InterviewsSheet["Interviews"]
+GridLayout --> SettingsSheet["Settings"]
+```
+
+**Diagram sources**
+- [NavBar.jsx:14-28](file://app/frontend/src/components/NavBar.jsx#L14-L28)
+- [NavBar.jsx:106-160](file://app/frontend/src/components/NavBar.jsx#L106-L160)
+- [NavBar.jsx:164-216](file://app/frontend/src/components/NavBar.jsx#L164-L216)
+- [AdminLayout.jsx:7-55](file://app/frontend/src/layouts/AdminLayout.jsx#L7-L55)
+- [AdminLayout.jsx:111-189](file://app/frontend/src/layouts/AdminLayout.jsx#L111-L189)
+- [Breadcrumbs.jsx:3-21](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L3-L21)
+
+**Section sources**
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+
+### Enhanced AdminLayout with Collapsible Sidebar
+**Updated** AdminLayout now provides comprehensive admin interface with collapsible sidebar and breadcrumb navigation:
+
+- **Collapsible Sidebar**: Left sidebar with navigation groups and responsive behavior
+- **Breadcrumb Navigation**: Dynamic breadcrumb trail showing current location
+- **Mobile Responsiveness**: Slide-out sidebar with overlay for mobile devices
+- **Navigation Groups**: Logical grouping of admin functions (Overview, Manage, Configure, Monitor, Billing, Compliance)
+- **Active State Management**: Visual indicators for current navigation location
+- **Back to App Link**: Easy navigation back to main application
+
+```mermaid
+flowchart TD
+AdminLayout["AdminLayout"] --> Sidebar["Collapsible Sidebar"]
+AdminLayout --> TopBar["Top Bar with Breadcrumbs"]
+AdminLayout --> MainContent["Main Content Area"]
+Sidebar --> Header["Admin Header"]
+Sidebar --> NavGroups["Navigation Groups"]
+Sidebar --> BackToApp["Back to App Link"]
+NavGroups --> Overview["Overview Group"]
+NavGroups --> Manage["Manage Group"]
+NavGroups --> Configure["Configure Group"]
+NavGroups --> Monitor["Monitor Group"]
+NavGroups --> Billing["Billing Group"]
+NavGroups --> Compliance["Compliance Group"]
+Overview --> Dashboard["Dashboard"]
+Manage --> Tenants["Tenants"]
+Manage --> Plans["Plans"]
+Manage --> Users["Users"]
+Configure --> Features["Feature Flags"]
+Configure --> Webhooks["Webhooks"]
+Configure --> RateLimits["Rate Limits"]
+Configure --> SSO["SSO"]
+Configure --> Email["Email Settings"]
+Monitor --> Metrics["Metrics"]
+Monitor --> Audit["Audit Log"]
+Monitor --> Security["Security Events"]
+Billing --> Revenue["Revenue"]
+Billing --> Invoices["Invoices"]
+Billing --> Dunning["Dunning"]
+Compliance --> Erasure["Data Erasure"]
+Compliance --> Impersonation["Impersonation"]
+TopBar --> Breadcrumb["Breadcrumb Navigation"]
+TopBar --> AvatarDropdown["Avatar Dropdown"]
+```
+
+**Diagram sources**
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+
+**Section sources**
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+
+### Enhanced Admin Overview Dashboard
+**New** AdminOverviewPage provides comprehensive platform overview with key metrics and quick access links:
+
+- **Key Metrics Cards**: Total tenants, active users, analyses run, MRR with color-coded indicators
+- **Quick Access Links**: Direct navigation to common admin tasks (tenants, plans, features, audit, security, billing)
+- **Loading States**: Graceful loading with skeleton states for metrics
+- **Error Handling**: User-friendly error messages for failed metric loading
+- **Responsive Grid**: Adaptive grid layout for different screen sizes
+
+```mermaid
+flowchart TD
+AdminOverview["AdminOverviewPage"] --> StatsGrid["Stats Grid"]
+StatsGrid --> TotalTenants["Total Tenants Card"]
+StatsGrid --> ActiveUsers["Active Users Card"]
+StatsGrid --> AnalysesRun["Analyses Run Card"]
+StatsGrid --> MRR["MRR Card"]
+AdminOverview --> QuickLinks["Quick Access Links"]
+QuickLinks --> ManageTenants["Manage Tenants"]
+QuickLinks --> SubscriptionPlans["Subscription Plans"]
+QuickLinks --> FeatureFlags["Feature Flags"]
+QuickLinks --> AuditLog["Audit Log"]
+QuickLinks --> SecurityEvents["Security Events"]
+QuickLinks --> Revenue["Revenue"]
+```
+
+**Diagram sources**
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+
+**Section sources**
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+
+### Enhanced Vite Configuration for Optimal Build Performance
+**Updated** Vite configuration now provides advanced build optimization with manual chunk splitting and vendor library separation:
+
+#### Build Optimization Features
+- **Manual Chunk Splitting**: Strategic separation of vendor libraries into dedicated chunks
+- **React Core Separation**: React and React DOM in separate 'vendor-react' chunk
+- **React Router Separation**: Dedicated 'vendor-router' chunk for routing dependencies
+- **Chart Libraries**: Combined 'vendor-charts' chunk for recharts, d3, and victory
+- **PDF Generation**: Separate 'vendor-pdf' chunk for html2pdf, jspdf, and html2canvas
+- **Animation Libraries**: Dedicated 'vendor-motion' chunk for framer-motion
+- **Admin Pages**: Isolated 'chunk-admin' for admin-specific functionality
+- **Generic Vendor**: Default 'vendor' chunk for remaining dependencies
+
+#### Development and Testing Configuration
+- **Development Proxy**: Local API proxy configuration for development environment
+- **Source Maps**: Enabled for debugging in production builds
+- **Test Environment**: Jsdom setup for comprehensive testing framework
+- **Chunk Size Warning**: Increased limit to accommodate larger bundles
+
+```mermaid
+flowchart TD
+ViteConfig["vite.config.js"] --> Plugins["Plugins"]
+ViteConfig --> Server["Development Server"]
+ViteConfig --> Build["Build Configuration"]
+ViteConfig --> Test["Test Configuration"]
+Plugins --> ReactPlugin["React Plugin"]
+Server --> Port["Port 5173"]
+Server --> Host["Host: true"]
+Server --> Proxy["API Proxy Configuration"]
+Proxy --> APITarget["/api -> http://localhost:8000"]
+Proxy --> HealthTarget["/health -> http://localhost:8000"]
+Build --> OutDir["outDir: dist"]
+Build --> Sourcemap["sourcemap: true"]
+Build --> ChunkWarning["chunkSizeWarningLimit: 1000"]
+Build --> RollupOptions["Rollup Options"]
+RollupOptions --> ManualChunks["manualChunks(id)"]
+ManualChunks --> ReactChunk["vendor-react"]
+ManualChunks --> RouterChunk["vendor-router"]
+ManualChunks --> ChartsChunk["vendor-charts"]
+ManualChunks --> PDFChunk["vendor-pdf"]
+ManualChunks --> MotionChunk["vendor-motion"]
+ManualChunks --> AdminChunk["chunk-admin"]
+ManualChunks --> GenericVendor["vendor"]
+Test --> Globals["globals: true"]
+Test --> Environment["environment: jsdom"]
+Test --> SetupFiles["setupFiles: ./src/__tests__/setup.js"]
+```
+
+**Diagram sources**
+- [vite.config.js:1-65](file://app/frontend/vite.config.js#L1-L65)
+
+**Section sources**
+- [vite.config.js:1-65](file://app/frontend/vite.config.js#L1-L65)
+
+### Enhanced TailwindCSS Theming System
+**Updated** TailwindCSS configuration now provides enhanced color palette, typography, and animation system:
+
+#### Color Palette Enhancements
+- **Brand Colors**: Comprehensive 9-level gradient from 50 to 900 for consistent branding
+- **Surface Colors**: Custom surface background color for application base
+- **Slate Gradients**: Extended slate color scale for text and interface elements
+- **Consistent Color Usage**: Brand colors used throughout navigation and interactive elements
+
+#### Typography and Animation System
+- **Font Family**: Inter font with system-ui fallback for optimal readability
+- **Box Shadows**: Brand-specific shadow variations (sm, base, lg, xl) for depth
+- **Background Gradients**: Gradient-brand for prominent visual elements
+- **Animations**: Custom animations (shimmer, fade-up, spin-slow) for enhanced UX
+
+#### Responsive Design Integration
+- **Mobile-First Approach**: Responsive utilities for mobile, tablet, and desktop
+- **Touch-Friendly Spacing**: Consistent padding and margin scales for mobile devices
+- **Flexible Grid Systems**: Responsive grid layouts for admin interfaces
+- **Adaptive Typography**: Font sizing that adapts to different screen sizes
+
+```mermaid
+flowchart TD
+TailwindConfig["tailwind.config.js"] --> Content["Content Paths"]
+TailwindConfig --> Theme["Theme Extensions"]
+Content --> IndexHTML["index.html"]
+Content --> SrcFiles["./src/**/*.{js,ts,jsx,tsx}"]
+Theme --> Colors["Extended Color Palette"]
+Theme --> FontFamily["Typography System"]
+Theme --> BoxShadow["Shadow Variations"]
+Theme --> BackgroundImage["Gradient Effects"]
+Theme --> Animation["Custom Animations"]
+Theme --> Keyframes["Animation Keyframes"]
+Colors --> BrandColors["Brand Color Scale"]
+Colors --> SurfaceColor["Surface Background"]
+Colors --> SlateColors["Slate Color Scale"]
+FontFamily --> InterFont["Inter Font Family"]
+BoxShadow --> BrandShadows["Brand Shadow Variations"]
+BackgroundImage --> GradientBrand["Gradient Brand Effect"]
+Animation --> Shimmer["Shimmer Animation"]
+Animation --> FadeUp["Fade Up Animation"]
+Animation --> SpinSlow["Spin Slow Animation"]
+Keyframes --> ShimmerKeyframes["Shimmer Keyframes"]
+Keyframes --> FadeUpKeyframes["Fade Up Keyframes"]
+```
+
+**Diagram sources**
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
+
+**Section sources**
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
 
 ### Enhanced ReportPage with Split-View Phone Screen Mode
 **Updated** ReportPage now includes comprehensive split-view phone screen mode functionality with mobile-optimized dual-panel layout:
@@ -614,7 +919,7 @@ Header --> Nav["View Full Profile link"]
 Header --> Summary["Professional Summary"]
 Header --> Scores["Score Breakdown"]
 Header --> Skills["Skills Display"]
-Header --> Strengths["Strengths/Weaknesses"]
+Header --> Strengths["Strengths/weaknesses"]
 Header --> Narrative["Narrative Summary"]
 ```
 
@@ -963,7 +1268,6 @@ The streaming analysis introduces several new UI components:
 - **NEW**: AnimatedScore integration for animated fit scores
 - **NEW**: StreamingText integration for progressive LLM narrative display
 - **NEW**: ProgressBadge integration for real-time progress tracking
-- **NEW**: Optimistic UI updates for immediate feedback during batch processing
 - **NEW**: Split-view phone screen mode integration for enhanced mobile experiences
 - **NEW**: Inline resume preview system for improved user workflow
 
@@ -1031,7 +1335,8 @@ Refresh --> Reload["Window reload"]
 - AuthContext manages user, tenant, and loading state. It loads persisted tokens via httpOnly cookies, logs in/out, and exposes helpers to child components.
 - ProtectedRoute enforces authentication for protected shells and shows a loader while resolving session state.
 - PlatformAdminRoute enforces platform administrator privileges for admin routes.
-- App.jsx defines lazy routes for all pages including the new DashboardNew, AnalyzePage, OnboardingWizard, and AdminDashboardPage, wrapping them in ErrorBoundary, ProtectedRoute, and SubscriptionProvider, then AppShell.
+- App.jsx defines lazy routes for all pages including the new DashboardNew, AnalyzePage, OnboardingWizard, AdminDashboardPage, and AdminOverviewPage, wrapping them in ErrorBoundary, ProtectedRoute, and SubscriptionProvider, then AppShell.
+- **NEW**: AdminLayout provides nested routing structure for 18 dedicated admin pages with comprehensive navigation groups.
 
 ```mermaid
 flowchart TD
@@ -1041,10 +1346,10 @@ Auth --> Routes["Define lazy routes"]
 Routes --> Guard["ProtectedRoute"]
 Guard --> Shell["SubscriptionProvider -> AppShell"]
 Shell --> Pages["Pages render"]
-Guard --> |No user| Redirect["Navigate to /login"]
 Routes --> Admin["PlatformAdminRoute"]
-Admin --> AdminShell["Admin Dashboard"]
-Admin --> |No platform admin| Redirect2["Navigate to /"]
+Admin --> AdminLayout["AdminLayout with nested routes"]
+AdminLayout --> AdminPages["18 Admin Pages"]
+Guard --> |No user| Redirect["Navigate to /login"]
 Routes --> Onboarding["OnboardingWizard"]
 Onboarding --> |Complete| Shell
 Routes --> Dashboard["DashboardNew"]
@@ -1052,19 +1357,20 @@ Dashboard --> |Has checklist| GettingStarted["GettingStarted"]
 ```
 
 **Diagram sources**
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [OnboardingWizard.jsx:511-589](file://app/frontend/src/components/OnboardingWizard.jsx#L511-L589)
 - [DashboardNew.jsx:284-287](file://app/frontend/src/pages/DashboardNew.jsx#L284-L287)
 - [GettingStarted.jsx:19-129](file://app/frontend/src/components/GettingStarted.jsx#L19-L129)
+- [AdminLayout.jsx:138-157](file://app/frontend/src/App.jsx#L138-L157)
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 
 ### Enhanced API Integration Layer
 - api.js creates an Axios instance with base URL from environment.
@@ -1391,34 +1697,82 @@ Return --> Widgets["UsageWidget / Dashboard"]
 
 ## Platform Administration System
 
-### AdminDashboardPage Overview
-AdminDashboardPage provides a comprehensive platform administration interface with tabbed navigation and administrative tools for managing tenants, monitoring activities, configuring features, and overseeing system operations.
+### AdminLayout Overview
+AdminLayout provides a comprehensive standalone admin interface with nested routing structure for 18 dedicated admin pages:
 
 ```mermaid
 flowchart TD
-Start(["AdminDashboardPage"]) --> Tabs["Tab Navigation"]
-Tabs --> Overview["Overview Tab"]
-Tabs --> Tenants["Tenants Tab"]
-Tabs --> Audit["Audit Log Tab"]
-Tabs --> RateLimits["Rate Limits Tab"]
-Tabs --> Features["Feature Flags Tab"]
-Tabs --> Webhooks["Webhooks Tab"]
-Tabs --> Metrics["Metrics Tab"]
-Tabs --> Billing["Billing Tab"]
-Tabs --> Notifications["Notifications Tab"]
-Overview --> Stats["Summary Cards"]
-Tenants --> Table["Tenant Management Table"]
-Audit --> Logs["Audit Log Table"]
-Features --> Flags["Feature Flag Management"]
-Webhooks --> Config["Webhook Configuration"]
-Metrics --> Analytics["Analytics Dashboards"]
-Billing --> Providers["Provider Configuration"]
-Notifications --> SMTP["SMTP Configuration"]
+Start(["AdminLayout"]) --> Sidebar["Collapsible Sidebar"]
+Start --> TopBar["Top Bar with Breadcrumbs"]
+Start --> MainContent["Main Content Area"]
+Sidebar --> Header["Admin Header"]
+Sidebar --> NavGroups["Navigation Groups"]
+Sidebar --> BackToApp["Back to App Link"]
+TopBar --> Breadcrumb["Breadcrumb Navigation"]
+TopBar --> AvatarDropdown["Avatar Dropdown"]
+MainContent --> Outlet["Outlet for Nested Routes"]
+Outlet --> AdminOverview["AdminOverviewPage"]
+Outlet --> Tenants["TenantsPage"]
+Outlet --> Plans["PlansPage"]
+Outlet --> Users["UsersPage"]
+Outlet --> Features["FeatureFlagsPage"]
+Outlet --> Webhooks["WebhooksPage"]
+Outlet --> RateLimits["RateLimitsPage"]
+Outlet --> SSO["SSOPage"]
+Outlet --> Email["EmailSettingsPage"]
+Outlet --> Metrics["MetricsPage"]
+Outlet --> Audit["AuditLogPage"]
+Outlet --> Security["SecurityEventsPage"]
+Outlet --> Revenue["RevenuePage"]
+Outlet --> Invoices["InvoicesPage"]
+Outlet --> Dunning["DunningPage"]
+Outlet --> Erasure["ErasurePage"]
+Outlet --> Impersonation["ImpersonationPage"]
 ```
 
 **Diagram sources**
-- [AdminDashboardPage.jsx:59-69](file://app/frontend/src/pages/AdminDashboardPage.jsx#L59-L69)
-- [AdminDashboardPage.jsx:384-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L384-L1807)
+- [AdminLayout.jsx:138-157](file://app/frontend/src/App.jsx#L138-L157)
+- [AdminLayout.jsx:7-55](file://app/frontend/src/layouts/AdminLayout.jsx#L7-L55)
+- [AdminLayout.jsx:190-267](file://app/frontend/src/layouts/AdminLayout.jsx#L190-L267)
+- [AdminLayout.jsx:270-297](file://app/frontend/src/layouts/AdminLayout.jsx#L270-L297)
+
+### Admin Navigation Groups
+The admin interface organizes functionality into 6 logical navigation groups:
+
+- **OVERVIEW**: Dashboard - main admin overview page
+- **MANAGE**: Tenants, Plans, Users - tenant and user management
+- **CONFIGURE**: Feature Flags, Webhooks, Rate Limits, SSO, Email Settings - system configuration
+- **MONITOR**: Metrics, Audit Log, Security Events - monitoring and compliance
+- **BILLING**: Revenue, Invoices, Dunning - financial management
+- **COMPLIANCE**: Data Erasure, Impersonation - compliance and security
+
+Each group contains multiple navigation items with icons and proper routing.
+
+**Section sources**
+- [AdminLayout.jsx:7-55](file://app/frontend/src/layouts/AdminLayout.jsx#L7-L55)
+
+### Breadcrumb Navigation System
+Breadcrumbs component provides dynamic navigation trail with path labels and clickable segments:
+
+- **Dynamic Path Labels**: Maps URL segments to human-readable labels (e.g., "admin" → "Admin", "tenants" → "Tenants")
+- **Clickable Segments**: Previous segments are clickable links, current segment is plain text
+- **Decode Support**: Handles URL-encoded segments for internationalized paths
+- **Accessible**: Proper ARIA labels and navigation semantics
+
+**Section sources**
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+
+### Admin Overview Dashboard
+AdminOverviewPage provides comprehensive platform overview with key metrics and quick access links:
+
+- **Key Metrics Cards**: Total tenants, active users, analyses run, MRR with color-coded indicators
+- **Quick Access Links**: Direct navigation to common admin tasks (tenants, plans, features, audit, security, billing)
+- **Loading States**: Graceful loading with skeleton states for metrics
+- **Error Handling**: User-friendly error messages for failed metric loading
+- **Responsive Grid**: Adaptive grid layout for different screen sizes
+
+**Section sources**
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 
 ### Tabbed Navigation System
 The admin interface uses a sophisticated tabbed navigation system with 9 distinct tabs covering all administrative domains:
@@ -1663,6 +2017,28 @@ All core components implement comprehensive XSS protection:
 - SplitProfilePreview.jsx: Candidate information and preview content
 - PhoneScreenKit.jsx: Question content and evaluation forms
 - InterviewScorecard.jsx: Evaluation content and debrief information
+- AdminLayout.jsx: Navigation items and breadcrumbs
+- Breadcrumbs.jsx: Path labels and navigation segments
+- AdminOverviewPage.jsx: Metric values and quick links
+
+**NEW Admin Pages**: All new admin pages implement safeStr protection:
+- AdminOverviewPage.jsx: Metric values and quick access links
+- TenantsPage.jsx: Tenant information and management actions
+- PlansPage.jsx: Plan details and configuration
+- UsersPage.jsx: User information and permissions
+- FeatureFlagsPage.jsx: Feature flag keys and descriptions
+- WebhooksPage.jsx: Webhook URLs and event configurations
+- RateLimitsPage.jsx: Rate limit configurations
+- SSOPage.jsx: SSO configuration details
+- EmailSettingsPage.jsx: Email settings and SMTP configurations
+- MetricsPage.jsx: Analytics data and visualizations
+- AuditLogPage.jsx: Audit trail entries and actions
+- SecurityEventsPage.jsx: Security event details and alerts
+- RevenuePage.jsx: Financial metrics and revenue data
+- InvoicesPage.jsx: Invoice details and payment statuses
+- DunningPage.jsx: Dunning workflow and customer management
+- ErasurePage.jsx: Data erasure requests and processing
+- ImpersonationPage.jsx: Impersonation logs and security events
 
 #### Defensive Programming Approaches
 The XSS protection architecture follows defensive programming principles:
@@ -1720,6 +2096,9 @@ EmptyString --> Sanitized
 - [ComparisonMatrix.jsx:17-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L17-L137)
 - [SkillTrendChart.jsx:70-249](file://app/frontend/src/components/SkillTrendChart.jsx#L70-L249)
 - [SplitProfilePreview.jsx:185-319](file://app/frontend/src/pages/CandidatesPage.jsx#L185-L319)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 
 **Section sources**
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
@@ -1745,6 +2124,9 @@ EmptyString --> Sanitized
 - [ComparisonMatrix.jsx:17-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L17-L137)
 - [SkillTrendChart.jsx:70-249](file://app/frontend/src/components/SkillTrendChart.jsx#L70-L249)
 - [SplitProfilePreview.jsx:185-319](file://app/frontend/src/pages/CandidatesPage.jsx#L185-L319)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 
 ## Security Headers and CSP
 
@@ -1842,7 +2224,7 @@ The security audit identified important CSP implementation gaps:
 - **NEW**: DOMPurify for advanced HTML sanitization.
 - **NEW**: html2pdf.js for PDF generation with built-in sanitization.
 - **NEW**: Framer Motion for smooth animations and transitions.
-- **NEW**: Comprehensive admin dashboard with 9 tabbed interfaces.
+- **NEW**: Comprehensive admin dashboard with 18 tabbed interfaces.
 - **NEW**: IndexedDB for file-mode job description caching.
 - **NEW**: Resume access system with proper MIME type handling.
 - **NEW**: Enhanced component library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, SplitProfilePreview, PhoneScreenKit, and specialized hooks.
@@ -1855,6 +2237,10 @@ The security audit identified important CSP implementation gaps:
 - **NEW**: Split-view phone screen mode with dual-panel layout.
 - **NEW**: Inline resume preview system with text and iframe support.
 - **NEW**: Mobile screen optimization for phone experiences.
+- **NEW**: Enhanced navigation system with collapsible sidebar and breadcrumb navigation.
+- **NEW**: AdminLayout with responsive design and mobile optimization.
+- **NEW**: Vite configuration with advanced chunk splitting and vendor optimization.
+- **NEW**: TailwindCSS theming with enhanced color palette and animations.
 
 ```mermaid
 graph LR
@@ -1912,6 +2298,10 @@ Pkg --> FramerMotion["framer-motion@^11.11"]
 - **NEW**: PhoneScreenKit optimization: Tabbed interface with lazy loading and efficient state management.
 - **NEW**: SplitProfilePreview optimization: Lightweight component with minimal re-renders.
 - **NEW**: Mobile screen optimization: Responsive design patterns with touch-friendly controls.
+- **NEW**: Navigation performance: Optimized mobile bottom tab bar with efficient state management.
+- **NEW**: AdminLayout performance: Collapsible sidebar with smooth transitions and efficient rendering.
+- **NEW**: Vite build optimization: Manual chunk splitting reduces bundle size and improves load times.
+- **NEW**: TailwindCSS performance: Tree-shaking removes unused styles and reduces CSS bundle size.
 - Image/icon assets: lucide-react icons are tree-shaken; keep only used icons.
 - **Enhanced**: Error boundaries prevent cascading failures and improve perceived performance.
 - **Enhanced**: Retry mechanisms with exponential backoff reduce user frustration from transient failures.
@@ -1963,6 +2353,11 @@ Pkg --> FramerMotion["framer-motion@^11.11"]
 - **NEW**: PhoneScreenKit testing with question categories, evaluation forms, and debrief generation.
 - **NEW**: SplitProfilePreview testing with candidate data loading and direct actions.
 - **NEW**: Mobile screen optimization testing with responsive design patterns and touch controls.
+- **NEW**: Navigation system testing with collapsible sidebar, breadcrumb navigation, and mobile optimization.
+- **NEW**: AdminLayout testing with responsive design and admin-specific functionality.
+- **NEW**: AdminOverviewPage testing with metrics loading, error handling, and quick access links.
+- **NEW**: Vite configuration testing with build optimization and chunk splitting validation.
+- **NEW**: TailwindCSS theming testing with color palette, typography, and animation validation.
 
 **Section sources**
 - [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
@@ -1982,7 +2377,7 @@ Pkg --> FramerMotion["framer-motion@^11.11"]
 - **Enhanced**: Implement ErrorBoundary for critical components that require graceful degradation.
 - **Enhanced**: Use uploadChunked utility for any new file upload functionality requiring large file support.
 - **NEW**: Implement safeStr utility for all new components that render dynamic content.
-- **NEW**: Follow XSS protection patterns established in ResultCard, ComparisonView, AdminDashboardPage, GettingStarted, OnboardingWizard, PhoneScreenKit, SplitProfilePreview, and new component library.
+- **NEW**: Follow XSS protection patterns established in ResultCard, ComparisonView, AdminDashboardPage, GettingStarted, OnboardingWizard, PhoneScreenKit, SplitProfilePreview, AdminLayout, Breadcrumbs, and new component library.
 - **NEW**: Ensure all user inputs and API responses are sanitized through safeStr function.
 - **NEW**: Implement comprehensive security headers and CSP policies for production deployments.
 - **NEW**: Test XSS protection thoroughly with malicious input scenarios and sanitization validation.
@@ -2022,6 +2417,11 @@ Pkg --> FramerMotion["framer-motion@^11.11"]
 - **NEW**: Implement PhoneScreenKit component for comprehensive phone screen preparation.
 - **NEW**: Add SplitProfilePreview component for lightweight candidate preview.
 - **NEW**: Implement mobile screen optimization with responsive design patterns and touch controls.
+- **NEW**: Implement enhanced navigation system with collapsible sidebar and breadcrumb navigation.
+- **NEW**: Add AdminLayout component with responsive design and admin-specific functionality.
+- **NEW**: Implement comprehensive admin pages with nested routing structure.
+- **NEW**: Implement Vite configuration with advanced chunk splitting and vendor optimization.
+- **NEW**: Add TailwindCSS theming with enhanced color palette and animation system.
 
 ## Accessibility and Responsive Design
 - Accessible semantics: Buttons, inputs, and modals use appropriate roles and labels; focus management in dialogs.
@@ -2068,6 +2468,11 @@ Pkg --> FramerMotion["framer-motion@^11.11"]
 - **NEW**: PhoneScreenKit provides accessible question categories and evaluation forms.
 - **NEW**: SplitProfilePreview maintains accessibility with proper focus management and keyboard navigation.
 - **NEW**: Mobile screen optimization ensures accessibility across different screen sizes and input methods.
+- **NEW**: Navigation system provides accessible mobile bottom tab bar with proper ARIA attributes.
+- **NEW**: AdminLayout provides accessible collapsible sidebar with proper ARIA attributes and keyboard navigation.
+- **NEW**: AdminOverviewPage provides accessible key metrics and quick access links.
+- **NEW**: Vite configuration maintains performance while ensuring accessibility compliance.
+- **NEW**: TailwindCSS theming provides accessible color contrast and typography scaling.
 
 ## Error Handling and Resilience
 
@@ -2180,6 +2585,32 @@ The application implements comprehensive error handling at multiple levels:
 - **JDLibraryPage**: Error handling for template management and statistics loading
 - **SplitProfilePreview**: Error handling for candidate preview and direct actions
 - **PhoneScreenKit**: Error handling for question categories and evaluation forms
+- **AdminLayout**: Error handling for navigation and responsive layout failures
+- **Breadcrumbs**: Error handling for path resolution and segment generation
+- **AdminOverviewPage**: Error handling for metrics loading and quick access links
+- **NavBar**: Error handling for mobile navigation and state management
+- **ToastProvider**: Error handling for notification display and positioning
+- **Vite Config**: Error handling for build optimization and chunk splitting
+- **Tailwind Theme**: Error handling for theme configuration and utility generation
+
+#### New Admin Pages Error Handling
+- **AdminOverviewPage**: Error handling for metrics loading and quick access functionality
+- **TenantsPage**: Error handling for tenant listing, filtering, and bulk operations
+- **PlansPage**: Error handling for plan management and configuration
+- **UsersPage**: Error handling for user management and permission updates
+- **FeatureFlagsPage**: Error handling for feature flag toggles and tenant overrides
+- **WebhooksPage**: Error handling for webhook configuration and delivery monitoring
+- **RateLimitsPage**: Error handling for rate limit configuration
+- **SSOPage**: Error handling for SSO configuration and provider setup
+- **EmailSettingsPage**: Error handling for SMTP configuration and test emails
+- **MetricsPage**: Error handling for analytics data and visualization
+- **AuditLogPage**: Error handling for audit trail queries and filtering
+- **SecurityEventsPage**: Error handling for security event monitoring
+- **RevenuePage**: Error handling for financial metrics and reporting
+- **InvoicesPage**: Error handling for invoice management and payment tracking
+- **DunningPage**: Error handling for customer dunning workflows
+- **ErasurePage**: Error handling for data erasure requests and processing
+- **ImpersonationPage**: Error handling for impersonation logs and security events
 
 ```mermaid
 flowchart TD
@@ -2205,6 +2636,28 @@ Level --> |Checklist| ChecklistError["GettingStarted Error"]
 Level --> |Comparison| ComparisonError["ComparisonMatrix Error"]
 Level --> |Trends| TrendsError["SkillTrendChart Error"]
 Level --> |JDLibrary| JDLibraryError["JDLibrary Error"]
+Level --> |Navigation| NavigationError["Navigation Error"]
+Level --> |AdminLayout| AdminLayoutError["AdminLayout Error"]
+Level --> |Breadcrumbs| BreadcrumbsError["Breadcrumbs Error"]
+Level --> |AdminOverview| AdminOverviewError["AdminOverviewPage Error"]
+Level --> |NavBar| NavBarError["NavBar Error"]
+Level --> |ToastProvider| ToastError["ToastProvider Error"]
+Level --> |ViteConfig| ViteError["Vite Configuration Error"]
+Level --> |TailwindTheme| TailwindError["Tailwind Theme Error"]
+Level --> |Onboarding| OnboardingError["Onboarding Error"]
+Level --> |Checklist| ChecklistError["GettingStarted Error"]
+Level --> |Comparison| ComparisonError["ComparisonMatrix Error"]
+Level --> |Trends| TrendsError["SkillTrendChart Error"]
+Level --> |JDLibrary| JDLibraryError["JDLibrary Error"]
+Level --> |SplitProfile| SplitProfileError["SplitProfilePreview Error"]
+Level --> |PhoneScreenKit| PhoneScreenKitError["PhoneScreenKit Error"]
+Level --> |AdminLayout| AdminLayoutError["AdminLayout Error"]
+Level --> |Breadcrumbs| BreadcrumbsError["Breadcrumbs Error"]
+Level --> |AdminOverview| AdminOverviewError["AdminOverviewPage Error"]
+Level --> |NavBar| NavBarError["NavBar Error"]
+Level --> |ToastProvider| ToastError["ToastProvider Error"]
+Level --> |ViteConfig| ViteError["Vite Configuration Error"]
+Level --> |TailwindTheme| TailwindError["Tailwind Theme Error"]
 AppBoundary --> UserMsg["User-Friendly Message"]
 UserMsg --> Retry["Retry Options"]
 Retry --> Manual["Manual Retry"]
@@ -2242,7 +2695,14 @@ ChecklistError --> Fallback["Fallback to Alternative Method"]
 ComparisonError --> Fallback["Fallback to Alternative Method"]
 TrendsError --> Fallback["Fallback to Alternative Method"]
 JDLibraryError --> Fallback["Fallback to Alternative Method"]
-Fallback --> NormalFlow["Normal Step-by-step"]
+NavigationError --> Fallback["Fallback to Alternative Method"]
+AdminLayoutError --> Fallback["Fallback to Alternative Method"]
+BreadcrumbsError --> Fallback["Fallback to Alternative Method"]
+AdminOverviewError --> Fallback["Fallback to Alternative Method"]
+NavBarError --> Fallback["Fallback to Alternative Method"]
+ToastError --> Fallback["Fallback to Alternative Method"]
+ViteError --> Fallback["Fallback to Alternative Method"]
+TailwindError --> Fallback["Fallback to Alternative Method"]
 ```
 
 **Diagram sources**
@@ -2275,6 +2735,13 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
 - [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
 - [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [ToastProvider.jsx:1-50](file://app/frontend/src/components/ToastProvider.jsx#L1-L50)
+- [vite.config.js:1-65](file://app/frontend/vite.config.js#L1-L65)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
@@ -2306,6 +2773,13 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
 - [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
 - [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [ToastProvider.jsx:1-50](file://app/frontend/src/components/ToastProvider.jsx#L1-L50)
+- [vite.config.js:1-65](file://app/frontend/vite.config.js#L1-L65)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
 
 ## Troubleshooting Guide
 - Authentication issues: Verify tokens in localStorage; AuthContext clears tokens on 401; check interceptor retry flow.
@@ -2362,6 +2836,12 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - **NEW**: PhoneScreenKit issues: Verify question categories and evaluation form functionality.
 - **NEW**: SplitProfilePreview issues: Verify candidate data loading and direct action functionality.
 - **NEW**: Mobile screen optimization issues: Verify responsive design patterns and touch controls.
+- **NEW**: Navigation system issues: Verify collapsible sidebar functionality and mobile bottom tab bar.
+- **NEW**: AdminLayout issues: Verify responsive design and admin-specific navigation.
+- **NEW**: AdminOverviewPage issues: Verify metrics loading, error handling, and quick access functionality.
+- **NEW**: Breadcrumbs issues: Verify path resolution and segment generation.
+- **NEW**: Vite configuration issues: Verify build optimization and chunk splitting functionality.
+- **NEW**: TailwindCSS theming issues: Verify color palette, typography, and animation functionality.
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
@@ -2386,6 +2866,27 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [CandidatesPage.jsx:944](file://app/frontend/src/pages/CandidatesPage.jsx#L944)
 - [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
 - [SplitProfilePreview.jsx:185-319](file://app/frontend/src/pages/CandidatesPage.jsx#L185-L319)
+- [AnimatedScore.jsx:36-53](file://app/frontend/src/components/AnimatedScore.jsx#L36-L53)
+- [StreamingText.jsx:23-60](file://app/frontend/src/components/StreamingText.jsx#L23-L60)
+- [CandidateCard.jsx:54-139](file://app/frontend/src/components/CandidateCard.jsx#L54-L139)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:25-78](file://app/frontend/src/hooks/useOptimisticUpdate.js#L25-L78)
+- [useKeyboardShortcuts.js:26-98](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L26-L98)
+- [useAnalysisProgress.js:4-24](file://app/frontend/src/hooks/useAnalysisProgress.js#L4-L24)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [ToastProvider.jsx:1-50](file://app/frontend/src/components/ToastProvider.jsx#L1-L50)
+- [vite.config.js:1-65](file://app/frontend/vite.config.js#L1-L65)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
 
 ## Conclusion
 The Resume AI frontend is a modular, scalable React 18 application with clear separation between routing, state, UI components, and API integration. It leverages modern tooling, robust authentication and subscription management, comprehensive error handling through ErrorBoundary components, and enhanced API retry mechanisms with exponential backoff. The architecture now provides graceful degradation, improved resilience against transient failures, and a cohesive design system to deliver a responsive, accessible, and performant user experience even under adverse conditions.
@@ -2398,11 +2899,13 @@ The major enhancements include comprehensive streaming analysis capabilities wit
 
 **NEW**: The implementation of a comprehensive Platform Admin Dashboard provides enterprise-grade administrative capabilities with tenant management, audit logging, feature flag management, webhook configuration, metrics dashboards, billing configuration, and notification settings. This represents a significant expansion of the platform's capabilities and demonstrates the scalability and extensibility of the frontend architecture.
 
+**NEW**: The implementation of a comprehensive AdminLayout component with nested routing structure for 18 dedicated admin pages represents a significant advancement in administrative interface design. The collapsible sidebar, breadcrumb navigation, and responsive design provide intuitive navigation patterns that work seamlessly across desktop and mobile devices.
+
 **NEW**: The implementation of a dual job context persistence system with IndexedDB integration represents a significant advancement in workflow continuity and user experience. By combining sessionStorage for text-mode JDs with IndexedDB for file-mode JDs, the system provides seamless "Analyze Another Resume" functionality that maintains user context across browser sessions while optimizing performance and reliability.
 
 **NEW**: The implementation of a comprehensive resume access system with proper MIME type detection, filename generation, and user experience improvements represents a significant enhancement to the candidate management workflow. The system now provides seamless resume viewing and downloading capabilities with proper browser integration, intelligent filename fallbacks, and robust error handling.
 
-**NEW**: The implementation of the enhanced component library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, GettingStarted, ComparisonMatrix, SkillTrendChart, SplitProfilePreview, PhoneScreenKit, and InterviewScorecard represents a significant advancement in user interface design and user experience. These components provide smooth animations, progressive content display, enhanced candidate evaluation tools, real-time progress tracking, and efficient status management.
+**NEW**: The implementation of the enhanced component library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, GettingStarted, ComparisonMatrix, SkillTrendChart, SplitProfilePreview, PhoneScreenKit, InterviewScorecard, AdminLayout, Breadcrumbs, and AdminOverviewPage represents a significant advancement in user interface design and user experience. These components provide smooth animations, progressive content display, enhanced candidate evaluation tools, real-time progress tracking, and efficient status management.
 
 **NEW**: The implementation of optimistic UI updates, keyboard shortcuts, and real-time analysis progress tracking represents a significant improvement in user productivity and system responsiveness. Users now receive immediate feedback for their actions, can navigate efficiently through candidate lists, and have access to real-time progress information during analysis workflows.
 
@@ -2420,4 +2923,10 @@ The major enhancements include comprehensive streaming analysis capabilities wit
 
 **NEW**: The implementation of comprehensive mobile screen optimization ensures that all new features are fully responsive and provide an optimal user experience across different device types and screen sizes.
 
-The architecture successfully balances modern development practices with enterprise requirements, providing a solid foundation for continued growth and feature expansion while maintaining high standards for security, performance, and user experience. The extensive component library enhancements, real-time capabilities, comprehensive error handling, and mobile optimization demonstrate the system's maturity and readiness for production deployment.
+**NEW**: The implementation of the enhanced navigation system with collapsible sidebar, breadcrumb navigation, and responsive mobile design represents a significant advancement in user interface design. The system now provides intuitive navigation patterns that work seamlessly across desktop and mobile devices.
+
+**NEW**: The implementation of the Vite configuration with advanced chunk splitting and vendor optimization represents a significant improvement in build performance and runtime efficiency. The system now provides faster load times and better memory usage through strategic code splitting and vendor library separation.
+
+**NEW**: The implementation of the TailwindCSS theming system with enhanced color palette, typography, and animation capabilities provides a consistent design language that enhances user experience and brand recognition.
+
+The architecture successfully balances modern development practices with enterprise requirements, providing a solid foundation for continued growth and feature expansion while maintaining high standards for security, performance, and user experience. The extensive component library enhancements, real-time capabilities, comprehensive error handling, mobile optimization, and enhanced navigation system demonstrate the system's maturity and readiness for production deployment.

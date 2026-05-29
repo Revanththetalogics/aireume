@@ -26,6 +26,7 @@
 - [sso_service.py](file://app/backend/services/sso_service.py)
 - [security_event_service.py](file://app/backend/services/security_event_service.py)
 - [erasure_service.py](file://app/backend/services/erasure_service.py)
+- [impersonation_service.py](file://app/backend/services/impersonation_service.py)
 - [003_subscription_system.py](file://alembic/versions/003_subscription_system.py)
 - [012_admin_foundation.py](file://alembic/versions/012_admin_foundation.py)
 - [014_billing_system.py](file://alembic/versions/014_billing_system.py)
@@ -46,18 +47,30 @@
 - [SecurityEventsPage.jsx](file://app/frontend/src/pages/admin/SecurityEventsPage.jsx)
 - [ImpersonationPage.jsx](file://app/frontend/src/pages/admin/ImpersonationPage.jsx)
 - [ErasurePage.jsx](file://app/frontend/src/pages/admin/ErasurePage.jsx)
+- [AdminLayout.jsx](file://app/frontend/src/layouts/AdminLayout.jsx)
+- [AdminDashboardPage.jsx](file://app/frontend/src/pages/AdminDashboardPage.jsx)
+- [TenantsPage.jsx](file://app/frontend/src/pages/admin/TenantsPage.jsx)
+- [RateLimitsPage.jsx](file://app/frontend/src/pages/admin/RateLimitsPage.jsx)
+- [AuditLogPage.jsx](file://app/frontend/src/pages/admin/AuditLogPage.jsx)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced platform administration with comprehensive enterprise-grade capabilities
-- Added granular platform role-based access control (super_admin, billing_admin, support, security_admin, readonly)
-- Implemented comprehensive security event monitoring and threat detection
-- Added admin impersonation system for support debugging with session tracking
-- Integrated GDPR data erasure functionality with audit trails
-- Enhanced plan-feature entitlement mapping for subscription plans
-- Added comprehensive rate limit management across tenant groups
-- Expanded administrative dashboard with enterprise compliance features
+- Comprehensive administrative dashboard implementation with 18 dedicated routes covering tenant management, billing operations, security monitoring, and system administration
+- Added tenant suspension/reactivation workflows with reason tracking and administrative audit trails
+- Enhanced security event monitoring with comprehensive event types and filtering capabilities
+- Implemented admin impersonation system with session management and security event logging
+- Added GDPR data erasure functionality with complete audit trails and tenant suspension
+- Enhanced plan-feature entitlement mapping for precise subscription-based feature access control
+- Implemented comprehensive rate limit configuration management with per-tenant controls
+- Expanded billing integration with Stripe, Razorpay, and Manual providers including automated webhook processing, invoice generation, and dunning management
+- Enhanced administrative portal with comprehensive tenant CRUD operations, user management, and feature flag controls
+- Added comprehensive audit logging, metrics collection, and monitoring capabilities
+- **New**: AdminNotification model for administrative notification framework
+- **New**: Enhanced security event service with suspicious activity detection
+- **New**: Comprehensive rate limit configuration management with administrative controls
+- **New**: Enhanced billing configuration management with provider switching
+- **New**: Administrative notification system for platform-wide alerts
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -94,7 +107,10 @@ The system is a FastAPI application with enhanced multi-tenant capabilities and 
 - Invoice system with sequential numbering and payment tracking
 - Dunning system with retry scheduling and tenant suspension
 - Usage alert system with threshold notifications and webhook dispatch
-- Enterprise platform administration with granular role-based access control
+- **New**: AdminNotification model for administrative notification framework
+- **New**: Enhanced security event monitoring with suspicious activity detection
+- **New**: Comprehensive rate limit configuration management with administrative controls
+- **New**: Enhanced billing configuration management with provider switching
 
 ```mermaid
 graph TB
@@ -106,7 +122,15 @@ EMAILCFG["Email Settings"]
 SECURITY["Security Events"]
 IMPERSONATION["Admin Impersonation"]
 ERASURE["GDPR Erasure"]
+RATELIMITS["Rate Limits"]
+WEBHOOKS["Webhooks"]
+AUDITLOG["Audit Log"]
+METRICS["Metrics"]
+BILLING["Billing Operations"]
+DUNNING["Dunning Management"]
+INVOICES["Invoices"]
 ENDPOINTS["API Endpoints"]
+NOTIFICATIONS["Admin Notifications"]
 end
 subgraph "API Gateway"
 NGINX["Nginx"]
@@ -115,7 +139,7 @@ subgraph "Backend"
 APP["FastAPI App"]
 AUTH["Auth Middleware"]
 RATELIMIT["Rate Limit Middleware"]
-ADMINROUTE["Admin Routes"]
+ADMINROUTE["Admin Routes (18 dedicated routes)"]
 BILLING["Billing Routes"]
 SUB["Subscription Routes"]
 TEAM["Team Routes"]
@@ -125,6 +149,8 @@ SSO["SSO Routes"]
 PIPE["Hybrid Pipeline"]
 SECURITYSERVICE["Security Event Service"]
 ERASURESERVICE["Data Erasure Service"]
+IMPERSONATIONSVC["Impersonation Service"]
+NOTIFICATIONSV["Admin Notification Service"]
 ENDPOINT["API Endpoints"]
 ENDPOINT --> ADMINROUTE
 ENDPOINT --> BILLING
@@ -136,6 +162,8 @@ ENDPOINT --> SSO
 PIPE --> ANA
 SECURITYSERVICE --> ADMINROUTE
 ERASURESERVICE --> ADMINROUTE
+IMPERSONATIONSVC --> ADMINROUTE
+NOTIFICATIONSV --> ADMINROUTE
 APP --> AUTH
 APP --> RATELIMIT
 APP --> ADMINROUTE
@@ -158,6 +186,14 @@ EMAILCFG --> ADMINROUTE
 SECURITY --> ADMINROUTE
 IMPERSONATION --> ADMINROUTE
 ERASURE --> ADMINROUTE
+RATELIMITS --> ADMINROUTE
+WEBHOOKS --> ADMINROUTE
+AUDITLOG --> ADMINROUTE
+METRICS --> ADMINROUTE
+BILLING --> ADMINROUTE
+DUNNING --> ADMINROUTE
+INVOICES --> ADMINROUTE
+NOTIFICATIONS --> ADMINROUTE
 ```
 
 **Diagram sources**
@@ -174,11 +210,17 @@ ERASURE --> ADMINROUTE
 - [hybrid_pipeline.py:1](file://app/backend/services/hybrid_pipeline.py#L1)
 - [security_event_service.py:1](file://app/backend/services/security_event_service.py#L1)
 - [erasure_service.py:1](file://app/backend/services/erasure_service.py#L1)
+- [impersonation_service.py:1](file://app/backend/services/impersonation_service.py#L1)
 - [PlanManagementPage.jsx:103](file://app/frontend/src/pages/admin/PlanManagementPage.jsx#L103)
 - [EmailSettings.jsx:70](file://app/frontend/src/pages/admin/EmailSettings.jsx#L70)
 - [SecurityEventsPage.jsx:1](file://app/frontend/src/pages/admin/SecurityEventsPage.jsx#L1)
 - [ImpersonationPage.jsx:1](file://app/frontend/src/pages/admin/ImpersonationPage.jsx#L1)
 - [ErasurePage.jsx:1](file://app/frontend/src/pages/admin/ErasurePage.jsx#L1)
+- [AdminLayout.jsx:1](file://app/frontend/src/layouts/AdminLayout.jsx#L1)
+- [AdminDashboardPage.jsx:1](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1)
+- [TenantsPage.jsx:1](file://app/frontend/src/pages/admin/TenantsPage.jsx#L1)
+- [RateLimitsPage.jsx:1](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L1)
+- [AuditLogPage.jsx:1](file://app/frontend/src/pages/admin/AuditLogPage.jsx#L1)
 
 **Section sources**
 - [README.md:273-333](file://README.md#L273-L333)
@@ -209,6 +251,7 @@ Enhanced enterprise-grade tenant management with comprehensive administrative ca
 - **New**: ImpersonationSession model for admin impersonation support and debugging
 - **New**: ErasureLog model for GDPR data erasure audit trails
 - **New**: PlanFeature model for subscription plan to feature flag entitlement mapping
+- **New**: AdminNotification model for administrative notification framework
 - **New**: Granular platform role-based access control with role hierarchy
 
 Key enterprise tenant-aware patterns:
@@ -227,6 +270,8 @@ Key enterprise tenant-aware patterns:
 - **New**: Admin impersonation sessions tracked with expiration and revocation
 - **New**: GDPR data erasure processes with audit trails and tenant suspension
 - **New**: Plan-feature entitlement mapping for subscription-based feature access
+- **New**: Rate limit configuration management with per-tenant controls
+- **New**: Administrative notifications for platform-wide alerts and updates
 
 **Section sources**
 - [db_models.py:31-59](file://app/backend/models/db_models.py#L31-L59)
@@ -253,6 +298,7 @@ Key enterprise tenant-aware patterns:
 - [db_models.py:548-563](file://app/backend/models/db_models.py#L548-L563)
 - [db_models.py:631-645](file://app/backend/models/db_models.py#L631-L645)
 - [db_models.py:647-663](file://app/backend/models/db_models.py#L647-L663)
+- [db_models.py:826-840](file://app/backend/models/db_models.py#L826-L840)
 
 ## Architecture Overview
 The enhanced backend defines tenant-scoped models with comprehensive administrative extensions and enforces tenant isolation at the route level. The system now includes enterprise-grade administrative capabilities, security monitoring, GDPR compliance, impersonation support, and extensive operational controls while maintaining centralized subscription and usage management.
@@ -276,7 +322,7 @@ class Tenant {
 +string stripe_customer_id
 +string stripe_subscription_id
 +datetime subscription_updated_at
-+text contact_email
++string contact_email
 +json scoring_weights
 }
 class User {
@@ -505,6 +551,16 @@ class PlanFeature {
 +bool enabled
 +datetime created_at
 }
+class AdminNotification {
++int id
++string type
++string severity
++string title
++string message
++int tenant_id
++bool is_read
++datetime created_at
+}
 Tenant "1" <-- "many" User : "belongs to"
 Tenant "1" <-- "many" TeamMember : "owns"
 Tenant "1" <-- "many" Candidate : "owns"
@@ -527,6 +583,7 @@ User "1" --> "many" ImpersonationSession : "creates"
 User "1" --> "many" ErasureLog : "initiates"
 SubscriptionPlan "1" --> "many" PlanFeature : "entitles"
 FeatureFlag "1" --> "many" PlanFeature : "mapped by"
+AdminNotification "1" --> "many" Tenant : "relates to"
 ```
 
 **Diagram sources**
@@ -553,6 +610,7 @@ FeatureFlag "1" --> "many" PlanFeature : "mapped by"
 - [db_models.py:548-563](file://app/backend/models/db_models.py#L548-L563)
 - [db_models.py:631-645](file://app/backend/models/db_models.py#L631-L645)
 - [db_models.py:647-663](file://app/backend/models/db_models.py#L647-L663)
+- [db_models.py:826-840](file://app/backend/models/db_models.py#L826-L840)
 
 ## Detailed Component Analysis
 
@@ -569,12 +627,16 @@ The system now includes comprehensive enterprise-grade administrative capabiliti
 - **Plan-Feature Entitlement Mapping**: Subscription plan to feature flag access control
 - **Rate Limit Management**: Per-tenant rate limiting with administrative controls and cache invalidation
 - **Tenant Lifecycle Management**: Onboarding, suspension, plan changes, and administrative oversight
+- **Administrative Notification Framework**: Platform-wide alerts and notifications for system events
+- **Enhanced Billing Configuration**: Provider switching and configuration management with validation
+- **Comprehensive Rate Limit Configuration**: Per-tenant rate limiting with administrative controls
 
 ```mermaid
 sequenceDiagram
 participant Admin as "Platform Admin"
 participant AdminRoute as "Admin Routes"
 participant SecurityService as "Security Event Service"
+participant NotificationService as "Admin Notification Service"
 participant DB as "Database"
 Admin->>AdminRoute : GET /api/admin/security-events
 AdminRoute->>SecurityService : get_security_events(filters)
@@ -590,6 +652,12 @@ Admin->>AdminRoute : POST /api/admin/tenants/{id}/anonymize
 AdminRoute->>DB : Execute GDPR Erasure
 DB-->>AdminRoute : Records Anonymized
 AdminRoute-->>Admin : Erasure Complete
+Admin->>AdminRoute : GET /api/admin/notifications
+AdminRoute->>NotificationService : get_admin_notifications(unread_only)
+NotificationService->>DB : Query AdminNotifications
+DB-->>NotificationService : Notifications
+NotificationService-->>AdminRoute : Notifications + Unread Count
+AdminRoute-->>Admin : Notifications List
 ```
 
 **Diagram sources**
@@ -622,6 +690,7 @@ AdminRoute-->>Admin : Erasure Complete
 - [admin.py:2370-2406](file://app/backend/routes/admin.py#L2370-L2406)
 - [admin.py:2409-2472](file://app/backend/routes/admin.py#L2409-L2472)
 - [admin.py:2475-2495](file://app/backend/routes/admin.py#L2475-L2495)
+- [admin.py:3201-3265](file://app/backend/routes/admin.py#L3201-L3265)
 
 ### Enhanced Role-Based Access Control
 The system now implements comprehensive platform-level role-based access control with backward compatibility:
@@ -686,7 +755,7 @@ RecordSuspicious --> End
 **Section sources**
 - [security_event_service.py:14-115](file://app/backend/services/security_event_service.py#L14-L115)
 - [security_event_service.py:117-180](file://app/backend/services/security_event_service.py#L117-L180)
-- [db_models.py:548-563](file://app/backend/models/db_models.py#L548-L563)
+- [db_models.py:578-593](file://app/backend/models/db_models.py#L578-L593)
 
 ### Admin Impersonation System
 The impersonation system enables support and administrative debugging with comprehensive session management:
@@ -698,6 +767,7 @@ The impersonation system enables support and administrative debugging with compr
 - **Audit Integration**: Impersonation events logged as security events and audit logs
 - **Middleware Integration**: X-Impersonation-Token header validation in authentication middleware
 - **Support Use Cases**: Debugging tenant issues, investigating user problems, and administrative oversight
+- **Rate Limiting**: 5 impersonation sessions per hour per admin to prevent abuse
 
 ```mermaid
 sequenceDiagram
@@ -718,11 +788,11 @@ Auth-->>Support : Impersonated User Context
 **Diagram sources**
 - [admin.py:2000-2045](file://app/backend/routes/admin.py#L2000-L2045)
 - [auth.py:101-131](file://app/backend/middleware/auth.py#L101-L131)
-- [db_models.py:532-546](file://app/backend/models/db_models.py#L532-L546)
+- [db_models.py:561-576](file://app/backend/models/db_models.py#L561-L576)
 
 **Section sources**
 - [admin.py:2000-2045](file://app/backend/routes/admin.py#L2000-L2045)
-- [db_models.py:532-546](file://app/backend/models/db_models.py#L532-L546)
+- [db_models.py:561-576](file://app/backend/models/db_models.py#L561-L576)
 - [auth.py:101-131](file://app/backend/middleware/auth.py#L101-L131)
 
 ### GDPR Data Erasure Compliance
@@ -756,7 +826,7 @@ UpdateStatus --> Complete["Complete"]
 - [admin.py:2113-2167](file://app/backend/routes/admin.py#L2113-L2167)
 - [admin.py:2141-2167](file://app/backend/routes/admin.py#L2141-L2167)
 - [erasure_service.py:24-157](file://app/backend/services/erasure_service.py#L24-L157)
-- [db_models.py:647-663](file://app/backend/models/db_models.py#L647-L663)
+- [db_models.py:677-693](file://app/backend/models/db_models.py#L677-L693)
 
 ### Plan-Feature Entitlement Mapping
 The system provides subscription plan to feature flag entitlement mapping for precise feature access control:
@@ -787,7 +857,7 @@ CacheInvalidate --> ApplyFeature["Apply Feature Access"]
 - [admin.py:2169-2208](file://app/backend/routes/admin.py#L2169-L2208)
 - [admin.py:2211-2268](file://app/backend/routes/admin.py#L2211-L2268)
 - [admin.py:2271-2304](file://app/backend/routes/admin.py#L2271-L2304)
-- [db_models.py:631-645](file://app/backend/models/db_models.py#L631-L645)
+- [db_models.py:661-675](file://app/backend/models/db_models.py#L661-L675)
 
 ### Enhanced Rate Limit Management
 The system provides comprehensive rate limit management with administrative controls:
@@ -798,6 +868,7 @@ The system provides comprehensive rate limit management with administrative cont
 - **Search and Filter**: Paginated listing with tenant name/slug search and filtering
 - **Validation**: Input validation ensuring minimum values and proper types
 - **Audit Logging**: Comprehensive audit trail for all rate limit changes
+- **Configuration Management**: Separate endpoints for listing, getting, updating, and deleting rate limit configurations
 
 ```mermaid
 flowchart TD
@@ -841,6 +912,7 @@ The system now includes comprehensive administrative capabilities with tenant ma
 - **New**: GDPR data erasure request and tracking
 - **New**: Plan-feature entitlement management
 - **New**: Rate limit configuration management
+- **New**: Administrative notification framework for platform-wide alerts
 
 ```mermaid
 sequenceDiagram
@@ -863,6 +935,10 @@ Admin->>AdminRoute : POST /api/admin/impersonate/{user_id}
 AdminRoute->>DB : Create ImpersonationSession
 DB-->>AdminRoute : Session Created
 AdminRoute-->>Admin : Impersonation Token
+Admin->>AdminRoute : GET /api/admin/notifications
+AdminRoute->>DB : Query AdminNotifications
+DB-->>AdminRoute : Notifications
+AdminRoute-->>Admin : Notifications List
 ```
 
 **Diagram sources**
@@ -871,6 +947,7 @@ AdminRoute-->>Admin : Impersonation Token
 - [admin.py:493-558](file://app/backend/routes/admin.py#L493-L558)
 - [admin.py:736-766](file://app/backend/routes/admin.py#L736-L766)
 - [admin.py:2000-2045](file://app/backend/routes/admin.py#L2000-L2045)
+- [admin.py:1226-1286](file://app/backend/routes/admin.py#L1226-L1286)
 
 **Section sources**
 - [admin.py:140-209](file://app/backend/routes/admin.py#L140-L209)
@@ -883,6 +960,7 @@ AdminRoute-->>Admin : Impersonation Token
 - [admin.py:700-777](file://app/backend/routes/admin.py#L700-L777)
 - [admin.py:780-800](file://app/backend/routes/admin.py#L780-L800)
 - [admin.py:736-766](file://app/backend/routes/admin.py#L736-L766)
+- [admin.py:1226-1286](file://app/backend/routes/admin.py#L1226-L1286)
 
 ### Enhanced Subscription Management and Billing Integration
 The billing system now supports multiple payment providers with comprehensive integration:
@@ -895,6 +973,8 @@ The billing system now supports multiple payment providers with comprehensive in
 - Invoice generation and management for successful payments with sequential numbering
 - Dunning system for failed payment retry attempts with configurable retry schedules
 - Comprehensive billing events and webhook processing
+- **New**: Enhanced billing configuration management with provider switching
+- **New**: Billing provider validation and registry management
 
 ```mermaid
 flowchart TD
@@ -919,8 +999,8 @@ CreateInvoice --> Complete(["Complete"])
 - [factory.py:37-91](file://app/backend/services/billing/factory.py#L37-L91)
 - [stripe_provider.py:36-100](file://app/backend/services/billing/stripe_provider.py#L36-L100)
 - [billing.py:39-113](file://app/backend/routes/billing.py#L39-L113)
-- [db_models.py:582-611](file://app/backend/models/db_models.py#L582-L611)
-- [db_models.py:613-629](file://app/backend/models/db_models.py#L613-L629)
+- [db_models.py:612-641](file://app/backend/models/db_models.py#L612-L641)
+- [db_models.py:643-659](file://app/backend/models/db_models.py#L643-L659)
 
 **Section sources**
 - [factory.py:13-34](file://app/backend/services/billing/factory.py#L13-L34)
@@ -928,8 +1008,8 @@ CreateInvoice --> Complete(["Complete"])
 - [stripe_provider.py:12-100](file://app/backend/services/billing/stripe_provider.py#L12-L100)
 - [billing.py:15-113](file://app/backend/routes/billing.py#L15-L113)
 - [014_billing_system.py:33-56](file://alembic/versions/014_billing_system.py#L33-L56)
-- [db_models.py:582-611](file://app/backend/models/db_models.py#L582-L611)
-- [db_models.py:613-629](file://app/backend/models/db_models.py#L613-L629)
+- [db_models.py:612-641](file://app/backend/models/db_models.py#L612-L641)
+- [db_models.py:643-659](file://app/backend/models/db_models.py#L643-L659)
 
 ### Comprehensive Invoice System
 The invoice system provides complete payment tracking and receipt generation:
@@ -969,6 +1049,8 @@ The dunning system manages failed payment retries with configurable escalation:
 - Background processing for retry attempts
 - Webhook notifications for dunning events
 - Subscription status synchronization with payment providers
+- **New**: Manual dunning resolution for administrative intervention
+- **New**: Dunning retry processing endpoint for manual triggering
 
 ```mermaid
 flowchart TD
@@ -996,6 +1078,7 @@ UpdateStatus --> Complete["Complete"]
 **Section sources**
 - [dunning_service.py:42-428](file://app/backend/services/billing/dunning_service.py#L42-L428)
 - [029_dunning_system.py:13-43](file://alembic/versions/029_dunning_system.py#L13-L43)
+- [admin.py:3188-3265](file://app/backend/routes/admin.py#L3188-L3265)
 
 ### Usage Alert System
 The usage alert system monitors plan limits and notifies tenants of threshold breaches:
@@ -1037,6 +1120,8 @@ The SSO system provides comprehensive tenant-specific authentication:
 - SP metadata generation for IdP configuration
 - Signature verification with X.509 certificates
 - Attribute extraction from SAML assertions
+- **New**: SSO configuration testing and validation
+- **New**: SSO configuration CRUD operations with validation
 
 ```mermaid
 flowchart TD
@@ -1072,6 +1157,7 @@ The system now implements sophisticated rate limiting and feature flag managemen
 - Audit logging for feature flag changes
 - Tenant-specific rate limit configuration
 - **New**: Rate limit configuration management with administrative controls
+- **New**: Comprehensive rate limit CRUD operations
 
 ```mermaid
 flowchart TD
@@ -1150,6 +1236,7 @@ Comprehensive tenant lifecycle management with administrative controls:
 - **New**: GDPR data erasure request and tracking
 - **New**: Plan-feature entitlement management
 - **New**: Rate limit configuration management
+- **New**: Administrative notification framework
 
 ```mermaid
 sequenceDiagram
@@ -1170,12 +1257,17 @@ Admin->>Admin : PUT /api/admin/tenants/{id}/sso {SSO Config}
 Admin->>DB : Upsert SSO Config
 DB-->>Admin : OK
 Admin-->>Client : SSO Config Updated
+Admin->>Admin : POST /api/admin/notifications {title,message}
+Admin->>DB : INSERT AdminNotification
+DB-->>Admin : OK
+Admin-->>Client : Notification Created
 ```
 
 **Diagram sources**
 - [auth.py:57-96](file://app/backend/middleware/auth.py#L57-L96)
 - [admin.py:301-329](file://app/backend/routes/admin.py#L301-L329)
 - [admin.py:768-800](file://app/backend/routes/admin.py#L768-L800)
+- [admin.py:1226-1286](file://app/backend/routes/admin.py#L1226-L1286)
 - [003_subscription_system.py:235-251](file://alembic/versions/003_subscription_system.py#L235-L251)
 
 **Section sources**
@@ -1184,6 +1276,7 @@ Admin-->>Client : SSO Config Updated
 - [admin.py:365-410](file://app/backend/routes/admin.py#L365-L410)
 - [admin.py:414-453](file://app/backend/routes/admin.py#L414-L453)
 - [admin.py:768-800](file://app/backend/routes/admin.py#L768-L800)
+- [admin.py:1226-1286](file://app/backend/routes/admin.py#L1226-L1286)
 - [003_subscription_system.py:43-251](file://alembic/versions/003_subscription_system.py#L43-L251)
 
 ### Usage Enforcement and Quota Management
@@ -1236,6 +1329,7 @@ Enhanced security with administrative oversight:
 - **New**: Security event monitoring with tenant/user scoping
 - **New**: Admin impersonation session validation
 - **New**: GDPR data erasure audit trails
+- **New**: Administrative notification framework
 
 ```mermaid
 flowchart TD
@@ -1292,6 +1386,7 @@ Advanced shared resources with administrative controls:
 - **New**: Admin impersonation session management
 - **New**: GDPR data erasure audit trail infrastructure
 - **New**: Plan-feature entitlement mapping system
+- **New**: Administrative notification framework infrastructure
 
 **Section sources**
 - [db_models.py:229-250](file://app/backend/models/db_models.py#L229-L250)
@@ -1318,8 +1413,11 @@ Comprehensive administrative interface with enterprise-grade features:
 - **New**: GDPR data erasure request and tracking interface
 - **New**: Plan-feature entitlement mapping management
 - **New**: Rate limit configuration management with administrative controls
+- **New**: Administrative notification framework for platform-wide alerts
 - Comprehensive tenant CRUD operations with full administrative control
 - Platform configuration management for billing and dunning settings
+- **New**: Enhanced billing configuration management with provider switching
+- **New**: Comprehensive rate limit configuration management
 
 ```mermaid
 flowchart TD
@@ -1333,6 +1431,7 @@ AdminPortal --> Impersonation["Admin Impersonation"]
 AdminPortal --> Erasure["GDPR Erasure"]
 AdminPortal --> PlanFeatures["Plan Features"]
 AdminPortal --> RateLimits["Rate Limits"]
+AdminPortal --> Notifications["Admin Notifications"]
 PlanMgmt --> CreatePlan["Create Plan"]
 PlanMgmt --> UpdatePlan["Update Plan"]
 PlanMgmt --> ArchivePlan["Archive Plan"]
@@ -1350,6 +1449,9 @@ PlanFeatures --> MapFeatures["Map Features to Plans"]
 PlanFeatures --> ManageEntitlements["Manage Entitlements"]
 RateLimits --> ViewConfigs["View Rate Limit Configs"]
 RateLimits --> UpdateConfigs["Update Rate Limit Configs"]
+Notifications --> ViewUnread["View Unread Notifications"]
+Notifications --> MarkRead["Mark as Read"]
+Notifications --> SendAlert["Send Alert"]
 ```
 
 **Diagram sources**
@@ -1358,6 +1460,11 @@ RateLimits --> UpdateConfigs["Update Rate Limit Configs"]
 - [SecurityEventsPage.jsx:1](file://app/frontend/src/pages/admin/SecurityEventsPage.jsx#L1)
 - [ImpersonationPage.jsx:1](file://app/frontend/src/pages/admin/ImpersonationPage.jsx#L1)
 - [ErasurePage.jsx:1](file://app/frontend/src/pages/admin/ErasurePage.jsx#L1)
+- [AdminLayout.jsx:1](file://app/frontend/src/layouts/AdminLayout.jsx#L1)
+- [AdminDashboardPage.jsx:1](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1)
+- [TenantsPage.jsx:1](file://app/frontend/src/pages/admin/TenantsPage.jsx#L1)
+- [RateLimitsPage.jsx:1](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L1)
+- [AuditLogPage.jsx:1](file://app/frontend/src/pages/admin/AuditLogPage.jsx#L1)
 
 **Section sources**
 - [PlanManagementPage.jsx:103-725](file://app/frontend/src/pages/admin/PlanManagementPage.jsx#L103-L725)
@@ -1365,12 +1472,17 @@ RateLimits --> UpdateConfigs["Update Rate Limit Configs"]
 - [SecurityEventsPage.jsx:1-139](file://app/frontend/src/pages/admin/SecurityEventsPage.jsx#L1-L139)
 - [ImpersonationPage.jsx:1-205](file://app/frontend/src/pages/admin/ImpersonationPage.jsx#L1-L205)
 - [ErasurePage.jsx:1-214](file://app/frontend/src/pages/admin/ErasurePage.jsx#L1-L214)
+- [AdminLayout.jsx:1-297](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L297)
+- [AdminDashboardPage.jsx:1-73](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L73)
+- [TenantsPage.jsx:1-1070](file://app/frontend/src/pages/admin/TenantsPage.jsx#L1-L1070)
+- [RateLimitsPage.jsx:1-8](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L1-L8)
+- [AuditLogPage.jsx:1-8](file://app/frontend/src/pages/admin/AuditLogPage.jsx#L1-L8)
 
 ## Dependency Analysis
 Enhanced dependency structure with enterprise administrative components:
 - Route dependencies expanded with administrative routes, security event routes, and enterprise features
 - Middleware dependencies include rate limiting and enhanced authentication with impersonation support
-- Database dependencies include audit logs, feature flags, rate limit configs, security events, impersonation sessions, and erasure logs
+- Database dependencies include audit logs, feature flags, rate limit configs, security events, impersonation sessions, erasure logs, and admin notifications
 - Service dependencies expanded with billing providers, dunning, invoice, usage alert, security event, and erasure services
 - Test dependencies cover administrative APIs, tenant suspension, enterprise security features, and feature flags
 - Frontend dependencies include admin portal components, security monitoring interfaces, impersonation management, and GDPR compliance tools
@@ -1378,6 +1490,8 @@ Enhanced dependency structure with enterprise administrative components:
 - **New**: Security event service dependencies for comprehensive security monitoring
 - **New**: Erasure service dependencies for GDPR compliance functionality
 - **New**: Impersonation service dependencies for admin impersonation support
+- **New**: Admin notification service dependencies for administrative alerting
+- **New**: Enhanced billing configuration management dependencies
 
 ```mermaid
 graph LR
@@ -1395,6 +1509,8 @@ UsageAlertService["services/usage_alert_service.py"] --> Models
 SSOService["services/sso_service.py"] --> Models
 SecurityEventService["services/security_event_service.py"] --> Models
 ErasureService["services/erasure_service.py"] --> Models
+ImpersonationService["services/impersonation_service.py"] --> Models
+NotificationService["services/notification_service.py"] --> Models
 Auth["middleware/auth.py"] --> Models
 Analyze["routes/analyze.py"] --> SubHelpers["subscription.py helpers"]
 Team["routes/team.py"] --> Models
@@ -1406,6 +1522,10 @@ EmailCfg["frontend/EmailSettings.jsx"] --> AdminRoutes
 SecurityEvents["frontend/SecurityEventsPage.jsx"] --> AdminRoutes
 Impersonation["frontend/ImpersonationPage.jsx"] --> AdminRoutes
 Erasure["frontend/ErasurePage.jsx"] --> AdminRoutes
+RateLimits["frontend/RateLimitsPage.jsx"] --> AdminRoutes
+Tenants["frontend/TenantsPage.jsx"] --> AdminRoutes
+AuditLog["frontend/AuditLogPage.jsx"] --> AdminRoutes
+Notifications["frontend/AdminNotifications.jsx"] --> AdminRoutes
 ```
 
 **Diagram sources**
@@ -1423,6 +1543,7 @@ Erasure["frontend/ErasurePage.jsx"] --> AdminRoutes
 - [sso_service.py:1](file://app/backend/services/sso_service.py#L1)
 - [security_event_service.py:1](file://app/backend/services/security_event_service.py#L1)
 - [erasure_service.py:1](file://app/backend/services/erasure_service.py#L1)
+- [impersonation_service.py:1](file://app/backend/services/impersonation_service.py#L1)
 - [auth.py:12](file://app/backend/middleware/auth.py#L12)
 - [analyze.py:39](file://app/backend/routes/analyze.py#L39)
 - [subscription.py:15](file://app/backend/routes/subscription.py#L15)
@@ -1432,6 +1553,9 @@ Erasure["frontend/ErasurePage.jsx"] --> AdminRoutes
 - [SecurityEventsPage.jsx:1](file://app/frontend/src/pages/admin/SecurityEventsPage.jsx#L1)
 - [ImpersonationPage.jsx:1](file://app/frontend/src/pages/admin/ImpersonationPage.jsx#L1)
 - [ErasurePage.jsx:1](file://app/frontend/src/pages/admin/ErasurePage.jsx#L1)
+- [RateLimitsPage.jsx:1](file://app/frontend/src/pages/admin/RateLimitsPage.jsx#L1)
+- [TenantsPage.jsx:1](file://app/frontend/src/pages/admin/TenantsPage.jsx#L1)
+- [AuditLogPage.jsx:1](file://app/frontend/src/pages/admin/AuditLogPage.jsx#L1)
 
 **Section sources**
 - [admin.py:25](file://app/backend/routes/admin.py#L25)
@@ -1448,6 +1572,7 @@ Erasure["frontend/ErasurePage.jsx"] --> AdminRoutes
 - [sso_service.py:1](file://app/backend/services/sso_service.py#L1)
 - [security_event_service.py:1](file://app/backend/services/security_event_service.py#L1)
 - [erasure_service.py:1](file://app/backend/services/erasure_service.py#L1)
+- [impersonation_service.py:1](file://app/backend/services/impersonation_service.py#L1)
 - [auth.py:12](file://app/backend/middleware/auth.py#L12)
 - [analyze.py:39](file://app/backend/routes/analyze.py#L39)
 - [subscription.py:15](file://app/backend/routes/subscription.py#L15)
@@ -1455,19 +1580,21 @@ Erasure["frontend/ErasurePage.jsx"] --> AdminRoutes
 
 ## Performance Considerations
 Enhanced performance with enterprise administrative optimizations:
-- Database optimization with new indexes on audit logs, feature flags, invoices, dunning records, usage alerts, security events, impersonation sessions, and erasure logs
+- Database optimization with new indexes on audit logs, feature flags, invoices, dunning records, usage alerts, security events, impersonation sessions, erasure logs, and admin notifications
 - Cache optimization with TTL-based feature flag caching and rate limit configuration caching
 - Rate limiting with in-memory token buckets for low latency
 - Platform metrics aggregation with efficient SQL queries
 - Webhook delivery tracking with separate tables for performance
 - PostgreSQL recommended for production multi-tenant deployments
-- Background task processing for webhook retries, audit logging, dunning processing, and security event monitoring
+- Background task processing for webhook retries, audit logging, dunning processing, security event monitoring, and administrative notifications
 - SSO configuration caching for tenant authentication performance
 - Email configuration encryption for secure tenant notification delivery
 - Sequential invoice number generation with optimized database queries
 - **New**: Security event indexing for high-performance event querying
 - **New**: Impersonation session expiration cleanup for memory management
 - **New**: Erasure log indexing for compliance reporting performance
+- **New**: Admin notification indexing for efficient alert delivery
+- **New**: Rate limit configuration caching for improved performance
 
 ## Troubleshooting Guide
 Comprehensive troubleshooting for enhanced enterprise system:
@@ -1489,6 +1616,8 @@ Comprehensive troubleshooting for enhanced enterprise system:
 - **New**: GDPR data erasure process troubleshooting and recovery options
 - **New**: Plan-feature entitlement mapping validation and cache clearing
 - **New**: Rate limit configuration troubleshooting and cache invalidation
+- **New**: Administrative notification framework troubleshooting and delivery validation
+- **New**: Billing configuration provider switching troubleshooting
 
 **Section sources**
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
@@ -1498,9 +1627,9 @@ Comprehensive troubleshooting for enhanced enterprise system:
 - [feature_flag_service.py:30-44](file://app/backend/services/feature_flag_service.py#L30-L44)
 
 ## Conclusion
-The enhanced Resume AI multi-tenant system provides comprehensive enterprise-grade administrative capabilities, security monitoring, GDPR compliance, and billing integration while maintaining strict tenant isolation. The system now includes tenant suspension capabilities, enhanced metadata storage, webhook management, platform metrics monitoring, security event logging, admin impersonation support, GDPR data erasure functionality, plan-feature entitlement mapping, and comprehensive rate limit management. Usage enforcement protects resources through comprehensive tracking, while the administrative dashboard enables effective tenant management and oversight with enterprise-grade security and compliance features. The architecture supports scalability through configurable rate limits, caching strategies, multi-provider billing integration, and comprehensive administrative controls.
+The enhanced Resume AI multi-tenant system provides comprehensive enterprise-grade administrative capabilities, security monitoring, GDPR compliance, and billing integration while maintaining strict tenant isolation. The system now includes tenant suspension capabilities, enhanced metadata storage, webhook management, platform metrics monitoring, security event logging, admin impersonation support, GDPR data erasure functionality, plan-feature entitlement mapping, comprehensive rate limit management, and administrative notification framework. Usage enforcement protects resources through comprehensive tracking, while the administrative dashboard enables effective tenant management and oversight with enterprise-grade security and compliance features. The architecture supports scalability through configurable rate limits, caching strategies, multi-provider billing integration, and comprehensive administrative controls.
 
-The enhanced administrative portal provides complete platform-level control with plan management, email configuration, SSO management, comprehensive tenant oversight capabilities, enterprise security monitoring, GDPR compliance tools, admin impersonation support, plan-feature entitlement management, and robust SaaS management workflows including subscription management, payment processing integration, invoice system, dunning system, usage alerts, tenant lifecycle management, and enterprise compliance features that enable effective multi-tenant platform administration and tenant management.
+The enhanced administrative portal provides complete platform-level control with plan management, email configuration, SSO management, comprehensive tenant oversight capabilities, enterprise security monitoring, GDPR compliance tools, admin impersonation support, plan-feature entitlement management, comprehensive rate limit configuration management, and robust administrative notification framework including subscription management, payment processing integration, invoice system, dunning system, usage alerts, tenant lifecycle management, and enterprise compliance features that enable effective multi-tenant platform administration and tenant management.
 
 ## Appendices
 
@@ -1533,7 +1662,7 @@ The enhanced administrative portal provides complete platform-level control with
 - Implementing SSO configuration:
   - Use SSOConfig model for tenant authentication
   - Configure IdP and SP settings
-  - Reference: [db_models.py:665-691](file://app/backend/models/db_models.py#L665-L691)
+  - Reference: [db_models.py:695-721](file://app/backend/models/db_models.py#L695-L721)
 - Managing tenant email configuration:
   - Use TenantEmailConfig for SMTP settings
   - Implement encrypted credential storage
@@ -1561,7 +1690,7 @@ The enhanced administrative portal provides complete platform-level control with
 - **New**: Managing admin impersonation:
   - Use ImpersonationSession model for session tracking
   - Implement token validation and expiration
-  - Reference: [db_models.py:532-546](file://app/backend/models/db_models.py#L532-L546)
+  - Reference: [db_models.py:561-576](file://app/backend/models/db_models.py#L561-L576)
 - **New**: Implementing GDPR data erasure:
   - Use ErasureLog model for audit trails
   - Implement data anonymization across tables
@@ -1574,3 +1703,11 @@ The enhanced administrative portal provides complete platform-level control with
   - Use RateLimitConfig model for per-tenant limits
   - Implement administrative controls and cache invalidation
   - Reference: [admin.py:2325-2367](file://app/backend/routes/admin.py#L2325-L2367)
+- **New**: Implementing administrative notifications:
+  - Use AdminNotification model for platform-wide alerts
+  - Implement notification delivery and read tracking
+  - Reference: [db_models.py:826-840](file://app/backend/models/db_models.py#L826-L840)
+- **New**: Managing billing configuration:
+  - Use PlatformConfig model for provider settings
+  - Implement provider switching and validation
+  - Reference: [admin.py:1699-1806](file://app/backend/routes/admin.py#L1699-L1806)

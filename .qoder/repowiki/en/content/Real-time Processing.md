@@ -15,17 +15,18 @@
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
 - [ResultCard.jsx](file://app/frontend/src/components/ResultCard.jsx)
 - [Timeline.jsx](file://app/frontend/src/components/Timeline.jsx)
+- [webhook_docs.py](file://app/backend/routes/webhook_docs.py)
 - [nginx.prod.conf](file://nginx/nginx.prod.conf)
 - [main.py](file://app/backend/main.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced real-time processing with comprehensive webhook system for event-driven integrations
-- Added webhook configuration management with admin endpoints for tenant-level webhook setup
-- Implemented event delivery tracking with retry mechanisms and comprehensive logging
+- Enhanced real-time processing with significantly improved webhook system featuring background processing, comprehensive retry mechanisms, and tenant-scoped configuration
+- Added webhook registry and event delivery monitoring capabilities with HMAC signing and auto-disable functionality
 - Integrated webhook dispatch into analysis completion flow with non-blocking error handling
-- Added webhook delivery history tracking and monitoring capabilities
+- Implemented comprehensive delivery tracking with retry logic and administrative monitoring endpoints
+- Added webhook event documentation endpoint for self-service integration
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -39,24 +40,26 @@
 9. [Webhook System Integration](#webhook-system-integration)
 10. [Webhook Configuration Management](#webhook-configuration-management)
 11. [Event Delivery Tracking and Retry Logic](#event-delivery-tracking-and-retry-logic)
-12. [Concurrency Control and Rate Limiting](#concurrency-control-and-rate-limiting)
-13. [Batch Analysis Streaming](#batch-analysis-streaming)
-14. [Dependency Analysis](#dependency-analysis)
-15. [Performance Considerations](#performance-considerations)
-16. [Troubleshooting Guide](#troubleshooting-guide)
-17. [Conclusion](#conclusion)
+12. [Webhook Event Registry and Documentation](#webhook-event-registry-and-documentation)
+13. [Concurrency Control and Rate Limiting](#concurrency-control-and-rate-limiting)
+14. [Batch Analysis Streaming](#batch-analysis-streaming)
+15. [Dependency Analysis](#dependency-analysis)
+16. [Performance Considerations](#performance-considerations)
+17. [Troubleshooting Guide](#troubleshooting-guide)
+18. [Conclusion](#conclusion)
 
 ## Introduction
-This document explains the real-time processing implementation for Resume AI by ThetaLogics using Server-Sent Events (SSE). It covers the streaming API design, event lifecycle, client-side consumption, progress indicators, error handling, and operational considerations for reliable long-running analysis. The system now features enhanced SSE streaming data handling with robust string coercion mechanisms for server-side events, safeStr utility function implementations across frontend components to handle type-safe string conversion for dynamic data streams, and a comprehensive webhook system for event-driven integrations with automatic retry mechanisms and delivery tracking.
+This document explains the real-time processing implementation for Resume AI by ThetaLogics using Server-Sent Events (SSE). It covers the streaming API design, event lifecycle, client-side consumption, progress indicators, error handling, and operational considerations for reliable long-running analysis. The system now features enhanced SSE streaming data handling with robust string coercion mechanisms for server-side events, safeStr utility function implementations across frontend components to handle type-safe string conversion for dynamic data streams, and a comprehensive webhook system for event-driven integrations with automatic retry mechanisms, delivery tracking, and tenant-scoped configuration.
 
 ## Project Structure
 The real-time pipeline spans backend FastAPI routes, streaming generators, webhook services, and frontend consumers:
 - Backend: FastAPI route emits Server-Sent Events for live updates with enhanced error handling
 - Streaming generator: Produces structured events for parsing, scoring, and completion with retry logic
-- Webhook service: Handles event-driven integrations with HMAC signing, retry mechanisms, and delivery tracking
+- Webhook service: Handles event-driven integrations with HMAC signing, retry mechanisms, and comprehensive delivery tracking
 - Frontend: Reads SSE stream, updates UI progressively, and navigates to the final report
 - Type-safe utilities: safeStr function provides robust string coercion for dynamic data streams
 - Batch processing: Concurrent batch analysis with individual result streaming
+- Webhook registry: Public endpoint for event documentation and integration guidance
 
 ```mermaid
 graph TB
@@ -69,6 +72,7 @@ LS["LLM Service<br/>with exponential backoff"]
 SEM["Semaphore<br/>Concurrency Control"]
 WS["Webhook Service<br/>dispatch_event_background()"]
 W["Webhook Model<br/>Webhook / WebhookDelivery"]
+WR["Webhook Docs<br/>/api/webhooks/events"]
 END["JSON Serialization<br/>with _json_default"]
 END2["Batch Streaming<br/>JSON Serialization"]
 end
@@ -93,6 +97,7 @@ S --> LS
 LS --> SEM
 S --> WS
 WS --> W
+WR --> WS
 G --> END
 END --> API
 API --> SAFE
@@ -103,10 +108,11 @@ R -. "proxy_buffering off" .-> N
 ```
 
 **Diagram sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [analyze.py:1291-1509](file://app/backend/routes/analyze.py#L1291-L1509)
-- [webhook_service.py:46-138](file://app/backend/services/webhook_service.py#L46-L138)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [analyze.py:1685-1859](file://app/backend/routes/analyze.py#L1685-L1859)
+- [analyze.py:2040-2239](file://app/backend/routes/analyze.py#L2040-L2239)
+- [webhook_service.py:137-157](file://app/backend/services/webhook_service.py#L137-L157)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
+- [webhook_docs.py:87-94](file://app/backend/routes/webhook_docs.py#L87-L94)
 - [hybrid_pipeline.py:1369-1568](file://app/backend/services/hybrid_pipeline.py#L1369-L1568)
 - [llm_service.py:41-65](file://app/backend/services/llm_service.py#L41-L65)
 - [api.js:210-318](file://app/frontend/src/lib/api.js#L210-L318)
@@ -118,10 +124,11 @@ R -. "proxy_buffering off" .-> N
 - [nginx.prod.conf:66-95](file://nginx/nginx.prod.conf#L66-L95)
 
 **Section sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [analyze.py:1291-1509](file://app/backend/routes/analyze.py#L1291-L1509)
-- [webhook_service.py:46-138](file://app/backend/services/webhook_service.py#L46-L138)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [analyze.py:1685-1859](file://app/backend/routes/analyze.py#L1685-L1859)
+- [analyze.py:2040-2239](file://app/backend/routes/analyze.py#L2040-L2239)
+- [webhook_service.py:137-157](file://app/backend/services/webhook_service.py#L137-L157)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
+- [webhook_docs.py:87-94](file://app/backend/routes/webhook_docs.py#L87-L94)
 - [hybrid_pipeline.py:1369-1568](file://app/backend/services/hybrid_pipeline.py#L1369-L1568)
 - [llm_service.py:41-65](file://app/backend/services/llm_service.py#L41-L65)
 - [api.js:210-318](file://app/frontend/src/lib/api.js#L210-L318)
@@ -138,6 +145,7 @@ R -. "proxy_buffering off" .-> N
 - **Enhanced LLM service**: Features exponential backoff retry logic for rate limiting (429 errors) and improved error handling
 - **Webhook service**: Provides event-driven integrations with HMAC signing, retry mechanisms, and comprehensive delivery tracking
 - **Webhook configuration**: Admin endpoints for tenant-level webhook management with event filtering and status monitoring
+- **Webhook registry**: Public endpoint documenting available webhook events with example payloads and signing information
 - **Type-safe string conversion**: safeStr utility function provides robust string coercion for dynamic data streams
 - **Concurrency control**: Semaphore-based system to prevent thundering herd effects and manage LLM resource limits
 - **Frontend consumer**: Parses SSE stream, updates UI progressively, and handles completion with retry mechanisms
@@ -153,9 +161,9 @@ Key event structure emitted by the backend:
 - JSON serialization with _json_default for type-safe encoding
 
 **Section sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [analyze.py:1291-1509](file://app/backend/routes/analyze.py#L1291-L1509)
-- [webhook_service.py:46-138](file://app/backend/services/webhook_service.py#L46-L138)
+- [analyze.py:1685-1859](file://app/backend/routes/analyze.py#L1685-L1859)
+- [analyze.py:2040-2239](file://app/backend/routes/analyze.py#L2040-L2239)
+- [webhook_service.py:137-157](file://app/backend/services/webhook_service.py#L137-L157)
 - [hybrid_pipeline.py:1369-1568](file://app/backend/services/hybrid_pipeline.py#L1369-L1568)
 - [llm_service.py:41-65](file://app/backend/services/llm_service.py#L41-L65)
 - [api.js:210-318](file://app/frontend/src/lib/api.js#L210-L318)
@@ -163,7 +171,7 @@ Key event structure emitted by the backend:
 - [Timeline.jsx:3-9](file://app/frontend/src/components/Timeline.jsx#L3-L9)
 
 ## Architecture Overview
-The streaming architecture ensures the client receives incremental updates while the backend performs long-running analysis. The generator yields structured events that the route wraps into SSE messages. The frontend consumes these events to render progress and final results. Enhanced error handling provides resilience against rate limiting and service interruptions, while type-safe string conversion ensures robust rendering of dynamic data streams. The webhook system provides event-driven integrations that complement the real-time streaming by delivering analysis completion notifications to external systems with reliable delivery guarantees.
+The streaming architecture ensures the client receives incremental updates while the backend performs long-running analysis. The generator yields structured events that the route wraps into SSE messages. The frontend consumes these events to render progress and final results. Enhanced error handling provides resilience against rate limiting and service interruptions, while type-safe string conversion ensures robust rendering of dynamic data streams. The webhook system provides event-driven integrations that complement the real-time streaming by delivering analysis completion notifications to external systems with reliable delivery guarantees and comprehensive monitoring capabilities.
 
 ```mermaid
 sequenceDiagram
@@ -198,11 +206,11 @@ API->>Client : "Update UI with parsing scores"
 ```
 
 **Diagram sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [analyze.py:795-801](file://app/backend/routes/analyze.py#L795-L801)
-- [analyze.py:1069-1075](file://app/backend/routes/analyze.py#L1069-L1075)
-- [webhook_service.py:114-138](file://app/backend/services/webhook_service.py#L114-L138)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [analyze.py:1685-1859](file://app/backend/routes/analyze.py#L1685-L1859)
+- [analyze.py:1713-1754](file://app/backend/routes/analyze.py#L1713-L1754)
+- [analyze.py:2040-2056](file://app/backend/routes/analyze.py#L2040-L2056)
+- [webhook_service.py:137-157](file://app/backend/services/webhook_service.py#L137-L157)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
 - [hybrid_pipeline.py:1369-1568](file://app/backend/services/hybrid_pipeline.py#L1369-L1568)
 - [llm_service.py:41-65](file://app/backend/services/llm_service.py#L41-L65)
 - [api.js:210-318](file://app/frontend/src/lib/api.js#L210-L318)
@@ -236,12 +244,12 @@ Webhook --> Done(["Return [DONE]"])
 ```
 
 **Diagram sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [analyze.py:795-801](file://app/backend/routes/analyze.py#L795-L801)
+- [analyze.py:1685-1859](file://app/backend/routes/analyze.py#L1685-L1859)
+- [analyze.py:1713-1754](file://app/backend/routes/analyze.py#L1713-L1754)
 
 **Section sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [analyze.py:795-801](file://app/backend/routes/analyze.py#L795-L801)
+- [analyze.py:1685-1859](file://app/backend/routes/analyze.py#L1685-L1859)
+- [analyze.py:1713-1754](file://app/backend/routes/analyze.py#L1713-L1754)
 
 ### Streaming Generator (Python + LLM with Enhanced Error Handling)
 - Runs Python phase to compute early scores
@@ -353,7 +361,7 @@ The system now implements robust string coercion mechanisms for server-side even
 - Prevention of UI crashes from unexpected data types
 
 **Section sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
+- [analyze.py:1685-1859](file://app/backend/routes/analyze.py#L1685-L1859)
 - [api.js:210-318](file://app/frontend/src/lib/api.js#L210-L318)
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
 - [Timeline.jsx:3-9](file://app/frontend/src/components/Timeline.jsx#L3-L9)
@@ -431,9 +439,9 @@ The system now provides comprehensive webhook integration for event-driven notif
 - **Auto-disable**: Webhooks are automatically disabled after excessive consecutive failures
 
 **Section sources**
-- [analyze.py:795-801](file://app/backend/routes/analyze.py#L795-L801)
-- [analyze.py:1069-1075](file://app/backend/routes/analyze.py#L1069-L1075)
-- [webhook_service.py:46-138](file://app/backend/services/webhook_service.py#L46-L138)
+- [analyze.py:1672-1680](file://app/backend/routes/analyze.py#L1672-L1680)
+- [analyze.py:2049-2056](file://app/backend/routes/analyze.py#L2049-L2056)
+- [webhook_service.py:137-157](file://app/backend/services/webhook_service.py#L137-L157)
 
 ## Webhook Configuration Management
 The system provides comprehensive webhook administration through dedicated endpoints:
@@ -462,9 +470,9 @@ The system provides comprehensive webhook administration through dedicated endpo
 - **Tenant isolation**: Webhook configurations are properly scoped to tenant boundaries
 
 **Section sources**
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
 - [013_webhooks_and_notifications.py:36-88](file://alembic/versions/013_webhooks_and_notifications.py#L36-L88)
-- [admin.py:820-926](file://app/backend/routes/admin.py#L820-L926)
+- [admin.py:1557-1648](file://app/backend/routes/admin.py#L1557-L1648)
 
 ## Event Delivery Tracking and Retry Logic
 The webhook system implements sophisticated delivery tracking with comprehensive retry mechanisms:
@@ -494,10 +502,34 @@ The webhook system implements sophisticated delivery tracking with comprehensive
 - **Auto-healing capability**: System automatically recovers from transient failures
 
 **Section sources**
-- [webhook_service.py:13-15](file://app/backend/services/webhook_service.py#L13-L15)
-- [webhook_service.py:18-44](file://app/backend/services/webhook_service.py#L18-L44)
-- [webhook_service.py:79-111](file://app/backend/services/webhook_service.py#L79-L111)
-- [test_webhooks.py:117-177](file://app/backend/tests/test_webhooks.py#L117-L177)
+- [webhook_service.py:16-18](file://app/backend/services/webhook_service.py#L16-L18)
+- [webhook_service.py:83-113](file://app/backend/services/webhook_service.py#L83-L113)
+- [test_webhooks.py:114-198](file://app/backend/tests/test_webhooks.py#L114-L198)
+
+## Webhook Event Registry and Documentation
+The system provides comprehensive webhook documentation through a public endpoint:
+
+### Event Documentation Endpoint
+- **Public endpoint**: `/api/webhooks/events` returns all available webhook event types
+- **Event descriptions**: Detailed descriptions of each event type and use cases
+- **Example payloads**: Complete example payloads for each event type
+- **Signing information**: HMAC-SHA256 signing algorithm and header specifications
+
+### Available Events
+- **subscription.changed**: Fired when tenant subscription plan or status changes
+- **usage.threshold_reached**: Fired when tenant reaches usage quota thresholds
+- **dunning.started/resolved/exhausted**: Payment retry process events
+- **tenant.suspended/reactivated**: Account lifecycle events
+- **analysis.completed**: Analysis completion notifications (primary integration event)
+
+### Integration Guidance
+- **Self-documenting**: Integrators can access event registry without reading source code
+- **Signature verification**: Clear instructions for verifying payload authenticity
+- **Retry handling**: Guidance for implementing robust retry mechanisms
+- **Monitoring**: Best practices for tracking delivery success and failures
+
+**Section sources**
+- [webhook_docs.py:12-94](file://app/backend/routes/webhook_docs.py#L12-L94)
 
 ## Concurrency Control and Rate Limiting
 The system implements sophisticated concurrency control to prevent thundering herd effects:
@@ -545,7 +577,7 @@ The system now supports concurrent batch analysis with progressive streaming:
 - Supports chunked upload processing for large files
 
 **Section sources**
-- [analyze.py:1291-1509](file://app/backend/routes/analyze.py#L1291-L1509)
+- [analyze.py:2082-2239](file://app/backend/routes/analyze.py#L2082-L2239)
 
 ## Dependency Analysis
 - Route depends on streaming generator and database persistence
@@ -553,6 +585,7 @@ The system now supports concurrent batch analysis with progressive streaming:
 - Enhanced LLM service includes exponential backoff and semaphore management
 - **Updated**: Webhook service provides event-driven integrations with database-backed configuration
 - **Updated**: Admin routes manage webhook configurations with tenant isolation
+- **Updated**: Webhook docs endpoint provides public event registry
 - Frontend depends on route for SSE and on UI components for rendering
 - Infrastructure depends on route for SSE-specific configuration
 - safeStr utility provides type-safe string conversion across frontend components
@@ -572,14 +605,16 @@ Safe2["frontend/src/components/Timeline.jsx<br/>safeStr()"] --> UI
 Nginx["nginx/nginx.prod.conf"] --> Route
 Batch["Batch Streaming"] --> Route
 Admin["routes/admin.py<br/>Webhook Admin"] --> DB
+Docs["routes/webhook_docs.py<br/>Event Registry"] --> WS
 ```
 
 **Diagram sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [analyze.py:1291-1509](file://app/backend/routes/analyze.py#L1291-L1509)
-- [webhook_service.py:46-138](file://app/backend/services/webhook_service.py#L46-L138)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
-- [admin.py:820-926](file://app/backend/routes/admin.py#L820-L926)
+- [analyze.py:1685-1859](file://app/backend/routes/analyze.py#L1685-L1859)
+- [analyze.py:2082-2239](file://app/backend/routes/analyze.py#L2082-L2239)
+- [webhook_service.py:137-157](file://app/backend/services/webhook_service.py#L137-L157)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
+- [admin.py:1557-1648](file://app/backend/routes/admin.py#L1557-L1648)
+- [webhook_docs.py:87-94](file://app/backend/routes/webhook_docs.py#L87-L94)
 - [hybrid_pipeline.py:1369-1568](file://app/backend/services/hybrid_pipeline.py#L1369-L1568)
 - [llm_service.py:41-65](file://app/backend/services/llm_service.py#L41-L65)
 - [agent_pipeline.py:520-540](file://app/backend/services/agent_pipeline.py#L520-L540)
@@ -591,11 +626,12 @@ Admin["routes/admin.py<br/>Webhook Admin"] --> DB
 - [nginx.prod.conf:66-95](file://nginx/nginx.prod.conf#L66-L95)
 
 **Section sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [analyze.py:1291-1509](file://app/backend/routes/analyze.py#L1291-L1509)
-- [webhook_service.py:46-138](file://app/backend/services/webhook_service.py#L46-L138)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
-- [admin.py:820-926](file://app/backend/routes/admin.py#L820-L926)
+- [analyze.py:1685-1859](file://app/backend/routes/analyze.py#L1685-L1859)
+- [analyze.py:2082-2239](file://app/backend/routes/analyze.py#L2082-L2239)
+- [webhook_service.py:137-157](file://app/backend/services/webhook_service.py#L137-L157)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
+- [admin.py:1557-1648](file://app/backend/routes/admin.py#L1557-L1648)
+- [webhook_docs.py:87-94](file://app/backend/routes/webhook_docs.py#L87-L94)
 - [hybrid_pipeline.py:1369-1568](file://app/backend/services/hybrid_pipeline.py#L1369-L1568)
 - [llm_service.py:41-65](file://app/backend/services/llm_service.py#L41-L65)
 - [agent_pipeline.py:520-540](file://app/backend/services/agent_pipeline.py#L520-L540)
@@ -619,16 +655,18 @@ Admin["routes/admin.py<br/>Webhook Admin"] --> DB
 - **Memory Management**: Frontend components minimize unnecessary re-renders through type-safe data handling
 - **Webhook Performance**: Background dispatch prevents webhook failures from impacting analysis performance
 - **Database Optimization**: Proper indexing on webhook tables ensures efficient configuration and delivery queries
+- **Thread Pool Management**: Webhook executor uses configurable thread pool for background processing
 
 Recommendations:
 - Monitor LLM semaphore usage and adjust concurrency based on hardware capacity
 - Tune proxy timeouts and keep-alive settings to match expected analysis durations
 - Consider rate limiting for SSE endpoints to protect backend resources
 - Implement circuit breaker patterns for external LLM services
-- Monitor exponential backoff effectiveness and adjust base delays
+- Monitor exponential backoff effectiveness and adjust base delays if needed
 - Optimize safeStr usage patterns to minimize repeated conversions
 - Monitor webhook delivery success rates and adjust retry thresholds as needed
 - Consider webhook payload size limits to prevent excessive network usage
+- Monitor webhook thread pool utilization for optimal background processing performance
 
 **Section sources**
 - [hybrid_pipeline.py:24-32](file://app/backend/services/hybrid_pipeline.py#L24-L32)
@@ -636,7 +674,7 @@ Recommendations:
 - [llm_service.py:41-65](file://app/backend/services/llm_service.py#L41-L65)
 - [nginx.prod.conf:81-94](file://nginx/nginx.prod.conf#L81-L94)
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
-- [webhook_service.py:13-15](file://app/backend/services/webhook_service.py#L13-L15)
+- [webhook_service.py:134-135](file://app/backend/services/webhook_service.py#L134-L135)
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -674,6 +712,10 @@ Common issues and resolutions:
   - Webhooks are automatically disabled after 10 consecutive failures
   - Check delivery logs to identify root cause
   - Recreate webhook with updated configuration after fixing issues
+- **Webhook thread pool exhaustion**:
+  - Monitor webhook executor utilization
+  - Adjust thread pool size based on webhook volume
+  - Check for long-running webhook processing
 
 Operational checks:
 - Health endpoint validates database and Ollama connectivity
@@ -683,20 +725,22 @@ Operational checks:
 - Verify safeStr conversion logs for debugging type issues
 - Monitor webhook delivery success rates and failure patterns
 - Check webhook configuration validity and event subscription filters
+- Verify webhook thread pool performance and resource utilization
+- Review webhook auto-disable notifications and remediation actions
 
 **Section sources**
-- [analyze.py:584-587](file://app/backend/routes/analyze.py#L584-L587)
+- [analyze.py:1713-1754](file://app/backend/routes/analyze.py#L1713-L1754)
 - [api.js:102-109](file://app/frontend/src/lib/api.js#L102-L109)
 - [api.js:132-140](file://app/frontend/src/lib/api.js#L132-L140)
 - [nginx.prod.conf:81-94](file://nginx/nginx.prod.conf#L81-L94)
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
 - [main.py:262-326](file://app/backend/main.py#L262-L326)
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
-- [webhook_service.py:106-111](file://app/backend/services/webhook_service.py#L106-L111)
+- [webhook_service.py:106-113](file://app/backend/services/webhook_service.py#L106-L113)
 
 ## Conclusion
 The real-time processing pipeline delivers responsive, incremental feedback during long-running analysis by combining FastAPI SSE with a structured streaming generator. The enhanced implementation now features comprehensive error handling with exponential backoff retry logic for rate limiting, reduced concurrency limits to prevent thundering herd effects, and improved streaming architecture for batch analysis operations. The introduction of safeStr utility functions provides robust type-safe string conversion for dynamic data streams, preventing UI crashes and ensuring consistent rendering across all frontend components. The frontend consumes these events to provide clear progress indicators and a smooth user experience. 
 
-**Updated**: The system now includes a comprehensive webhook system that provides event-driven integrations for external systems. Webhook configuration management through admin endpoints enables tenant-level webhook setup with event filtering, HMAC signing for security, and comprehensive delivery tracking with retry mechanisms. The webhook service operates in the background, ensuring that webhook failures never impact the core analysis completion process while providing reliable event delivery for integration scenarios.
+**Updated**: The system now includes a comprehensive webhook system that provides event-driven integrations for external systems. Webhook configuration management through admin endpoints enables tenant-level webhook setup with event filtering, HMAC signing for security, and comprehensive delivery tracking with retry mechanisms. The webhook service operates in the background, ensuring that webhook failures never impact the core analysis completion process while providing reliable event delivery for integration scenarios. The addition of webhook event documentation provides self-service integration guidance with example payloads and signing specifications. The webhook system includes auto-disable functionality after excessive failures and comprehensive delivery monitoring for operational visibility and troubleshooting.
 
 Proper infrastructure configuration and enhanced error handling ensure reliability under production conditions with improved resilience against external service limitations, data type inconsistencies, and webhook delivery failures. The combination of real-time streaming updates and webhook notifications creates a robust foundation for both user-facing analysis and automated system integrations.

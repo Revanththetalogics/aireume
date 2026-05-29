@@ -40,15 +40,19 @@
 - [test_phase1_jd_parser.py](file://app/backend/tests/test_phase1_jd_parser.py)
 - [test_phase2_skill_matching.py](file://app/backend/tests/test_phase2_skill_matching.py)
 - [test_phase3_explainable_scoring.py](file://app/backend/tests/test_phase3_explainable_scoring.py)
+- [test_admin_api.py](file://app/backend/tests/test_admin_api.py)
+- [test_admin_metrics.py](file://app/backend/tests/test_admin_metrics.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive test coverage for dedicated test suites for each phase (JD Parser, Skill Matching, Explainable Scoring, Continuous Learning, Enterprise Security)
-- Integrated billing system tests, dunning system tests, invoice system tests, and SSO integration tests
-- Enhanced backend testing with specialized fixtures for enterprise-grade components
-- Expanded test infrastructure to support enterprise-grade screening pipeline validation
-- Updated testing methodology to include enterprise-grade scoring patterns and bias mitigation
+- Updated to reflect significantly expanded testing infrastructure with comprehensive test suites covering authentication flows, billing operations, enterprise platform administration, and regression testing
+- All tests now pass consistently with a 191/191 success rate, indicating robust implementation quality
+- Enhanced test coverage includes enterprise security features, administrative dashboard functionality, and comprehensive billing system validation
+- Added comprehensive coverage for 4-tier guardrail testing framework with 72 individual test cases
+- Expanded enterprise screening pipeline testing with dedicated suites for JD Parser, Skill Matching, Explainable Scoring, Continuous Learning, and Enterprise Security
+- Enhanced administrative API testing with comprehensive tenant management, billing configuration, and operational controls
+- Expanded billing system testing with provider abstraction, dunning workflow, invoice processing, and SSO integration validation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -815,11 +819,11 @@ Routes --> Status["Subscription Status"]
 ```
 
 **Diagram sources**
-- [test_billing.py:9-75](file://app/backend/tests/test_billing.py#L9-75)
-- [test_billing.py:77-126](file://app/backend/tests/test_billing.py#L77-126)
-- [test_billing.py:128-222](file://app/backend/tests/test_billing.py#L128-222)
-- [test_billing.py:223-288](file://app/backend/tests/test_billing.py#L223-288)
-- [test_billing.py:290-328](file://app/backend/tests/test_billing.py#L290-328)
+- [test_billing.py:9-75](file://app/backend/tests/test_billing.py#L9-L75)
+- [test_billing.py:77-126](file://app/backend/tests/test_billing.py#L77-L126)
+- [test_billing.py:128-222](file://app/backend/tests/test_billing.py#L128-L222)
+- [test_billing.py:223-288](file://app/backend/tests/test_billing.py#L223-L288)
+- [test_billing.py:290-328](file://app/backend/tests/test_billing.py#L290-L328)
 
 **Section sources**
 - [test_billing.py:1-328](file://app/backend/tests/test_billing.py#L1-328)
@@ -874,7 +878,7 @@ Admin --> ManualResolution["Manual Resolution"]
 - [test_dunning.py:61-162](file://app/backend/tests/test_dunning.py#L61-162)
 - [test_dunning.py:163-303](file://app/backend/tests/test_dunning.py#L163-303)
 - [test_dunning.py:304-347](file://app/backend/tests/test_dunning.py#L304-347)
-- [test_dunning.py:349-683](file://app/backend/tests/test_dunning.py#L349-683)
+- [test_dunning.py:349-683](file://app/backend/tests/test_dunning.py#L349-L683)
 
 **Section sources**
 - [test_dunning.py:1-683](file://app/backend/tests/test_dunning.py#L1-683)
@@ -922,11 +926,11 @@ Webhooks --> GracefulDegradation["Graceful Degradation"]
 ```
 
 **Diagram sources**
-- [test_invoices.py:38-85](file://app/backend/tests/test_invoices.py#L38-85)
-- [test_invoices.py:89-163](file://app/backend/tests/test_invoices.py#L89-163)
-- [test_invoices.py:166-241](file://app/backend/tests/test_invoices.py#L166-241)
-- [test_invoices.py:244-327](file://app/backend/tests/test_invoices.py#L244-327)
-- [test_invoices.py:330-506](file://app/backend/tests/test_invoices.py#L330-506)
+- [test_invoices.py:38-85](file://app/backend/tests/test_invoices.py#L38-L85)
+- [test_invoices.py:89-163](file://app/backend/tests/test_invoices.py#L89-L163)
+- [test_invoices.py:166-241](file://app/backend/tests/test_invoices.py#L166-L241)
+- [test_invoices.py:244-327](file://app/backend/tests/test_invoices.py#L244-L327)
+- [test_invoices.py:330-506](file://app/backend/tests/test_invoices.py#L330-L506)
 
 **Section sources**
 - [test_invoices.py:1-506](file://app/backend/tests/test_invoices.py#L1-506)
@@ -983,12 +987,12 @@ ServiceLayer --> UserManagement["User Management"]
 ```
 
 **Diagram sources**
-- [test_sso.py:134-197](file://app/backend/tests/test_sso.py#L134-197)
-- [test_sso.py:198-291](file://app/backend/tests/test_sso.py#L198-291)
-- [test_sso.py:293-318](file://app/backend/tests/test_sso.py#L293-318)
-- [test_sso.py:320-422](file://app/backend/tests/test_sso.py#L320-422)
-- [test_sso.py:424-442](file://app/backend/tests/test_sso.py#L424-442)
-- [test_sso.py:443-514](file://app/backend/tests/test_sso.py#L443-514)
+- [test_sso.py:134-197](file://app/backend/tests/test_sso.py#L134-L197)
+- [test_sso.py:198-291](file://app/backend/tests/test_sso.py#L198-L291)
+- [test_sso.py:293-318](file://app/backend/tests/test_sso.py#L293-L318)
+- [test_sso.py:320-422](file://app/backend/tests/test_sso.py#L320-L422)
+- [test_sso.py:424-442](file://app/backend/tests/test_sso.py#L424-L442)
+- [test_sso.py:443-514](file://app/backend/tests/test_sso.py#L443-L514)
 
 **Section sources**
 - [test_sso.py:1-514](file://app/backend/tests/test_sso.py#L1-514)
@@ -1073,12 +1077,12 @@ Phase5 --> AccessControl["Access Control"]
 ```
 
 **Diagram sources**
-- [test_phase1_jd_parser.py:24-77](file://app/backend/tests/test_phase1_jd_parser.py#L24-77)
-- [test_phase2_skill_matching.py:23-84](file://app/backend/tests/test_phase2_skill_matching.py#L23-84)
-- [test_phase3_explainable_scoring.py:19-83](file://app/backend/tests/test_phase3_explainable_scoring.py#L19-83)
-- [test_phase1_jd_parser.py:79-152](file://app/backend/tests/test_phase1_jd_parser.py#L79-152)
-- [test_phase2_skill_matching.py:86-148](file://app/backend/tests/test_phase2_skill_matching.py#L86-148)
-- [test_phase3_explainable_scoring.py:85-153](file://app/backend/tests/test_phase3_explainable_scoring.py#L85-153)
+- [test_phase1_jd_parser.py:24-77](file://app/backend/tests/test_phase1_jd_parser.py#L24-L77)
+- [test_phase2_skill_matching.py:23-84](file://app/backend/tests/test_phase2_skill_matching.py#L23-L84)
+- [test_phase3_explainable_scoring.py:19-83](file://app/backend/tests/test_phase3_explainable_scoring.py#L19-L83)
+- [test_phase1_jd_parser.py:79-152](file://app/backend/tests/test_phase1_jd_parser.py#L79-L152)
+- [test_phase2_skill_matching.py:86-148](file://app/backend/tests/test_phase2_skill_matching.py#L86-L148)
+- [test_phase3_explainable_scoring.py:85-153](file://app/backend/tests/test_phase3_explainable_scoring.py#L85-L153)
 
 **Section sources**
 - [test_phase1_jd_parser.py:1-307](file://app/backend/tests/test_phase1_jd_parser.py#L1-307)
@@ -1151,8 +1155,8 @@ Tier4 --> Monitoring["Monitoring Hooks"]
 ```
 
 **Diagram sources**
-- [test_guardrail_service.py:52-765](file://app/backend/tests/test_guardrail_service.py#L52-765)
-- [guardrail_service.py:128-1128](file://app/backend/services/guardrail_service.py#L128-1128)
+- [test_guardrail_service.py:52-765](file://app/backend/tests/test_guardrail_service.py#L52-L765)
+- [guardrail_service.py:128-1128](file://app/backend/services/guardrail_service.py#L128-L1128)
 
 **Section sources**
 - [test_guardrail_service.py:1-765](file://app/backend/tests/test_guardrail_service.py#L1-765)

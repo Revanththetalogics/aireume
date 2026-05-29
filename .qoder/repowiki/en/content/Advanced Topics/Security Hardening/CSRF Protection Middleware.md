@@ -16,11 +16,15 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced CSRF whitelist with regex-based pattern matching for dynamic API endpoints
-- Added comprehensive exemption pattern for `/api/candidates/{id}/name` PUT requests
-- Expanded CSRF exemption system to support URLs with numeric path segments
-- Improved pattern matching capabilities for auth-protected dynamic endpoints
-- Enhanced middleware with regex compilation for performance optimization
+- Enhanced CSRF protection with improved double-submit cookie pattern for browser clients using cookie-based authentication
+- Automatic exemption of safe methods (GET, HEAD, OPTIONS) from CSRF validation
+- API clients using Authorization header bypass CSRF validation entirely
+- Proper CSRF token storage in non-httpOnly cookies for JavaScript access
+- Automatic CSRF token rotation after successful state-changing operations
+- Enhanced timing-safe token validation using `secrets.compare_digest()`
+- Expanded authentication endpoint exemptions including forgot-password and reset-password
+- Regex-based pattern matching for dynamic API endpoints like `/api/candidates/{id}/name`
+- Comprehensive token lifecycle management with 1-hour expiration and secure cookie handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -40,7 +44,7 @@ The CSRF Protection Middleware is a critical security component designed to prev
 
 CSRF (Cross-Site Request Forgery) attacks occur when malicious websites trick authenticated users into performing unintended actions on a web application. The double-submit cookie pattern mitigates this risk by requiring clients to submit a CSRF token in both a cookie and a request header, making it extremely difficult for attackers to forge valid requests.
 
-**Updated** Enhanced with timing-safe token validation using `secrets.compare_digest()` for constant-time comparison, expanded whitelist to include comprehensive authentication endpoints, improved rate limiting with better error logging for enhanced security monitoring, and **added regex-based CSRF exemption patterns for dynamic API endpoints** including support for URLs like `/api/candidates/{id}/name` with comprehensive pattern matching capabilities.
+**Updated** Enhanced with improved double-submit cookie pattern for browser clients using cookie-based authentication, automatic exemption of safe methods (GET, HEAD, OPTIONS), API clients using Authorization header bypass CSRF validation, and proper CSRF token storage in non-httpOnly cookies for JavaScript access.
 
 ## Architecture Overview
 
@@ -92,15 +96,15 @@ Revoked --> CSRF
 ```
 
 **Diagram sources**
-- [main.py:384-386](file://app/backend/main.py#L384-L386)
-- [csrf.py:15-114](file://app/backend/middleware/csrf.py#L15-L114)
-- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
+- [main.py:399-401](file://app/backend/main.py#L399-L401)
+- [csrf.py:16-113](file://app/backend/middleware/csrf.py#L16-L113)
+- [auth.py:87-145](file://app/backend/middleware/auth.py#L87-L145)
 
 ## Core Components
 
 ### CSRFMiddleware Class
 
-The [`CSRFMiddleware`:15-114](file://app/backend/middleware/csrf.py#L15-L114) serves as the primary security enforcement component, implementing the double-submit cookie validation pattern with enhanced timing-safe token comparison, comprehensive authentication endpoint exemptions, and **regex-based pattern matching for dynamic API endpoints**.
+The [`CSRFMiddleware`:16-113](file://app/backend/middleware/csrf.py#L16-L113) serves as the primary security enforcement component, implementing the double-submit cookie validation pattern with enhanced timing-safe token comparison, comprehensive authentication endpoint exemptions, and regex-based pattern matching for dynamic API endpoints.
 
 ```mermaid
 classDiagram
@@ -129,15 +133,16 @@ CSRFMiddleware --> JSONResponse : "returns"
 ```
 
 **Diagram sources**
-- [csrf.py:15-114](file://app/backend/middleware/csrf.py#L15-L114)
+- [csrf.py:16-113](file://app/backend/middleware/csrf.py#L16-L113)
 
 **Section sources**
-- [csrf.py:15-114](file://app/backend/middleware/csrf.py#L15-L114)
+- [csrf.py:16-113](file://app/backend/middleware/csrf.py#L16-L113)
 
 ### Enhanced Exemption System
 
 **New** The middleware now includes a sophisticated exemption system that combines exact path matching with regex pattern matching for dynamic API endpoints:
 
+- **Safe Methods**: Automatic exemption for GET, HEAD, and OPTIONS requests
 - **Exact Path Matching**: Traditional static paths like `/api/auth/login`
 - **Prefix Matching**: Handles trailing slash variations for path prefixes
 - **Regex Pattern Matching**: Supports dynamic path segments with numeric placeholders
@@ -146,7 +151,7 @@ CSRFMiddleware --> JSONResponse : "returns"
 The regex pattern system allows for precise control over which dynamic endpoints bypass CSRF protection while maintaining security for other state-changing operations.
 
 **Section sources**
-- [csrf.py:47-64](file://app/backend/middleware/csrf.py#L47-L64)
+- [csrf.py:27-65](file://app/backend/middleware/csrf.py#L27-L65)
 
 ### Authentication Integration
 
@@ -177,11 +182,11 @@ Note over CSRF : Regex patterns support dynamic endpoints
 ```
 
 **Diagram sources**
-- [csrf.py:66-114](file://app/backend/middleware/csrf.py#L66-L114)
-- [auth.py:26-56](file://app/backend/middleware/auth.py#L26-L56)
+- [csrf.py:67-113](file://app/backend/middleware/csrf.py#L67-L113)
+- [auth.py:87-145](file://app/backend/middleware/auth.py#L87-L145)
 
 **Section sources**
-- [auth.py:26-56](file://app/backend/middleware/auth.py#L26-L56)
+- [auth.py:87-145](file://app/backend/middleware/auth.py#L87-L145)
 
 ## Implementation Details
 
@@ -189,10 +194,10 @@ Note over CSRF : Regex patterns support dynamic endpoints
 
 The middleware implements the double-submit cookie pattern, requiring clients to provide CSRF tokens in two locations:
 
-1. **Cookie**: `csrf_token` - stored as a standard cookie
+1. **Cookie**: `csrf_token` - stored as a standard cookie (non-httpOnly for JavaScript access)
 2. **Header**: `X-CSRF-Token` - included in request headers
 
-**Updated** Enhanced with timing-safe token validation using `secrets.compare_digest()` for constant-time comparison to prevent timing attacks, expanded whitelist to include comprehensive authentication endpoints, and **added regex-based pattern matching for dynamic API endpoints**.
+**Updated** Enhanced with timing-safe token validation using `secrets.compare_digest()` for constant-time comparison to prevent timing attacks, expanded whitelist to include comprehensive authentication endpoints, and regex-based pattern matching for dynamic API endpoints.
 
 ```mermaid
 flowchart TD
@@ -224,17 +229,17 @@ Return403 --> End
 ```
 
 **Diagram sources**
-- [csrf.py:66-114](file://app/backend/middleware/csrf.py#L66-L114)
+- [csrf.py:67-113](file://app/backend/middleware/csrf.py#L67-L113)
 
 **Section sources**
-- [csrf.py:66-114](file://app/backend/middleware/csrf.py#L66-L114)
+- [csrf.py:67-113](file://app/backend/middleware/csrf.py#L67-L113)
 
 ### Enhanced Token Validation
 
 **Updated** The middleware now uses `secrets.compare_digest()` for timing-safe token comparison, preventing timing attacks that could potentially extract token information through side-channel analysis.
 
 **Section sources**
-- [csrf.py:89](file://app/backend/middleware/csrf.py#L89)
+- [csrf.py:88](file://app/backend/middleware/csrf.py#L88)
 
 ### Expanded Authentication Whitelist
 
@@ -244,12 +249,12 @@ Return403 --> End
 - **Authentication Endpoints**: Login, register, refresh, logout, **forgot-password**, and **reset-password** endpoints are exempt
 - **API Clients**: Requests with Authorization headers (Bearer tokens) bypass CSRF checks
 - **Health Endpoints**: System monitoring endpoints remain accessible
-- **Dynamic API Endpoints**: **New** Regex patterns support dynamic endpoints like `/api/candidates/{id}/name`
+- **Dynamic API Endpoints**: Regex patterns support dynamic endpoints like `/api/candidates/{id}/name`
 
 The addition of `/api/auth/forgot-password` and `/api/auth/reset-password` to the exemption list ensures users can securely manage their passwords without CSRF validation conflicts, while maintaining security for all other authenticated operations.
 
 **Section sources**
-- [csrf.py:27-45](file://app/backend/middleware/csrf.py#L27-L45)
+- [csrf.py:27-51](file://app/backend/middleware/csrf.py#L27-L51)
 
 ### Regex-Based Pattern Matching System
 
@@ -274,14 +279,14 @@ The regex system provides:
 - **Maintainability**: Easy addition of new pattern exemptions
 
 **Section sources**
-- [csrf.py:47-50](file://app/backend/middleware/csrf.py#L47-L50)
+- [csrf.py:48-51](file://app/backend/middleware/csrf.py#L48-L51)
 
 ### Token Generation and Management
 
 The authentication system generates CSRF tokens during user login and registration, storing them in cookies for client access. **Updated** The system now includes automatic token rotation after successful state-changing operations with enhanced security measures.
 
 **Section sources**
-- [auth.py:84-130](file://app/backend/routes/auth.py#L84-L130)
+- [auth.py:124-170](file://app/backend/routes/auth.py#L124-L170)
 
 ### Token Rotation Mechanism
 
@@ -293,13 +298,13 @@ The authentication system generates CSRF tokens during user login and registrati
 - **Compatibility**: Only applies to cookie-based authentication, not Bearer tokens
 
 **Section sources**
-- [csrf.py:100-113](file://app/backend/middleware/csrf.py#L100-L113)
+- [csrf.py:97-113](file://app/backend/middleware/csrf.py#L97-L113)
 
 ## Security Model
 
 ### Defense-in-Depth Approach
 
-The CSRF protection system employs a layered security approach with enhanced timing-safe validation, comprehensive authentication endpoint protection, and **regex-based pattern matching for dynamic endpoints**:
+The CSRF protection system employs a layered security approach with enhanced timing-safe validation, comprehensive authentication endpoint protection, and regex-based pattern matching for dynamic endpoints:
 
 ```mermaid
 graph LR
@@ -336,9 +341,9 @@ E --> Regex Pattern Matching
 ```
 
 **Diagram sources**
-- [csrf.py:15-114](file://app/backend/middleware/csrf.py#L15-L114)
-- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
-- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
+- [csrf.py:16-113](file://app/backend/middleware/csrf.py#L16-L113)
+- [auth.py:87-145](file://app/backend/middleware/auth.py#L87-L145)
+- [db_models.py:396-404](file://app/backend/models/db_models.py#L396-L404)
 
 ### Enhanced Token Lifecycle Management
 
@@ -352,7 +357,7 @@ E --> Regex Pattern Matching
 6. **Cleanup**: Removed on logout or session termination
 
 **Section sources**
-- [auth.py:88-128](file://app/backend/routes/auth.py#L88-L128)
+- [auth.py:128-168](file://app/backend/routes/auth.py#L128-L168)
 
 ### Revoked Tokens System
 
@@ -364,8 +369,8 @@ E --> Regex Pattern Matching
 - **Validation**: Checks revoked tokens during refresh operations
 
 **Section sources**
-- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
-- [db_models.py:256-264](file://app/backend/models/db_models.py#L256-L264)
+- [auth.py:378-421](file://app/backend/routes/auth.py#L378-L421)
+- [db_models.py:396-404](file://app/backend/models/db_models.py#L396-L404)
 - [005_revoked_tokens.py:41-67](file://alembic/versions/005_revoked_tokens.py#L41-L67)
 
 ## Integration Patterns
@@ -404,19 +409,19 @@ Note over CSRF : Regex patterns support dynamic endpoints
 ```
 
 **Diagram sources**
-- [api.js:18-42](file://app/frontend/src/lib/api.js#L18-L42)
-- [csrf.py:100-113](file://app/backend/middleware/csrf.py#L100-L113)
-- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
+- [api.js:18-47](file://app/frontend/src/lib/api.js#L18-L47)
+- [csrf.py:97-113](file://app/backend/middleware/csrf.py#L97-L113)
+- [auth.py:378-421](file://app/backend/routes/auth.py#L378-L421)
 
 **Section sources**
-- [api.js:18-42](file://app/frontend/src/lib/api.js#L18-L42)
+- [api.js:18-47](file://app/frontend/src/lib/api.js#L18-L47)
 
 ### API Client Integration
 
 API clients using Bearer tokens automatically bypass CSRF checks, maintaining compatibility with automated systems. **Updated** These clients also benefit from automatic token rotation for enhanced security.
 
 **Section sources**
-- [csrf.py:75-78](file://app/backend/middleware/csrf.py#L75-L78)
+- [csrf.py:76-79](file://app/backend/middleware/csrf.py#L76-L79)
 
 ### Dynamic Endpoint Integration
 
@@ -429,14 +434,14 @@ API clients using Bearer tokens automatically bypass CSRF checks, maintaining co
 - **Security**: Maintains CSRF protection for other state-changing operations
 
 **Section sources**
-- [csrf.py:47-50](file://app/backend/middleware/csrf.py#L47-L50)
+- [csrf.py:48-51](file://app/backend/middleware/csrf.py#L48-L51)
 - [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
 
 ## Testing Strategy
 
 ### Test Coverage
 
-The CSRF protection system includes comprehensive test coverage demonstrating its effectiveness with enhanced token rotation testing and **regex pattern validation**:
+The CSRF protection system includes comprehensive test coverage demonstrating its effectiveness with enhanced token rotation testing and regex pattern validation:
 
 ```mermaid
 graph TB
@@ -495,10 +500,10 @@ H --> H3
 ```
 
 **Diagram sources**
-- [test_routes_phase1.py:225-303](file://app/backend/tests/test_routes_phase1.py#L225-L303)
+- [test_routes_phase1.py:225-305](file://app/backend/tests/test_routes_phase1.py#L225-L305)
 
 **Section sources**
-- [test_routes_phase1.py:225-303](file://app/backend/tests/test_routes_phase1.py#L225-L303)
+- [test_routes_phase1.py:225-305](file://app/backend/tests/test_routes_phase1.py#L225-L305)
 
 ### Test Evidence
 
@@ -523,7 +528,7 @@ The test suite demonstrates CSRF protection effectiveness through multiple scena
 
 ### Production Configuration
 
-The middleware includes production-ready security configurations with enhanced timing-safe validation and **regex-based pattern matching**:
+The middleware includes production-ready security configurations with enhanced timing-safe validation and regex-based pattern matching:
 
 - **Secure Cookies**: CSRF tokens use HTTPS-only and SameSite protections
 - **Timing-Safe Comparison**: Uses `secrets.compare_digest()` to prevent timing attacks
@@ -534,8 +539,8 @@ The middleware includes production-ready security configurations with enhanced t
 - **Regex Performance**: Compiled patterns for efficient runtime matching
 
 **Section sources**
-- [auth.py:119-128](file://app/backend/routes/auth.py#L119-L128)
-- [main.py:384-386](file://app/backend/main.py#L384-L386)
+- [auth.py:128-168](file://app/backend/routes/auth.py#L128-L168)
+- [main.py:399-401](file://app/backend/main.py#L399-L401)
 
 ### Middleware Ordering
 
@@ -548,7 +553,7 @@ The middleware stack order is critical for proper operation:
 5. **Route Handlers**: Executes business logic
 
 **Section sources**
-- [main.py:368-386](file://app/backend/main.py#L368-L386)
+- [main.py:383-401](file://app/backend/main.py#L383-L401)
 
 ## Troubleshooting Guide
 
@@ -682,10 +687,10 @@ The middleware stack order is critical for proper operation:
 - Ensure proper tenant identification for rate limiting
 
 **Section sources**
-- [csrf.py:100-113](file://app/backend/middleware/csrf.py#L100-L113)
-- [api.js:18-42](file://app/frontend/src/lib/api.js#L18-L42)
-- [auth.py:211-254](file://app/backend/routes/auth.py#L211-L254)
-- [rate_limit.py:77-98](file://app/backend/middleware/rate_limit.py#L77-L98)
+- [csrf.py:97-113](file://app/backend/middleware/csrf.py#L97-L113)
+- [api.js:18-47](file://app/frontend/src/lib/api.js#L18-L47)
+- [auth.py:378-421](file://app/backend/routes/auth.py#L378-L421)
+- [rate_limit.py:26-56](file://app/backend/middleware/rate_limit.py#L26-L56)
 
 ## Conclusion
 
@@ -705,8 +710,8 @@ The CSRF Protection Middleware provides robust defense against Cross-Site Reques
 - **Performance Optimization**: Compiled regex patterns ensure efficient runtime matching
 - **Flexible Exemption System**: Combines exact path matching, prefix matching, and regex pattern matching for comprehensive coverage
 
-**Updated** The recent enhancements significantly strengthen the security posture by implementing timing-safe token validation using `secrets.compare_digest()`, expanding the CSRF whitelist to include comprehensive authentication endpoints, improving rate limiting with better error logging, and **adding regex-based pattern matching for dynamic API endpoints**. These improvements maintain compatibility with modern authentication patterns while providing stronger protection against sophisticated attack vectors.
+**Updated** The recent enhancements significantly strengthen the security posture by implementing timing-safe token validation using `secrets.compare_digest()`, expanding the CSRF whitelist to include comprehensive authentication endpoints, improving rate limiting with better error logging, and adding regex-based pattern matching for dynamic API endpoints. These improvements maintain compatibility with modern authentication patterns while providing stronger protection against sophisticated attack vectors.
 
-The implementation demonstrates best practices in web security while maintaining compatibility with modern authentication patterns. The comprehensive test coverage and clear error handling ensure reliable operation in production environments, with enhanced testing specifically targeting the new timing-safe validation, expanded authentication endpoint exemptions, improved rate limiting error logging, **regex pattern matching capabilities**, and **dynamic endpoint integration**.
+The implementation demonstrates best practices in web security while maintaining compatibility with modern authentication patterns. The comprehensive test coverage and clear error handling ensure reliable operation in production environments, with enhanced testing specifically targeting the new timing-safe validation, expanded authentication endpoint exemptions, improved rate limiting error logging, regex pattern matching capabilities, and dynamic endpoint integration.
 
 The addition of regex-based pattern matching represents a significant advancement in CSRF protection for modern web applications with dynamic routing, enabling precise control over which dynamic endpoints bypass CSRF validation while maintaining security for other state-changing operations. This enhancement ensures that the platform can evolve with changing API patterns while maintaining robust security guarantees.
