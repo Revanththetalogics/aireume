@@ -224,6 +224,76 @@ def generate_pdf_report(result_id: int, db: Session, current_user_id: int) -> by
 
     recruiter_evaluated = bool(overall or evaluations)
 
+    # ── 12c. Evaluation Checklist Statuses ────────────────────────────────
+    # Mirror frontend EvaluationChecklist.jsx logic for PDF parity
+    iq = analysis.get("interview_questions", {})
+    tech_total = len(iq.get("technical_questions", []))
+    beh_total = len(iq.get("behavioral_questions", []))
+    cult_total = len(iq.get("culture_fit_questions", []))
+
+    tech_eval_count = sum(
+        1 for e in evaluations
+        if e.question_category == "technical" and e.rating
+    )
+    beh_eval_count = sum(
+        1 for e in evaluations
+        if e.question_category == "behavioral" and e.rating
+    )
+    cult_eval_count = sum(
+        1 for e in evaluations
+        if e.question_category == "culture_fit" and e.rating
+    )
+
+    debrief_data = None
+    if overall and overall.debrief_json:
+        debrief_data = _safe_json(overall.debrief_json)
+
+    # Initial Screening
+    initial_screening_status = "completed" if fit_score > 0 else "pending"
+
+    # Technical Interview
+    tech_total_count = tech_total + beh_total
+    tech_eval_total = tech_eval_count + beh_eval_count
+    if tech_eval_total > 0 and tech_eval_total >= tech_total_count and tech_total_count > 0:
+        technical_interview_status = "completed"
+    elif tech_eval_total > 0:
+        technical_interview_status = "in_progress"
+    elif debrief_data:
+        technical_interview_status = "completed"
+    else:
+        technical_interview_status = "pending"
+
+    # Cultural Fit Assessment
+    if cult_eval_count > 0 and cult_eval_count >= cult_total and cult_total > 0:
+        cultural_fit_status = "completed"
+    elif cult_eval_count > 0:
+        cultural_fit_status = "in_progress"
+    elif debrief_data:
+        cultural_fit_status = "completed"
+    else:
+        cultural_fit_status = "pending"
+
+    # Final Decision
+    if overall and overall.recruiter_recommendation:
+        final_decision_status = "completed"
+    elif debrief_data:
+        final_decision_status = "completed"
+    elif overall and overall.overall_assessment:
+        final_decision_status = "in_progress"
+    else:
+        final_decision_status = "pending"
+
+    checklist_statuses = {
+        "initial_screening": initial_screening_status,
+        "technical_interview": technical_interview_status,
+        "cultural_fit": cultural_fit_status,
+        "final_decision": final_decision_status,
+    }
+    checklist_completed_count = sum(
+        1 for s in checklist_statuses.values() if s == "completed"
+    )
+    checklist_total_count = len(checklist_statuses)
+
     # ── 13. Follow-up questions ───────────────────────────────────────────
     follow_up_questions: list[str] = []
 
@@ -290,6 +360,9 @@ def generate_pdf_report(result_id: int, db: Session, current_user_id: int) -> by
         recruiter_evaluated=recruiter_evaluated,
         recruiter_score=recruiter_score,
         recruiter_dimensions=recruiter_dimensions,
+        checklist_statuses=checklist_statuses,
+        checklist_completed_count=checklist_completed_count,
+        checklist_total_count=checklist_total_count,
     )
 
     # ── 15. Convert to PDF ────────────────────────────────────────────────

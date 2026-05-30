@@ -308,6 +308,55 @@
             color: #d97706;
         }
 
+        .checklist-item .item-status.completed {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        .checklist-item .item-status.in_progress {
+            background: #dbeafe;
+            color: #2563eb;
+        }
+
+        .checklist-item .item-status.pending {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .checklist-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8pt;
+        }
+
+        .checklist-header .checklist-title {
+            font-size: 12pt;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .checklist-header .checklist-count {
+            font-size: 9pt;
+            font-weight: 600;
+            color: #6b7280;
+        }
+
+        .checklist-progress {
+            width: 100%;
+            height: 6pt;
+            background: #f1f5f9;
+            border-radius: 3pt;
+            overflow: hidden;
+            margin-bottom: 10pt;
+        }
+
+        .checklist-progress .progress-fill {
+            height: 100%;
+            background: #22c55e;
+            border-radius: 3pt;
+        }
+
         .decision-summary {
             padding: 10pt 12pt;
             background: #f8fafc;
@@ -574,22 +623,28 @@
 </div>
 
 <div class="checklist">
-    <div class="section-title">Evaluation Checklist</div>
+    <div class="checklist-header">
+        <span class="checklist-title">Evaluation Checklist</span>
+        <span class="checklist-count">{{ checklist_completed_count }}/{{ checklist_total_count }} complete</span>
+    </div>
+    <div class="checklist-progress">
+        <div class="progress-fill" style="width: {{ (checklist_completed_count / checklist_total_count * 100) if checklist_total_count > 0 else 0 }}%;"></div>
+    </div>
     <div class="checklist-item">
         <span class="item-label">Initial Screening</span>
-        <span class="item-status">Pending</span>
+        <span class="item-status {{ checklist_statuses.initial_screening }}">{{ checklist_statuses.initial_screening | replace('_', ' ') | title }}</span>
     </div>
     <div class="checklist-item">
         <span class="item-label">Technical Interview</span>
-        <span class="item-status">Pending</span>
+        <span class="item-status {{ checklist_statuses.technical_interview }}">{{ checklist_statuses.technical_interview | replace('_', ' ') | title }}</span>
     </div>
     <div class="checklist-item">
         <span class="item-label">Cultural Fit Assessment</span>
-        <span class="item-status">Pending</span>
+        <span class="item-status {{ checklist_statuses.cultural_fit }}">{{ checklist_statuses.cultural_fit | replace('_', ' ') | title }}</span>
     </div>
     <div class="checklist-item">
         <span class="item-label">Final Decision</span>
-        <span class="item-status">Pending</span>
+        <span class="item-status {{ checklist_statuses.final_decision }}">{{ checklist_statuses.final_decision | replace('_', ' ') | title }}</span>
     </div>
 </div>
 
