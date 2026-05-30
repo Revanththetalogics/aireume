@@ -536,6 +536,7 @@ class EvaluationOut(BaseModel):
 class DebriefRequest(BaseModel):
     """Request body for LLM debrief generation."""
     conversation_summary: str
+    recommendation: Optional[str] = None  # strong_hire | lean_hire | no_decision | lean_no_hire | strong_no_hire
 
     @field_validator('conversation_summary')
     @classmethod
@@ -543,6 +544,16 @@ class DebriefRequest(BaseModel):
         if len(v.strip()) < 100:
             raise ValueError('Conversation summary must be at least 100 characters')
         return v.strip()
+
+    @field_validator('recommendation')
+    @classmethod
+    def validate_recommendation(cls, v):
+        if v is None:
+            return v
+        allowed = {'strong_hire', 'lean_hire', 'no_decision', 'lean_no_hire', 'strong_no_hire'}
+        if v not in allowed:
+            raise ValueError(f'recommendation must be one of {allowed}')
+        return v
 
 
 class DebriefContent(BaseModel):

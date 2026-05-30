@@ -276,7 +276,18 @@ async def generate_debrief(
             "total_rated": len([e for e in cat_evals if e.rating]),
         }
 
-    # 4. Calculate recruiter score (40% rating distribution + 60% LLM sentiment)
+    # 4. Map recruiter's recommendation chip to advance/hold/reject
+    RECOMMENDATION_MAP = {
+        'strong_hire': 'advance',
+        'lean_hire': 'advance',
+        'no_decision': 'hold',
+        'lean_no_hire': 'reject',
+        'strong_no_hire': 'reject',
+    }
+    recruiter_recommendation_input = body.recommendation  # e.g. 'strong_hire'
+    mapped_recommendation = RECOMMENDATION_MAP.get(recruiter_recommendation_input, None) if recruiter_recommendation_input else None
+
+    # 5. Calculate recruiter score (40% rating distribution + 60% LLM sentiment)
     total_ratings = sum(r["total_rated"] for r in rating_summary.values())
     if total_ratings > 0:
         total_strong = sum(r["strong"] for r in rating_summary.values())
@@ -292,11 +303,16 @@ async def generate_debrief(
     role_title = analysis.get("jd_analysis", {}).get("role_title", "the role")
     fit_score = analysis.get("fit_score", "N/A")
 
+    recruiter_rec_prompt_line = ""
+    if recruiter_recommendation_input:
+        recruiter_rec_prompt_line = f"\n## Recruiter's Recommendation: {recruiter_recommendation_input.replace('_', ' ').title()}"
+
     prompt = f"""You are a senior recruiting analyst. Based on the following data, generate a structured debrief of a phone screening call.
 
 ## Candidate: {candidate_name}
 ## Role: {role_title}
 ## AI Fit Score: {fit_score}%
+{recruiter_rec_prompt_line}
 
 ## Rating Distribution from Phone Screen:
 - Technical: {rating_summary['technical']}
@@ -372,6 +388,10 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
     recommendation = debrief_data.get("recommendation", "hold").lower().strip()
     if recommendation not in ("advance", "hold", "reject"):
         recommendation = "hold"
+
+    # If recruiter selected a recommendation chip, prefer that over LLM-derived one
+    if mapped_recommendation:
+        recommendation = mapped_recommendation
 
     # 8. Store in OverallAssessment
     overall = db.query(OverallAssessment).filter(

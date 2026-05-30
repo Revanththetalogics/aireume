@@ -93,6 +93,7 @@ export default function PhoneScreenKit({ interview_questions, resultId, analysis
   const [summaryError, setSummaryError] = useState('')
   const [submittingSummary, setSubmittingSummary] = useState(false)
   const [debriefGenerated, setDebriefGenerated] = useState(false)
+  const [recommendation, setRecommendation] = useState('')
 
   const QTABS = [
     { key: 'technical',           label: 'Technical',           questions: interview_questions?.technical_questions            || [] },
@@ -190,11 +191,9 @@ export default function PhoneScreenKit({ interview_questions, resultId, analysis
       return
     }
 
-    // Validation 3: must contain directional indicator
-    const directionalWords = ['strong', 'weak', 'suitable', 'not suitable', 'recommend', 'concern', 'gap', 'proficient', 'lacks', 'excellent', 'poor', 'confident', 'hesitant', 'advance', 'reject', 'hold']
-    const hasDirection = directionalWords.some(word => summaryLower.includes(word))
-    if (!hasDirection) {
-      setSummaryError('Please include your recommendation direction (e.g., mention if candidate is strong/weak, if you recommend advancing or have concerns).')
+    // Validation 3: recommendation must be selected
+    if (!recommendation) {
+      setSummaryError('Please select your recommendation before submitting.')
       return
     }
 
@@ -204,7 +203,7 @@ export default function PhoneScreenKit({ interview_questions, resultId, analysis
       // First save the overall assessment
       await saveOverallAssessment(resultId, { overall_assessment: conversationSummary })
       // Then generate debrief
-      const debrief = await generateDebrief(resultId, conversationSummary)
+      const debrief = await generateDebrief(resultId, conversationSummary, recommendation)
       setDebriefGenerated(true)
       // Notify parent of successful debrief generation (optional callback)
       if (onDebriefGenerated) onDebriefGenerated(debrief)
@@ -451,6 +450,37 @@ export default function PhoneScreenKit({ interview_questions, resultId, analysis
         <p className="text-xs text-slate-500 mb-3">
           After your call, summarize why this candidate is or isn&apos;t suitable for this role.
         </p>
+
+        {/* Recommendation Selector */}
+        <div className="mb-3">
+          <span className="text-xs font-semibold text-slate-600 block mb-2">Your Recommendation</span>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: 'strong_hire',     label: 'Strong Hire',     selectedClass: 'bg-emerald-600 text-white ring-emerald-600',  ringClass: 'ring-emerald-300' },
+              { value: 'lean_hire',       label: 'Lean Hire',       selectedClass: 'bg-teal-600 text-white ring-teal-600',        ringClass: 'ring-teal-300' },
+              { value: 'no_decision',     label: 'No Decision',     selectedClass: 'bg-slate-500 text-white ring-slate-500',      ringClass: 'ring-slate-300' },
+              { value: 'lean_no_hire',    label: 'Lean No Hire',    selectedClass: 'bg-orange-500 text-white ring-orange-500',    ringClass: 'ring-orange-300' },
+              { value: 'strong_no_hire',  label: 'Strong No Hire',  selectedClass: 'bg-red-600 text-white ring-red-600',          ringClass: 'ring-red-300' },
+            ].map(opt => {
+              const isSelected = recommendation === opt.value
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setRecommendation(opt.value)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold ring-1 transition-all ${
+                    isSelected
+                      ? opt.selectedClass
+                      : `bg-white text-slate-600 ${opt.ringClass} hover:bg-slate-50`
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         <textarea
           value={conversationSummary}
           onChange={(e) => setConversationSummary(e.target.value)}
