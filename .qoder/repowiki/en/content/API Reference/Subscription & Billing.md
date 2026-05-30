@@ -5,6 +5,7 @@
 - [subscription.py](file://app/backend/routes/subscription.py)
 - [billing.py](file://app/backend/routes/billing.py)
 - [webhook_docs.py](file://app/backend/routes/webhook_docs.py)
+- [admin.py](file://app/backend/routes/admin.py)
 - [factory.py](file://app/backend/services/billing/factory.py)
 - [base.py](file://app/backend/services/billing/base.py)
 - [stripe_provider.py](file://app/backend/services/billing/stripe_provider.py)
@@ -17,28 +18,31 @@
 - [scheduler.py](file://app/backend/services/scheduler.py)
 - [proration_service.py](file://app/backend/services/proration_service.py)
 - [usage_alert_service.py](file://app/backend/services/usage_alert_service.py)
-- [admin.py](file://app/backend/routes/admin.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [useSubscription.jsx](file://app/frontend/src/hooks/useSubscription.jsx)
 - [main.py](file://app/backend/main.py)
 - [auth.py](file://app/backend/middleware/auth.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
+- [014_billing_system.py](file://alembic/versions/014_billing_system.py)
 - [027_billing_events.py](file://alembic/versions/027_billing_events.py)
 - [029_dunning_system.py](file://alembic/versions/029_dunning_system.py)
 - [030_usage_alerts.py](file://alembic/versions/030_usage_alerts.py)
 - [031_onboarding_flag.py](file://alembic/versions/031_onboarding_flag.py)
+- [043_platform_settings.py](file://alembic/versions/043_platform_settings.py)
+- [BillingSettingsPage.jsx](file://app/frontend/src/pages/admin/BillingSettingsPage.jsx)
+- [api.js](file://app/frontend/src/lib/api.js)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive webhook event documentation through new webhook_docs route with standardized event registry
-- Introduced notification service for administrative alerts and dunning notifications
-- Implemented scheduler service for background tasks including dunning retries and stale job recovery
-- Enhanced webhook processing with improved audit logging and error handling
-- Expanded billing integration with Stripe, Razorpay, and Manual providers including automated webhook processing
-- Added webhook signing information and standardized event signatures
-- Integrated background scheduler into application lifecycle management
+- Added comprehensive Billing Settings Page functionality with real-time connection testing
+- Implemented platform_settings database table for centralized platform-wide configuration
+- Enhanced payment gateway integration with Stripe/Razorpay support and checkout link generation
+- Added new admin endpoints for billing configuration management
+- Integrated real-time connection testing for payment providers
+- Implemented checkout link generation for tenant subscription management
+- Enhanced frontend integration with BillingSettingsPage component
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -56,10 +60,11 @@
 13. [Proration Calculations](#proration-calculations)
 14. [Platform Configuration Management](#platform-configuration-management)
 15. [Database Schema Enhancements](#database-schema-enhancements)
-16. [Dependency Analysis](#dependency-analysis)
-17. [Performance Considerations](#performance-considerations)
-18. [Troubleshooting Guide](#troubleshooting-guide)
-19. [Conclusion](#conclusion)
+16. [Billing Settings Page Integration](#billing-settings-page-integration)
+17. [Dependency Analysis](#dependency-analysis)
+18. [Performance Considerations](#performance-considerations)
+19. [Troubleshooting Guide](#troubleshooting-guide)
+20. [Conclusion](#conclusion)
 
 ## Introduction
 This document provides comprehensive API documentation for the complete SaaS billing system implementation, featuring integrated Stripe and Razorpay payment processing, webhook automation, invoice generation, dunning management, proration calculations, and usage alerts. The system now includes:
@@ -75,6 +80,9 @@ This document provides comprehensive API documentation for the complete SaaS bil
 - **Tenant Onboarding**: Enhanced onboarding tracking and completion flags
 - **Webhook Event Registry**: Standardized documentation of all webhook event types and signatures
 - **Background Task Processing**: Automated dunning retries and system maintenance tasks
+- **Billing Settings Page**: Comprehensive admin interface for payment provider configuration and testing
+- **Checkout Link Generation**: Tenant-specific subscription link creation for manual billing scenarios
+- **Real-time Connection Testing**: Live validation of payment provider connectivity and configuration
 
 ## Project Structure
 The enhanced billing system spans multiple backend services, routes, models, and specialized services:
@@ -84,9 +92,10 @@ The enhanced billing system spans multiple backend services, routes, models, and
 - **Subscription Routes**: Enhanced endpoints for plan management and usage tracking
 - **Admin Configuration**: Platform-level billing provider setup and management
 - **Usage Integration**: Configurable threshold-based alerts and notification dispatch
-- **Database Schema**: Dedicated tables for invoices, billing events, dunning, and usage alerts
+- **Database Schema**: Dedicated tables for invoices, billing events, dunning, usage alerts, and platform settings
 - **Notification Service**: Administrative alert management and webhook event dispatch
 - **Scheduler Service**: Background task automation for dunning retries and system maintenance
+- **Billing Settings Interface**: Frontend component for comprehensive billing configuration management
 
 ```mermaid
 graph TB
@@ -123,6 +132,8 @@ U["usage_alerts: 030"]
 V["tenants.onboarding: 031"]
 W["webhooks: db_models.py"]
 X["webhook_deliveries: db_models.py"]
+Y["platform_configs: 014"]
+Z["platform_settings: 043"]
 end
 A --> C
 A --> D
@@ -157,6 +168,8 @@ P --> K
 - [billing.py:1-224](file://app/backend/routes/billing.py#L1-L224)
 - [subscription.py:1-640](file://app/backend/routes/subscription.py#L1-L640)
 - [webhook_docs.py:1-94](file://app/backend/routes/webhook_docs.py#L1-L94)
+- [014_billing_system.py:1-66](file://alembic/versions/014_billing_system.py#L1-L66)
+- [043_platform_settings.py:1-26](file://alembic/versions/043_platform_settings.py#L1-L26)
 
 ## Core Components
 The comprehensive billing system introduces several key components:
@@ -205,6 +218,12 @@ The comprehensive billing system introduces several key components:
 - **System Maintenance**: Automated cleanup and monitoring tasks
 - **Scheduler Integration**: APScheduler-based background task management
 
+### Billing Settings Page Integration
+- **Real-time Connection Testing**: Live validation of payment provider connectivity
+- **Checkout Link Generation**: Tenant-specific subscription link creation
+- **Comprehensive Configuration Management**: Unified interface for all billing settings
+- **Provider-Specific Setup**: Tailored configuration forms for Stripe and Razorpay
+
 **Section sources**
 - [factory.py:13-36](file://app/backend/services/billing/factory.py#L13-L36)
 - [webhook_processor.py:634-721](file://app/backend/services/billing/webhook_processor.py#L634-L721)
@@ -213,6 +232,7 @@ The comprehensive billing system introduces several key components:
 - [usage_alert_service.py:21-97](file://app/backend/services/usage_alert_service.py#L21-L97)
 - [webhook_docs.py:12-94](file://app/backend/routes/webhook_docs.py#L12-L94)
 - [scheduler.py:15-111](file://app/backend/services/scheduler.py#L15-L111)
+- [BillingSettingsPage.jsx:1-524](file://app/frontend/src/pages/admin/BillingSettingsPage.jsx#L1-L524)
 
 ## Architecture Overview
 The enhanced billing system integrates payment providers, automated processing, and comprehensive management into a cohesive architecture:
@@ -676,12 +696,6 @@ The proration service calculates accurate billing adjustments for plan changes:
 - Change effective date
 - Remaining days in billing period
 
-**Proration Factors**:
-- Credit amount for unused portion
-- Charge amount for remaining portion
-- Net adjustment amount
-- Proration factor (0.0 to 1.0)
-
 ### Provider-Specific Implementation
 - **Stripe**: Automatic proration via provider API
 - **Razorpay**: Manual addon/credit calculation
@@ -717,7 +731,7 @@ Billing configurations are stored in the `platform_configs` table with the follo
 
 **Section sources**
 - [admin.py:946-1066](file://app/backend/routes/admin.py#L946-L1066)
-- [db_models.py:367-378](file://app/backend/models/db_models.py#L367-L378)
+- [db_models.py:537-547](file://app/backend/models/db_models.py#L537-L547)
 - [factory.py:39-94](file://app/backend/services/billing/factory.py#L39-L94)
 
 ## Database Schema Enhancements
@@ -752,7 +766,7 @@ The dunning system introduces a comprehensive retry tracking mechanism:
 - `last_retry_at`: Last retry attempt timestamp
 - `failure_reason`: Reason for payment failure
 - `resolved_at`: Resolution timestamp
-- `created_at`: Record creation timestamp
+- `created_at`: record creation timestamp
 
 **Section sources**
 - [029_dunning_system.py:13-42](file://alembic/versions/029_dunning_system.py#L13-L42)
@@ -785,6 +799,18 @@ Enhanced tenant tracking with onboarding completion flags:
 **Section sources**
 - [031_onboarding_flag.py:13-15](file://alembic/versions/031_onboarding_flag.py#L13-L15)
 
+### Platform Settings Table
+New centralized platform configuration storage:
+
+**Schema**:
+- `id`: Auto-increment primary key
+- `key`: Unique configuration key
+- `value`: Configuration value (JSON string)
+- `updated_at`: Timestamp of last modification
+
+**Section sources**
+- [043_platform_settings.py:12-21](file://alembic/versions/043_platform_settings.py#L12-L21)
+
 ### Webhook Infrastructure Tables
 Enhanced webhook system includes supporting tables:
 
@@ -799,6 +825,73 @@ Enhanced webhook system includes supporting tables:
 
 **Section sources**
 - [db_models.py:505-535](file://app/backend/models/db_models.py#L505-L535)
+
+## Billing Settings Page Integration
+
+### Real-time Connection Testing
+The Billing Settings Page provides comprehensive real-time validation of payment provider connectivity:
+
+**Endpoints**:
+- `POST /admin/billing/test-stripe`: Test Stripe connection
+- `POST /admin/billing/test-razorpay`: Test Razorpay connection
+
+**Response Format**:
+```json
+{
+  "success": boolean,
+  "message": string,
+  "provider": string,
+  "timestamp": string
+}
+```
+
+**Features**:
+- Live API key validation
+- Connection timeout detection
+- Error message reporting
+- Provider-specific validation logic
+
+### Checkout Link Generation
+The system supports tenant-specific subscription link creation:
+
+**Endpoint**: `POST /admin/billing/generate-checkout-link`
+**Request Body**:
+```json
+{
+  "tenant_id": integer,
+  "plan_id": integer
+}
+```
+
+**Response**:
+```json
+{
+  "checkout_url": string,
+  "expires_at": string,
+  "provider": string
+}
+```
+
+**Features**:
+- Tenant-specific checkout URLs
+- Expiration tracking
+- Provider-aware link generation
+- Email integration support
+
+### Comprehensive Configuration Management
+The Billing Settings Page provides unified interface for all billing configuration:
+
+**Sections**:
+- **Active Provider Selection**: Choose between Stripe, Razorpay, or Manual
+- **Stripe Configuration**: API keys, webhook secrets, publishable keys
+- **Razorpay Configuration**: Key IDs, secrets, webhook configuration
+- **Manual Provider Setup**: Offline processing configuration
+- **Connection Testing**: Real-time validation of all configurations
+- **Checkout Link Generation**: One-click tenant subscription link creation
+
+**Section sources**
+- [BillingSettingsPage.jsx:1-524](file://app/frontend/src/pages/admin/BillingSettingsPage.jsx#L1-L524)
+- [api.js:1251-1256](file://app/frontend/src/lib/api.js#L1251-L1256)
 
 ## Dependency Analysis
 The enhanced system introduces new dependencies and relationships:
@@ -828,11 +921,14 @@ MIG["027_billing_events.py"] --> DBM
 MIG --> MIG29["029_dunning_system.py"]
 MIG --> MIG30["030_usage_alerts.py"]
 MIG --> MIG31["031_onboarding_flag.py"]
+MIG --> MIG43["043_platform_settings.py"]
 MAIN["main.py"] --> SCHED
 MAIN --> BILL
 AUTH["auth.py"] --> BILL
 ANA["analyze.py"] --> SUB
 FE["useSubscription.jsx"] --> SUB
+ADMINFE["BillingSettingsPage.jsx"] --> API["api.js"]
+API --> ADMIN
 END
 ```
 
@@ -849,6 +945,7 @@ END
 - [proration_service.py:1-143](file://app/backend/services/proration_service.py#L1-L143)
 - [usage_alert_service.py:1-272](file://app/backend/services/usage_alert_service.py#L1-L272)
 - [webhook_docs.py:1-94](file://app/backend/routes/webhook_docs.py#L1-L94)
+- [043_platform_settings.py:1-26](file://alembic/versions/043_platform_settings.py#L1-L26)
 
 **Section sources**
 - [billing.py:1-224](file://app/backend/routes/billing.py#L1-L224)
@@ -863,6 +960,7 @@ END
 - [proration_service.py:1-143](file://app/backend/services/proration_service.py#L1-L143)
 - [usage_alert_service.py:1-272](file://app/backend/services/usage_alert_service.py#L1-L272)
 - [webhook_docs.py:1-94](file://app/backend/routes/webhook_docs.py#L1-L94)
+- [043_platform_settings.py:1-26](file://alembic/versions/043_platform_settings.py#L1-L26)
 
 ## Performance Considerations
 The enhanced system introduces several performance considerations:
@@ -895,6 +993,12 @@ The enhanced system introduces several performance considerations:
 - **Task Isolation**: Separate schedulers for different task types prevent interference
 - **Graceful Degradation**: Scheduler failures don't impact core application functionality
 - **Resource Management**: Background tasks designed for low memory and CPU footprint
+
+### Billing Settings Page Performance
+- **Real-time Validation**: Connection testing optimized with timeout handling
+- **Configuration Caching**: Billing settings cached to reduce database queries
+- **Frontend Optimization**: Debounced input handling for configuration updates
+- **Error Handling**: Graceful degradation when provider APIs are unavailable
 
 ## Troubleshooting Guide
 
@@ -945,6 +1049,12 @@ The enhanced system introduces several performance considerations:
 - **Signature Verification**: Ensure HMAC-SHA256 signature validation is working
 - **Event Delivery**: Monitor webhook_deliveries table for delivery attempts and responses
 
+### Billing Settings Page Issues
+- **Connection Testing**: Verify real-time validation is working for both Stripe and Razorpay
+- **Checkout Link Generation**: Check tenant and plan selection for proper link creation
+- **Configuration Persistence**: Verify settings are properly saved to platform_configs table
+- **Frontend Integration**: Ensure proper error handling and user feedback for all operations
+
 **Section sources**
 - [webhook_processor.py:675-721](file://app/backend/services/billing/webhook_processor.py#L675-L721)
 - [dunning_service.py:385-407](file://app/backend/services/billing/dunning_service.py#L385-L407)
@@ -954,6 +1064,7 @@ The enhanced system introduces several performance considerations:
 - [webhook_docs.py:87-94](file://app/backend/routes/webhook_docs.py#L87-L94)
 - [scheduler.py:78-111](file://app/backend/services/scheduler.py#L78-L111)
 - [notification_service.py:23-62](file://app/backend/services/notification_service.py#L23-L62)
+- [BillingSettingsPage.jsx:187-230](file://app/frontend/src/pages/admin/BillingSettingsPage.jsx#L187-L230)
 
 ## Conclusion
-The comprehensive SaaS billing system provides a robust, extensible foundation for payment processing and subscription management. The multi-provider architecture with Stripe and Razorpay integration offers seamless payment processing, while the enhanced webhook system ensures real-time synchronization with payment providers including comprehensive checkout.session.completed support. The addition of invoice generation, dunning management, proration calculations, and usage alerts creates a complete billing ecosystem that supports scalable subscription-based services. The centralized configuration management enables easy provider switching and maintenance, while comprehensive audit logging ensures compliance and troubleshooting capabilities. The enhanced dunning system with automated retry scheduling and tenant suspension workflows provides reliable payment recovery, and the configurable usage alert system with 80%/100% defaults ensures optimal user experience. The introduction of webhook event documentation, administrative notifications, and background task processing completes the system with enterprise-grade capabilities for billing operations with flexible payment processing and intelligent usage monitoring.
+The comprehensive SaaS billing system provides a robust, extensible foundation for payment processing and subscription management. The multi-provider architecture with Stripe and Razorpay integration offers seamless payment processing, while the enhanced webhook system ensures real-time synchronization with payment providers including comprehensive checkout.session.completed support. The addition of invoice generation, dunning management, proration calculations, and usage alerts creates a complete billing ecosystem that supports scalable subscription-based services. The centralized configuration management enables easy provider switching and maintenance, while comprehensive audit logging ensures compliance and troubleshooting capabilities. The enhanced dunning system with automated retry scheduling and tenant suspension workflows provides reliable payment recovery, and the configurable usage alert system with 80%/100% defaults ensures optimal user experience. The introduction of webhook event documentation, administrative notifications, and background task processing completes the system with enterprise-grade capabilities for billing operations with flexible payment processing and intelligent usage monitoring. The new Billing Settings Page functionality adds comprehensive real-time connection testing, checkout link generation, and unified configuration management, making the system even more accessible and manageable for administrators.

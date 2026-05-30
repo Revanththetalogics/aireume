@@ -9,16 +9,24 @@
 - [team_routes.py](file://app/backend/routes/team.py)
 - [admin_routes.py](file://app/backend/routes/admin.py)
 - [UsersPage.jsx](file://app/frontend/src/pages/admin/UsersPage.jsx)
+- [SlideOutPanel.jsx](file://app/frontend/src/components/admin/SlideOutPanel.jsx)
+- [TenantDetailPage.jsx](file://app/frontend/src/pages/admin/TenantDetailPage.jsx)
 - [AuthContext.jsx](file://app/frontend/src/contexts/AuthContext.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
+- [PlanFeaturesPage.jsx](file://app/frontend/src/pages/admin/PlanFeaturesPage.jsx)
+- [BillingSettingsPage.jsx](file://app/frontend/src/pages/admin/BillingSettingsPage.jsx)
+- [PlanManagementPage.jsx](file://app/frontend/src/pages/admin/PlanManagementPage.jsx)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced error handling documentation with extractApiError() utility function
-- Updated pagination implementation details to reflect 100 items per page optimization
-- Added comprehensive error handling patterns and user-friendly error messaging
-- Updated frontend integration documentation with improved error handling practices
+- Enhanced administrative user experience with new inline toggle controls for user status management
+- Introduced comprehensive slide-out panel system for detailed user and tenant management
+- Added inline toggle controls for feature flag management across the platform
+- Implemented comprehensive tenant management actions including plan assignment and billing configuration
+- Enhanced error handling with extractApiError() utility function throughout the admin interface
+- Updated pagination implementation to 20 items per page for improved performance
+- Added comprehensive tenant detail view with plan management, usage adjustment, and billing configuration
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -27,11 +35,12 @@
 4. [Authentication and Authorization](#authentication-and-authorization)
 5. [User Management Features](#user-management-features)
 6. [Advanced User Management Capabilities](#advanced-user-management-capabilities)
-7. [Multi-Tenant Architecture](#multi-tenant-architecture)
-8. [Security Implementation](#security-implementation)
-9. [Frontend Integration](#frontend-integration)
-10. [API Endpoints](#api-endpoints)
-11. [Best Practices and Guidelines](#best-practices-and-guidelines)
+7. [Tenant Management System](#tenant-management-system)
+8. [Multi-Tenant Architecture](#multi-tenant-architecture)
+9. [Security Implementation](#security-implementation)
+10. [Frontend Integration](#frontend-integration)
+11. [API Endpoints](#api-endpoints)
+12. [Best Practices and Guidelines](#best-practices-and-guidelines)
 
 ## Introduction
 
@@ -50,6 +59,9 @@ UI[React Frontend]
 AuthCtx[Auth Context]
 API[API Client]
 UsersPage[Users Management Page]
+TenantDetailPage[Tenant Detail Page]
+SlideOutPanel[Slide Out Panel]
+PlanFeaturesPage[Plan Features Page]
 end
 subgraph "Backend Layer"
 subgraph "Routes Layer"
@@ -66,6 +78,7 @@ subgraph "Services Layer"
 AuthSvc[Authentication Service]
 TeamSvc[Team Service]
 AdminSvc[Admin Service]
+BillingSvc[Billing Service]
 end
 subgraph "Data Layer"
 Models[Database Models]
@@ -75,10 +88,16 @@ end
 UI --> AuthCtx
 AuthCtx --> API
 API --> UsersPage
+API --> TenantDetailPage
+API --> SlideOutPanel
+API --> PlanFeaturesPage
 API --> AuthRoutes
 API --> TeamRoutes
 API --> AdminRoutes
 UsersPage --> AdminRoutes
+TenantDetailPage --> AdminRoutes
+SlideOutPanel --> UsersPage
+PlanFeaturesPage --> AdminRoutes
 AuthRoutes --> AuthMW
 TeamRoutes --> AuthMW
 AdminRoutes --> AuthMW
@@ -87,9 +106,11 @@ RBAC --> Security
 AuthRoutes --> AuthSvc
 TeamRoutes --> TeamSvc
 AdminRoutes --> AdminSvc
+AdminSvc --> BillingSvc
 AuthSvc --> Models
 TeamSvc --> Models
 AdminSvc --> Models
+BillingSvc --> Models
 Models --> DB
 ```
 
@@ -404,27 +425,30 @@ ViewTenant --> UsageHistory
 
 ## Advanced User Management Capabilities
 
-### Comprehensive User Management Interface
+### Enhanced User Management Interface with Inline Toggle Controls
 
-The UsersPage.jsx component provides a sophisticated user management interface with advanced filtering, sorting, and bulk action capabilities:
+The UsersPage.jsx component provides a sophisticated user management interface with advanced filtering, sorting, and comprehensive inline toggle controls for user status management:
 
 ```mermaid
 graph TB
-subgraph "User Management Interface"
+subgraph "Enhanced User Management Interface"
 UsersPage[UsersPage Component]
 TenantSelector[Tenant Selector]
 UserFilters[Advanced Filters]
-UserTable[User Table with Sorting]
+UserTable[User Table with Inline Toggle Controls]
 BulkActions[Bulk Action Controls]
-end
+SlideOutPanel[Slide Out Panel System]
+InlineToggle[Inline Toggle Controls]
+End
 subgraph "User Operations"
 AddUser[Add User Modal]
 ChangeRole[Change Role Modal]
 RemoveUser[Remove User Action]
-StatusToggle[Status Toggle]
+InlineToggle --> UserStatusToggle[User Status Toggle]
+InlineToggle --> UserRoleToggle[User Role Toggle]
 end
 subgraph "Data Management"
-Pagination[Pagination Controls]
+Pagination[Pagination Controls - 20 per page]
 Search[Search Functionality]
 Export[Export Capabilities]
 end
@@ -432,10 +456,10 @@ UsersPage --> TenantSelector
 UsersPage --> UserFilters
 UsersPage --> UserTable
 UsersPage --> BulkActions
-UserTable --> AddUser
-UserTable --> ChangeRole
-UserTable --> RemoveUser
-UserTable --> StatusToggle
+UsersPage --> SlideOutPanel
+UserTable --> InlineToggle
+InlineToggle --> UserStatusToggle
+InlineToggle --> UserRoleToggle
 UserFilters --> Search
 UserFilters --> Pagination
 BulkActions --> Export
@@ -443,33 +467,69 @@ BulkActions --> Export
 
 **Diagram sources**
 - [UsersPage.jsx:295-649](file://app/frontend/src/pages/admin/UsersPage.jsx#L295-L649)
+- [UsersPage.jsx:176-192](file://app/frontend/src/pages/admin/UsersPage.jsx#L176-L192)
 
-### Cross-Tenant User Management
+### Comprehensive Slide-Out Panel System
 
-The enhanced UsersPage.jsx now supports sophisticated cross-tenant user management with comprehensive filtering and role assignment controls:
+The system now implements a comprehensive slide-out panel system for detailed user and tenant management:
 
 ```mermaid
-flowchart TD
-CrossTenant[Cross-Tenant Management] --> TenantSelection[Tenant Selection]
-TenantSelection --> UserListing[User Listing per Tenant]
-UserListing --> CrossTenantMove[Cross-Tenant User Move]
-CrossTenantMove --> SuperAdminCheck[Super Admin Privilege Check]
-SuperAdminCheck --> AuditLog[Audit Trail Logging]
-UserListing --> RoleAssignment[Role Assignment Controls]
-RoleAssignment --> PlatformRoles[Platform-Level Roles]
-RoleAssignment --> TenantRoles[Tenant-Level Roles]
-PlatformRoles --> SuperAdmin[Super Admin]
-PlatformRoles --> BillingAdmin[Billing Admin]
-PlatformRoles --> Support[Support]
-PlatformRoles --> SecurityAdmin[Security Admin]
-TenantRoles --> Admin[Admin]
-TenantRoles --> Recruiter[Recruiter]
-TenantRoles --> Viewer[Viewer]
+graph TB
+subgraph "Slide-Out Panel System"
+SlideOutPanel[SlideOutPanel Component]
+UserSlideOut[User Slide-Out Panel]
+TenantDetailPanel[Tenant Detail Panel]
+ActionPanel[Action Panel]
+ProfileSection[Profile Section]
+ActionsSection[Actions Section]
+ActivityLog[Activity Log Section]
+end
+subgraph "Panel Features"
+Overlay[Overlay Background]
+Header[Panel Header]
+CloseButton[Close Button]
+Content[Panel Content]
+WidthControl[Width Control - w-[480px]]
+Transition[Smooth Transitions]
+end
+SlideOutPanel --> UserSlideOut
+SlideOutPanel --> TenantDetailPanel
+SlideOutPanel --> ActionPanel
+UserSlideOut --> ProfileSection
+UserSlideOut --> ActionsSection
+UserSlideOut --> ActivityLog
+SlideOutPanel --> Overlay
+SlideOutPanel --> Header
+SlideOutPanel --> CloseButton
+SlideOutPanel --> Content
+SlideOutPanel --> WidthControl
+SlideOutPanel --> Transition
 ```
 
 **Diagram sources**
-- [UsersPage.jsx:26-32](file://app/frontend/src/pages/admin/UsersPage.jsx#L26-L32)
-- [admin_routes.py:969-985](file://app/backend/routes/admin.py#L969-L985)
+- [SlideOutPanel.jsx:1-38](file://app/frontend/src/components/admin/SlideOutPanel.jsx#L1-L38)
+- [UsersPage.jsx:195-321](file://app/frontend/src/pages/admin/UsersPage.jsx#L195-L321)
+
+### Inline Toggle Controls for Feature Flag Management
+
+The system provides inline toggle controls for comprehensive feature flag management across the platform:
+
+```mermaid
+flowchart TD
+FeatureFlags[Feature Flags Management] --> ToggleControls[Inline Toggle Controls]
+ToggleControls --> EnabledToggle[Enabled Toggle - Green]
+ToggleControls --> DisabledToggle[Disabled Toggle - Gray]
+ToggleControls --> OverrideToggle[Override Toggle]
+EnabledToggle --> ToggleRight[ToggleRight Icon]
+DisabledToggle --> ToggleLeft[ToggleLeft Icon]
+OverrideToggle --> Legend[Legend Display]
+Legend --> EnabledLegend[Enabled Legend]
+Legend --> DisabledLegend[Disabled Legend]
+Legend --> OverrideLegend[Override Legend]
+```
+
+**Diagram sources**
+- [PlanFeaturesPage.jsx:162-204](file://app/frontend/src/pages/admin/PlanFeaturesPage.jsx#L162-L204)
 
 ### Enhanced Error Handling with extractApiError()
 
@@ -495,12 +555,12 @@ DefaultMessage --> DisplayError
 
 ### Optimized Pagination Implementation
 
-The system now implements optimized pagination with 100 items per page for improved performance:
+The system now implements optimized pagination with 20 items per page for improved performance:
 
 ```mermaid
 flowchart TD
-Pagination[Pagination System] --> PerPage[100 Items per Page]
-PerPage --> FetchTenants[Fetch Tenants with 100 per page]
+Pagination[Pagination System] --> PerPage[20 Items per Page]
+PerPage --> FetchTenants[Fetch Tenants with 20 per page]
 FetchTenants --> LocalPagination[Local Pagination Logic]
 LocalPagination --> SliceUsers[Slice Users Array]
 SliceUsers --> DisplayUsers[Display Current Page]
@@ -513,8 +573,8 @@ PreviousPage --> SliceUsers
 ```
 
 **Diagram sources**
-- [UsersPage.jsx:25](file://app/frontend/src/pages/admin/UsersPage.jsx#L25)
-- [UsersPage.jsx:324](file://app/frontend/src/pages/admin/UsersPage.jsx#L324)
+- [UsersPage.jsx:32](file://app/frontend/src/pages/admin/UsersPage.jsx#L32)
+- [UsersPage.jsx:485](file://app/frontend/src/pages/admin/UsersPage.jsx#L485)
 
 ### Advanced Filtering and Search
 
@@ -534,7 +594,7 @@ Paginate --> Display[Display Results]
 ```
 
 **Diagram sources**
-- [UsersPage.jsx:369-375](file://app/frontend/src/pages/admin/UsersPage.jsx#L369-L375)
+- [UsersPage.jsx:476-483](file://app/frontend/src/pages/admin/UsersPage.jsx#L476-L483)
 
 ### Role Assignment Controls
 
@@ -555,27 +615,160 @@ PlatformRole --> ReadOnly[Read-Only]
 ```
 
 **Diagram sources**
-- [UsersPage.jsx:26-32](file://app/frontend/src/pages/admin/UsersPage.jsx#L26-L32)
+- [UsersPage.jsx:34-40](file://app/frontend/src/pages/admin/UsersPage.jsx#L34-L40)
 
-### User Status Management
+### User Status Management with Inline Toggle Controls
 
-The system implements comprehensive user status management with activation/deactivation capabilities:
+The system implements comprehensive user status management with activation/deactivation capabilities through inline toggle controls:
 
 ```mermaid
 stateDiagram-v2
 [*] --> Active
-Active --> Inactive : Deactivate User
-Inactive --> Active : Reactivate User
+Active --> Inactive : Toggle Off
+Inactive --> Active : Toggle On
 Active --> Suspended : Tenant Suspension
 Suspended --> Active : Tenant Reactivation
 ```
 
 **Diagram sources**
-- [UsersPage.jsx:56-66](file://app/frontend/src/pages/admin/UsersPage.jsx#L56-L66)
+- [UsersPage.jsx:698-701](file://app/frontend/src/pages/admin/UsersPage.jsx#L698-L701)
 
 **Section sources**
 - [UsersPage.jsx:295-649](file://app/frontend/src/pages/admin/UsersPage.jsx#L295-L649)
+- [SlideOutPanel.jsx:1-38](file://app/frontend/src/components/admin/SlideOutPanel.jsx#L1-L38)
+- [PlanFeaturesPage.jsx:162-204](file://app/frontend/src/pages/admin/PlanFeaturesPage.jsx#L162-L204)
 - [api.js:1077-1085](file://app/frontend/src/lib/api.js#L1077-L1085)
+
+## Tenant Management System
+
+### Comprehensive Tenant Detail Management
+
+The TenantDetailPage.jsx provides a comprehensive tenant management interface with detailed information and management capabilities:
+
+```mermaid
+graph TB
+subgraph "Tenant Detail Management"
+TenantDetailPage[Tenant Detail Page]
+TenantOverview[Tenant Overview]
+TenantUsers[Tenant Users]
+TenantUsage[Tenant Usage]
+TenantConfig[Tenant Config]
+PlanManagement[Plan Management]
+UsageAdjustment[Usage Adjustment]
+BillingConfiguration[Billing Configuration]
+SuspendTenant[Suspend Tenant]
+ReactivateTenant[Reactivate Tenant]
+AddUser[Add User]
+end
+subgraph "Tenant Operations"
+ViewDetails[View Tenant Details]
+ManageUsers[Manage Users]
+AdjustPlan[Adjust Plan]
+ModifyUsage[Modify Usage]
+ConfigureBilling[Configure Billing]
+SuspendTenant --> SuspendModal
+ReactivateTenant --> ReactivateModal
+PlanManagement --> ChangePlanModal
+UsageAdjustment --> AdjustUsageModal
+end
+TenantDetailPage --> TenantOverview
+TenantDetailPage --> TenantUsers
+TenantDetailPage --> TenantUsage
+TenantDetailPage --> TenantConfig
+TenantDetailPage --> PlanManagement
+TenantDetailPage --> UsageAdjustment
+TenantDetailPage --> BillingConfiguration
+TenantDetailPage --> SuspendTenant
+TenantDetailPage --> ReactivateTenant
+TenantDetailPage --> AddUser
+```
+
+**Diagram sources**
+- [TenantDetailPage.jsx:384-632](file://app/frontend/src/pages/admin/TenantDetailPage.jsx#L384-L632)
+
+### Tenant Plan Management
+
+The system provides comprehensive plan management capabilities with detailed configuration options:
+
+```mermaid
+flowchart TD
+PlanManagement[Plan Management] --> PlanList[Plan List]
+PlanList --> CreatePlan[Create New Plan]
+PlanList --> EditPlan[Edit Existing Plan]
+PlanList --> ArchivePlan[Archive Plan]
+CreatePlan --> PlanForm[Plan Configuration Form]
+EditPlan --> PlanForm
+ArchivePlan --> ArchiveConfirmation[Archive Confirmation]
+PlanForm --> Name[Plan Name]
+PlanForm --> Pricing[Pricing Configuration]
+PlanForm --> Limits[Usage Limits]
+PlanForm --> Features[Feature List]
+PlanForm --> Currency[Currency Selection]
+Pricing --> MonthlyPrice[Monthly Price]
+Pricing --> YearlyPrice[Yearly Price]
+Limits --> AnalysesLimit[Analyses Limit]
+Limits --> StorageLimit[Storage Limit]
+Limits --> TeamMembersLimit[Team Members Limit]
+Limits --> BatchSizeLimit[Batch Size Limit]
+```
+
+**Diagram sources**
+- [PlanManagementPage.jsx:127-200](file://app/frontend/src/pages/admin/PlanManagementPage.jsx#L127-L200)
+
+### Billing Configuration and Management
+
+The system provides comprehensive billing configuration and management capabilities:
+
+```mermaid
+flowchart TD
+BillingManagement[Billing Management] --> BillingSettings[Billing Settings]
+BillingSettings --> ProviderSelection[Provider Selection]
+ProviderSelection --> StripeConfig[Stripe Configuration]
+ProviderSelection --> RazorpayConfig[Razorpay Configuration]
+ProviderSelection --> ManualConfig[Manual Configuration]
+StripeConfig --> SecretKey[Secret Key]
+StripeConfig --> PublishableKey[Publishable Key]
+StripeConfig --> WebhookSecret[Webhook Secret]
+RazorpayConfig --> KeyId[Key ID]
+RazorpayConfig --> KeySecret[Key Secret]
+RazorpayConfig --> WebhookSecret[Webhook Secret]
+ManualConfig --> OfflinePayments[Offline Payments]
+ManualConfig --> BankTransfers[Bank Transfers]
+BillingSettings --> TestConnection[Test Connection]
+TestConnection --> StripeTest[Stripe Test]
+TestConnection --> RazorpayTest[Razorpay Test]
+BillingSettings --> CheckoutLinks[Checkout Links]
+CheckoutLinks --> GenerateLink[Generate Checkout Link]
+CheckoutLinks --> LinkExpiration[Link Expiration]
+```
+
+**Diagram sources**
+- [BillingSettingsPage.jsx:114-200](file://app/frontend/src/pages/admin/BillingSettingsPage.jsx#L114-L200)
+
+### Tenant Usage Management
+
+The system provides comprehensive tenant usage management with detailed analytics and adjustment capabilities:
+
+```mermaid
+stateDiagram-v2
+[*] --> MonitorUsage
+MonitorUsage --> AnalyzeUsage[Analyze Usage Patterns]
+AnalyzeUsage --> IdentifyIssues[Identify Usage Issues]
+IdentifyIssues --> AdjustUsage[Adjust Usage Limits]
+AdjustUsage --> MonitorUsage
+AdjustUsage --> SuspendTenant[Suspend Tenant]
+AdjustUsage --> ReactivateTenant[Reactivate Tenant]
+SuspendTenant --> MonitorUsage
+ReactivateTenant --> MonitorUsage
+```
+
+**Diagram sources**
+- [TenantDetailPage.jsx:576-608](file://app/frontend/src/pages/admin/TenantDetailPage.jsx#L576-L608)
+
+**Section sources**
+- [TenantDetailPage.jsx:384-632](file://app/frontend/src/pages/admin/TenantDetailPage.jsx#L384-L632)
+- [PlanManagementPage.jsx:127-200](file://app/frontend/src/pages/admin/PlanManagementPage.jsx#L127-L200)
+- [BillingSettingsPage.jsx:114-200](file://app/frontend/src/pages/admin/BillingSettingsPage.jsx#L114-L200)
 
 ## Multi-Tenant Architecture
 
@@ -747,8 +940,12 @@ graph TB
 subgraph "Admin Interface"
 UsersPage[Users Management Page]
 TenantsPage[Tenants Management Page]
-TeamPage[Team Management Page]
+TenantDetailPage[Tenant Detail Page]
 AdminLayout[Admin Layout]
+SlideOutPanel[Slide Out Panel]
+PlanFeaturesPage[Plan Features Page]
+BillingSettingsPage[Billing Settings Page]
+PlanManagementPage[Plan Management Page]
 end
 subgraph "Components"
 UserTable[User Table Component]
@@ -760,6 +957,9 @@ RoleBadge[Role Badge Component]
 StatusBadge[Status Badge Component]
 RowActions[Row Actions Dropdown]
 Toast[Toast Notifications]
+InlineToggle[Inline Toggle Component]
+SlideOutPanel --> UserSlideOut[User Slide Out]
+SlideOutPanel --> TenantDetailPanel[Tenant Detail Panel]
 end
 subgraph "State Management"
 AuthContext[Auth Context]
@@ -775,11 +975,18 @@ UsersPage --> UserFilters
 UsersPage --> RoleBadge
 UsersPage --> StatusBadge
 UsersPage --> RowActions
-TenantsPage --> TenantSelector
-TeamPage --> UserTable
+UsersPage --> InlineToggle
+UsersPage --> SlideOutPanel
+TenantDetailPage --> SlideOutPanel
+PlanFeaturesPage --> InlineToggle
+BillingSettingsPage --> SlideOutPanel
+PlanManagementPage --> SlideOutPanel
 AuthContext --> UsersPage
 AuthContext --> TenantsPage
-AuthContext --> TeamPage
+AuthContext --> TenantDetailPage
+AuthContext --> PlanFeaturesPage
+AuthContext --> BillingSettingsPage
+AuthContext --> PlanManagementPage
 ToastNotifications --> UsersPage
 LoadingStates --> UsersPage
 PaginationStates --> UsersPage
@@ -789,10 +996,11 @@ FilterStates --> UsersPage
 **Diagram sources**
 - [UsersPage.jsx:295-649](file://app/frontend/src/pages/admin/UsersPage.jsx#L295-L649)
 - [AuthContext.jsx:1-112](file://app/frontend/src/contexts/AuthContext.jsx#L1-L112)
+- [SlideOutPanel.jsx:1-38](file://app/frontend/src/components/admin/SlideOutPanel.jsx#L1-L38)
 
 ### Advanced Component Architecture
 
-The UsersPage component implements a sophisticated component architecture:
+The UsersPage component implements a sophisticated component architecture with inline toggle controls:
 
 ```mermaid
 classDiagram
@@ -805,10 +1013,33 @@ class UsersPage {
 +filters : object
 +pagination : object
 +modals : object
++slideOutUser : object
++PER_PAGE : 20
 +fetchTenants()
 +fetchUsers()
 +handleRowAction()
 +handleSearchSubmit()
+}
+class SlideOutPanel {
++isOpen : boolean
++onClose : function
++title : string
++children : element
++width : string
+}
+class UserSlideOut {
++user : object
++tenantName : string
++onClose : function
++onAction : function
++handleResetPassword()
++handleRemoveFromTenant()
++handleSendInvite()
+}
+class ToggleSwitch {
++checked : boolean
++onChange : function
++render()
 }
 class AddUserModal {
 +email : string
@@ -823,31 +1054,21 @@ class ChangeRoleModal {
 +error : string
 +handleSubmit()
 }
-class RowActions {
-+open : boolean
-+handleAction()
-}
-class RoleBadge {
-+role : string
-+render()
-}
-class StatusBadge {
-+isActive : boolean
-+render()
-}
+UsersPage --> SlideOutPanel
+UsersPage --> UserSlideOut
+UsersPage --> ToggleSwitch
 UsersPage --> AddUserModal
 UsersPage --> ChangeRoleModal
-UsersPage --> RowActions
-UsersPage --> RoleBadge
-UsersPage --> StatusBadge
+SlideOutPanel --> UserSlideOut
 ```
 
 **Diagram sources**
-- [UsersPage.jsx:85-166](file://app/frontend/src/pages/admin/UsersPage.jsx#L85-L166)
-- [UsersPage.jsx:217-292](file://app/frontend/src/pages/admin/UsersPage.jsx#L217-L292)
-- [UsersPage.jsx:169-214](file://app/frontend/src/pages/admin/UsersPage.jsx#L169-L214)
-- [UsersPage.jsx:41-53](file://app/frontend/src/pages/admin/UsersPage.jsx#L41-L53)
-- [UsersPage.jsx:56-66](file://app/frontend/src/pages/admin/UsersPage.jsx#L56-L66)
+- [UsersPage.jsx:402-782](file://app/frontend/src/pages/admin/UsersPage.jsx#L402-L782)
+- [SlideOutPanel.jsx:3](file://app/frontend/src/components/admin/SlideOutPanel.jsx#L3)
+- [UsersPage.jsx:195-321](file://app/frontend/src/pages/admin/UsersPage.jsx#L195-L321)
+- [UsersPage.jsx:176-192](file://app/frontend/src/pages/admin/UsersPage.jsx#L176-L192)
+- [UsersPage.jsx:93-174](file://app/frontend/src/pages/admin/UsersPage.jsx#L93-L174)
+- [UsersPage.jsx:324-399](file://app/frontend/src/pages/admin/UsersPage.jsx#L324-L399)
 
 ### Enhanced API Integration Patterns
 
@@ -859,11 +1080,11 @@ participant UI as "React Component"
 participant API as "API Client"
 participant Auth as "Auth Service"
 participant Backend as "FastAPI Backend"
-UI->>API : getAdminTenants({per_page : 100})
+UI->>API : getAdminTenants({per_page : 20})
 API->>Auth : Check Authentication
 Auth->>Auth : Validate Access Token
 Auth->>API : Token Refresh if Needed
-API->>Backend : GET /api/admin/tenants?page=1&per_page=100
+API->>Backend : GET /api/admin/tenants?page=1&per_page=20
 Backend->>Backend : RBAC Check
 Backend->>Backend : Load Data with Pagination
 Backend->>API : Return JSON Response with Pagination
@@ -882,10 +1103,15 @@ Backend->>Backend : Validate Request
 Backend->>Backend : Deactivate User
 Backend->>API : Return Success
 API->>UI : Update UI State with extractApiError()
+UI->>API : getAdminTenantDetail()
+API->>Backend : GET /api/admin/tenants/{id}
+Backend->>Backend : Load Tenant Detail
+Backend->>API : Return Tenant Data
+API->>UI : Update UI State with SlideOutPanel
 ```
 
 **Diagram sources**
-- [UsersPage.jsx:320-354](file://app/frontend/src/pages/admin/UsersPage.jsx#L320-L354)
+- [UsersPage.jsx:427-466](file://app/frontend/src/pages/admin/UsersPage.jsx#L427-L466)
 - [api.js:1-140](file://app/frontend/src/lib/api.js#L1-L140)
 - [api.js:1077-1085](file://app/frontend/src/lib/api.js#L1077-L1085)
 
@@ -913,6 +1139,7 @@ FiveHundredMessage --> DisplayError
 
 **Section sources**
 - [UsersPage.jsx:295-649](file://app/frontend/src/pages/admin/UsersPage.jsx#L295-L649)
+- [SlideOutPanel.jsx:1-38](file://app/frontend/src/components/admin/SlideOutPanel.jsx#L1-L38)
 - [AuthContext.jsx:1-112](file://app/frontend/src/contexts/AuthContext.jsx#L1-L112)
 - [api.js:1-140](file://app/frontend/src/lib/api.js#L1-L140)
 - [api.js:1046-1085](file://app/frontend/src/lib/api.js#L1046-L1085)
@@ -963,7 +1190,7 @@ The system provides comprehensive authentication endpoints:
 | `/api/admin/tenants/{tenant_id}/usage-history` | GET | Get usage history | Platform Admin |
 | `/api/admin/tenants/{tenant_id}/users` | POST | Add user to tenant | Platform Admin |
 | `/api/admin/tenants/{tenant_id}/users` | GET | List tenant users | Platform Admin |
-| `/api/admin/tenants/{tenant_id}/users/{user_id}` | DELETE | Remove user from tenant | Platform Admin |
+| `/api/admin/tenants/{tenant_id}/users/{user_id}` | DELETE | Remove user from tenant (deactivate) | Platform Admin |
 
 ### Tenant User Management Endpoints
 
@@ -971,6 +1198,26 @@ The system provides comprehensive authentication endpoints:
 |----------|--------|-------------|----------------|
 | `/api/admin/tenants/{tenant_id}/users` | POST | Add user to tenant or create new user | Platform Admin |
 | `/api/admin/tenants/{tenant_id}/users/{user_id}` | DELETE | Remove user from tenant (deactivate) | Platform Admin |
+
+### Billing Management Endpoints
+
+| Endpoint | Method | Description | Authentication |
+|----------|--------|-------------|----------------|
+| `/api/admin/billing/settings` | GET | Get billing settings | Platform Admin |
+| `/api/admin/billing/settings` | PUT | Update billing settings | Platform Admin |
+| `/api/admin/billing/test-connection` | POST | Test billing connection | Platform Admin |
+| `/api/admin/billing/generate-checkout-link` | POST | Generate checkout link | Platform Admin |
+| `/api/admin/billing/invoices` | GET | List invoices | Platform Admin |
+
+### Plan Management Endpoints
+
+| Endpoint | Method | Description | Authentication |
+|----------|--------|-------------|----------------|
+| `/api/admin/plans` | GET | List all plans | Platform Admin |
+| `/api/admin/plans` | POST | Create new plan | Super Admin |
+| `/api/admin/plans/{plan_id}` | PUT | Update plan | Super Admin |
+| `/api/admin/plans/{plan_id}` | DELETE | Archive plan | Super Admin |
+| `/api/admin/plans/{plan_id}/features` | GET | Get plan features | Platform Admin |
 
 **Section sources**
 - [auth_routes.py:175-517](file://app/backend/routes/auth.py#L175-L517)
@@ -996,17 +1243,21 @@ The system provides comprehensive authentication endpoints:
 5. **Responsive Design**: Interface works across all device sizes
 6. **Advanced Filtering**: Sophisticated filtering reduces cognitive load
 7. **Bulk Operations**: Efficient bulk actions for administrative tasks
-8. **Optimized Pagination**: 100 items per page improves performance for large datasets
+8. **Optimized Pagination**: 20 items per page improves performance for large datasets
+9. **Inline Toggle Controls**: Intuitive inline controls for quick user status management
+10. **Slide-Out Panels**: Non-intrusive panels provide detailed information without navigation disruption
+11. **Comprehensive Feature Flags**: Inline toggle controls enable granular feature management
 
 ### Performance Considerations
 
 1. **Database Indexing**: Strategic indexing on frequently queried fields
-2. **Optimized Pagination**: 100 items per page reduces API calls for large datasets
+2. **Optimized Pagination**: 20 items per page reduces API calls for large datasets
 3. **Caching**: JWT token validation results are cached
 4. **Connection Pooling**: Database connections are pooled for efficiency
 5. **Lazy Loading**: Frontend components use lazy loading for optimal performance
 6. **Component Optimization**: React.memo and useCallback for performance optimization
 7. **Error Handling Optimization**: extractApiError() prevents crashes from complex error responses
+8. **Slide-Out Panel Optimization**: Smooth transitions and efficient rendering
 
 ### Maintenance and Monitoring
 
@@ -1016,5 +1267,7 @@ The system provides comprehensive authentication endpoints:
 4. **Performance Metrics**: System performance metrics collection
 5. **Security Audits**: Regular security audits and vulnerability assessments
 6. **User Management Analytics**: Track user engagement and system usage patterns
+7. **Tenant Usage Analytics**: Monitor usage patterns and identify potential issues
+8. **Billing Integration Testing**: Regular testing of billing provider connections
 
-This comprehensive user management system provides a robust foundation for the Resume AI platform, supporting both individual user needs and enterprise-scale tenant management with strong security guarantees and excellent user experience. The enhanced error handling with extractApiError() utility and optimized pagination to 100 items per page significantly improves the reliability and performance of the administrative user management interface.
+This comprehensive user management system provides a robust foundation for the Resume AI platform, supporting both individual user needs and enterprise-scale tenant management with strong security guarantees and excellent user experience. The enhanced administrative user experience with inline toggle controls, slide-out panel system, and comprehensive tenant management actions including plan assignment and billing configuration significantly improves operational efficiency and user satisfaction across the platform.

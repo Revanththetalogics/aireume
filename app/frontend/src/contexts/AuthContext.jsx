@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import api from '../lib/api'
+import useIdleTimeout from '../hooks/useIdleTimeout'
+import SessionTimeoutModal from '../components/SessionTimeoutModal'
 
 const AuthContext = createContext(null)
 
@@ -97,9 +99,39 @@ export function AuthProvider({ children }) {
     setTenant(null)
   }
 
+  // ── Idle session timeout ──────────────────────────────────────────
+  const handleIdleTimeout = useCallback(() => {
+    logout()
+    // Redirect to login — ProtectedRoute will also catch the null user,
+    // but this ensures the redirect even on the current cycle
+    window.location.href = '/login'
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const { isWarning, countdown, resetTimer } = useIdleTimeout(!!user, handleIdleTimeout)
+
+  const handleStayLoggedIn = useCallback(() => {
+    resetTimer()
+    // Attempt a silent token refresh to extend the backend session
+    api.post('/auth/refresh', {}, { withCredentials: true }).catch(() => {})
+  }, [resetTimer])
+
+  const handleLogoutNow = useCallback(() => {
+    logout()
+    window.location.href = '/login'
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <AuthContext.Provider value={{ user, tenant, loading, login, register, logout }}>
       {children}
+      {isWarning && (
+        <SessionTimeoutModal
+          countdown={countdown}
+          onStayLoggedIn={handleStayLoggedIn}
+          onLogoutNow={handleLogoutNow}
+        />
+      )}
     </AuthContext.Provider>
   )
 }
