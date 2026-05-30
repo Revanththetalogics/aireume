@@ -15,6 +15,7 @@ import AnimatedScore from '../components/AnimatedScore'
 import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
 import PhoneScreenKit from '../components/PhoneScreenKit'
+import EvaluationChecklist from '../components/EvaluationChecklist'
 import api from '../lib/api'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
@@ -987,6 +988,9 @@ export default function ReportPage() {
           </div>
 
           {hasDeterministicData && <ResultCard result={result} defaultExpandEducation />}
+
+          {/* Evaluation Checklist */}
+          {hasDeterministicData && <EvaluationChecklist result={result} />}
 
           {/* Phone Screen CTA — inline banner above Recruiter Scorecard */}
           {interviewQs && (
