@@ -12,6 +12,8 @@ import {
   DollarSign,
   Users,
   Search,
+  LayoutGrid,
+  List,
 } from 'lucide-react'
 import { getAdminPlans, createPlan, updatePlan, archivePlan } from '../../lib/api'
 
@@ -100,12 +102,35 @@ function validatePlanForm(form, isCreate) {
   return errors
 }
 
+function getPlanTier(plan, allPlans) {
+  const name = (plan.name || '').toLowerCase()
+  const price = plan.price_monthly || 0
+
+  if (price === 0 || name.includes('free')) return 'free'
+  if (name.includes('enterprise')) return 'enterprise'
+  if (name.includes('pro')) return 'pro'
+
+  // Fallback: closest tier by price
+  const nonZeroPrices = allPlans
+    .map((p) => p.price_monthly || 0)
+    .filter((p) => p > 0)
+    .sort((a, b) => a - b)
+
+  if (nonZeroPrices.length === 0) return 'free'
+  const maxPrice = nonZeroPrices[nonZeroPrices.length - 1]
+  if (maxPrice === 0) return 'free'
+
+  if (price >= maxPrice * 0.5) return 'enterprise'
+  return 'pro'
+}
+
 export default function PlanManagementPage() {
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [toast, setToast] = useState(null)
   const [search, setSearch] = useState('')
+  const [viewMode, setViewMode] = useState('table')
 
   const [showModal, setShowModal] = useState(false)
   const [editingPlan, setEditingPlan] = useState(null)
@@ -312,9 +337,9 @@ export default function PlanManagementPage() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-4">
-        <div className="relative max-w-md">
+      {/* Search + View Toggle */}
+      <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="relative max-w-md w-full sm:w-auto">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
@@ -324,9 +349,33 @@ export default function PlanManagementPage() {
             className="w-full pl-9 pr-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white"
           />
         </div>
+        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+          <button
+            onClick={() => setViewMode('table')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+              viewMode === 'table'
+                ? 'bg-teal-600 text-white shadow-sm'
+                : 'bg-white border border-slate-200 text-slate-600 hover:text-slate-800'
+            }`}
+          >
+            <List className="w-4 h-4" />
+            Table
+          </button>
+          <button
+            onClick={() => setViewMode('kanban')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+              viewMode === 'kanban'
+                ? 'bg-teal-600 text-white shadow-sm'
+                : 'bg-white border border-slate-200 text-slate-600 hover:text-slate-800'
+            }`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+            Kanban
+          </button>
+        </div>
       </div>
 
-      {/* Plans Table */}
+      {/* Plans Table / Kanban */}
       <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
         {loading ? (
           <div className="p-6 space-y-4">
@@ -347,7 +396,7 @@ export default function PlanManagementPage() {
           <div className="px-6 py-12 text-center text-slate-400 text-sm">
             {search ? 'No plans match your search.' : 'No plans found.'}
           </div>
-        ) : (
+        ) : viewMode === 'table' ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -435,6 +484,138 @@ export default function PlanManagementPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        ) : (
+          <div className="p-4">
+            {(() => {
+              const groups = { free: [], pro: [], enterprise: [] }
+              filteredPlans.forEach((plan) => {
+                const tier = getPlanTier(plan, plans)
+                if (groups[tier]) groups[tier].push(plan)
+                else groups.pro.push(plan)
+              })
+
+              const columns = [
+                { key: 'free', label: 'Free', bg: 'bg-slate-50', header: 'text-slate-700' },
+                { key: 'pro', label: 'Pro', bg: 'bg-slate-50', header: 'text-brand-700' },
+                { key: 'enterprise', label: 'Enterprise', bg: 'bg-slate-50', header: 'text-amber-700' },
+              ]
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {columns.map((col) => (
+                    <div key={col.key} className={`${col.bg} rounded-2xl p-4`}>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className={`font-bold text-sm tracking-wide uppercase ${col.header}`}>
+                          {col.label}
+                        </h3>
+                        <span className="text-xs font-bold text-slate-500 bg-white px-2 py-0.5 rounded-full ring-1 ring-slate-200">
+                          {groups[col.key].length}
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {groups[col.key].map((plan) => (
+                          <div
+                            key={plan.id}
+                            className={`bg-white rounded-xl shadow-sm border p-4 transition-colors ${
+                              !plan.is_active ? 'opacity-70 border-slate-200' : 'border-brand-100'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div>
+                                <h4 className="text-base font-bold text-brand-900 leading-tight">
+                                  {plan.display_name || plan.name}
+                                </h4>
+                                <span className="text-xs text-slate-400">{plan.currency?.toUpperCase()}</span>
+                              </div>
+                              {plan.is_active ? (
+                                <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-50 text-green-700 ring-1 ring-green-200">
+                                  Active
+                                </span>
+                              ) : (
+                                <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+                                  Archived
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-3 text-sm text-slate-600 mb-3">
+                              <div className="flex items-center gap-1">
+                                <DollarSign className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="font-semibold">{formatPrice(plan.price_monthly, plan.currency)}</span>
+                                <span className="text-xs text-slate-400">/mo</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <DollarSign className="w-3.5 h-3.5 text-slate-400" />
+                                <span>{formatPrice(plan.price_yearly, plan.currency)}</span>
+                                <span className="text-xs text-slate-400">/yr</span>
+                              </div>
+                            </div>
+
+                            {Array.isArray(plan.features) && plan.features.length > 0 && (
+                              <ul className="space-y-1 mb-3">
+                                {plan.features.slice(0, 4).map((f, i) => (
+                                  <li key={i} className="flex items-start gap-1.5 text-xs text-slate-600">
+                                    <Check className="w-3 h-3 text-teal-500 shrink-0 mt-0.5" />
+                                    <span className="line-clamp-1">{f}</span>
+                                  </li>
+                                ))}
+                                {plan.features.length > 4 && (
+                                  <li className="text-xs text-slate-400 pl-4.5">
+                                    +{plan.features.length - 4} more
+                                  </li>
+                                )}
+                              </ul>
+                            )}
+
+                            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                              <div className="flex items-center gap-1.5">
+                                <Users className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-semibold text-brand-900">
+                                  {plan.subscriber_count ?? 0}
+                                </span>
+                                <span className="text-xs text-slate-400">subscribers</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => openEdit(plan)}
+                                  className="p-1.5 rounded-lg hover:bg-brand-50 text-slate-400 hover:text-brand-600 transition-colors"
+                                  title="Edit"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                {plan.is_active ? (
+                                  <button
+                                    onClick={() => openArchive(plan)}
+                                    className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
+                                    title="Archive"
+                                  >
+                                    <Archive className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleRestore(plan)}
+                                    className="p-1.5 rounded-lg hover:bg-green-50 text-slate-400 hover:text-green-600 transition-colors"
+                                    title="Restore"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {groups[col.key].length === 0 && (
+                          <div className="text-center py-6 text-xs text-slate-400">
+                            No {col.label.toLowerCase()} plans
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>

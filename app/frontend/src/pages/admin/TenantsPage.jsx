@@ -17,7 +17,13 @@ import {
   Trash2,
   CheckSquare,
   Square,
+  Pause,
+  Play,
+  Send,
+  Download,
+  Key,
 } from 'lucide-react'
+import SlideOutPanel from '../../components/admin/SlideOutPanel'
 import {
   getAdminTenants,
   createTenant,
@@ -549,62 +555,175 @@ function BulkActionModal({ action, tenants, onClose, onDone }) {
   )
 }
 
-/* ── Row Actions Dropdown ──────────────────────────────── */
-function RowActions({ tenant, onAction }) {
-  const [open, setOpen] = useState(false)
+/* ── Tenant Slide-Out Panel ───────────────────────────── */
+function TenantSlideOut({ tenant, onClose, onAction, onRefresh }) {
+  const [notifyText, setNotifyText] = useState('')
+  const [notifySending, setNotifySending] = useState(false)
+
+  if (!tenant) return null
+
+  const handleResetApiKeys = () => {
+    if (!confirm('Reset all API keys for this tenant? This will invalidate existing keys immediately.')) return
+    alert('API keys reset placeholder — backend endpoint needed.')
+  }
+
+  const handleExportData = () => {
+    alert('Export tenant data placeholder — backend endpoint needed.')
+  }
+
+  const handleAdjustUsage = () => {
+    alert('Adjust usage placeholder — backend endpoint needed.')
+  }
+
+  const handleSendNotification = () => {
+    if (!notifyText.trim()) return
+    setNotifySending(true)
+    setTimeout(() => {
+      setNotifySending(false)
+      setNotifyText('')
+      alert('Notification sent placeholder — backend endpoint needed.')
+    }, 800)
+  }
+
+  const handleSuspendReactivate = () => {
+    if (tenant.subscription_status === 'suspended') {
+      reactivateTenant(tenant.id)
+        .then(() => { onRefresh(); onClose() })
+        .catch(err => alert(err.response?.data?.detail || 'Failed to reactivate'))
+    } else {
+      onAction('suspend', tenant)
+      onClose()
+    }
+  }
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-500"
-      >
-        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-          <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" />
-        </svg>
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20">
-            <button
-              onClick={() => { setOpen(false); onAction('view', tenant) }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <Eye className="w-4 h-4" /> View Details
-            </button>
-            <button
-              onClick={() => { setOpen(false); onAction('change-plan', tenant) }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <CreditCard className="w-4 h-4" /> Change Plan
-            </button>
-            {tenant.subscription_status === 'suspended' ? (
-              <button
-                onClick={() => { setOpen(false); onAction('reactivate', tenant) }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50 transition-colors"
-              >
-                <PlayCircle className="w-4 h-4" /> Reactivate
-              </button>
-            ) : (
-              <button
-                onClick={() => { setOpen(false); onAction('suspend', tenant) }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors"
-              >
-                <Ban className="w-4 h-4" /> Suspend
-              </button>
-            )}
-            <div className="border-t border-gray-100 my-1" />
-            <button
-              onClick={() => { setOpen(false); onAction('delete', tenant) }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
+    <SlideOutPanel
+      isOpen={!!tenant}
+      onClose={onClose}
+      title={tenant.name}
+    >
+      <div className="p-6 space-y-6">
+        <div>
+          <StatusBadge status={tenant.subscription_status} />
+        </div>
+
+        <div className="border-b border-gray-200 pb-6">
+          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Overview</h3>
+          <div className="space-y-3">
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Plan</span>
+              <span className="text-sm font-medium text-gray-900">{tenant.plan_display_name || tenant.plan_name || 'None'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Status</span>
+              <span className="text-sm font-medium text-gray-900 capitalize">{tenant.subscription_status}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Users</span>
+              <span className="text-sm font-medium text-gray-900">{tenant.user_count ?? (tenant.users?.length ?? 0)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Analyses (This Month)</span>
+              <span className="text-sm font-medium text-gray-900">{tenant.analyses_count_this_month ?? 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Created</span>
+              <span className="text-sm font-medium text-gray-900">
+                {tenant.created_at ? new Date(tenant.created_at).toLocaleDateString() : '—'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Contact Email</span>
+              <span className="text-sm font-medium text-gray-900">{tenant.contact_email || '—'}</span>
+            </div>
           </div>
-        </>
-      )}
-    </div>
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Actions</h3>
+
+          <button
+            onClick={() => { onAction('change-plan', tenant); onClose() }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors text-left"
+          >
+            <CreditCard className="w-4 h-4 text-gray-400" />
+            Change Plan
+          </button>
+
+          <button
+            onClick={handleSuspendReactivate}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors text-left"
+          >
+            {tenant.subscription_status === 'suspended' ? (
+              <><Play className="w-4 h-4 text-gray-400" /> Reactivate</>
+            ) : (
+              <><Pause className="w-4 h-4 text-gray-400" /> Suspend</>
+            )}
+          </button>
+
+          <button
+            onClick={handleAdjustUsage}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors text-left"
+          >
+            <Key className="w-4 h-4 text-gray-400" />
+            Adjust Usage
+          </button>
+
+          <button
+            onClick={handleResetApiKeys}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors text-left"
+          >
+            <Key className="w-4 h-4 text-gray-400" />
+            Reset API Keys
+          </button>
+
+          <div className="px-4 py-3 bg-gray-50 rounded-lg">
+            <label className="block text-xs font-semibold text-gray-700 mb-2">Send Notification</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={notifyText}
+                onChange={(e) => setNotifyText(e.target.value)}
+                placeholder="Enter message..."
+                className="flex-1 px-3 py-1.5 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+              />
+              <button
+                onClick={handleSendNotification}
+                disabled={notifySending || !notifyText.trim()}
+                className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg disabled:opacity-50 transition-colors"
+              >
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <button
+            onClick={handleExportData}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors text-left"
+          >
+            <Download className="w-4 h-4 text-gray-400" />
+            Export Tenant Data
+          </button>
+
+          <div className="border-t border-gray-200 my-3" />
+
+          <button
+            onClick={() => { onAction('delete', tenant); onClose() }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors text-left"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete Tenant
+          </button>
+
+          <button
+            onClick={() => { onAction('view-full', tenant); onClose() }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-teal-600 hover:bg-teal-50 rounded-lg transition-colors text-left"
+          >
+            View Full Details →
+          </button>
+        </div>
+      </div>
+    </SlideOutPanel>
   )
 }
 
@@ -641,6 +760,7 @@ export default function TenantsPage() {
   const [suspendTenantObj, setSuspendTenantObj] = useState(null)
   const [deleteTenantObj, setDeleteTenantObj] = useState(null)
   const [bulkAction, setBulkAction] = useState(null) // { action: 'suspend'|'reactivate'|'change-plan', tenants: [...] }
+  const [slideOutTenant, setSlideOutTenant] = useState(null)
 
   /* ── Fetch tenants ──────────────────────────────────── */
   const fetchTenants = useCallback(async () => {
@@ -727,6 +847,9 @@ export default function TenantsPage() {
   const handleRowAction = (action, tenant) => {
     switch (action) {
       case 'view':
+        setSlideOutTenant(tenant)
+        break
+      case 'view-full':
         navigate(`/admin/tenants/${tenant.id}`)
         break
       case 'change-plan':
@@ -965,7 +1088,7 @@ export default function TenantsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => navigate(`/admin/tenants/${tenant.id}`)}
+                        onClick={() => setSlideOutTenant(tenant)}
                         className="text-left hover:text-teal-600 transition-colors"
                       >
                         <p className="text-sm font-semibold text-gray-900">{tenant.name}</p>
@@ -988,7 +1111,39 @@ export default function TenantsPage() {
                       <RelativeDate date={tenant.created_at} />
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <RowActions tenant={tenant} onAction={handleRowAction} />
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => setSlideOutTenant(tenant)}
+                          className="p-1.5 text-gray-400 hover:text-teal-600 transition-colors"
+                          title="View"
+                        >
+                          <Eye className="w-5 h-5" />
+                        </button>
+                        {tenant.subscription_status === 'suspended' ? (
+                          <button
+                            onClick={() => handleRowAction('reactivate', tenant)}
+                            className="p-1.5 text-gray-400 hover:text-teal-600 transition-colors"
+                            title="Reactivate"
+                          >
+                            <Play className="w-5 h-5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleRowAction('suspend', tenant)}
+                            className="p-1.5 text-gray-400 hover:text-teal-600 transition-colors"
+                            title="Suspend"
+                          >
+                            <Pause className="w-5 h-5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleRowAction('change-plan', tenant)}
+                          className="p-1.5 text-gray-400 hover:text-teal-600 transition-colors"
+                          title="Change Plan"
+                        >
+                          <CreditCard className="w-5 h-5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1064,6 +1219,12 @@ export default function TenantsPage() {
           onDone={() => { setSelectedIds(new Set()); fetchTenants() }}
         />
       )}
+      <TenantSlideOut
+        tenant={slideOutTenant}
+        onClose={() => setSlideOutTenant(null)}
+        onAction={handleRowAction}
+        onRefresh={fetchTenants}
+      />
     </div>
   )
 }

@@ -26,7 +26,7 @@ from app.backend.models.db_models import (
     AuditLog, Tenant, User, SubscriptionPlan, UsageLog,
     FeatureFlag, TenantFeatureOverride,
     Webhook, WebhookDelivery,
-    PlatformConfig, TenantEmailConfig,
+    PlatformConfig, PlatformSetting, TenantEmailConfig,
     SecurityEvent, ImpersonationSession, ErasureLog,
     PlanFeature, RateLimitConfig, DunningRecord,
     SSOConfig, RevokedToken, AdminNotification,
@@ -91,6 +91,21 @@ class SSOConfigRequest(BaseModel):
     auto_provision: bool = True
     default_role: str = "viewer"
     is_active: bool = True
+
+
+class BillingSettingsRequest(BaseModel):
+    active_provider: str
+    stripe: Optional[dict] = None
+    razorpay: Optional[dict] = None
+
+
+class TestBillingConnectionRequest(BaseModel):
+    provider: str
+
+
+class GenerateCheckoutLinkRequest(BaseModel):
+    tenant_id: int
+    plan_id: int
 
 
 class TenantListItem(BaseModel):
@@ -1826,6 +1841,202 @@ def list_billing_providers(
         })
 
     return providers
+
+
+# ─── Billing Settings Endpoints (platform_settings based) ─────────────────────
+
+@router.get("/billing/settings")
+def get_billing_settings(
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Get current billing provider configuration from platform_settings."""
+    keys = ["billing_provider", "stripe_config", "razorpay_config"]
+    rows = db.query(PlatformSetting).filter(PlatformSetting.key.in_(keys)).all()
+    settings_map = {r.key: r.value for r in rows}
+
+    provider = settings_map.get("billing_provider", "manual")
+    stripe_raw = settings_map.get("stripe_config", "{}")
+    razorpay_raw = settings_map.get("razorpay_config", "{}")
+
+    try:
+        stripe_cfg = json.loads(stripe_raw) if stripe_raw else {}
+    except json.JSONDecodeError:
+        stripe_cfg = {}
+    try:
+        razorpay_cfg = json.loads(razorpay_raw) if razorpay_raw else {}
+    except json.JSONDecodeError:
+        razorpay_cfg = {}
+
+    # Mask sensitive fields on read
+    def _mask(val):
+        if not val or len(val) <= 4:
+            return "****"
+        return "*" * (len(val) - 4) + val[-4:]
+
+    if stripe_cfg.get("secret_key"):
+        stripe_cfg["secret_key"] = _mask(stripe_cfg["secret_key"])
+    if razorpay_cfg.get("key_secret"):
+        razorpay_cfg["key_secret"] = _mask(razorpay_cfg["key_secret"])
+
+    return {
+        "active_provider": provider,
+        "stripe": stripe_cfg,
+        "razorpay": razorpay_cfg,
+    }
+
+
+@router.put("/billing/settings")
+def update_billing_settings(
+    body: BillingSettingsRequest,
+    request: Request,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Store billing provider configuration in platform_settings."""
+    provider = body.active_provider
+    if provider not in ("stripe", "razorpay", "manual"):
+        raise HTTPException(status_code=400, detail="active_provider must be stripe, razorpay, or manual")
+
+    def _upsert(key: str, value: str):
+        row = db.query(PlatformSetting).filter(PlatformSetting.key == key).first()
+        if row:
+            row.value = value
+        else:
+            db.add(PlatformSetting(key=key, value=value))
+
+    _upsert("billing_provider", provider)
+    if body.stripe is not None:
+        _upsert("stripe_config", json.dumps(body.stripe))
+    if body.razorpay is not None:
+        _upsert("razorpay_config", json.dumps(body.razorpay))
+
+    db.commit()
+
+    log_audit(
+        db,
+        actor=admin,
+        action="billing.settings_updated",
+        resource_type="platform_setting",
+        resource_id=None,
+        details={"active_provider": provider},
+        ip_address=get_client_ip(request),
+    )
+
+    return {"message": "Billing settings updated", "active_provider": provider}
+
+
+@router.post("/billing/settings/test")
+def test_billing_connection(
+    body: TestBillingConnectionRequest,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Test connectivity with stored Stripe or Razorpay credentials via basic HTTP."""
+    provider = body.provider
+    if provider not in ("stripe", "razorpay"):
+        raise HTTPException(status_code=400, detail="provider must be stripe or razorpay")
+
+    row = db.query(PlatformSetting).filter(PlatformSetting.key == f"{provider}_config").first()
+    if not row or not row.value:
+        raise HTTPException(status_code=400, detail=f"No configuration found for {provider}")
+
+    try:
+        cfg = json.loads(row.value)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON stored for {provider}")
+
+    import urllib.request
+    import base64
+
+    if provider == "stripe":
+        secret_key = cfg.get("secret_key")
+        if not secret_key:
+            raise HTTPException(status_code=400, detail="Stripe secret_key not configured")
+        req = urllib.request.Request("https://api.stripe.com/v1/account")
+        creds = base64.b64encode(f"{secret_key}:".encode()).decode()
+        req.add_header("Authorization", f"Basic {creds}")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                _ = resp.read()
+            return {"success": True, "message": "Stripe connection successful"}
+        except urllib.error.HTTPError as e:
+            return {"success": False, "message": f"Stripe API error: {e.code} {e.reason}"}
+        except Exception as e:
+            return {"success": False, "message": f"Connection failed: {str(e)}"}
+
+    else:  # razorpay
+        key_id = cfg.get("key_id")
+        key_secret = cfg.get("key_secret")
+        if not key_id or not key_secret:
+            raise HTTPException(status_code=400, detail="Razorpay key_id or key_secret not configured")
+        req = urllib.request.Request("https://api.razorpay.com/v1/items")
+        creds = base64.b64encode(f"{key_id}:{key_secret}".encode()).decode()
+        req.add_header("Authorization", f"Basic {creds}")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                _ = resp.read()
+            return {"success": True, "message": "Razorpay connection successful"}
+        except urllib.error.HTTPError as e:
+            return {"success": False, "message": f"Razorpay API error: {e.code} {e.reason}"}
+        except Exception as e:
+            return {"success": False, "message": f"Connection failed: {str(e)}"}
+
+
+@router.post("/billing/generate-checkout-link")
+def generate_checkout_link(
+    body: GenerateCheckoutLinkRequest,
+    request: Request,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Generate a checkout session/payment link for a tenant and plan."""
+    tenant = db.query(Tenant).filter(Tenant.id == body.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == body.plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    provider_row = db.query(PlatformSetting).filter(PlatformSetting.key == "billing_provider").first()
+    provider = provider_row.value if provider_row else "manual"
+
+    if provider == "manual":
+        raise HTTPException(status_code=400, detail="Checkout links are not available for manual billing")
+
+    expires_at = datetime.now(timezone.utc)
+    if provider == "stripe":
+        # Generate a simulated Stripe checkout session URL
+        import uuid
+        session_id = f"cs_test_{uuid.uuid4().hex[:24]}"
+        checkout_url = f"https://checkout.stripe.com/c/pay/{session_id}"
+        expires_at = expires_at.replace(minute=expires_at.minute + 30)
+    else:  # razorpay
+        import uuid
+        link_id = f"plink_{uuid.uuid4().hex[:14]}"
+        checkout_url = f"https://razorpay.com/payment-link/{link_id}"
+        expires_at = expires_at.replace(minute=expires_at.minute + 30)
+
+    log_audit(
+        db,
+        actor=admin,
+        action="billing.checkout_link_generated",
+        resource_type="tenant",
+        resource_id=tenant.id,
+        details={
+            "provider": provider,
+            "plan_id": plan.id,
+            "plan_name": plan.name,
+            "checkout_url": checkout_url,
+        },
+        ip_address=get_client_ip(request),
+    )
+
+    return {
+        "checkout_url": checkout_url,
+        "expires_at": expires_at.isoformat(),
+    }
 
 
 # ─── Email Notification Endpoints ─────────────────────────────────────────────

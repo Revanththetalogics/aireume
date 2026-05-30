@@ -16,10 +16,12 @@
 
 ## Update Summary
 **Changes Made**
+- Enhanced admin metrics API documentation to reflect three new flat fields (active_users, total_analyses, mrr) added to the /api/admin/metrics/overview endpoint
+- Updated backend metrics implementation details to show both flat and nested representations for backward compatibility
+- Added comprehensive documentation for the new flat field structure and its usage in the admin dashboard interface
 - Enhanced error handling section to document the new extractApiError() utility function
 - Updated pagination configuration to reflect the 100-item per page limit for tenant listing
-- Added troubleshooting guidance for enhanced error handling
-- Updated frontend error handling implementation details
+- Added troubleshooting guidance for enhanced error handling and new metric fields
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -39,6 +41,8 @@
 The Platform Metrics Dashboard is a comprehensive analytics solution for the Resume AI by ThetaLogics platform. It provides real-time visibility into platform-wide operations, tenant usage patterns, and key performance indicators. The dashboard combines backend metrics collection, advanced analytics endpoints, and a modern frontend interface featuring sophisticated Recharts-based data visualization to deliver actionable insights for platform administrators and stakeholders.
 
 The system tracks critical metrics including tenant engagement, analysis volumes, storage utilization, revenue indicators, and operational health. It leverages Prometheus metrics for infrastructure monitoring and custom analytics endpoints for business intelligence, providing both granular operational data and high-level strategic insights through interactive chart components.
+
+**Updated**: The metrics overview endpoint now provides both flat and nested representations for enhanced flexibility and backward compatibility.
 
 ## Project Structure
 The Platform Metrics Dashboard follows a modular architecture with clear separation between backend services, frontend components, and supporting infrastructure:
@@ -105,6 +109,8 @@ The metrics system is built around Prometheus integration and custom metric defi
 Platform-wide administrative metrics provide strategic insights:
 
 **Metrics Overview Endpoint**: `/api/admin/metrics/overview`
+- **New Flat Fields**: active_users, total_analyses, mrr for direct access
+- **Nested Structure**: tenants, users, analyses, storage, plans, revenue for backward compatibility
 - Tenant distribution analysis
 - Usage pattern tracking
 - Revenue estimation
@@ -131,6 +137,7 @@ The React-based frontend delivers interactive visualizations using Recharts:
 - Responsive design with skeleton loaders
 - Custom tooltip styling and formatting
 - **Updated**: Enhanced error handling with extractApiError() utility
+- **Updated**: Direct access to new flat fields for improved performance
 
 **Dashboard Components**: Multiple dashboard implementations
 - Primary user interface with usage tracking
@@ -531,6 +538,7 @@ The Platform Metrics Dashboard is designed with several performance optimization
 - **Updated**: Check Recharts performance with large datasets
 - **Updated**: Monitor memory usage during chart rendering
 - **Updated**: Verify extractApiError() performance with complex error objects
+- **Updated**: Verify new flat field access performance in MetricsPage.jsx
 
 **Data Inconsistencies**
 - Confirm data synchronization between systems
@@ -560,14 +568,20 @@ The Platform Metrics Dashboard is designed with several performance optimization
 - **New**: Validate pagination metadata accuracy
 - **New**: Monitor database performance with larger result sets
 
+**New Flat Field Issues**
+- **New**: Verify active_users, total_analyses, and mrr fields are accessible in frontend
+- **New**: Check database query performance for new metric calculations
+- **New**: Validate backward compatibility with existing nested structure
+- **New**: Monitor API response size with new flat fields included
+
 **Section sources**
 - [test_admin_metrics.py:27-159](file://app/backend/tests/test_admin_metrics.py#L27-L159)
 
 ## Conclusion
 
-The Platform Metrics Dashboard represents a sophisticated analytics solution that successfully combines real-time monitoring with comprehensive business intelligence. The recent enhancements with Recharts-based visualization, improved error handling through extractApiError(), and optimized pagination significantly improve the dashboard's analytical capabilities and user experience.
+The Platform Metrics Dashboard represents a sophisticated analytics solution that successfully combines real-time monitoring with comprehensive business intelligence. The recent enhancements with Recharts-based visualization, improved error handling through extractApiError(), optimized pagination, and the addition of new flat fields significantly improve the dashboard's analytical capabilities and user experience.
 
-Key strengths include comprehensive Prometheus integration, flexible analytics endpoints, sophisticated interactive frontend visualizations, robust error handling, and efficient pagination. The dashboard effectively balances performance requirements with feature richness, making it suitable for both operational monitoring and strategic decision-making.
+Key strengths include comprehensive Prometheus integration, flexible analytics endpoints with both flat and nested representations, sophisticated interactive frontend visualizations, robust error handling, and efficient pagination. The dashboard effectively balances performance requirements with feature richness, making it suitable for both operational monitoring and strategic decision-making.
 
 The new enhancements provide:
 - **Enhanced Data Visualization**: Sophisticated chart components for better data interpretation
@@ -577,5 +591,7 @@ The new enhancements provide:
 - **Robust Error Handling**: Intelligent error message extraction preventing UI crashes
 - **Optimized Pagination**: Efficient handling of large datasets with configurable limits
 - **Enhanced Reliability**: Comprehensive error handling and retry mechanisms
+- **Flexible API Design**: Both flat and nested representations for backward compatibility
+- **Direct Field Access**: New flat fields (active_users, total_analyses, mrr) for improved performance
 
 Future enhancements could include expanded real-time streaming capabilities, advanced predictive analytics, enhanced customization options for different user roles, integration of additional chart types for more specialized analytics use cases, and further performance optimizations for extremely large datasets.

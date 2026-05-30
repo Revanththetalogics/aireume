@@ -29,14 +29,17 @@
 - [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
 - [webhook_docs.py](file://app/backend/routes/webhook_docs.py)
 - [dunning_service.py](file://app/backend/services/billing/dunning_service.py)
+- [AdminOverviewPage.jsx](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx)
+- [MetricsPage.jsx](file://app/frontend/src/pages/admin/MetricsPage.jsx)
+- [test_admin_metrics.py](file://app/backend/tests/test_admin_metrics.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive admin API endpoints for audit log exports, webhook event enumeration, invoice retrieval, dunning record management, and webhook event configuration
-- Enhanced billing administration endpoints with administrative invoice management and dunning resolution capabilities
-- Integrated webhook event monitoring with administrative tenant webhook management and delivery tracking
-- Expanded administrative capabilities with comprehensive billing administration and tenant webhook configuration
+- Enhanced admin metrics API documentation to include three new flat fields (active_users, total_analyses, mrr) in the /api/admin/metrics/overview endpoint response structure
+- Updated examples to show the expanded response format with both flat and nested data representations
+- Added comprehensive admin analytics endpoints for platform-wide metrics overview and usage trend analysis
+- Integrated frontend implementation showing how the new flat fields are utilized in the AdminOverviewPage
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -65,8 +68,7 @@ This document provides a comprehensive API reference for Resume AI by ThetaLogic
 - **NEW** Enhanced billing administration endpoints with administrative invoice management and dunning resolution capabilities
 - **NEW** Comprehensive webhook event monitoring with administrative tenant webhook management and delivery tracking
 - **NEW** Administrative capabilities with notifications, feature flags, and tenant management
-
-The API is versioned and served under a base URL (default /api). Authentication is JWT-based and enforced via a bearer token. Administrative endpoints require elevated privileges and specific role requirements.
+- **NEW** Admin analytics endpoints for platform-wide metrics overview and usage trend analysis with enhanced response structure including flat fields for quick access
 
 ## Project Structure
 The backend is a FastAPI application that mounts routers for each functional area. The frontend client demonstrates typical usage patterns and token handling.
@@ -105,9 +107,14 @@ DUNNING["Endpoint: get-admin-dunning-records"]
 RESOLVE["Endpoint: resolve-dunning"]
 ENDPHONE["Endpoint: generate-debrief"]
 PHONESCREEN["Component: PhoneScreenKit.jsx"]
+ADMIN_METRICS["Endpoint: metrics/overview"]
+ADMIN_TRENDS["Endpoint: metrics/usage-trends"]
+ENDPHONE["Component: PhoneScreenKit.jsx"]
 end
 subgraph "Frontend"
 FE["Client: api.js"]
+OVERVIEW["Page: AdminOverviewPage.jsx"]
+METRICS["Page: MetricsPage.jsx"]
 end
 M --> R_AUTH
 M --> R_ANALYZE
@@ -142,26 +149,12 @@ R_INTKIT --> MW
 R_DASHBOARD --> MW
 R_ADMIN --> MW
 R_TRANSCRIPT --> MW
-R_WEBHOOK_DOCS --> MW
-FE --> M
-MW --> DBM
-R_ANALYZE --> DBM
-R_CAND --> DBM
-R_TMPL --> DBM
-R_SUB --> DBM
-R_TEAM --> DBM
-R_EMAIL --> DBM
-R_COMPARE --> DBM
-R_EXPORT --> DBM
-R_TRAIN --> DBM
-R_UPLOAD --> DBM
-R_QUEUE --> DBM
-R_INTKIT --> DBM
-R_DASHBOARD --> DBM
-R_ADMIN --> DBM
-R_TRANSCRIPT --> DBM
 R_TRANSCRIPT --> TS
 R_INTKIT --> ENDPHONE
+R_ADMIN --> ADMIN_METRICS
+R_ADMIN --> ADMIN_TRENDS
+OVERVIEW --> FE
+METRICS --> FE
 PHONESCREEN --> FE
 ```
 
@@ -192,6 +185,8 @@ PHONESCREEN --> FE
 - [transcript_service.py:1-374](file://app/backend/services/transcript_service.py#L1-374)
 - [api.js:1-395](file://app/frontend/src/lib/api.js#L1-L395)
 - [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [MetricsPage.jsx:119-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L119-L155)
 
 **Section sources**
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
@@ -248,10 +243,11 @@ PHONESCREEN --> FE
   - Recruiter score calculation combining rating distribution and sentiment
   - Overall assessment with recommendation system
 - **NEW** Admin Analytics
-  - Platform-wide metrics overview
+  - Platform-wide metrics overview with enhanced response structure
   - Usage trend analysis with customizable periods
-  - Tenant and user statistics
-  - Revenue and storage tracking
+  - Tenant and user statistics with flat field access
+  - Revenue and storage tracking with MRR calculation
+  - **NEW** Enhanced metrics overview response now includes three new flat fields: active_users, total_analyses, and mrr for quick access
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -268,7 +264,9 @@ PHONESCREEN --> FE
 - [export.py:162-308](file://app/backend/routes/export.py#L162-L308)
 - [admin.py:700-899](file://app/backend/routes/admin.py#L700-L899)
 - [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-132)
-- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-374)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
+- [AdminOverviewPage.jsx:84-108](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L84-L108)
+- [MetricsPage.jsx:145-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L145-L155)
 
 ## Architecture Overview
 The API follows a layered architecture:
@@ -286,7 +284,7 @@ The API follows a layered architecture:
 - **NEW** Phone screening system provides structured interview evaluation and debrief generation
 - **NEW** Transcript analysis system enables unbiased candidate evaluation from audio/video sources
 - **NEW** Enhanced interview kit functionality supports comprehensive evaluation across four categories
-- **NEW** Admin analytics offers platform-wide insights and usage trend analysis
+- **NEW** Admin analytics offers platform-wide insights and usage trend analysis with enhanced response structure
 - **NEW** Webhook event monitoring system provides comprehensive delivery tracking and administrative tenant webhook management
 
 ```mermaid
@@ -294,7 +292,7 @@ sequenceDiagram
 participant C as "Client"
 participant A as "Auth Router"
 participant U as "User"
-participante T as "Tenant"
+participant T as "Tenant"
 participant S as "Subscription Router"
 participant Q as "Queue Manager"
 participant F as "File Storage"
@@ -305,6 +303,7 @@ participant I as "Interview Kit Router"
 participant TSC as "Transcript Service"
 participant ADM as "Admin Router"
 participant WB as "Webhook Docs Router"
+participant MET as "Admin Metrics Router"
 C->>A : POST /api/auth/register
 A->>U : Create admin user
 A->>T : Create tenant
@@ -345,6 +344,12 @@ ADM-->>C : Dunning records with status and retry information
 C->>ADM : POST /api/admin/dunning/{tenant_id}/resolve
 ADM->>ADM : Resolve dunning and reactivate subscription
 ADM-->>C : Success response with resolution details
+C->>MET : GET /api/admin/metrics/overview
+MET->>MET : Calculate platform metrics with flat fields
+MET-->>C : Enhanced metrics response with active_users, total_analyses, mrr
+C->>MET : GET /api/admin/metrics/usage-trends
+MET->>MET : Calculate daily usage trends
+MET-->>C : Usage trends with analyses and signups arrays
 C->>WB : GET /api/webhooks/events
 WB->>WB : Enumerate webhook event types
 WB-->>C : Event definitions with signing info
@@ -363,6 +368,8 @@ WB-->>C : Event definitions with signing info
 - [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
 - [admin.py:3147-3185](file://app/backend/routes/admin.py#L3147-L3185)
 - [admin.py:3188-3235](file://app/backend/routes/admin.py#L3188-L3235)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
 - [webhook_docs.py:87-93](file://app/backend/routes/webhook_docs.py#L87-L93)
 
 ## Detailed Component Analysis
@@ -921,7 +928,23 @@ Limits and billing:
   - Behavior: Returns comprehensive list of webhook event types with descriptions, example payloads, and signing information
   - Security: No authentication required
 
-**Updated** Added comprehensive admin API endpoints for operational oversight and administrative functions including audit log exports, webhook event enumeration, invoice retrieval, dunning record management, and webhook event configuration
+#### Admin Analytics Endpoints
+**NEW** Enhanced admin analytics endpoints with comprehensive metrics overview and usage trends
+
+- GET /api/admin/metrics/overview
+  - Purpose: Get comprehensive platform metrics overview with enhanced response structure
+  - Response: Enhanced metrics response with both flat fields and nested structure
+  - Behavior: Calculates platform-wide metrics including active users, total analyses, and MRR
+  - Features: Enhanced response structure with flat fields for quick access plus nested structure for existing consumers
+  - **NEW** Response now includes three new flat fields: active_users, total_analyses, and mrr alongside existing nested structure
+- GET /api/admin/metrics/usage-trends
+  - Purpose: Get daily usage trends for the last N days
+  - Query: days (int, default: 30)
+  - Response: UsageTrendsResponse (period_days, analyses, signups)
+  - Behavior: Returns daily analysis counts and new tenant signups for trend analysis
+  - Features: Customizable period length with default 30 days
+
+**Updated** Added comprehensive admin analytics endpoints with enhanced metrics overview response structure including flat fields for quick access
 
 **Section sources**
 - [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
@@ -930,6 +953,8 @@ Limits and billing:
 - [admin.py:3147-3185](file://app/backend/routes/admin.py#L3147-L3185)
 - [admin.py:3188-3235](file://app/backend/routes/admin.py#L3188-L3235)
 - [admin.py:3238-3265](file://app/backend/routes/admin.py#L3238-L3265)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
 - [webhook_docs.py:87-93](file://app/backend/routes/webhook_docs.py#L87-L93)
 
 ### Additional Diagnostics
@@ -977,6 +1002,9 @@ Key dependencies and relationships:
 - **NEW** Tenant webhook management system supports tenant-specific webhook configuration and delivery tracking
 - **NEW** Administrative invoice management system provides comprehensive billing administration capabilities
 - **NEW** Dunning record management system integrates with billing administration for subscription lifecycle management
+- **NEW** Admin analytics system includes enhanced metrics overview with flat fields for quick access and usage trends for historical analysis
+- **NEW** Frontend AdminOverviewPage utilizes the new flat fields (active_users, total_analyses, mrr) for real-time dashboard display
+- **NEW** Frontend MetricsPage integrates usage trends data with active users visualization
 
 ```mermaid
 graph LR
@@ -1005,6 +1033,9 @@ ADMIN --> WEBHOOKS["Webhook Monitoring"]
 ADMIN --> TENANT_WEBHOOKS["Tenant Webhook Management"]
 ADMIN --> INVOICES["Administrative Invoices"]
 ADMIN --> DUNNING["Dunning Records"]
+ADMIN --> METRICS["Admin Analytics"]
+ADMIN --> METRICS_OVERVIEW["Metrics Overview"]
+ADMIN --> METRICS_TRENDS["Usage Trends"]
 WEBHOOK_DOCS --> EVENT_ENUM["Event Enumeration"]
 ANALYZE --> DBM["DB Models"]
 UPLOAD --> DBM
@@ -1033,6 +1064,11 @@ EXPORT --> HANDOFF["HM Handoff Package"]
 EXPORT --> MATRIX["Comparison Matrix"]
 PHONEKIT["PhoneScreenKit Component"] --> INTKIT
 PHONEKIT --> DEBRIEF
+METRICS_OVERVIEW --> FLAT_FIELDS["Flat Fields: active_users, total_analyses, mrr"]
+METRICS_TRENDS --> DAILY_ANALYSES["Daily Analyses"]
+METRICS_TRENDS --> NEW_SIGNUPS["New Signups"]
+OVERVIEW_PAGE["AdminOverviewPage.jsx"] --> FLAT_FIELDS
+METRICS_PAGE["MetricsPage.jsx"] --> DAILY_ANALYSES
 ```
 
 **Diagram sources**
@@ -1058,6 +1094,8 @@ PHONEKIT --> DEBRIEF
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-307)
 - [transcript_service.py:1-374](file://app/backend/services/transcript_service.py#L1-374)
 - [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [MetricsPage.jsx:119-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L119-L155)
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -1095,6 +1133,9 @@ PHONEKIT --> DEBRIEF
 - **NEW** Tenant webhook management system optimizes webhook configuration storage and retrieval
 - **NEW** Administrative invoice management system uses efficient querying with status and tenant filtering
 - **NEW** Dunning record management system implements optimized retry processing with due date calculations
+- **NEW** Admin analytics system includes enhanced metrics overview with flat fields for quick access and usage trends for historical analysis
+- **NEW** Frontend AdminOverviewPage efficiently displays the new flat fields (active_users, total_analyses, mrr) with fallback to nested structure
+- **NEW** Frontend MetricsPage integrates usage trends data with active users visualization and chart rendering
 
 ## Troubleshooting Guide
 Common errors and resolutions:
@@ -1133,12 +1174,12 @@ Common errors and resolutions:
 - [queue_api.py:323-344](file://app/backend/routes/queue_api.py#L323-L344)
 - [candidates.py:519-526](file://app/backend/routes/candidates.py#L519-L526)
 - [interview_kit.py:441-489](file://app/backend/routes/interview_kit.py#L441-L489)
-- [transcript.py:56-66](file://app/backend/routes/transcript.py#L56-66)
+- [transcript.py:56-66](file://app/backend/routes/transcript.py#L56-L66)
 - [candidates.py:694-698](file://app/backend/routes/candidates.py#L694-L698)
 - [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
 
 ## Conclusion
-This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. The new resume file management system provides comprehensive support for multiple file formats with format-specific delivery behavior. **NEW** The Admin API endpoints introduce comprehensive operational oversight with audit logging, administrative notifications, feature flag management, and billing administration capabilities. **NEW** The billing administration system provides dunning management, invoice handling, and webhook event monitoring for complete subscription lifecycle management. **NEW** The enhanced audit logging system supports compliance with export functionality and filtering capabilities. **NEW** The Phone screening system introduces structured interview evaluation with Experience Deep-Dive category support and comprehensive debrief generation with LLM-powered analysis. **NEW** The Transcript analysis system enables unbiased candidate evaluation from audio/video sources with PII redaction and evidence validation capabilities. **NEW** The enhanced interview kit functionality provides comprehensive evaluation across four categories with integrated debrief generation and scoring. **NEW** The Dashboard system introduces comprehensive screening analytics with period-based filtering, pipeline visualization, and JD effectiveness tracking. **NEW** JD-scoped candidate management enables focused candidate ranking, bulk status updates, and tenant-scoped operations. **NEW** HM Handoff Package export delivers structured data for hiring managers with comparison matrices and interview evaluation integration. **NEW** Admin analytics provides platform-wide insights with metrics overview and usage trend reporting. **NEW** The webhook event enumeration system provides comprehensive event type definitions for integration development. **NEW** Tenant webhook management enables comprehensive webhook configuration and delivery tracking. **NEW** Administrative invoice management provides complete billing administration capabilities. **NEW** Dunning record management integrates with billing administration for subscription lifecycle management. Clients should implement token refresh, handle streaming events, respect rate limits, utilize the queue system for optimal performance, leverage the resume file management for seamless candidate file handling, integrate the phone screening system for structured interview workflows, use transcript analysis for unbiased evaluation, integrate the enhanced interview kit for comprehensive assessment, utilize the frontend PhoneScreenKit component for complete phone screening experience, implement administrative workflows using the new admin API endpoints for operational oversight and management, integrate webhook event enumeration for comprehensive event type discovery, configure tenant webhooks for delivery tracking, manage administrative invoices for billing operations, and monitor dunning records for subscription lifecycle management. Administrators can manage plans, usage, and queue operations via dedicated endpoints while accessing platform-wide metrics and usage trends, managing billing processes, monitoring audit trails, overseeing feature deployments, configuring webhooks, and managing subscription lifecycle through comprehensive administrative interfaces.
+This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. The new resume file management system provides comprehensive support for multiple file formats with format-specific delivery behavior. **NEW** The Admin API endpoints introduce comprehensive operational oversight with audit logging, administrative notifications, feature flag management, and billing administration capabilities. **NEW** The billing administration system provides dunning management, invoice handling, and webhook event monitoring for complete subscription lifecycle management. **NEW** The enhanced audit logging system supports compliance with export functionality and filtering capabilities. **NEW** The Phone screening system introduces structured interview evaluation with Experience Deep-Dive category support and comprehensive debrief generation with LLM-powered analysis. **NEW** The Transcript analysis system enables unbiased candidate evaluation from audio/video sources with PII redaction and evidence validation capabilities. **NEW** The enhanced interview kit functionality provides comprehensive evaluation across four categories with integrated debrief generation and scoring. **NEW** The Dashboard system introduces comprehensive screening analytics with period-based filtering, pipeline visualization, and JD effectiveness tracking. **NEW** JD-scoped candidate management enables focused candidate ranking, bulk status updates, and tenant-scoped operations. **NEW** HM Handoff Package export delivers structured data for hiring managers with comparison matrices and interview evaluation integration. **NEW** Admin analytics provides platform-wide insights with metrics overview and usage trend reporting. **NEW** The webhook event enumeration system provides comprehensive event type definitions for integration development. **NEW** Tenant webhook management enables comprehensive webhook configuration and delivery tracking. **NEW** Administrative invoice management provides complete billing administration capabilities. **NEW** Dunning record management integrates with billing administration for subscription lifecycle management. **NEW** The enhanced admin analytics system includes comprehensive metrics overview with three new flat fields (active_users, total_analyses, mrr) for quick access and usage trends for historical analysis. **NEW** The frontend AdminOverviewPage efficiently displays the new flat fields for real-time dashboard monitoring. Clients should implement token refresh, handle streaming events, respect rate limits, utilize the queue system for optimal performance, leverage the resume file management for seamless candidate file handling, integrate the phone screening system for structured interview workflows, use transcript analysis for unbiased evaluation, integrate the enhanced interview kit for comprehensive assessment, utilize the frontend PhoneScreenKit component for complete phone screening experience, implement administrative workflows using the new admin API endpoints for operational oversight and management, integrate webhook event enumeration for comprehensive event type discovery, configure tenant webhooks for delivery tracking, manage administrative invoices for billing operations, monitor dunning records for subscription lifecycle management, utilize the enhanced admin analytics endpoints for comprehensive platform monitoring, and implement the new flat fields (active_users, total_analyses, mrr) for real-time dashboard display and historical trend analysis. Administrators can manage plans, usage, and queue operations via dedicated endpoints while accessing platform-wide metrics and usage trends, managing billing processes, monitoring audit trails, overseeing feature deployments, configuring webhooks, and managing subscription lifecycle through comprehensive administrative interfaces.
 
 ## Appendices
 
@@ -1246,8 +1287,13 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Tenant-specific webhook configuration
   - Delivery attempt tracking and debugging
   - Secure webhook secret management
+- Admin Analytics System:
+  - **NEW** Enhanced metrics overview with flat fields for quick access
+  - **NEW** Usage trends with customizable period length
+  - **NEW** Flat fields include active_users, total_analyses, and mrr alongside existing nested structure
+  - **NEW** Frontend integration with AdminOverviewPage and MetricsPage
 
-**Updated** Added comprehensive admin API system with elevated privilege levels and operational oversight capabilities including webhook event enumeration and tenant webhook management
+**Updated** Added comprehensive admin API system with elevated privilege levels and operational oversight capabilities including webhook event enumeration, tenant webhook management, and enhanced admin analytics with flat fields
 
 **Section sources**
 - [admin.py:17-24](file://app/backend/middleware/auth.py#L17-L24)
@@ -1256,6 +1302,8 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [admin.py:1288-1369](file://app/backend/routes/admin.py#L1288-L1369)
 - [admin.py:3147-3265](file://app/backend/routes/admin.py#L3147-L3265)
 - [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
 
 ### Phone Screening System
 **NEW** Structured interview evaluation and debrief generation system
@@ -1399,6 +1447,38 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [db_models.py:217-257](file://app/backend/models/db_models.py#L217-L257)
 - [schemas.py:441-517](file://app/backend/models/schemas.py#L441-L517)
 
+### Admin Analytics System
+**NEW** Comprehensive admin analytics system with enhanced metrics overview and usage trends
+
+- Metrics Overview Response Structure:
+  - **NEW** Flat fields for quick access:
+    - active_users: Total number of active users across all tenants
+    - total_analyses: Total analyses performed this month
+    - mrr: Monthly Recurring Revenue (rounded to 2 decimal places)
+  - **NEW** Preserved nested structure for existing consumers:
+    - tenants: { total, active, suspended, trialing, cancelled, past_due }
+    - users: { total }
+    - analyses: { today, this_week, this_month }
+    - storage: { total_gb }
+    - plans: { plan_name: count }
+    - revenue: { mrr_cents, arr_estimate_cents }
+- Usage Trends Response Structure:
+  - period_days: Number of days in the trend period (default: 30)
+  - analyses: Array of { date, count } for daily analysis counts
+  - signups: Array of { date, count } for daily new tenant signups
+- Frontend Integration:
+  - **NEW** AdminOverviewPage.jsx efficiently displays flat fields with fallback to nested structure
+  - **NEW** MetricsPage.jsx integrates usage trends data with active users visualization
+  - **NEW** MetricsPage.jsx calculates derived metrics like active users from usage trends when flat fields are not available
+
+**Updated** Added comprehensive admin analytics system with enhanced metrics overview response structure including three new flat fields for quick access
+
+**Section sources**
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
+- [AdminOverviewPage.jsx:84-108](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L84-L108)
+- [MetricsPage.jsx:145-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L145-L155)
+
 ### Example Client Integrations
 - JavaScript (frontend)
   - Axios client with interceptors for token injection and auto-refresh
@@ -1423,13 +1503,16 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - **NEW** Tenant webhook management integration for webhook configuration and delivery tracking
   - **NEW** Administrative invoice management integration for billing operations
   - **NEW** Dunning record management integration for subscription lifecycle management
+  - **NEW** Admin analytics integration with enhanced metrics overview and usage trends
+  - **NEW** Frontend integration with AdminOverviewPage.jsx utilizing flat fields (active_users, total_analyses, mrr)
+  - **NEW** Frontend integration with MetricsPage.jsx utilizing usage trends data
 - Python (backend)
   - Use requests or aiohttp to call endpoints
   - Manage bearer tokens and handle 401/429 responses
   - Implement chunked upload with proper error handling
   - Monitor queue jobs with retry logic
   - Handle binary resume file downloads with appropriate response types
-  - **NEW** Admin API integration with privilege-aware authentication
+  - **NEW** Admin API integration with privilege validation
   - **NEW** Audit log export with filtering and compliance support
   - **NEW** Administrative notifications management
   - **NEW** Feature flag deployment and tenant override management
@@ -1445,6 +1528,9 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - **NEW** Tenant webhook management integration for webhook configuration and delivery tracking
   - **NEW** Administrative invoice management integration for billing operations
   - **NEW** Dunning record management integration for subscription lifecycle management
+  - **NEW** Admin analytics integration with enhanced metrics overview and usage trends
+  - **NEW** Frontend integration with AdminOverviewPage.jsx utilizing flat fields
+  - **NEW** Frontend integration with MetricsPage.jsx utilizing usage trends data
 - Go
   - Use net/http or gorilla/mux
   - Implement JWT verification and bearer token parsing
@@ -1465,6 +1551,9 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - **NEW** Tenant webhook management integration for webhook configuration and delivery tracking
   - **NEW** Administrative invoice management integration for billing operations
   - **NEW** Dunning record management integration for subscription lifecycle management
+  - **NEW** Admin analytics integration with enhanced metrics overview and usage trends
+  - **NEW** Frontend integration with AdminOverviewPage.jsx utilizing flat fields
+  - **NEW** Frontend integration with MetricsPage.jsx utilizing usage trends data
 
 **Section sources**
 - [api.js:9-43](file://app/frontend/src/lib/api.js#L9-L43)
@@ -1530,7 +1619,9 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - ComparisonMatrixResponse: dimensions, candidates with score values
 - **NEW** Admin analytics schemas:
   - PlatformMetricsOverview: tenants, users, analyses, storage, plans, revenue
+  - **NEW** Enhanced metrics overview response with flat fields: active_users, total_analyses, mrr
   - UsageTrendsResponse: period_days, analyses, signups
+  - **NEW** Enhanced usage trends response with daily analysis and signup arrays
 - **NEW** Webhook event enumeration schemas:
   - WebhookEventDefinition: event type, description, example payload
   - WebhookSigningInfo: algorithm, header, description
@@ -1555,6 +1646,8 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
 - [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
 - [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
 
 ### Data Model Overview
 ```mermaid
@@ -1916,6 +2009,22 @@ class WebhookSigningInfo {
 +string header
 +string description
 }
+class MetricsOverview {
++int active_users
++int total_analyses
++float mrr
++TenantCounts tenants
++UserCounts users
++AnalysisCounts analyses
++StorageMetrics storage
++PlanDistribution plans
++RevenueMetrics revenue
+}
+class UsageTrends {
++int period_days
++DailyAnalyses[] analyses
++DailySignups[] signups
+}
 SubscriptionPlan "1" --> "many" Tenant : "plan"
 Tenant "1" --> "many" User : "users"
 Tenant "1" --> "many" Candidate : "candidates"
@@ -1958,3 +2067,5 @@ TranscriptAnalysis "1" --> "many" RoleTemplate : "role_template"
 - [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
 - [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
 - [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)

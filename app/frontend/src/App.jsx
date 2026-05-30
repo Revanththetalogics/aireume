@@ -56,6 +56,7 @@ const SecurityEventsPage = lazy(() => import('./pages/admin/SecurityEventsPage')
 const RevenuePage        = lazy(() => import('./pages/admin/RevenuePage'))
 const InvoicesPage       = lazy(() => import('./pages/admin/InvoicesPage'))
 const DunningPage        = lazy(() => import('./pages/admin/DunningPage'))
+const BillingSettingsPage = lazy(() => import('./pages/admin/BillingSettingsPage'))
 const ErasurePage        = lazy(() => import('./pages/admin/ErasurePage'))
 const ImpersonationPage  = lazy(() => import('./pages/admin/ImpersonationPage'))
 
@@ -150,6 +151,7 @@ function App() {
                 <Route path="audit" element={<AuditLogPage />} />
                 <Route path="security" element={<SecurityEventsPage />} />
                 <Route path="billing" element={<RevenuePage />} />
+                <Route path="billing-settings" element={<BillingSettingsPage />} />
                 <Route path="invoices" element={<InvoicesPage />} />
                 <Route path="dunning" element={<DunningPage />} />
                 <Route path="erasure" element={<ErasurePage />} />

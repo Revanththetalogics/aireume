@@ -1248,6 +1248,26 @@ export async function getBillingProviders() {
   return response.data
 }
 
+export async function getBillingSettings() {
+  const response = await api.get('/admin/billing/settings')
+  return response.data
+}
+
+export async function updateBillingSettings(data) {
+  const response = await api.put('/admin/billing/settings', data)
+  return response.data
+}
+
+export async function testBillingConnection(provider) {
+  const response = await api.post('/admin/billing/settings/test', { provider })
+  return response.data
+}
+
+export async function generateCheckoutLink(tenantId, planId) {
+  const response = await api.post('/admin/billing/generate-checkout-link', { tenant_id: tenantId, plan_id: planId })
+  return response.data
+}
+
 // ─── Interview Evaluation & Scorecard ─────────────────────────────────────────
 
 export async function getEvaluations(resultId) {

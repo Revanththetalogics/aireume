@@ -12,7 +12,14 @@ import {
   Users,
   Ban,
   PlayCircle,
+  Pencil,
+  Send,
+  Download,
+  Key,
+  Mail,
+  History,
 } from 'lucide-react'
+import SlideOutPanel from '../../components/admin/SlideOutPanel'
 import {
   getAdminTenants,
   getAdminTenantDetail,
@@ -166,51 +173,150 @@ function AddUserModal({ tenantId, tenantName, onClose, onAdded }) {
   )
 }
 
-/* ── Row Actions Dropdown ──────────────────────────────── */
-function RowActions({ user, tenantId, onAction }) {
-  const [open, setOpen] = useState(false)
+/* ── Toggle Switch ─────────────────────────────────────── */
+function ToggleSwitch({ checked, onChange }) {
+  return (
+    <button
+      onClick={onChange}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 ${
+        checked ? 'bg-teal-600' : 'bg-gray-300'
+      }`}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+          checked ? 'translate-x-[18px]' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  )
+}
+
+/* ── User Slide-Out Panel ─────────────────────────────── */
+function UserSlideOut({ user, tenantName, onClose, onAction }) {
+  if (!user) return null
+
+  const handleResetPassword = () => {
+    if (!confirm(`Send password reset email to ${user.email}?`)) return
+    alert('Password reset email placeholder — backend endpoint needed.')
+  }
+
+  const handleRemoveFromTenant = () => {
+    onAction('remove', user)
+    onClose()
+  }
+
+  const handleSendInvite = () => {
+    if (!confirm(`Send invite email to ${user.email}?`)) return
+    alert('Invite email sent placeholder — backend endpoint needed.')
+  }
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-500"
-      >
-        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-          <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" />
-        </svg>
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20">
-            <button
-              onClick={() => { setOpen(false); onAction('toggle-status', user, tenantId) }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              {user.is_active !== false ? (
-                <><Ban className="w-4 h-4 text-red-500" /> Deactivate</>
-              ) : (
-                <><PlayCircle className="w-4 h-4 text-green-500" /> Reactivate</>
-              )}
-            </button>
-            <button
-              onClick={() => { setOpen(false); onAction('change-role', user, tenantId) }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <Shield className="w-4 h-4" /> Change Role
-            </button>
-            <div className="border-t border-gray-100 my-1" />
-            <button
-              onClick={() => { setOpen(false); onAction('remove', user, tenantId) }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" /> Remove from Tenant
-            </button>
+    <SlideOutPanel
+      isOpen={!!user}
+      onClose={onClose}
+      title={user.email}
+    >
+      <div className="p-6 space-y-6">
+        <div>
+          <RoleBadge role={user.role} />
+        </div>
+
+        <div className="border-b border-gray-200 pb-6">
+          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Profile</h3>
+          <div className="space-y-3">
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Email</span>
+              <span className="text-sm font-medium text-gray-900">{user.email}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Name</span>
+              <span className="text-sm font-medium text-gray-900">{user.name || '—'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Role</span>
+              <span className="text-sm font-medium text-gray-900 capitalize">{user.role}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Tenant</span>
+              <span className="text-sm font-medium text-gray-900">{tenantName || '—'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Status</span>
+              <span className="text-sm font-medium text-gray-900">{user.is_active !== false ? 'Active' : 'Inactive'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Last Login</span>
+              <span className="text-sm font-medium text-gray-900">
+                {user.last_login ? new Date(user.last_login).toLocaleDateString() : '—'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-500">Created</span>
+              <span className="text-sm font-medium text-gray-900">
+                {user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
+              </span>
+            </div>
           </div>
-        </>
-      )}
-    </div>
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Actions</h3>
+
+          <button
+            onClick={() => { onAction('change-role', user); onClose() }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors text-left"
+          >
+            <Shield className="w-4 h-4 text-gray-400" />
+            Change Role
+          </button>
+
+          <button
+            onClick={() => { onAction('toggle-status', user); onClose() }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors text-left"
+          >
+            {user.is_active !== false ? (
+              <><Ban className="w-4 h-4 text-gray-400" /> Deactivate</>
+            ) : (
+              <><PlayCircle className="w-4 h-4 text-gray-400" /> Reactivate</>
+            )}
+          </button>
+
+          <button
+            onClick={handleResetPassword}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors text-left"
+          >
+            <Key className="w-4 h-4 text-gray-400" />
+            Reset Password
+          </button>
+
+          <button
+            onClick={handleRemoveFromTenant}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors text-left"
+          >
+            <Trash2 className="w-4 h-4" />
+            Remove from Tenant
+          </button>
+
+          <button
+            onClick={handleSendInvite}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors text-left"
+          >
+            <Mail className="w-4 h-4 text-gray-400" />
+            Send Invite Email
+          </button>
+
+          <div className="border-t border-gray-200 my-3" />
+
+          <div className="px-4 py-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <History className="w-4 h-4 text-gray-400" />
+              <span className="text-sm font-medium text-gray-700">Activity Log</span>
+            </div>
+            <p className="text-xs text-gray-500">Coming soon</p>
+          </div>
+        </div>
+      </div>
+    </SlideOutPanel>
   )
 }
 
@@ -316,6 +422,7 @@ export default function UsersPage() {
   const [showAddUser, setShowAddUser] = useState(false)
   const [changeRoleUser, setChangeRoleUser] = useState(null)
   const [changeRoleTenantId, setChangeRoleTenantId] = useState(null)
+  const [slideOutUser, setSlideOutUser] = useState(null)
 
   /* ── Fetch tenants ──────────────────────────────────── */
   const fetchTenants = useCallback(async () => {
@@ -568,7 +675,14 @@ export default function UsersPage() {
                 <tbody className="divide-y divide-gray-200">
                   {paginatedUsers.map(user => (
                     <tr key={user.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 text-sm text-gray-900 font-medium">{user.email}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => setSlideOutUser(user)}
+                          className="text-sm text-gray-900 font-medium hover:text-teal-600 transition-colors text-left"
+                        >
+                          {user.email}
+                        </button>
+                      </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{user.name || '—'}</td>
                       <td className="px-4 py-3">
                         <RoleBadge role={user.role} />
@@ -580,7 +694,19 @@ export default function UsersPage() {
                         {user.last_login ? new Date(user.last_login).toLocaleDateString() : '—'}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <RowActions user={user} tenantId={Number(selectedTenantId)} onAction={handleRowAction} />
+                        <div className="flex items-center justify-end gap-2">
+                          <ToggleSwitch
+                            checked={user.is_active !== false}
+                            onChange={() => handleRowAction('toggle-status', user, Number(selectedTenantId))}
+                          />
+                          <button
+                            onClick={() => handleRowAction('change-role', user, Number(selectedTenantId))}
+                            className="p-1.5 text-gray-400 hover:text-teal-600 transition-colors"
+                            title="Change Role"
+                          >
+                            <Pencil className="w-5 h-5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -644,6 +770,12 @@ export default function UsersPage() {
           onDone={fetchUsers}
         />
       )}
+      <UserSlideOut
+        user={slideOutUser}
+        tenantName={selectedTenant?.name}
+        onClose={() => setSlideOutUser(null)}
+        onAction={(action, user) => handleRowAction(action, user, Number(selectedTenantId))}
+      />
     </div>
   )
 }

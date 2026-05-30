@@ -524,6 +524,16 @@ class WebhookDelivery(Base):
     webhook = relationship("Webhook", back_populates="deliveries")
 
 
+class PlatformSetting(Base):
+    """Platform-level key-value settings store."""
+    __tablename__ = "platform_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(Text, nullable=True)  # JSON string
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class PlatformConfig(Base):
     """Platform-level key-value configuration for billing provider settings."""
     __tablename__ = "platform_configs"
