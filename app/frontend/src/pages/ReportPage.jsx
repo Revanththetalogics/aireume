@@ -18,6 +18,126 @@ import PhoneScreenKit from '../components/PhoneScreenKit'
 import EvaluationChecklist from '../components/EvaluationChecklist'
 import api from '../lib/api'
 
+/**
+ * ResumeTextRenderer — formats raw resume plain-text into readable structured HTML.
+ * Detects section headings, bullet points, dates, and blank-line paragraphs.
+ */
+function ResumeTextRenderer({ text }) {
+  if (!text) return null
+
+  // Patterns
+  const SECTION_RE = /^([A-Z][A-Z\s&/\-]{2,40}):?\s*$/
+  const BULLET_RE  = /^[\u2022\u2023\u25E6\u2043\u2219\-\*\+]\s+/
+  const DATE_RE    = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[\s,]+\d{4}/i
+
+  const lines = text.split('\n')
+  const nodes = []
+  let i = 0
+
+  // First non-empty line is likely the candidate name
+  let nameEmitted = false
+
+  while (i < lines.length) {
+    const raw = lines[i]
+    const trimmed = raw.trim()
+
+    if (!trimmed) {
+      i++
+      continue
+    }
+
+    // Candidate name — first meaningful line
+    if (!nameEmitted) {
+      nameEmitted = true
+      nodes.push(
+        <h1 key={`name-${i}`} className="text-lg font-bold text-slate-900 mb-0.5 leading-tight">
+          {trimmed}
+        </h1>
+      )
+      i++
+      // Collect contact/meta lines right after name (short lines without bullets)
+      const meta = []
+      while (i < lines.length && lines[i].trim() && !SECTION_RE.test(lines[i].trim()) && lines[i].trim().length < 80) {
+        meta.push(lines[i].trim())
+        i++
+      }
+      if (meta.length > 0) {
+        nodes.push(
+          <p key={`meta-${i}`} className="text-xs text-slate-500 mb-3 leading-relaxed">
+            {meta.join('  ·  ')}
+          </p>
+        )
+      }
+      continue
+    }
+
+    // Section heading (ALL CAPS line)
+    if (SECTION_RE.test(trimmed)) {
+      nodes.push(
+        <div key={`sec-${i}`} className="mt-4 mb-1.5 pb-1 border-b border-slate-200">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-brand-600">
+            {trimmed.replace(/:$/, '')}
+          </span>
+        </div>
+      )
+      i++
+      continue
+    }
+
+    // Bullet point
+    if (BULLET_RE.test(trimmed)) {
+      const bullets = []
+      while (i < lines.length && BULLET_RE.test(lines[i].trim())) {
+        bullets.push(lines[i].trim().replace(BULLET_RE, ''))
+        i++
+      }
+      nodes.push(
+        <ul key={`ul-${i}`} className="mb-2 space-y-0.5">
+          {bullets.map((b, bi) => (
+            <li key={bi} className="flex items-start gap-2 text-xs text-slate-700 leading-relaxed">
+              <span className="mt-1.5 w-1 h-1 rounded-full bg-brand-400 shrink-0" />
+              {b}
+            </li>
+          ))}
+        </ul>
+      )
+      continue
+    }
+
+    // Line with a date — treat as a job/education title row
+    if (DATE_RE.test(trimmed)) {
+      nodes.push(
+        <div key={`date-${i}`} className="flex items-start justify-between gap-2 mb-0.5">
+          <span className="text-xs font-semibold text-slate-700 leading-snug flex-1">{trimmed}</span>
+        </div>
+      )
+      i++
+      continue
+    }
+
+    // Short bold-looking line (likely a company/role name — non-caps, < 60 chars, no sentence punctuation)
+    if (trimmed.length < 60 && !/[.?!;]$/.test(trimmed) && !/^[a-z]/.test(trimmed)) {
+      nodes.push(
+        <p key={`title-${i}`} className="text-xs font-semibold text-slate-800 leading-snug mb-0.5">
+          {trimmed}
+        </p>
+      )
+      i++
+      continue
+    }
+
+    // Regular paragraph line
+    nodes.push(
+      <p key={`p-${i}`} className="text-xs text-slate-600 leading-relaxed mb-1">
+        {trimmed}
+      </p>
+    )
+    i++
+  }
+
+  return <div className="font-sans">{nodes}</div>
+}
+
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
   if (v == null) return ''
@@ -511,8 +631,8 @@ export default function ReportPage() {
                 </div>
               )}
               {resumeIsText ? (
-                <div className="absolute inset-0 overflow-y-auto p-6">
-                  <pre className="whitespace-pre-wrap text-sm text-slate-700 font-sans leading-relaxed">{resumeText}</pre>
+                <div className="absolute inset-0 overflow-y-auto px-5 py-4">
+                  <ResumeTextRenderer text={resumeText} />
                 </div>
               ) : resumeBlobUrl ? (
                 <iframe
