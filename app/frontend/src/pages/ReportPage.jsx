@@ -489,8 +489,8 @@ export default function ReportPage() {
         {/* ── Split content ── */}
         <div className="flex-1 flex lg:flex-row flex-col min-h-0">
 
-          {/* Left panel — Resume */}
-          <div className="lg:w-1/2 w-full border-r border-slate-200 flex flex-col lg:h-full h-[45vh]">
+          {/* Left panel — Resume (40%) */}
+          <div className="lg:w-[40%] w-full border-r border-slate-200 flex flex-col lg:h-full h-[45vh]">
             <div className="h-9 shrink-0 flex items-center justify-between px-4 bg-slate-50 border-b border-slate-200">
               <span className="text-xs font-semibold text-slate-600">Resume</span>
               {result?.candidate_id && (
@@ -511,40 +511,35 @@ export default function ReportPage() {
                 </div>
               )}
               {resumeIsText ? (
-                <div className="flex-1 overflow-y-auto p-6 h-full">
+                <div className="absolute inset-0 overflow-y-auto p-6">
                   <pre className="whitespace-pre-wrap text-sm text-slate-700 font-sans leading-relaxed">{resumeText}</pre>
                 </div>
               ) : resumeBlobUrl ? (
                 <iframe
                   src={resumeBlobUrl}
-                  className="w-full h-full border-0"
+                  className="absolute inset-0 w-full h-full border-0"
                   title="Candidate Resume"
                 />
               ) : !resumeLoading ? (
-                <div className="p-6 overflow-y-auto h-full">
-                  <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
-                    <FileText className="w-10 h-10 opacity-30" />
-                    <p className="text-sm">Resume not available for inline preview.</p>
-                    {result?.candidate_id && (
-                      <button
-                        onClick={async () => { try { await viewCandidateResume(result.candidate_id) } catch { /* silent */ } }}
-                        className="px-4 py-2 text-sm font-semibold bg-brand-50 text-brand-700 ring-1 ring-brand-200 rounded-lg hover:bg-brand-100 transition-colors"
-                      >
-                        Open in new tab
-                      </button>
-                    )}
-                  </div>
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-3 p-6">
+                  <FileText className="w-10 h-10 opacity-30" />
+                  <p className="text-sm">Resume not available for inline preview.</p>
+                  {result?.candidate_id && (
+                    <button
+                      onClick={async () => { try { await viewCandidateResume(result.candidate_id) } catch { /* silent */ } }}
+                      className="px-4 py-2 text-sm font-semibold bg-brand-50 text-brand-700 ring-1 ring-brand-200 rounded-lg hover:bg-brand-100 transition-colors"
+                    >
+                      Open in new tab
+                    </button>
+                  )}
                 </div>
               ) : null}
             </div>
           </div>
 
-          {/* Right panel — Screen Kit + Scorecard */}
-          <div className="lg:w-1/2 w-full flex flex-col min-h-0 lg:h-full">
-            <div className="h-9 shrink-0 flex items-center px-4 bg-slate-50 border-b border-slate-200">
-              <span className="text-xs font-semibold text-slate-600">Recruiter Screen Kit</span>
-            </div>
-            <div className="flex-1 overflow-y-auto">
+          {/* Right panel — Screen Kit (60%) */}
+          <div className="lg:w-[60%] w-full flex flex-col min-h-0 lg:h-full">
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <PhoneScreenKit
                 interview_questions={interviewQs}
                 resultId={result?.result_id}
@@ -554,14 +549,14 @@ export default function ReportPage() {
                 }}
                 onDebriefGenerated={() => setScorecardKey(prev => prev + 1)}
               />
-
-              {/* Scorecard at the bottom */}
-              {result?.result_id && (
-                <div className="px-4 pb-6 pt-2 border-t border-slate-100">
-                  <InterviewScorecard key={scorecardKey} resultId={result.result_id} />
-                </div>
-              )}
             </div>
+
+            {/* Scorecard — below the kit, in its own scroll region */}
+            {result?.result_id && (
+              <div className="shrink-0 max-h-[40vh] overflow-y-auto px-5 pb-6 pt-3 border-t border-slate-200 bg-white">
+                <InterviewScorecard key={scorecardKey} resultId={result.result_id} />
+              </div>
+            )}
           </div>
         </div>
       </div>
