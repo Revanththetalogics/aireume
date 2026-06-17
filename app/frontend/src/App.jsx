@@ -22,6 +22,8 @@ const Dashboard    = lazy(() => import('./pages/Dashboard'))
 const ReportPage   = lazy(() => import('./pages/ReportPage'))
 const LoginPage    = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const CandidatesPage = lazy(() => import('./pages/CandidatesPage'))
 const CandidateProfilePage = lazy(() => import('./pages/CandidateProfilePage'))
 const KanbanBoard    = lazy(() => import('./pages/KanbanBoard'))
@@ -35,12 +37,28 @@ const VideoPage    = lazy(() => import('./pages/VideoPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
 const AnalyticsPage  = lazy(() => import('./pages/AnalyticsPage'))
-const EmailSettings = lazy(() => import('./pages/admin/EmailSettings'))
+
+// Admin layout + pages
+const AdminLayout        = lazy(() => import('./layouts/AdminLayout'))
+const AdminOverviewPage  = lazy(() => import('./pages/admin/AdminOverviewPage'))
+const TenantsPage        = lazy(() => import('./pages/admin/TenantsPage'))
+const TenantDetailPage   = lazy(() => import('./pages/admin/TenantDetailPage'))
+const PlansPage          = lazy(() => import('./pages/admin/PlanManagementPage'))
+const UsersPage          = lazy(() => import('./pages/admin/UsersPage'))
+const FeatureFlagsPage   = lazy(() => import('./pages/admin/FeatureFlagsPage'))
+const WebhooksPage       = lazy(() => import('./pages/admin/WebhooksPage'))
+const RateLimitsPage     = lazy(() => import('./pages/admin/RateLimitsPage'))
+const SSOPage            = lazy(() => import('./pages/admin/SSOPage'))
+const EmailSettingsPage  = lazy(() => import('./pages/admin/EmailSettings'))
+const MetricsPage        = lazy(() => import('./pages/admin/MetricsPage'))
+const AuditLogPage       = lazy(() => import('./pages/admin/AuditLogPage'))
 const SecurityEventsPage = lazy(() => import('./pages/admin/SecurityEventsPage'))
-const ImpersonationPage = lazy(() => import('./pages/admin/ImpersonationPage'))
-const ErasurePage = lazy(() => import('./pages/admin/ErasurePage'))
-const PlanFeaturesPage = lazy(() => import('./pages/admin/PlanFeaturesPage'))
-const PlanManagementPage = lazy(() => import('./pages/admin/PlanManagementPage'))
+const RevenuePage        = lazy(() => import('./pages/admin/RevenuePage'))
+const InvoicesPage       = lazy(() => import('./pages/admin/InvoicesPage'))
+const DunningPage        = lazy(() => import('./pages/admin/DunningPage'))
+const BillingSettingsPage = lazy(() => import('./pages/admin/BillingSettingsPage'))
+const ErasurePage        = lazy(() => import('./pages/admin/ErasurePage'))
+const ImpersonationPage  = lazy(() => import('./pages/admin/ImpersonationPage'))
 
 function PageLoader() {
   return (
@@ -64,8 +82,8 @@ function OnboardingGate({ children }) {
   const { isOnboardingComplete, statusLoading } = useOnboarding()
   const { user, tenant, loading: authLoading } = useAuth()
 
-  // Wait for both auth and onboarding status to load before deciding
-  const isLoading = authLoading || statusLoading
+  // Wait for auth, onboarding status, and tenant to all be loaded before deciding
+  const isLoading = authLoading || statusLoading || !user || !tenant
 
   if (isLoading) {
     return <PageLoader />
@@ -92,6 +110,8 @@ function App() {
               {/* Public routes */}
               <Route path="/login"      element={<LoginPage />} />
               <Route path="/register"   element={<RegisterPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
               
               {/* Onboarding direct-access route */}
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingWizard /></ProtectedRoute>} />
@@ -115,13 +135,28 @@ function App() {
               <Route path="/video"      element={<Shell><OnboardingGate><VideoPage /></OnboardingGate></Shell>} />
               <Route path="/analytics"  element={<Shell><OnboardingGate><AnalyticsPage /></OnboardingGate></Shell>} />
               <Route path="/settings"   element={<Shell><OnboardingGate><SettingsPage /></OnboardingGate></Shell>} />
-              <Route path="/admin" element={<PlatformAdminRoute><Shell><OnboardingGate><AdminDashboardPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
-              <Route path="/admin/email-settings" element={<PlatformAdminRoute><Shell><OnboardingGate><EmailSettings /></OnboardingGate></Shell></PlatformAdminRoute>} />
-              <Route path="/admin/security-events" element={<PlatformAdminRoute><Shell><OnboardingGate><SecurityEventsPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
-              <Route path="/admin/impersonation" element={<PlatformAdminRoute><Shell><OnboardingGate><ImpersonationPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
-              <Route path="/admin/erasure" element={<PlatformAdminRoute><Shell><OnboardingGate><ErasurePage /></OnboardingGate></Shell></PlatformAdminRoute>} />
-              <Route path="/admin/plan-features" element={<PlatformAdminRoute><Shell><OnboardingGate><PlanFeaturesPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
-              <Route path="/admin/plans" element={<PlatformAdminRoute><Shell><OnboardingGate><PlanManagementPage /></OnboardingGate></Shell></PlatformAdminRoute>} />
+              {/* Admin portal - standalone layout (no recruiter nav) */}
+              <Route path="/admin" element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}>
+                <Route index element={<AdminOverviewPage />} />
+                <Route path="tenants/:id" element={<TenantDetailPage />} />
+                <Route path="tenants" element={<TenantsPage />} />
+                <Route path="plans" element={<PlansPage />} />
+                <Route path="users" element={<UsersPage />} />
+                <Route path="features" element={<FeatureFlagsPage />} />
+                <Route path="webhooks" element={<WebhooksPage />} />
+                <Route path="rate-limits" element={<RateLimitsPage />} />
+                <Route path="sso" element={<SSOPage />} />
+                <Route path="email" element={<EmailSettingsPage />} />
+                <Route path="metrics" element={<MetricsPage />} />
+                <Route path="audit" element={<AuditLogPage />} />
+                <Route path="security" element={<SecurityEventsPage />} />
+                <Route path="billing" element={<RevenuePage />} />
+                <Route path="billing-settings" element={<BillingSettingsPage />} />
+                <Route path="invoices" element={<InvoicesPage />} />
+                <Route path="dunning" element={<DunningPage />} />
+                <Route path="erasure" element={<ErasurePage />} />
+                <Route path="impersonation" element={<ImpersonationPage />} />
+              </Route>
 
               {/* Backward compatibility redirects */}
               <Route path="/batch"      element={<Navigate to="/analyze" replace />} />

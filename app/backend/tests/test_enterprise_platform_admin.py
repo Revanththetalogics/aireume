@@ -40,7 +40,7 @@ class TestSecurityEvents:
         tenant = Tenant(name="SecTest2", slug="sectest2")
         db.add(tenant)
         db.commit()
-        user = User(email="sec2@example.com", hashed_password=pwd_context.hash("pass"), tenant_id=tenant.id)
+        user = User(email="sec2@example.com", hashed_password=pwd_context.hash("pass"), tenant_id=tenant.id, email_verified=True)
         db.add(user)
         db.commit()
 

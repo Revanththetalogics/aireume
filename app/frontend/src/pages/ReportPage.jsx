@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react'
 import {
   ArrowLeft, Share2, Download, CheckCircle, Check,
   ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon, Upload, Eye, FileText, Clock,
+  PhoneCall,
 } from 'lucide-react'
 import html2pdf from 'html2pdf.js'
 import ScoreGauge from '../components/ScoreGauge'
@@ -13,6 +14,129 @@ import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandi
 import AnimatedScore from '../components/AnimatedScore'
 import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
+import PhoneScreenKit from '../components/PhoneScreenKit'
+import EvaluationChecklist from '../components/EvaluationChecklist'
+import api from '../lib/api'
+
+/**
+ * ResumeTextRenderer — formats raw resume plain-text into readable structured HTML.
+ * Detects section headings, bullet points, dates, and blank-line paragraphs.
+ */
+function ResumeTextRenderer({ text }) {
+  if (!text) return null
+
+  // Patterns
+  const SECTION_RE = /^([A-Z][A-Z\s&/\-]{2,40}):?\s*$/
+  const BULLET_RE  = /^[\u2022\u2023\u25E6\u2043\u2219\-\*\+]\s+/
+  const DATE_RE    = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[\s,]+\d{4}/i
+
+  const lines = text.split('\n')
+  const nodes = []
+  let i = 0
+
+  // First non-empty line is likely the candidate name
+  let nameEmitted = false
+
+  while (i < lines.length) {
+    const raw = lines[i]
+    const trimmed = raw.trim()
+
+    if (!trimmed) {
+      i++
+      continue
+    }
+
+    // Candidate name — first meaningful line
+    if (!nameEmitted) {
+      nameEmitted = true
+      nodes.push(
+        <h1 key={`name-${i}`} className="text-lg font-bold text-slate-900 mb-0.5 leading-tight">
+          {trimmed}
+        </h1>
+      )
+      i++
+      // Collect contact/meta lines right after name (short lines without bullets)
+      const meta = []
+      while (i < lines.length && lines[i].trim() && !SECTION_RE.test(lines[i].trim()) && lines[i].trim().length < 80) {
+        meta.push(lines[i].trim())
+        i++
+      }
+      if (meta.length > 0) {
+        nodes.push(
+          <p key={`meta-${i}`} className="text-xs text-slate-500 mb-3 leading-relaxed">
+            {meta.join('  ·  ')}
+          </p>
+        )
+      }
+      continue
+    }
+
+    // Section heading (ALL CAPS line)
+    if (SECTION_RE.test(trimmed)) {
+      nodes.push(
+        <div key={`sec-${i}`} className="mt-4 mb-1.5 pb-1 border-b border-slate-200">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-brand-600">
+            {trimmed.replace(/:$/, '')}
+          </span>
+        </div>
+      )
+      i++
+      continue
+    }
+
+    // Bullet point
+    if (BULLET_RE.test(trimmed)) {
+      const bullets = []
+      while (i < lines.length && BULLET_RE.test(lines[i].trim())) {
+        bullets.push(lines[i].trim().replace(BULLET_RE, ''))
+        i++
+      }
+      nodes.push(
+        <ul key={`ul-${i}`} className="mb-2 space-y-0.5">
+          {bullets.map((b, bi) => (
+            <li key={bi} className="flex items-start gap-2 text-xs text-slate-700 leading-relaxed">
+              <span className="mt-1.5 w-1 h-1 rounded-full bg-brand-400 shrink-0" />
+              {b}
+            </li>
+          ))}
+        </ul>
+      )
+      continue
+    }
+
+    // Line with a date — treat as a job/education title row
+    if (DATE_RE.test(trimmed)) {
+      nodes.push(
+        <div key={`date-${i}`} className="flex items-start justify-between gap-2 mb-0.5">
+          <span className="text-xs font-semibold text-slate-700 leading-snug flex-1">{trimmed}</span>
+        </div>
+      )
+      i++
+      continue
+    }
+
+    // Short bold-looking line (likely a company/role name — non-caps, < 60 chars, no sentence punctuation)
+    if (trimmed.length < 60 && !/[.?!;]$/.test(trimmed) && !/^[a-z]/.test(trimmed)) {
+      nodes.push(
+        <p key={`title-${i}`} className="text-xs font-semibold text-slate-800 leading-snug mb-0.5">
+          {trimmed}
+        </p>
+      )
+      i++
+      continue
+    }
+
+    // Regular paragraph line
+    nodes.push(
+      <p key={`p-${i}`} className="text-xs text-slate-600 leading-relaxed mb-1">
+        {trimmed}
+      </p>
+    )
+    i++
+  }
+
+  return <div className="font-sans">{nodes}</div>
+}
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -108,6 +232,14 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(true)
   const [auditLogs, setAuditLogs] = useState([])
   const [auditExpanded, setAuditExpanded] = useState(false)
+
+  // ── Phone Screen split-view state ─────────────────────────────────────────
+  const [screenMode, setScreenMode] = useState(false)
+  const [scorecardKey, setScorecardKey] = useState(0)
+  const [resumeBlobUrl, setResumeBlobUrl] = useState(null)
+  const [resumeLoading, setResumeLoading] = useState(false)
+  const [resumeIsText, setResumeIsText] = useState(false)
+  const [resumeText, setResumeText] = useState('')
 
   /** Resolve name from all possible result paths — returns null if unknown */
   const resolveName = (r) =>
@@ -221,20 +353,20 @@ export default function ReportPage() {
           }))
           setNarrativePolling(false)
           clearInterval(pollInterval)
-        } else if (narrativeData.status === 'failed') {
+        } else if (narrativeData.status === 'fallback' || narrativeData.status === 'failed') {
           // Use fallback narrative if available
           if (narrativeData.narrative) {
             setResult(prev => ({
               ...prev,
               ...narrativeData.narrative,
-              narrative_status: 'failed',
+              narrative_status: narrativeData.status,
               narrative_error: narrativeData.error,
               ai_enhanced: false,
             }))
           } else {
             setResult(prev => ({
               ...prev,
-              narrative_status: 'failed',
+              narrative_status: narrativeData.status,
               narrative_error: narrativeData.error,
             }))
           }
@@ -263,6 +395,54 @@ export default function ReportPage() {
     }
   }, [result?.analysis_id, result?.result_id, result?.narrative_status])
 
+  // Load resume blob when entering screen mode
+  useEffect(() => {
+    if (!screenMode || !result?.candidate_id) return
+    if (resumeBlobUrl || resumeIsText) return // already loaded
+    let objectUrl = null
+    const loadResume = async () => {
+      setResumeLoading(true)
+      try {
+        const resp = await api.get(`/candidates/${result.candidate_id}/resume?inline=true`, { responseType: 'blob' })
+        const blob = resp.data
+        const contentType = blob.type || resp.headers['content-type'] || ''
+        if (contentType.includes('application/pdf')) {
+          objectUrl = URL.createObjectURL(blob)
+          setResumeBlobUrl(objectUrl)
+          setResumeIsText(false)
+        } else if (contentType.startsWith('text/')) {
+          const text = await blob.text()
+          setResumeText(text)
+          setResumeIsText(true)
+        } else {
+          // Fallback: use raw_resume_text from result data
+          setResumeText(result?.raw_resume_text || result?.resume_text || 'Resume preview not available for this file format.')
+          setResumeIsText(true)
+        }
+      } catch (e) {
+        console.warn('PhoneScreen: failed to load resume blob', e)
+      } finally {
+        setResumeLoading(false)
+      }
+    }
+    loadResume()
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [screenMode, result?.candidate_id])
+
+  // Revoke blob URL when exiting screen mode
+  useEffect(() => {
+    if (!screenMode) {
+      if (resumeBlobUrl) {
+        URL.revokeObjectURL(resumeBlobUrl)
+        setResumeBlobUrl(null)
+      }
+      setResumeIsText(false)
+      setResumeText('')
+    }
+  }, [screenMode])
+
   if (!result) {
     if (loading) {
       return (
@@ -288,7 +468,7 @@ export default function ReportPage() {
 
   const hasDeterministicData = result.fit_score != null
   const isNarrativeReady = result.narrative_status === 'ready'
-  const isReportComplete = isNarrativeReady || result.narrative_status === 'failed' || !result.narrative_status
+  const isReportComplete = isNarrativeReady || result.narrative_status === 'fallback' || result.narrative_status === 'failed' || !result.narrative_status
 
   const role      = (result.job_role && result.job_role !== 'Not specified') ? result.job_role : ''
   const timestamp = result.analyzed_at
@@ -390,6 +570,119 @@ export default function ReportPage() {
     }
   }
 
+  // ── Phone Screen split-view layout ────────────────────────────────────────
+  const interviewQs = result?.interview_questions
+    || result?.analysis_result?.interview_questions
+    || null
+  const fitScore = result?.fit_score ?? null
+  const fitLabel = fitScore != null
+    ? (fitScore >= 72 ? 'Strong Fit' : fitScore >= 45 ? 'Moderate Fit' : 'Low Fit')
+    : null
+  const fitBadgeClass = fitScore != null
+    ? (fitScore >= 72 ? 'bg-emerald-100 text-emerald-700' : fitScore >= 45 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700')
+    : 'bg-slate-100 text-slate-500'
+
+  if (screenMode) {
+    return (
+      <div className="flex flex-col" style={{ height: '100vh' }}>
+        {/* ── Phone Screen top bar ── */}
+        <div className="h-14 shrink-0 flex items-center justify-between px-5 bg-white border-b border-slate-200 shadow-sm z-20">
+          <div className="flex items-center gap-3 min-w-0">
+            <PhoneCall className="w-4 h-4 text-brand-600 shrink-0" />
+            <span className="font-bold text-slate-900 text-sm truncate">{candidateName || 'Candidate'}</span>
+            {role && <span className="text-xs text-slate-400 truncate hidden sm:block">{safeStr(role)}</span>}
+            {fitScore != null && (
+              <span className={`shrink-0 px-2.5 py-0.5 rounded-full text-xs font-bold ${fitBadgeClass}`}>
+                {fitScore}% · {fitLabel}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setScreenMode(false)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shrink-0"
+          >
+            <XIcon className="w-4 h-4" />
+            Exit Screen Mode
+          </button>
+        </div>
+
+        {/* ── Split content ── */}
+        <div className="flex-1 flex lg:flex-row flex-col min-h-0">
+
+          {/* Left panel — Resume (40%) */}
+          <div className="lg:w-[40%] w-full border-r border-slate-200 flex flex-col lg:h-full h-[45vh]">
+            <div className="h-9 shrink-0 flex items-center justify-between px-4 bg-slate-50 border-b border-slate-200">
+              <span className="text-xs font-semibold text-slate-600">Resume</span>
+              {result?.candidate_id && (
+                <button
+                  onClick={async () => {
+                    try { await viewCandidateResume(result.candidate_id) } catch { /* silent */ }
+                  }}
+                  className="text-xs text-brand-600 hover:text-brand-800 font-semibold transition-colors flex items-center gap-1"
+                >
+                  <Eye className="w-3 h-3" /> Open in tab
+                </button>
+              )}
+            </div>
+            <div className="flex-1 min-h-0 relative">
+              {resumeLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
+                </div>
+              )}
+              {resumeIsText ? (
+                <div className="absolute inset-0 overflow-y-auto px-5 py-4">
+                  <ResumeTextRenderer text={resumeText} />
+                </div>
+              ) : resumeBlobUrl ? (
+                <iframe
+                  src={resumeBlobUrl}
+                  className="absolute inset-0 w-full h-full border-0"
+                  title="Candidate Resume"
+                />
+              ) : !resumeLoading ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-3 p-6">
+                  <FileText className="w-10 h-10 opacity-30" />
+                  <p className="text-sm">Resume not available for inline preview.</p>
+                  {result?.candidate_id && (
+                    <button
+                      onClick={async () => { try { await viewCandidateResume(result.candidate_id) } catch { /* silent */ } }}
+                      className="px-4 py-2 text-sm font-semibold bg-brand-50 text-brand-700 ring-1 ring-brand-200 rounded-lg hover:bg-brand-100 transition-colors"
+                    >
+                      Open in new tab
+                    </button>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Right panel — Screen Kit (60%) */}
+          <div className="lg:w-[60%] w-full flex flex-col min-h-0 lg:h-full">
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <PhoneScreenKit
+                interview_questions={interviewQs}
+                resultId={result?.result_id}
+                analysisData={{
+                  missing_skills: result?.analysis_result?.missing_skills || result?.missing_skills || [],
+                  matched_skills: result?.analysis_result?.matched_skills || result?.matched_skills || [],
+                }}
+                onDebriefGenerated={() => setScorecardKey(prev => prev + 1)}
+              />
+            </div>
+
+            {/* Scorecard — below the kit, in its own scroll region */}
+            {result?.result_id && (
+              <div className="shrink-0 max-h-[40vh] overflow-y-auto px-5 pb-6 pt-3 border-t border-slate-200 bg-white">
+                <InterviewScorecard key={scorecardKey} resultId={result.result_id} />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full min-h-0 print:block">
 
@@ -447,6 +740,17 @@ export default function ReportPage() {
               // Re-fetch audit log to include the new edit
               if (result.candidate_id) {
                 getCandidateAuditLog(result.candidate_id).then(setAuditLogs).catch(() => {})
+              }
+              // Re-fetch full result so updated fit_summary / narrative is reflected
+              const rid = result?.result_id || result?.id
+              if (rid) {
+                getScreeningResult(rid)
+                  .then(data => {
+                    setResult(data)
+                    setCandidateName(resolveName(data))
+                    try { sessionStorage.setItem(`report_${rid}`, JSON.stringify(data)) } catch {}
+                  })
+                  .catch(() => {})
               }
             }}
           />
@@ -516,8 +820,8 @@ export default function ReportPage() {
             AI Enhanced Report
           </div>
         )}
-        {/* Failed status */}
-        {result.narrative_status === 'failed' && (
+        {/* Fallback / Failed status */}
+        {(result.narrative_status === 'fallback' || result.narrative_status === 'failed') && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 ring-1 ring-amber-200 text-xs font-semibold text-amber-700">
             <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
             Using standard analysis
@@ -615,6 +919,16 @@ export default function ReportPage() {
         {/* Sticky action bar */}
         <div className="bg-white/80 backdrop-blur-xl border-b border-brand-100/60 shrink-0 z-10 print:hidden">
           <div className="px-6 h-14 flex items-center justify-end gap-2">
+            {interviewQs && (
+              <button
+                onClick={() => setScreenMode(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 shadow-brand-sm transition-colors"
+                title="Open split-view phone screen mode"
+              >
+                <PhoneCall className="w-4 h-4" />
+                Start Phone Screen
+              </button>
+            )}
             {result?.candidate_id && (
               <>
                 <button
@@ -790,14 +1104,30 @@ export default function ReportPage() {
 
           {hasDeterministicData && <ResultCard result={result} defaultExpandEducation />}
 
-          {/* Interview Scorecard Section */}
+          {/* Evaluation Checklist */}
+          {hasDeterministicData && <EvaluationChecklist result={result} />}
+
+          {/* Phone Screen CTA — inline banner above Recruiter Scorecard */}
+          {interviewQs && (
+            <div className="rounded-2xl ring-1 ring-brand-200 bg-gradient-to-r from-brand-50 to-indigo-50 p-5 flex items-center justify-between gap-4">
+              <div>
+                <p className="font-bold text-brand-800 text-sm">Ready to conduct a phone screen?</p>
+                <p className="text-xs text-slate-500 mt-0.5">Split-view mode shows the resume and all screen kit questions side-by-side.</p>
+              </div>
+              <button
+                onClick={() => setScreenMode(true)}
+                className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 shadow-brand-sm transition-colors"
+              >
+                <PhoneCall className="w-4 h-4" />
+                Start Phone Screen
+              </button>
+            </div>
+          )}
+
+          {/* Recruiter Scorecard Section */}
           {result?.interview_questions && result.result_id && (
             <div className="mt-6">
-              <div className="flex items-center gap-2 mb-4">
-                <FileText className="w-5 h-5 text-brand-600" />
-                <h2 className="text-lg font-bold text-slate-900">Interview Scorecard</h2>
-              </div>
-              <InterviewScorecard resultId={result.result_id} />
+              <InterviewScorecard key={scorecardKey} resultId={result.result_id} showHeading />
             </div>
           )}
 

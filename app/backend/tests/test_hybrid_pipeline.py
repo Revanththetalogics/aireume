@@ -579,6 +579,13 @@ class TestBuildFallbackNarrative:
         result = _build_fallback_narrative(python_result, skill_analysis)
         assert result.get("ai_enhanced") is False
 
+    def test_fallback_has_narrative_fallback_true(self):
+        """Fallback narrative should have narrative_fallback=True for frontend indicator."""
+        python_result = {"fit_score": 65, "score_breakdown": {}, "_required_years": 5}
+        skill_analysis = {"matched_skills": ["python"], "missing_skills": [], "required_count": 1}
+        result = _build_fallback_narrative(python_result, skill_analysis)
+        assert result.get("narrative_fallback") is True
+
 
 class TestMergeLlmIntoResult:
     """Tests for _merge_llm_into_result function."""

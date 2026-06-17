@@ -17,14 +17,23 @@
 - [consensus_analyzer.py](file://app/backend/services/consensus_analyzer.py)
 - [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
 - [fit_scorer.py](file://app/backend/services/fit_scorer.py)
+- [audit_service.py](file://app/backend/services/audit_service.py)
+- [enterprise_security.py](file://app/backend/services/enterprise_security.py)
+- [adverse_action_service.py](file://app/backend/services/adverse_action_service.py)
+- [explainable_scorer.py](file://app/backend/services/explainable_scorer.py)
 - [analyze.py](file://app/backend/routes/analyze.py)
 - [candidates.py](file://app/backend/routes/candidates.py)
 - [export.py](file://app/backend/routes/export.py)
 - [compare.py](file://app/backend/routes/compare.py)
 - [upload.py](file://app/backend/routes/upload.py)
 - [interview_kit.py](file://app/backend/routes/interview_kit.py)
+- [CandidateProfilePage.jsx](file://app/frontend/src/pages/CandidateProfilePage.jsx)
+- [ComparisonMatrix.jsx](file://app/frontend/src/components/ComparisonMatrix.jsx)
+- [Timeline.jsx](file://app/frontend/src/components/Timeline.jsx)
+- [useOptimisticUpdate.js](file://app/frontend/src/hooks/useOptimisticUpdate.js)
 - [001_enrich_candidates_add_caches.py](file://alembic/versions/001_enrich_candidates_add_caches.py)
 - [002_parser_snapshot_json.py](file://alembic/versions/002_parser_snapshot_json.py)
+- [004_narrative_json.py](file://alembic/versions/004_narrative_json.py)
 - [008_analysis_queue_system.py](file://alembic/versions/008_analysis_queue_system.py)
 - [009_intelligent_scoring_weights.py](file://alembic/versions/009_intelligent_scoring_weights.py)
 - [015_add_resume_file_storage.py](file://alembic/versions/015_add_resume_file_storage.py)
@@ -32,17 +41,17 @@
 - [test_candidate_dedup.py](file://app/backend/tests/test_candidate_dedup.py)
 - [test_hybrid_pipeline.py](file://app/backend/tests/test_hybrid_pipeline.py)
 - [test_interview_kit.py](file://app/backend/tests/test_interview_kit.py)
+- [test_audit_service.py](file://app/backend/tests/test_audit_service.py)
 - [test_weight_system.py](file://test_weight_system.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced JD-scoped candidate ranking with dedicated endpoints for job description-specific candidate management
-- Added bulk status operations for managing candidate screening statuses in bulk
-- Enriched candidate profiles with additional fields including current role, current company, and total years of experience
-- Integrated deterministic scoring system with hard-capped fit scores for consistent ranking
-- Enhanced resume file storage with comprehensive file management capabilities
-- Improved candidate comparison algorithms with priority-based data sources and enhanced safety checks
+- Enhanced candidate name propagation system with comprehensive automatic name updates across ScreeningResult records
+- Added robust error handling for JSON parsing and field updates in analysis_result and narrative_json
+- Implemented comprehensive name change propagation to both analysis_result and narrative_json fields
+- Enhanced field-level merge strategy with priority-based name resolution ensuring recruiter-edited values take precedence
+- Added comprehensive audit trail integration for name change operations with field-level change tracking
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -57,25 +66,25 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document describes the candidate management system for Resume AI by ThetaLogics. It covers how candidate profiles are stored, how resumes are parsed and analyzed, how deduplication works across resumes and analysis results, and how search, filtering, history, and analysis results are managed. It also documents integration between parsing services and candidate data storage, bulk operations, export capabilities, and data portability features. Finally, it outlines strategies for extending candidate metadata and customizing parsing workflows, along with privacy and lifecycle considerations.
+This document describes the enhanced candidate management system for Resume AI by ThetaLogics. The system now features comprehensive candidate profile pages with activity timelines, collaborative note-taking capabilities, comparison matrices, and enhanced CRUD operations with optimistic UI updates. It covers how candidate profiles are stored, how resumes are parsed and analyzed, how deduplication works across resumes and analysis results, and how search, filtering, history, and analysis results are managed. The system includes advanced audit trail capabilities, field-level change tracking, and comprehensive collaboration features for team-based candidate evaluation workflows.
 
-**Updated** Enhanced with JD-scoped candidate ranking capabilities that allow recruiters to manage candidates specifically for job descriptions, bulk status operations for efficient candidate workflow management, and enriched candidate profiles with comprehensive professional information including current role, company, and experience metrics.
+**Updated** Enhanced with comprehensive name propagation mechanisms that automatically update candidate names across all related ScreeningResult records, including analysis_result and narrative_json field updates with robust error handling.
 
 ## Project Structure
-The candidate management system spans models, services, and routes:
-- Models define the persistent entities (Candidate, ScreeningResult, JdCache, Skill, InterviewEvaluation, OverallAssessment) and relationships.
-- Services encapsulate parsing, gap detection, hybrid pipeline scoring, LLM orchestration, intelligent weight management, and field-level data merging.
-- Routes expose endpoints for analysis, candidate listing/detail, history, export, comparison, weight suggestions, and comprehensive interview evaluation workflows.
+The enhanced candidate management system spans models, services, routes, and frontend components:
+- Models define the persistent entities (Candidate, ScreeningResult, AuditLog, FieldAuditLog, CandidateNote) and relationships
+- Services encapsulate parsing, gap detection, hybrid pipeline scoring, LLM orchestration, intelligent weight management, audit logging, and field-level change tracking
+- Routes expose endpoints for analysis, candidate management, history, export, comparison, weight suggestions, interview evaluation, and audit trail management
+- Frontend components provide comprehensive candidate profile pages, comparison matrices, timeline visualization, and collaborative features
 
 ```mermaid
 graph TB
 subgraph "Models"
 C["Candidate"]
 SR["ScreeningResult"]
-JC["JdCache"]
-SK["Skill"]
-IE["InterviewEvaluation"]
-OA["OverallAssessment"]
+AL["AuditLog"]
+FAL["FieldAuditLog"]
+CN["CandidateNote"]
 end
 subgraph "Services"
 PS["parser_service.py"]
@@ -89,6 +98,10 @@ AS["analysis_service.py"]
 CA["consensus_analyzer.py"]
 AP["agent_pipeline.py"]
 FS["fit_scorer.py"]
+AUD["audit_service.py"]
+ES["enterprise_security.py"]
+AAS["adverse_action_service.py"]
+EAS["explainable_scorer.py"]
 end
 subgraph "Routes"
 RA["analyze.py"]
@@ -97,7 +110,13 @@ RE["export.py"]
 RCM["compare.py"]
 RU["upload.py"]
 RIK["interview_kit.py"]
-JD["JD Routes"]
+RAUD["audit routes"]
+end
+subgraph "Frontend"
+CPP["CandidateProfilePage.jsx"]
+CM["ComparisonMatrix.jsx"]
+TL["Timeline.jsx"]
+OU["useOptimisticUpdate.js"]
 end
 RA --> PS
 RA --> LS
@@ -110,88 +129,70 @@ RA --> AS
 RA --> CA
 RA --> C
 RA --> SR
-RA --> JC
-RIK --> IE
-RIK --> OA
+RIK --> CN
+RIK --> AL
 RC --> C
 RC --> SR
+RC --> CN
 RE --> SR
 RCM --> SR
+RCM --> CM
 RU --> C
-JD --> SR
-JD --> C
+RAUD --> AL
+RAUD --> FAL
 ```
 
 **Diagram sources**
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
 - [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
-- [parser_service.py:130-552](file://app/backend/services/parser_service.py#L130-L552)
-- [llm_service.py:163-314](file://app/backend/services/llm_service.py#L163-L314)
-- [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
-- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
-- [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
-- [gap_detector.py:103-219](file://app/backend/services/gap_detector.py#L103-L219)
-- [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
-- [analysis_service.py:6-121](file://app/backend/services/analysis_service.py#L6-L121)
-- [consensus_analyzer.py:278-316](file://app/backend/services/consensus_analyzer.py#L278-L316)
-- [agent_pipeline.py:748-752](file://app/backend/services/agent_pipeline.py#L748-L752)
-- [fit_scorer.py:12-35](file://app/backend/services/fit_scorer.py#L12-L35)
-- [interview_kit.py:38-221](file://app/backend/routes/interview_kit.py#L38-L221)
-- [candidates.py:30-34](file://app/backend/routes/candidates.py#L30-L34)
-- [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
-- [candidates.py:26-189](file://app/backend/routes/candidates.py#L26-L189)
-- [export.py:20-104](file://app/backend/routes/export.py#L20-L104)
-- [compare.py:16-77](file://app/backend/routes/compare.py#L16-L77)
-- [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
+- [audit_service.py:12-44](file://app/backend/services/audit_service.py#L12-L44)
+- [enterprise_security.py:177-222](file://app/backend/services/enterprise_security.py#L177-L222)
+- [CandidateProfilePage.jsx:275-326](file://app/frontend/src/pages/CandidateProfilePage.jsx#L275-L326)
+- [ComparisonMatrix.jsx:5-33](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L33)
+- [Timeline.jsx:11-123](file://app/frontend/src/components/Timeline.jsx#L11-L123)
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
 
 **Section sources**
 - [README.md:201-229](file://README.md#L201-L229)
 - [database.py:1-33](file://app/backend/db/database.py#L1-L33)
 
 ## Core Components
-- Candidate entity stores enriched profile fields, parser snapshot, and metadata used for deduplication and re-analysis.
-- ScreeningResult persists analysis outcomes, weights metadata, narrative data, and links to candidates and role templates with deterministic scoring capabilities.
-- InterviewEvaluation tracks per-question recruiter evaluations with ratings and notes for technical, behavioral, culture fit, and experience deep dive categories.
-- OverallAssessment captures recruiter's overall assessment and recommendation for hiring manager review.
-- Parser service extracts text and structured data from resumes with enhanced DOCX fallback and multi-stage extraction.
-- LLM service provides reliable analysis with validated fit_score and final_recommendation fields.
-- LLM contact extractor provides accurate contact information extraction using Gemini model with fallback strategies.
-- Weight mapper and suggester services manage intelligent scoring weights with universal schema support and role-adaptive recommendations.
-- Gap detector computes timelines, gaps, overlaps, and total experience.
-- Hybrid pipeline orchestrates Python-based scoring and LLM narrative with support for new weight schemas and deterministic scoring.
-- Consensus analyzer processes multiple analysis results with field-level merge strategy preserving critical fields.
-- Deduplication logic identifies duplicates across email, file hash, and name+phone.
-- Routes expose endpoints for single and batch analysis, candidate listing/detail, history, export, comparison, weight suggestions, and comprehensive interview evaluation workflows.
-- **Updated**: JD-scoped candidate ranking with dedicated endpoints for job description-specific candidate management.
-- **Updated**: Bulk status operations for efficient candidate workflow management across multiple screening results.
-- **Updated**: Enhanced candidate profiles with current role, current company, and total years of experience fields.
-- **Updated**: Deterministic scoring system with hard-capped fit scores for consistent ranking and evaluation.
-- **Updated**: Comprehensive resume file storage and retrieval system with tenant isolation and security.
-- **Updated**: Enhanced candidate comparison algorithm with priority-based data sources and comprehensive safety checks.
+- Candidate entity stores enriched profile fields, parser snapshot, and metadata used for deduplication and re-analysis
+- ScreeningResult persists analysis outcomes, weights metadata, narrative data, and links to candidates and role templates with deterministic scoring capabilities
+- AuditLog and FieldAuditLog provide comprehensive audit trail with platform admin actions and field-level change tracking
+- CandidateNote enables collaborative note-taking with user attribution, timestamps, and moderation controls
+- Parser service extracts text and structured data from resumes with enhanced DOCX fallback and multi-stage extraction
+- LLM service provides reliable analysis with validated fit_score and final_recommendation fields
+- LLM contact extractor provides accurate contact information extraction using Gemini model with fallback strategies
+- Weight mapper and suggester services manage intelligent scoring weights with universal schema support and role-adaptive recommendations
+- Gap detector computes timelines, gaps, overlaps, and total experience
+- Hybrid pipeline orchestrates Python-based scoring and LLM narrative with support for new weight schemas and deterministic scoring
+- Consensus analyzer processes multiple analysis results with field-level merge strategy preserving critical fields
+- Deduplication logic identifies duplicates across email, file hash, and name+phone
+- Routes expose endpoints for single and batch analysis, candidate management, history, export, comparison, weight suggestions, interview evaluation, and comprehensive audit trail management
+- **Updated**: Comprehensive candidate profile pages with activity timelines, status management, and collaborative features
+- **Updated**: Collaborative note-taking system with user avatars, timestamps, and moderation controls
+- **Updated**: Comparison matrix with sortable candidate metrics and team gap analysis
+- **Updated**: Audit trail system with field-level change tracking and compliance framework support
+- **Updated**: Optimistic UI updates for real-time status management and enhanced user experience
+- **Updated**: Enhanced name propagation system that automatically updates candidate names across all related ScreeningResult records with robust error handling
 
 **Section sources**
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
 - [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
-- [parser_service.py:193-552](file://app/backend/services/parser_service.py#L193-L552)
-- [llm_service.py:263-284](file://app/backend/services/llm_service.py#L263-L284)
-- [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
-- [weight_mapper.py:20-360](file://app/backend/services/weight_mapper.py#L20-L360)
-- [weight_suggester.py:86-307](file://app/backend/services/weight_suggester.py#L86-L307)
-- [gap_detector.py:103-219](file://app/backend/services/gap_detector.py#L103-L219)
-- [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
-- [consensus_analyzer.py:278-316](file://app/backend/services/consensus_analyzer.py#L278-L316)
-- [interview_kit.py:38-221](file://app/backend/routes/interview_kit.py#L38-L221)
-- [agent_pipeline.py:748-752](file://app/backend/services/agent_pipeline.py#L748-L752)
-- [analyze.py:147-214](file://app/backend/routes/analyze.py#L147-L214)
-- [upload.py:1-361](file://app/backend/routes/upload.py#L1-L361)
+- [audit_service.py:12-81](file://app/backend/services/audit_service.py#L12-L81)
+- [enterprise_security.py:177-222](file://app/backend/services/enterprise_security.py#L177-L222)
+- [CandidateProfilePage.jsx:275-326](file://app/frontend/src/pages/CandidateProfilePage.jsx#L275-L326)
+- [ComparisonMatrix.jsx:5-33](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L33)
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
 
 ## Architecture Overview
-The system integrates parsing, gap detection, hybrid scoring, intelligent weight management, and persistence. Deduplication ensures candidate identity is preserved across uploads and re-analyses. Profiles are stored for fast re-analysis and auditability with enhanced contact extraction capabilities and field-level data integrity. The unified API response approach ensures consistent data structures across all endpoints. **Updated**: The architecture now includes JD-scoped candidate ranking with dedicated endpoints, bulk status operations for efficient workflow management, and deterministic scoring system with hard-capped fit scores for consistent evaluation and ranking.
+The enhanced system integrates parsing, gap detection, hybrid scoring, intelligent weight management, and persistence with comprehensive audit capabilities. The architecture now includes collaborative features, comparison matrices, and optimistic UI updates. Deduplication ensures candidate identity is preserved across uploads and re-analyses. Profiles are stored for fast re-analysis and auditability with enhanced contact extraction capabilities and field-level data integrity. The unified API response approach ensures consistent data structures across all endpoints with comprehensive audit trail integration.
 
 ```mermaid
 sequenceDiagram
 participant Client as "Client"
-participant Route as "analyze.py"
+participant Route as "candidates.py"
 participant Parser as "parser_service.py"
 participant LLM as "llm_service.py"
 participant LLMContact as "llm_contact_extractor.py"
@@ -199,6 +200,7 @@ participant Gap as "gap_detector.py"
 participant Pipe as "hybrid_pipeline.py"
 participant Agent as "agent_pipeline.py"
 participant FS as "fit_scorer.py"
+participant Audit as "audit_service.py"
 participant DB as "DB (SQLAlchemy)"
 participant Cand as "Candidate"
 participant Res as "ScreeningResult"
@@ -220,6 +222,8 @@ Pipe-->>Route : analysis_result + fit_score
 Route->>DB : _get_or_create_candidate(file_content, filename)
 DB-->>Route : candidate_id, is_dup
 Route->>DB : persist ScreeningResult (with weights metadata)
+DB->>Audit : log_field_change for status updates
+Audit-->>DB : audit_id
 DB-->>Route : result_id
 Route-->>Client : analysis_result + candidate_id/result_id
 ```
@@ -233,86 +237,221 @@ Route-->>Client : analysis_result + candidate_id/result_id
 - [hybrid_pipeline.py:467-800](file://app/backend/services/hybrid_pipeline.py#L467-L800)
 - [agent_pipeline.py:748-752](file://app/backend/services/agent_pipeline.py#L748-L752)
 - [fit_scorer.py:12-35](file://app/backend/services/fit_scorer.py#L12-L35)
+- [audit_service.py:50-81](file://app/backend/services/audit_service.py#L50-L81)
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
 
 ## Detailed Component Analysis
 
-### Enhanced JD-Scoped Candidate Ranking System
-**New Feature**: Comprehensive JD-scoped candidate ranking system that enables recruiters to manage candidates specifically for job descriptions with dedicated endpoints and sorting capabilities.
+### Enhanced Candidate Name Propagation System with Automatic Cross-Record Updates
+**New Feature**: Comprehensive name propagation system that automatically updates candidate names across all related ScreeningResult records with robust error handling.
 
-- **Dedicated JD Router**: New `/api/jd/` router provides job description-specific candidate management endpoints.
-- **JD-Candidate Listing**: GET `/api/jd/{jd_id}/candidates` returns all candidates screened against a specific job description with sorting and filtering options.
-- **Status Filtering**: Optional status filter allows recruiters to view candidates by screening status (pending, shortlisted, rejected, in-review, hired).
-- **Multi-Field Sorting**: Supports sorting by fit_score (desc), name (asc), and analyzed_at (desc) for efficient candidate evaluation.
-- **Integrated Data**: Combines ScreeningResult and Candidate data to provide comprehensive candidate information alongside per-JD analysis results.
-- **Deterministic Scoring**: Prefers deterministic_score when available, falling back to analysis_result fit_score for consistency.
-- **Tenant Isolation**: All JD-scoped operations respect tenant boundaries for security and data separation.
-
-```mermaid
-erDiagram
-ROLE_TEMPLATE ||--o{ SCREENING_RESULT : "has_many"
-SCREENING_RESULT ||--o{ CANDIDATE : "belongs_to"
-JD_CANDIDATES_VIEW {
-int jd_id
-string jd_name
-int candidate_id
-int result_id
-string name
-string email
-float fit_score
-string status
-string recommendation
-array matched_skills
-array missing_skills
-float total_years_exp
-string current_role
-datetime analyzed_at
-}
-```
-
-**Diagram sources**
-- [db_models.py:135-170](file://app/backend/models/db_models.py#L135-L170)
-- [candidates.py:575-668](file://app/backend/routes/candidates.py#L575-L668)
-
-**Section sources**
-- [candidates.py:575-668](file://app/backend/routes/candidates.py#L575-L668)
-
-### Enhanced Bulk Status Operations System
-**New Feature**: Comprehensive bulk status operations system that enables recruiters to efficiently manage candidate screening statuses across multiple results.
-
-- **Bulk Update Endpoint**: POST `/api/jd/{jd_id}/shortlist` handles bulk status updates for multiple ScreeningResults.
-- **Valid Statuses**: Supports five status types: pending, shortlisted, rejected, in-review, hired.
-- **Payload Validation**: Validates result_ids list, status string, and ensures all IDs belong to the specified JD and tenant.
-- **Atomic Updates**: Performs bulk database updates with transaction safety and synchronization.
-- **Tenant Validation**: Ensures JD ownership and tenant isolation for all bulk operations.
-- **Response Tracking**: Returns count of successfully updated records for audit purposes.
+- **Automatic Propagation**: When a candidate name is updated, the system automatically propagates the change to all related ScreeningResult records
+- **Dual Field Updates**: Updates both analysis_result and narrative_json fields to ensure consistency across all stored data
+- **Robust Error Handling**: Implements comprehensive JSON parsing error handling with fallback mechanisms for malformed data
+- **Priority-Based Detection**: Detects old name from analysis_result, contact_info, or falls back to previous candidate name
+- **Field-Level Updates**: Updates candidate_name, contact_info.name, fit_summary, and candidate_profile_summary fields
+- **Audit Trail Integration**: Logs all name change operations with field-level change tracking
+- **Tenant Isolation**: Ensures name propagation respects tenant boundaries for data privacy
 
 ```mermaid
 flowchart TD
-StartBulk["POST /api/jd/{jd_id}/shortlist"] --> ValidatePayload["Validate result_ids list and status"]
-ValidatePayload --> CheckJD["Verify JD belongs to tenant"]
-CheckJD --> BulkUpdate["Execute bulk update on ScreeningResults"]
-BulkUpdate --> CommitDB["Commit transaction"]
-CommitDB --> ReturnResponse["Return updated count"]
+StartNameUpdate["PUT /api/candidates/{candidate_id}/name"] --> ValidateCandidate["Validate candidate exists and belongs to tenant"]
+ValidateCandidate --> LogAudit["Log field change audit"]
+LogAudit --> UpdateCandidate["Update candidate.name"]
+UpdateCandidate --> CheckNameChange{"old_name != new_name?"}
+CheckNameChange --> |Yes| QueryResults["Query all ScreeningResult records for candidate"]
+CheckNameChange --> |No| CommitUpdate["Commit and refresh candidate"]
+QueryResults --> LoopResults["For each ScreeningResult"]
+LoopResults --> ParseAnalysis["Parse analysis_result JSON with error handling"]
+ParseAnalysis --> UpdateAnalysis["Update analysis fields and name references"]
+UpdateAnalysis --> ParseNarrative["Parse narrative_json JSON with error handling"]
+ParseNarrative --> UpdateNarrative["Update narrative fields and name references"]
+UpdateNarrative --> NextResult{"More results?"}
+NextResult --> |Yes| LoopResults
+NextResult --> |No| CommitAll["Commit all changes and refresh candidate"]
+CommitAll --> ReturnResponse["Return updated candidate data"]
 ```
 
 **Diagram sources**
-- [candidates.py:671-721](file://app/backend/routes/candidates.py#L671-L721)
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
+- [candidates.py:517-582](file://app/backend/routes/candidates.py#L517-L582)
 
 **Section sources**
-- [candidates.py:671-721](file://app/backend/routes/candidates.py#L671-L721)
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
+- [candidates.py:517-582](file://app/backend/routes/candidates.py#L517-L582)
+
+### Enhanced Candidate Profile Pages with Activity Timeline and Status Management
+**New Feature**: Comprehensive candidate profile management system featuring activity timelines, status management, and collaborative features.
+
+- **Candidate Profile Page**: Central hub displaying candidate information, screening results, work experience timeline, and collaborative notes
+- **Activity Timeline**: Visual timeline showing candidate journey with status changes, analysis results, and team interactions
+- **Status Management**: Real-time status updates with optimistic UI and tenant isolation
+- **Work Experience Timeline**: Enhanced timeline visualization with gap analysis and short tenure detection
+- **Collaborative Notes**: Team-based note-taking with user attribution, timestamps, and moderation controls
+- **Optimistic Updates**: Immediate UI feedback with rollback on API failure
+- **Responsive Design**: Mobile-first approach with expandable sections and progressive disclosure
+
+```mermaid
+erDiagram
+CANDIDATE ||--o{ SCREENING_RESULT : "has_many"
+CANDIDATE ||--o{ CANDIDATE_NOTE : "has_many"
+SCREENING_RESULT ||--o{ AUDIT_LOG : "triggers"
+CANDIDATE ||--o{ AUDIT_LOG : "affected"
+CANDIDATE_NOTE ||--|| USER : "created_by"
+```
+
+**Diagram sources**
+- [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
+- [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
+- [CandidateProfilePage.jsx:275-326](file://app/frontend/src/pages/CandidateProfilePage.jsx#L275-L326)
+
+**Section sources**
+- [CandidateProfilePage.jsx:275-326](file://app/frontend/src/pages/CandidateProfilePage.jsx#L275-L326)
+- [Timeline.jsx:11-123](file://app/frontend/src/components/Timeline.jsx#L11-L123)
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+
+### Collaborative Note-Taking System with User Attribution and Moderation
+**New Feature**: Comprehensive collaborative note-taking system enabling team-based candidate evaluation with user attribution and moderation controls.
+
+- **Note Creation**: Rich text input with character limits and validation
+- **User Attribution**: Color-coded user initials with unique color generation
+- **Timestamps**: Relative time display (just now, minutes/hours/days ago)
+- **Moderation Controls**: Delete functionality for note owners with confirmation dialogs
+- **Real-time Updates**: Instant note loading and display with skeleton loaders
+- **Team Integration**: Mentionable team members for collaborative discussions
+- **Privacy Controls**: Note visibility scoped to tenant and candidate access
+
+```mermaid
+flowchart TD
+StartNote["Add Candidate Note"] --> ValidateInput["Validate note text (max 2000 chars)"]
+ValidateInput --> CreateNote["Create CandidateNote record"]
+CreateNote --> LogAudit["Log field change audit"]
+LogAudit --> UpdateUI["Update UI with new note"]
+UpdateUI --> LoadNotes["Reload notes list"]
+LoadNotes --> DisplayNotes["Display with user avatar and timestamps"]
+```
+
+**Diagram sources**
+- [CandidateProfilePage.jsx:930-1027](file://app/frontend/src/pages/CandidateProfilePage.jsx#L930-L1027)
+
+**Section sources**
+- [CandidateProfilePage.jsx:930-1027](file://app/frontend/src/pages/CandidateProfilePage.jsx#L930-L1027)
+
+### Enhanced Comparison Matrix with Sortable Metrics and Team Gap Analysis
+**New Feature**: Advanced comparison matrix enabling side-by-side candidate evaluation with sortable metrics and team gap analysis.
+
+- **Sortable Metrics**: Sort by match percentage, fit score, or gaps filled
+- **Team Gap Analysis**: Integration with team skills and gaps for comprehensive evaluation
+- **Dynamic Loading**: Real-time comparison fetching with loading states and error handling
+- **Visual Indicators**: Color-coded metrics and progress bars for quick assessment
+- **Multi-candidate Support**: Compare 2-5 candidates simultaneously with unified interface
+- **JD Context**: Optional job description analysis integration for contextual comparison
+- **Actionable Insights**: Highlight differentiators and gaps for informed decision-making
+
+```mermaid
+flowchart TD
+StartCompare["Compare Candidates"] --> ValidateIds["Validate candidate_ids (2-5)"]
+ValidateIds --> FetchData["Fetch comparison data with JD analysis"]
+FetchData --> SortMetrics["Sort by selected metric (match%, fit, gaps)"]
+SortMetrics --> RenderMatrix["Render comparison matrix with visual indicators"]
+RenderMatrix --> DisplayResults["Display sortable metrics and team gap analysis"]
+```
+
+**Diagram sources**
+- [ComparisonMatrix.jsx:5-67](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L67)
+
+**Section sources**
+- [ComparisonMatrix.jsx:5-67](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L67)
+
+### Comprehensive Audit Trail System with Field-Level Change Tracking
+**New Feature**: Enterprise-grade audit trail system providing comprehensive field-level change tracking and compliance framework support.
+
+- **Platform Admin Audit**: Track tenant, user, and subscription plan actions with detailed context
+- **Field-Level Change Tracking**: Monitor specific field modifications with old/new values and reasons
+- **Compliance Frameworks**: Support for SOC 2, GDPR, and other regulatory requirements
+- **Filtering and Search**: Audit trail filtering by user, resource, event type, and date ranges
+- **Evidence Logging**: Detailed evidence trail for explainable AI and adverse action reporting
+- **Bias Mitigation**: Documentation of bias mitigation steps and evidence validation
+- **Enterprise Security**: Advanced security controls with compliance framework integration
+
+```mermaid
+erDiagram
+AUDIT_LOG {
+int id PK
+int actor_user_id FK
+string actor_email
+string action
+string resource_type
+int resource_id
+json details
+string ip_address
+datetime created_at
+}
+FIELD_AUDIT_LOG {
+int id PK
+string tenant_id
+string entity_type
+int entity_id
+string field_name
+string old_value
+string new_value
+int changed_by FK
+datetime changed_at
+string change_reason
+}
+AUDIT_LOG ||--o{ FIELD_AUDIT_LOG : "generates"
+```
+
+**Diagram sources**
+- [audit_service.py:12-81](file://app/backend/services/audit_service.py#L12-L81)
+- [enterprise_security.py:177-222](file://app/backend/services/enterprise_security.py#L177-L222)
+
+**Section sources**
+- [audit_service.py:12-81](file://app/backend/services/audit_service.py#L12-L81)
+- [enterprise_security.py:177-222](file://app/backend/services/enterprise_security.py#L177-L222)
+- [explainable_scorer.py:44-73](file://app/backend/services/explainable_scorer.py#L44-L73)
+- [adverse_action_service.py:71-102](file://app/backend/services/adverse_action_service.py#L71-L102)
+
+### Optimistic UI Updates with Real-Time Status Management
+**New Feature**: Optimistic user interface updates providing immediate feedback for candidate status changes with rollback capabilities.
+
+- **Immediate Feedback**: Instant status updates without waiting for server response
+- **Rollback Mechanism**: Automatic rollback on API failure with undo toast notifications
+- **Multi-field Support**: Optimistic updates for any candidate or result field
+- **Undo Functionality**: User-controlled rollback with configurable undo messages
+- **Background API Calls**: Non-blocking API calls with error handling and recovery
+- **State Synchronization**: Client-side state management with server reconciliation
+- **User Experience**: Seamless interaction with comprehensive error messaging
+
+```mermaid
+flowchart TD
+StartUpdate["User changes status"] --> Optimistic["Apply optimistic UI update"]
+Optimistic --> ShowUndo["Show undo toast with rollback option"]
+ShowUndo --> CallAPI["Call background API"]
+CallAPI --> Success{"API success?"}
+Success --> |Yes| Complete["Complete update"]
+Success --> |No| Rollback["Rollback UI state"]
+Rollback --> ShowError["Show error toast"]
+ShowError --> Complete
+```
+
+**Diagram sources**
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+
+**Section sources**
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
 
 ### Enhanced Candidate Profile Storage with Priority-Based Name Resolution
 - Candidate stores:
-  - Contact info and derived fields (current_role, current_company, total_years_exp).
-  - Enriched profile fields: raw_resume_text, parsed_skills, parsed_education, parsed_work_exp, gap_analysis_json.
-  - parser_snapshot_json: full parser output snapshot for auditability and re-analysis.
-  - resume_file_hash: MD5 of file bytes for deduplication.
-  - **Updated**: resume_filename: Original filename of uploaded resume.
-  - **Updated**: resume_file_data: LargeBinary column storing original file bytes.
-  - profile_updated_at and profile_quality for freshness and quality tracking.
-  - **Updated**: Enhanced name resolution with priority rules ensuring recruiter-edited values take precedence.
-- Stored on first analysis or when explicitly updating profile.
+  - Contact info and derived fields (current_role, current_company, total_years_exp)
+  - Enriched profile fields: raw_resume_text, parsed_skills, parsed_education, parsed_work_exp, gap_analysis_json
+  - parser_snapshot_json: full parser output snapshot for auditability and re-analysis
+  - resume_file_hash: MD5 of file bytes for deduplication
+  - **Updated**: resume_filename: Original filename of uploaded resume
+  - **Updated**: resume_file_data: LargeBinary column storing original file bytes
+  - profile_updated_at and profile_quality for freshness and quality tracking
+  - **Updated**: Enhanced name resolution with priority rules ensuring recruiter-edited values take precedence
+- Stored on first analysis or when explicitly updating profile
 
 **Updated** Enhanced with comprehensive candidate profile fields including current role, company, and experience metrics, plus priority-based name resolution that ensures recruiter-edited values take precedence over parsed data.
 
@@ -357,14 +496,14 @@ text parser_snapshot_json
 ### Enhanced Interview Kit Evaluation Framework with Experience Deep-Dive Category
 **New Feature**: Comprehensive Interview Kit Evaluation Framework that extends candidate management beyond basic screening to support full interview evaluation processes across four evaluation dimensions.
 
-- **InterviewEvaluation Model**: Tracks per-question recruiter evaluations with ratings (strong/adequate/weak) and notes for technical, behavioral, culture fit, and experience_deep_dive categories.
-- **OverallAssessment Model**: Captures recruiter's overall assessment and recommendation (advance/hold/reject) for hiring manager review.
-- **Tenant Isolation**: Both evaluation models enforce tenant boundaries for data privacy and security.
-- **Unique Constraints**: Prevents duplicate evaluations for the same question and ensures single overall assessment per user per result.
-- **Cascade Relationships**: Automatic cleanup when ScreeningResult is deleted.
-- **Comprehensive CRUD Operations**: Full create/update/delete functionality for evaluation data across all four categories.
-- **Scorecard Generation**: Aggregates evaluation data into hiring manager-friendly scorecards with dimension summaries for all four evaluation categories.
-- **Experience Deep-Dive Questions**: Specialized questions focusing on candidate's career depth, adaptability, and professional evolution.
+- **InterviewEvaluation Model**: Tracks per-question recruiter evaluations with ratings (strong/adequate/weak) and notes for technical, behavioral, culture fit, and experience_deep_dive categories
+- **OverallAssessment Model**: Captures recruiter's overall assessment and recommendation (advance/hold/reject) for hiring manager review
+- **Tenant Isolation**: Both evaluation models enforce tenant boundaries for data privacy and security
+- **Unique Constraints**: Prevents duplicate evaluations for the same question and ensures single overall assessment per user per result
+- **Cascade Relationships**: Automatic cleanup when ScreeningResult is deleted
+- **Comprehensive CRUD Operations**: Full create/update/delete functionality for evaluation data across all four categories
+- **Scorecard Generation**: Aggregates evaluation data into hiring manager-friendly scorecards with dimension summaries for all four evaluation categories
+- **Experience Deep-Dive Questions**: Specialized questions focusing on candidate's career depth, adaptability, and professional evolution
 
 ```mermaid
 erDiagram
@@ -411,10 +550,10 @@ datetime updated_at
 - **Culture Fit**: Questions about values alignment, work style preferences, organizational fit
 - **Experience Deep-Dive**: Questions about career depth, adaptability, and professional evolution (NEW)
 
-- **Category Validation**: Restricts question categories to technical, behavioral, culture_fit, or experience_deep_dive.
-- **Rating Validation**: Ensures ratings are limited to strong, adequate, or weak.
-- **Unique Constraints**: Prevents duplicate evaluations for the same question.
-- **Dimension Summaries**: Each category generates comprehensive evaluation metrics including total questions, evaluated count, and rating distributions.
+- **Category Validation**: Restricts question categories to technical, behavioral, culture_fit, or experience_deep_dive
+- **Rating Validation**: Ensures ratings are limited to strong, adequate, or weak
+- **Unique Constraints**: Prevents duplicate evaluations for the same question
+- **Dimension Summaries**: Each category generates comprehensive evaluation metrics including total questions, evaluated count, and rating distributions
 
 **Section sources**
 - [interview_kit.py:38-98](file://app/backend/routes/interview_kit.py#L38-L98)
@@ -424,10 +563,10 @@ datetime updated_at
 ### Overall Assessment Management
 **New Feature**: Comprehensive overall assessment management for capturing recruiter recommendations and final judgments.
 
-- **Single Assessment Per User**: Unique constraint ensures each user provides only one overall assessment per result.
-- **Recommendation Validation**: Limits recommendations to advance, hold, or reject.
-- **Atomic Updates**: Thread-safe updates with timestamp tracking.
-- **Integration Points**: Seamlessly integrates with evaluation data for comprehensive scorecards across all four dimensions.
+- **Single Assessment Per User**: Unique constraint ensures each user provides only one overall assessment per result
+- **Recommendation Validation**: Limits recommendations to advance, hold, or reject
+- **Atomic Updates**: Thread-safe updates with timestamp tracking
+- **Integration Points**: Seamlessly integrates with evaluation data for comprehensive scorecards across all four dimensions
 
 **Section sources**
 - [interview_kit.py:101-137](file://app/backend/routes/interview_kit.py#L101-L137)
@@ -436,13 +575,13 @@ datetime updated_at
 ### Enhanced Interview Scorecard Generation with Experience Deep-Dive
 **New Feature**: Advanced scorecard generation that aggregates evaluation data into hiring manager-friendly reports across four evaluation dimensions.
 
-- **Dimension Summaries**: Technical, behavioral, culture fit, and experience_deep_dive summaries with counts and key notes.
-- **Strengths and Concerns**: Automated identification of confirmed strengths and identified concerns across all categories.
-- **Fit Score Integration**: Incorporates AI-generated fit score and recommendation.
-- **Latest Evaluation Tracking**: Shows when evaluations were last updated.
-- **Experience Deep-Dive Focus**: Specialized dimension highlighting candidate's career depth and professional evolution.
-- **PDF Export**: Built-in functionality for exporting scorecards as PDFs.
-- **Real-time Updates**: Scorecards reflect the latest evaluation data across all four categories.
+- **Dimension Summaries**: Technical, behavioral, culture fit, and experience_deep_dive summaries with counts and key notes
+- **Strengths and Concerns**: Automated identification of confirmed strengths and identified concerns across all categories
+- **Fit Score Integration**: Incorporates AI-generated fit score and recommendation
+- **Latest Evaluation Tracking**: Shows when evaluations were last updated
+- **Experience Deep-Dive Focus**: Specialized dimension highlighting candidate's career depth and professional evolution
+- **PDF Export**: Built-in functionality for exporting scorecards as PDFs
+- **Real-time Updates**: Scorecards reflect the latest evaluation data across all four categories
 
 ```mermaid
 flowchart TD
@@ -465,11 +604,11 @@ FindLatest --> ReturnScorecard["Return ScorecardOut with all 4 dimension summari
 - [test_interview_kit.py:263-400](file://app/backend/tests/test_interview_kit.py#L263-L400)
 
 ### Enhanced Resume Parsing and Extraction Workflows
-- ResumeParser supports PDF, DOCX, DOC, TXT, RTF, HTML, ODT, and plain text with enhanced multi-stage extraction pipeline.
-- Extracts raw text, work experience, skills, education, and contact info with improved accuracy.
-- Enriches parsed output with LLM-based contact extraction as the primary method, falling back to regex/NLP methods.
-- Uses PyMuPDF with pdfplumber fallback for PDFs; enhanced DOCX fallback with paragraph and table extraction.
-- Normalizes Unicode and implements comprehensive error handling with graceful fallbacks.
+- ResumeParser supports PDF, DOCX, DOC, TXT, RTF, HTML, ODT, and plain text with enhanced multi-stage extraction pipeline
+- Extracts raw text, work experience, skills, education, and contact info with improved accuracy
+- Enriches parsed output with LLM-based contact extraction as the primary method, falling back to regex/NLP methods
+- Uses PyMuPDF with pdfplumber fallback for PDFs; enhanced DOCX fallback with paragraph and table extraction
+- Normalizes Unicode and implements comprehensive error handling with graceful fallbacks
 
 **Updated** Enhanced with new LLM contact extraction capabilities and improved DOCX fallback processing.
 
@@ -508,10 +647,10 @@ MergeContact --> End(["Return parsed_data"])
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 
 ### LLM Service and Field-Level Validation
-- **Reliable Analysis**: Provides validated fit_score (0-100) and final_recommendation fields with strict validation.
-- **Structured Output**: Returns JSON with fit_score, strengths, weaknesses, education_analysis, risk_signals, and final_recommendation.
-- **Field Validation**: Ensures fit_score stays within bounds, arrays are limited to 5 items, and recommendations are valid.
-- **Fallback Mechanism**: Provides default values when LLM analysis fails.
+- **Reliable Analysis**: Provides validated fit_score (0-100) and final_recommendation fields with strict validation
+- **Structured Output**: Returns JSON with fit_score, strengths, weaknesses, education_analysis, risk_signals, and final_recommendation
+- **Field Validation**: Ensures fit_score stays within bounds, arrays are limited to 5 items, and recommendations are valid
+- **Fallback Mechanism**: Provides default values when LLM analysis fails
 
 **Updated** Enhanced with field-level validation that preserves critical analysis fields during narrative integration.
 
@@ -520,11 +659,11 @@ MergeContact --> End(["Return parsed_data"])
 - [llm_service.py:286-294](file://app/backend/services/llm_service.py#L286-L294)
 
 ### LLM Contact Extraction System
-- **Primary Method**: LLM-based contact extraction using Gemini model for highest accuracy.
-- **Fallback Strategy**: spaCy NER, email-based extraction, relaxed header scanning, and filename-based extraction.
-- **Enhanced Accuracy**: Handles international names, creative layouts, and edge cases with structured JSON output.
-- **Timeout Handling**: Configurable timeouts with graceful degradation to fallback methods.
-- **Validation**: Structured validation and cleaning of extracted contact information.
+- **Primary Method**: LLM-based contact extraction using Gemini model for highest accuracy
+- **Fallback Strategy**: spaCy NER, email-based extraction, relaxed header scanning, and filename-based extraction
+- **Enhanced Accuracy**: Handles international names, creative layouts, and edge cases with structured JSON output
+- **Timeout Handling**: Configurable timeouts with graceful degradation to fallback methods
+- **Validation**: Structured validation and cleaning of extracted contact information
 
 **New Feature** Comprehensive LLM contact extraction system with multiple fallback layers for improved accuracy.
 
@@ -532,11 +671,11 @@ MergeContact --> End(["Return parsed_data"])
 - [llm_contact_extractor.py:23-165](file://app/backend/services/llm_contact_extractor.py#L23-L165)
 
 ### Intelligent Scoring Weights System
-- **Universal Schema**: New 7-weight schema supporting core_competencies, experience, domain_fit, education, career_trajectory, role_excellence, and risk.
-- **Backward Compatibility**: Automatic conversion from legacy 4-weight and old 7-weight schemas.
-- **Role Adaptation**: AI-powered weight suggestions based on job description analysis.
-- **Version Management**: ScreeningResult includes version tracking and active status for historical comparisons.
-- **Adaptive Labels**: Dynamic weight labels based on role categories (technical, sales, hr, marketing, etc.).
+- **Universal Schema**: New 7-weight schema supporting core_competencies, experience, domain_fit, education, career_trajectory, role_excellence, and risk
+- **Backward Compatibility**: Automatic conversion from legacy 4-weight and old 7-weight schemas
+- **Role Adaptation**: AI-powered weight suggestions based on job description analysis
+- **Version Management**: ScreeningResult includes version tracking and active status for historical comparisons
+- **Adaptive Labels**: Dynamic weight labels based on role categories (technical, sales, hr, marketing, etc.)
 
 **New Feature** Complete intelligent scoring weights system with universal schema support and AI-powered suggestions.
 
@@ -565,13 +704,13 @@ WeightsOut --> Persist["Persist to ScreeningResult"]
 ### Deterministic Scoring System with Hard-Capped Fit Scores
 **New Feature**: Deterministic scoring system that provides consistent, hard-capped fit scores for reliable candidate ranking and evaluation.
 
-- **Hard-Capped Scores**: Deterministic fit scores are clamped between 0-100 for consistent evaluation.
-- **Feature-Based Calculation**: Computes scores based on core skill match, secondary skill match, domain match, and relevant experience.
-- **Eligibility Gates**: Integrates eligibility checks to determine candidate qualification status.
-- **Risk Penalty Integration**: Incorporates risk penalties calculated from risk signals.
-- **Explanation Engine**: Provides detailed explanations for scoring decisions.
-- **Fallback Mechanism**: Falls back to legacy fit_score when deterministic engine fails.
-- **Preference Logic**: JD-scoped endpoints prefer deterministic_score over analysis_result fit_score.
+- **Hard-Capped Scores**: Deterministic fit scores are clamped between 0-100 for consistent evaluation
+- **Feature-Based Calculation**: Computes scores based on core skill match, secondary skill match, domain match, and relevant experience
+- **Eligibility Gates**: Integrates eligibility checks to determine candidate qualification status
+- **Risk Penalty Integration**: Incorporates risk penalties calculated from risk signals
+- **Explanation Engine**: Provides detailed explanations for scoring decisions
+- **Fallback Mechanism**: Falls back to legacy fit_score when deterministic engine fails
+- **Preference Logic**: JD-scoped endpoints prefer deterministic_score over analysis_result fit_score
 
 ```mermaid
 flowchart TD
@@ -591,9 +730,9 @@ ClampScore --> ReturnScore["Return deterministic_score"]
 - [hybrid_pipeline.py:1586-1608](file://app/backend/services/hybrid_pipeline.py#L1586-L1608)
 
 ### Gap Detection and Timeline Analysis
-- Converts dates to YYYY-MM, merges overlapping intervals, and computes total effective years.
-- Produces employment timeline entries with gap metadata and severity.
-- Flags overlapping jobs and short stints.
+- Converts dates to YYYY-MM, merges overlapping intervals, and computes total effective years
+- Produces employment timeline entries with gap metadata and severity
+- Flags overlapping jobs and short stints
 
 ```mermaid
 flowchart TD
@@ -613,12 +752,12 @@ Flags --> ReturnGD(["Return gap_analysis"])
 - [gap_detector.py:103-219](file://app/backend/services/gap_detector.py#L103-L219)
 
 ### Hybrid Pipeline and Enhanced Scoring
-- Python rules parse JD, build candidate profile, match skills, score education/timeline, and compute fit score.
-- LLM adds narrative, strengths/weaknesses, and explainability.
-- Skills registry supports dynamic skill discovery and alias expansion.
-- **Updated**: Enhanced scoring with intelligent weight system supporting new universal schema.
-- **Updated**: Automatic weight conversion from legacy formats to new schema.
-- **Updated**: Deterministic scoring integration with hard-capped fit scores.
+- Python rules parse JD, build candidate profile, match skills, score education/timeline, and compute fit score
+- LLM adds narrative, strengths/weaknesses, and explainability
+- Skills registry supports dynamic skill discovery and alias expansion
+- **Updated**: Enhanced scoring with intelligent weight system supporting new universal schema
+- **Updated**: Automatic weight conversion from legacy formats to new schema
+- **Updated**: Deterministic scoring integration with hard-capped fit scores
 
 **Updated** Integrated intelligent scoring weights system with universal schema support, automatic conversion, and deterministic scoring with hard-capped fit scores.
 
@@ -655,13 +794,13 @@ Route-->>Route : attach candidate_id/result_id
 ### Enhanced Candidate Comparison Algorithm with JSON Safety Checks and Priority-Based Name Resolution
 **Critical Update**: Implemented comprehensive JSON parsing safety checks and redesigned comparison algorithm with priority-based data sources and enhanced name resolution.
 
-- **JSON Safety**: Implements `_safe_loads()` function with comprehensive error handling for malformed JSON data.
-- **Priority-Based Data Sources**: Analysis data takes precedence over parsed data with robust fallback mechanisms.
-- **Enhanced Comparison Fields**: Includes employment_gaps, interview_questions_preview, analysis_quality, and adjacent_skills.
-- **Winner Determination**: Calculates winners across multiple categories (overall, skills, experience, education, stability).
-- **Enhanced Candidate Name Resolution**: Priority-based resolution from analysis_result, parsed_data, or Candidate table with recruiter-edited values taking precedence.
-- **Score Breakdown Defaults**: Ensures score_breakdown has all expected keys with sensible defaults.
-- **Evaluation-Based Comparisons**: Enhanced comparison algorithm can incorporate evaluation data for more informed candidate selection.
+- **JSON Safety**: Implements `_safe_loads()` function with comprehensive error handling for malformed JSON data
+- **Priority-Based Data Sources**: Analysis data takes precedence over parsed data with robust fallback mechanisms
+- **Enhanced Comparison Fields**: Includes employment_gaps, interview_questions_preview, analysis_quality, and adjacent_skills
+- **Winner Determination**: Calculates winners across multiple categories (overall, skills, experience, education, stability)
+- **Enhanced Candidate Name Resolution**: Priority-based resolution from analysis_result, parsed_data, or Candidate table with recruiter-edited values taking precedence
+- **Score Breakdown Defaults**: Ensures score_breakdown has all expected keys with sensible defaults
+- **Evaluation-Based Comparisons**: Enhanced comparison algorithm can incorporate evaluation data for more informed candidate selection
 
 **Updated** Enhanced with priority-based candidate name resolution that ensures recruiter-edited values take precedence over parsed data during comparison operations.
 
@@ -697,13 +836,13 @@ CalculateWinners --> ReturnResults["Return comparison results"]
 ### Enhanced Resume File Storage and Retrieval System
 **New Feature**: Comprehensive resume file storage and retrieval system with tenant isolation and security.
 
-- **Database Storage**: Candidate model now includes resume_file_data (LargeBinary) and resume_filename (String) columns for storing original uploaded files.
-- **File Hashing**: resume_file_hash column enables deduplication across identical resumes regardless of filename.
-- **Tenant Isolation**: All resume operations respect tenant boundaries for security and data separation.
-- **Download/View Functionality**: REST API endpoint `/api/candidates/{candidate_id}/resume` provides secure access to original files.
-- **Format Support**: Supports PDF, DOCX, DOC, ODT, TXT, and RTF formats with appropriate MIME type handling.
-- **Security Measures**: File access requires authentication and authorization; unauthorized access attempts are blocked.
-- **Storage Optimization**: LargeBinary storage enables direct file retrieval without external file system dependencies.
+- **Database Storage**: Candidate model now includes resume_file_data (LargeBinary) and resume_filename (String) columns for storing original uploaded files
+- **File Hashing**: resume_file_hash column enables deduplication across identical resumes regardless of filename
+- **Tenant Isolation**: All resume operations respect tenant boundaries for security and data separation
+- **Download/View Functionality**: REST API endpoint `/api/candidates/{candidate_id}/resume` provides secure access to original files
+- **Format Support**: Supports PDF, DOCX, DOC, ODT, TXT, and RTF formats with appropriate MIME type handling
+- **Security Measures**: File access requires authentication and authorization; unauthorized access attempts are blocked
+- **Storage Optimization**: LargeBinary storage enables direct file retrieval without external file system dependencies
 
 ```mermaid
 sequenceDiagram
@@ -730,13 +869,13 @@ Route->>Client : Response with file bytes + appropriate headers
 ### Chunked Upload System for Large Files
 **New Feature**: Robust chunked upload system designed to handle files exceeding Cloudflare limits.
 
-- **Cloudflare Compliance**: Solves 100MB upload limit by splitting files into manageable chunks.
-- **Temporary Storage**: Chunks are stored in `/tmp/aria_chunks/{upload_id}/` with automatic cleanup after 24 hours.
-- **Integrity Verification**: MD5 hash verification ensures file integrity during assembly.
-- **Parallel Processing**: Up to 3 chunks processed concurrently for optimal performance.
-- **Metadata Tracking**: Upload metadata stored with user and tenant information for audit trails.
-- **Cleanup Automation**: Automatic cleanup of orphaned chunks prevents storage bloat.
-- **Error Recovery**: Comprehensive error handling with detailed failure messages for troubleshooting.
+- **Cloudflare Compliance**: Solves 100MB upload limit by splitting files into manageable chunks
+- **Temporary Storage**: Chunks are stored in `/tmp/aria_chunks/{upload_id}/` with automatic cleanup after 24 hours
+- **Integrity Verification**: MD5 hash verification ensures file integrity during assembly
+- **Parallel Processing**: Up to 3 chunks processed concurrently for optimal performance
+- **Metadata Tracking**: Upload metadata stored with user and tenant information for audit trails
+- **Cleanup Automation**: Automatic cleanup of orphaned chunks prevents storage bloat
+- **Error Recovery**: Comprehensive error handling with detailed failure messages for troubleshooting
 
 ```mermaid
 flowchart TD
@@ -757,15 +896,15 @@ VerifyIntegrity --> Success["Return assembled file path"]
 
 ### Enhanced Deduplication Strategies with Priority-Based Name Resolution
 - Three-layer deduplication:
-  1) Email match within tenant.
-  2) File hash match (MD5 of bytes).
-  3) Name + phone match within tenant.
-- On duplicate detection, returns duplicate_candidate metadata and avoids re-parsing unless requested.
+  1) Email match within tenant
+  2) File hash match (MD5 of bytes)
+  3) Name + phone match within tenant
+- On duplicate detection, returns duplicate_candidate metadata and avoids re-parsing unless requested
 - Supports actions:
-  - create_new: always create new candidate.
-  - update_profile: update stored profile.
-  - use_existing: skip re-analysis and reuse stored profile.
-- **Updated**: Enhanced with priority-based name resolution during candidate creation and profile updates.
+  - create_new: always create new candidate
+  - update_profile: update stored profile
+  - use_existing: skip re-analysis and reuse stored profile
+- **Updated**: Enhanced with priority-based name resolution during candidate creation and profile updates
 
 **Updated** Enhanced with resume file hash deduplication that identifies identical resumes across different filenames, and improved candidate name resolution that prioritizes existing values over parsed data.
 
@@ -795,10 +934,10 @@ Store --> ReturnNew["Return new id, is_dup=False"]
 - [test_candidate_dedup.py:158-265](file://app/backend/tests/test_candidate_dedup.py#L158-L265)
 
 ### Enhanced Candidate Search and Filtering with Priority-Based Name Resolution
-- List candidates with pagination and optional search by name or email.
-- Detail endpoint returns enriched profile, skills snapshot, and history with unified data structure.
-- GET /api/history lists recent screening results for the tenant.
-- **Updated**: Enhanced with priority-based name resolution that ensures recruiter-edited values are preserved during search operations.
+- List candidates with pagination and optional search by name or email
+- Detail endpoint returns enriched profile, skills snapshot, and history with unified data structure
+- GET /api/history lists recent screening results for the tenant
+- **Updated**: Enhanced with priority-based name resolution that ensures recruiter-edited values are preserved during search operations
 
 ```mermaid
 sequenceDiagram
@@ -822,14 +961,14 @@ CandRoute-->>Client : detail + history with unified structure
 - [candidates.py:26-189](file://app/backend/routes/candidates.py#L26-L189)
 
 ### History Tracking and Analysis Result Management with Enhanced Data Protection
-- ScreeningResult persists parsed_data and analysis_result as JSON for auditability.
-- **Updated**: Enhanced with intelligent scoring weights metadata (role_category, weight_reasoning, suggested_weights_json).
-- **Updated**: Version management with is_active flag and version_number for historical tracking.
-- **Updated**: API response unification ensures consistent data structure across all history endpoints.
-- **Updated**: Field-level merge strategy ensures critical analysis fields remain intact during narrative integration.
-- **Updated**: Enhanced data protection that preserves edited values during merge operations.
-- History endpoint aggregates recent results with fit_score, recommendation, and risk level.
-- Candidate detail endpoint augments history with analysis quality and score breakdown.
+- ScreeningResult persists parsed_data and analysis_result as JSON for auditability
+- **Updated**: Enhanced with intelligent scoring weights metadata (role_category, weight_reasoning, suggested_weights_json)
+- **Updated**: Version management with is_active flag and version_number for historical tracking
+- **Updated**: API response unification ensures consistent data structure across all history endpoints
+- **Updated**: Field-level merge strategy ensures critical analysis fields remain intact during narrative integration
+- **Updated**: Enhanced data protection that preserves edited values during merge operations
+- History endpoint aggregates recent results with fit_score, recommendation, and risk level
+- Candidate detail endpoint augments history with analysis quality and score breakdown
 
 **Updated** Enhanced with API response unification that ensures consistent data structure across all history endpoints and field-level merge strategy that preserves critical analysis fields during narrative integration.
 
@@ -840,14 +979,14 @@ CandRoute-->>Client : detail + history with unified structure
 - [009_intelligent_scoring_weights.py:27-74](file://alembic/versions/009_intelligent_scoring_weights.py#L27-L74)
 
 ### Integration Between Parsing Services and Candidate Data Storage with Priority-Based Name Resolution
-- After parsing and gap analysis, the hybrid pipeline produces a result with enhanced weight system.
-- The route persists both the ScreeningResult with weights metadata and updates the Candidate profile snapshot.
-- parser_snapshot_json captures the complete parser output for re-analysis and auditing.
-- **Updated**: Weight metadata is stored with screening results for future comparisons and analysis.
-- **Updated**: API response unification ensures consistent data structure across all integration points.
-- **Updated**: Field-level merge strategy ensures data integrity during narrative integration.
-- **Updated**: Resume file storage integrates seamlessly with the analysis workflow, storing original file bytes and filename.
-- **Updated**: Enhanced candidate name resolution ensures recruiter-edited values take precedence over parsed data during storage.
+- After parsing and gap analysis, the hybrid pipeline produces a result with enhanced weight system
+- The route persists both the ScreeningResult with weights metadata and updates the Candidate profile snapshot
+- parser_snapshot_json captures the complete parser output for re-analysis and auditing
+- **Updated**: Weight metadata is stored with screening results for future comparisons and analysis
+- **Updated**: API response unification ensures consistent data structure across all integration points
+- **Updated**: Field-level merge strategy ensures data integrity during narrative integration
+- **Updated**: Resume file storage integrates seamlessly with the analysis workflow, storing original file bytes and filename
+- **Updated**: Enhanced candidate name resolution ensures recruiter-edited values take precedence over parsed data during storage
 
 **Updated** Integrated intelligent scoring weights system into the parsing and storage workflow with enhanced field-level data protection and API response unification.
 
@@ -856,12 +995,12 @@ CandRoute-->>Client : detail + history with unified structure
 - [analyze.py:118-145](file://app/backend/routes/analyze.py#L118-L145)
 
 ### Enhanced Bulk Operations and Export Capabilities with Priority-Based Name Resolution
-- Batch analysis endpoint supports multiple resumes with plan-based limits and usage enforcement.
-- Export endpoints (CSV/Excel) stream screening results for selected IDs or all recent results.
-- **Updated**: Export includes enhanced weight metadata and version information for comprehensive reporting.
-- **Updated**: API response unification ensures consistent data structure in exported results.
-- **Updated**: Field-level merge strategy ensures exported data maintains critical analysis field integrity.
-- **Updated**: Enhanced name resolution ensures recruiter-edited values are preserved in exported data.
+- Batch analysis endpoint supports multiple resumes with plan-based limits and usage enforcement
+- Export endpoints (CSV/Excel) stream screening results for selected IDs or all recent results
+- **Updated**: Export includes enhanced weight metadata and version information for comprehensive reporting
+- **Updated**: API response unification ensures consistent data structure in exported results
+- **Updated**: Field-level merge strategy ensures exported data maintains critical analysis field integrity
+- **Updated**: Enhanced name resolution ensures recruiter-edited values are preserved in exported data
 
 ```mermaid
 sequenceDiagram
@@ -889,14 +1028,14 @@ Export-->>Client : CSV stream with unified structure
 
 ### Enhanced Data Portability Features with Priority-Based Name Resolution
 - parser_snapshot_json stores the complete parser output, enabling:
-  - Re-analysis without re-parsing resume patterns.
-  - Auditability and reproducibility of parsing decisions.
-  - Export of raw parsed fields alongside analysis results.
-- **Updated**: Enhanced with intelligent scoring weights metadata for comprehensive data portability.
-- **Updated**: API response unification ensures consistent data structure for portable results.
-- **Updated**: Field-level merge strategy ensures portable data maintains critical analysis field integrity.
-- **Updated**: Resume file storage enables complete data portability with original file bytes.
-- **Updated**: Enhanced name resolution ensures recruiter-edited values are preserved in portable data.
+  - Re-analysis without re-parsing resume patterns
+  - Auditability and reproducibility of parsing decisions
+  - Export of raw parsed fields alongside analysis results
+- **Updated**: Enhanced with intelligent scoring weights metadata for comprehensive data portability
+- **Updated**: API response unification ensures consistent data structure for portable results
+- **Updated**: Field-level merge strategy ensures portable data maintains critical analysis field integrity
+- **Updated**: Resume file storage enables complete data portability with original file bytes
+- **Updated**: Enhanced name resolution ensures recruiter-edited values are preserved in portable data
 
 **Updated** Enhanced parser snapshot with intelligent scoring weights metadata for improved portability and data integrity with API response unification.
 
@@ -905,16 +1044,16 @@ Export-->>Client : CSV stream with unified structure
 - [002_parser_snapshot_json.py:1-33](file://alembic/versions/002_parser_snapshot_json.py#L1-L33)
 
 ### Enhanced Extending Candidate Metadata and Customizing Parsing Workflows with Priority-Based Name Resolution
-- Extend Candidate fields by adding columns to the Candidate model and updating storage logic.
-- Customize parsing by modifying ResumeParser methods (e.g., additional sections, new date patterns).
-- Adjust skills registry and matching by updating skills lists and aliases in the SkillsRegistry.
-- **Updated**: Enhance contact extraction by integrating LLM contact extractor into parsing pipeline.
-- **Updated**: Customize weight schemas by extending weight mapper and suggester services.
-- **Updated**: Extend field-level merge strategy by adding new critical fields to preservation logic.
-- **Updated**: API response unification allows for consistent extension of data structures across all endpoints.
-- **Updated**: Resume file storage system provides foundation for additional file-related metadata extensions.
-- **Updated**: Enhanced name resolution logic ensures recruiter-edited values take precedence over parsed data in all workflows.
-- **Updated**: Interview Kit Evaluation Framework provides foundation for additional evaluation-related metadata extensions.
+- Extend Candidate fields by adding columns to the Candidate model and updating storage logic
+- Customize parsing by modifying ResumeParser methods (e.g., additional sections, new date patterns)
+- Adjust skills registry and matching by updating skills lists and aliases in the SkillsRegistry
+- **Updated**: Enhance contact extraction by integrating LLM contact extractor into parsing pipeline
+- **Updated**: Customize weight schemas by extending weight mapper and suggester services
+- **Updated**: Extend field-level merge strategy by adding new critical fields to preservation logic
+- **Updated**: API response unification allows for consistent extension of data structures across all endpoints
+- **Updated**: Resume file storage system provides foundation for additional file-related metadata extensions
+- **Updated**: Enhanced name resolution logic ensures recruiter-edited values take precedence over parsed data in all workflows
+- **Updated**: Interview Kit Evaluation Framework provides foundation for additional evaluation-related metadata extensions
 
 **Updated** Enhanced with LLM contact extraction integration, customizable weight schemas, extensible field-level merge strategy, Interview Kit Evaluation Framework, and API response unification for consistent data structure extensions.
 
@@ -927,43 +1066,47 @@ Export-->>Client : CSV stream with unified structure
 - [interview_kit.py:38-221](file://app/backend/routes/interview_kit.py#L38-L221)
 
 ### Enhanced Data Privacy Considerations and Lifecycle Management with Priority-Based Name Resolution
-- Candidate and ScreeningResult data are tenant-scoped; enforce tenant isolation in queries.
-- parser_snapshot_json and raw_resume_text are retained; consider implementing retention policies and deletion endpoints.
-- Usage logs track analysis counts per tenant; leverage for compliance and billing.
-- **Updated**: Intelligent scoring weights metadata requires careful privacy consideration for sensitive role-based data.
-- **Updated**: API response unification ensures consistent privacy considerations across all endpoints.
-- **Updated**: Field-level merge strategy ensures critical analysis fields maintain integrity during narrative processing.
-- **Updated**: Resume file storage introduces new privacy considerations for sensitive personal documents.
-- **Updated**: Enhanced name resolution ensures recruiter-edited values are protected and preserved according to privacy policies.
-- **Updated**: Interview Kit Evaluation Framework introduces new privacy considerations for evaluation data and recommendations.
-- **Updated**: Tenant isolation ensures evaluation data privacy and prevents unauthorized access.
+- Candidate and ScreeningResult data are tenant-scoped; enforce tenant isolation in queries
+- parser_snapshot_json and raw_resume_text are retained; consider implementing retention policies and deletion endpoints
+- Usage logs track analysis counts per tenant; leverage for compliance and billing
+- **Updated**: Intelligent scoring weights metadata requires careful privacy consideration for sensitive role-based data
+- **Updated**: API response unification ensures consistent privacy considerations across all endpoints
+- **Updated**: Field-level merge strategy ensures critical analysis fields maintain integrity during narrative processing
+- **Updated**: Resume file storage introduces new privacy considerations for sensitive personal documents
+- **Updated**: Enhanced name resolution ensures recruiter-edited values are protected and preserved according to privacy policies
+- **Updated**: Interview Kit Evaluation Framework introduces new privacy considerations for evaluation data and recommendations
+- **Updated**: Tenant isolation ensures evaluation data privacy and prevents unauthorized access
+- **Updated**: Audit trail system provides comprehensive compliance framework support for privacy regulations
 - Recommendations:
-  - Add tenant-aware soft-delete and anonymization.
-  - Implement data export/deletion APIs aligned with privacy regulations.
-  - Add encryption-at-rest for sensitive fields if required.
-  - Consider GDPR-compliant handling of AI-generated weight suggestions.
-  - Monitor field-level merge operations for data integrity compliance.
-  - Implement file access logging for audit trails.
-  - Consider implementing file retention policies and automated cleanup.
-  - Ensure priority-based name resolution complies with data protection regulations.
-  - Implement evaluation data retention policies and secure deletion mechanisms.
-  - Ensure tenant isolation for evaluation data and recommendations.
+  - Add tenant-aware soft-delete and anonymization
+  - Implement data export/deletion APIs aligned with privacy regulations
+  - Add encryption-at-rest for sensitive fields if required
+  - Consider GDPR-compliant handling of AI-generated weight suggestions
+  - Monitor field-level merge operations for data integrity compliance
+  - Implement file access logging for audit trails
+  - Consider implementing file retention policies and automated cleanup
+  - Ensure priority-based name resolution complies with data protection regulations
+  - Implement evaluation data retention policies and secure deletion mechanisms
+  - Ensure tenant isolation for evaluation data and recommendations
+  - Integrate compliance framework support for SOC 2, GDPR, and other regulations
 
-**Updated** Enhanced privacy considerations for intelligent scoring weights metadata, AI-generated suggestions, and Interview Kit Evaluation Framework with tenant isolation and secure data handling.
+**Updated** Enhanced privacy considerations for intelligent scoring weights metadata, AI-generated suggestions, Interview Kit Evaluation Framework, and comprehensive audit trail system with compliance framework support.
 
 **Section sources**
 - [db_models.py:79-93](file://app/backend/models/db_models.py#L79-L93)
 - [candidates.py:26-80](file://app/backend/routes/candidates.py#L26-L80)
 - [interview_kit.py:28-35](file://app/backend/routes/interview_kit.py#L28-L35)
+- [audit_service.py:12-44](file://app/backend/services/audit_service.py#L12-L44)
+- [enterprise_security.py:177-222](file://app/backend/services/enterprise_security.py#L177-L222)
 
 ### Enhanced Candidate Name Resolution with Priority Rules
 **Critical Update**: Implemented comprehensive candidate name resolution with priority rules ensuring recruiter-edited values take precedence over parsed data.
 
-- **Priority Order**: Recruiter-edited candidate.name > analysis_result.candidate_name > parsed_data.contact_info.name > parsed_data.candidate_profile.name > Candidate table fallback.
-- **Data Preservation**: During get_candidate endpoint processing, merged_data.update() may overwrite candidate_name with stale parsed values; the recruiter-edited candidate.name must always win.
-- **Contact Info Priority**: Recruiter-edited columns (name, email, phone) win over stale snapshot data in contact_info reconstruction.
-- **Merge Strategy**: Enhanced field-level merge strategy preserves edited values during narrative integration.
-- **Consistency**: Ensures consistent naming across all endpoints and comparison operations.
+- **Priority Order**: Recruiter-edited candidate.name > analysis_result.candidate_name > parsed_data.contact_info.name > parsed_data.candidate_profile.name > Candidate table fallback
+- **Data Preservation**: During get_candidate endpoint processing, merged_data.update() may overwrite candidate_name with stale parsed values; the recruiter-edited candidate.name must always win
+- **Contact Info Priority**: Recruiter-edited columns (name, email, phone) win over stale snapshot data in contact_info reconstruction
+- **Merge Strategy**: Enhanced field-level merge strategy preserves edited values during narrative integration
+- **Consistency**: Ensures consistent naming across all endpoints and comparison operations
 
 **Updated** Enhanced with priority-based candidate name resolution that ensures recruiter-edited values take precedence over parsed data during all operations, including get_candidate endpoint processing and contact_info reconstruction.
 
@@ -1081,8 +1224,63 @@ Export-->>Client : CSV stream with unified structure
 - [agent_pipeline.py:748-752](file://app/backend/services/agent_pipeline.py#L748-L752)
 - [hybrid_pipeline.py:1140-1177](file://app/backend/services/hybrid_pipeline.py#L1140-L1177)
 
+### Enhanced Audit Trail System Implementation Details
+**Database Schema**:
+- AuditLog: Platform admin audit trail with actor, action, resource, and details
+- FieldAuditLog: Field-level change tracking with old/new values and change reasons
+- Compliance Frameworks: Support for SOC 2, GDPR, and other regulatory requirements
+- Evidence Logging: Detailed evidence trail for explainable AI and adverse action reporting
+
+**Security Measures**:
+- Tenant isolation in audit queries
+- IP address tracking for security monitoring
+- Comprehensive filtering by user, resource, event type, and date ranges
+- Audit trail export capabilities for compliance reporting
+
+**API Integration**:
+- Dedicated audit endpoints for platform admin actions
+- Field-level change tracking integration with all CRUD operations
+- Compliance framework support for enterprise deployments
+- Evidence logging integration with explainable AI systems
+
+**Testing Coverage**:
+- Audit log creation with proper field validation
+- Field-level change tracking with value comparison
+- Compliance framework filtering and search
+- Evidence logging and adverse action reporting
+
+**Section sources**
+- [audit_service.py:12-81](file://app/backend/services/audit_service.py#L12-L81)
+- [enterprise_security.py:177-222](file://app/backend/services/enterprise_security.py#L177-L222)
+- [explainable_scorer.py:44-73](file://app/backend/services/explainable_scorer.py#L44-L73)
+- [adverse_action_service.py:71-102](file://app/backend/services/adverse_action_service.py#L71-L102)
+- [test_audit_service.py:1-124](file://app/backend/tests/test_audit_service.py#L1-L124)
+
+### Enhanced Name Propagation System Implementation Details
+**New Feature**: Comprehensive name propagation system that automatically updates candidate names across all related ScreeningResult records with robust error handling.
+
+- **Automatic Detection**: System detects when a candidate name has changed and triggers propagation
+- **Dual Field Processing**: Updates both analysis_result and narrative_json fields for complete consistency
+- **Error Handling**: Implements comprehensive JSON parsing error handling with fallback mechanisms
+- **Field Detection**: Detects old name from analysis_result.candidate_name, contact_info.name, or falls back to previous candidate name
+- **Field Updates**: Updates candidate_name, contact_info.name, fit_summary, and candidate_profile_summary fields
+- **Audit Trail**: Logs all name change operations with field-level change tracking
+- **Tenant Isolation**: Ensures name propagation respects tenant boundaries
+
+**Processing Logic**:
+- Parses analysis_result JSON with error handling for malformed data
+- Detects old name from multiple sources with priority-based resolution
+- Replaces old name references in fit_summary and candidate_profile_summary
+- Updates candidate_name and contact_info.name fields
+- Processes narrative_json similarly with separate error handling
+- Commits all changes atomically
+
+**Section sources**
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
+- [candidates.py:517-582](file://app/backend/routes/candidates.py#L517-L582)
+
 ## Dependency Analysis
-The following diagram shows key dependencies among modules involved in candidate management with enhanced API response unification, field-level data protection, and Interview Kit Evaluation Framework integration.
+The following diagram shows key dependencies among modules involved in candidate management with enhanced API response unification, field-level data protection, Interview Kit Evaluation Framework integration, comprehensive audit trail system, and enhanced name propagation capabilities.
 
 ```mermaid
 graph LR
@@ -1098,10 +1296,15 @@ RA --> FS["fit_scorer.py"]
 RA --> DBM["models/db_models.py"]
 RIK["routes/interview_kit.py"] --> DBM
 RC["routes/candidates.py"] --> DBM
-RE["routes/export.py"] --> DBM
+RCPP["CandidateProfilePage.jsx"] --> RC
+RCPP --> TL["Timeline.jsx"]
+RCPP --> OU["useOptimisticUpdate.js"]
 RCM["routes/compare.py"] --> DBM
+RCM --> CM["ComparisonMatrix.jsx"]
 RU["routes/upload.py"] --> DBM
 AP["agent_pipeline.py"] --> HP
+AUD["audit_service.py"] --> DBM
+ES["enterprise_security.py"] --> AUD
 ```
 
 **Diagram sources**
@@ -1114,6 +1317,10 @@ AP["agent_pipeline.py"] --> HP
 - [interview_kit.py:38-221](file://app/backend/routes/interview_kit.py#L38-L221)
 - [agent_pipeline.py:748-752](file://app/backend/services/agent_pipeline.py#L748-L752)
 - [fit_scorer.py:12-35](file://app/backend/services/fit_scorer.py#L12-L35)
+- [CandidateProfilePage.jsx:275-326](file://app/frontend/src/pages/CandidateProfilePage.jsx#L275-L326)
+- [Timeline.jsx:11-123](file://app/frontend/src/components/Timeline.jsx#L11-L123)
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+- [ComparisonMatrix.jsx:5-67](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L67)
 
 **Section sources**
 - [analyze.py:32-39](file://app/backend/routes/analyze.py#L32-L39)
@@ -1122,51 +1329,64 @@ AP["agent_pipeline.py"] --> HP
 - [compare.py:9-11](file://app/backend/routes/compare.py#L9-L11)
 
 ## Performance Considerations
-- Deduplication reduces redundant parsing and analysis.
-- JD caching (JdCache) avoids repeated JD parsing across workers.
-- Asynchronous processing and thread pools prevent blocking during parsing.
-- Snapshot storage enables fast re-analysis without re-parsing.
-- Batch analysis enforces plan-based limits and parallel processing.
-- **Updated**: LLM contact extraction uses optimized timeouts and fallback strategies for performance.
-- **Updated**: Intelligent scoring weights system includes caching and normalization for efficient computation.
-- **Updated**: API response unification optimizes data processing by ensuring consistent structures across all endpoints.
-- **Updated**: Field-level merge strategy optimizes data processing by avoiding unnecessary field overwrites.
-- **Updated**: JSON safety checks prevent performance degradation from malformed data.
-- **Updated**: Resume file storage requires careful consideration of memory usage for large files.
-- **Updated**: Chunked upload system optimizes network performance for large file transfers.
-- **Updated**: Enhanced candidate name resolution with priority rules ensures efficient data access patterns.
-- **Updated**: Priority-based name resolution reduces conflicts and improves data consistency.
-- **Updated**: Interview Kit Evaluation Framework includes efficient query optimization and caching strategies.
-- **Updated**: Tenant isolation adds minimal overhead while providing strong security guarantees.
-- **Updated**: Experience Deep-Dive category evaluation processing scales efficiently with evaluation volume.
-- **Updated**: Deterministic scoring system provides consistent performance with hard-capped calculations.
-- **Updated**: JD-scoped candidate ranking optimizes database queries with proper indexing and filtering.
+- Deduplication reduces redundant parsing and analysis
+- JD caching (JdCache) avoids repeated JD parsing across workers
+- Asynchronous processing and thread pools prevent blocking during parsing
+- Snapshot storage enables fast re-analysis without re-parsing
+- Batch analysis enforces plan-based limits and parallel processing
+- **Updated**: LLM contact extraction uses optimized timeouts and fallback strategies for performance
+- **Updated**: Intelligent scoring weights system includes caching and normalization for efficient computation
+- **Updated**: API response unification optimizes data processing by ensuring consistent structures across all endpoints
+- **Updated**: Field-level merge strategy optimizes data processing by avoiding unnecessary field overwrites
+- **Updated**: JSON safety checks prevent performance degradation from malformed data
+- **Updated**: Resume file storage requires careful consideration of memory usage for large files
+- **Updated**: Chunked upload system optimizes network performance for large file transfers
+- **Updated**: Enhanced candidate name resolution with priority rules ensures efficient data access patterns
+- **Updated**: Priority-based name resolution reduces conflicts and improves data consistency
+- **Updated**: Interview Kit Evaluation Framework includes efficient query optimization and caching strategies
+- **Updated**: Tenant isolation adds minimal overhead while providing strong security guarantees
+- **Updated**: Experience Deep-Dive category evaluation processing scales efficiently with evaluation volume
+- **Updated**: Deterministic scoring system provides consistent performance with hard-capped calculations
+- **Updated**: JD-scoped candidate ranking optimizes database queries with proper indexing and filtering
+- **Updated**: Audit trail system provides efficient filtering and search capabilities with proper indexing
+- **Updated**: Collaborative note-taking system includes efficient real-time updates and conflict resolution
+- **Updated**: Comparison matrix provides optimized sorting and rendering for multiple candidate evaluation
+- **Updated**: Name propagation system processes all related ScreeningResult records efficiently with batch updates
+- **Updated**: JSON parsing error handling prevents performance issues from malformed data in name propagation
+- **Updated**: Field-level merge strategy ensures name changes propagate consistently across analysis_result and narrative_json
 
 ## Troubleshooting Guide
 Common issues and resolutions:
-- Scanned PDFs: Parsing raises a readable error; advise uploading text-based PDFs.
-- Database locked: SQLite concurrency limitation; restart backend container.
-- Ollama not responding: Check container logs and pull the model if needed.
-- Exceeding usage limits: Monthly analysis or batch size limits enforced; upgrade plan.
-- **Updated**: LLM contact extraction failures: Automatic fallback to regex/NLP methods; check model availability.
-- **Updated**: Intelligent scoring weights conversion errors: Automatic fallback to default weights; verify input format.
-- **Updated**: API response unification issues: Ensure analysis_result structure consistency across all endpoints.
-- **Updated**: Field-level merge failures: Core analysis fields remain intact; check narrative data format; verify critical field preservation.
-- **Updated**: JSON parsing errors: Malformed JSON automatically handled with safe fallbacks; check data integrity in analysis_result and parsed_data fields.
-- **Updated**: Resume file storage issues: LargeBinary column may cause memory pressure; consider file size limits and cleanup policies.
-- **Updated**: Chunked upload failures: Check chunk storage directory permissions and cleanup processes; verify MD5 hash integrity.
-- **Updated**: Resume download errors: Ensure candidate has associated file data; verify tenant isolation and authentication.
-- **Updated**: Enhanced candidate name resolution conflicts: Verify priority rules are working correctly; check that recruiter-edited values are taking precedence.
-- **Updated**: Priority-based name resolution issues: Ensure candidate.name values are being preserved during merge operations.
-- **Updated**: Interview Kit Evaluation Framework issues: Verify tenant validation is working; check unique constraint violations; ensure proper JSON parsing for evaluation data.
-- **Updated**: Evaluation CRUD operation failures: Check category and rating validation; verify tenant isolation; ensure proper authentication.
-- **Updated**: Scorecard generation errors: Verify evaluation data integrity; check JSON parsing of analysis_result; ensure proper dimension aggregation across all four categories.
-- **Updated**: Experience Deep-Dive category validation errors: Ensure question_category includes "experience_deep_dive" in allowed values.
-- **Updated**: Interview question generation failures: Verify agent_pipeline generates proper experience_deep_dive_questions structure.
-- **Updated**: JD-scoped candidate ranking failures: Verify JD ownership and tenant isolation; check status filtering and sorting parameters.
-- **Updated**: Bulk status operations failures: Verify result_ids belong to the specified JD and tenant; check status validation and payload format.
-- **Updated**: Deterministic scoring calculation errors: Verify feature values and eligibility status; check risk penalty calculations.
-- **Updated**: Candidate profile enrichment errors: Verify current_role and current_company length limits; check total_years_exp format.
+- Scanned PDFs: Parsing raises a readable error; advise uploading text-based PDFs
+- Database locked: SQLite concurrency limitation; restart backend container
+- Ollama not responding: Check container logs and pull the model if needed
+- Exceeding usage limits: Monthly analysis or batch size limits enforced; upgrade plan
+- **Updated**: LLM contact extraction failures: Automatic fallback to regex/NLP methods; check model availability
+- **Updated**: Intelligent scoring weights conversion errors: Automatic fallback to default weights; verify input format
+- **Updated**: API response unification issues: Ensure analysis_result structure consistency across all endpoints
+- **Updated**: Field-level merge failures: Core analysis fields remain intact; check narrative data format; verify critical field preservation
+- **Updated**: JSON parsing errors: Malformed JSON automatically handled with safe fallbacks; check data integrity in analysis_result and parsed_data fields
+- **Updated**: Resume file storage issues: LargeBinary column may cause memory pressure; consider file size limits and cleanup policies
+- **Updated**: Chunked upload failures: Check chunk storage directory permissions and cleanup processes; verify MD5 hash integrity
+- **Updated**: Resume download errors: Ensure candidate has associated file data; verify tenant isolation and authentication
+- **Updated**: Enhanced candidate name resolution conflicts: Verify priority rules are working correctly; check that recruiter-edited values are taking precedence
+- **Updated**: Priority-based name resolution issues: Ensure candidate.name values are being preserved during merge operations
+- **Updated**: Interview Kit Evaluation Framework issues: Verify tenant validation is working; check unique constraint violations; ensure proper JSON parsing for evaluation data
+- **Updated**: Evaluation CRUD operation failures: Check category and rating validation; verify tenant isolation; ensure proper authentication
+- **Updated**: Scorecard generation errors: Verify evaluation data integrity; check JSON parsing of analysis_result; ensure proper dimension aggregation across all four categories
+- **Updated**: Experience Deep-Dive category validation errors: Ensure question_category includes "experience_deep_dive" in allowed values
+- **Updated**: Interview question generation failures: Verify agent_pipeline generates proper experience_deep_dive_questions structure
+- **Updated**: JD-scoped candidate ranking failures: Verify JD ownership and tenant isolation; check status filtering and sorting parameters
+- **Updated**: Bulk status operations failures: Verify result_ids belong to the specified JD and tenant; check status validation and payload format
+- **Updated**: Deterministic scoring calculation errors: Verify feature values and eligibility status; check risk penalty calculations
+- **Updated**: Candidate profile enrichment errors: Verify current_role and current_company length limits; check total_years_exp format
+- **Updated**: Audit trail system failures: Verify proper filtering and search parameters; check compliance framework configuration
+- **Updated**: Collaborative note-taking failures: Verify user authentication and tenant isolation; check note text validation and character limits
+- **Updated**: Comparison matrix failures: Verify candidate_ids format and JD analysis integration; check team gap data validation
+- **Updated**: Optimistic UI update failures: Verify API endpoints are reachable; check rollback mechanism for failed updates
+- **Updated**: Name propagation failures: Verify candidate exists and belongs to tenant; check JSON parsing error handling; ensure proper field updates
+- **Updated**: JSON parsing errors in name propagation: Malformed analysis_result or narrative_json automatically handled with fallback mechanisms; check data integrity
+- **Updated**: Field-level merge failures in name propagation: Core analysis fields remain intact; verify proper error handling and fallback mechanisms
 
 **Section sources**
 - [parser_service.py:175-181](file://app/backend/services/parser_service.py#L175-L181)
@@ -1180,33 +1400,43 @@ Common issues and resolutions:
 - [candidates.py:575-668](file://app/backend/routes/candidates.py#L575-L668)
 - [candidates.py:671-721](file://app/backend/routes/candidates.py#L671-L721)
 - [fit_scorer.py:12-35](file://app/backend/services/fit_scorer.py#L12-L35)
+- [audit_service.py:12-44](file://app/backend/services/audit_service.py#L12-L44)
+- [enterprise_security.py:177-222](file://app/backend/services/enterprise_security.py#L177-L222)
+- [CandidateProfilePage.jsx:930-1027](file://app/frontend/src/pages/CandidateProfilePage.jsx#L930-L1027)
+- [ComparisonMatrix.jsx:5-67](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L67)
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
 
 ## Conclusion
-The candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and auditability. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. The redesigned candidate comparison algorithm with comprehensive JSON safety checks provides robust comparison operations with priority-based data sources and multiple fallback mechanisms. **Updated**: The system now includes comprehensive JD-scoped candidate ranking with dedicated endpoints for job description-specific management, bulk status operations for efficient workflow management, and enriched candidate profiles with current role, company, and experience metrics. **Updated**: The Interview Kit Evaluation Framework extends beyond basic screening to support full interview evaluation processes, including per-question evaluation tracking, assessment workflows, and comprehensive interview scorecard generation with dimension summaries and recommendation tracking across four evaluation categories: technical, behavioral, culture_fit, and experience_deep_dive. **Updated**: The Interview Kit Framework provides tenant isolation and security measures for evaluation data, with comprehensive validation and atomic operations. **Updated**: Critical syntax error in weight suggestion service has been resolved, improving import stability and service reliability. **Updated**: Enhanced candidate name resolution with priority rules ensures recruiter-edited values take precedence over parsed data, providing better data governance and user control over candidate information. **Updated**: Experience Deep-Dive category provides comprehensive evaluation of candidate's career depth, adaptability, and professional evolution, enhancing the overall interview evaluation process. **Updated**: Deterministic scoring system with hard-capped fit scores ensures consistent candidate ranking and evaluation across all job descriptions and screening results.
+The enhanced candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and comprehensive auditability. The system now features comprehensive candidate profile pages with activity timelines, collaborative note-taking capabilities, comparison matrices, and optimistic UI updates for real-time status management. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. The redesigned candidate comparison algorithm with comprehensive JSON safety checks provides robust comparison operations with priority-based data sources and multiple fallback mechanisms. **Updated**: The system now includes comprehensive JD-scoped candidate ranking with dedicated endpoints for job description-specific management, bulk status operations for efficient workflow management, and enriched candidate profiles with current role, company, and experience metrics. **Updated**: The Interview Kit Evaluation Framework extends beyond basic screening to support full interview evaluation processes, including per-question evaluation tracking, assessment workflows, and comprehensive interview scorecard generation with dimension summaries and recommendation tracking across four evaluation categories: technical, behavioral, culture_fit, and experience_deep_dive. **Updated**: The Interview Kit Framework provides tenant isolation and security measures for evaluation data, with comprehensive validation and atomic operations. **Updated**: Critical syntax error in weight suggestion service has been resolved, improving import stability and service reliability. **Updated**: Enhanced candidate name resolution with priority rules ensures recruiter-edited values take precedence over parsed data, providing better data governance and user control over candidate information. **Updated**: Experience Deep-Dive category provides comprehensive evaluation of candidate's career depth, adaptability, and professional evolution, enhancing the overall interview evaluation process. **Updated**: Deterministic scoring system with hard-capped fit scores ensures consistent candidate ranking and evaluation across all job descriptions and screening results. **Updated**: Comprehensive audit trail system provides enterprise-grade compliance framework support with field-level change tracking and evidence logging for explainable AI and adverse action reporting. **Updated**: Collaborative note-taking system enables team-based candidate evaluation with user attribution, timestamps, and moderation controls for transparent decision-making. **Updated**: Comparison matrix provides advanced candidate evaluation with sortable metrics, team gap analysis, and actionable insights for informed hiring decisions. **Updated**: Enhanced name propagation system provides comprehensive automatic name updates across all related ScreeningResult records with robust error handling, ensuring consistency across analysis_result and narrative_json fields while maintaining data integrity.
 
 ## Appendices
 
 ### Endpoint Reference
-- POST /api/analyze: Single resume analysis with dedup and profile storage.
-- POST /api/analyze/stream: Streaming analysis with stage events.
-- POST /api/analyze/batch: Batch analysis with plan limits.
-- POST /api/analyze/suggest-weights: AI-powered weight suggestions for job descriptions.
-- GET /api/history: Recent screening results.
-- GET /api/candidates: Paginated and searchable candidate list.
-- GET /api/candidates/{id}: Candidate detail with history and skills snapshot.
-- POST /api/candidates/{id}/analyze-jd: Re-analyze existing candidate against a new JD.
-- GET /api/export/csv: Export screening results to CSV.
-- GET /api/export/excel: Export screening results to Excel.
-- POST /api/compare: Compare up to 5 screening results with enhanced safety checks.
-- **Updated**: GET /api/candidates/{candidate_id}/resume: Download or view original uploaded resume file.
-- **Updated**: POST /api/upload/chunk: Upload resume file in chunks for large file handling.
-- **Updated**: POST /api/upload/finalize: Finalize chunked upload and assemble complete file.
-- **Updated**: PUT /api/results/{result_id}/evaluations: Upsert a single question evaluation across four categories.
-- **Updated**: GET /api/results/{result_id}/evaluations: Get all evaluations for a result.
-- **Updated**: PUT /api/results/{result_id}/evaluations/overall: Save overall assessment.
-- **Updated**: GET /api/results/{result_id}/scorecard: Generate interview scorecard across four evaluation dimensions.
-- **Updated**: GET /api/jd/{jd_id}/candidates: JD-scoped candidate ranking with sorting and filtering.
-- **Updated**: POST /api/jd/{jd_id}/shortlist: Bulk status updates for JD candidates.
+- POST /api/analyze: Single resume analysis with dedup and profile storage
+- POST /api/analyze/stream: Streaming analysis with stage events
+- POST /api/analyze/batch: Batch analysis with plan limits
+- POST /api/analyze/suggest-weights: AI-powered weight suggestions for job descriptions
+- GET /api/history: Recent screening results
+- GET /api/candidates: Paginated and searchable candidate list
+- GET /api/candidates/{id}: Candidate detail with history and skills snapshot
+- POST /api/candidates/{id}/analyze-jd: Re-analyze existing candidate against a new JD
+- GET /api/export/csv: Export screening results to CSV
+- GET /api/export/excel: Export screening results to Excel
+- POST /api/compare: Compare up to 5 screening results with enhanced safety checks
+- **Updated**: GET /api/candidates/{candidate_id}/resume: Download or view original uploaded resume file
+- **Updated**: POST /api/upload/chunk: Upload resume file in chunks for large file handling
+- **Updated**: POST /api/upload/finalize: Finalize chunked upload and assemble complete file
+- **Updated**: PUT /api/results/{result_id}/evaluations: Upsert a single question evaluation across four categories
+- **Updated**: GET /api/results/{result_id}/evaluations: Get all evaluations for a result
+- **Updated**: PUT /api/results/{result_id}/evaluations/overall: Save overall assessment
+- **Updated**: GET /api/results/{result_id}/scorecard: Generate interview scorecard across four evaluation dimensions
+- **Updated**: GET /api/jd/{jd_id}/candidates: JD-scoped candidate ranking with sorting and filtering
+- **Updated**: POST /api/jd/{jd_id}/shortlist: Bulk status updates for JD candidates
+- **Updated**: GET /api/audit/trail: Retrieve audit trail with filtering and search capabilities
+- **Updated**: POST /api/candidates/{candidate_id}/notes: Add collaborative notes to candidate profile
+- **Updated**: GET /api/candidates/{candidate_id}/notes: Retrieve candidate notes with user attribution
+- **Updated**: PUT /api/candidates/{candidate_id}/name: Update candidate name with automatic propagation to all related ScreeningResult records
 
 **Section sources**
 - [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
@@ -1223,6 +1453,9 @@ The candidate management system integrates robust parsing, deduplication, intell
 - [interview_kit.py:142-221](file://app/backend/routes/interview_kit.py#L142-L221)
 - [candidates.py:575-668](file://app/backend/routes/candidates.py#L575-L668)
 - [candidates.py:671-721](file://app/backend/routes/candidates.py#L671-L721)
+- [audit_service.py:12-44](file://app/backend/services/audit_service.py#L12-L44)
+- [CandidateProfilePage.jsx:930-1027](file://app/frontend/src/pages/CandidateProfilePage.jsx#L930-L1027)
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
 
 ### Intelligent Scoring Weights Schema
 - **Legacy 4-weight**: skills, experience, stability, education
@@ -1382,3 +1615,110 @@ The candidate management system integrates robust parsing, deduplication, intell
 - [db_models.py:135-170](file://app/backend/models/db_models.py#L135-L170)
 - [candidates.py:575-668](file://app/backend/routes/candidates.py#L575-L668)
 - [candidates.py:671-721](file://app/backend/routes/candidates.py#L671-L721)
+
+### Enhanced Audit Trail System Implementation Details
+**Database Schema**:
+- AuditLog: Platform admin audit trail with actor, action, resource, and details
+- FieldAuditLog: Field-level change tracking with old/new values and change reasons
+- Compliance Frameworks: Support for SOC 2, GDPR, and other regulatory requirements
+- Evidence Logging: Detailed evidence trail for explainable AI and adverse action reporting
+
+**API Integration**:
+- Dedicated audit endpoints for platform admin actions
+- Field-level change tracking integration with all CRUD operations
+- Compliance framework filtering and search capabilities
+- Evidence logging integration with explainable AI systems
+
+**Security Measures**:
+- Tenant isolation in audit queries
+- IP address tracking for security monitoring
+- Comprehensive filtering by user, resource, event type, and date ranges
+- Audit trail export capabilities for compliance reporting
+
+**Section sources**
+- [audit_service.py:12-81](file://app/backend/services/audit_service.py#L12-L81)
+- [enterprise_security.py:177-222](file://app/backend/services/enterprise_security.py#L177-L222)
+- [explainable_scorer.py:44-73](file://app/backend/services/explainable_scorer.py#L44-L73)
+- [adverse_action_service.py:71-102](file://app/backend/services/adverse_action_service.py#L71-L102)
+
+### Enhanced Collaborative Note-Taking System Implementation Details
+**Database Schema**:
+- CandidateNote: Collaborative notes with user attribution, timestamps, and moderation controls
+- User integration for note ownership and moderation
+- Tenant isolation for note visibility and access control
+
+**API Integration**:
+- Dedicated endpoints for note creation, retrieval, and deletion
+- Real-time note loading with skeleton loaders and error handling
+- User avatar generation with unique color assignment
+- Timestamp calculation with relative time formatting
+
+**User Experience**:
+- Rich text input with character limits and validation
+- User attribution with initials and color coding
+- Timestamp display with relative time formatting
+- Moderation controls with confirmation dialogs
+- Real-time UI updates with optimistic feedback
+
+**Section sources**
+- [CandidateProfilePage.jsx:930-1027](file://app/frontend/src/pages/CandidateProfilePage.jsx#L930-L1027)
+
+### Enhanced Comparison Matrix Implementation Details
+**Database Schema**:
+- ComparisonMatrix: Stores comparison results with sortable metrics and team gap analysis
+- Candidate relationship for multi-candidate evaluation
+- JD analysis integration for contextual comparison
+
+**API Integration**:
+- Dynamic comparison fetching with loading states and error handling
+- Sortable metrics with match percentage, fit score, and gaps filled
+- Team gap analysis integration for comprehensive evaluation
+- Multi-candidate support with 2-5 candidate comparison
+
+**User Experience**:
+- Sortable metrics with dropdown selection
+- Visual indicators with color-coded progress bars
+- Actionable insights with differentiator highlighting
+- Responsive design for mobile and desktop
+
+**Section sources**
+- [ComparisonMatrix.jsx:5-67](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L67)
+
+### Enhanced Optimistic UI Update Implementation Details
+**Hook Implementation**:
+- useOptimisticUpdate: Centralized hook for optimistic UI updates with rollback capabilities
+- Multi-field support for any candidate or result property updates
+- Undo functionality with configurable messages and API rollback
+- Background API calls with error handling and recovery
+
+**User Experience**:
+- Immediate UI feedback without waiting for server response
+- Undo toast notifications with rollback state management
+- Error handling with user-friendly error messages
+- State synchronization with server reconciliation
+
+**Section sources**
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+
+### Enhanced Name Propagation System Implementation Details
+**Endpoint Implementation**:
+- PUT /api/candidates/{candidate_id}/name: Updates candidate name and propagates changes to all related ScreeningResult records
+- Automatic detection of name changes and triggering of propagation logic
+- Comprehensive error handling for JSON parsing and field updates
+
+**Processing Logic**:
+- Queries all ScreeningResult records for the candidate
+- Parses analysis_result JSON with error handling for malformed data
+- Detects old name from multiple sources with priority-based resolution
+- Updates candidate_name, contact_info.name, fit_summary, and candidate_profile_summary fields
+- Processes narrative_json similarly with separate error handling
+- Commits all changes atomically with proper error handling
+
+**Security Measures**:
+- Tenant validation ensures name propagation respects tenant boundaries
+- Audit trail logging tracks all name change operations
+- Field-level change tracking preserves old/new values for compliance
+
+**Section sources**
+- [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
+- [candidates.py:517-582](file://app/backend/routes/candidates.py#L517-L582)

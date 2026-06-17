@@ -45,6 +45,7 @@ class RazorpayProvider(PaymentProvider):
         plan: str,
         success_url: str,
         cancel_url: str,
+        stripe_customer_id: str = "",
     ) -> Dict[str, Any]:
         self._require_client()
         order = self._client.order.create({

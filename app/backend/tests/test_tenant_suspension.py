@@ -5,6 +5,7 @@ import pytest
 from datetime import datetime, timezone
 
 from app.backend.models.db_models import Tenant, User
+from app.backend.tests.test_helpers import _verify_user_via_api
 
 
 def test_unsuspended_tenant_works_normally(auth_client):
@@ -59,6 +60,9 @@ def test_public_routes_unaffected(client):
         "full_name": "Public User",
     })
     assert resp.status_code in (200, 201)
+
+    # Mark user as verified for testing
+    _verify_user_via_api("public@publicroutecorp.com")
 
     # Login should work without auth
     resp = client.post("/api/auth/login", json={

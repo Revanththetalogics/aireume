@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import patch
 
 from app.backend.models.db_models import PlatformConfig, Tenant
+from app.backend.tests.test_helpers import _verify_user_via_api
 
 
 # ─── Unit tests: ManualProvider ───────────────────────────────────────────────
@@ -39,6 +40,8 @@ def test_manual_provider_cancel_updates_tenant_in_db(client, db):
         "password": "CancelPass123!", "full_name": "Cancel User",
     })
     assert reg.status_code in (200, 201)
+
+    _verify_user_via_api("cancel@cancelcorp.com")
 
     tenant = db.query(Tenant).filter(Tenant.slug == "cancelcorp").first()
     assert tenant is not None
@@ -209,6 +212,7 @@ def test_non_admin_cannot_access_billing_config(client, db):
         "company_name": "NormalCorp", "email": "normal@normalcorp.com",
         "password": "NormalPass123!", "full_name": "Normal User",
     })
+    _verify_user_via_api("normal@normalcorp.com")
     login = client.post("/api/auth/login", json={
         "email": "normal@normalcorp.com",
         "password": "NormalPass123!",

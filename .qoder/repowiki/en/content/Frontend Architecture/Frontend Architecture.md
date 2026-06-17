@@ -10,15 +10,28 @@
 - [ProtectedRoute.jsx](file://app/frontend/src/components/ProtectedRoute.jsx)
 - [PlatformAdminRoute.jsx](file://app/frontend/src/components/PlatformAdminRoute.jsx)
 - [AuthContext.jsx](file://app/frontend/src/contexts/AuthContext.jsx)
+- [NotificationContext.jsx](file://app/frontend/src/contexts/NotificationContext.jsx)
+- [OnboardingContext.jsx](file://app/frontend/src/contexts/OnboardingContext.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [uploadChunked.js](file://app/frontend/src/lib/uploadChunked.js)
+- [AnimatedScore.jsx](file://app/frontend/src/components/AnimatedScore.jsx)
+- [StreamingText.jsx](file://app/frontend/src/components/StreamingText.jsx)
+- [CandidateCard.jsx](file://app/frontend/src/components/CandidateCard.jsx)
+- [ComparisonMatrix.jsx](file://app/frontend/src/components/ComparisonMatrix.jsx)
+- [GettingStarted.jsx](file://app/frontend/src/components/GettingStarted.jsx)
+- [SkillTrendChart.jsx](file://app/frontend/src/components/SkillTrendChart.jsx)
+- [ProgressBadge.jsx](file://app/frontend/src/components/ProgressBadge.jsx)
+- [ScoreBadge.jsx](file://app/frontend/src/components/ScoreBadge.jsx)
+- [QuickActions.jsx](file://app/frontend/src/components/QuickActions.jsx)
+- [OnboardingWizard.jsx](file://app/frontend/src/components/OnboardingWizard.jsx)
+- [useOptimisticUpdate.js](file://app/frontend/src/hooks/useOptimisticUpdate.js)
+- [useKeyboardShortcuts.js](file://app/frontend/src/hooks/useKeyboardShortcuts.js)
+- [useAnalysisProgress.js](file://app/frontend/src/hooks/useAnalysisProgress.js)
 - [UploadForm.jsx](file://app/frontend/src/components/UploadForm.jsx)
 - [ResultCard.jsx](file://app/frontend/src/components/ResultCard.jsx)
 - [ScoreGauge.jsx](file://app/frontend/src/components/ScoreGauge.jsx)
 - [Timeline.jsx](file://app/frontend/src/components/Timeline.jsx)
 - [SkillsRadar.jsx](file://app/frontend/src/components/SkillsRadar.jsx)
-- [UniversalWeightsPanel.jsx](file://app/frontend/src/components/UniversalWeightsPanel.jsx)
-- [WeightSuggestionPanel.jsx](file://app/frontend/src/components/WeightSuggestionPanel.jsx)
 - [VersionHistory.jsx](file://app/frontend/src/components/VersionHistory.jsx)
 - [ComparisonView.jsx](file://app/frontend/src/components/ComparisonView.jsx)
 - [Dashboard.jsx](file://app/frontend/src/pages/Dashboard.jsx)
@@ -27,21 +40,29 @@
 - [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)
 - [CandidatesPage.jsx](file://app/frontend/src/pages/CandidatesPage.jsx)
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
+- [ComparePage.jsx](file://app/frontend/src/pages/ComparePage.jsx)
+- [JDLibraryPage.jsx](file://app/frontend/src/pages/JDLibraryPage.jsx)
 - [AdminDashboardPage.jsx](file://app/frontend/src/pages/AdminDashboardPage.jsx)
+- [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
+- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
 - [useSubscription.jsx](file://app/frontend/src/hooks/useSubscription.jsx)
+- [AdminLayout.jsx](file://app/frontend/src/layouts/AdminLayout.jsx)
+- [Breadcrumbs.jsx](file://app/frontend/src/components/admin/Breadcrumbs.jsx)
+- [AdminOverviewPage.jsx](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx)
 - [package.json](file://app/frontend/package.json)
+- [vite.config.js](file://app/frontend/vite.config.js)
+- [tailwind.config.js](file://app/frontend/tailwind.config.js)
+- [postcss.config.js](file://app/frontend/postcss.config.js)
 - [nginx.prod.conf](file://app/nginx/nginx.prod.conf)
 - [AUDIT.md](file://docs/AUDIT.md)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced CandidatesPage.jsx with resume access buttons (View/Download) in candidate detail modal
-- Enhanced ReportPage.jsx with resume access buttons (View/Download) in sticky action bar
-- Added comprehensive resume file handling with proper MIME type detection and user experience improvements
-- Implemented proper filename generation with candidate name fallback
-- Added loading states and error handling for resume access operations
-- Integrated backend resume file endpoints with proper content-type handling
+- Updated Vite configuration to consolidate React-dependent libraries into single 'vendor-react' chunk to fix login page crash caused by React load-order race conditions
+- Removed separate chunks for vendor-router, vendor-charts, vendor-motion, and chunk-admin while preserving vendor-pdf for non-React libraries
+- Enhanced build optimization with strategic vendor library separation to prevent React initialization conflicts
+- Updated performance considerations to reflect new chunk splitting strategy
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -62,7 +83,7 @@
 16. [Conclusion](#conclusion)
 
 ## Introduction
-This document describes the frontend architecture for Resume AI by ThetaLogics. It covers the React 18 component model, routing, state management, component library, styling and responsiveness, API integration, authentication and subscription management, error handling and resilience patterns, XSS protection architecture, platform administration capabilities, and extension guidelines. The system emphasizes a clean separation of concerns, composable UI components, robust integration with backend services via Axios interceptors and dedicated hooks, comprehensive error handling for graceful degradation, universal string sanitization to prevent XSS vulnerabilities, and comprehensive administrative interfaces for platform-wide tenant management.
+This document describes the frontend architecture for Resume AI by ThetaLogics. It covers the React 18 component model, routing, state management, component library, styling and responsiveness, API integration, authentication and subscription management, error handling and resilience patterns, XSS protection architecture, comprehensive platform administration capabilities, and extension guidelines. The system emphasizes a clean separation of concerns, composable UI components, robust integration with backend services via Axios interceptors and dedicated hooks, comprehensive error handling for graceful degradation, universal string sanitization to prevent XSS vulnerabilities, and comprehensive administrative interfaces for platform-wide tenant management.
 
 ## Project Structure
 The frontend is organized around a classic React 18 + Vite setup with modular components, pages, contexts, hooks, and a centralized API client. Routing is handled by React Router v7 with lazy-loaded pages and protected routes. Styling leverages TailwindCSS with a consistent design system and brand palette. The architecture now includes comprehensive error handling through React ErrorBoundary components, enhanced API retry mechanisms, universal XSS protection through the safeStr utility function, and a comprehensive platform administration system with tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
@@ -78,13 +99,20 @@ subgraph "Routing"
 R["React Router v7<br/>lazy routes"]
 PR["ProtectedRoute.jsx"]
 PAR["PlatformAdminRoute.jsx"]
+AL["AdminLayout.jsx"]
 end
 subgraph "UI Shell"
 AS["AppShell.jsx"]
 NB["NavBar.jsx"]
+BC["Breadcrumbs.jsx"]
 end
 subgraph "Enhanced Landing Page"
 DN["DashboardNew.jsx"]
+GS["GettingStarted.jsx"]
+end
+subgraph "Onboarding System"
+OW["OnboardingWizard.jsx"]
+OC["OnboardingContext.jsx"]
 end
 subgraph "Streaming Analysis Flow"
 AP["AnalyzePage.jsx"]
@@ -92,14 +120,36 @@ UWP["UniversalWeightsPanel.jsx"]
 WSP["WeightSuggestionPanel.jsx"]
 BP["BatchPage.jsx"]
 end
+subgraph "Enhanced Candidate Experience"
+CC["CandidateCard.jsx"]
+CM["ComparisonMatrix.jsx"]
+STC["SkillTrendChart.jsx"]
+end
+subgraph "Enhanced Resume Display System"
+RP["ReportPage.jsx"]
+PS["PhoneScreenKit.jsx"]
+ISC["InterviewScorecard.jsx"]
+SP["SplitProfilePreview.jsx"]
+end
 subgraph "Admin Dashboard System"
 ADP["AdminDashboardPage.jsx"]
-PAR["PlatformAdminRoute.jsx"]
+AOP["AdminOverviewPage.jsx"]
 end
 subgraph "Pages"
 D["Dashboard.jsx"]
-RP["ReportPage.jsx"]
 CP["CandidatesPage.jsx"]
+CMP["ComparePage.jsx"]
+JD["JDLibraryPage.jsx"]
+end
+subgraph "Enhanced Component Library"
+AS2["AnimatedScore.jsx"]
+ST["StreamingText.jsx"]
+PB["ProgressBadge.jsx"]
+SB["ScoreBadge.jsx"]
+QA["QuickActions.jsx"]
+UOU["useOptimisticUpdate.js"]
+UKS["useKeyboardShortcuts.js"]
+UAP["useAnalysisProgress.js"]
 end
 subgraph "Components with XSS Protection"
 UF["UploadForm.jsx"]
@@ -112,23 +162,34 @@ CV["ComparisonView.jsx"]
 end
 subgraph "State & Auth"
 AC["AuthContext.jsx"]
+NC["NotificationContext.jsx"]
 USC["useSubscription.jsx"]
 end
 subgraph "API Layer"
 API["api.js"]
 UC["uploadChunked.js"]
 end
+subgraph "Build & Performance"
+VC["vite.config.js"]
+TC["tailwind.config.js"]
+PC["postcss.config.js"]
+end
 subgraph "Security Layer"
 SEC["XSS Protection"]
 CSP["Content Security Policy"]
-end
+END
 M --> A
 A --> EB
 EB --> R
 R --> PR
 PR --> AS
 AS --> NB
+AS --> AL
+AL --> BC
 AS --> DN
+DN --> GS
+AS --> OW
+OW --> OC
 DN --> AP
 AP --> UWP
 AP --> WSP
@@ -139,36 +200,72 @@ AS --> RP
 RP --> RC
 RP --> SG
 RP --> TL
+RP --> PS
+RP --> ISC
 RC --> SR
 AS --> CP
+CP --> CC
+CC --> SB
+CC --> QA
+CP --> SP
+AS --> CMP
+CMP --> CM
+AS --> JD
+JD --> STC
+AS --> PB
+PB --> UAP
 AS --> ADP
-ADP --> PAR
+ADP --> AOP
 A --> API
 A --> AC
+A --> NC
 A --> USC
 A --> UC
 RC --> SEC
 CV --> SEC
 UF --> SEC
 AS --> CSP
+VC --> TC
+VC --> PC
 ```
 
 **Diagram sources**
 - [main.jsx:1-23](file://app/frontend/src/main.jsx#L1-L23)
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
-- [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
-- [NavBar.jsx](file://app/frontend/src/components/NavBar.jsx)
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [OnboardingContext.jsx:1-170](file://app/frontend/src/contexts/OnboardingContext.jsx#L1-L170)
 - [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
+- [CandidateCard.jsx:1-141](file://app/frontend/src/components/CandidateCard.jsx#L1-L141)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
-- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
-- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [ReportPage.jsx:1-1030](file://app/frontend/src/pages/ReportPage.jsx#L1-L1030)
+- [CandidatesPage.jsx:1-984](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L984)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
+- [AnimatedScore.jsx:1-63](file://app/frontend/src/components/AnimatedScore.jsx#L1-L63)
+- [StreamingText.jsx:1-73](file://app/frontend/src/components/StreamingText.jsx#L1-L73)
+- [ProgressBadge.jsx:1-132](file://app/frontend/src/components/ProgressBadge.jsx#L1-L132)
+- [ScoreBadge.jsx:1-58](file://app/frontend/src/components/ScoreBadge.jsx#L1-L58)
+- [QuickActions.jsx:1-158](file://app/frontend/src/components/QuickActions.jsx#L1-L158)
+- [useOptimisticUpdate.js:1-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L1-L81)
+- [useKeyboardShortcuts.js:1-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L1-L102)
+- [useAnalysisProgress.js:1-25](file://app/frontend/src/hooks/useAnalysisProgress.js#L1-L25)
 - [UploadForm.jsx:1-484](file://app/frontend/src/components/UploadForm.jsx#L1-L484)
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
@@ -177,22 +274,29 @@ AS --> CSP
 - [VersionHistory.jsx:1-260](file://app/frontend/src/components/VersionHistory.jsx#L1-L260)
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [NotificationContext.jsx](file://app/frontend/src/contexts/NotificationContext.jsx)
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
 - [api.js:1-967](file://app/frontend/src/lib/api.js#L1-L967)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
+- [vite.config.js:1-47](file://app/frontend/vite.config.js#L1-L47)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
+- [postcss.config.js:1-7](file://app/frontend/postcss.config.js#L1-L7)
 
 **Section sources**
 - [main.jsx:1-23](file://app/frontend/src/main.jsx#L1-L23)
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
-- [package.json:1-42](file://app/frontend/package.json#L1-L42)
+- [package.json:1-44](file://app/frontend/package.json#L1-L44)
 
 ## Core Components
 - **ErrorBoundary**: React ErrorBoundary component for graceful degradation with user-friendly error messages and retry options.
 - **AppShell**: Provides a consistent layout with navigation and scrollable content area.
 - **ProtectedRoute**: Guards routes requiring authentication.
 - **PlatformAdminRoute**: Guards routes requiring platform administrator privileges.
-- **DashboardNew**: Enhanced landing page serving as the new dashboard with analytics widgets, quick actions, and recent activity.
+- **DashboardNew**: Enhanced landing page serving as the new dashboard with analytics widgets, quick actions, GettingStarted checklist, and recent activity.
+- **OnboardingWizard**: Comprehensive 4-step guided setup flow with organization setup, plan selection, team invitation, and completion celebration.
+- **OnboardingContext**: Persistent onboarding state management with completion tracking and checklist management.
+- **GettingStarted**: Interactive checklist system with progress tracking and completion celebration.
 - **AnalyzePage**: New 3-step analysis workflow with job description input, AI weight suggestions, streaming resume upload, **enhanced with auto-skip functionality and dual job context persistence**.
 - **BatchPage**: Enhanced batch processing with chunked upload capabilities, real-time progress tracking, and ranked shortlist table.
 - **UniversalWeightsPanel**: Comprehensive scoring weights configuration with adaptive labels and validation.
@@ -202,24 +306,54 @@ AS --> CSP
 - **ResultCard**: Comprehensive analysis results with collapsible sections, explainability, skills radar, interview kit, email generation, and XSS protection.
 - **ScoreGauge**: Visual fit score with thresholds and pending state.
 - **Timeline**: Employment history visualization with gaps and severity indicators.
-- **CandidatesPage**: List and search candidates with pagination and detail modal, **enhanced with resume access buttons (View/Download)**.
-- **ReportPage**: Single-result presentation with sharing, printing, labeling, inline editing, and **dual job context persistence for "Analyze Another Resume" workflow**, **enhanced with resume access buttons**.
+- **CandidatesPage**: List and search candidates with pagination and detail modal, **enhanced with resume access buttons (View/Download)** and split-view candidate preview functionality.
+- **ReportPage**: Single-result presentation with sharing, printing, labeling, inline editing, and **dual job context persistence for "Analyze Another Resume" workflow**, **enhanced with resume access buttons**, **split-view phone screen mode**, and **inline resume preview**.
 - **ComparisonView**: Side-by-side analysis comparison with universal string sanitization.
+- **ComparePage**: Advanced candidate comparison with detailed metrics, strength/weakness analysis, and ComparisonMatrix integration.
+- **ComparisonMatrix**: Comprehensive skills matrix comparison with team gap highlighting and confidence indicators.
+- **JDLibraryPage**: Enhanced job description library with filtering, sorting, AI-optimized weights, and usage statistics.
+- **SkillTrendChart**: Role category analysis with trend visualization and growth metrics.
 - **AdminDashboardPage**: Comprehensive platform administration interface with tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- **AdminOverviewPage**: Comprehensive overview dashboard for platform administrators with key metrics and quick access links.
+- **PhoneScreenKit**: Standalone Screen Kit panel for split-view phone screen mode with technical, behavioral, culture fit, and experience deep-dive questions.
+- **InterviewScorecard**: Phone screen evaluation component for capturing candidate assessments and conversation summaries.
+- **SplitProfilePreview**: Inline candidate profile preview component for split-view candidate list functionality.
 - **AuthContext**: JWT lifecycle, login/register/logout, and tenant/user state.
+- **NotificationContext**: Analysis progress tracking and real-time updates for streaming workflows.
 - **useSubscription**: Subscription and usage checks, optimistic updates, and plan features with improved error handling.
 - **uploadChunked**: Utility for handling large file uploads with chunking, retry logic, and progress tracking.
 - **Streaming Analysis**: SSE-based real-time updates for both single and batch analysis workflows.
 - **XSS Protection**: Universal string sanitization through safeStr utility function across all components.
 - **Platform Administration**: Complete administrative interface for tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- **AdminLayout**: Comprehensive admin layout with collapsible sidebar, breadcrumb navigation, responsive design, and 18 dedicated admin pages.
+- **Breadcrumbs**: Dynamic breadcrumb navigation for admin pages with path labels and clickable segments.
 - **Resume Access System**: **NEW**: Comprehensive resume file handling with proper MIME type detection, filename generation, and user experience improvements.
+- **Split-View Phone Screen Mode**: **NEW**: Mobile-optimized split-view experience with dual-panel layout for phone screen preparation.
+- **Inline Resume Preview**: **NEW**: Text rendering and iframe support for different file formats in split-view mode.
+- **Mobile Screen Optimization**: **NEW**: Responsive design patterns for mobile phone screen split-view experiences.
+- **AnimatedScore**: **NEW**: Framer-motion animated score counter with customizable duration, size, and color coding.
+- **StreamingText**: **NEW**: Typewriter-style text reveal for streaming LLM narrative content with progressive display and immediate mode.
+- **CandidateCard**: **NEW**: 30-second review design with enhanced highlights, skills visualization, and quick actions.
+- **ProgressBadge**: **NEW**: Real-time analysis progress tracking with popover, completion notifications, and status indicators.
+- **ScoreBadge**: **NEW**: Enhanced circular score badge with AnimatedScore integration for animated score display.
+- **QuickActions**: **NEW**: Status change buttons with dropdown options for candidate management actions.
+- **useOptimisticUpdate**: **NEW**: Hook for immediate UI updates with rollback capability and undo support.
+- **useKeyboardShortcuts**: **NEW**: Keyboard navigation for candidate lists with J/K movement, S/R status changes, and Enter action.
+- **useAnalysisProgress**: **NEW**: Hook for batch analysis progress management and real-time updates.
+- **Enhanced Navigation System**: **NEW**: Sophisticated collapsible sidebar, breadcrumb navigation, and responsive mobile design with mobile bottom tab bar and desktop user menu.
+- **Vite Configuration**: **NEW**: Advanced build optimization with consolidated React-dependent libraries into single 'vendor-react' chunk to resolve login page crash caused by React load-order race conditions.
+- **TailwindCSS Theming**: **NEW**: Enhanced color palette, typography, and animation system for consistent design language.
+- **PostCSS Configuration**: **NEW**: PostCSS integration with TailwindCSS and Autoprefixer for optimized CSS processing.
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
-- [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
+- [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [OnboardingContext.jsx:1-170](file://app/frontend/src/contexts/OnboardingContext.jsx#L1-L170)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
 - [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
@@ -229,14 +363,34 @@ AS --> CSP
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
 - [Timeline.jsx:1-115](file://app/frontend/src/components/Timeline.jsx#L1-L115)
-- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
-- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
+- [CandidatesPage.jsx:1-984](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L984)
+- [ReportPage.jsx:1-1030](file://app/frontend/src/pages/ReportPage.jsx#L1-L1030)
 - [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
-- [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
 - [useSubscription.jsx:1-186](file://app/frontend/src/hooks/useSubscription.jsx#L1-L186)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
-- [api.js:556-569](file://app/frontend/src/lib/api.js#L556-L569)
+- [AnimatedScore.jsx:1-63](file://app/frontend/src/components/AnimatedScore.jsx#L1-L63)
+- [StreamingText.jsx:1-73](file://app/frontend/src/components/StreamingText.jsx#L1-L73)
+- [CandidateCard.jsx:1-141](file://app/frontend/src/components/CandidateCard.jsx#L1-L141)
+- [ProgressBadge.jsx:1-132](file://app/frontend/src/components/ProgressBadge.jsx#L1-L132)
+- [ScoreBadge.jsx:1-58](file://app/frontend/src/components/ScoreBadge.jsx#L1-L58)
+- [QuickActions.jsx:1-158](file://app/frontend/src/components/QuickActions.jsx#L1-L158)
+- [useOptimisticUpdate.js:1-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L1-L81)
+- [useKeyboardShortcuts.js:1-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L1-L102)
+- [useAnalysisProgress.js:1-25](file://app/frontend/src/hooks/useAnalysisProgress.js#L1-L25)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [vite.config.js:1-47](file://app/frontend/vite.config.js#L1-L47)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
+- [postcss.config.js:1-7](file://app/frontend/postcss.config.js#L1-L7)
 
 ## Architecture Overview
 The frontend follows a layered architecture with enhanced error handling, redesigned analysis flow, comprehensive XSS protection, and comprehensive platform administration capabilities:
@@ -244,20 +398,36 @@ The frontend follows a layered architecture with enhanced error handling, redesi
 - App wraps routes with ErrorBoundary, AuthProvider, sets up lazy routes, and renders shell wrappers.
 - ErrorBoundary provides graceful degradation with user-friendly error messages and retry options.
 - AppShell hosts NavBar and page content with security headers.
-- DashboardNew serves as the enhanced landing page with analytics and quick actions.
+- DashboardNew serves as the enhanced landing page with analytics, GettingStarted checklist, and quick actions.
+- OnboardingWizard provides comprehensive guided setup with 4-step flow and persistent state management.
 - AnalyzePage orchestrates the new 3-step analysis workflow with AI-powered features, streaming updates, and **intelligent auto-skip functionality**.
 - BatchPage provides enhanced batch processing with real-time progress tracking and ranked shortlist.
-- AdminDashboardPage provides comprehensive platform administration with tabbed navigation and administrative tools.
+- AdminLayout provides comprehensive admin interface with nested routes for 18 dedicated admin pages.
+- AdminOverviewPage serves as the main admin dashboard with key metrics and quick access links.
 - Pages orchestrate UI components and API interactions with improved error handling and XSS protection.
 - API client centralizes HTTP requests, JWT injection, automatic refresh, and enhanced retry mechanisms.
-- Contexts and hooks manage authentication and subscription state with robust error handling.
+- Contexts and hooks manage authentication, subscription state, onboarding progress, and analysis progress with robust error handling.
 - uploadChunked utility handles large file uploads with chunking and progress tracking.
 - Streaming analysis provides real-time updates via SSE for both single and batch workflows.
 - **NEW**: XSS Protection Layer provides universal string sanitization through safeStr utility function.
 - **NEW**: Security Headers and CSP configuration protect against XSS and other web vulnerabilities.
-- **NEW**: Platform Administration System provides comprehensive tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
+- **NEW**: Platform Administration System provides comprehensive tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications through dedicated admin pages.
 - **NEW**: Dual Job Context Persistence System provides seamless workflow continuity using both sessionStorage (for text-mode JDs) and IndexedDB (for file-mode JDs).
 - **NEW**: Resume Access System provides comprehensive resume file handling with proper MIME type detection, filename generation, and user experience improvements.
+- **NEW**: Enhanced Component Library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, and specialized hooks.
+- **NEW**: Optimistic UI Updates with useOptimisticUpdate hook for immediate feedback and rollback capability.
+- **NEW**: Keyboard Shortcuts for efficient candidate list navigation and management.
+- **NEW**: Real-time Analysis Progress Tracking with ProgressBadge and useAnalysisProgress hook.
+- **NEW**: GettingStarted Checklist System with completion tracking and celebration animations.
+- **NEW**: Advanced Candidate Comparison with ComparisonMatrix and SkillTrendChart integrations.
+- **NEW**: Enhanced JD Library with filtering, sorting, AI-optimized weights, and usage statistics.
+- **NEW**: Split-View Phone Screen Mode provides mobile-optimized dual-panel layout for phone screen preparation.
+- **NEW**: Inline Resume Preview supports text rendering and iframe display for different file formats.
+- **NEW**: Mobile Screen Optimization ensures responsive design patterns for phone screen experiences.
+- **NEW**: Enhanced Navigation System provides sophisticated collapsible sidebar, breadcrumb navigation, and responsive mobile design.
+- **NEW**: Vite configuration provides optimal build performance with consolidated React-dependent libraries into single 'vendor-react' chunk to resolve login page crash caused by React load-order race conditions.
+- **NEW**: TailwindCSS theming provides enhanced color palette, typography, and animation system.
+- **NEW**: PostCSS configuration provides optimized CSS processing with TailwindCSS and Autoprefixer integration.
 
 ```mermaid
 sequenceDiagram
@@ -267,14 +437,19 @@ participant R as "Router(App.jsx)"
 participant P as "ProtectedRoute"
 participant PAR as "PlatformAdminRoute"
 participant S as "AppShell"
+participant NB as "NavBar"
+participant AL as "AdminLayout"
+participant BC as "Breadcrumbs"
 participant DN as "DashboardNew"
+participant GS as "GettingStarted"
+participant OW as "OnboardingWizard"
 participant AP as "AnalyzePage"
 participant RP as "ReportPage"
 participant CP as "CandidatesPage"
+participant CMP as "ComparePage"
+participant CM as "ComparisonMatrix"
 participant BP as "BatchPage"
-participant ADP as "AdminDashboardPage"
-participant UWP as "UniversalWeightsPanel"
-participant WSP as "WeightSuggestionPanel"
+participant AOP as "AdminOverviewPage"
 participant API as "api.js"
 participant UC as "uploadChunked.js"
 participant SSE as "SSE Streaming"
@@ -289,7 +464,14 @@ alt Not authenticated
 P-->>U : Redirect to "/login"
 else Authenticated
 P->>S : Render shell with CSP
-S->>DN : Render DashboardNew
+S->>NB : Render navigation
+NB->>DN : Render DashboardNew
+DN->>GS : Render GettingStarted
+S->>OW : Render OnboardingWizard (if needed)
+OW->>API : updateOrganization / selectOnboardingPlan
+API->>BE : Update onboarding status
+BE-->>OW : Success
+OW->>S : Hide wizard
 DN->>AP : Navigate to "/analyze"
 AP->>UWP : Render weights panel
 AP->>WSP : Render AI suggestions
@@ -309,6 +491,12 @@ API->>BE : Serve resume file with proper MIME type
 BE-->>RP : Return blob with content-type
 RP->>SEC : Apply XSS Protection
 RP->>S : Show resume in new tab or download
+RP->>S : Check interview questions availability
+RP->>S : Show "Start Phone Screen" button
+RP->>S : User clicks "Start Phone Screen"
+RP->>S : Set screenMode = true
+RP->>S : Render split-view with resume + PhoneScreenKit
+RP->>S : Show "Exit Screen Mode" button
 S->>CP : Navigate to "/candidates"
 CP->>API : getCandidates / getCandidate
 API->>BE : Fetch candidate data
@@ -319,111 +507,523 @@ API->>BE : Serve resume file with proper MIME type
 BE-->>CP : Return blob with content-type
 CP->>SEC : Apply XSS Protection
 CP->>S : Show resume in new tab or download
-S-->>U : Admin interface with tabs
+CP->>S : Check split view mode
+CP->>S : Render split-view with candidate list + SplitProfilePreview
+S-->>U : Admin interface with collapsible sidebar and breadcrumbs
+U->>R : Navigate to "/admin"
+R->>PAR : Check platform admin
+PAR->>AL : Render AdminLayout
+AL->>BC : Render breadcrumbs
+AL->>AOP : Render AdminOverviewPage
+AOP->>API : getAdminMetricsOverview / getAdminTenants
+API->>BE : Fetch admin metrics
+BE-->>AOP : Return metrics and tenant data
 end
 end
 ```
 
 **Diagram sources**
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
-- [AppShell.jsx:1-13](file://app/frontend/src/components/AppShell.jsx#L1-L13)
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [DashboardNew.jsx:1-740](file://app/frontend/src/pages/DashboardNew.jsx#L1-L740)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
 - [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
-- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
-- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [ReportPage.jsx:1-1030](file://app/frontend/src/pages/ReportPage.jsx#L1-L1030)
+- [CandidatesPage.jsx:1-984](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L984)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
 - [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
 - [AdminDashboardPage.jsx:1-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L1-L1807)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 - [UniversalWeightsPanel.jsx:1-295](file://app/frontend/src/components/UniversalWeightsPanel.jsx#L1-L295)
 - [WeightSuggestionPanel.jsx:1-275](file://app/frontend/src/components/WeightSuggestionPanel.jsx#L1-L275)
 - [api.js:556-569](file://app/frontend/src/lib/api.js#L556-L569)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 **Section sources**
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
 - [api.js:556-569](file://app/frontend/src/lib/api.js#L556-L569)
 - [uploadChunked.js:1-326](file://app/frontend/src/lib/uploadChunked.js#L1-L326)
 
 ## Detailed Component Analysis
 
-### Enhanced CandidatesPage with Resume Access Buttons
-**Updated** The CandidatesPage now includes comprehensive resume access functionality with View/Download buttons in the candidate detail modal.
+### Enhanced Navigation System with Collapsible Sidebar and Breadcrumb Navigation
+**Updated** The navigation system now features sophisticated collapsible sidebar, breadcrumb navigation, and responsive mobile design:
 
-- **Candidate Detail Modal**: Enhanced with resume access buttons for each candidate
-- **View Resume Button**: Opens resume in new browser tab using proper MIME type handling
-- **Download Resume Button**: Downloads resume with appropriate filename generation
-- **Loading States**: Proper loading indicators during resume access operations
-- **Error Handling**: Graceful error handling with user-friendly alerts
-- **Filename Generation**: Smart filename generation using candidate name or ID fallback
-- **Icon Integration**: Uses Eye icon for view and FileText icon for download actions
+#### Desktop Navigation
+- **Primary Navigation**: Home, Jobs, Candidates with active state indicators
+- **User Menu**: Comprehensive dropdown with Analytics, Pipeline, Team, Team Skills, Interviews, Settings
+- **Admin Access**: Platform admin badge with direct access to admin portal
+- **Progress Badge**: Real-time analysis progress indicator
+- **Responsive Design**: Desktop-only navigation with backdrop blur and glass morphism effects
 
-```mermaid
-flowchart TD
-Start(["CandidatesPage"]) --> Modal["Candidate Detail Modal"]
-Modal --> ViewBtn["View Resume Button"]
-Modal --> DownloadBtn["Download Resume Button"]
-ViewBtn --> ViewAPI["viewCandidateResume()"]
-DownloadBtn --> DownloadAPI["downloadCandidateResume()"]
-ViewAPI --> BlobURL["Create Object URL"]
-BlobURL --> NewTab["Open in New Tab"]
-DownloadAPI --> BlobURL2["Create Object URL"]
-BlobURL2 --> DownloadFile["Trigger Download"]
-NewTab --> Cleanup["Cleanup Object URL"]
-DownloadFile --> Cleanup2["Cleanup Object URL"]
-Cleanup --> End["Operation Complete"]
-Cleanup2 --> End
-```
+#### Mobile Navigation
+- **Bottom Tab Bar**: Fixed bottom navigation with Home, Jobs, Candidates, and More tabs
+- **More Sheet**: Slide-up sheet containing additional navigation options with grid layout
+- **Mobile-First Design**: Touch-friendly controls with proper spacing and sizing
+- **Backdrop System**: Overlay backgrounds for mobile navigation sheets
 
-**Diagram sources**
-- [CandidatesPage.jsx:49-66](file://app/frontend/src/pages/CandidatesPage.jsx#L49-L66)
-- [api.js:563-569](file://app/frontend/src/lib/api.js#L563-L569)
-
-**Section sources**
-- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
-- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
-
-### Enhanced ReportPage with Resume Access Buttons
-**Updated** The ReportPage now includes comprehensive resume access functionality with View/Download buttons in the sticky action bar.
-
-- **Sticky Action Bar**: Contains resume access buttons alongside other actions
-- **View Resume Button**: Opens resume in new browser tab with proper MIME type handling
-- **Download Resume Button**: Downloads resume with intelligent filename generation
-- **Loading States**: Disabled state during resume access operations
-- **Error Handling**: Graceful error handling with user-friendly alerts
-- **Filename Generation**: Uses candidate name for filename when available, falls back to ID
-- **Icon Integration**: Uses Eye icon for view and FileText icon for download actions
+#### Admin Navigation
+- **Collapsible Sidebar**: Left sidebar with collapsible navigation groups
+- **Breadcrumb Navigation**: Dynamic breadcrumb trail with path labels
+- **Responsive Sidebar**: Mobile overlay with slide-out functionality
+- **Grouped Navigation**: Logical grouping of admin functions (Overview, Manage, Configure, Monitor, Billing, Compliance)
 
 ```mermaid
 flowchart TD
-Start(["ReportPage"]) --> ActionBar["Sticky Action Bar"]
-ActionBar --> ViewBtn["View Resume Button"]
-ActionBar --> DownloadBtn["Download Resume Button"]
-ActionBar --> OtherBtns["Other Actions"]
-ViewBtn --> ViewAPI["viewCandidateResume()"]
-DownloadBtn --> DownloadAPI["downloadCandidateResume()"]
-ViewAPI --> BlobURL["Create Object URL"]
-BlobURL --> NewTab["Open in New Tab"]
-DownloadAPI --> BlobURL2["Create Object URL"]
-BlobURL2 --> DownloadFile["Trigger Download"]
-NewTab --> Cleanup["Cleanup Object URL"]
-DownloadFile --> Cleanup2["Cleanup Object URL"]
-Cleanup --> End["Operation Complete"]
-Cleanup2 --> End
+DesktopNav["Desktop Navigation"] --> PrimaryNav["Primary Navigation"]
+DesktopNav --> UserMenu["User Menu Dropdown"]
+DesktopNav --> AdminBadge["Platform Admin Badge"]
+DesktopNav --> ProgressBadge["Progress Badge"]
+MobileNav["Mobile Navigation"] --> BottomTabBar["Bottom Tab Bar"]
+MobileNav --> MoreSheet["Slide-up 'More' Sheet"]
+MobileNav --> Backdrop["Backdrop System"]
+AdminNav["Admin Navigation"] --> CollapsibleSidebar["Collapsible Sidebar"]
+AdminNav --> BreadcrumbNav["Breadcrumb Navigation"]
+AdminNav --> ResponsiveSidebar["Responsive Sidebar"]
+AdminNav --> GroupedNav["Grouped Navigation"]
+PrimaryNav --> Home["Home"]
+PrimaryNav --> Jobs["Jobs"]
+PrimaryNav --> Candidates["Candidates"]
+UserMenu --> Analytics["Analytics"]
+UserMenu --> Pipeline["Pipeline"]
+UserMenu --> Team["Team"]
+UserMenu --> TeamSkills["Team Skills"]
+UserMenu --> Interviews["Interviews"]
+UserMenu --> Settings["Settings"]
+BottomTabBar --> HomeTab["Home Tab"]
+BottomTabBar --> JobsTab["Jobs Tab"]
+BottomTabBar --> CandidatesTab["Candidates Tab"]
+BottomTabBar --> MoreTab["More Tab"]
+MoreSheet --> GridLayout["Grid Layout"]
+GridLayout --> AnalyticsSheet["Analytics"]
+GridLayout --> PipelineSheet["Pipeline"]
+GridLayout --> TeamSheet["Team"]
+GridLayout --> TeamSkillsSheet["Team Skills"]
+GridLayout --> InterviewsSheet["Interviews"]
+GridLayout --> SettingsSheet["Settings"]
 ```
 
 **Diagram sources**
-- [ReportPage.jsx:450-477](file://app/frontend/src/pages/ReportPage.jsx#L450-L477)
-- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [NavBar.jsx:14-28](file://app/frontend/src/components/NavBar.jsx#L14-L28)
+- [NavBar.jsx:106-160](file://app/frontend/src/components/NavBar.jsx#L106-L160)
+- [NavBar.jsx:164-216](file://app/frontend/src/components/NavBar.jsx#L164-L216)
+- [AdminLayout.jsx:7-55](file://app/frontend/src/layouts/AdminLayout.jsx#L7-L55)
+- [AdminLayout.jsx:111-189](file://app/frontend/src/layouts/AdminLayout.jsx#L111-L189)
+- [Breadcrumbs.jsx:3-21](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L3-L21)
 
 **Section sources**
-- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
-- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
 
-### Resume Access System Architecture
-**New** The resume access system provides comprehensive file handling with proper MIME type detection and user experience improvements.
+### Enhanced AdminLayout with Collapsible Sidebar
+**Updated** AdminLayout now provides comprehensive admin interface with collapsible sidebar and breadcrumb navigation:
+
+- **Collapsible Sidebar**: Left sidebar with navigation groups and responsive behavior
+- **Breadcrumb Navigation**: Dynamic breadcrumb trail showing current location
+- **Mobile Responsiveness**: Slide-out sidebar with overlay for mobile devices
+- **Navigation Groups**: Logical grouping of admin functions (Overview, Manage, Configure, Monitor, Billing, Compliance)
+- **Active State Management**: Visual indicators for current navigation location
+- **Back to App Link**: Easy navigation back to main application
+
+```mermaid
+flowchart TD
+AdminLayout["AdminLayout"] --> Sidebar["Collapsible Sidebar"]
+AdminLayout --> TopBar["Top Bar with Breadcrumbs"]
+AdminLayout --> MainContent["Main Content Area"]
+Sidebar --> Header["Admin Header"]
+Sidebar --> NavGroups["Navigation Groups"]
+Sidebar --> BackToApp["Back to App Link"]
+NavGroups --> Overview["Overview Group"]
+NavGroups --> Manage["Manage Group"]
+NavGroups --> Configure["Configure Group"]
+NavGroups --> Monitor["Monitor Group"]
+NavGroups --> Billing["Billing Group"]
+NavGroups --> Compliance["Compliance Group"]
+Overview --> Dashboard["Dashboard"]
+Manage --> Tenants["Tenants"]
+Manage --> Plans["Plans"]
+Manage --> Users["Users"]
+Configure --> Features["Feature Flags"]
+Configure --> Webhooks["Webhooks"]
+Configure --> RateLimits["Rate Limits"]
+Configure --> SSO["SSO"]
+Configure --> Email["Email Settings"]
+Monitor --> Metrics["Metrics"]
+Monitor --> Audit["Audit Log"]
+Monitor --> Security["Security Events"]
+Billing --> Revenue["Revenue"]
+Billing --> Invoices["Invoices"]
+Billing --> Dunning["Dunning"]
+Compliance --> Erasure["Data Erasure"]
+Compliance --> Impersonation["Impersonation"]
+TopBar --> Breadcrumb["Breadcrumb Navigation"]
+TopBar --> AvatarDropdown["Avatar Dropdown"]
+```
+
+**Diagram sources**
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+
+**Section sources**
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+
+### Enhanced Admin Overview Dashboard
+**New** AdminOverviewPage provides comprehensive platform overview with key metrics and quick access links:
+
+- **Key Metrics Cards**: Total tenants, active users, analyses run, MRR with color-coded indicators
+- **Quick Access Links**: Direct navigation to common admin tasks (tenants, plans, features, audit, security, billing)
+- **Loading States**: Graceful loading with skeleton states for metrics
+- **Error Handling**: User-friendly error messages for failed metric loading
+- **Responsive Grid**: Adaptive grid layout for different screen sizes
+
+```mermaid
+flowchart TD
+AdminOverview["AdminOverviewPage"] --> StatsGrid["Stats Grid"]
+StatsGrid --> TotalTenants["Total Tenants Card"]
+StatsGrid --> ActiveUsers["Active Users Card"]
+StatsGrid --> AnalysesRun["Analyses Run Card"]
+StatsGrid --> MRR["MRR Card"]
+AdminOverview --> QuickLinks["Quick Access Links"]
+QuickLinks --> ManageTenants["Manage Tenants"]
+QuickLinks --> SubscriptionPlans["Subscription Plans"]
+QuickLinks --> FeatureFlags["Feature Flags"]
+QuickLinks --> AuditLog["Audit Log"]
+QuickLinks --> SecurityEvents["Security Events"]
+QuickLinks --> Revenue["Revenue"]
+```
+
+**Diagram sources**
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+
+**Section sources**
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+
+### Enhanced Vite Configuration for Optimal Build Performance
+**Updated** Vite configuration now provides advanced build optimization with consolidated React-dependent libraries into a single 'vendor-react' chunk to resolve login page crash caused by React load-order race conditions:
+
+#### Build Optimization Features
+- **Consolidated React Dependencies**: All React + React-dependent libraries (lucide-react, react-router, recharts, framer-motion, etc.) in single 'vendor-react' chunk to prevent load-order race conditions
+- **Non-React Libraries**: Separate 'vendor-pdf' chunk for html2pdf, jspdf, and html2canvas libraries
+- **Removed Separate Chunks**: Eliminated vendor-router, vendor-charts, vendor-motion, and chunk-admin separate chunks
+- **Manual Chunk Splitting**: Strategic separation of vendor libraries into dedicated chunks
+- **React Load Order Safety**: Consolidating React internals prevents initialization conflicts during login flow
+
+#### Development and Testing Configuration
+- **Development Proxy**: Local API proxy configuration for development environment
+- **Source Maps**: Enabled for debugging in production builds
+- **Test Environment**: Jsdom setup for comprehensive testing framework
+- **Chunk Size Warning**: Increased limit to accommodate larger bundles
+
+```mermaid
+flowchart TD
+ViteConfig["vite.config.js"] --> Plugins["Plugins"]
+ViteConfig --> Server["Development Server"]
+ViteConfig --> Build["Build Configuration"]
+ViteConfig --> Test["Test Configuration"]
+Plugins --> ReactPlugin["React Plugin"]
+Server --> Port["Port 5173"]
+Server --> Host["Host: true"]
+Server --> Proxy["API Proxy Configuration"]
+Proxy --> APITarget["/api -> http://localhost:8000"]
+Proxy --> HealthTarget["/health -> http://localhost:8000"]
+Build --> OutDir["outDir: dist"]
+Build --> Sourcemap["sourcemap: true"]
+Build --> ChunkWarning["chunkSizeWarningLimit: 1000"]
+Build --> RollupOptions["Rollup Options"]
+RollupOptions --> ManualChunks["manualChunks(id)"]
+ManualChunks --> ReactChunk["vendor-react (consolidated)"]
+ManualChunks --> PDFChunk["vendor-pdf (preserved)"]
+ManualChunks --> GenericVendor["generic vendor"]
+Test --> Globals["globals: true"]
+Test --> Environment["environment: jsdom"]
+Test --> SetupFiles["setupFiles: ./src/__tests__/setup.js"]
+```
+
+**Diagram sources**
+- [vite.config.js:1-47](file://app/frontend/vite.config.js#L1-L47)
+
+**Section sources**
+- [vite.config.js:1-47](file://app/frontend/vite.config.js#L1-L47)
+
+### Enhanced TailwindCSS Theming System
+**Updated** TailwindCSS configuration now provides enhanced color palette, typography, and animation system:
+
+#### Color Palette Enhancements
+- **Brand Colors**: Comprehensive 9-level gradient from 50 to 900 for consistent branding
+- **Surface Colors**: Custom surface background color for application base
+- **Slate Gradients**: Extended slate color scale for text and interface elements
+- **Consistent Color Usage**: Brand colors used throughout navigation and interactive elements
+
+#### Typography and Animation System
+- **Font Family**: Inter font with system-ui fallback for optimal readability
+- **Box Shadows**: Brand-specific shadow variations (sm, base, lg, xl) for depth
+- **Background Gradients**: Gradient-brand for prominent visual elements
+- **Animations**: Custom animations (shimmer, fade-up, spin-slow) for enhanced UX
+
+#### Responsive Design Integration
+- **Mobile-First Approach**: Responsive utilities for mobile, tablet, and desktop
+- **Touch-Friendly Spacing**: Consistent padding and margin scales for mobile devices
+- **Flexible Grid Systems**: Responsive grid layouts for admin interfaces
+- **Adaptive Typography**: Font sizing that adapts to different screen sizes
+
+```mermaid
+flowchart TD
+TailwindConfig["tailwind.config.js"] --> Content["Content Paths"]
+TailwindConfig --> Theme["Theme Extensions"]
+Content --> IndexHTML["index.html"]
+Content --> SrcFiles["./src/**/*.{js,ts,jsx,tsx}"]
+Theme --> Colors["Extended Color Palette"]
+Theme --> FontFamily["Typography System"]
+Theme --> BoxShadow["Shadow Variations"]
+Theme --> BackgroundImage["Gradient Effects"]
+Theme --> Animation["Custom Animations"]
+Theme --> Keyframes["Animation Keyframes"]
+Colors --> BrandColors["Brand Color Scale"]
+Colors --> SurfaceColor["Surface Background"]
+Colors --> SlateColors["Slate Color Scale"]
+FontFamily --> InterFont["Inter Font Family"]
+BoxShadow --> BrandShadows["Brand Shadow Variations"]
+BackgroundImage --> GradientBrand["Gradient Brand Effect"]
+Animation --> Shimmer["Shimmer Animation"]
+Animation --> FadeUp["Fade Up Animation"]
+Animation --> SpinSlow["Spin Slow Animation"]
+Keyframes --> ShimmerKeyframes["Shimmer Keyframes"]
+Keyframes --> FadeUpKeyframes["Fade Up Keyframes"]
+```
+
+**Diagram sources**
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
+
+**Section sources**
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
+
+### Enhanced PostCSS Configuration
+**New** PostCSS configuration provides optimized CSS processing with TailwindCSS and Autoprefixer integration:
+
+- **TailwindCSS Integration**: Processes Tailwind directives and generates utility classes
+- **Autoprefixer**: Automatically adds vendor prefixes for cross-browser compatibility
+- **Build Optimization**: Minimizes CSS output and removes unused styles
+- **Development Support**: Preserves readable CSS during development
+- **Production Optimization**: Generates optimized CSS for production builds
+
+**Section sources**
+- [postcss.config.js:1-7](file://app/frontend/postcss.config.js#L1-L7)
+
+### Enhanced ReportPage with Split-View Phone Screen Mode
+**Updated** ReportPage now includes comprehensive split-view phone screen mode functionality with mobile-optimized dual-panel layout:
+
+- **Screen Mode Toggle**: Start Phone Screen button triggers split-view mode with mobile optimization
+- **Dual-Panel Layout**: Left panel shows resume preview, right panel shows PhoneScreenKit
+- **Inline Resume Preview**: Supports text rendering for text resumes and iframe display for PDF/docx files
+- **Responsive Design**: Adapts layout for different screen sizes with mobile-first approach
+- **Exit Screen Mode**: Dedicated button to return to normal report view
+- **Phone Screen Preparation**: Integrated PhoneScreenKit component for comprehensive phone screen preparation
+- **Resume Access Integration**: Seamless resume viewing and downloading within split-view context
+- **Mobile Screen Optimization**: Optimized for phone screen split-view experiences with inline parameter support
+
+```mermaid
+flowchart TD
+Start(["ReportPage"]) --> CheckInterviewQs{"interviewQs available?"}
+CheckInterviewQs --> |Yes| ShowStartBtn["Show 'Start Phone Screen' button"]
+CheckInterviewQs --> |No| NormalView["Render normal report"]
+ShowStartBtn --> ClickStart["User clicks Start Phone Screen"]
+ClickStart --> SetScreenMode["setScreenMode(true)"]
+SetScreenMode --> RenderSplitView["Render split-view layout"]
+RenderSplitView --> LeftPanel["Left Panel - Resume Preview"]
+RenderSplitView --> RightPanel["Right Panel - PhoneScreenKit"]
+LeftPanel --> ResumeText["Text rendering for text resumes"]
+LeftPanel --> ResumeIframe["iframe for PDF/docx files"]
+RightPanel --> PhoneScreenKit["PhoneScreenKit component"]
+PhoneScreenKit --> Technical["Technical questions"]
+PhoneScreenKit --> Behavioral["Behavioral questions"]
+PhoneScreenKit --> CultureFit["Culture fit questions"]
+PhoneScreenKit --> DeepDive["Experience deep-dive questions"]
+RenderSplitView --> ExitBtn["Show 'Exit Screen Mode' button"]
+ExitBtn --> ExitScreenMode["setScreenMode(false)"]
+ExitScreenMode --> NormalView
+```
+
+**Diagram sources**
+- [ReportPage.jsx:115](file://app/frontend/src/pages/ReportPage.jsx#L115)
+- [ReportPage.jsx:478](file://app/frontend/src/pages/ReportPage.jsx#L478)
+- [ReportPage.jsx:809](file://app/frontend/src/pages/ReportPage.jsx#L809)
+- [ReportPage.jsx:1000](file://app/frontend/src/pages/ReportPage.jsx#L1000)
+
+**Section sources**
+- [ReportPage.jsx:1-1030](file://app/frontend/src/pages/ReportPage.jsx#L1-L1030)
+
+### Enhanced CandidatesPage with Split-View Candidate Preview
+**Updated** CandidatesPage now includes comprehensive split-view candidate preview functionality:
+
+- **Split View Mode**: Dedicated split-view mode for candidate list with inline preview
+- **Dual-Panel Layout**: Left panel shows candidate list, right panel shows inline profile preview
+- **Responsive Design**: Adapts to different screen sizes with mobile optimization
+- **Candidate Selection**: Click to select candidate and load inline preview
+- **Inline Profile Preview**: SplitProfilePreview component shows candidate details without full page navigation
+- **Status Management**: Direct status change from split-view preview
+- **Navigation Integration**: Quick navigation to full candidate profile
+- **Loading States**: Proper loading indicators during candidate data fetching
+
+```mermaid
+flowchart TD
+Start(["CandidatesPage"]) --> CheckViewMode{"viewMode === 'split'?"}
+CheckViewMode --> |No| NormalList["Render normal candidate list"]
+CheckViewMode --> |Yes| SplitLayout["Render split-view layout"]
+SplitLayout --> LeftPanel["Left Panel - Candidate List"]
+SplitLayout --> RightPanel["Right Panel - Inline Preview"]
+LeftPanel --> CandidateList["Render candidate cards"]
+LeftPanel --> CandidateSelection["Click to select candidate"]
+CandidateSelection --> LoadProfile["getCandidate(id)"]
+LoadProfile --> ShowPreview["Render SplitProfilePreview"]
+RightPanel --> PreviewContent["SplitProfilePreview component"]
+PreviewContent --> Header["Candidate header with avatar"]
+PreviewContent --> Summary["Professional summary"]
+PreviewContent --> Scores["Score breakdown"]
+PreviewContent --> Skills["Matched/missing skills"]
+PreviewContent --> Strengths["Strengths/weaknesses"]
+PreviewContent --> Narrative["Narrative summary"]
+PreviewContent --> StatusChange["Direct status change"]
+PreviewContent --> FullProfile["Quick navigation to full profile"]
+```
+
+**Diagram sources**
+- [CandidatesPage.jsx:888](file://app/frontend/src/pages/CandidatesPage.jsx#L888)
+- [CandidatesPage.jsx:944](file://app/frontend/src/pages/CandidatesPage.jsx#L944)
+- [CandidatesPage.jsx:185](file://app/frontend/src/pages/CandidatesPage.jsx#L185)
+
+**Section sources**
+- [CandidatesPage.jsx:1-984](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L984)
+
+### SplitProfilePreview Component
+**New** SplitProfilePreview component provides inline candidate profile preview functionality:
+
+- **Lightweight Design**: Simplified version of full candidate profile for split-view
+- **Header Section**: Candidate avatar, name, and basic contact information
+- **Score Display**: Fit score with visual indicator
+- **Status Management**: Direct status change from preview
+- **Navigation**: Quick link to full candidate profile
+- **Professional Summary**: Candidate professional summary display
+- **Score Breakdown**: Visual score breakdown by category
+- **Skills Display**: Matched and missing skills with color coding
+- **Strengths/Weaknesses**: Highlighted candidate strengths and weaknesses
+- **Narrative Summary**: Candidate narrative summary in quote format
+
+```mermaid
+flowchart TD
+Start(["SplitProfilePreview"]) --> Header["Candidate Header"]
+Header --> Avatar["Avatar with initials"]
+Header --> Name["Candidate name"]
+Header --> Email["Email (if available)"]
+Header --> Score["Fit score badge"]
+Header --> Status["Status pill with change handler"]
+Header --> Nav["View Full Profile link"]
+Header --> Summary["Professional Summary"]
+Header --> Scores["Score Breakdown"]
+Header --> Skills["Skills Display"]
+Header --> Strengths["Strengths/weaknesses"]
+Header --> Narrative["Narrative Summary"]
+```
+
+**Diagram sources**
+- [CandidatesPage.jsx:185](file://app/frontend/src/pages/CandidatesPage.jsx#L185)
+- [CandidatesPage.jsx:200](file://app/frontend/src/pages/CandidatesPage.jsx#L200)
+- [CandidatesPage.jsx:238](file://app/frontend/src/pages/CandidatesPage.jsx#L238)
+- [CandidatesPage.jsx:262](file://app/frontend/src/pages/CandidatesPage.jsx#L262)
+- [CandidatesPage.jsx:277](file://app/frontend/src/pages/CandidatesPage.jsx#L277)
+- [CandidatesPage.jsx:309](file://app/frontend/src/pages/CandidatesPage.jsx#L309)
+
+**Section sources**
+- [CandidatesPage.jsx:185-319](file://app/frontend/src/pages/CandidatesPage.jsx#L185-L319)
+
+### PhoneScreenKit Component
+**Updated** PhoneScreenKit component provides comprehensive phone screen preparation functionality:
+
+- **Question Categories**: Technical, behavioral, culture fit, and experience deep-dive questions
+- **Tabbed Interface**: Organized by question categories with active tab management
+- **Evaluation System**: Rating and notes for each question with save functionality
+- **Guidance Toggle**: Expandable guidance for each question category
+- **Overall Assessment**: Conversation summary with validation and debrief generation
+- **Skill Integration**: Links to missing and matched skills from analysis
+- **Validation Rules**: Minimum length, skill mentions, and directional indicators
+- **Debrief Generation**: Automated debrief generation from conversation summary
+
+```mermaid
+flowchart TD
+Start(["PhoneScreenKit"]) --> Tabs["Question Categories Tabs"]
+Tabs --> Technical["Technical Questions"]
+Tabs --> Behavioral["Behavioral Questions"]
+Tabs --> CultureFit["Culture Fit Questions"]
+Tabs --> DeepDive["Experience Deep-Dive Questions"]
+Technical --> QuestionList["List of technical questions"]
+Behavioral --> QuestionList
+CultureFit --> QuestionList
+DeepDive --> QuestionList
+QuestionList --> Evaluation["Evaluation Form"]
+Evaluation --> Rating["Rating selection"]
+Evaluation --> Notes["Notes input"]
+Evaluation --> Save["Save evaluation"]
+Tabs --> Guidance["Expandable Guidance"]
+Tabs --> Assessment["Overall Assessment"]
+Assessment --> Summary["Conversation Summary"]
+Assessment --> Validation["Validation Rules"]
+Validation --> Length["Minimum 100 characters"]
+Validation --> Skills["Skill mentions requirement"]
+Validation --> Direction["Directional words requirement"]
+Assessment --> Debrief["Generate Debrief"]
+Debrief --> Success["Debrief Generated"]
+```
+
+**Diagram sources**
+- [PhoneScreenKit.jsx:77](file://app/frontend/src/components/PhoneScreenKit.jsx#L77)
+- [PhoneScreenKit.jsx:96](file://app/frontend/src/components/PhoneScreenKit.jsx#L96)
+- [PhoneScreenKit.jsx:174](file://app/frontend/src/components/PhoneScreenKit.jsx#L174)
+- [PhoneScreenKit.jsx:216](file://app/frontend/src/components/PhoneScreenKit.jsx#L216)
+
+**Section sources**
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+
+### InterviewScorecard Component
+**New** InterviewScorecard component provides phone screen evaluation functionality:
+
+- **Evaluation Capture**: Rating and notes for candidate performance
+- **Overall Assessment**: Summary of candidate evaluation
+- **Debrief Integration**: Links to generated debrief documents
+- **Status Management**: Integration with candidate status changes
+- **Submission Handling**: Save and submit evaluation data
+- **Validation**: Ensures comprehensive evaluation capture
+
+```mermaid
+flowchart TD
+Start(["InterviewScorecard"]) --> EvaluationForm["Evaluation Form"]
+EvaluationForm --> Ratings["Individual question ratings"]
+EvaluationForm --> Notes["Notes for each question"]
+EvaluationForm --> Overall["Overall assessment"]
+EvaluationForm --> Submit["Submit evaluation"]
+Submit --> Save["Save evaluation data"]
+Save --> UpdateStatus["Update candidate status"]
+UpdateStatus --> GenerateDebrief["Generate debrief"]
+GenerateDebrief --> Success["Debrief available"]
+```
+
+**Diagram sources**
+- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
+
+**Section sources**
+- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
+
+### Enhanced Resume Access System with Inline Parameter Support
+**Updated** The resume access system now includes comprehensive inline parameter support for mobile phone screen split-view experiences:
 
 #### Backend Implementation
 The backend implements intelligent MIME type detection and content-disposition handling:
@@ -435,13 +1035,16 @@ The backend implements intelligent MIME type detection and content-disposition h
 - **Filename Handling**: Uses stored filename or generates fallback
 
 #### Frontend Implementation
-The frontend provides robust resume access with proper error handling:
+The frontend provides robust resume access with proper error handling and mobile optimization:
 
-- **viewCandidateResume()**: Opens resume in new tab using Blob URL
+- **viewCandidateResume()**: Opens resume in new tab using proper MIME type handling
 - **downloadCandidateResume()**: Downloads resume with proper filename and MIME type
+- **Inline Resume Preview**: Supports text rendering for text resumes and iframe display for PDF/docx files
+- **Mobile Screen Mode**: Optimized for phone screen split-view experiences
 - **Error Handling**: Graceful error handling with user feedback
 - **Loading States**: Disabled states during operations
 - **Cleanup**: Automatic URL cleanup after 30 seconds
+- **Inline Parameter Support**: Enhanced parameter handling for mobile experiences
 
 ```mermaid
 sequenceDiagram
@@ -463,6 +1066,9 @@ Backend-->>API : Return Blob with headers
 API->>API : Extract content-type
 API->>Browser : Create Object URL
 Browser-->>Client : Trigger download
+Client->>Client : Check screenMode for split-view
+Client->>Client : Render inline resume preview
+Client->>Client : Handle mobile optimization
 ```
 
 **Diagram sources**
@@ -473,161 +1079,102 @@ Browser-->>Client : Trigger download
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 
-### Enhanced DashboardNew Landing Page
-DashboardNew serves as the new primary landing page replacing the legacy Dashboard:
-- Features gradient hero section with prominent call-to-action for new analysis
-- Three-column statistics grid showing usage, plan info, and JD library
-- Recent analyses quick access with clickable entries
-- Saved JD library integration with one-click analysis initiation
-- Feature highlights section showcasing AI weight suggestions, batch processing, and version history
-- Responsive design with card animations and blur effects
+### Enhanced Split-View Phone Screen Mode Architecture
+The split-view phone screen mode provides comprehensive mobile-optimized dual-panel layout:
+
+#### Screen Mode State Management
+- **screenMode State**: Boolean flag controlling split-view visibility
+- **Toggle Functionality**: Start Phone Screen and Exit Screen Mode buttons
+- **Responsive Layout**: Adapts to different screen sizes with mobile-first design
+- **Parameter Support**: Inline parameter handling for mobile experiences
+
+#### Dual-Panel Layout Implementation
+- **Left Panel**: Resume preview with text rendering and iframe support
+- **Right Panel**: PhoneScreenKit with question categories and evaluation tools
+- **Responsive Sizing**: 50/50 split on desktop, adaptive on mobile
+- **Mobile Optimization**: Touch-friendly controls and optimized layouts
+
+#### Inline Resume Preview System
+- **Text Rendering**: Preformatted text display for text resumes
+- **Iframe Support**: PDF and DOCX file preview through iframe
+- **Fallback Handling**: Empty state with open in new tab option
+- **Loading States**: Progress indicators during resume loading
+- **Error Handling**: Graceful fallback for unavailable resumes
 
 ```mermaid
 flowchart TD
-Start(["DashboardNew"]) --> Stats["Quick Stats Grid"]
-Stats --> Hero["Hero CTA Section"]
-Hero --> Columns["Two Column Layout"]
-Columns --> Recent["Recent Analyses"]
-Columns --> JdLibrary["JD Library Quick Access"]
-Recent --> Navigate["Click to /report"]
-JdLibrary --> Analyze["Click to /analyze"]
+ScreenMode["screenMode State"] --> StartBtn["Start Phone Screen Button"]
+ScreenMode --> ExitBtn["Exit Screen Mode Button"]
+StartBtn --> SetTrue["setScreenMode(true)"]
+ExitBtn --> SetFalse["setScreenMode(false)"]
+SetTrue --> RenderSplit["Render Split-View Layout"]
+SetFalse --> RenderNormal["Render Normal Layout"]
+RenderSplit --> LeftPanel["Left Panel - Resume Preview"]
+RenderSplit --> RightPanel["Right Panel - PhoneScreenKit"]
+LeftPanel --> TextResume["Text Resume Rendering"]
+LeftPanel --> IframeResume["Iframe Resume Display"]
+RightPanel --> QuestionTabs["Question Category Tabs"]
+RightPanel --> EvaluationForms["Evaluation Forms"]
+RightPanel --> Guidance["Expandable Guidance"]
 ```
 
 **Diagram sources**
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
+- [ReportPage.jsx:115](file://app/frontend/src/pages/ReportPage.jsx#L115)
+- [ReportPage.jsx:478](file://app/frontend/src/pages/ReportPage.jsx#L478)
+- [ReportPage.jsx:809](file://app/frontend/src/pages/ReportPage.jsx#L809)
+- [ReportPage.jsx:1000](file://app/frontend/src/pages/ReportPage.jsx#L1000)
 
 **Section sources**
-- [DashboardNew.jsx:1-336](file://app/frontend/src/pages/DashboardNew.jsx#L1-L336)
+- [ReportPage.jsx:1-1030](file://app/frontend/src/pages/ReportPage.jsx#L1-L1030)
 
-### Enhanced 3-Step Analysis Workflow
-AnalyzePage implements a comprehensive three-step analysis process with **intelligent auto-skip functionality**:
-- Step 1: Job Description input with text, file upload, and URL extraction modes
-- Step 2: Scoring weights configuration with UniversalWeightsPanel and AI suggestions
-- Step 3: Resume upload with drag-and-drop and batch processing
-- Local draft saving with localStorage persistence
-- AI-powered weight suggestions with confidence indicators
-- Adaptive role-based weight labels and tooltips
-- Real-time validation with weight total tracking
-- **NEW**: Intelligent auto-skip functionality that detects existing job context and jumps directly to Step 3
-- **NEW**: Dual job description context persistence system using both sessionStorage (for text-mode JDs) and IndexedDB (for file-mode JDs) for seamless "Analyze Another Resume" workflow
-- **NEW**: Intelligent job context detection logic that automatically loads file-mode JDs from IndexedDB when returning from ReportPage
-- **NEW**: Streaming analysis with real-time progress updates and ranked results
-- **NEW**: XSS protection through safeStr sanitization across all rendered content
+### Enhanced CandidatesPage Split-View Architecture
+The split-view candidate preview system provides comprehensive dual-panel layout:
+
+#### Split View State Management
+- **viewMode State**: Controls between table, cards, and split-view modes
+- **splitSelectedId**: Currently selected candidate for preview
+- **splitProfile**: Loaded candidate data for preview
+- **splitLoading**: Loading state during candidate data fetching
+
+#### Dual-Panel Layout Implementation
+- **Left Panel**: Candidate list with selection and status indicators
+- **Right Panel**: Inline candidate preview with full details
+- **Responsive Design**: Adapts to different screen sizes
+- **Mobile Optimization**: Touch-friendly candidate selection
+
+#### Inline Candidate Preview System
+- **SplitProfilePreview Component**: Lightweight candidate preview
+- **Direct Status Changes**: Update candidate status from preview
+- **Quick Navigation**: Navigate to full candidate profile
+- **Loading States**: Progress indicators during data fetching
+- **Error Handling**: Graceful fallback for failed loads
 
 ```mermaid
 flowchart TD
-Start(["AnalyzePage"]) --> DetectContext{"Detect Job Context?"}
-DetectContext --> |Yes| AutoSkip["Auto-skip to Step 3"]
-DetectContext --> |No| Step1["Step 1: Job Description"]
-Step1 --> Step2["Step 2: Scoring Weights"]
-Step2 --> Step3["Step 3: Upload Resumes"]
-AutoSkip --> PersistContext["Persist Job Context"]
-PersistContext --> IndexedDB{"JD Mode?"}
-IndexedDB --> |Text| SessionStorage["sessionStorage.setItem('aria_active_jd')"]
-IndexedDB --> |File| IndexedDBStore["storeJdFile(file)"]
-IndexedDBStore --> Analyze["Run Streaming Analysis"]
-SessionStorage --> Analyze
-Analyze --> Single{"Single or Batch?"}
-Single --> |Single| Stream["SSE Streaming"]
-Stream --> SEC["Apply XSS Protection"]
-SEC --> Report["Navigate to /report"]
-Single --> |Batch| StreamBatch["SSE Streaming"]
-StreamBatch --> SEC2["Apply XSS Protection"]
-SEC2 --> Candidates["Navigate to /candidates"]
+ViewMode["viewMode State"] --> SplitView["Split View Mode"]
+ViewMode --> TableView["Table View Mode"]
+ViewMode --> CardView["Card View Mode"]
+SplitView --> LeftPanel["Left Panel - Candidate List"]
+SplitView --> RightPanel["Right Panel - Inline Preview"]
+LeftPanel --> CandidateList["Render candidate cards"]
+LeftPanel --> Selection["Candidate selection"]
+Selection --> LoadProfile["getCandidate(id)"]
+LoadProfile --> ShowPreview["Render SplitProfilePreview"]
+RightPanel --> PreviewContent["SplitProfilePreview component"]
+PreviewContent --> Header["Candidate header"]
+PreviewContent --> Details["Candidate details"]
+PreviewContent --> Actions["Direct actions"]
 ```
 
 **Diagram sources**
-- [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
-- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
-- [AnalyzePage.jsx:303-331](file://app/frontend/src/pages/AnalyzePage.jsx#L303-L331)
-- [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
-- [AnalyzePage.jsx:194-210](file://app/frontend/src/pages/AnalyzePage.jsx#L194-L210)
+- [CandidatesPage.jsx:342](file://app/frontend/src/pages/CandidatesPage.jsx#L342)
+- [CandidatesPage.jsx:888](file://app/frontend/src/pages/CandidatesPage.jsx#L888)
+- [CandidatesPage.jsx:944](file://app/frontend/src/pages/CandidatesPage.jsx#L944)
 
 **Section sources**
-- [AnalyzePage.jsx:1-921](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L921)
+- [CandidatesPage.jsx:1-984](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L984)
 
-### Enhanced Dual Job Context Persistence System
-The job description context persistence system provides seamless workflow continuity using a dual storage strategy:
-- **Job Context Detection**: AnalyzePage automatically detects existing job context via location.state
-- **Auto-skip Logic**: When job context is detected, the workflow jumps directly to Step 3 (Upload Resumes)
-- **Dual Storage Strategy**: 
-  - **sessionStorage**: Used for text-mode JDs with full context (jd_text, weights, role_category)
-  - **IndexedDB**: Used for file-mode JDs with file caching for seamless workflow continuity
-- **Intelligent File Mode Handling**: When returning from ReportPage with file-mode JD, AnalyzePage automatically loads the cached file from IndexedDB
-- **Cross-page Communication**: ReportPage retrieves job context from sessionStorage to enable "Analyze Another Resume"
-- **State Preservation**: All analysis parameters are preserved for consistent user experience
-- **Memory Management**: Context is cleared appropriately when analysis completes
-- **IndexedDB Helper Functions**: Comprehensive IndexedDB operations with transaction management and error handling
-
-```mermaid
-flowchart TD
-AnalyzeStart["AnalyzePage Mount"] --> CheckState{"location.state.jd_text?"}
-CheckState --> |Yes| AutoSkip["setCurrentStep(3)"]
-CheckState --> |No| NormalFlow["Normal Step-by-step"]
-AutoSkip --> DetectMode{"JD Mode?"}
-DetectMode --> |Text| TextMode["Use sessionStorage"]
-DetectMode --> |File| FileMode["Use IndexedDB"]
-TextMode --> PersistText["sessionStorage.setItem('aria_active_jd')"]
-FileMode --> LoadFile["getJdFile() from IndexedDB"]
-LoadFile --> HasFile{"File Found?"}
-HasFile --> |Yes| AutoSkipFile["setCurrentStep(3)"]
-HasFile --> |No| NormalFlow
-PersistText --> Navigate["Navigate to /report"]
-AutoSkipFile --> Navigate
-Navigate --> ReportPage["ReportPage Mount"]
-ReportPage --> LoadContext["sessionStorage.getItem('aria_active_jd')"]
-LoadContext --> ShowButton["Show 'Analyze Another Resume' Button"]
-ShowButton --> UserClick["User Clicks Button"]
-UserClick --> NavigateAnalyze["Navigate to /analyze with state"]
-```
-
-**Diagram sources**
-- [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
-- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
-- [AnalyzePage.jsx:194-210](file://app/frontend/src/pages/AnalyzePage.jsx#L194-L210)
-- [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
-- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
-- [ReportPage.jsx:420-440](file://app/frontend/src/pages/ReportPage.jsx#L420-L440)
-
-**Section sources**
-- [AnalyzePage.jsx:141-146](file://app/frontend/src/pages/AnalyzePage.jsx#L141-L146)
-- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
-- [AnalyzePage.jsx:194-210](file://app/frontend/src/pages/AnalyzePage.jsx#L194-L210)
-- [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
-- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
-- [ReportPage.jsx:420-440](file://app/frontend/src/pages/ReportPage.jsx#L420-L440)
-
-### Enhanced Batch Processing with Streaming
-BatchPage integrates chunked upload capabilities and real-time streaming:
-- Drag-and-drop multi-file upload with progress tracking
-- Cloudflare proxy bypass through chunked upload approach
-- Real-time overall progress with individual file status
-- Template library integration for job descriptions
-- Export functionality for CSV and Excel formats
-- Selection-based export with checkbox controls
-- Usage limit enforcement with visual warnings
-- **NEW**: Streaming analysis with ranked shortlist table and live updates
-- **NEW**: Real-time progress indicators for upload and analysis phases
-- **NEW**: XSS protection through safeStr sanitization for all dynamic content
-
-```mermaid
-flowchart TD
-Start(["BatchPage"]) --> Upload["Multi-file Upload"]
-Upload --> Chunked["Chunked Upload Processing"]
-Chunked --> Progress["Real-time Progress"]
-Progress --> Analyze["Streaming Analysis"]
-Analyze --> Results["Ranked Shortlist"]
-Results --> SEC["Apply XSS Protection"]
-SEC --> Export["Export Options"]
-```
-
-**Diagram sources**
-- [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
-
-**Section sources**
-- [BatchPage.jsx:1-617](file://app/frontend/src/pages/BatchPage.jsx#L1-L617)
-
-### Streaming Analysis Architecture
+### Enhanced Streaming Analysis Architecture
 The streaming analysis system provides real-time updates for both single and batch workflows:
 - **analyzeResumeStream**: Single file analysis with progressive stage updates
 - **analyzeBatchStream**: Batch analysis with real-time result streaming and ranking
@@ -636,6 +1183,10 @@ The streaming analysis system provides real-time updates for both single and bat
 - **Error Recovery**: Graceful handling of upload and analysis failures
 - **Callback System**: Modular event handling for different stages
 - **NEW**: XSS protection through safeStr sanitization for all streamed content
+- **NEW**: Enhanced ProgressBadge integration for real-time progress tracking
+- **NEW**: StreamingText integration for LLM narrative display with progressive reveal
+- **NEW**: Split-view phone screen mode integration for enhanced mobile experiences
+- **NEW**: Inline resume preview system for improved user workflow
 
 ```mermaid
 sequenceDiagram
@@ -644,6 +1195,9 @@ participant API as "analyzeBatchStream"
 participant SSE as "SSE Server"
 participant Upload as "Chunked Upload"
 participant SEC as "XSS Protection"
+participant PB as "ProgressBadge"
+participant ST as "StreamingText"
+participant SM as "Split-View Mode"
 Client->>API : Start batch analysis
 API->>Upload : Upload files (chunked)
 Upload-->>API : Upload progress callbacks
@@ -652,6 +1206,12 @@ loop For each file
 SSE-->>Client : onResult(index, total, filename, result, id)
 Client->>SEC : Apply safeStr sanitization
 SEC-->>Client : Sanitized result data
+Client->>PB : Update progress badge
+PB-->>Client : Show completion percentage
+Client->>ST : Render streaming text
+ST-->>Client : Progressive LLM narrative
+Client->>SM : Check screenMode state
+SM-->>Client : Render split-view if enabled
 Client->>Client : Update ranked shortlist
 end
 SSE-->>Client : onDone(total, successful, failed)
@@ -662,39 +1222,17 @@ Client->>Client : Show completion status
 - [api.js:413-515](file://app/frontend/src/lib/api.js#L413-L515)
 - [BatchPage.jsx:131-177](file://app/frontend/src/pages/BatchPage.jsx#L131-L177)
 - [AnalyzePage.jsx:303-331](file://app/frontend/src/pages/AnalyzePage.jsx#L303-L331)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [ReportPage.jsx:115](file://app/frontend/src/pages/ReportPage.jsx#L115)
 
 **Section sources**
 - [api.js:200-515](file://app/frontend/src/lib/api.js#L200-L515)
 - [BatchPage.jsx:131-177](file://app/frontend/src/pages/BatchPage.jsx#L131-L177)
 - [AnalyzePage.jsx:303-331](file://app/frontend/src/pages/AnalyzePage.jsx#L303-L331)
-
-### Ranked Shortlist Table
-The ranked shortlist table provides real-time candidate ranking during batch processing:
-- **Live Sorting**: Automatic sorting by fit score during analysis
-- **Progressive Updates**: Results appear as they become available
-- **Visual Ranking**: Trophy icons for top-ranked candidates
-- **Status Indicators**: Color-coded recommendation badges
-- **Selection Controls**: Checkbox selection for export operations
-- **Action Buttons**: Direct navigation to detailed reports
-- **NEW**: XSS protection through safeStr sanitization for all dynamic content
-
-```mermaid
-flowchart TD
-Start(["Ranked Shortlist"]) --> Live["Live Updates"]
-Live --> SEC["Apply XSS Protection"]
-SEC --> Sort["Auto-sort by Score"]
-Sort --> Rank["Display Rankings"]
-Rank --> Actions["Action Buttons"]
-Actions --> Export["Export Selection"]
-```
-
-**Diagram sources**
-- [BatchPage.jsx:511-575](file://app/frontend/src/pages/BatchPage.jsx#L511-L575)
-- [AnalyzePage.jsx:812-863](file://app/frontend/src/pages/AnalyzePage.jsx#L812-L863)
-
-**Section sources**
-- [BatchPage.jsx:511-575](file://app/frontend/src/pages/BatchPage.jsx#L511-L575)
-- [AnalyzePage.jsx:812-863](file://app/frontend/src/pages/AnalyzePage.jsx#L812-L863)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [ReportPage.jsx:115](file://app/frontend/src/pages/ReportPage.jsx#L115)
 
 ### Enhanced Chunked Upload System
 uploadChunked.js provides robust large file upload handling:
@@ -739,6 +1277,11 @@ The streaming analysis introduces several new UI components:
 - **Loading States**: Animated progress indicators during streaming operations
 - **Completion Feedback**: Clear indication when analysis is complete
 - **NEW**: XSS protection through safeStr sanitization for all dynamic content
+- **NEW**: AnimatedScore integration for animated fit scores
+- **NEW**: StreamingText integration for progressive LLM narrative display
+- **NEW**: ProgressBadge integration for real-time progress tracking
+- **NEW**: Split-view phone screen mode integration for enhanced mobile experiences
+- **NEW**: Inline resume preview system for improved user workflow
 
 ```mermaid
 flowchart TD
@@ -748,16 +1291,30 @@ Live --> Status["Status Badges"]
 Status --> Errors["Error Handling"]
 Errors --> Loading["Loading States"]
 Loading --> Complete["Completion Feedback"]
-Complete --> SEC["Apply XSS Protection"]
+Complete --> AnimatedScore["AnimatedScore Integration"]
+Complete --> StreamingText["StreamingText Integration"]
+Complete --> ProgressBadge["ProgressBadge Integration"]
+Complete --> SplitView["Split-View Phone Screen Mode"]
+Complete --> InlinePreview["Inline Resume Preview"]
+SplitView --> MobileOptimization["Mobile Screen Optimization"]
+InlinePreview --> FileFormatSupport["File Format Support"]
 ```
 
 **Diagram sources**
 - [BatchPage.jsx:454-476](file://app/frontend/src/pages/BatchPage.jsx#L454-L476)
 - [AnalyzePage.jsx:774-799](file://app/frontend/src/pages/AnalyzePage.jsx#L774-L799)
+- [AnimatedScore.jsx:16-63](file://app/frontend/src/components/AnimatedScore.jsx#L16-L63)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ReportPage.jsx:115](file://app/frontend/src/pages/ReportPage.jsx#L115)
 
 **Section sources**
 - [BatchPage.jsx:454-476](file://app/frontend/src/pages/BatchPage.jsx#L454-L476)
 - [AnalyzePage.jsx:774-799](file://app/frontend/src/pages/AnalyzePage.jsx#L774-L799)
+- [AnimatedScore.jsx:16-63](file://app/frontend/src/components/AnimatedScore.jsx#L16-L63)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ReportPage.jsx:115](file://app/frontend/src/pages/ReportPage.jsx#L115)
 
 ### ErrorBoundary Implementation
 The ErrorBoundary component provides comprehensive error handling for the entire application:
@@ -790,7 +1347,8 @@ Refresh --> Reload["Window reload"]
 - AuthContext manages user, tenant, and loading state. It loads persisted tokens via httpOnly cookies, logs in/out, and exposes helpers to child components.
 - ProtectedRoute enforces authentication for protected shells and shows a loader while resolving session state.
 - PlatformAdminRoute enforces platform administrator privileges for admin routes.
-- App.jsx defines lazy routes for all pages including the new DashboardNew, AnalyzePage, and AdminDashboardPage, wrapping them in ErrorBoundary, ProtectedRoute, and SubscriptionProvider, then AppShell.
+- App.jsx defines lazy routes for all pages including the new DashboardNew, AnalyzePage, OnboardingWizard, AdminDashboardPage, and AdminOverviewPage, wrapping them in ErrorBoundary, ProtectedRoute, and SubscriptionProvider, then AppShell.
+- **NEW**: AdminLayout provides nested routing structure for 18 dedicated admin pages with comprehensive navigation groups.
 
 ```mermaid
 flowchart TD
@@ -800,23 +1358,31 @@ Auth --> Routes["Define lazy routes"]
 Routes --> Guard["ProtectedRoute"]
 Guard --> Shell["SubscriptionProvider -> AppShell"]
 Shell --> Pages["Pages render"]
-Guard --> |No user| Redirect["Navigate to /login"]
 Routes --> Admin["PlatformAdminRoute"]
-Admin --> AdminShell["Admin Dashboard"]
-Admin --> |No platform admin| Redirect2["Navigate to /"]
+Admin --> AdminLayout["AdminLayout with nested routes"]
+AdminLayout --> AdminPages["18 Admin Pages"]
+Guard --> |No user| Redirect["Navigate to /login"]
+Routes --> Onboarding["OnboardingWizard"]
+Onboarding --> |Complete| Shell
+Routes --> Dashboard["DashboardNew"]
+Dashboard --> |Has checklist| GettingStarted["GettingStarted"]
 ```
 
 **Diagram sources**
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
+- [OnboardingWizard.jsx:511-589](file://app/frontend/src/components/OnboardingWizard.jsx#L511-L589)
+- [DashboardNew.jsx:284-287](file://app/frontend/src/pages/DashboardNew.jsx#L284-L287)
+- [GettingStarted.jsx:19-129](file://app/frontend/src/components/GettingStarted.jsx#L19-L129)
+- [AdminLayout.jsx:138-157](file://app/frontend/src/App.jsx#L138-L157)
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
 - [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
 - [PlatformAdminRoute.jsx:1-11](file://app/frontend/src/components/PlatformAdminRoute.jsx#L1-L11)
-- [App.jsx:1-90](file://app/frontend/src/App.jsx#L1-L90)
+- [App.jsx:1-185](file://app/frontend/src/App.jsx#L1-L185)
 
 ### Enhanced API Integration Layer
 - api.js creates an Axios instance with base URL from environment.
@@ -830,6 +1396,10 @@ Admin --> |No platform admin| Redirect2["Navigate to /"]
 - **NEW**: Real-time progress callbacks for upload and analysis operations.
 - **NEW**: Comprehensive admin endpoints for tenant management, audit logging, feature flags, webhooks, metrics, billing, and notifications.
 - **NEW**: Resume access endpoints (/candidates/{id}/resume) with proper MIME type handling.
+- **NEW**: Onboarding endpoints (updateOrganization, selectOnboardingPlan, getAvailablePlans, seedSampleData) for guided setup.
+- **NEW**: JD library endpoints (getTemplates, createTemplate, updateTemplate, deleteTemplate, getAllJDStats) for job description management.
+- **NEW**: Comparison endpoints (compareResults, compareCandidates) for candidate comparison functionality.
+- **NEW**: Phone screen endpoints (getEvaluations, saveEvaluation, getScorecard, saveOverallAssessment, generateDebrief) for phone screen preparation.
 - Exposes domain-specific functions for analysis, batch, history, comparison, exports, templates, candidates, email generation, JD URL extraction, team actions, training, video, transcript, health, subscription management, and admin operations.
 
 ```mermaid
@@ -901,6 +1471,8 @@ Analyze --> SEC["Apply XSS Protection"]
 - Renders recommendation badge, analysis source indicator, pending banner, score breakdown bars, matched/missing skills, adjacent skills, skills radar, strengths/weaknesses/risk signals, explainability, education analysis, domain fit/architecture, and interview kit tabs.
 - Email modal integrates with backend email generation.
 - **NEW**: Comprehensive XSS protection through safeStr utility function for all dynamic content rendering.
+- **NEW**: Enhanced integration with AnimatedScore for animated fit score display.
+- **NEW**: StreamingText integration for progressive LLM narrative display.
 
 ```mermaid
 classDiagram
@@ -916,14 +1488,20 @@ class XSSProtection {
 +safeStr(v) utility
 +universal sanitization
 }
+class AnimatedScore
+class StreamingText
 ResultCard --> SkillsRadar : "composition"
 ResultCard --> EmailModal : "optional"
 ResultCard --> XSSProtection : "uses"
+ResultCard --> AnimatedScore : "enhanced"
+ResultCard --> StreamingText : "integration"
 ```
 
 **Diagram sources**
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [SkillsRadar.jsx](file://app/frontend/src/components/SkillsRadar.jsx)
+- [AnimatedScore.jsx:1-63](file://app/frontend/src/components/AnimatedScore.jsx#L1-L63)
+- [StreamingText.jsx:1-73](file://app/frontend/src/components/StreamingText.jsx#L1-L73)
 
 **Section sources**
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
@@ -988,14 +1566,21 @@ D->>RP : Navigate("/report", {state : result})
 - [Dashboard.jsx:1-330](file://app/frontend/src/pages/Dashboard.jsx#L1-L330)
 
 ### Enhanced CandidatesPage
-**Updated** CandidatesPage now includes comprehensive resume access functionality with View/Download buttons in the candidate detail modal.
+**Updated** CandidatesPage now includes comprehensive resume access functionality with View/Download buttons in the candidate detail modal and split-view candidate preview functionality.
 
 - Lists candidates with search, pagination, and detail modal showing history and quick navigation to reports.
 - **Enhanced**: Real-time updates for streaming analysis results.
 - **Enhanced**: Resume access buttons (View/Download) with proper MIME type handling.
 - **Enhanced**: Filename generation with candidate name fallback.
 - **Enhanced**: Loading states and error handling for resume operations.
+- **NEW**: Split-view candidate preview functionality with inline profile display.
+- **NEW**: Direct status changes from split-view preview.
+- **NEW**: Quick navigation to full candidate profile from preview.
+- **NEW**: Mobile optimization for split-view experiences.
 - **NEW**: XSS protection through safeStr sanitization for all dynamic content.
+- **NEW**: Enhanced CandidateCard integration with animated scores and quick actions.
+- **NEW**: Optimistic UI updates for candidate status changes during batch processing.
+- **NEW**: Keyboard shortcuts integration for efficient candidate list navigation.
 
 ```mermaid
 flowchart TD
@@ -1011,24 +1596,54 @@ ViewAPI --> SEC["Apply XSS Protection"]
 DownloadAPI --> SEC
 SEC --> Browser["Open/Download in Browser"]
 Detail --> |No| Idle["Idle"]
+Detail --> Keyboard["Keyboard Shortcuts"]
+Keyboard --> CandidateCards["Enhanced CandidateCard"]
+CandidateCards --> Optimistic["Optimistic Updates"]
+Optimistic --> QuickActions["QuickActions Integration"]
+Detail --> SplitView["Split View Mode"]
+SplitView --> CandidateList["Candidate List"]
+SplitView --> InlinePreview["Inline Profile Preview"]
+CandidateList --> Selection["Candidate Selection"]
+Selection --> LoadProfile["getCandidate(id)"]
+LoadProfile --> ShowPreview["SplitProfilePreview"]
+InlinePreview --> DirectActions["Direct Status Changes"]
+InlinePreview --> QuickNav["Quick Navigation"]
 ```
 
 **Diagram sources**
-- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [CandidatesPage.jsx:1-984](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L984)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [useKeyboardShortcuts.js:16-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L16-L102)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+- [CandidatesPage.jsx:888](file://app/frontend/src/pages/CandidatesPage.jsx#L888)
+- [CandidatesPage.jsx:944](file://app/frontend/src/pages/CandidatesPage.jsx#L944)
 
 **Section sources**
-- [CandidatesPage.jsx:1-234](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L234)
+- [CandidatesPage.jsx:1-984](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L984)
+- [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [useKeyboardShortcuts.js:16-102](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L16-L102)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+- [CandidatesPage.jsx:888-952](file://app/frontend/src/pages/CandidatesPage.jsx#L888-L952)
 
 ### Enhanced ReportPage
-**Updated** ReportPage now includes comprehensive resume access functionality with View/Download buttons in the sticky action bar.
+**Updated** ReportPage now includes comprehensive resume access functionality with View/Download buttons in the sticky action bar and split-view phone screen mode functionality.
 
 - Presents a single result with sidebar actions (share, download PDF), inline candidate name editor, label training buttons, and full ResultCard plus Timeline.
 - **Enhanced**: Job context persistence system with sessionStorage integration for seamless "Analyze Another Resume" workflow.
 - **Enhanced**: Resume access buttons (View/Download) with proper MIME type handling.
 - **Enhanced**: Filename generation with candidate name fallback.
 - **Enhanced**: Loading states and error handling for resume operations.
+- **NEW**: Split-view phone screen mode with dual-panel layout for mobile optimization.
+- **NEW**: Inline resume preview supporting text rendering and iframe display.
+- **NEW**: PhoneScreenKit integration for comprehensive phone screen preparation.
+- **NEW**: Mobile screen optimization with responsive design patterns.
 - **NEW**: Intelligent job context detection and utilization for improved user experience.
+- **NEW**: Enhanced ResultCard integration with AnimatedScore and StreamingText.
+- **NEW**: XSS protection through safeStr sanitization for all dynamic content.
 
 ```mermaid
 sequenceDiagram
@@ -1036,6 +1651,8 @@ participant RP as "ReportPage"
 participant RC as "ResultCard"
 participant TL as "Timeline"
 participant API as "api.js"
+participant PS as "PhoneScreenKit"
+participant ISC as "InterviewScorecard"
 RP->>RC : Render with result
 RP->>TL : Render with work_experience + gaps
 RP->>API : labelTrainingExample(result_id, outcome)
@@ -1047,17 +1664,26 @@ RP->>Browser : Open/Download resume
 RP->>API : updateCandidateName (if edited)
 RP->>API : Load job context from sessionStorage
 RP->>RP : Show "Analyze Another Resume" button
+RP->>PS : Render PhoneScreenKit (if interviewQs available)
+PS->>ISC : Render InterviewScorecard
+PS->>RP : Show "Start Phone Screen" button
+RP->>RP : User clicks "Start Phone Screen"
+RP->>RP : Set screenMode = true
+RP->>RP : Render split-view with resume + PhoneScreenKit
+RP->>RP : Show "Exit Screen Mode" button
 ```
 
 **Diagram sources**
-- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
+- [ReportPage.jsx:1-1030](file://app/frontend/src/pages/ReportPage.jsx#L1-L1030)
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [Timeline.jsx:1-115](file://app/frontend/src/components/Timeline.jsx#L1-L115)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
 - [api.js:625-628](file://app/frontend/src/lib/api.js#L625-L628)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 
 **Section sources**
-- [ReportPage.jsx:1-583](file://app/frontend/src/pages/ReportPage.jsx#L1-L583)
+- [ReportPage.jsx:1-1030](file://app/frontend/src/pages/ReportPage.jsx#L1-L1030)
 
 ### Subscription Management Hooks
 - useSubscription provides cached subscription data, available plans, usage stats, feature checks, and optimistic refresh after analysis.
@@ -1083,34 +1709,82 @@ Return --> Widgets["UsageWidget / Dashboard"]
 
 ## Platform Administration System
 
-### AdminDashboardPage Overview
-AdminDashboardPage provides a comprehensive platform administration interface with tabbed navigation and administrative tools for managing tenants, monitoring activities, configuring features, and overseeing system operations.
+### AdminLayout Overview
+AdminLayout provides a comprehensive standalone admin interface with nested routing structure for 18 dedicated admin pages:
 
 ```mermaid
 flowchart TD
-Start(["AdminDashboardPage"]) --> Tabs["Tab Navigation"]
-Tabs --> Overview["Overview Tab"]
-Tabs --> Tenants["Tenants Tab"]
-Tabs --> Audit["Audit Log Tab"]
-Tabs --> RateLimits["Rate Limits Tab"]
-Tabs --> Features["Feature Flags Tab"]
-Tabs --> Webhooks["Webhooks Tab"]
-Tabs --> Metrics["Metrics Tab"]
-Tabs --> Billing["Billing Tab"]
-Tabs --> Notifications["Notifications Tab"]
-Overview --> Stats["Summary Cards"]
-Tenants --> Table["Tenant Management Table"]
-Audit --> Logs["Audit Log Table"]
-Features --> Flags["Feature Flag Management"]
-Webhooks --> Config["Webhook Configuration"]
-Metrics --> Analytics["Analytics Dashboards"]
-Billing --> Providers["Provider Configuration"]
-Notifications --> SMTP["SMTP Configuration"]
+Start(["AdminLayout"]) --> Sidebar["Collapsible Sidebar"]
+Start --> TopBar["Top Bar with Breadcrumbs"]
+Start --> MainContent["Main Content Area"]
+Sidebar --> Header["Admin Header"]
+Sidebar --> NavGroups["Navigation Groups"]
+Sidebar --> BackToApp["Back to App Link"]
+TopBar --> Breadcrumb["Breadcrumb Navigation"]
+TopBar --> AvatarDropdown["Avatar Dropdown"]
+MainContent --> Outlet["Outlet for Nested Routes"]
+Outlet --> AdminOverview["AdminOverviewPage"]
+Outlet --> Tenants["TenantsPage"]
+Outlet --> Plans["PlansPage"]
+Outlet --> Users["UsersPage"]
+Outlet --> Features["FeatureFlagsPage"]
+Outlet --> Webhooks["WebhooksPage"]
+Outlet --> RateLimits["RateLimitsPage"]
+Outlet --> SSO["SSOPage"]
+Outlet --> Email["EmailSettingsPage"]
+Outlet --> Metrics["MetricsPage"]
+Outlet --> Audit["AuditLogPage"]
+Outlet --> Security["SecurityEventsPage"]
+Outlet --> Revenue["RevenuePage"]
+Outlet --> Invoices["InvoicesPage"]
+Outlet --> Dunning["DunningPage"]
+Outlet --> Erasure["ErasurePage"]
+Outlet --> Impersonation["ImpersonationPage"]
 ```
 
 **Diagram sources**
-- [AdminDashboardPage.jsx:59-69](file://app/frontend/src/pages/AdminDashboardPage.jsx#L59-L69)
-- [AdminDashboardPage.jsx:384-1807](file://app/frontend/src/pages/AdminDashboardPage.jsx#L384-L1807)
+- [AdminLayout.jsx:138-157](file://app/frontend/src/App.jsx#L138-L157)
+- [AdminLayout.jsx:7-55](file://app/frontend/src/layouts/AdminLayout.jsx#L7-L55)
+- [AdminLayout.jsx:190-267](file://app/frontend/src/layouts/AdminLayout.jsx#L190-L267)
+- [AdminLayout.jsx:270-297](file://app/frontend/src/layouts/AdminLayout.jsx#L270-L297)
+
+### Admin Navigation Groups
+The admin interface organizes functionality into 6 logical navigation groups:
+
+- **OVERVIEW**: Dashboard - main admin overview page
+- **MANAGE**: Tenants, Plans, Users - tenant and user management
+- **CONFIGURE**: Feature Flags, Webhooks, Rate Limits, SSO, Email Settings - system configuration
+- **MONITOR**: Metrics, Audit Log, Security Events - monitoring and compliance
+- **BILLING**: Revenue, Invoices, Dunning - financial management
+- **COMPLIANCE**: Data Erasure, Impersonation - compliance and security
+
+Each group contains multiple navigation items with icons and proper routing.
+
+**Section sources**
+- [AdminLayout.jsx:7-55](file://app/frontend/src/layouts/AdminLayout.jsx#L7-L55)
+
+### Breadcrumb Navigation System
+Breadcrumbs component provides dynamic navigation trail with path labels and clickable segments:
+
+- **Dynamic Path Labels**: Maps URL segments to human-readable labels (e.g., "admin" → "Admin", "tenants" → "Tenants")
+- **Clickable Segments**: Previous segments are clickable links, current segment is plain text
+- **Decode Support**: Handles URL-encoded segments for internationalized paths
+- **Accessible**: Proper ARIA labels and navigation semantics
+
+**Section sources**
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+
+### Admin Overview Dashboard
+AdminOverviewPage provides comprehensive platform overview with key metrics and quick access links:
+
+- **Key Metrics Cards**: Total tenants, active users, analyses run, MRR with color-coded indicators
+- **Quick Access Links**: Direct navigation to common admin tasks (tenants, plans, features, audit, security, billing)
+- **Loading States**: Graceful loading with skeleton states for metrics
+- **Error Handling**: User-friendly error messages for failed metric loading
+- **Responsive Grid**: Adaptive grid layout for different screen sizes
+
+**Section sources**
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 
 ### Tabbed Navigation System
 The admin interface uses a sophisticated tabbed navigation system with 9 distinct tabs covering all administrative domains:
@@ -1261,6 +1935,7 @@ All core components implement comprehensive XSS protection:
 - Explainability rationales
 - Education timeline analysis
 - Interview questions and answers
+- **NEW**: AnimatedScore integration with safeStr protection
 
 **ComparisonView.jsx**: Implements safeStr for version comparison data:
 - Final recommendations for both versions
@@ -1292,23 +1967,90 @@ All core components implement comprehensive XSS protection:
 - Step indicators and progress information
 - Error messages and validation feedback
 - File upload information and status
+- **NEW**: StreamingText integration with safeStr protection
 
 **ReportPage.jsx**: Implements safeStr for report content:
 - Candidate names and contact information
 - Job role and analysis metadata
 - Recommendation badges and status indicators
 - Narrative content and AI enhancements
-- **NEW**: Resume access buttons with proper XSS protection
+- **NEW**: Split-view phone screen mode with safeStr protection
+- **NEW**: Inline resume preview with safeStr protection
+- **NEW**: PhoneScreenKit integration with safeStr protection
 
 **CandidatesPage.jsx**: Implements safeStr for candidate content:
 - Candidate names, emails, and scores
 - Application history and status
 - Resume access buttons with proper XSS protection
+- **NEW**: SplitProfilePreview with safeStr protection
+- **NEW**: Enhanced CandidateCard with safeStr protection
+- **NEW**: Split-view candidate preview with safeStr protection
+
+**ComparePage.jsx**: Implements safeStr for comparison content:
+- Candidate names and scores
+- Comparison metrics and winners
+- Strengths/weaknesses analysis
+- Interview questions preview
+- **NEW**: ComparisonMatrix integration with safeStr protection
+
+**JDLibraryPage.jsx**: Implements safeStr for JD library content:
+- JD names and descriptions
+- Tag information and weights
+- Usage statistics and counts
+- **NEW**: SkillTrendChart integration with safeStr protection
+
+**OnboardingWizard.jsx**: Implements safeStr for onboarding content:
+- Organization details and plan information
+- Team member emails and validation
+- Success messages and error handling
+- **NEW**: GettingStarted checklist with safeStr protection
+
+**PhoneScreenKit.jsx**: Implements safeStr for phone screen content:
+- Question categories and question lists
+- Guidance content and evaluation forms
+- Overall assessment and debrief content
+- **NEW**: InterviewScorecard integration with safeStr protection
 
 **Resume Access System**: Implements safeStr for filename generation:
 - Candidate names for resume filenames
 - Fallback IDs for resume filenames
 - XSS protection for dynamic content
+
+**NEW Component Library**: All new components implement safeStr protection:
+- AnimatedScore.jsx: Score values and size classes
+- StreamingText.jsx: Text content and streaming indicators
+- CandidateCard.jsx: Candidate information and highlights
+- ProgressBadge.jsx: Status messages and file names
+- ScoreBadge.jsx: Score values and color classes
+- QuickActions.jsx: Action labels and status messages
+- GettingStarted.jsx: Checklist items and progress tracking
+- ComparisonMatrix.jsx: Skills matrix data and confidence indicators
+- SkillTrendChart.jsx: Trend data and growth metrics
+- SplitProfilePreview.jsx: Candidate information and preview content
+- PhoneScreenKit.jsx: Question content and evaluation forms
+- InterviewScorecard.jsx: Evaluation content and debrief information
+- AdminLayout.jsx: Navigation items and breadcrumbs
+- Breadcrumbs.jsx: Path labels and navigation segments
+- AdminOverviewPage.jsx: Metric values and quick links
+
+**NEW Admin Pages**: All new admin pages implement safeStr protection:
+- AdminOverviewPage.jsx: Metric values and quick access links
+- TenantsPage.jsx: Tenant information and management actions
+- PlansPage.jsx: Plan details and configuration
+- UsersPage.jsx: User information and permissions
+- FeatureFlagsPage.jsx: Feature flag keys and descriptions
+- WebhooksPage.jsx: Webhook URLs and event configurations
+- RateLimitsPage.jsx: Rate limit configurations
+- SSOPage.jsx: SSO configuration details
+- EmailSettingsPage.jsx: Email settings and SMTP configurations
+- MetricsPage.jsx: Analytics data and visualizations
+- AuditLogPage.jsx: Audit trail entries and actions
+- SecurityEventsPage.jsx: Security event details and alerts
+- RevenuePage.jsx: Financial metrics and revenue data
+- InvoicesPage.jsx: Invoice details and payment statuses
+- DunningPage.jsx: Dunning workflow and customer management
+- ErasurePage.jsx: Data erasure requests and processing
+- ImpersonationPage.jsx: Impersonation logs and security events
 
 #### Defensive Programming Approaches
 The XSS protection architecture follows defensive programming principles:
@@ -1351,6 +2093,24 @@ EmptyString --> Sanitized
 - [AnalyzePage.jsx:13-19](file://app/frontend/src/pages/AnalyzePage.jsx#L13-L19)
 - [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
 - [CandidatesPage.jsx:6-12](file://app/frontend/src/pages/CandidatesPage.jsx#L6-L12)
+- [ComparePage.jsx:7-13](file://app/frontend/src/pages/ComparePage.jsx#L7-L13)
+- [JDLibraryPage.jsx:7-13](file://app/frontend/src/pages/JDLibraryPage.jsx#L7-L13)
+- [OnboardingWizard.jsx:7-13](file://app/frontend/src/components/OnboardingWizard.jsx#L7-L13)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
+- [AnimatedScore.jsx:16-63](file://app/frontend/src/components/AnimatedScore.jsx#L16-L63)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [GettingStarted.jsx:19-129](file://app/frontend/src/components/GettingStarted.jsx#L19-L129)
+- [ComparisonMatrix.jsx:17-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L17-L137)
+- [SkillTrendChart.jsx:70-249](file://app/frontend/src/components/SkillTrendChart.jsx#L70-L249)
+- [SplitProfilePreview.jsx:185-319](file://app/frontend/src/pages/CandidatesPage.jsx#L185-L319)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 
 **Section sources**
 - [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
@@ -1361,6 +2121,24 @@ EmptyString --> Sanitized
 - [AnalyzePage.jsx:13-19](file://app/frontend/src/pages/AnalyzePage.jsx#L13-L19)
 - [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
 - [CandidatesPage.jsx:6-12](file://app/frontend/src/pages/CandidatesPage.jsx#L6-L12)
+- [ComparePage.jsx:7-13](file://app/frontend/src/pages/ComparePage.jsx#L7-L13)
+- [JDLibraryPage.jsx:7-13](file://app/frontend/src/pages/JDLibraryPage.jsx#L7-L13)
+- [OnboardingWizard.jsx:7-13](file://app/frontend/src/components/OnboardingWizard.jsx#L7-L13)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
+- [AnimatedScore.jsx:16-63](file://app/frontend/src/components/AnimatedScore.jsx#L16-L63)
+- [StreamingText.jsx:13-73](file://app/frontend/src/components/StreamingText.jsx#L13-L73)
+- [CandidateCard.jsx:18-141](file://app/frontend/src/components/CandidateCard.jsx#L18-L141)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [GettingStarted.jsx:19-129](file://app/frontend/src/components/GettingStarted.jsx#L19-L129)
+- [ComparisonMatrix.jsx:17-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L17-L137)
+- [SkillTrendChart.jsx:70-249](file://app/frontend/src/components/SkillTrendChart.jsx#L70-L249)
+- [SplitProfilePreview.jsx:185-319](file://app/frontend/src/pages/CandidatesPage.jsx#L185-L319)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 
 ## Security Headers and CSP
 
@@ -1457,9 +2235,25 @@ The security audit identified important CSP implementation gaps:
 - TailwindCSS for styling and responsive design.
 - **NEW**: DOMPurify for advanced HTML sanitization.
 - **NEW**: html2pdf.js for PDF generation with built-in sanitization.
-- **NEW**: Comprehensive admin dashboard with 9 tabbed interfaces.
+- **NEW**: Framer Motion for smooth animations and transitions.
+- **NEW**: PostCSS with TailwindCSS and Autoprefixer for optimized CSS processing.
+- **NEW**: Comprehensive admin dashboard with 18 tabbed interfaces.
 - **NEW**: IndexedDB for file-mode job description caching.
 - **NEW**: Resume access system with proper MIME type handling.
+- **NEW**: Enhanced component library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, SplitProfilePreview, PhoneScreenKit, and specialized hooks.
+- **NEW**: Optimistic UI updates with useOptimisticUpdate hook.
+- **NEW**: Keyboard shortcuts with useKeyboardShortcuts hook.
+- **NEW**: Real-time analysis progress tracking with useAnalysisProgress hook.
+- **NEW**: GettingStarted checklist system with completion tracking.
+- **NEW**: Advanced candidate comparison with ComparisonMatrix.
+- **NEW**: Role category analysis with SkillTrendChart.
+- **NEW**: Split-view phone screen mode with dual-panel layout.
+- **NEW**: Inline resume preview system with text and iframe support.
+- **NEW**: Mobile screen optimization for phone experiences.
+- **NEW**: Enhanced navigation system with collapsible sidebar and breadcrumb navigation.
+- **NEW**: AdminLayout with responsive design and mobile optimization.
+- **NEW**: Vite configuration with consolidated React-dependent libraries into single 'vendor-react' chunk to resolve login page crash caused by React load-order race conditions.
+- **NEW**: TailwindCSS theming with enhanced color palette and animations.
 
 ```mermaid
 graph LR
@@ -1472,13 +2266,16 @@ Pkg --> Charts["recharts@^3"]
 Pkg --> Tailwind["tailwindcss@^3"]
 Pkg --> DOMPurify["dompurify@^3.4.0"]
 Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
+Pkg --> FramerMotion["framer-motion@^12.38.0"]
+Pkg --> PostCSS["postcss@^8.4"]
+Pkg --> Autoprefixer["autoprefixer@^10.4"]
 ```
 
 **Diagram sources**
-- [package.json:1-42](file://app/frontend/package.json#L1-L42)
+- [package.json:1-44](file://app/frontend/package.json#L1-L44)
 
 **Section sources**
-- [package.json:1-42](file://app/frontend/package.json#L1-L42)
+- [package.json:1-44](file://app/frontend/package.json#L1-L44)
 
 ## Performance Considerations
 - Lazy loading: Pages are lazy-imported to reduce initial bundle size.
@@ -1500,6 +2297,27 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Resume access optimization: Blob URL creation and cleanup prevents memory leaks.
 - **NEW**: MIME type detection: Efficient file type handling reduces unnecessary processing.
 - **NEW**: Filename generation: Smart fallback prevents errors and improves user experience.
+- **NEW**: Framer Motion animations: Optimized with requestAnimationFrame and efficient state updates.
+- **NEW**: StreamingText optimization: RAF-based animation with automatic cleanup.
+- **NEW**: CandidateCard performance: Optimized rendering with minimal re-renders.
+- **NEW**: ProgressBadge optimization: Efficient popover management with click-outside detection.
+- **NEW**: useOptimisticUpdate efficiency: Immutable state updates with efficient matching.
+- **NEW**: useKeyboardShortcuts optimization: Event delegation and input protection.
+- **NEW**: useAnalysisProgress efficiency: Context-based state management.
+- **NEW**: OnboardingWizard optimization: Persistent state management with localStorage fallback.
+- **NEW**: GettingStarted checklist optimization: Efficient completion tracking and celebration.
+- **NEW**: ComparisonMatrix optimization: Efficient skills matrix rendering with virtualization.
+- **NEW**: SkillTrendChart optimization: Efficient chart rendering with responsive design.
+- **NEW**: SplitView performance: Optimized dual-panel layout with responsive design patterns.
+- **NEW**: Inline resume preview optimization: Efficient text rendering and iframe handling.
+- **NEW**: PhoneScreenKit optimization: Tabbed interface with lazy loading and efficient state management.
+- **NEW**: SplitProfilePreview optimization: Lightweight component with minimal re-renders.
+- **NEW**: Mobile screen optimization: Responsive design patterns with touch-friendly controls.
+- **NEW**: Navigation performance: Optimized mobile bottom tab bar with efficient state management.
+- **NEW**: AdminLayout performance: Collapsible sidebar with smooth transitions and efficient rendering.
+- **NEW**: Vite build optimization: Consolidated React-dependent libraries into single 'vendor-react' chunk to resolve login page crash caused by React load-order race conditions.
+- **NEW**: TailwindCSS performance: Tree-shaking removes unused styles and reduces CSS bundle size.
+- **NEW**: PostCSS performance: Optimized CSS processing with TailwindCSS and Autoprefixer integration.
 - Image/icon assets: lucide-react icons are tree-shaken; keep only used icons.
 - **Enhanced**: Error boundaries prevent cascading failures and improve perceived performance.
 - **Enhanced**: Retry mechanisms with exponential backoff reduce user frustration from transient failures.
@@ -1532,6 +2350,31 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Resume access testing with proper MIME type handling and filename generation.
 - **NEW**: View/download functionality testing with browser compatibility and error scenarios.
 - **NEW**: Blob URL creation and cleanup testing to prevent memory leaks.
+- **NEW**: AnimatedScore testing with animation timing, color coding, and size variants.
+- **NEW**: StreamingText testing with progressive display, immediate mode, and streaming scenarios.
+- **NEW**: CandidateCard testing with enhanced highlights, skills visualization, and quick actions.
+- **NEW**: ProgressBadge testing with popover management, status indicators, and completion notifications.
+- **NEW**: ScoreBadge testing with AnimatedScore integration and size variants.
+- **NEW**: QuickActions testing with status changes, dropdown options, and accessibility features.
+- **NEW**: useOptimisticUpdate testing with rollback scenarios and undo functionality.
+- **NEW**: useKeyboardShortcuts testing with keyboard navigation and input protection.
+- **NEW**: useAnalysisProgress testing with progress state management and real-time updates.
+- **NEW**: OnboardingWizard testing with step-by-step validation and state persistence.
+- **NEW**: GettingStarted checklist testing with completion tracking and celebration scenarios.
+- **NEW**: ComparisonMatrix testing with skills matrix rendering and confidence indicators.
+- **NEW**: SkillTrendChart testing with trend visualization and growth metrics.
+- **NEW**: JDLibraryPage testing with filtering, sorting, and template management scenarios.
+- **NEW**: SplitView phone screen mode testing with dual-panel layout and mobile optimization.
+- **NEW**: Inline resume preview testing with text rendering and iframe display.
+- **NEW**: PhoneScreenKit testing with question categories, evaluation forms, and debrief generation.
+- **NEW**: SplitProfilePreview testing with candidate data loading and direct actions.
+- **NEW**: Mobile screen optimization testing with responsive design patterns and touch controls.
+- **NEW**: Navigation system testing with collapsible sidebar, breadcrumb navigation, and mobile optimization.
+- **NEW**: AdminLayout testing with responsive design and admin-specific functionality.
+- **NEW**: AdminOverviewPage testing with metrics loading, error handling, and quick access links.
+- **NEW**: Vite configuration testing with consolidated React-dependent libraries into single 'vendor-react' chunk.
+- **NEW**: TailwindCSS theming testing with color palette, typography, and animation validation.
+- **NEW**: PostCSS configuration testing with TailwindCSS and Autoprefixer integration.
 
 **Section sources**
 - [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
@@ -1551,7 +2394,7 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **Enhanced**: Implement ErrorBoundary for critical components that require graceful degradation.
 - **Enhanced**: Use uploadChunked utility for any new file upload functionality requiring large file support.
 - **NEW**: Implement safeStr utility for all new components that render dynamic content.
-- **NEW**: Follow XSS protection patterns established in ResultCard, ComparisonView, and AdminDashboardPage components.
+- **NEW**: Follow XSS protection patterns established in ResultCard, ComparisonView, AdminDashboardPage, GettingStarted, OnboardingWizard, PhoneScreenKit, SplitProfilePreview, AdminLayout, Breadcrumbs, and new component library.
 - **NEW**: Ensure all user inputs and API responses are sanitized through safeStr function.
 - **NEW**: Implement comprehensive security headers and CSP policies for production deployments.
 - **NEW**: Test XSS protection thoroughly with malicious input scenarios and sanitization validation.
@@ -1571,6 +2414,32 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Implement proper error handling for resume access operations.
 - **NEW**: Add loading states and user feedback for resume operations.
 - **NEW**: Test resume access functionality across different browsers and file types.
+- **NEW**: Implement Framer Motion animations for smooth user interactions and visual feedback.
+- **NEW**: Add streaming text components for progressive content display and LLM narrative generation.
+- **NEW**: Enhance candidate cards with animated scores, quick actions, and improved visual hierarchy.
+- **NEW**: Implement real-time progress tracking with ProgressBadge for batch analysis workflows.
+- **NEW**: Add optimistic UI updates with useOptimisticUpdate for immediate feedback and rollback capability.
+- **NEW**: Implement keyboard shortcuts with useKeyboardShortcuts for efficient candidate list navigation.
+- **NEW**: Add analysis progress management with useAnalysisProgress for real-time updates.
+- **NEW**: Design components to handle complex state management with context providers and hooks.
+- **NEW**: Test all new components with comprehensive unit and integration tests.
+- **NEW**: Validate performance impact of new animations and real-time updates.
+- **NEW**: Ensure accessibility compliance for all new interactive components.
+- **NEW**: Implement GettingStarted checklist system with completion tracking and celebration.
+- **NEW**: Add advanced candidate comparison with ComparisonMatrix and SkillTrendChart.
+- **NEW**: Implement role category analysis with SkillTrendChart integration.
+- **NEW**: Add onboarding wizard with persistent state management and guided setup flow.
+- **NEW**: Implement split-view phone screen mode with dual-panel layout and mobile optimization.
+- **NEW**: Add inline resume preview system with text rendering and iframe support.
+- **NEW**: Implement PhoneScreenKit component for comprehensive phone screen preparation.
+- **NEW**: Add SplitProfilePreview component for lightweight candidate preview.
+- **NEW**: Implement mobile screen optimization with responsive design patterns and touch controls.
+- **NEW**: Implement enhanced navigation system with collapsible sidebar and breadcrumb navigation.
+- **NEW**: Add AdminLayout component with responsive design and admin-specific functionality.
+- **NEW**: Implement comprehensive admin pages with nested routing structure.
+- **NEW**: Implement Vite configuration with consolidated React-dependent libraries into single 'vendor-react' chunk to resolve login page crash caused by React load-order race conditions.
+- **NEW**: Add TailwindCSS theming with enhanced color palette and animation system.
+- **NEW**: Implement PostCSS configuration with TailwindCSS and Autoprefixer integration.
 
 ## Accessibility and Responsive Design
 - Accessible semantics: Buttons, inputs, and modals use appropriate roles and labels; focus management in dialogs.
@@ -1598,6 +2467,31 @@ Pkg --> HTML2PDF["html2pdf.js@^0.14.0"]
 - **NEW**: Dual storage strategy maintains accessibility with automatic context detection and seamless workflow.
 - **NEW**: Resume access buttons maintain accessibility with proper ARIA labels and keyboard navigation.
 - **NEW**: Filename generation maintains accessibility with meaningful fallbacks for screen readers.
+- **NEW**: Framer Motion animations provide smooth transitions while maintaining accessibility.
+- **NEW**: StreamingText provides accessible progressive content display with proper ARIA attributes.
+- **NEW**: CandidateCard maintains accessibility with proper focus management and keyboard navigation.
+- **NEW**: ProgressBadge provides accessible progress tracking with proper ARIA labels.
+- **NEW**: ScoreBadge maintains accessibility with color contrast and screen reader support.
+- **NEW**: QuickActions provides accessible status change buttons with proper keyboard navigation.
+- **NEW**: useOptimisticUpdate maintains accessibility with proper error messaging and undo notifications.
+- **NEW**: useKeyboardShortcuts provides accessible keyboard navigation with proper focus management.
+- **NEW**: useAnalysisProgress provides accessible progress state management with screen reader support.
+- **NEW**: OnboardingWizard provides accessible guided setup with proper ARIA labels and keyboard navigation.
+- **NEW**: GettingStarted checklist provides accessible completion tracking with celebration animations.
+- **NEW**: ComparisonMatrix provides accessible skills matrix with proper ARIA attributes and keyboard navigation.
+- **NEW**: SkillTrendChart provides accessible trend visualization with proper ARIA attributes and keyboard navigation.
+- **NEW**: JDLibraryPage provides accessible template management with proper ARIA attributes and keyboard navigation.
+- **NEW**: SplitView phone screen mode provides accessible dual-panel layout with proper ARIA attributes.
+- **NEW**: Inline resume preview maintains accessibility with proper ARIA labels and keyboard navigation.
+- **NEW**: PhoneScreenKit provides accessible question categories and evaluation forms.
+- **NEW**: SplitProfilePreview maintains accessibility with proper focus management and keyboard navigation.
+- **NEW**: Mobile screen optimization ensures accessibility across different screen sizes and input methods.
+- **NEW**: Navigation system provides accessible mobile bottom tab bar with proper ARIA attributes.
+- **NEW**: AdminLayout provides accessible collapsible sidebar with proper ARIA attributes and keyboard navigation.
+- **NEW**: AdminOverviewPage provides accessible key metrics and quick access links.
+- **NEW**: Vite configuration maintains performance while ensuring accessibility compliance.
+- **NEW**: TailwindCSS theming provides accessible color contrast and typography scaling.
+- **NEW**: PostCSS configuration provides accessible CSS processing with TailwindCSS and Autoprefixer integration.
 
 ## Error Handling and Resilience
 
@@ -1665,6 +2559,78 @@ The application implements comprehensive error handling at multiple levels:
 - **Loading States**: Disabled states during operations prevent race conditions
 - **Browser Compatibility**: Graceful fallback for unsupported browsers
 - **Memory Management**: Automatic URL cleanup prevents memory leaks
+- **Split-View Error Handling**: Graceful fallback for split-view mode failures
+
+#### Split-View Phone Screen Mode Error Handling
+- **Screen Mode Toggle**: Graceful handling of split-view activation/deactivation
+- **Dual-Panel Layout**: Error recovery for layout adaptation failures
+- **Resume Preview Errors**: Graceful fallback for resume loading failures
+- **PhoneScreenKit Errors**: Error recovery for question loading and evaluation failures
+- **Mobile Optimization**: Graceful fallback for mobile-specific failures
+
+#### Inline Resume Preview Error Handling
+- **Text Rendering Errors**: Graceful fallback for text resume rendering failures
+- **Iframe Display Errors**: Error recovery for PDF/DOCX iframe display
+- **Loading State Errors**: Graceful handling of loading state failures
+- **Parameter Handling**: Error recovery for inline parameter processing
+
+#### PhoneScreenKit Error Handling
+- **Question Loading Errors**: Graceful fallback for question data loading failures
+- **Evaluation Form Errors**: Error recovery for evaluation form submission
+- **Guidance Toggle Errors**: Graceful handling of expandable guidance failures
+- **Assessment Validation Errors**: Error recovery for conversation summary validation
+- **Debrief Generation Errors**: Graceful fallback for debrief generation failures
+
+#### SplitProfilePreview Error Handling
+- **Candidate Data Loading Errors**: Graceful fallback for candidate data fetching failures
+- **Direct Action Errors**: Error recovery for direct status change failures
+- **Navigation Errors**: Graceful handling of navigation to full profile failures
+- **Loading State Errors**: Error recovery for loading state management failures
+
+#### New Component Library Error Handling
+- **AnimatedScore**: Graceful handling of null scores and animation cleanup
+- **StreamingText**: Proper RAF cleanup and error handling for streaming scenarios
+- **CandidateCard**: Error handling for missing candidate data and API failures
+- **ProgressBadge**: Graceful handling of popover state and progress updates
+- **ScoreBadge**: Error handling for invalid score values and color calculations
+- **QuickActions**: Graceful handling of API failures and status change errors
+- **useOptimisticUpdate**: Error handling for rollback scenarios and API failures
+- **useKeyboardShortcuts**: Graceful handling of input protection and shortcut conflicts
+- **useAnalysisProgress**: Error handling for context provider failures and state updates
+- **OnboardingWizard**: Error handling for API failures and state persistence
+- **GettingStarted**: Error handling for checklist completion and celebration
+- **ComparisonMatrix**: Error handling for comparison computation and data loading
+- **SkillTrendChart**: Error handling for trend computation and chart rendering
+- **JDLibraryPage**: Error handling for template management and statistics loading
+- **SplitProfilePreview**: Error handling for candidate preview and direct actions
+- **PhoneScreenKit**: Error handling for question categories and evaluation forms
+- **AdminLayout**: Error handling for navigation and responsive layout failures
+- **Breadcrumbs**: Error handling for path resolution and segment generation
+- **AdminOverviewPage**: Error handling for metrics loading and quick access links
+- **NavBar**: Error handling for mobile navigation and state management
+- **ToastProvider**: Error handling for notification display and positioning
+- **Vite Config**: Error handling for consolidated React-dependent libraries into single 'vendor-react' chunk
+- **Tailwind Theme**: Error handling for theme configuration and utility generation
+- **PostCSS Config**: Error handling for CSS processing and optimization
+
+#### New Admin Pages Error Handling
+- **AdminOverviewPage**: Error handling for metrics loading and quick access functionality
+- **TenantsPage**: Error handling for tenant listing, filtering, and bulk operations
+- **PlansPage**: Error handling for plan management and configuration
+- **UsersPage**: Error handling for user management and permission updates
+- **FeatureFlagsPage**: Error handling for feature flag toggles and tenant overrides
+- **WebhooksPage**: Error handling for webhook configuration and delivery monitoring
+- **RateLimitsPage**: Error handling for rate limit configuration
+- **SSOPage**: Error handling for SSO configuration and provider setup
+- **EmailSettingsPage**: Error handling for SMTP configuration and test emails
+- **MetricsPage**: Error handling for analytics data and visualization
+- **AuditLogPage**: Error handling for audit trail queries and filtering
+- **SecurityEventsPage**: Error handling for security event monitoring
+- **RevenuePage**: Error handling for financial metrics and reporting
+- **InvoicesPage**: Error handling for invoice management and payment tracking
+- **DunningPage**: Error handling for customer dunning workflows
+- **ErasurePage**: Error handling for data erasure requests and processing
+- **ImpersonationPage**: Error handling for impersonation logs and security events
 
 ```mermaid
 flowchart TD
@@ -1680,6 +2646,40 @@ Level --> |AutoSkip| AutoSkipError["Auto-skip Logic Error"]
 Level --> |JobContext| JobContextError["Job Context Error"]
 Level --> |DualStorage| DualStorageError["Dual Storage Error"]
 Level --> |ResumeAccess| ResumeAccessError["Resume Access Error"]
+Level --> |SplitView| SplitViewError["Split-View Mode Error"]
+Level --> |InlinePreview| InlinePreviewError["Inline Preview Error"]
+Level --> |PhoneScreenKit| PhoneScreenKitError["PhoneScreenKit Error"]
+Level --> |SplitProfile| SplitProfileError["SplitProfilePreview Error"]
+Level --> |NewComponents| NewComponentError["New Component Errors"]
+Level --> |Onboarding| OnboardingError["Onboarding Error"]
+Level --> |Checklist| ChecklistError["GettingStarted Error"]
+Level --> |Comparison| ComparisonError["ComparisonMatrix Error"]
+Level --> |Trends| TrendsError["SkillTrendChart Error"]
+Level --> |JDLibrary| JDLibraryError["JDLibrary Error"]
+Level --> |Navigation| NavigationError["Navigation Error"]
+Level --> |AdminLayout| AdminLayoutError["AdminLayout Error"]
+Level --> |Breadcrumbs| BreadcrumbsError["Breadcrumbs Error"]
+Level --> |AdminOverview| AdminOverviewError["AdminOverviewPage Error"]
+Level --> |NavBar| NavBarError["NavBar Error"]
+Level --> |ToastProvider| ToastError["ToastProvider Error"]
+Level --> |ViteConfig| ViteError["Vite Configuration Error"]
+Level --> |TailwindTheme| TailwindError["Tailwind Theme Error"]
+Level --> |PostCSSConfig| PostCSSError["PostCSS Configuration Error"]
+Level --> |Onboarding| OnboardingError["Onboarding Error"]
+Level --> |Checklist| ChecklistError["GettingStarted Error"]
+Level --> |Comparison| ComparisonError["ComparisonMatrix Error"]
+Level --> |Trends| TrendsError["SkillTrendChart Error"]
+Level --> |JDLibrary| JDLibraryError["JDLibrary Error"]
+Level --> |SplitProfile| SplitProfileError["SplitProfilePreview Error"]
+Level --> |PhoneScreenKit| PhoneScreenKitError["PhoneScreenKit Error"]
+Level --> |AdminLayout| AdminLayoutError["AdminLayout Error"]
+Level --> |Breadcrumbs| BreadcrumbsError["Breadcrumbs Error"]
+Level --> |AdminOverview| AdminOverviewError["AdminOverviewPage Error"]
+Level --> |NavBar| NavBarError["NavBar Error"]
+Level --> |ToastProvider| ToastError["ToastProvider Error"]
+Level --> |ViteConfig| ViteError["Vite Configuration Error"]
+Level --> |TailwindTheme| TailwindError["Tailwind Theme Error"]
+Level --> |PostCSSConfig| PostCSSError["PostCSS Configuration Error"]
 AppBoundary --> UserMsg["User-Friendly Message"]
 UserMsg --> Retry["Retry Options"]
 Retry --> Manual["Manual Retry"]
@@ -1707,7 +2707,25 @@ AutoSkipError --> Fallback["Fallback to Normal Workflow"]
 JobContextError --> Fallback
 DualStorageError --> Fallback["Fallback to Alternative Storage"]
 ResumeAccessError --> Fallback["Fallback to Alternative Method"]
-Fallback --> NormalFlow["Normal Step-by-step"]
+SplitViewError --> Fallback["Fallback to Alternative Method"]
+InlinePreviewError --> Fallback["Fallback to Alternative Method"]
+PhoneScreenKitError --> Fallback["Fallback to Alternative Method"]
+SplitProfileError --> Fallback["Fallback to Alternative Method"]
+NewComponentError --> Fallback["Fallback to Alternative Method"]
+OnboardingError --> Fallback["Fallback to Alternative Method"]
+ChecklistError --> Fallback["Fallback to Alternative Method"]
+ComparisonError --> Fallback["Fallback to Alternative Method"]
+TrendsError --> Fallback["Fallback to Alternative Method"]
+JDLibraryError --> Fallback["Fallback to Alternative Method"]
+NavigationError --> Fallback["Fallback to Alternative Method"]
+AdminLayoutError --> Fallback["Fallback to Alternative Method"]
+BreadcrumbsError --> Fallback["Fallback to Alternative Method"]
+AdminOverviewError --> Fallback["Fallback to Alternative Method"]
+NavBarError --> Fallback["Fallback to Alternative Method"]
+ToastError --> Fallback["Fallback to Alternative Method"]
+ViteError --> Fallback["Fallback to Alternative Method"]
+TailwindError --> Fallback["Fallback to Alternative Method"]
+PostCSSError --> Fallback["Fallback to Alternative Method"]
 ```
 
 **Diagram sources**
@@ -1721,6 +2739,33 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [ReportPage.jsx:115](file://app/frontend/src/pages/ReportPage.jsx#L115)
+- [CandidatesPage.jsx:888](file://app/frontend/src/pages/CandidatesPage.jsx#L888)
+- [CandidatesPage.jsx:944](file://app/frontend/src/pages/CandidatesPage.jsx#L944)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [SplitProfilePreview.jsx:185-319](file://app/frontend/src/pages/CandidatesPage.jsx#L185-L319)
+- [AnimatedScore.jsx:36-53](file://app/frontend/src/components/AnimatedScore.jsx#L36-L53)
+- [StreamingText.jsx:23-60](file://app/frontend/src/components/StreamingText.jsx#L23-L60)
+- [CandidateCard.jsx:54-139](file://app/frontend/src/components/CandidateCard.jsx#L54-L139)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:25-78](file://app/frontend/src/hooks/useOptimisticUpdate.js#L25-L78)
+- [useKeyboardShortcuts.js:26-98](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L26-L98)
+- [useAnalysisProgress.js:4-24](file://app/frontend/src/hooks/useAnalysisProgress.js#L4-L24)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [ToastProvider.jsx:1-50](file://app/frontend/src/components/ToastProvider.jsx#L1-L50)
+- [vite.config.js:1-47](file://app/frontend/vite.config.js#L1-L47)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
+- [postcss.config.js:1-7](file://app/frontend/postcss.config.js#L1-L7)
 
 **Section sources**
 - [ErrorBoundary.jsx:1-54](file://app/frontend/src/components/ErrorBoundary.jsx#L1-L54)
@@ -1733,6 +2778,33 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [ReportPage.jsx:115](file://app/frontend/src/pages/ReportPage.jsx#L115)
+- [CandidatesPage.jsx:888](file://app/frontend/src/pages/CandidatesPage.jsx#L888)
+- [CandidatesPage.jsx:944](file://app/frontend/src/pages/CandidatesPage.jsx#L944)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [SplitProfilePreview.jsx:185-319](file://app/frontend/src/pages/CandidatesPage.jsx#L185-L319)
+- [AnimatedScore.jsx:36-53](file://app/frontend/src/components/AnimatedScore.jsx#L36-L53)
+- [StreamingText.jsx:23-60](file://app/frontend/src/components/StreamingText.jsx#L23-L60)
+- [CandidateCard.jsx:54-139](file://app/frontend/src/components/CandidateCard.jsx#L54-L139)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:25-78](file://app/frontend/src/hooks/useOptimisticUpdate.js#L25-L78)
+- [useKeyboardShortcuts.js:26-98](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L26-L98)
+- [useAnalysisProgress.js:4-24](file://app/frontend/src/hooks/useAnalysisProgress.js#L4-L24)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [ToastProvider.jsx:1-50](file://app/frontend/src/components/ToastProvider.jsx#L1-L50)
+- [vite.config.js:1-47](file://app/frontend/vite.config.js#L1-L47)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
+- [postcss.config.js:1-7](file://app/frontend/postcss.config.js#L1-L7)
 
 ## Troubleshooting Guide
 - Authentication issues: Verify tokens in localStorage; AuthContext clears tokens on 401; check interceptor retry flow.
@@ -1750,7 +2822,6 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - **NEW**: DOMPurify integration problems: Check HTML sanitization for rich content; verify policy configuration.
 - **NEW**: Streaming analysis failures: Check SSE connection status and event parsing in analyzeBatchStream.
 - **NEW**: Ranked shortlist issues: Verify sorting algorithm and real-time update callbacks.
-- **NEW**: Progress indicator problems: Check upload progress callbacks and overall progress calculations.
 - **NEW**: Malicious input detection: Test XSS protection with various attack vectors and sanitization scenarios.
 - **NEW**: Admin dashboard failures: Check tab-specific error handling and loading states.
 - **NEW**: Tenant management issues: Verify filtering, sorting, and bulk operation functionality.
@@ -1771,6 +2842,32 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - **NEW**: Blob URL cleanup problems: Verify automatic cleanup prevents memory leaks.
 - **NEW**: Filename generation errors: Test fallback strategies and XSS protection.
 - **NEW**: Loading state issues: Verify disabled states during resume operations.
+- **NEW**: AnimatedScore animation issues: Check animation timing, color calculation, and cleanup.
+- **NEW**: StreamingText display problems: Verify RAF cleanup and streaming mode functionality.
+- **NEW**: CandidateCard rendering issues: Check enhanced highlights and skills visualization.
+- **NEW**: ProgressBadge popover issues: Verify click-outside detection and progress updates.
+- **NEW**: ScoreBadge integration problems: Check AnimatedScore integration and size variants.
+- **NEW**: QuickActions status changes: Verify API calls and error handling.
+- **NEW**: useOptimisticUpdate rollback issues: Check state management and API failure handling.
+- **NEW**: useKeyboardShortcuts conflicts: Verify input protection and shortcut key handling.
+- **NEW**: useAnalysisProgress state issues: Check context provider and progress state management.
+- **NEW**: OnboardingWizard issues: Verify step progression and state persistence.
+- **NEW**: GettingStarted checklist issues: Verify completion tracking and celebration animation.
+- **NEW**: ComparisonMatrix issues: Verify skills matrix rendering and confidence indicators.
+- **NEW**: SkillTrendChart issues: Verify trend visualization and growth metric calculation.
+- **NEW**: JDLibraryPage issues: Verify template management and statistics loading.
+- **NEW**: SplitView phone screen mode issues: Verify dual-panel layout and mobile optimization.
+- **NEW**: Inline resume preview issues: Verify text rendering and iframe display functionality.
+- **NEW**: PhoneScreenKit issues: Verify question categories and evaluation form functionality.
+- **NEW**: SplitProfilePreview issues: Verify candidate data loading and direct action functionality.
+- **NEW**: Mobile screen optimization issues: Verify responsive design patterns and touch controls.
+- **NEW**: Navigation system issues: Verify collapsible sidebar functionality and mobile bottom tab bar.
+- **NEW**: AdminLayout issues: Verify responsive design and admin-specific navigation.
+- **NEW**: AdminOverviewPage issues: Verify metrics loading, error handling, and quick access functionality.
+- **NEW**: Breadcrumbs issues: Verify path resolution and segment generation.
+- **NEW**: Vite configuration issues: Verify consolidated React-dependent libraries into single 'vendor-react' chunk functionality.
+- **NEW**: TailwindCSS theming issues: Verify color palette, typography, and animation functionality.
+- **NEW**: PostCSS configuration issues: Verify TailwindCSS and Autoprefixer integration.
 
 **Section sources**
 - [AuthContext.jsx:1-71](file://app/frontend/src/contexts/AuthContext.jsx#L1-L71)
@@ -1790,11 +2887,40 @@ Fallback --> NormalFlow["Normal Step-by-step"]
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [AnalyzePage.jsx:351-369](file://app/frontend/src/pages/AnalyzePage.jsx#L351-L369)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
+- [ReportPage.jsx:115](file://app/frontend/src/pages/ReportPage.jsx#L115)
+- [CandidatesPage.jsx:888](file://app/frontend/src/pages/CandidatesPage.jsx#L888)
+- [CandidatesPage.jsx:944](file://app/frontend/src/pages/CandidatesPage.jsx#L944)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [SplitProfilePreview.jsx:185-319](file://app/frontend/src/pages/CandidatesPage.jsx#L185-L319)
+- [AnimatedScore.jsx:36-53](file://app/frontend/src/components/AnimatedScore.jsx#L36-L53)
+- [StreamingText.jsx:23-60](file://app/frontend/src/components/StreamingText.jsx#L23-L60)
+- [CandidateCard.jsx:54-139](file://app/frontend/src/components/CandidateCard.jsx#L54-L139)
+- [ProgressBadge.jsx:15-131](file://app/frontend/src/components/ProgressBadge.jsx#L15-L131)
+- [ScoreBadge.jsx:13-58](file://app/frontend/src/components/ScoreBadge.jsx#L13-L58)
+- [QuickActions.jsx:23-158](file://app/frontend/src/components/QuickActions.jsx#L23-L158)
+- [useOptimisticUpdate.js:25-78](file://app/frontend/src/hooks/useOptimisticUpdate.js#L25-L78)
+- [useKeyboardShortcuts.js:26-98](file://app/frontend/src/hooks/useKeyboardShortcuts.js#L26-L98)
+- [useAnalysisProgress.js:4-24](file://app/frontend/src/hooks/useAnalysisProgress.js#L4-L24)
+- [OnboardingWizard.jsx:1-589](file://app/frontend/src/components/OnboardingWizard.jsx#L1-L589)
+- [GettingStarted.jsx:1-129](file://app/frontend/src/components/GettingStarted.jsx#L1-L129)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [SkillTrendChart.jsx:1-249](file://app/frontend/src/components/SkillTrendChart.jsx#L1-L249)
+- [JDLibraryPage.jsx:1-530](file://app/frontend/src/pages/JDLibraryPage.jsx#L1-L530)
+- [NavBar.jsx:1-327](file://app/frontend/src/components/NavBar.jsx#L1-L327)
+- [AdminLayout.jsx:1-298](file://app/frontend/src/layouts/AdminLayout.jsx#L1-L298)
+- [Breadcrumbs.jsx:1-64](file://app/frontend/src/components/admin/Breadcrumbs.jsx#L1-L64)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [ToastProvider.jsx:1-50](file://app/frontend/src/components/ToastProvider.jsx#L1-L50)
+- [vite.config.js:1-47](file://app/frontend/vite.config.js#L1-L47)
+- [tailwind.config.js:1-67](file://app/frontend/tailwind.config.js#L1-L67)
+- [postcss.config.js:1-7](file://app/frontend/postcss.config.js#L1-L7)
 
 ## Conclusion
 The Resume AI frontend is a modular, scalable React 18 application with clear separation between routing, state, UI components, and API integration. It leverages modern tooling, robust authentication and subscription management, comprehensive error handling through ErrorBoundary components, and enhanced API retry mechanisms with exponential backoff. The architecture now provides graceful degradation, improved resilience against transient failures, and a cohesive design system to deliver a responsive, accessible, and performant user experience even under adverse conditions.
 
 The major enhancements include comprehensive streaming analysis capabilities with real-time updates, ranked shortlist tables with live sorting, enhanced progress indicators for upload and analysis phases, chunked upload system for large file support, and redesigned analysis workflow with 3-step process. These improvements represent significant advances in user experience and system reliability, providing users with immediate feedback and transparent progress tracking throughout the analysis process.
+
+**NEW**: The consolidation of React-dependent libraries into a single 'vendor-react' chunk resolves login page crash issues caused by React load-order race conditions, demonstrating the system's commitment to stability and user experience optimization.
 
 **NEW**: The addition of intelligent auto-skip functionality and dual job context persistence creates a seamless "Analyze Another Resume" workflow that significantly improves productivity for users analyzing multiple candidates with the same job requirements. This enhancement demonstrates the system's ability to optimize user experience through intelligent workflow detection and state preservation.
 
@@ -1802,8 +2928,36 @@ The major enhancements include comprehensive streaming analysis capabilities wit
 
 **NEW**: The implementation of a comprehensive Platform Admin Dashboard provides enterprise-grade administrative capabilities with tenant management, audit logging, feature flag management, webhook configuration, metrics dashboards, billing configuration, and notification settings. This represents a significant expansion of the platform's capabilities and demonstrates the scalability and extensibility of the frontend architecture.
 
+**NEW**: The implementation of a comprehensive AdminLayout component with nested routing structure for 18 dedicated admin pages represents a significant advancement in administrative interface design. The collapsible sidebar, breadcrumb navigation, and responsive design provide intuitive navigation patterns that work seamlessly across desktop and mobile devices.
+
 **NEW**: The implementation of a dual job context persistence system with IndexedDB integration represents a significant advancement in workflow continuity and user experience. By combining sessionStorage for text-mode JDs with IndexedDB for file-mode JDs, the system provides seamless "Analyze Another Resume" functionality that maintains user context across browser sessions while optimizing performance and reliability.
 
-**NEW**: The implementation of a comprehensive resume access system with proper MIME type detection, filename generation, and user experience improvements represents a significant enhancement to the candidate management workflow. The system now provides seamless resume viewing and downloading capabilities with proper browser integration, intelligent filename fallbacks, and robust error handling.
+**NEW**: The implementation of comprehensive resume access system with proper MIME type detection, filename generation, and user experience improvements represents a significant enhancement to the candidate management workflow. The system now provides seamless resume viewing and downloading capabilities with proper browser integration, intelligent filename fallbacks, and robust error handling.
 
-The architecture successfully balances modern development practices with enterprise requirements, providing a solid foundation for continued growth and feature expansion while maintaining high standards for security, performance, and user experience.
+**NEW**: The implementation of the enhanced component library with AnimatedScore, StreamingText, CandidateCard, ProgressBadge, ScoreBadge, QuickActions, OnboardingWizard, GettingStarted, ComparisonMatrix, SkillTrendChart, SplitProfilePreview, PhoneScreenKit, InterviewScorecard, AdminLayout, Breadcrumbs, and AdminOverviewPage represents a significant advancement in user interface design and user experience. These components provide smooth animations, progressive content display, enhanced candidate evaluation tools, real-time progress tracking, and efficient status management.
+
+**NEW**: The implementation of optimistic UI updates, keyboard shortcuts, and real-time analysis progress tracking represents a significant improvement in user productivity and system responsiveness. Users now receive immediate feedback for their actions, can navigate efficiently through candidate lists, and have access to real-time progress information during analysis workflows.
+
+**NEW**: The implementation of comprehensive testing strategies for all new components and features ensures the reliability and maintainability of the enhanced frontend architecture. The testing approach covers all aspects of the new functionality including animations, streaming updates, keyboard navigation, real-time progress tracking, split-view phone screen mode, inline resume preview, and mobile screen optimization.
+
+**NEW**: The implementation of the GettingStarted checklist system with completion tracking and celebration animations provides users with a guided onboarding experience that encourages engagement and helps them become productive quickly.
+
+**NEW**: The implementation of advanced candidate comparison with ComparisonMatrix and SkillTrendChart provides recruiters with powerful analytical tools for making informed hiring decisions based on comprehensive skill analysis and trend visualization.
+
+**NEW**: The implementation of role category analysis with SkillTrendChart enables organizations to understand market trends and make data-driven decisions about their talent acquisition strategies.
+
+**NEW**: The implementation of split-view phone screen mode with dual-panel layout and mobile optimization represents a significant advancement in mobile user experience. The system now provides comprehensive phone screen preparation capabilities optimized for mobile devices with inline parameter support.
+
+**NEW**: The implementation of inline resume preview system with text rendering and iframe support represents a significant enhancement to the user workflow. The system now provides seamless resume viewing within the application with support for different file formats and mobile optimization.
+
+**NEW**: The implementation of comprehensive mobile screen optimization ensures that all new features are fully responsive and provide an optimal user experience across different device types and screen sizes.
+
+**NEW**: The implementation of the enhanced navigation system with collapsible sidebar, breadcrumb navigation, and responsive mobile design represents a significant advancement in user interface design. The system now provides intuitive navigation patterns that work seamlessly across desktop and mobile devices.
+
+**NEW**: The implementation of the Vite configuration with consolidated React-dependent libraries into single 'vendor-react' chunk represents a significant improvement in build performance and runtime efficiency. The system now provides faster load times and better memory usage through strategic code consolidation and vendor library separation.
+
+**NEW**: The implementation of the TailwindCSS theming system with enhanced color palette, typography, and animation capabilities provides a consistent design language that enhances user experience and brand recognition.
+
+**NEW**: The implementation of the PostCSS configuration with TailwindCSS and Autoprefixer integration represents a significant advancement in CSS processing and optimization. The system now provides efficient CSS generation with automatic vendor prefixing and optimized output.
+
+The architecture successfully balances modern development practices with enterprise requirements, providing a solid foundation for continued growth and feature expansion while maintaining high standards for security, performance, and user experience. The extensive component library enhancements, real-time capabilities, comprehensive error handling, mobile optimization, and enhanced navigation system demonstrate the system's maturity and readiness for production deployment.

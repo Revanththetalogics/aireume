@@ -11,6 +11,7 @@
 - [interview_kit.py](file://app/backend/routes/interview_kit.py)
 - [agent_pipeline.py](file://app/backend/services/agent_pipeline.py)
 - [hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
+- [llm_service.py](file://app/backend/services/llm_service.py)
 - [main.py](file://app/backend/main.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [schemas.py](file://app/backend/models/schemas.py)
@@ -18,16 +19,20 @@
 - [VideoPage.jsx](file://app/frontend/src/pages/VideoPage.jsx)
 - [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
 - [ResultCard.jsx](file://app/frontend/src/components/ResultCard.jsx)
+- [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
+- [RecommendationBadge.jsx](file://app/frontend/src/components/RecommendationBadge.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [017_interview_kit_enhancement.py](file://alembic/versions/017_interview_kit_enhancement.py)
+- [035_recruiter_debrief.py](file://alembic/versions/035_recruiter_debrief.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added Experience Deep-Dive category to expand interview kit from 12 to 15 questions
-- New category includes three specialized questions for project walkthroughs, comfort zone challenges, and career evolution analysis
-- Backend services enhanced with experience_deep_dive_questions schema validation and scoring framework integration
-- Frontend components updated to display and handle Experience Deep-Dive evaluation dimensions
+- Replaced old text-based validation system with new recommendation chip selector interface
+- Updated validation logic to include chip selection alongside existing conversation summary requirements
+- Enhanced debrief generation with visual recommendation chips and improved user experience
+- Added comprehensive recommendation mapping from frontend chips to backend decision logic
+- Updated validation system to prioritize recruiter-selected recommendations over LLM-derived ones
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -37,22 +42,25 @@
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Interview Kit Evaluation Framework](#interview-kit-evaluation-framework)
 7. [Experience Deep-Dive Category Enhancement](#experience-deep-dive-category-enhancement)
-8. [Dependency Analysis](#dependency-analysis)
-9. [Performance Considerations](#performance-considerations)
-10. [Troubleshooting Guide](#troubleshooting-guide)
-11. [Conclusion](#conclusion)
+8. [Enhanced Debrief Generation Workflow](#enhanced-debrief-generation-workflow)
+9. [Recommendation Chip Selector System](#recommendation-chip-selector-system)
+10. [Dependency Analysis](#dependency-analysis)
+11. [Performance Considerations](#performance-considerations)
+12. [Troubleshooting Guide](#troubleshooting-guide)
+13. [Conclusion](#conclusion)
 
 ## Introduction
-This document describes the complete interview analysis workflow from video ingestion to insights generation. It covers the end-to-end pipeline including video preprocessing, audio extraction, transcript generation, sentiment and competency scoring, and real-time streaming updates. The workflow now includes the integrated Interview Kit Evaluation Framework that provides structured interview questions, evaluation scoring cards, and comprehensive assessment workflows that complement the existing video interview analysis capabilities. The system supports both automated AI-powered analysis and manual recruiter evaluation with real-time collaboration features.
+This document describes the complete interview analysis workflow from video ingestion to insights generation. It covers the end-to-end pipeline including video preprocessing, audio extraction, transcript generation, sentiment and competency scoring, and real-time streaming updates. The workflow now includes the integrated Interview Kit Evaluation Framework that provides structured interview questions, evaluation scoring cards, and comprehensive assessment workflows that complement the existing video interview analysis capabilities. The system supports both automated AI-powered analysis and manual recruiter evaluation with real-time collaboration features and enhanced recommendation chip selector interface.
 
-**Updated** Added Experience Deep-Dive category with three specialized questions for deeper candidate assessment.
+**Updated** The recommendation chip selector system replaces the previous text-based validation approach with a visual, intuitive interface that allows recruiters to quickly express their hiring decisions through five distinct chip options: Strong Hire, Lean Hire, No Decision, Lean No Hire, and Strong No Hire. This visual approach significantly improves user experience and reduces validation complexity.
 
 ## Project Structure
 The interview analysis spans backend services, routes, and frontend components with enhanced evaluation framework integration:
 - Backend services implement video transcription, communication analysis, malpractice detection, transcript parsing/analysis, and interview evaluation management.
 - Routes expose endpoints for video analysis, transcript analysis, resume analysis, and comprehensive interview kit evaluation APIs.
-- Frontend components provide interactive interview scoring interfaces and real-time evaluation collaboration.
+- Frontend components provide interactive interview scoring interfaces and real-time evaluation collaboration with recommendation chip selectors.
 - Database models support structured interview questions, per-question evaluations, and overall assessment workflows.
+- **Updated** Enhanced debrief generation with visual recommendation chips and comprehensive validation feedback.
 
 ```mermaid
 graph TB
@@ -60,6 +68,8 @@ subgraph "Frontend"
 VP["VideoPage.jsx"]
 IS["InterviewScorecard.jsx"]
 RC["ResultCard.jsx"]
+PSK["PhoneScreenKit.jsx"]
+RB["RecommendationBadge.jsx"]
 API["api.js"]
 end
 subgraph "Backend"
@@ -72,6 +82,7 @@ SVC_DOWN["services/video_downloader.py"]
 SVC_TRANSCRIPT["services/transcript_service.py"]
 SVC_AGENT["services/agent_pipeline.py"]
 PIPELINE["services/hybrid_pipeline.py"]
+SVC_LLM["services/llm_service.py"]
 MAIN["main.py"]
 MODELS["models/db_models.py"]
 SCHEMAS["models/schemas.py"]
@@ -80,6 +91,8 @@ end
 VP --> API
 IS --> API
 RC --> API
+PSK --> API
+RB --> API
 API --> ROUTE_VIDEO
 API --> ROUTE_TRANSCRIPT
 API --> ROUTE_ANALYZE
@@ -90,6 +103,7 @@ ROUTE_TRANSCRIPT --> SVC_TRANSCRIPT
 ROUTE_ANALYZE --> PIPELINE
 ROUTE_KIT --> MODELS
 ROUTE_KIT --> SCHEMAS
+ROUTE_KIT --> SVC_LLM
 MAIN --> ROUTE_VIDEO
 MAIN --> ROUTE_TRANSCRIPT
 MAIN --> ROUTE_ANALYZE
@@ -104,12 +118,13 @@ NGINX --> ROUTE_ANALYZE
 - [video.py:1-68](file://app/backend/routes/video.py#L1-L68)
 - [transcript.py:1-206](file://app/backend/routes/transcript.py#L1-L206)
 - [analyze.py:1-813](file://app/backend/routes/analyze.py#L1-L813)
-- [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-L224)
+- [interview_kit.py:1-435](file://app/backend/routes/interview_kit.py#L1-L435)
 - [video_service.py:1-398](file://app/backend/services/video_service.py#L1-L398)
 - [video_downloader.py:1-263](file://app/backend/services/video_downloader.py#L1-L263)
 - [transcript_service.py:1-221](file://app/backend/services/transcript_service.py#L1-L221)
 - [agent_pipeline.py:724-730](file://app/backend/services/agent_pipeline.py#L724-L730)
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
+- [llm_service.py:1-338](file://app/backend/services/llm_service.py#L1-L338)
 - [main.py:1-327](file://app/backend/main.py#L1-L327)
 - [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
 - [schemas.py:441-517](file://app/backend/models/schemas.py#L441-L517)
@@ -119,12 +134,13 @@ NGINX --> ROUTE_ANALYZE
 - [video.py:1-68](file://app/backend/routes/video.py#L1-L68)
 - [transcript.py:1-206](file://app/backend/routes/transcript.py#L1-L206)
 - [analyze.py:1-813](file://app/backend/routes/analyze.py#L1-L813)
-- [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-L224)
+- [interview_kit.py:1-435](file://app/backend/routes/interview_kit.py#L1-L435)
 - [video_service.py:1-398](file://app/backend/services/video_service.py#L1-L398)
 - [video_downloader.py:1-263](file://app/backend/services/video_downloader.py#L1-L263)
 - [transcript_service.py:1-221](file://app/backend/services/transcript_service.py#L1-L221)
 - [agent_pipeline.py:724-730](file://app/backend/services/agent_pipeline.py#L724-L730)
 - [hybrid_pipeline.py:1-1498](file://app/backend/services/hybrid_pipeline.py#L1-L1498)
+- [llm_service.py:1-338](file://app/backend/services/llm_service.py#L1-L338)
 - [main.py:1-327](file://app/backend/main.py#L1-L327)
 - [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
 - [schemas.py:441-517](file://app/backend/models/schemas.py#L441-L517)
@@ -145,7 +161,8 @@ NGINX --> ROUTE_ANALYZE
   - Per-question evaluation system with rating categories (strong/adequate/weak).
   - Overall assessment and recommendation workflow for hiring managers.
   - Real-time collaborative evaluation interface with scoring cards.
-  - **Updated** Experience Deep-Dive category with three specialized questions for comprehensive candidate assessment.
+  - **Updated** Enhanced debrief generation with visual recommendation chips and comprehensive validation.
+- **Updated** Recommendation chip selector system with five distinct chip options and intelligent mapping to backend decision logic.
 
 **Section sources**
 - [video_service.py:25-398](file://app/backend/services/video_service.py#L25-L398)
@@ -155,11 +172,12 @@ NGINX --> ROUTE_ANALYZE
 - [interview_kit.py:38-224](file://app/backend/routes/interview_kit.py#L38-L224)
 
 ## Architecture Overview
-The system integrates four major analysis paths with enhanced evaluation framework:
+The system integrates four major analysis paths with enhanced evaluation framework and recommendation chip selector:
 - Video interview analysis: transcription → communication quality + malpractice detection (parallel).
 - Transcript analysis: parse → clean → LLM evaluation against job description.
 - Resume analysis: Python rules → LLM narrative (streaming SSE).
 - Interview Kit Evaluation: structured questions → per-question evaluation → scoring card generation.
+- **Updated** Enhanced debrief generation: visual recommendation chips → validation → LLM generation → fallback mechanisms → comprehensive error handling.
 
 ```mermaid
 sequenceDiagram
@@ -168,6 +186,7 @@ participant FE as "Frontend Components"
 participant API as "api.js"
 participant Route as "routes/interview_kit.py"
 participant DB as "Database Models"
+participant LLM as "LLM Service"
 FE->>API : "GET /api/results/{result_id}/scorecard"
 API->>Route : "get_scorecard(result_id)"
 Route->>DB : "Query InterviewEvaluation + OverallAssessment"
@@ -180,19 +199,31 @@ Route->>DB : "Create/Update InterviewEvaluation"
 DB-->>Route : "Saved evaluation"
 Route-->>API : "EvaluationOut"
 API-->>FE : "Update ResultCard.jsx"
+FE->>API : "POST /api/results/{result_id}/generate-debrief"
+API->>Route : "generate_debrief(result_id, conversation_summary, recommendation)"
+Note over FE : "Recommendation chip : strong_hire, lean_hire, no_decision, lean_no_hire, strong_no_hire"
+Route->>Route : "Map recommendation chip to advance/hold/reject"
+Route->>LLM : "Call LLM with validation"
+LLM-->>Route : "Debrief data or fallback"
+Route->>DB : "Store debrief_json + recruiter_score + recruiter_recommendation"
+DB-->>Route : "Saved assessment"
+Route-->>API : "DebriefResponse"
+API-->>FE : "Display debrief with visual feedback"
 ```
 
 **Diagram sources**
-- [interview_kit.py:142-224](file://app/backend/routes/interview_kit.py#L142-L224)
-- [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
+- [interview_kit.py:248-435](file://app/backend/routes/interview_kit.py#L248-L435)
+- [db_models.py:303-323](file://app/backend/models/db_models.py#L303-L323)
+- [llm_service.py:217-240](file://app/backend/services/llm_service.py#L217-L240)
 - [InterviewScorecard.jsx:64-231](file://app/frontend/src/components/InterviewScorecard.jsx#L64-L231)
 - [ResultCard.jsx:276-306](file://app/frontend/src/components/ResultCard.jsx#L276-L306)
+- [PhoneScreenKit.jsx:175-216](file://app/frontend/src/components/PhoneScreenKit.jsx#L175-L216)
 
 **Section sources**
 - [video.py:1-68](file://app/backend/routes/video.py#L1-L68)
 - [video_downloader.py:1-263](file://app/backend/services/video_downloader.py#L1-L263)
 - [video_service.py:1-398](file://app/backend/services/video_service.py#L1-L398)
-- [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-L224)
+- [interview_kit.py:1-435](file://app/backend/routes/interview_kit.py#L1-L435)
 
 ## Detailed Component Analysis
 
@@ -359,6 +390,7 @@ LLM3 --> AGG
   - Structured interview questions with evaluation guidance
   - Per-question ratings and notes
   - Comprehensive scoring card with dimension summaries
+  - **Updated** Enhanced debrief generation with visual recommendation chips and comprehensive validation
   - **Updated** Experience Deep-Dive dimension with specialized questions
 
 **Section sources**
@@ -380,6 +412,7 @@ LLM3 --> AGG
 - Interview evaluation scoring:
   - Structured rating system (strong/adequate/weak) with detailed notes.
   - Dimension-based scoring cards for technical, behavioral, culture fit, and **Updated** Experience Deep-Dive categories.
+- **Updated** Enhanced debrief generation with visual recommendation chips and comprehensive validation.
 
 **Section sources**
 - [video_service.py:127-180](file://app/backend/services/video_service.py#L127-L180)
@@ -400,10 +433,11 @@ LLM3 --> AGG
   - Input: structured interview questions with evaluation guidance.
   - Process: recruiter rates responses, adds notes, generates scoring card.
   - Output: comprehensive evaluation report with dimension summaries.
-  - **Updated** Experience Deep-Dive questions provide deeper insights into candidate experience and growth.
+  - **Updated** Enhanced debrief generation with visual recommendation chips and comprehensive validation.
 - Frontend experience:
   - Upload or paste URL, observe progress steps, view results with notable phrases and recommendations.
   - Access interview scoring interface, evaluate questions, generate shareable scorecards.
+  - **Updated** Phone screen kit with visual recommendation chips and comprehensive validation feedback.
 
 **Section sources**
 - [video.py:52-67](file://app/backend/routes/video.py#L52-L67)
@@ -411,6 +445,7 @@ LLM3 --> AGG
 - [interview_kit.py:38-138](file://app/backend/routes/interview_kit.py#L38-L138)
 - [VideoPage.jsx:587-604](file://app/frontend/src/pages/VideoPage.jsx#L587-L604)
 - [InterviewScorecard.jsx:64-231](file://app/frontend/src/components/InterviewScorecard.jsx#L64-L231)
+- [PhoneScreenKit.jsx:175-216](file://app/frontend/src/components/PhoneScreenKit.jsx#L175-L216)
 
 ## Interview Kit Evaluation Framework
 
@@ -472,6 +507,7 @@ The framework generates comprehensive evaluation reports:
 - **Overall Assessment**: Hiring manager's recommendation and final evaluation
 - **Export Functionality**: PDF generation for sharing with stakeholders
 - **Real-time Updates**: Live scoring card updates as evaluations are added
+- **Updated** Enhanced debrief integration with visual recommendation chips and comprehensive validation
 
 ```mermaid
 flowchart TD
@@ -501,13 +537,15 @@ Concerns --> Card
 The evaluation framework introduces robust data structures:
 
 - **InterviewEvaluation Table**: per-question recruiter ratings and notes
-- **OverallAssessment Table**: hiring manager's final recommendation
+- **OverallAssessment Table**: hiring manager's final recommendation with enhanced debrief fields
 - **Validation Rules**: strict category and rating validation
 - **Tenant Isolation**: secure multi-tenant evaluation data
 - **Unique Constraints**: prevent duplicate evaluations
+- **Updated** Enhanced debrief storage with debrief_json, recruiter_score, and recruiter_recommendation fields
 
 **Section sources**
 - [017_interview_kit_enhancement.py:23-61](file://alembic/versions/017_interview_kit_enhancement.py#L23-L61)
+- [035_recruiter_debrief.py:12-28](file://alembic/versions/035_recruiter_debrief.py#L12-L28)
 - [db_models.py:218-257](file://app/backend/models/db_models.py#L218-L257)
 - [schemas.py:441-517](file://app/backend/models/schemas.py#L441-L517)
 
@@ -563,9 +601,157 @@ The frontend components have been updated to support the new Experience Deep-Div
 - [InterviewScorecard.jsx:161](file://app/frontend/src/components/InterviewScorecard.jsx#L161)
 - [ResultCard.jsx:953](file://app/frontend/src/components/ResultCard.jsx#L953)
 
+## Enhanced Debrief Generation Workflow
+
+### Comprehensive Validation System
+The enhanced debrief generation workflow includes multiple layers of validation to ensure reliable and meaningful outputs:
+
+```mermaid
+flowchart TD
+Summary["Conversation Summary Input"] --> Length["Minimum 100 Characters<br/>Validation"]
+Length --> Skills["Skill Mention Validation<br/>Must reference at least one job skill"]
+Skills --> Chip["Recommendation Chip Selection<br/>Must select one of five chips"]
+Chip --> Submit["Submit to Debriefer"]
+Submit --> LLM["LLM Generation Attempt"]
+LLM --> Success{"Generation Success?"}
+Success --> |Yes| Store["Store Debrief JSON<br/>+ Recruiter Score<br/>+ Recruiter Recommendation"]
+Success --> |No| Fallback["Fallback Mechanism<br/>Rating-based Recommendation"]
+Fallback --> Store
+Store --> Complete["Debrief Generated Successfully"]
+```
+
+**Diagram sources**
+- [PhoneScreenKit.jsx:175-216](file://app/frontend/src/components/PhoneScreenKit.jsx#L175-L216)
+- [interview_kit.py:248-435](file://app/backend/routes/interview_kit.py#L248-L435)
+- [schemas.py:536-560](file://app/backend/models/schemas.py#L536-L560)
+
+### Frontend Validation Enhancements
+The frontend validation system provides comprehensive feedback to ensure high-quality debrief generation:
+
+- **Minimum Length Validation**: Ensures conversation summary contains at least 100 characters
+- **Skill Reference Validation**: Requires mentioning at least one specific job skill from the analysis
+- **Recommendation Chip Validation**: Mandates selection of one of five recommendation chips (Strong Hire, Lean Hire, No Decision, Lean No Hire, Strong No Hire)
+- **Real-time Feedback**: Immediate error messages and visual chip selection feedback
+- **Success Confirmation**: Visual confirmation when debrief is successfully generated
+
+**Section sources**
+- [PhoneScreenKit.jsx:175-216](file://app/frontend/src/components/PhoneScreenKit.jsx#L175-L216)
+- [PhoneScreenKit.jsx:460-484](file://app/frontend/src/components/PhoneScreenKit.jsx#L460-L484)
+
+### Backend Validation and Fallback Mechanisms
+The backend implements robust validation and fallback mechanisms:
+
+- **Pydantic Validation**: Minimum 100 character requirement enforced at API boundary
+- **Recommendation Mapping**: Maps frontend chip selections to backend decision categories
+- **LLM Response Parsing**: Attempts to extract JSON from various response formats
+- **Fallback Generation**: Creates comprehensive debrief when LLM fails
+- **Rating-based Recommendations**: Uses evaluation distribution to determine recommendations
+- **Error Recovery**: Graceful degradation with informative fallback content
+
+**Section sources**
+- [schemas.py:536-560](file://app/backend/models/schemas.py#L536-L560)
+- [interview_kit.py:248-435](file://app/backend/routes/interview_kit.py#L248-L435)
+
+### Database Integration
+The debrief generation workflow integrates seamlessly with the database:
+
+- **Debrief Storage**: debrief_json field stores structured debrief content
+- **Recruiter Score**: recruiter_score field calculates weighted recommendation score
+- **Recruiter Recommendation**: recruiter_recommendation field stores final hiring decision
+- **Overall Assessment**: Maintains conversation summary and recommendation
+- **Unique Constraints**: Prevents duplicate debrief entries per user/result combination
+- **Migration Support**: Database schema updated to support debrief fields
+
+**Section sources**
+- [db_models.py:303-323](file://app/backend/models/db_models.py#L303-L323)
+- [035_recruiter_debrief.py:12-28](file://alembic/versions/035_recruiter_debrief.py#L12-L28)
+- [interview_kit.py:376-435](file://app/backend/routes/interview_kit.py#L376-L435)
+
+### Enhanced User Experience
+The enhanced debrief generation provides superior user experience:
+
+- **Comprehensive Validation**: Multiple validation layers ensure quality inputs
+- **Real-time Feedback**: Immediate validation feedback prevents submission errors
+- **Graceful Degradation**: Fallback mechanisms ensure debrief generation even when LLM fails
+- **Visual Confirmation**: Success indicators provide clear feedback to users
+- **Error Handling**: Informative error messages guide users toward successful completion
+
+**Section sources**
+- [PhoneScreenKit.jsx:175-216](file://app/frontend/src/components/PhoneScreenKit.jsx#L175-L216)
+- [PhoneScreenKit.jsx:460-484](file://app/frontend/src/components/PhoneScreenKit.jsx#L460-L484)
+- [api.js:1238-1243](file://app/frontend/src/lib/api.js#L1238-L1243)
+
+## Recommendation Chip Selector System
+
+### Visual Recommendation Interface
+The new recommendation chip selector provides an intuitive, visual interface for recruiters to express their hiring decisions:
+
+```mermaid
+flowchart TD
+Chip["Recommendation Chip Selector"] --> StrongHire["Strong Hire<br/>Emerald Background<br/>High Confidence"]
+Chip --> LeanHire["Lean Hire<br/>Teal Background<br/>Conditional Approval"]
+Chip --> NoDecision["No Decision<br/>Gray Background<br/>Further Review Needed"]
+Chip --> LeanNoHire["Lean No Hire<br/>Orange Background<br/>Low Confidence"]
+Chip --> StrongNoHire["Strong No Hire<br/>Red Background<br/>High Confidence"]
+```
+
+**Diagram sources**
+- [PhoneScreenKit.jsx:455-482](file://app/frontend/src/components/PhoneScreenKit.jsx#L455-L482)
+
+### Chip-to-Decision Mapping
+The frontend chips are intelligently mapped to backend decision categories:
+
+- **Strong Hire** → **Advance** (High confidence, move forward)
+- **Lean Hire** → **Advance** (Conditional approval)
+- **No Decision** → **Hold** (Further review needed)
+- **Lean No Hire** → **Reject** (Low confidence, move away)
+- **Strong No Hire** → **Reject** (High confidence, move away)
+
+```mermaid
+flowchart TD
+Frontend["Frontend Chips"] --> Mapping["RECOMMENDATION_MAP"]
+Mapping --> Backend["Backend Decisions"]
+Frontend --> SH["strong_hire → advance"]
+Frontend --> LH["lean_hire → advance"]
+Frontend --> ND["no_decision → hold"]
+Frontend --> LN["lean_no_hire → reject"]
+Frontend --> SN["strong_no_hire → reject"]
+Backend --> Final["Final Recommendation"]
+```
+
+**Diagram sources**
+- [interview_kit.py:280-288](file://app/backend/routes/interview_kit.py#L280-L288)
+
+### Priority Logic and Validation
+The recommendation chip system implements priority logic that respects recruiter intent over AI suggestions:
+
+- **Recruiter Override**: If recruiter selects a chip, it takes precedence over LLM-derived recommendations
+- **Consistency Validation**: Ensures chip selection aligns with conversation summary content
+- **Fallback Protection**: If no chip is selected, validation prevents submission
+- **Real-time Feedback**: Immediate visual feedback for chip selection state
+
+**Section sources**
+- [PhoneScreenKit.jsx:455-482](file://app/frontend/src/components/PhoneScreenKit.jsx#L455-L482)
+- [interview_kit.py:280-288](file://app/backend/routes/interview_kit.py#L280-L288)
+- [interview_kit.py:392-394](file://app/backend/routes/interview_kit.py#L392-L394)
+
+### Backend Processing Integration
+The backend seamlessly processes chip selections and integrates them into the debrief generation workflow:
+
+- **Input Validation**: Receives chip value from frontend (e.g., 'strong_hire')
+- **Mapping Logic**: Converts chip to decision category ('advance', 'hold', 'reject')
+- **Priority Application**: Recruiters' selections override AI recommendations
+- **Storage Integration**: Stores final recommendation in OverallAssessment table
+- **Score Calculation**: Incorporates chip selection into weighted recommendation score
+
+**Section sources**
+- [interview_kit.py:279-288](file://app/backend/routes/interview_kit.py#L279-L288)
+- [interview_kit.py:392-394](file://app/backend/routes/interview_kit.py#L392-L394)
+- [interview_kit.py:411-426](file://app/backend/routes/interview_kit.py#L411-L426)
+
 ## Dependency Analysis
 - External dependencies:
-  - Ollama for LLM inference (communication, malpractice, transcript evaluation, narrative, interview question generation).
+  - Ollama for LLM inference (communication, malpractice, transcript evaluation, narrative, interview question generation, debrief generation).
   - faster-whisper for transcription.
   - yt-dlp for YouTube downloads (optional).
 - Internal dependencies:
@@ -573,6 +759,7 @@ The frontend components have been updated to support the new Experience Deep-Div
   - Services depend on models for persistence and caching.
   - Streaming relies on Nginx configuration to disable buffering.
   - Interview Kit framework depends on SQLAlchemy models and Pydantic schemas.
+  - **Updated** Enhanced debrief generation depends on LLM service with improved error handling and chip mapping logic.
 
 ```mermaid
 graph TB
@@ -580,16 +767,19 @@ OLL["Ollama (LLM)"] --- VS["video_service.py"]
 OLL --- TS["transcript_service.py"]
 OLL --- HP["hybrid_pipeline.py"]
 OLL --- AP["agent_pipeline.py"]
+OLL --- LLM["llm_service.py"]
 WHISPER["faster-whisper"] --- VS
 YT["yt-dlp"] --- DOWN["video_downloader.py"]
 DB["SQLAlchemy models"] --- ROUTE["routes/*.py"]
 SCHEMA["Pydantic schemas"] --- IK["interview_kit.py"]
+SCHEMA --- VALID["Validation Models"]
 ROUTE --> SVC["services/*.py"]
 SVC --> OLL
 SVC --> WHISPER
 SVC --> YT
 IK --> DB
 IK --> SCHEMA
+IK --> VALID
 NGINX["nginx.prod.conf"] -. "SSE buffering off" .-> ROUTE
 ```
 
@@ -598,8 +788,10 @@ NGINX["nginx.prod.conf"] -. "SSE buffering off" .-> ROUTE
 - [transcript_service.py:15-16](file://app/backend/services/transcript_service.py#L15-L16)
 - [hybrid_pipeline.py:49-66](file://app/backend/services/hybrid_pipeline.py#L49-L66)
 - [agent_pipeline.py:724-730](file://app/backend/services/agent_pipeline.py#L724-L730)
+- [llm_service.py:181-338](file://app/backend/services/llm_service.py#L181-L338)
 - [video_downloader.py:230-236](file://app/backend/services/video_downloader.py#L230-L236)
 - [interview_kit.py:12-19](file://app/backend/routes/interview_kit.py#L12-L19)
+- [schemas.py:536-560](file://app/backend/models/schemas.py#L536-L560)
 - [nginx.prod.conf:81-85](file://app/nginx/nginx.prod.conf#L81-L85)
 
 **Section sources**
@@ -607,8 +799,10 @@ NGINX["nginx.prod.conf"] -. "SSE buffering off" .-> ROUTE
 - [transcript_service.py:1-20](file://app/backend/services/transcript_service.py#L1-L20)
 - [hybrid_pipeline.py:1-66](file://app/backend/services/hybrid_pipeline.py#L1-L66)
 - [agent_pipeline.py:724-730](file://app/backend/services/agent_pipeline.py#L724-L730)
+- [llm_service.py:1-338](file://app/backend/services/llm_service.py#L1-L338)
 - [video_downloader.py:1-20](file://app/backend/services/video_downloader.py#L1-L20)
-- [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-L224)
+- [interview_kit.py:1-435](file://app/backend/routes/interview_kit.py#L1-L435)
+- [schemas.py:536-560](file://app/backend/models/schemas.py#L536-L560)
 - [nginx.prod.conf:81-85](file://app/nginx/nginx.prod.conf#L81-L85)
 
 ## Performance Considerations
@@ -616,22 +810,27 @@ NGINX["nginx.prod.conf"] -. "SSE buffering off" .-> ROUTE
   - Video transcription runs in a thread pool executor; communication and malpractice analysis run concurrently.
   - Hybrid pipeline limits concurrent LLM calls with a semaphore.
   - Interview Kit evaluation queries are optimized with proper indexing.
+  - **Updated** Debief generation uses shared LLM semaphore with improved error handling and chip mapping.
 - Model readiness:
   - Startup checks verify Ollama availability and model presence; cold models delay first requests.
   - Interview question generation uses specialized prompts for better performance.
+  - **Updated** Enhanced debrief generation includes health monitoring and graceful degradation with chip validation.
 - Streaming:
   - Nginx disables buffering for SSE to prevent 524 timeouts; heartbeat pings maintain connection.
   - Real-time evaluation updates use efficient database queries.
+  - **Updated** Debief generation maintains connection resilience with fallback mechanisms and chip selection feedback.
 - Resource limits:
   - File size caps for uploads and downloads; timeouts for external services.
   - Database constraints prevent data duplication and maintain integrity.
+  - **Updated** Enhanced validation reduces invalid requests and improves system efficiency through chip selection.
 
 **Section sources**
 - [video_service.py:333-347](file://app/backend/services/video_service.py#L333-L347)
 - [hybrid_pipeline.py:24-32](file://app/backend/services/hybrid_pipeline.py#L24-L32)
 - [main.py:68-149](file://app/backend/main.py#L68-L149)
 - [nginx.prod.conf:81-95](file://app/nginx/nginx.prod.conf#L81-L95)
-- [interview_kit.py:28-36](file://app/backend/routes/interview_kit.py#L28-L36)
+- [interview_kit.py:248-435](file://app/backend/routes/interview_kit.py#L248-L435)
+- [llm_service.py:41-64](file://app/backend/services/llm_service.py#L41-L64)
 
 ## Troubleshooting Guide
 - Video analysis fails:
@@ -648,9 +847,17 @@ NGINX["nginx.prod.conf"] -. "SSE buffering off" .-> ROUTE
   - Check validation rules for category and rating values.
   - Ensure proper database migration for evaluation tables.
   - **Updated** Verify Experience Deep-Dive category validation in schema.
+- **Updated** Debrief generation issues:
+  - Verify conversation summary meets minimum 100 character requirement.
+  - Check skill reference validation and recommendation chip selection.
+  - Ensure LLM service availability and proper error handling.
+  - Verify debrief_json, recruiter_score, and recruiter_recommendation database fields exist.
+  - Check fallback mechanism activation when LLM generation fails.
+  - **Updated** Verify chip selection validation and mapping logic in frontend and backend.
 - Database and usage:
   - Monitor tenant plans and usage counters; verify candidate deduplication and profile storage.
   - Check unique constraint violations for duplicate evaluations.
+  - **Updated** Verify debrief generation database schema migration with new recommendation fields.
 
 **Section sources**
 - [video_service.py:56-63](file://app/backend/services/video_service.py#L56-L63)
@@ -659,8 +866,12 @@ NGINX["nginx.prod.conf"] -. "SSE buffering off" .-> ROUTE
 - [interview_kit.py:28-36](file://app/backend/routes/interview_kit.py#L28-L36)
 - [nginx.prod.conf:81-95](file://app/nginx/nginx.prod.conf#L81-L95)
 - [db_models.py:97-147](file://app/backend/models/db_models.py#L97-L147)
+- [schemas.py:536-560](file://app/backend/models/schemas.py#L536-L560)
+- [035_recruiter_debrief.py:12-28](file://alembic/versions/035_recruiter_debrief.py#L12-L28)
 
 ## Conclusion
-The interview analysis workflow integrates robust video and transcript processing with AI-powered insights and comprehensive evaluation framework. The video pipeline extracts timing and fluency signals, while the transcript pipeline evaluates textual alignment with job requirements. The hybrid resume pipeline provides deterministic scoring augmented by a single LLM narrative. The new Interview Kit Evaluation Framework enhances the system with structured interview questions, per-question evaluation capabilities, and comprehensive scoring cards that enable collaborative hiring processes. 
+The interview analysis workflow integrates robust video and transcript processing with AI-powered insights and comprehensive evaluation framework. The video pipeline extracts timing and fluency signals, while the transcript pipeline evaluates textual alignment with job requirements. The hybrid resume pipeline provides deterministic scoring augmented by a single LLM narrative. The new Interview Kit Evaluation Framework enhances the system with structured interview questions, per-question evaluation capabilities, and comprehensive scoring cards that enable collaborative hiring processes.
 
-**Updated** The Experience Deep-Dive category expansion from 12 to 15 questions provides deeper insights into candidate experience, growth potential, and professional evolution. This enhancement strengthens the evaluation framework by adding three specialized questions that assess project leadership, adaptability, and career progression. Real-time streaming SSE ensures responsive user experiences, while the evaluation framework provides detailed assessment workflows for hiring managers. Together, these components deliver actionable candidate evaluations grounded in structured data, AI analysis, and human expertise, now with enhanced experience-based assessment capabilities.
+**Updated** The enhanced debrief generation workflow significantly improves reliability and user experience through comprehensive validation, robust fallback mechanisms, and enhanced error handling. The new visual recommendation chip selector system replaces the previous text-based validation approach with a more intuitive interface that allows recruiters to quickly express their hiring decisions through five distinct chip options. This visual approach significantly improves user experience and reduces validation complexity while maintaining the comprehensive validation requirements.
+
+**Updated** The Experience Deep-Dive category expansion from 12 to 15 questions provides deeper insights into candidate experience, growth potential, and professional evolution. This enhancement strengthens the evaluation framework by adding three specialized questions that assess project leadership, adaptability, and career progression. Real-time streaming SSE ensures responsive user experiences, while the evaluation framework provides detailed assessment workflows for hiring managers. Together, these components deliver actionable candidate evaluations grounded in structured data, AI analysis, and human expertise, now with enhanced experience-based assessment capabilities, significantly improved debrief generation reliability, and intuitive visual recommendation chip selection.

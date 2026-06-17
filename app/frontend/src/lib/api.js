@@ -15,66 +15,91 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Add CSRF token to all non-GET requests for browser clients
-api.interceptors.request.use((config) => {
-  if (config.method !== 'get') {
-    // Read CSRF token from cookie
-    const csrfToken = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('csrf_token='))
-      ?.split('=')[1]
+// Shared CSRF token reader
+function getCsrfToken() {
+  return document.cookie
+    .split('; ')
+    .find(row => row.startsWith('csrf_token='))
+    ?.split('=')[1] || null
+}
+
+// Add CSRF token to state-mutating requests for browser clients
+api.interceptors.request.use(async (config) => {
+  const safeMethod = ['get', 'head', 'options'].includes(config.method?.toLowerCase())
+  if (!safeMethod) {
+    let csrfToken = getCsrfToken()
+    if (!csrfToken) {
+      // Try to refresh CSRF cookie by calling /auth/me (sets new CSRF cookie)
+      try {
+        await axios.get(`${API_URL}/auth/me`, { withCredentials: true })
+        csrfToken = getCsrfToken()
+      } catch {
+        // Ignore refresh failure; backend will reject with 403 if CSRF is required
+      }
+    }
     if (csrfToken) {
       config.headers['X-CSRF-Token'] = csrfToken
+    } else {
+      console.warn('[CSRF] Token missing for', config.method?.toUpperCase(), config.url)
     }
   }
   return config
 })
 
 // Auto-refresh on 401 - uses httpOnly cookies only
-// Skip refresh logic for auth endpoints to prevent login loops
-const AUTH_PATHS = ['/auth/me', '/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
+// Only skip refresh for endpoints that cannot benefit from a refresh attempt.
+// /auth/me is intentionally NOT excluded — a 401 there means the access token
+// expired but the refresh token may still be valid.
+const NON_REFRESHABLE_PATHS = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
 const PUBLIC_PATHS = ['/login', '/register']
 
 let isRefreshing = false
 let refreshFailedQueue = []
+let lastSuccessfulAuthTime = 0
 
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    // Track last successful authenticated response
+    if (res.status >= 200 && res.status < 300) {
+      lastSuccessfulAuthTime = Date.now()
+    }
+    return res
+  },
   async (error) => {
     const original = error.config
     const reqPath = original?.url || ''
-    const isAuthEndpoint = AUTH_PATHS.some(p => reqPath.includes(p))
+    const isNonRefreshable = NON_REFRESHABLE_PATHS.some(p => reqPath.includes(p))
 
-    if (error.response?.status === 401 && !original._retry && !isAuthEndpoint) {
+    if (error.response?.status === 401 && !original._retry && !isNonRefreshable) {
       original._retry = true
 
       // If a refresh is already in progress, queue this request
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           refreshFailedQueue.push({ resolve, reject })
-        }).then(() => api(original)).catch(() => Promise.reject(error))
+        }).then(() => api(original)).catch((err) => Promise.reject(err))
       }
 
-      isRefreshing = true
       try {
+        isRefreshing = true
         // Refresh endpoint reads from cookie - browser sends cookie automatically
         await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
-        // Refresh succeeded - retry all queued requests
-        refreshFailedQueue.forEach(p => p.resolve())
+        // Refresh succeeded - drain queue and retry original request
+        refreshFailedQueue.forEach(({ resolve }) => resolve())
         refreshFailedQueue = []
-        // Retry the original request - cookies are sent automatically
         return api(original)
-      } catch {
+      } catch (refreshError) {
         // Refresh failed - reject all queued requests
-        refreshFailedQueue.forEach(p => p.reject())
+        refreshFailedQueue.forEach(({ reject }) => reject(refreshError))
         refreshFailedQueue = []
-        // Only redirect if not already on a public page (prevents infinite loop)
-        const currentPath = window.location.pathname
-        if (!PUBLIC_PATHS.some(p => currentPath.startsWith(p))) {
-          window.location.href = '/login'
+        // Only force logout if session is genuinely expired (no recent successful auth)
+        const timeSinceLastAuth = Date.now() - lastSuccessfulAuthTime
+        if (timeSinceLastAuth > 10000) {
+          window.dispatchEvent(new CustomEvent('auth:logout', { detail: { reason: 'refresh_failed' } }))
         }
+        return Promise.reject(refreshError)
       } finally {
-        isRefreshing = false
+        isRefreshing = false  // ALWAYS reset, even on success or failure
       }
     }
     return Promise.reject(error)
@@ -273,10 +298,7 @@ export async function analyzeResumeStream(
   const baseURL = import.meta.env.VITE_API_URL || '/api'
 
   // Get CSRF token from cookie for the fetch call
-  const csrfToken = document.cookie
-    .split('; ')
-    .find(row => row.startsWith('csrf_token='))
-    ?.split('=')[1]
+  const csrfToken = getCsrfToken()
 
   const headers = {}
   if (csrfToken) {
@@ -508,10 +530,7 @@ export async function analyzeBatchStream(files, jobDescription, jdFile = null, s
   const baseURL = import.meta.env.VITE_API_URL || '/api'
 
   // Get CSRF token from cookie for the fetch call
-  const csrfToken = document.cookie
-    .split('; ')
-    .find(row => row.startsWith('csrf_token='))
-    ?.split('=')[1]
+  const csrfToken = getCsrfToken()
 
   const headers = {}
   if (csrfToken) {
@@ -1050,6 +1069,21 @@ export function getUserFriendlyError(error) {
 
 // ─── Platform Admin API ─────────────────────────────────────
 
+/**
+ * Safely extract a human-readable error message from an API error response.
+ * FastAPI validation errors return `detail` as an array of objects,
+ * which would crash React if rendered directly as a child.
+ */
+export function extractApiError(err, fallback = 'An error occurred') {
+  const detail = err?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map(e => e.msg || e.message || String(e)).join('; ')
+  }
+  if (detail) return String(detail)
+  return fallback
+}
+
 export async function getAdminTenants(params = {}) {
   const response = await api.get('/admin/tenants', { params })
   return response.data
@@ -1087,6 +1121,19 @@ export async function getAdminTenantUsageHistory(tenantId, limit = 100) {
 
 export async function getAdminAuditLogs(params = {}) {
   const response = await api.get('/admin/audit-logs', { params })
+  return response.data
+}
+
+export async function exportAuditLogs(params = {}) {
+  const response = await api.get('/admin/audit-logs/export', {
+    params,
+    responseType: 'blob',
+  })
+  return response.data
+}
+
+export async function getWebhookEvents() {
+  const response = await api.get('/webhooks/events')
   return response.data
 }
 
@@ -1171,6 +1218,21 @@ export async function archivePlan(planId, force = false) {
 
 // ─── Billing Admin API ──────────────────────────────────────────
 
+export async function getAdminInvoices(params = {}) {
+  const response = await api.get('/admin/invoices', { params })
+  return response.data
+}
+
+export async function getAdminDunningRecords(params = {}) {
+  const response = await api.get('/admin/dunning', { params })
+  return response.data
+}
+
+export async function resolveDunning(tenantId) {
+  const response = await api.post(`/admin/dunning/${tenantId}/resolve`)
+  return response.data
+}
+
 export async function getBillingConfig() {
   const response = await api.get('/admin/billing/config')
   return response.data
@@ -1183,6 +1245,26 @@ export async function updateBillingConfig(data) {
 
 export async function getBillingProviders() {
   const response = await api.get('/admin/billing/providers')
+  return response.data
+}
+
+export async function getBillingSettings() {
+  const response = await api.get('/admin/billing/settings')
+  return response.data
+}
+
+export async function updateBillingSettings(data) {
+  const response = await api.put('/admin/billing/settings', data)
+  return response.data
+}
+
+export async function testBillingConnection(provider) {
+  const response = await api.post('/admin/billing/settings/test', { provider })
+  return response.data
+}
+
+export async function generateCheckoutLink(tenantId, planId) {
+  const response = await api.post('/admin/billing/generate-checkout-link', { tenant_id: tenantId, plan_id: planId })
   return response.data
 }
 
@@ -1214,6 +1296,14 @@ export async function saveOverallAssessment(resultId, { overall_assessment, recr
 export async function getScorecard(resultId) {
   const res = await api.get(`/results/${resultId}/scorecard`)
   return res.data
+}
+
+export async function generateDebrief(resultId, conversationSummary, recommendation) {
+  const resp = await api.post(`/results/${resultId}/generate-debrief`, {
+    conversation_summary: conversationSummary,
+    recommendation,
+  })
+  return resp.data
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────

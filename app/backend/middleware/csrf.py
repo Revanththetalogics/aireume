@@ -6,6 +6,7 @@ the CSRF token in the cookie matches the X-CSRF-Token header.
 API clients using Authorization header bypass CSRF checks.
 """
 import os
+import re
 import secrets
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -29,23 +30,37 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/api/auth/register",
         "/api/auth/refresh",
         "/api/auth/logout",
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
         "/api/billing/webhook",
         "/api/sso/callback",
+        "/api/webhooks/",
         "/health",
         "/api/health",
         "/api/health/deep",
         "/api/llm-status",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
         "/metrics",
     }
 
+    # Regex patterns for paths that should be CSRF-exempt (e.g. dynamic path segments)
+    EXEMPT_PATTERNS = [
+        re.compile(r"^/api/candidates/\d+/name$"),  # PUT candidate name (auth-protected)
+    ]
+
     def _is_exempt(self, path: str) -> bool:
-        """Check if a path is CSRF-exempt (exact match or prefix match)."""
+        """Check if a path is CSRF-exempt (exact match, prefix match, or pattern match)."""
         if path in self.EXEMPT_PATHS:
             return True
         for exempt in self.EXEMPT_PATHS:
             if exempt.endswith("/") and path.startswith(exempt):
                 return True
             if not exempt.endswith("/") and path.startswith(exempt + "/"):
+                return True
+        for pattern in self.EXEMPT_PATTERNS:
+            if pattern.match(path):
                 return True
         return False
 
@@ -65,9 +80,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         
         # For cookie-based auth, require CSRF token
         cookie_token = request.cookies.get("csrf_token")
+        if not cookie_token:
+            # No CSRF cookie set - skip validation (might be API client)
+            return await call_next(request)
+
         header_token = request.headers.get("x-csrf-token")
-        
-        if not cookie_token or not header_token or cookie_token != header_token:
+        if not header_token or not secrets.compare_digest(cookie_token, header_token):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "CSRF token missing or invalid"}

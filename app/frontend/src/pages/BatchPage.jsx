@@ -87,7 +87,7 @@ export default function BatchPage() {
       for (const id of pendingIds) {
         try {
           const data = await getNarrative(id)
-          if (data.status === 'ready' || data.status === 'failed') {
+          if (data.status === 'ready' || data.status === 'fallback' || data.status === 'failed') {
             setStreamingResults(prev => prev.map(item => {
               if (item.screeningResultId !== id) return item
               const updatedResult = {

@@ -18,16 +18,20 @@
 - [test_webhooks.py](file://app/backend/tests/test_webhooks.py)
 - [013_webhooks_and_notifications.py](file://alembic/versions/013_webhooks_and_notifications.py)
 - [014_billing_system.py](file://alembic/versions/014_billing_system.py)
+- [webhook_docs.py](file://app/backend/routes/webhook_docs.py)
+- [notification_service.py](file://app/backend/services/notification_service.py)
+- [billing/webhook_processor.py](file://app/backend/services/billing/webhook_processor.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive webhook system documentation with PostgreSQL compatibility improvements
-- Updated database model documentation to reflect boolean field handling
-- Added webhook service implementation details and retry mechanisms
-- Enhanced security measures with signature verification and HTTPS enforcement
-- Expanded monitoring and debugging sections with delivery tracking
-- Updated architecture diagrams to show webhook delivery workflow
+- Enhanced webhook systems with comprehensive background processing and thread pool execution
+- Added webhook registry management with tenant isolation and event-driven integration
+- Implemented delivery history tracking with comprehensive retry logic and auto-disable mechanisms
+- Integrated webhook event registry for self-documenting webhook integrations
+- Added webhook URL validation and security measures including signature verification
+- Enhanced admin endpoints for webhook CRUD operations and delivery monitoring
+- Integrated billing webhook processing with subscription change notifications
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -35,548 +39,615 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [PostgreSQL Compatibility Enhancements](#postgresql-compatibility-enhancements)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
-11. [Appendices](#appendices)
+6. [Enhanced Background Processing](#enhanced-background-processing)
+7. [Webhook Registry Management](#webhook-registry-management)
+8. [Delivery History and Monitoring](#delivery-history-and-monitoring)
+9. [Security and Validation](#security-and-validation)
+10. [Event-Driven Integration Patterns](#event-driven-integration-patterns)
+11. [Admin Management Interface](#admin-management-interface)
+12. [Testing and Validation](#testing-and-validation)
+13. [Performance Considerations](#performance-considerations)
+14. [Troubleshooting Guide](#troubleshooting-guide)
+15. [Conclusion](#conclusion)
+16. [Appendices](#appendices)
 
 ## Introduction
-This document describes webhook implementation patterns for Resume AI, focusing on event-driven integrations, endpoint configuration, payload structures, delivery reliability, and security. Resume AI now includes a fully functional webhook system with PostgreSQL-compatible boolean handling, providing robust event-driven integrations for analysis completion, candidate updates, and subscription events. The system ensures deployment reliability across different database systems while maintaining security and observability.
+This document describes the enhanced webhook implementation patterns for Resume AI, focusing on comprehensive event-driven integrations, background processing, tenant isolation, and robust delivery mechanisms. Resume AI now features a fully enhanced webhook system with PostgreSQL-compatible boolean handling, comprehensive retry logic, delivery history tracking, and tenant-scoped webhook registry management. The system provides reliable event-driven integrations for analysis completion, candidate updates, subscription events, and billing webhook processing with automatic failure detection and recovery.
 
 ## Project Structure
-Resume AI is a FastAPI-based backend with Nginx ingress and a React frontend. The webhook system is integrated into the existing architecture with dedicated models, services, and admin endpoints:
+Resume AI is a FastAPI-based backend with Nginx ingress and a React frontend. The enhanced webhook system is integrated with comprehensive background processing, tenant isolation, and administrative management interfaces:
 
-- FastAPI app registers routers for analysis, subscription, and webhook administration
-- PostgreSQL database stores webhook configurations and delivery records with proper boolean handling
-- Nginx enforces HTTPS and rate limiting for all API endpoints
-- Frontend integrates with streaming analysis and subscription APIs
+- FastAPI app with enhanced webhook service supporting background processing
+- PostgreSQL database with tenant-scoped webhook configurations and delivery tracking
+- Thread pool executor for non-blocking webhook dispatch
+- Webhook event registry for self-documenting integrations
+- Administrative endpoints for webhook management and monitoring
+- Frontend integration with webhook management interface
 
 ```mermaid
 graph TB
-subgraph "Ingress"
+subgraph "Ingress Layer"
 Nginx["Nginx (HTTPS + Rate Limiting)"]
 end
-subgraph "Backend"
+subgraph "Application Layer"
 FastAPI["FastAPI App"]
-Analyze["/api routes (analyze, subscription)"]
-WebhookSvc["Webhook Service"]
-Auth["JWT Auth Middleware"]
-Models["Database Models"]
+Analyze["Analysis Routes"]
+Subscription["Subscription Routes"]
+Billing["Billing Webhook Processor"]
+WebhookDocs["Webhook Docs Router"]
+Admin["Admin Webhook Management"]
 end
-subgraph "Database"
+subgraph "Background Processing"
+ThreadPool["Thread Pool Executor"]
+Service["Webhook Service"]
+end
+subgraph "Data Layer"
 PostgreSQL["PostgreSQL"]
 Webhooks["Webhooks Table"]
 Deliveries["Webhook Deliveries Table"]
+AdminNotifs["Admin Notifications"]
 end
 subgraph "Frontend"
-FE["React SPA"]
+FE["React Admin Interface"]
 end
 Nginx --> FastAPI
 FastAPI --> Analyze
-FastAPI --> WebhookSvc
-Analyze --> Auth
-Analyze --> Models
-WebhookSvc --> Models
-Models --> PostgreSQL
-Webhooks --> PostgreSQL
-Deliveries --> PostgreSQL
+FastAPI --> Subscription
+FastAPI --> Billing
+FastAPI --> WebhookDocs
+FastAPI --> Admin
+Admin --> ThreadPool
+ThreadPool --> Service
+Service --> Webhooks
+Service --> Deliveries
+Service --> AdminNotifs
+WebhookDocs --> PostgreSQL
+Admin --> PostgreSQL
 FE --> Nginx
 ```
 
 **Diagram sources**
 - [main.py:174-214](file://app/backend/main.py#L174-L214)
 - [nginx.prod.conf:27-101](file://app/nginx/nginx.prod.conf#L27-L101)
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [webhook_service.py:134-158](file://app/backend/services/webhook_service.py#L134-L158)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
+- [webhook_docs.py:10-94](file://app/backend/routes/webhook_docs.py#L10-L94)
+- [admin.py:1556-1679](file://app/backend/routes/admin.py#L1556-L1679)
 
 **Section sources**
 - [main.py:174-214](file://app/backend/main.py#L174-L214)
 - [nginx.prod.conf:27-101](file://app/nginx/nginx.prod.conf#L27-L101)
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [webhook_service.py:134-158](file://app/backend/services/webhook_service.py#L134-L158)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
+- [webhook_docs.py:10-94](file://app/backend/routes/webhook_docs.py#L10-L94)
+- [admin.py:1556-1679](file://app/backend/routes/admin.py#L1556-L1679)
 
 ## Core Components
-- **Authentication and authorization**: JWT bearer tokens protect routes and enable tenant-scoped usage enforcement
-- **Analysis pipeline**: Non-streaming and streaming endpoints for resume analysis, with structured logging upon completion
-- **Subscription system**: Usage tracking, limits, and plan-based controls suitable for webhook-triggered billing or notifications
-- **Webhook service**: Asynchronous delivery with retry logic, signature verification, and delivery tracking
-- **Database models**: Tenant, UsageLog, Webhook, WebhookDelivery entities with PostgreSQL-compatible boolean handling
-- **Admin endpoints**: Complete CRUD operations for webhook management and delivery monitoring
+- **Enhanced Webhook Service**: Thread pool executor-based background processing with comprehensive retry logic and delivery tracking
+- **Tenant Isolation**: Webhook configurations and delivery history scoped to individual tenants for security and separation
+- **Webhook Registry**: Self-documenting event registry with example payloads and signing information
+- **Administrative Management**: Complete CRUD operations for webhook management with delivery monitoring and tenant scoping
+- **Background Processing**: Non-blocking webhook dispatch using ThreadPoolExecutor for improved performance
+- **Delivery Tracking**: Comprehensive logging of delivery attempts, success/failure states, and retry mechanisms
+- **Auto-Disable Mechanism**: Automatic webhook deactivation after configurable failure thresholds
+- **Security Features**: URL validation, signature verification, and HTTPS enforcement
 
 Key implementation anchors:
-- JWT-based authentication and admin checks
-- Usage enforcement and logging for analysis completion
-- Subscription usage history and plan limits
-- Structured logging for analysis lifecycle events
-- Asynchronous webhook dispatch with retry mechanisms
-- PostgreSQL-compatible boolean field definitions
+- Thread pool executor with configurable worker count for background processing
+- Tenant-scoped webhook queries and delivery tracking
+- Comprehensive retry logic with exponential backoff delays
+- Webhook URL validation preventing localhost and private IP usage
+- HMAC-SHA256 signature verification for payload integrity
+- Administrative endpoints with platform admin authorization
+- Delivery history with attempt tracking and success indicators
 
 **Section sources**
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
-- [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
-- [admin.py:819-893](file://app/backend/routes/admin.py#L819-L893)
+- [webhook_service.py:134-158](file://app/backend/services/webhook_service.py#L134-L158)
+- [webhook_service.py:49-131](file://app/backend/services/webhook_service.py#L49-L131)
+- [webhook_service.py:160-186](file://app/backend/services/webhook_service.py#L160-L186)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
+- [webhook_docs.py:12-93](file://app/backend/routes/webhook_docs.py#L12-L93)
+- [admin.py:1556-1679](file://app/backend/routes/admin.py#L1556-L1679)
 
 ## Architecture Overview
-The webhook architecture centers on event producers (analysis pipeline and subscription system) and consumers (external systems). The system ensures PostgreSQL compatibility through proper boolean field handling and provides robust delivery guarantees.
+The enhanced webhook architecture provides comprehensive background processing, tenant isolation, and robust delivery mechanisms with automatic failure recovery and monitoring capabilities.
 
 ```mermaid
 graph TB
 subgraph "Event Producers"
-A["Analysis Pipeline<br/>Completion Events"]
-S["Subscription System<br/>Limits & Usage"]
+A["Analysis Pipeline<br/>Analysis Completion Events"]
+S["Subscription System<br/>Usage & Plan Events"]
+B["Billing Processor<br/>Payment & Subscription Events"]
 end
-subgraph "Webhook System"
-WS["Webhook Service<br/>Async Dispatch"]
-Q["Queue (optional)<br/>Retry + DLQ"]
-R["Retry Logic<br/>Backoff + TTL"]
-H["HTTP(S) Endpoint<br/>Consumer"]
+subgraph "Webhook Infrastructure"
+WS["Enhanced Webhook Service<br/>Thread Pool + Background Processing"]
+Q["Retry Queue<br/>Exponential Backoff"]
+H["HTTP(S) Delivery<br/>Consumer Endpoints"]
 end
-subgraph "Database Layer"
-DB["PostgreSQL"]
-W["Webhooks Table<br/>Boolean Fields"]
-D["Webhook Deliveries Table<br/>Success Tracking"]
+subgraph "Tenant Isolation"
+T1["Tenant 1<br/>Webhook Configurations"]
+T2["Tenant 2<br/>Webhook Configurations"]
+T3["Tenant N<br/>Webhook Configurations"]
 end
-subgraph "Security"
-Sig["Signature Verification"]
-TLS["HTTPS Enforcement"]
-RL["Rate Limiting"]
-Auto["Auto-Disable<br/>Failure Threshold"]
+subgraph "Monitoring & Control"
+DH["Delivery History<br/>Attempt Tracking"]
+AD["Admin Dashboard<br/>Webhook Management"]
+AN["Admin Notifications<br/>Failure Alerts"]
+end
+subgraph "Security Layer"
+V["URL Validation<br/>HTTPS Only"]
+SIG["Signature Verification<br/>HMAC-SHA256"]
 end
 A --> WS
 S --> WS
-WS --> Q
-Q --> R
-R --> H
-H --> Sig
-H --> TLS
-H --> RL
-WS --> DB
-DB --> W
-DB --> D
-D --> Auto
+B --> WS
+WS --> T1
+WS --> T2
+WS --> T3
+T1 --> Q
+T2 --> Q
+T3 --> Q
+Q --> H
+H --> V
+H --> SIG
+WS --> DH
+WS --> AD
+WS --> AN
 ```
 
 **Diagram sources**
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
-- [013_webhooks_and_notifications.py:40-88](file://alembic/versions/013_webhooks_and_notifications.py#L40-L88)
+- [webhook_service.py:49-131](file://app/backend/services/webhook_service.py#L49-L131)
+- [webhook_service.py:134-158](file://app/backend/services/webhook_service.py#L134-L158)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
+- [admin.py:1556-1679](file://app/backend/routes/admin.py#L1556-L1679)
+- [notification_service.py:23-62](file://app/backend/services/notification_service.py#L23-L62)
 
 ## Detailed Component Analysis
 
-### Analysis Completion Events
-The analysis pipeline emits structured logs upon completion. These logs are ideal for webhook payloads describing analysis outcomes with proper PostgreSQL boolean handling.
+### Enhanced Background Processing
+The webhook system now utilizes a thread pool executor for non-blocking background processing, significantly improving performance and scalability.
 
 ```mermaid
 sequenceDiagram
-participant Client as "Client"
-participant API as "FastAPI Analyze Route"
-participant DB as "Database"
+participant Client as "Client Request"
+participant API as "FastAPI Route Handler"
+participant TP as "Thread Pool Executor"
 participant WS as "Webhook Service"
-participant Logger as "Structured Logger"
+participant DB as "Database"
+participant Consumer as "External Consumer"
 Client->>API : "POST /api/analyze"
-API->>API : "_check_and_increment_usage()"
-API->>DB : "Persist ScreeningResult"
-API->>Logger : "Log {event : analysis_complete, ...}"
-API->>WS : "dispatch_event(tenant_id, 'analysis_complete', payload)"
-WS->>DB : "Query active webhooks (Boolean filter)"
-WS->>WS : "Sign payload with HMAC-SHA256"
-WS->>WS : "Attempt delivery with retries"
-WS->>DB : "Record delivery attempt (Boolean success)"
-API-->>Client : "JSON result"
+API->>TP : "dispatch_event_background()"
+TP->>WS : "dispatch_event() in background thread"
+WS->>DB : "Query tenant webhooks (is_active=True)"
+WS->>WS : "Process each webhook with retry logic"
+WS->>Consumer : "HTTP POST with signature"
+Consumer-->>WS : "HTTP 2xx/4xx/5xx"
+WS->>DB : "Record delivery attempt"
+WS->>DB : "Update webhook stats (failure_count)"
+API-->>Client : "Immediate response"
 ```
 
 **Diagram sources**
-- [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [webhook_service.py:137-158](file://app/backend/services/webhook_service.py#L137-L158)
+- [webhook_service.py:49-131](file://app/backend/services/webhook_service.py#L49-L131)
 
-Payload structure for analysis completion:
-- event: "analysis_complete"
-- tenant_id: integer
-- filename: string
-- skills_found: integer
-- fit_score: number or null
-- llm_used: boolean (PostgreSQL-compatible)
-- quality: string
-- total_ms: integer
-
-Idempotency and retries:
-- Use a unique event ID (e.g., result_id) in the payload
-- Consumers store received IDs to avoid reprocessing
-- Implement exponential backoff and dead-letter queue for failed deliveries
-
-Security:
-- Sign payloads with HMAC-SHA256 using a shared secret
-- Enforce HTTPS and mutual TLS if possible
-- Apply rate limiting at ingress and per-consumer endpoint
-
-Monitoring:
-- Track delivery latency, retry counts, and failure reasons
-- Maintain a delivery status dashboard
+Key enhancements:
+- **Thread Pool Executor**: Configurable worker count (4) for concurrent webhook processing
+- **Non-blocking Dispatch**: Immediate response to client requests while background processing occurs
+- **Background Session Management**: Each thread creates its own database session for thread safety
+- **Error Isolation**: Exceptions in background threads don't affect main request processing
 
 **Section sources**
-- [analyze.py:323-351](file://app/backend/routes/analyze.py#L323-L351)
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [webhook_service.py:134-158](file://app/backend/services/webhook_service.py#L134-L158)
+- [webhook_service.py:146-158](file://app/backend/services/webhook_service.py#L146-L158)
 
-### Candidate Updates
-Candidate profiles are updated during analysis. Consumers can subscribe to candidate change events by polling or by emitting candidate update webhooks.
+### Webhook Registry Management
+The system provides comprehensive webhook registry management with tenant isolation and event-driven integration capabilities.
 
 ```mermaid
 flowchart TD
-Start(["Candidate Updated"]) --> Dedup{"Duplicate Detected?"}
-Dedup --> |Yes| Merge["Merge Profiles<br/>Preserve Existing"]
-Dedup --> |No| Create["Create New Candidate"]
-Merge --> Store["Store Profile Snapshot"]
-Create --> Store
-Store --> Emit["Emit Candidate Update Event"]
-Emit --> WS["Webhook Service<br/>Async Dispatch"]
-WS --> DB["Record Delivery Attempt"]
-WS --> End(["Done"])
+Start(["Webhook Registration"]) --> Validate["Validate URL<br/>HTTPS Only, No Private IPs"]
+Validate --> Create["Create Webhook Record<br/>Tenant Scoped"]
+Create --> Events["Configure Events<br/>JSON Array or '*'"]
+Events --> Secret["Generate/Use Secret<br/>HMAC-SHA256"]
+Secret --> Store["Store in Database<br/>Tenant Isolation"]
+Store --> Ready["Ready for Events<br/>is_active=True"]
+Ready --> Dispatch["Event Trigger<br/>dispatch_event_background()"]
+Dispatch --> Process["Process Webhooks<br/>Tenant Filter"]
+Process --> Retry["Retry Logic<br/>3 Attempts"]
+Retry --> Success["Success<br/>failure_count=0"]
+Retry --> Failure["Failure<br/>failure_count++"]
+Failure --> Threshold{"Threshold?<br/>>= 10 failures"}
+Success --> StoreStats["Update Stats<br/>last_triggered_at"]
+Failure --> StoreStats
+Threshold --> |Yes| Disable["Auto-Disable<br/>is_active=False"]
+Threshold --> |No| Continue["Continue Processing"]
+Disable --> Notify["Admin Notification<br/>create_admin_notification()"]
+Continue --> StoreStats
+Notify --> Complete["Complete"]
+StoreStats --> Complete
 ```
 
-Payload structure for candidate updates:
-- event: "candidate_updated"
-- candidate_id: integer
-- tenant_id: integer
-- action: "created" | "updated" | "merged"
-- profile: snapshot JSON
-- timestamp: ISO string
-
-Idempotency:
-- Use candidate_id + action + timestamp as dedup key
-- Store last processed event metadata per consumer
+**Diagram sources**
+- [admin.py:1585-1646](file://app/backend/routes/admin.py#L1585-L1646)
+- [webhook_service.py:49-131](file://app/backend/services/webhook_service.py#L49-L131)
+- [notification_service.py:23-62](file://app/backend/services/notification_service.py#L23-L62)
 
 **Section sources**
-- [analyze.py:147-214](file://app/backend/routes/analyze.py#L147-L214)
-- [analyze.py:118-145](file://app/backend/routes/analyze.py#L118-L145)
+- [admin.py:1556-1679](file://app/backend/routes/admin.py#L1556-L1679)
+- [webhook_service.py:49-131](file://app/backend/services/webhook_service.py#L49-L131)
+- [notification_service.py:23-62](file://app/backend/services/notification_service.py#L23-L62)
 
-### Subscription Events
-The subscription system tracks usage and plan limits. Webhooks can notify downstream systems about plan changes, usage thresholds, and limits with proper PostgreSQL boolean handling.
+### Delivery History and Monitoring
+Comprehensive delivery tracking provides detailed insights into webhook delivery performance and troubleshooting capabilities.
 
 ```mermaid
 sequenceDiagram
-participant Client as "Client"
-participant API as "FastAPI Subscription Route"
-participant DB as "Database"
+participant Producer as "Event Producer"
 participant WS as "Webhook Service"
-participant Consumer as "Consumer Webhook"
-Client->>API : "GET /api/subscription/check/{action}"
-API->>DB : "Check limits & usage"
-API-->>Client : "UsageCheckResponse"
-API->>WS : "dispatch_event(tenant_id, 'subscription_usage_check', payload)"
-WS->>DB : "Filter active webhooks (Boolean is_active)"
-WS->>Consumer : "POST subscription.event (payload)"
-```
-
-Payload structure for subscription events:
-- event: "subscription_usage_check" | "subscription_plan_changed"
-- tenant_id: integer
-- action: string
-- allowed: boolean (PostgreSQL-compatible)
-- current_usage: integer
-- limit: integer
-- message: string or null
-
-Idempotency:
-- Use a correlation ID in the payload
-- Consumers maintain a set of processed correlation IDs
-
-**Section sources**
-- [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
-- [subscription.py:394-422](file://app/backend/routes/subscription.py#L394-L422)
-
-### Streaming Analysis and SSE
-The streaming endpoint emits stage events and completes with a final result. Consumers can subscribe to SSE streams or receive a webhook upon completion.
-
-```mermaid
-sequenceDiagram
-participant Client as "Client"
-participant SSE as "SSE Stream"
-participant API as "FastAPI Analyze Stream"
 participant DB as "Database"
-Client->>API : "POST /api/analyze/stream"
-API->>SSE : "data : {stage : parsing, ...}"
-API->>SSE : "data : {stage : scoring, ...}"
-API->>SSE : "data : {stage : complete, result}"
-API->>DB : "Persist ScreeningResult"
-API->>WS : "dispatch_event('analysis_complete', payload)"
-API-->>Client : "[DONE]"
-```
-
-Payload structure for SSE stages:
-- stage: "parsing" | "scoring" | "complete" | "error"
-- result: partial or final analysis JSON
-
-Webhook equivalent:
-- Emit a single "analysis_complete" webhook with the final result
-
-**Section sources**
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-
-### Webhook Service Implementation
-The webhook service provides asynchronous delivery with robust retry logic and PostgreSQL-compatible boolean handling.
-
-```mermaid
-flowchart TD
-Start(["dispatch_event"]) --> Query["Query Active Webhooks<br/>(Boolean Filter)"]
-Query --> Filter["Filter by Event Type"]
-Filter --> Payload["Build Full Payload"]
-Payload --> Loop{"Retry Attempts"}
-Loop --> |Attempt 1| Send1["Send HTTP Request"]
-Loop --> |Attempt 2| Send2["Send HTTP Request"]
-Loop --> |Attempt 3| Send3["Send HTTP Request"]
-Send1 --> Success1{"Success?"}
-Send2 --> Success2{"Success?"}
-Send3 --> Success3{"Success?"}
-Success1 --> |Yes| Record1["Record Success<br/>(Boolean success)"]
-Success1 --> |No| Loop
-Success2 --> |Yes| Record2["Record Success<br/>(Boolean success)"]
-Success2 --> |No| Loop
-Success3 --> |Yes| Record3["Record Success<br/>(Boolean success)"]
-Success3 --> |No| Disable["Auto-Disable Webhook<br/>(Boolean is_active)"]
-Record1 --> Commit["Commit Transaction"]
-Record2 --> Commit
-Record3 --> Commit
-Disable --> Commit
-Commit --> End(["Complete"])
+participant Consumer as "External Consumer"
+Producer->>WS : "dispatch_event_background()"
+WS->>DB : "Query active webhooks (tenant_id)"
+loop For each webhook
+WS->>WS : "Build full payload with signature"
+WS->>Consumer : "HTTP POST attempt #1"
+alt Success (2xx)
+Consumer-->>WS : "200 OK"
+WS->>DB : "Create WebhookDelivery (success=True, attempt=1)"
+else Failure (4xx/5xx)
+Consumer-->>WS : "4xx/5xx Error"
+WS->>DB : "Create WebhookDelivery (success=False, attempt=1)"
+WS->>WS : "Sleep 1s (RETRY_DELAYS[0])"
+WS->>Consumer : "HTTP POST attempt #2"
+end
+alt Success
+Consumer-->>WS : "200 OK"
+WS->>DB : "Update webhook (failure_count=0)"
+else Failure
+Consumer-->>WS : "4xx/5xx Error"
+WS->>DB : "Create WebhookDelivery (success=False, attempt=2)"
+WS->>WS : "Sleep 5s (RETRY_DELAYS[1])"
+WS->>Consumer : "HTTP POST attempt #3"
+end
+alt Success
+Consumer-->>WS : "200 OK"
+WS->>DB : "Update webhook (failure_count=0)"
+else Failure
+Consumer-->>WS : "4xx/5xx Error"
+WS->>DB : "Create WebhookDelivery (success=False, attempt=3)"
+WS->>DB : "Increment webhook.failure_count"
+WS->>DB : "Check threshold (>=10)"
+alt Threshold reached
+WS->>DB : "Set is_active=False"
+WS->>DB : "create_admin_notification()"
+end
+end
+end
 ```
 
 **Diagram sources**
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [webhook_service.py:83-131](file://app/backend/services/webhook_service.py#L83-L131)
+- [db_models.py:510-524](file://app/backend/models/db_models.py#L510-L524)
+
+**Section sources**
+- [webhook_service.py:83-131](file://app/backend/services/webhook_service.py#L83-L131)
+- [db_models.py:510-524](file://app/backend/models/db_models.py#L510-L524)
+
+### Security and Validation
+Enhanced security measures ensure webhook delivery integrity and prevent unauthorized access to webhook endpoints.
+
+```mermaid
+flowchart TD
+A["Incoming Webhook Request"] --> B["Validate URL<br/>HTTPS scheme only"]
+B --> |Valid| C["Validate Hostname<br/>No localhost/private IPs"]
+C --> |Valid| D["Validate Signature<br/>HMAC-SHA256"]
+D --> |Valid| E["Process Event<br/>Tenant Isolation"]
+D --> |Invalid| F["Reject Request<br/>400 Bad Request"]
+C --> |Invalid| F
+B --> |Invalid| F
+E --> G["Update Delivery Records<br/>success=True"]
+F --> H["Log Security Event"]
+G --> I["Auto-Disable Check<br/>failure_count >= 10"]
+I --> |Yes| J["Set is_active=False<br/>Notify Admin"]
+I --> |No| K["Continue Normal Operation"]
+J --> L["Complete"]
+K --> L
+```
+
+**Diagram sources**
+- [webhook_service.py:160-186](file://app/backend/services/webhook_service.py#L160-L186)
+- [webhook_service.py:21-23](file://app/backend/services/webhook_service.py#L21-L23)
+
+**Section sources**
+- [webhook_service.py:160-186](file://app/backend/services/webhook_service.py#L160-L186)
+- [webhook_service.py:21-23](file://app/backend/services/webhook_service.py#L21-L23)
+
+### Event-Driven Integration Patterns
+The system supports comprehensive event-driven integration patterns with flexible event subscription and tenant isolation.
+
+**Section sources**
+- [webhook_docs.py:12-93](file://app/backend/routes/webhook_docs.py#L12-L93)
+- [billing/webhook_processor.py:97-111](file://app/backend/services/billing/webhook_processor.py#L97-L111)
+
+## Enhanced Background Processing
+
+### Thread Pool Executor Configuration
+The webhook service utilizes a ThreadPoolExecutor for non-blocking background processing with configurable worker capacity.
 
 Key features:
-- **Asynchronous processing**: Non-blocking webhook dispatch
-- **Exponential backoff**: 1s, 5s, 30s retry delays
-- **Automatic disabling**: Webhooks disabled after 10 consecutive failures
-- **Delivery tracking**: Comprehensive logging of attempts and responses
-- **PostgreSQL compatibility**: Proper boolean field handling in database operations
+- **Worker Count**: 4 concurrent workers for balanced performance
+- **Thread Naming**: "webhook" prefix for easy identification
+- **Background Dispatch**: `dispatch_event_background()` enables fire-and-forget processing
+- **Session Management**: Each thread creates its own database session for thread safety
 
 **Section sources**
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+- [webhook_service.py:134-158](file://app/backend/services/webhook_service.py#L134-L158)
+- [webhook_service.py:146-158](file://app/backend/services/webhook_service.py#L146-L158)
 
-### Security Measures
-- **Signature verification**: Sign webhook payloads with HMAC-SHA256 using a shared secret. Consumers verify signatures before processing.
-- **HTTPS enforcement**: All traffic is served over HTTPS at the ingress layer.
-- **Rate limiting**: Nginx applies rate limits to API endpoints; apply per-consumer endpoint limits as well.
-- **JWT authentication**: Use bearer tokens for protected routes and administrative endpoints.
-- **PostgreSQL security**: Boolean fields properly handled across different database systems.
+### Retry Logic and Exponential Backoff
+Comprehensive retry mechanism with exponential backoff ensures reliable delivery even under transient failures.
 
-```mermaid
-flowchart TD
-A["Incoming Webhook"] --> B["Verify Signature"]
-B --> |Valid| C["Apply Idempotency"]
-B --> |Invalid| D["Reject"]
-C --> E["Process Event"]
-E --> F["Update Delivery Records<br/>(Boolean success)"]
-F --> G["Auto-Disable if Needed<br/>(Boolean is_active)"]
-G --> H["Acknowledge"]
-```
+Retry configuration:
+- **Maximum Retries**: 3 attempts per webhook delivery
+- **Backoff Delays**: 1s, 5s, 30s between retry attempts
+- **Failure Threshold**: Auto-disable after 10 consecutive failures
+- **Attempt Tracking**: Detailed logging of each delivery attempt
 
 **Section sources**
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [nginx.prod.conf:9-10](file://app/nginx/nginx.prod.conf#L9-L10)
-- [nginx.prod.conf:28-38](file://app/nginx/nginx.prod.conf#L28-L38)
-- [webhook_service.py:18-43](file://app/backend/services/webhook_service.py#L18-L43)
+- [webhook_service.py:16-18](file://app/backend/services/webhook_service.py#L16-L18)
+- [webhook_service.py:83-109](file://app/backend/services/webhook_service.py#L83-L109)
 
-### Queue Management and Retry
-Recommended queue and retry strategy:
-- Use a managed queue (e.g., Redis Streams, RabbitMQ, or cloud equivalents)
-- Implement exponential backoff (1s, 5s, 30s, 5m, 15m) with jitter
-- Set a maximum retry window (e.g., 24 hours)
-- Move unrecoverable failures to a dead-letter queue for manual inspection
-- Maintain delivery receipts and timestamps
+## Webhook Registry Management
 
-**Section sources**
-- [webhook_service.py:13-15](file://app/backend/services/webhook_service.py#L13-L15)
+### Tenant Isolation
+Webhook configurations are strictly isolated to individual tenants for security and separation of concerns.
 
-### Monitoring and Debugging
-- **Logging**: Emit structured logs for all webhook events with correlation IDs
-- **Metrics**: Track delivery latency, retry counts, and failure rates
-- **Dashboards**: Visualize delivery status and consumer health
-- **Debugging**: Enable verbose logging for failed deliveries; inspect signatures and timestamps
-- **Delivery tracking**: Monitor webhook delivery attempts and success rates
+Tenant scoping features:
+- **Foreign Key Relationships**: Webhooks linked to tenants via `tenant_id` foreign key
+- **Tenant Queries**: All webhook operations filtered by tenant context
+- **Isolated Delivery History**: Delivery records scoped to specific tenant webhooks
+- **Administrative Access**: Platform admin authorization required for webhook management
 
 **Section sources**
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [admin.py:896-926](file://app/backend/routes/admin.py#L896-L926)
+- [db_models.py:491-507](file://app/backend/models/db_models.py#L491-L507)
+- [admin.py:1556-1679](file://app/backend/routes/admin.py#L1556-L1679)
 
-## PostgreSQL Compatibility Enhancements
+### Event Subscription Management
+Flexible event subscription system allows granular control over webhook event delivery.
 
-### Boolean Field Handling
-The webhook system has been enhanced with PostgreSQL-compatible boolean field handling, ensuring reliable operation across different database systems:
-
-- **Webhook.is_active**: Boolean field with proper server default handling
-- **WebhookDelivery.success**: Boolean field indicating delivery success/failure
-- **Database migration compatibility**: Alembic migrations properly define boolean columns
-
-```mermaid
-flowchart TD
-DB["PostgreSQL Database"] --> MIG["Alembic Migration"]
-MIG --> COL1["webhooks.is_active<br/>Boolean, nullable=False,<br/>server_default=sa.true()"]
-MIG --> COL2["webhook_deliveries.success<br/>Boolean, nullable=False,<br/>server_default=sa.false()"]
-COL1 --> QUERY["Query Active Webhooks"]
-COL2 --> TRACK["Track Delivery Success"]
-QUERY --> FILTER["Filter by Boolean Value"]
-TRACK --> UPDATE["Update Boolean Fields"]
-FILTER --> EXEC["Execute Query"]
-UPDATE --> COMMIT["Commit Transaction"]
-```
-
-**Diagram sources**
-- [013_webhooks_and_notifications.py:48](file://alembic/versions/013_webhooks_and_notifications.py#L48)
-- [013_webhooks_and_notifications.py:76](file://alembic/versions/013_webhooks_and_notifications.py#L76)
-- [db_models.py:340](file://app/backend/models/db_models.py#L340)
-- [db_models.py:360](file://app/backend/models/db_models.py#L360)
-
-### Migration Improvements
-The migration system now properly handles boolean values across different database systems:
-
-- **Consistent defaults**: Boolean fields have explicit server defaults
-- **Type safety**: Proper SQLAlchemy boolean type definitions
-- **Cross-database compatibility**: Migration scripts work reliably on PostgreSQL, MySQL, and SQLite
-- **Index optimization**: Boolean fields properly indexed for filtering
+Event configuration:
+- **Wildcard Support**: `"*"` subscribes to all events
+- **JSON Array Format**: Events stored as JSON arrays in database
+- **Event Filtering**: Webhooks only receive subscribed event types
+- **Dynamic Updates**: Events array can be modified without recreating webhooks
 
 **Section sources**
-- [013_webhooks_and_notifications.py:48](file://alembic/versions/013_webhooks_and_notifications.py#L48)
-- [013_webhooks_and_notifications.py:76](file://alembic/versions/013_webhooks_and_notifications.py#L76)
-- [db_models.py:340](file://app/backend/models/db_models.py#L340)
-- [db_models.py:360](file://app/backend/models/db_models.py#L360)
+- [webhook_service.py:62-69](file://app/backend/services/webhook_service.py#L62-L69)
+- [db_models.py:499](file://app/backend/models/db_models.py#L499)
 
-## Dependency Analysis
-The webhook system relies on:
-- JWT authentication for route protection
-- PostgreSQL database with proper boolean field handling
-- Database models for usage tracking and auditability
-- Nginx for HTTPS and rate limiting
-- Frontend integration for streaming and subscription UI
+## Delivery History and Monitoring
 
-```mermaid
-graph LR
-JWT["JWT Auth"] --> Routes["API Routes"]
-Routes --> Models["DB Models"]
-Routes --> WebhookSvc["Webhook Service"]
-WebhookSvc --> PostgreSQL["PostgreSQL"]
-Models --> PostgreSQL
-FE["Frontend"] --> Nginx["Nginx"]
-Nginx --> Routes
-```
+### Comprehensive Delivery Tracking
+Every webhook delivery attempt is recorded with detailed information for monitoring and troubleshooting.
 
-**Diagram sources**
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [nginx.prod.conf:27-101](file://app/nginx/nginx.prod.conf#L27-L101)
+Delivery record fields:
+- **Event Type**: Specific event being delivered
+- **Response Status**: HTTP status code received
+- **Response Body**: First 1000 characters of response
+- **Success Indicator**: Boolean success/failure flag
+- **Attempt Number**: Which retry attempt this represents
+- **Timestamps**: Creation time and attempt timing
 
 **Section sources**
-- [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
-- [webhook_service.py:46-112](file://app/backend/services/webhook_service.py#L46-L112)
-- [nginx.prod.conf:27-101](file://app/nginx/nginx.prod.conf#L27-L101)
+- [db_models.py:510-524](file://app/backend/models/db_models.py#L510-L524)
+- [webhook_service.py:88-96](file://app/backend/services/webhook_service.py#L88-L96)
 
-## Performance Considerations
-- Use asynchronous processing for webhook consumers to avoid blocking
-- Batch small events to reduce overhead
-- Tune queue backpressure and consumer concurrency
-- Apply circuit breakers to prevent cascading failures
-- Optimize PostgreSQL boolean field queries with proper indexing
-- Monitor webhook delivery performance and adjust retry strategies
+### Auto-Disable Mechanism
+Robust failure detection prevents continued delivery attempts to non-responsive endpoints.
 
-## Troubleshooting Guide
-Common issues and resolutions:
-- **Signature verification failures**: Ensure shared secrets match and signatures are computed over canonicalized payloads
-- **Rate limiting**: Reduce request volume or increase limits; monitor per-consumer quotas
-- **Delivery timeouts**: Increase consumer timeouts and implement retry with backoff
-- **Duplicate processing**: Enforce idempotency using unique event IDs and deduplication keys
-- **PostgreSQL boolean issues**: Verify boolean field defaults and server-side constraints
-- **Webhook auto-disabling**: Check failure thresholds and delivery logs
+Auto-disable criteria:
+- **Failure Threshold**: 10 consecutive failed attempts
+- **Automatic Suspension**: Webhook marked inactive (`is_active=False`)
+- **Administrative Notification**: Critical severity notification sent to admins
+- **Manual Recovery**: Webhook can be manually re-enabled after resolution
 
 **Section sources**
-- [nginx.prod.conf:9-10](file://app/nginx/nginx.prod.conf#L9-L10)
-- [webhook_service.py:107-109](file://app/backend/services/webhook_service.py#L107-L109)
+- [webhook_service.py:110-131](file://app/backend/services/webhook_service.py#L110-L131)
+- [notification_service.py:23-62](file://app/backend/services/notification_service.py#L23-L62)
 
-## Conclusion
-Resume AI provides a comprehensive webhook-based integration platform with enhanced PostgreSQL compatibility. The system offers secure, reliable, and observable webhook workflows through proper boolean field handling, robust retry mechanisms, and comprehensive delivery tracking. The recommended patterns—signature verification, HTTPS enforcement, rate limiting, idempotent processing, and robust retry—ensure resilient integrations that scale with the platform while maintaining deployment reliability across different database systems.
+## Security and Validation
 
-## Appendices
+### URL Validation
+Strict URL validation prevents security vulnerabilities and ensures proper delivery endpoints.
 
-### Appendix A: Endpoint Reference
-- POST /api/analyze: Non-streaming analysis; emits completion event
-- POST /api/analyze/stream: Streaming analysis; emits stage events
-- GET /api/subscription: Subscription details and usage
-- GET /api/subscription/check/{action}: Usage check for actions (e.g., resume_analysis)
-- GET /api/subscription/usage-history: Recent usage logs
-- GET /api/admin/tenants/{tenant_id}/webhooks: List tenant webhooks
-- POST /api/admin/tenants/{tenant_id}/webhooks: Create webhook
-- DELETE /api/admin/tenants/{tenant_id}/webhooks/{webhook_id}: Delete webhook
-- GET /api/admin/tenants/{tenant_id}/webhooks/{webhook_id}/deliveries: View delivery history
+Validation rules:
+- **Scheme Enforcement**: Only HTTPS URLs permitted
+- **Hostname Restrictions**: Blocks localhost, 127.0.0.1, ::1, 0.0.0.0
+- **Private IP Blocking**: Prevents access to private network ranges
+- **Reserved IP Blocking**: Blocks reserved and special-purpose addresses
 
 **Section sources**
-- [analyze.py:354-501](file://app/backend/routes/analyze.py#L354-L501)
-- [analyze.py:506-646](file://app/backend/routes/analyze.py#L506-L646)
-- [subscription.py:172-253](file://app/backend/routes/subscription.py#L172-L253)
-- [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
-- [subscription.py:346-367](file://app/backend/routes/subscription.py#L346-L367)
-- [admin.py:819-893](file://app/backend/routes/admin.py#L819-L893)
-- [admin.py:896-926](file://app/backend/routes/admin.py#L896-L926)
+- [webhook_service.py:160-186](file://app/backend/services/webhook_service.py#L160-L186)
 
-### Appendix B: Payload Examples
-- Analysis completion event:
-  - event: "analysis_complete"
-  - tenant_id: integer
-  - filename: string
-  - skills_found: integer
-  - fit_score: number or null
-  - llm_used: boolean (PostgreSQL-compatible)
-  - quality: string
-  - total_ms: integer
+### Signature Verification
+HMAC-SHA256 signature verification ensures payload integrity and authenticates webhook sources.
 
-- Candidate update event:
-  - event: "candidate_updated"
-  - candidate_id: integer
-  - tenant_id: integer
-  - action: "created" | "updated" | "merged"
-  - profile: snapshot JSON
-  - timestamp: ISO string
-
-- Subscription usage check event:
-  - event: "subscription_usage_check"
-  - tenant_id: integer
-  - action: string
-  - allowed: boolean (PostgreSQL-compatible)
-  - current_usage: integer
-  - limit: integer
-  - message: string or null
+Signature implementation:
+- **Header Format**: `X-Webhook-Signature: sha256=<digest>`
+- **Digest Calculation**: SHA256 of raw JSON payload using webhook secret
+- **Verification Process**: Recompute digest and compare with received signature
+- **Security Headers**: Standardized header format for consumer compatibility
 
 **Section sources**
-- [analyze.py:491-500](file://app/backend/routes/analyze.py#L491-L500)
-- [analyze.py:147-214](file://app/backend/routes/analyze.py#L147-L214)
-- [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
+- [webhook_service.py:21-23](file://app/backend/services/webhook_service.py#L21-L23)
+- [webhook_docs.py:76-84](file://app/backend/routes/webhook_docs.py#L76-L84)
 
-### Appendix C: Testing and Validation
-- Backend route registration tests confirm subscription and analyze routes are present
-- Subscription tests validate usage history and plan retrieval
-- Webhook tests validate service layer functionality and admin endpoints
-- Frontend integration tests ensure API endpoints are reachable
+## Event-Driven Integration Patterns
+
+### Webhook Event Registry
+Self-documenting event registry provides comprehensive information about available webhook events for integrators.
+
+Registry features:
+- **Event Descriptions**: Clear explanations of each event type
+- **Example Payloads**: Representative JSON examples for each event
+- **Signing Information**: HMAC-SHA256 signature details and header format
+- **Public Endpoint**: `/api/webhooks/events` accessible without authentication
 
 **Section sources**
-- [run-full-tests.sh:137-168](file://scripts/run-full-tests.sh#L137-L168)
-- [test_subscription.py:15-47](file://app/backend/tests/test_subscription.py#L15-L47)
+- [webhook_docs.py:12-93](file://app/backend/routes/webhook_docs.py#L12-L93)
+
+### Billing Webhook Integration
+Seamless integration with billing system provides subscription change notifications and payment status updates.
+
+Integration patterns:
+- **Subscription Changes**: Automatic firing of `subscription.changed` events
+- **Payment Status**: Real-time updates for payment approval/rejection
+- **Dunning Events**: Automated notifications for payment retry processes
+- **Tenant Context**: All billing events include tenant identification
+
+**Section sources**
+- [billing/webhook_processor.py:97-111](file://app/backend/services/billing/webhook_processor.py#L97-L111)
+
+## Admin Management Interface
+
+### Comprehensive CRUD Operations
+Administrative endpoints provide complete webhook management capabilities with tenant scoping and security controls.
+
+Management features:
+- **Create Webhooks**: Configure URL, secret, and event subscriptions
+- **List Webhooks**: View all tenant webhooks with status and statistics
+- **Delete Webhooks**: Remove webhook configurations when no longer needed
+- **Delivery History**: Monitor delivery attempts and success rates
+- **Platform Admin Only**: Strict authorization requirements for management access
+
+**Section sources**
+- [admin.py:1556-1679](file://app/backend/routes/admin.py#L1556-L1679)
+
+### Delivery Monitoring Dashboard
+Administrative interface provides comprehensive monitoring of webhook delivery performance and troubleshooting capabilities.
+
+Monitoring capabilities:
+- **Delivery Statistics**: Success/failure rates and retry patterns
+- **Webhook Status**: Active/inactive state and failure counts
+- **Recent Activity**: Latest delivery attempts and timestamps
+- **Failure Analysis**: Trend analysis for webhook reliability
+
+**Section sources**
+- [admin.py:1649-1679](file://app/backend/routes/admin.py#L1649-L1679)
+
+## Testing and Validation
+
+### Comprehensive Test Coverage
+Extensive test suite validates webhook functionality, background processing, and administrative operations.
+
+Test categories:
+- **Service Layer Tests**: Core webhook dispatch and retry logic validation
+- **Admin Endpoint Tests**: CRUD operations and authorization testing
+- **Background Processing**: Thread pool execution and session management
+- **Delivery Tracking**: History recording and statistics maintenance
+- **Auto-Disable Functionality**: Failure threshold and notification validation
+
+**Section sources**
 - [test_webhooks.py:109-142](file://app/backend/tests/test_webhooks.py#L109-L142)
-- [README.md:82-91](file://scripts/README.md#L82-L91)
+- [test_webhooks.py:146-198](file://app/backend/tests/test_webhooks.py#L146-L198)
+- [test_webhooks.py:202-339](file://app/backend/tests/test_webhooks.py#L202-L339)
 
-### Appendix D: Database Schema Details
-- **Webhooks table**: Stores webhook configurations with PostgreSQL-compatible boolean fields
-- **Webhook deliveries table**: Tracks delivery attempts with success indicators
-- **Migration compatibility**: Proper boolean field definitions for cross-database deployment
+### Database Migration Validation
+Alembic migrations ensure consistent webhook database schema across environments with proper PostgreSQL compatibility.
+
+Migration features:
+- **Webhooks Table**: Tenant-scoped webhook configurations with boolean fields
+- **Webhook Deliveries Table**: Delivery attempt history with success tracking
+- **Index Optimization**: Proper indexing for tenant and webhook queries
+- **Server Defaults**: Consistent boolean field defaults across database systems
 
 **Section sources**
 - [013_webhooks_and_notifications.py:40-88](file://alembic/versions/013_webhooks_and_notifications.py#L40-L88)
-- [db_models.py:331-364](file://app/backend/models/db_models.py#L331-L364)
+
+## Performance Considerations
+- **Thread Pool Sizing**: Configurable worker count balances throughput and resource usage
+- **Background Processing**: Non-blocking dispatch prevents request timeouts
+- **Database Connection Management**: Per-thread sessions prevent connection conflicts
+- **Retry Optimization**: Exponential backoff reduces load on failing endpoints
+- **Delivery History**: Efficient indexing on webhook_id and created_at for monitoring queries
+- **Memory Management**: Automatic cleanup of background thread resources
+
+## Troubleshooting Guide
+Common issues and resolutions:
+- **Background Processing Failures**: Check thread pool executor configuration and worker availability
+- **Delivery History Missing**: Verify database connectivity and webhook delivery creation
+- **Auto-Disable Issues**: Review failure thresholds and admin notification configuration
+- **Signature Verification Failures**: Ensure consistent payload formatting and secret synchronization
+- **URL Validation Errors**: Confirm HTTPS scheme and non-private hostname configuration
+- **Tenant Isolation Problems**: Verify tenant_id filtering and administrative access permissions
+
+**Section sources**
+- [webhook_service.py:154-157](file://app/backend/services/webhook_service.py#L154-L157)
+- [admin.py:1615-1621](file://app/backend/routes/admin.py#L1615-L1621)
+
+## Conclusion
+Resume AI provides a comprehensive, enterprise-grade webhook system with enhanced background processing, tenant isolation, and robust delivery mechanisms. The system offers secure, reliable, and observable webhook workflows through thread pool execution, comprehensive retry logic, delivery history tracking, and administrative management interfaces. The enhanced patterns—background processing with thread pools, tenant-scoped webhook registries, auto-disable mechanisms, signature verification, and comprehensive monitoring—ensure resilient integrations that scale with the platform while maintaining security and operational visibility across all tenant environments.
+
+## Appendices
+
+### Appendix A: Enhanced Endpoint Reference
+- **POST /api/webhooks/events**: Public webhook event registry with descriptions and examples
+- **GET /api/admin/tenants/{tenant_id}/webhooks**: List tenant webhooks with status and statistics
+- **POST /api/admin/tenants/{tenant_id}/webhooks**: Create webhook with URL validation and secret generation
+- **DELETE /api/admin/tenants/{tenant_id}/webhooks/{webhook_id}**: Delete webhook configuration
+- **GET /api/admin/tenants/{tenant_id}/webhooks/{webhook_id}/deliveries**: View delivery history with attempt details
+
+**Section sources**
+- [webhook_docs.py:87-93](file://app/backend/routes/webhook_docs.py#L87-L93)
+- [admin.py:1556-1679](file://app/backend/routes/admin.py#L1556-L1679)
+
+### Appendix B: Enhanced Payload Examples
+- **Analysis completion event**:
+  - event: "analysis_complete"
+  - timestamp: ISO format UTC timestamp
+  - tenant_id: integer
+  - data: analysis result payload
+
+- **Subscription changed event**:
+  - event: "subscription.changed"
+  - timestamp: ISO format UTC timestamp
+  - tenant_id: integer
+  - data: { "subscription_status": string, "changed_at": ISO timestamp }
+
+- **Webhook delivery record**:
+  - id: integer
+  - event: string
+  - response_status: integer or null
+  - success: boolean
+  - attempt: integer
+  - created_at: ISO format timestamp
+
+**Section sources**
+- [webhook_service.py:72-77](file://app/backend/services/webhook_service.py#L72-L77)
+- [webhook_docs.py:14-73](file://app/backend/routes/webhook_docs.py#L14-L73)
+- [db_models.py:514-522](file://app/backend/models/db_models.py#L514-L522)
+
+### Appendix C: Enhanced Configuration Parameters
+- **Thread Pool**: max_workers=4, thread_name_prefix="webhook"
+- **Retry Logic**: MAX_RETRIES=3, RETRY_DELAYS=[1, 5, 30], MAX_FAILURE_COUNT=10
+- **URL Validation**: HTTPS only, blocks localhost and private IPs
+- **Signature Algorithm**: HMAC-SHA256 with X-Webhook-Signature header
+- **Database Defaults**: Boolean fields with server_default values for PostgreSQL compatibility
+
+**Section sources**
+- [webhook_service.py:134](file://app/backend/services/webhook_service.py#L134)
+- [webhook_service.py:16-18](file://app/backend/services/webhook_service.py#L16-L18)
+- [webhook_service.py:160-186](file://app/backend/services/webhook_service.py#L160-L186)
+- [013_webhooks_and_notifications.py:47-53](file://alembic/versions/013_webhooks_and_notifications.py#L47-L53)
+
+### Appendix D: Database Schema Details
+- **Webhooks table**: Tenant-scoped webhook configurations with boolean fields and event subscriptions
+- **Webhook deliveries table**: Comprehensive delivery history with success tracking and attempt numbering
+- **Admin notifications table**: Critical alerts for webhook auto-disable and system events
+- **Migration compatibility**: Proper boolean field definitions and server defaults for cross-database deployment
+
+**Section sources**
+- [013_webhooks_and_notifications.py:40-88](file://alembic/versions/013_webhooks_and_notifications.py#L40-L88)
+- [db_models.py:491-524](file://app/backend/models/db_models.py#L491-L524)
+- [notification_service.py:23-62](file://app/backend/services/notification_service.py#L23-L62)

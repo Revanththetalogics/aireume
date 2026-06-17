@@ -11,10 +11,17 @@ function safeStr(v) {
   try { return JSON.stringify(v) } catch { return String(v) }
 }
 
+const RATING_COLOR = {
+  strong: 'text-emerald-600 bg-emerald-50',
+  adequate: 'text-amber-600 bg-amber-50',
+  weak: 'text-red-600 bg-red-50',
+}
+
 function DimensionCard({ dimension, label, icon: Icon }) {
   if (!dimension) return null
   const total = dimension.total_questions || 0
   const evaluated = dimension.evaluated_count || 0
+  const evaluators = dimension.evaluators || []
 
   return (
     <div className="p-4 bg-white rounded-xl ring-1 ring-slate-200">
@@ -51,17 +58,33 @@ function DimensionCard({ dimension, label, icon: Icon }) {
       </div>
 
       {dimension.key_notes?.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-1 mb-3">
           {dimension.key_notes.map((note, i) => (
             <p key={i} className="text-xs text-slate-500 pl-3 border-l-2 border-slate-200">{note}</p>
           ))}
+        </div>
+      )}
+
+      {evaluators.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-slate-100">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Team Evaluations</p>
+          <div className="space-y-1">
+            {evaluators.map((ev, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <span className="text-slate-500 truncate max-w-[60%]" title={ev.email}>{ev.email}</span>
+                <span className={`px-1.5 py-0.5 rounded text-xs font-semibold capitalize ${RATING_COLOR[ev.rating] || 'text-slate-500 bg-slate-100'}`}>
+                  Q{ev.question_index + 1}: {ev.rating}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-export default function InterviewScorecard({ resultId }) {
+export default function InterviewScorecard({ resultId, showHeading = false }) {
   const [scorecard, setScorecard] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -116,8 +139,26 @@ export default function InterviewScorecard({ resultId }) {
   if (error) return <div className="text-center text-sm text-red-400 py-8">{error}</div>
   if (!scorecard) return null
 
+  const evaluatedCount =
+    (scorecard.technical_summary?.evaluated_count || 0) +
+    (scorecard.behavioral_summary?.evaluated_count || 0) +
+    (scorecard.culture_fit_summary?.evaluated_count || 0) +
+    (scorecard.experience_deep_dive_summary?.evaluated_count || 0)
+
+  if (evaluatedCount === 0 && !scorecard.debrief && !scorecard.overall_assessment) {
+    return null
+  }
+
   return (
     <div className="space-y-4">
+      {/* Section heading — only when showHeading is true */}
+      {showHeading && (
+        <div className="flex items-center gap-2 mb-4">
+          <FileText className="w-5 h-5 text-brand-600" />
+          <h2 className="text-lg font-bold text-slate-900">Recruiter Scorecard</h2>
+        </div>
+      )}
+
       {/* Export Button */}
       <div className="flex justify-end gap-2">
         <button
@@ -158,8 +199,70 @@ export default function InterviewScorecard({ resultId }) {
           <DimensionCard dimension={scorecard.technical_summary} label="Technical" icon={FileText} />
           <DimensionCard dimension={scorecard.behavioral_summary} label="Behavioral" icon={CheckCircle} />
           <DimensionCard dimension={scorecard.culture_fit_summary} label="Culture Fit" icon={AlertCircle} />
-          <DimensionCard dimension={scorecard.experience_deep_dive_summary} label="Experience" icon={FileText} />
+          <DimensionCard dimension={scorecard.experience_deep_dive_summary} label="Experience Deep-Dive" icon={FileText} />
         </div>
+
+        {/* Recruiter Debrief Section */}
+        {scorecard?.debrief && (
+          <div className="mt-6 p-5 bg-gradient-to-br from-brand-50 to-indigo-50 rounded-2xl ring-1 ring-brand-200">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-brand-600" />
+                <h3 className="font-bold text-brand-800">Recruiter Debrief</h3>
+              </div>
+              <div className="flex items-center gap-3">
+                {/* Recruiter Score Badge */}
+                {scorecard.recruiter_score != null && (
+                  <div className={`px-3 py-1 rounded-full text-sm font-bold ${
+                    scorecard.recruiter_score >= 70 ? 'bg-emerald-100 text-emerald-700' :
+                    scorecard.recruiter_score >= 40 ? 'bg-amber-100 text-amber-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {scorecard.recruiter_score}/100
+                  </div>
+                )}
+                {/* Recommendation Label */}
+                {scorecard.recruiter_recommendation && (
+                  <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                    scorecard.recruiter_recommendation.toLowerCase() === 'advance' ? 'bg-green-100 text-green-700' :
+                    scorecard.recruiter_recommendation.toLowerCase() === 'hold' ? 'bg-amber-100 text-amber-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {scorecard.recruiter_recommendation.charAt(0).toUpperCase() + scorecard.recruiter_recommendation.slice(1)}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Debrief Content */}
+            <div className="space-y-3">
+              {scorecard.debrief.overview && (
+                <div>
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Overview</span>
+                  <p className="text-sm text-slate-700 mt-1">{scorecard.debrief.overview}</p>
+                </div>
+              )}
+              {scorecard.debrief.strengths && (
+                <div>
+                  <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Strengths Observed</span>
+                  <p className="text-sm text-slate-700 mt-1">{scorecard.debrief.strengths}</p>
+                </div>
+              )}
+              {scorecard.debrief.concerns && (
+                <div>
+                  <span className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Concerns</span>
+                  <p className="text-sm text-slate-700 mt-1">{scorecard.debrief.concerns}</p>
+                </div>
+              )}
+              {scorecard.debrief.recommendation_rationale && (
+                <div>
+                  <span className="text-xs font-semibold text-brand-600 uppercase tracking-wide">Recommendation Rationale</span>
+                  <p className="text-sm text-slate-700 mt-1">{scorecard.debrief.recommendation_rationale}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Strengths & Concerns */}
         {(scorecard.strengths_confirmed?.length > 0 || scorecard.concerns_identified?.length > 0) && (

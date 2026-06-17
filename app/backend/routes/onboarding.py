@@ -3,10 +3,17 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import RoleTemplate, ScreeningResult, Candidate, Tenant, SubscriptionPlan
 from app.backend.services.metadata_utils import safe_parse_metadata
+
+VALID_INDUSTRIES = [
+    "technology", "finance", "healthcare", "education", "retail",
+    "manufacturing", "consulting", "legal", "media", "government",
+    "nonprofit", "other",
+]
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
@@ -62,12 +69,24 @@ async def update_organization(
     """
     Updates tenant organization name and metadata during onboarding.
     """
+    # Validate organization name
+    name = body.name.strip()
+    if len(name) < 2 or len(name) > 200:
+        raise HTTPException(status_code=400, detail="Organization name must be 2-200 characters")
+
+    # Validate industry if provided
+    if body.industry and body.industry.lower() not in VALID_INDUSTRIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid industry. Allowed: {', '.join(VALID_INDUSTRIES)}",
+        )
+
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     # Update tenant name
-    tenant.name = body.name.strip()
+    tenant.name = name
 
     # Update metadata with industry and company_size
     metadata = safe_parse_metadata(tenant.metadata_json)
@@ -135,15 +154,34 @@ async def complete_onboarding(
 ):
     """
     Marks onboarding as complete for the current tenant.
+    Uses optimistic locking to prevent race conditions from double-calls.
     """
+    # Enforce prerequisites before completion
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    tenant.onboarding_completed = True
-    tenant.onboarding_completed_at = datetime.now(timezone.utc)
+    if not tenant.name or tenant.name.strip() == "":
+        raise HTTPException(status_code=400, detail="Organization name must be set before completing onboarding")
+    if not tenant.plan_id:
+        raise HTTPException(status_code=400, detail="A subscription plan must be selected before completing onboarding")
+
+    # Optimistic locking: only update if not already completed
+    result = db.query(Tenant).filter(
+        and_(
+            Tenant.id == current_user.tenant_id,
+            Tenant.onboarding_completed == False,
+        )
+    ).update({
+        "onboarding_completed": True,
+        "onboarding_completed_at": datetime.now(timezone.utc),
+    })
+
+    if result == 0:
+        # Already completed (race condition or double-call)
+        return {"message": "Onboarding already completed", "already_completed": True}
+
     db.commit()
-    db.refresh(tenant)
 
     return {
         "completed": True,

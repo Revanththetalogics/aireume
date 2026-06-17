@@ -71,17 +71,6 @@ function UserMenu({ user, tenant, logout, onClose }) {
 
       <div className="mx-3 my-1 border-t border-brand-50" />
 
-      {/* Admin (conditional) */}
-      {isPlatformAdmin && (
-        <button
-          onClick={() => handleNav('/admin')}
-          className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-slate-600 hover:bg-brand-50 hover:text-brand-700 transition-colors"
-        >
-          <Shield className="w-4 h-4 text-slate-400" />
-          Admin Portal
-        </button>
-      )}
-
       {/* Logout */}
       <button
         onClick={() => { onClose(); logout() }}
@@ -211,15 +200,6 @@ function MobileMoreSheet({ onNavigate }) {
           </button>
         ))}
 
-        {isPlatformAdmin && (
-          <button
-            onClick={() => handleNav('/admin')}
-            className="flex flex-col items-center gap-1.5 p-3 rounded-xl text-slate-600 hover:bg-brand-50 hover:text-brand-700 transition-colors"
-          >
-            <Shield className="w-5 h-5" />
-            <span className="text-xs font-medium">Admin</span>
-          </button>
-        )}
       </div>
 
       <div className="mt-4 pt-3 border-t border-brand-50">
@@ -243,6 +223,7 @@ export default function NavBar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef(null)
   const initials = user?.email ? user.email[0].toUpperCase() : '?'
+  const isPlatformAdmin = user?.is_platform_admin || !!user?.platform_role
 
   // Close user menu on outside click
   useEffect(() => {
@@ -298,9 +279,19 @@ export default function NavBar() {
             })}
           </nav>
 
-          {/* Right: progress + avatar (desktop) */}
+          {/* Right: progress + admin link + avatar (desktop) */}
           <div className="hidden md:flex items-center gap-3">
             <ProgressBadge />
+            {isPlatformAdmin && (
+              <Link
+                to="/admin"
+                title="Admin Portal"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 transition-colors"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                Admin
+              </Link>
+            )}
             <div ref={userMenuRef} className="relative">
               <button
                 onClick={() => setUserMenuOpen(v => !v)}

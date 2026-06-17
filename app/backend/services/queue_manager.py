@@ -85,6 +85,12 @@ class AnalysisJob(Base):
     result_id = Column(UUID(as_uuid=True), ForeignKey('analysis_results.id', ondelete='SET NULL'), nullable=True)
     job_config = Column(JSONB, nullable=True)
 
+    # Lease-based locking: set when a worker claims the job
+    leased_until = Column(DateTime(timezone=True), nullable=True, index=True)
+
+    # Content-based hash for fast tenant+candidate deduplication (60s window)
+    content_hash = Column(String(64), nullable=True, index=True)
+
 
 class AnalysisResult(Base):
     __tablename__ = 'analysis_results'
@@ -326,11 +332,12 @@ class QueueManager:
         ).scalar_one_or_none()
         
         if job:
-            # Claim the job
+            # Claim the job and issue a 10-minute lease
             job.status = 'processing'
             job.worker_id = self.worker_id
             job.started_at = datetime.utcnow()
             job.worker_heartbeat = datetime.utcnow()
+            job.leased_until = datetime.utcnow() + timedelta(minutes=10)
             db.commit()
             
             logger.info(f"Claimed job: {job.id}, priority={job.priority}, retry_count={job.retry_count}")

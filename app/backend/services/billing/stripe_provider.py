@@ -39,16 +39,24 @@ class StripeProvider(PaymentProvider):
         plan: str,
         success_url: str,
         cancel_url: str,
+        stripe_customer_id: str = "",
     ) -> Dict[str, Any]:
         self._require_stripe()
-        session = stripe.checkout.Session.create(
-            mode="subscription",
-            payment_method_types=["card"],
-            line_items=[{"price": plan, "quantity": 1}],
-            success_url=success_url,
-            cancel_url=cancel_url,
-            metadata={"tenant_id": tenant_id},
-        )
+        checkout_params: Dict[str, Any] = {
+            "mode": "subscription",
+            "payment_method_types": ["card"],
+            "line_items": [{"price": plan, "quantity": 1}],
+            "success_url": success_url,
+            "cancel_url": cancel_url,
+            "metadata": {"tenant_id": str(tenant_id)},
+        }
+        # Reuse an existing Stripe customer to avoid creating duplicates
+        if stripe_customer_id:
+            checkout_params["customer"] = stripe_customer_id
+        else:
+            # Always create a new customer so we can capture the customer ID
+            checkout_params["customer_creation"] = "always"
+        session = stripe.checkout.Session.create(**checkout_params)
         return {
             "session_id": session.id,
             "url": session.url,

@@ -10,20 +10,19 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session, joinedload
 
 from app.backend.db.database import get_db
-from app.backend.models.db_models import User, ImpersonationSession
+from app.backend.models.db_models import User, ImpersonationSession, RevokedToken
 
-_env = os.getenv("ENVIRONMENT", "development")
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-if not SECRET_KEY:
-    if _env in ("production", "staging"):
-        raise RuntimeError(
-            f"JWT_SECRET_KEY environment variable must be set in { _env }"
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+if not SECRET_KEY or SECRET_KEY == "your-secret-key-change-in-production":
+    if os.environ.get("TESTING", "").lower() in ("1", "true"):
+        SECRET_KEY = "test-secret-key-for-testing-only"
+    else:
+        import sys
+        import logging
+        logging.getLogger(__name__).critical(
+            "FATAL: JWT_SECRET environment variable not set or using default. Refusing to start."
         )
-    SECRET_KEY = "dev-secret-DO-NOT-USE-IN-PRODUCTION"
-    import logging
-    logging.getLogger(__name__).warning(
-        "Using default JWT secret — NOT safe for production or staging"
-    )
+        sys.exit(1)
 ALGORITHM = "HS256"
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -73,6 +72,15 @@ def _load_user_from_token(db: Session, token: str) -> User:
     )
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    # Check for user-level revocation (e.g., user deactivated while token was live)
+    user_revocation = db.query(RevokedToken).filter(
+        RevokedToken.jti.like(f"user_deactivated_{user.id}_%"),
+        RevokedToken.expires_at > datetime.now(timezone.utc),
+    ).first()
+    if user_revocation:
+        raise HTTPException(status_code=401, detail="Token revoked")
+
     return user
 
 

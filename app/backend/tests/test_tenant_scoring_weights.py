@@ -102,6 +102,7 @@ class TestTenantScoringWeights:
             role="admin",
             is_platform_admin=True,
             platform_role="super_admin",
+            email_verified=True,
         )
         db_session.add(admin_user)
         db_session.commit()

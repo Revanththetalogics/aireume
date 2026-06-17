@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, Navigate } from 'react-router-dom'
 import {
   Clock, FileText, ArrowRight, RefreshCw,
   LayoutTemplate, AlertCircle, Loader2,
@@ -182,6 +182,11 @@ function groupActivitiesByTime(activities) {
 function DashboardContent() {
   const navigate = useNavigate()
   const { user } = useAuth()
+
+  // Platform admins default to /admin — redirect if they land on recruiter dashboard
+  if (user?.is_platform_admin === true || !!user?.platform_role) {
+    return <Navigate to="/admin" replace />
+  }
 
   const [summary, setSummary] = useState(null)
   const [activity, setActivity] = useState(null)

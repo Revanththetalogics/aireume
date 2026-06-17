@@ -50,12 +50,14 @@ def create_checkout_session(
     db: Session = Depends(get_db),
 ):
     """Create a checkout session for the current user's tenant."""
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     provider = get_payment_provider(db)
     result = provider.create_checkout_session(
         tenant_id=current_user.tenant_id,
         plan=body.plan,
         success_url=body.success_url,
         cancel_url=body.cancel_url,
+        stripe_customer_id=tenant.stripe_customer_id if tenant and tenant.stripe_customer_id else "",
     )
     return result
 

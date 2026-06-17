@@ -5,6 +5,7 @@ These tests exercise the core user-facing flows to ensure no regressions
 were introduced by Phase 1 admin management system (Tasks 1-7).
 """
 import pytest
+from app.backend.tests.test_helpers import _verify_user_via_api
 
 
 class TestAuthFlowRegression:
@@ -31,6 +32,7 @@ class TestAuthFlowRegression:
             "password": "LoginTest123!",
             "full_name": "Login Tester",
         })
+        _verify_user_via_api("logintest@test.com")
         # Login
         resp = client.post("/api/auth/login", json={
             "email": "logintest@test.com",

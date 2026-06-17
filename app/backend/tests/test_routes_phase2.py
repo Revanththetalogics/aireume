@@ -19,7 +19,7 @@ from io import BytesIO
 class TestJdUrlExtraction:
     def test_extract_url_requires_auth(self, client):
         resp = client.post("/api/jd/extract-url", json={"url": "https://example.com/job"})
-        assert resp.status_code == 403  # CSRF middleware blocks before auth check
+        assert resp.status_code == 401  # Auth middleware blocks unauthenticated requests
 
     def test_extract_url_with_mock_scraper(self, auth_client):
         with patch("app.backend.routes.jd_url.scrape_jd", return_value="Senior Python Developer. 5+ years required.") as mock_scrape:
@@ -45,7 +45,7 @@ class TestJdUrlExtraction:
 class TestEmailGeneration:
     def test_generate_email_requires_auth(self, client):
         resp = client.post("/api/email/generate", json={"candidate_id": 1, "type": "shortlist"})
-        assert resp.status_code == 403  # CSRF middleware blocks before auth check
+        assert resp.status_code == 401  # Auth middleware blocks unauthenticated requests
 
     def test_generate_email_nonexistent_candidate_returns_404(self, auth_client):
         resp = auth_client.post("/api/email/generate", json={"candidate_id": 99999, "type": "shortlist"})
@@ -108,7 +108,7 @@ class TestComments:
 
     def test_post_comment_requires_auth(self, client):
         resp = client.post("/api/results/1/comments", json={"text": "Looks good"})
-        assert resp.status_code == 403  # CSRF middleware blocks before auth check
+        assert resp.status_code == 401  # Auth middleware blocks unauthenticated requests
 
     def test_get_comments_nonexistent_result_returns_404(self, auth_client):
         resp = auth_client.get("/api/results/99999/comments")
@@ -137,7 +137,7 @@ class TestTraining:
 
     def test_label_requires_auth(self, client):
         resp = client.post("/api/training/label", json={"screening_result_id": 1, "outcome": "hired"})
-        assert resp.status_code == 403  # CSRF middleware blocks before auth check
+        assert resp.status_code == 401  # Auth middleware blocks unauthenticated requests
 
     def test_label_nonexistent_result_returns_404(self, auth_client):
         resp = auth_client.post("/api/training/label", json={

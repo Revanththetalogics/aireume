@@ -26,10 +26,10 @@ from app.backend.models.db_models import (
     AuditLog, Tenant, User, SubscriptionPlan, UsageLog,
     FeatureFlag, TenantFeatureOverride,
     Webhook, WebhookDelivery,
-    PlatformConfig, TenantEmailConfig,
+    PlatformConfig, PlatformSetting, TenantEmailConfig,
     SecurityEvent, ImpersonationSession, ErasureLog,
     PlanFeature, RateLimitConfig, DunningRecord,
-    SSOConfig,
+    SSOConfig, RevokedToken, AdminNotification,
 )
 from app.backend.services.audit_service import log_audit
 from app.backend.services.billing.factory import get_payment_provider
@@ -91,6 +91,21 @@ class SSOConfigRequest(BaseModel):
     auto_provision: bool = True
     default_role: str = "viewer"
     is_active: bool = True
+
+
+class BillingSettingsRequest(BaseModel):
+    active_provider: str
+    stripe: Optional[dict] = None
+    razorpay: Optional[dict] = None
+
+
+class TestBillingConnectionRequest(BaseModel):
+    provider: str
+
+
+class GenerateCheckoutLinkRequest(BaseModel):
+    tenant_id: int
+    plan_id: int
 
 
 class TenantListItem(BaseModel):
@@ -188,6 +203,14 @@ def _parse_audit_details(details_str):
         return None
 
 
+def get_client_ip(request: Request) -> str:
+    """Extract client IP from X-Forwarded-For header or request client."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 # ─── 1. List Tenants ────────────────────────────────────────────────────────────
 
 @router.get("/tenants", response_model=TenantListResponse)
@@ -224,7 +247,13 @@ def list_tenants(
     total = query.count()
 
     # Sorting
-    sort_column = getattr(Tenant, sort_by, Tenant.created_at)
+    SORTABLE_TENANT_COLUMNS = {"name", "created_at", "subscription_status", "slug", "updated_at"}
+    if sort_by not in SORTABLE_TENANT_COLUMNS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sort column: {sort_by}. Allowed: {', '.join(sorted(SORTABLE_TENANT_COLUMNS))}",
+        )
+    sort_column = getattr(Tenant, sort_by)
     if sort_order.lower() == "asc":
         query = query.order_by(sort_column.asc())
     else:
@@ -355,6 +384,7 @@ def get_tenant_detail(
 def suspend_tenant(
     tenant_id: int,
     body: SuspendRequest,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -368,6 +398,9 @@ def suspend_tenant(
     tenant.suspended_at = datetime.now(timezone.utc)
     tenant.suspended_reason = body.reason
     tenant.subscription_status = "suspended"
+    db.query(User).filter(
+        User.tenant_id == tenant.id, User.is_platform_admin == False
+    ).update({"is_active": False})
     db.commit()
 
     log_audit(
@@ -377,6 +410,7 @@ def suspend_tenant(
         resource_type="tenant",
         resource_id=tenant_id,
         details={"reason": body.reason},
+        ip_address=get_client_ip(request),
     )
 
     return {"message": "Tenant suspended", "tenant_id": tenant_id}
@@ -387,6 +421,7 @@ def suspend_tenant(
 @router.post("/tenants/{tenant_id}/reactivate")
 def reactivate_tenant(
     tenant_id: int,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -408,6 +443,7 @@ def reactivate_tenant(
         action="tenant.reactivate",
         resource_type="tenant",
         resource_id=tenant_id,
+        ip_address=get_client_ip(request),
     )
 
     return {"message": "Tenant reactivated", "tenant_id": tenant_id}
@@ -419,6 +455,7 @@ def reactivate_tenant(
 def change_tenant_plan(
     tenant_id: int,
     body: ChangePlanRequest,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -499,6 +536,7 @@ def change_tenant_plan(
         resource_type="tenant",
         resource_id=tenant_id,
         details=audit_details,
+        ip_address=get_client_ip(request),
     )
 
     response = {
@@ -521,6 +559,7 @@ def change_tenant_plan(
 def adjust_tenant_usage(
     tenant_id: int,
     body: AdjustUsageRequest,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -549,6 +588,7 @@ def adjust_tenant_usage(
         resource_type="tenant",
         resource_id=tenant_id,
         details=details,
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -599,6 +639,7 @@ def get_tenant_usage_history(
 @router.post("/tenants")
 def create_tenant(
     body: CreateTenantRequest,
+    request: Request,
     admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -637,6 +678,7 @@ def create_tenant(
         db, actor=admin, action="tenant.create",
         resource_type="tenant", resource_id=tenant.id,
         details={"name": tenant.name, "slug": tenant.slug},
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -651,6 +693,7 @@ def create_tenant(
 def update_tenant(
     tenant_id: int,
     body: UpdateTenantRequest,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -690,6 +733,7 @@ def update_tenant(
         db, actor=admin, action="tenant.update",
         resource_type="tenant", resource_id=tenant_id,
         details=updates,
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -703,11 +747,12 @@ def update_tenant(
 @router.delete("/tenants/{tenant_id}")
 def delete_tenant(
     tenant_id: int,
+    request: Request,
     confirm: bool = Query(False),
     admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
-    """Delete a tenant and all associated data. Requires explicit confirmation."""
+    """Soft-delete a tenant and deactivate all users. Requires explicit confirmation."""
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required. Set confirm=true.")
 
@@ -718,17 +763,21 @@ def delete_tenant(
     tenant_name = tenant.name
     tenant_slug = tenant.slug
 
-    # Delete tenant (cascade will remove associated data)
-    db.delete(tenant)
+    # Soft delete tenant and deactivate all associated users
+    tenant.deleted_at = datetime.now(timezone.utc)
+    tenant.subscription_status = "cancelled"
+    db.query(User).filter(User.tenant_id == tenant.id).update({"is_active": False})
     db.commit()
 
     log_audit(
         db, actor=admin, action="tenant.delete",
         resource_type="tenant", resource_id=tenant_id,
         details={"name": tenant_name, "slug": tenant_slug},
+        ip_address=get_client_ip(request),
+        tenant_id=tenant_id,
     )
 
-    return {"message": f"Tenant '{tenant_name}' deleted successfully"}
+    return {"message": f"Tenant '{tenant_name}' soft-deleted successfully"}
 
 
 # ─── Tenant SSO Configuration ─────────────────────────────────────────────
@@ -769,10 +818,19 @@ def get_tenant_sso(
 def update_tenant_sso(
     tenant_id: int,
     body: SSOConfigRequest,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
     """Create or update SSO configuration for a tenant."""
+    # Validate default_role
+    ALLOWED_SSO_ROLES = {"viewer", "recruiter", "admin"}
+    if body.default_role and body.default_role not in ALLOWED_SSO_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid default_role. Allowed: {', '.join(sorted(ALLOWED_SSO_ROLES))}",
+        )
+
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
@@ -826,6 +884,7 @@ def update_tenant_sso(
             "enforce_sso": body.enforce_sso,
             "auto_provision": body.auto_provision,
         },
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -839,6 +898,7 @@ def update_tenant_sso(
 @router.delete("/tenants/{tenant_id}/sso")
 def delete_tenant_sso(
     tenant_id: int,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -860,6 +920,7 @@ def delete_tenant_sso(
         action="tenant.sso_delete",
         resource_type="tenant",
         resource_id=tenant_id,
+        ip_address=get_client_ip(request),
     )
 
     return {"message": "SSO configuration deleted", "tenant_id": tenant_id}
@@ -908,6 +969,7 @@ def test_tenant_sso(
 def add_user_to_tenant(
     tenant_id: int,
     body: AddUserToTenantRequest,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -919,6 +981,24 @@ def add_user_to_tenant(
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == body.email).first()
     if existing_user:
+        # Cross-tenant move requires super_admin
+        if existing_user.tenant_id != tenant_id:
+            if not (admin.platform_role == "super_admin"):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Cross-tenant user reassignment requires super_admin privileges",
+                )
+            # Log the cross-tenant move for audit
+            log_audit(
+                db,
+                actor=admin,
+                action="user.cross_tenant_move",
+                resource_type="user",
+                resource_id=str(existing_user.id),
+                details={"from_tenant": existing_user.tenant_id, "to_tenant": tenant_id},
+                ip_address=get_client_ip(request),
+            )
+
         # Update tenant assignment
         old_tenant_id = existing_user.tenant_id
         existing_user.tenant_id = tenant_id
@@ -937,6 +1017,7 @@ def add_user_to_tenant(
                 "new_tenant_id": tenant_id,
                 "role": body.role,
             },
+            ip_address=get_client_ip(request),
         )
 
         return {
@@ -973,6 +1054,7 @@ def add_user_to_tenant(
             "tenant_id": tenant_id,
             "role": body.role,
         },
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -988,6 +1070,7 @@ def add_user_to_tenant(
 def remove_user_from_tenant(
     tenant_id: int,
     user_id: int,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -998,12 +1081,21 @@ def remove_user_from_tenant(
 
     # Deactivate user instead of deleting
     user.is_active = False
+
+    # Revoke any outstanding access tokens for the deactivated user
+    from datetime import timedelta
+    revoked = RevokedToken(
+        jti=f"user_deactivated_{user.id}_{int(datetime.now(timezone.utc).timestamp())}",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    db.add(revoked)
     db.commit()
 
     log_audit(
         db, actor=admin, action="user.deactivate",
         resource_type="user", resource_id=user_id,
         details={"email": user.email, "tenant_id": tenant_id},
+        ip_address=get_client_ip(request),
     )
 
     return {"message": f"User '{user.email}' deactivated"}
@@ -1079,6 +1171,135 @@ def get_audit_logs(
     )
 
 
+@router.get("/audit-logs/export")
+def export_audit_logs(
+    format: str = Query("csv", regex="^(csv|json)$"),
+    action: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Export filtered audit logs as CSV or JSON (capped at 10 000 rows)."""
+    from fastapi.responses import JSONResponse as _JSONResponse, Response as _Response
+
+    query = db.query(AuditLog).order_by(AuditLog.created_at.desc())
+
+    if action:
+        query = query.filter(AuditLog.action == action)
+    if start_date:
+        try:
+            query = query.filter(AuditLog.created_at >= datetime.fromisoformat(start_date))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format. Use ISO 8601.")
+    if end_date:
+        try:
+            query = query.filter(AuditLog.created_at <= datetime.fromisoformat(end_date))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format. Use ISO 8601.")
+
+    logs = query.limit(10000).all()
+
+    if format == "json":
+        data = [
+            {
+                "id": l.id,
+                "action": l.action,
+                "actor_email": l.actor_email,
+                "resource_type": l.resource_type,
+                "resource_id": l.resource_id,
+                "details": l.details,
+                "ip_address": l.ip_address,
+                "created_at": l.created_at.isoformat() if l.created_at else None,
+            }
+            for l in logs
+        ]
+        return _JSONResponse(content=data)
+
+    # CSV
+    import csv
+    import io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Action", "Actor", "Resource Type", "Resource ID", "Details", "IP", "Timestamp"])
+    for l in logs:
+        writer.writerow([
+            l.id, l.action, l.actor_email, l.resource_type, l.resource_id,
+            l.details, l.ip_address,
+            l.created_at.isoformat() if l.created_at else "",
+        ])
+
+    return _Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=audit_logs.csv"},
+    )
+
+
+# ─── Admin Notifications ────────────────────────────────────────────────────
+
+@router.get("/notifications")
+def get_admin_notifications(
+    unread_only: bool = Query(False),
+    limit: int = Query(20, ge=1, le=200),
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """List admin platform notifications, newest first."""
+    query = db.query(AdminNotification).order_by(AdminNotification.created_at.desc())
+    if unread_only:
+        query = query.filter(AdminNotification.is_read == False)  # noqa: E712
+    notifications = query.limit(limit).all()
+    unread_count = (
+        db.query(func.count(AdminNotification.id))
+        .filter(AdminNotification.is_read == False)  # noqa: E712
+        .scalar()
+    )
+    return {
+        "notifications": [
+            {
+                "id": n.id,
+                "type": n.type,
+                "severity": n.severity,
+                "title": n.title,
+                "message": n.message,
+                "tenant_id": n.tenant_id,
+                "is_read": n.is_read,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+            }
+            for n in notifications
+        ],
+        "unread_count": unread_count,
+    }
+
+
+@router.put("/notifications/{notification_id}/read")
+def mark_notification_read(
+    notification_id: int,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Mark a single admin notification as read."""
+    notif = db.query(AdminNotification).filter(AdminNotification.id == notification_id).first()
+    if notif:
+        notif.is_read = True
+        db.commit()
+    return {"success": True}
+
+
+@router.put("/notifications/read-all")
+def mark_all_notifications_read(
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Mark all unread admin notifications as read."""
+    db.query(AdminNotification).filter(
+        AdminNotification.is_read == False  # noqa: E712
+    ).update({"is_read": True})
+    db.commit()
+    return {"success": True}
+
+
 # ─── Feature Flags ─────────────────────────────────────
 @router.get("/feature-flags")
 def list_feature_flags(
@@ -1103,6 +1324,7 @@ def list_feature_flags(
 def toggle_feature_flag(
     flag_id: int,
     body: dict,  # { "enabled_globally": bool }
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -1119,8 +1341,11 @@ def toggle_feature_flag(
     from app.backend.services.feature_flag_service import invalidate_cache
     invalidate_cache(feature_key=flag.key)
     
-    log_audit(db, actor=admin, action="feature_flag.toggle", resource_type="feature_flag",
-              resource_id=flag_id, details={"key": flag.key, "old": old_state, "new": flag.enabled_globally})
+    log_audit(
+        db, actor=admin, action="feature_flag.toggle", resource_type="feature_flag",
+        resource_id=flag_id, details={"key": flag.key, "old": old_state, "new": flag.enabled_globally},
+        ip_address=get_client_ip(request),
+    )
     
     return {"message": "Feature flag updated", "key": flag.key, "enabled_globally": flag.enabled_globally}
 
@@ -1156,6 +1381,7 @@ def set_tenant_feature_override(
     tenant_id: int,
     flag_id: int,
     body: dict,  # { "enabled": bool }
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -1182,8 +1408,11 @@ def set_tenant_feature_override(
     from app.backend.services.feature_flag_service import invalidate_cache
     invalidate_cache(tenant_id=tenant_id, feature_key=flag.key)
     
-    log_audit(db, actor=admin, action="tenant_feature.override", resource_type="tenant",
-              resource_id=tenant_id, details={"flag": flag.key, "enabled": override.enabled})
+    log_audit(
+        db, actor=admin, action="tenant_feature.override", resource_type="tenant",
+        resource_id=tenant_id, details={"flag": flag.key, "enabled": override.enabled},
+        ip_address=get_client_ip(request),
+    )
     
     return {"message": "Feature override set", "flag": flag.key, "enabled": override.enabled}
 
@@ -1191,6 +1420,7 @@ def set_tenant_feature_override(
 def delete_tenant_feature_override(
     tenant_id: int,
     flag_id: int,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -1210,8 +1440,11 @@ def delete_tenant_feature_override(
     from app.backend.services.feature_flag_service import invalidate_cache
     invalidate_cache(tenant_id=tenant_id)
     
-    log_audit(db, actor=admin, action="tenant_feature.override_removed", resource_type="tenant",
-              resource_id=tenant_id, details={"flag": flag.key if flag else str(flag_id)})
+    log_audit(
+        db, actor=admin, action="tenant_feature.override_removed", resource_type="tenant",
+        resource_id=tenant_id, details={"flag": flag.key if flag else str(flag_id)},
+        ip_address=get_client_ip(request),
+    )
     
     return {"message": "Override removed, reverted to global setting"}
 
@@ -1282,6 +1515,11 @@ def get_platform_metrics_overview(
     ).filter(Tenant.subscription_status == "active").scalar()
 
     return {
+        # Flat fields for AdminOverviewPage
+        "active_users": total_users,
+        "total_analyses": int(analyses_this_month),
+        "mrr": round((mrr_result or 0) / 100, 2),
+        # Nested structure preserved for other consumers
         "tenants": tenant_counts,
         "users": {"total": total_users},
         "analyses": {
@@ -1368,6 +1606,7 @@ def list_tenant_webhooks(
 def create_tenant_webhook(
     tenant_id: int,
     body: dict,  # { "url": str, "secret": str, "events": list[str] }
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -1376,10 +1615,16 @@ def create_tenant_webhook(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
+    url = body.get("url", "")
+    from app.backend.services.webhook_service import validate_webhook_url
+    valid, error = validate_webhook_url(url)
+    if not valid:
+        raise HTTPException(status_code=400, detail=error)
+
     import secrets as secrets_mod
     webhook = Webhook(
         tenant_id=tenant_id,
-        url=body.get("url", ""),
+        url=url,
         secret=body.get("secret", secrets_mod.token_hex(32)),
         events=json.dumps(body.get("events", ["*"])),
     )
@@ -1387,8 +1632,11 @@ def create_tenant_webhook(
     db.commit()
     db.refresh(webhook)
 
-    log_audit(db, actor=admin, action="webhook.create", resource_type="webhook",
-              resource_id=webhook.id, details={"tenant_id": tenant_id, "url": webhook.url})
+    log_audit(
+        db, actor=admin, action="webhook.create", resource_type="webhook",
+        resource_id=webhook.id, details={"tenant_id": tenant_id, "url": webhook.url},
+        ip_address=get_client_ip(request),
+    )
 
     return {"id": webhook.id, "url": webhook.url, "secret": webhook.secret, "events": body.get("events", ["*"])}
 
@@ -1397,6 +1645,7 @@ def create_tenant_webhook(
 def delete_tenant_webhook(
     tenant_id: int,
     webhook_id: int,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -1408,8 +1657,11 @@ def delete_tenant_webhook(
     db.delete(webhook)
     db.commit()
 
-    log_audit(db, actor=admin, action="webhook.delete", resource_type="webhook",
-              resource_id=webhook_id, details={"tenant_id": tenant_id})
+    log_audit(
+        db, actor=admin, action="webhook.delete", resource_type="webhook",
+        resource_id=webhook_id, details={"tenant_id": tenant_id},
+        ip_address=get_client_ip(request),
+    )
 
     return {"message": "Webhook deleted"}
 
@@ -1501,6 +1753,7 @@ def get_billing_config(
 @router.put("/billing/config")
 def set_billing_config(
     body: dict,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -1563,8 +1816,11 @@ def set_billing_config(
 
     db.commit()
 
-    log_audit(db, actor=admin, action="billing.config_updated", resource_type="platform_config",
-              resource_id=None, details={"active_provider": active_provider})
+    log_audit(
+        db, actor=admin, action="billing.config_updated", resource_type="platform_config",
+        resource_id=None, details={"active_provider": active_provider},
+        ip_address=get_client_ip(request),
+    )
 
     return {"message": "Billing configuration updated", "active_provider": active_provider}
 
@@ -1585,6 +1841,202 @@ def list_billing_providers(
         })
 
     return providers
+
+
+# ─── Billing Settings Endpoints (platform_settings based) ─────────────────────
+
+@router.get("/billing/settings")
+def get_billing_settings(
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Get current billing provider configuration from platform_settings."""
+    keys = ["billing_provider", "stripe_config", "razorpay_config"]
+    rows = db.query(PlatformSetting).filter(PlatformSetting.key.in_(keys)).all()
+    settings_map = {r.key: r.value for r in rows}
+
+    provider = settings_map.get("billing_provider", "manual")
+    stripe_raw = settings_map.get("stripe_config", "{}")
+    razorpay_raw = settings_map.get("razorpay_config", "{}")
+
+    try:
+        stripe_cfg = json.loads(stripe_raw) if stripe_raw else {}
+    except json.JSONDecodeError:
+        stripe_cfg = {}
+    try:
+        razorpay_cfg = json.loads(razorpay_raw) if razorpay_raw else {}
+    except json.JSONDecodeError:
+        razorpay_cfg = {}
+
+    # Mask sensitive fields on read
+    def _mask(val):
+        if not val or len(val) <= 4:
+            return "****"
+        return "*" * (len(val) - 4) + val[-4:]
+
+    if stripe_cfg.get("secret_key"):
+        stripe_cfg["secret_key"] = _mask(stripe_cfg["secret_key"])
+    if razorpay_cfg.get("key_secret"):
+        razorpay_cfg["key_secret"] = _mask(razorpay_cfg["key_secret"])
+
+    return {
+        "active_provider": provider,
+        "stripe": stripe_cfg,
+        "razorpay": razorpay_cfg,
+    }
+
+
+@router.put("/billing/settings")
+def update_billing_settings(
+    body: BillingSettingsRequest,
+    request: Request,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Store billing provider configuration in platform_settings."""
+    provider = body.active_provider
+    if provider not in ("stripe", "razorpay", "manual"):
+        raise HTTPException(status_code=400, detail="active_provider must be stripe, razorpay, or manual")
+
+    def _upsert(key: str, value: str):
+        row = db.query(PlatformSetting).filter(PlatformSetting.key == key).first()
+        if row:
+            row.value = value
+        else:
+            db.add(PlatformSetting(key=key, value=value))
+
+    _upsert("billing_provider", provider)
+    if body.stripe is not None:
+        _upsert("stripe_config", json.dumps(body.stripe))
+    if body.razorpay is not None:
+        _upsert("razorpay_config", json.dumps(body.razorpay))
+
+    db.commit()
+
+    log_audit(
+        db,
+        actor=admin,
+        action="billing.settings_updated",
+        resource_type="platform_setting",
+        resource_id=None,
+        details={"active_provider": provider},
+        ip_address=get_client_ip(request),
+    )
+
+    return {"message": "Billing settings updated", "active_provider": provider}
+
+
+@router.post("/billing/settings/test")
+def test_billing_connection(
+    body: TestBillingConnectionRequest,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Test connectivity with stored Stripe or Razorpay credentials via basic HTTP."""
+    provider = body.provider
+    if provider not in ("stripe", "razorpay"):
+        raise HTTPException(status_code=400, detail="provider must be stripe or razorpay")
+
+    row = db.query(PlatformSetting).filter(PlatformSetting.key == f"{provider}_config").first()
+    if not row or not row.value:
+        raise HTTPException(status_code=400, detail=f"No configuration found for {provider}")
+
+    try:
+        cfg = json.loads(row.value)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON stored for {provider}")
+
+    import urllib.request
+    import base64
+
+    if provider == "stripe":
+        secret_key = cfg.get("secret_key")
+        if not secret_key:
+            raise HTTPException(status_code=400, detail="Stripe secret_key not configured")
+        req = urllib.request.Request("https://api.stripe.com/v1/account")
+        creds = base64.b64encode(f"{secret_key}:".encode()).decode()
+        req.add_header("Authorization", f"Basic {creds}")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                _ = resp.read()
+            return {"success": True, "message": "Stripe connection successful"}
+        except urllib.error.HTTPError as e:
+            return {"success": False, "message": f"Stripe API error: {e.code} {e.reason}"}
+        except Exception as e:
+            return {"success": False, "message": f"Connection failed: {str(e)}"}
+
+    else:  # razorpay
+        key_id = cfg.get("key_id")
+        key_secret = cfg.get("key_secret")
+        if not key_id or not key_secret:
+            raise HTTPException(status_code=400, detail="Razorpay key_id or key_secret not configured")
+        req = urllib.request.Request("https://api.razorpay.com/v1/items")
+        creds = base64.b64encode(f"{key_id}:{key_secret}".encode()).decode()
+        req.add_header("Authorization", f"Basic {creds}")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                _ = resp.read()
+            return {"success": True, "message": "Razorpay connection successful"}
+        except urllib.error.HTTPError as e:
+            return {"success": False, "message": f"Razorpay API error: {e.code} {e.reason}"}
+        except Exception as e:
+            return {"success": False, "message": f"Connection failed: {str(e)}"}
+
+
+@router.post("/billing/generate-checkout-link")
+def generate_checkout_link(
+    body: GenerateCheckoutLinkRequest,
+    request: Request,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Generate a checkout session/payment link for a tenant and plan."""
+    tenant = db.query(Tenant).filter(Tenant.id == body.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == body.plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    provider_row = db.query(PlatformSetting).filter(PlatformSetting.key == "billing_provider").first()
+    provider = provider_row.value if provider_row else "manual"
+
+    if provider == "manual":
+        raise HTTPException(status_code=400, detail="Checkout links are not available for manual billing")
+
+    expires_at = datetime.now(timezone.utc)
+    if provider == "stripe":
+        # Generate a simulated Stripe checkout session URL
+        import uuid
+        session_id = f"cs_test_{uuid.uuid4().hex[:24]}"
+        checkout_url = f"https://checkout.stripe.com/c/pay/{session_id}"
+        expires_at = expires_at.replace(minute=expires_at.minute + 30)
+    else:  # razorpay
+        import uuid
+        link_id = f"plink_{uuid.uuid4().hex[:14]}"
+        checkout_url = f"https://razorpay.com/payment-link/{link_id}"
+        expires_at = expires_at.replace(minute=expires_at.minute + 30)
+
+    log_audit(
+        db,
+        actor=admin,
+        action="billing.checkout_link_generated",
+        resource_type="tenant",
+        resource_id=tenant.id,
+        details={
+            "provider": provider,
+            "plan_id": plan.id,
+            "plan_name": plan.name,
+            "checkout_url": checkout_url,
+        },
+        ip_address=get_client_ip(request),
+    )
+
+    return {
+        "checkout_url": checkout_url,
+        "expires_at": expires_at.isoformat(),
+    }
 
 
 # ─── Email Notification Endpoints ─────────────────────────────────────────────
@@ -1665,6 +2117,7 @@ def _mask_smtp_password(pw: str) -> str:
 @router.post("/email-config")
 def upsert_email_config(
     body: EmailConfigRequest,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -1715,6 +2168,7 @@ def upsert_email_config(
         db, actor=admin, action="email_config.upsert",
         resource_type="tenant_email_config", resource_id=config.id,
         details={"smtp_host": body.smtp_host, "smtp_from": body.smtp_from},
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -1828,6 +2282,7 @@ def test_email_config(
 
 @router.delete("/email-config")
 def delete_email_config(
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -1846,6 +2301,7 @@ def delete_email_config(
         db, actor=admin, action="email_config.delete",
         resource_type="tenant_email_config", resource_id=config.id,
         details={"smtp_host": config.smtp_host, "smtp_from": config.smtp_from},
+        ip_address=get_client_ip(request),
     )
 
     db.delete(config)
@@ -1961,6 +2417,18 @@ def impersonate_user(
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    if not target.is_active:
+        raise HTTPException(status_code=400, detail="Cannot impersonate inactive user")
+
+    # Rate limit: max 5 impersonation sessions per hour per admin
+    from datetime import timedelta
+    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    recent_sessions = db.query(func.count(ImpersonationSession.id)).filter(
+        ImpersonationSession.admin_user_id == admin.id,
+        ImpersonationSession.created_at > one_hour_ago,
+    ).scalar()
+    if recent_sessions >= 5:
+        raise HTTPException(status_code=429, detail="Impersonation rate limit exceeded (max 5/hour)")
 
     ip = request.client.host if request.client else ""
     forwarded = request.headers.get("X-Forwarded-For")
@@ -1982,6 +2450,7 @@ def impersonate_user(
         resource_type="user",
         resource_id=target.id,
         details={"target_email": target.email, "ip": ip},
+        ip_address=ip,
     )
 
     from app.backend.services.security_event_service import record_impersonation
@@ -2020,6 +2489,7 @@ def list_impersonation_sessions(
 @router.delete("/impersonate/sessions/{session_id}")
 def revoke_impersonation(
     session_id: int,
+    request: Request,
     admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -2039,6 +2509,7 @@ def revoke_impersonation(
         resource_type="impersonation_session",
         resource_id=session_id,
         details={"target_user_id": session.target_user_id},
+        ip_address=get_client_ip(request),
     )
 
     return {"message": "Impersonation session revoked", "session_id": session_id}
@@ -2065,6 +2536,7 @@ class ErasureLogItem(BaseModel):
 def anonymize_tenant(
     tenant_id: int,
     body: ErasureRequest,
+    request: Request,
     admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -2099,6 +2571,7 @@ def anonymize_tenant(
         resource_type="tenant",
         resource_id=tenant_id,
         details={"erasure_log_id": log.id, "records_affected": records_affected},
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -2213,6 +2686,7 @@ def update_plan_feature_mapping(
     plan_id: int,
     feature_flag_id: int,
     body: dict,  # { "enabled": bool }
+    request: Request,
     admin: User = Depends(require_billing_admin),
     db: Session = Depends(get_db),
 ):
@@ -2255,6 +2729,7 @@ def update_plan_feature_mapping(
         db, actor=admin, action="plan_feature.update",
         resource_type="plan_feature", resource_id=mapping.id,
         details={"plan_id": plan_id, "feature_flag_id": feature_flag_id, "enabled": enabled},
+        ip_address=get_client_ip(request),
     )
 
     return PlanFeatureItem(
@@ -2272,6 +2747,7 @@ def update_plan_feature_mapping(
 def delete_plan_feature_mapping(
     plan_id: int,
     feature_flag_id: int,
+    request: Request,
     admin: User = Depends(require_billing_admin),
     db: Session = Depends(get_db),
 ):
@@ -2299,6 +2775,7 @@ def delete_plan_feature_mapping(
         db, actor=admin, action="plan_feature.delete",
         resource_type="plan_feature", resource_id=None,
         details={"plan_id": plan_id, "feature_flag_id": feature_flag_id},
+        ip_address=get_client_ip(request),
     )
 
     return {"message": "Plan-feature mapping removed", "plan_id": plan_id, "feature_flag_id": feature_flag_id}
@@ -2410,6 +2887,7 @@ def get_tenant_rate_limit(
 def update_tenant_rate_limit(
     tenant_id: int,
     body: RateLimitConfigUpdate,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -2460,6 +2938,7 @@ def update_tenant_rate_limit(
             "requests_per_minute": config.requests_per_minute,
             "llm_concurrent_max": config.llm_concurrent_max,
         },
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -2475,6 +2954,7 @@ def update_tenant_rate_limit(
 @router.delete("/tenants/{tenant_id}/rate-limit")
 def delete_tenant_rate_limit(
     tenant_id: int,
+    request: Request,
     admin: User = Depends(require_platform_admin),
     db: Session = Depends(get_db),
 ):
@@ -2498,6 +2978,7 @@ def delete_tenant_rate_limit(
         db, actor=admin, action="rate_limit.delete",
         resource_type="rate_limit_config", resource_id=config.id,
         details={"tenant_id": tenant_id},
+        ip_address=get_client_ip(request),
     )
 
     return {"message": "Rate limit configuration deleted, tenant will use defaults"}
@@ -2675,6 +3156,7 @@ def list_plans(
 @router.post("/plans", response_model=PlanDetailResponse, status_code=201)
 def create_plan(
     body: CreatePlanRequest,
+    request: Request,
     admin: User = Depends(require_billing_admin),
     db: Session = Depends(get_db),
 ):
@@ -2711,6 +3193,7 @@ def create_plan(
             "price_yearly": plan.price_yearly,
             "currency": plan.currency,
         },
+        ip_address=get_client_ip(request),
     )
 
     return PlanDetailResponse(
@@ -2734,6 +3217,7 @@ def create_plan(
 def update_plan(
     plan_id: int,
     body: UpdatePlanRequest,
+    request: Request,
     admin: User = Depends(require_billing_admin),
     db: Session = Depends(get_db),
 ):
@@ -2808,6 +3292,7 @@ def update_plan(
         resource_type="plan",
         resource_id=plan.id,
         details={"before": before, "after": after},
+        ip_address=get_client_ip(request),
     )
 
     return PlanDetailResponse(
@@ -2830,6 +3315,7 @@ def update_plan(
 @router.delete("/plans/{plan_id}")
 def archive_plan(
     plan_id: int,
+    request: Request,
     force: bool = Query(False),
     admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
@@ -2863,6 +3349,7 @@ def archive_plan(
             "subscriber_count": subscriber_count,
             "forced": force,
         },
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -2917,6 +3404,7 @@ def list_dunning(
 @router.post("/dunning/{tenant_id}/resolve")
 def manually_resolve_dunning(
     tenant_id: int,
+    request: Request,
     admin: User = Depends(require_billing_admin),
     db: Session = Depends(get_db),
 ):
@@ -2951,6 +3439,7 @@ def manually_resolve_dunning(
             "retry_count": record.retry_count,
             "resolved_by": "admin_manual",
         },
+        ip_address=get_client_ip(request),
     )
     db.commit()
 
@@ -2964,6 +3453,7 @@ def manually_resolve_dunning(
 
 @router.get("/dunning/process-retries")
 def trigger_dunning_retries(
+    request: Request,
     admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -2981,6 +3471,7 @@ def trigger_dunning_retries(
             "records_processed": len(results),
             "results": results,
         },
+        ip_address=get_client_ip(request),
     )
 
     return {

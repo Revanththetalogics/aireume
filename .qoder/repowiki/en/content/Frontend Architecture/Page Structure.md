@@ -22,11 +22,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced AnalyzePage documentation to include IndexedDB-based file-mode JD caching functionality
-- Added comprehensive IndexedDB helper functions documentation (openJdDB, storeJdFile, getJdFile, clearJdFile)
-- Updated AnalyzePage section to cover automatic loading of cached JD files when users return to analyze page with file mode enabled
-- Enhanced session storage integration documentation to include IndexedDB fallback mechanisms
-- Updated troubleshooting guide to include IndexedDB error handling
+- Enhanced ReportPage documentation to include automatic data refresh mechanisms after candidate name updates
+- Added detailed explanation of immediate visual feedback system for user actions
+- Updated ReportPage section to cover automatic re-fetch of screening results and audit logs
+- Enhanced InlineNameEditor component documentation with real-time state synchronization
+- Added comprehensive coverage of the automatic refresh workflow and user experience improvements
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -249,30 +249,44 @@ View --> End(["Navigate to ReportPage"])
 - Print:
   - Dedicated print header and styles.
 
-**Updated** Enhanced with IndexedDB-based file-mode JD caching support for seamless cross-session JD file persistence
+**Enhanced** with automatic data refresh mechanisms that provide immediate visual feedback to users after candidate name updates
+
+**Updated** Enhanced with automatic data refresh mechanisms that re-fetch screening results after successful candidate name updates, providing immediate visual feedback to users
+
+The ReportPage now implements a sophisticated automatic refresh system that ensures users receive immediate visual feedback when they update candidate information. This system operates through several key mechanisms:
+
+1. **Immediate Local State Updates**: When a user saves a candidate name, the component immediately updates the local state and result object, providing instant visual feedback without waiting for API responses.
+
+2. **Automatic Result Re-fetch**: After a successful candidate name update, the component automatically re-fetches the complete screening result from the server to ensure all derived data (fit summaries, narratives, etc.) are synchronized with the updated name.
+
+3. **Audit Log Refresh**: The component automatically refreshes the candidate's audit log to include the new edit operation, ensuring the audit trail reflects the latest changes.
+
+4. **Real-time State Synchronization**: The system maintains consistency between local state and server state by updating multiple data points simultaneously when changes occur.
 
 ```mermaid
 sequenceDiagram
 participant U as "User"
-participant RP as "ReportPage"
-participant API as "API"
-participant AP as "AnalyzePage"
-U->>RP : Open report (state or id)
-RP->>RP : Resolve result
-RP->>RP : Load JD context from sessionStorage
-RP->>API : Update candidate name (optional)
-RP->>API : Label training example + status
-U->>RP : Click "Analyze Another Resume"
-RP->>AP : Navigate with pre-filled JD context
+participant INE as "InlineNameEditor"
+participant API as "updateCandidateName"
+participant SR as "getScreeningResult"
+participant AL as "getCandidateAuditLog"
+U->>INE : Edit candidate name
+INE->>API : Update candidate name
+API-->>INE : Success response
+INE->>INE : Update local state immediately
+INE->>SR : Re-fetch complete result
+SR-->>INE : Updated result data
+INE->>AL : Refresh audit log
+AL-->>INE : Latest audit trail
+INE-->>U : Immediate visual feedback
 ```
 
 **Diagram sources**
-- [ReportPage.jsx:82-151](file://app/frontend/src/pages/ReportPage.jsx#L82-L151)
-- [ReportPage.jsx:421-440](file://app/frontend/src/pages/ReportPage.jsx#L421-L440)
-- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
+- [ReportPage.jsx:435-463](file://app/frontend/src/pages/ReportPage.jsx#L435-L463)
+- [ReportPage.jsx:451-461](file://app/frontend/src/pages/ReportPage.jsx#L451-L461)
 
 **Section sources**
-- [ReportPage.jsx:1-554](file://app/frontend/src/pages/ReportPage.jsx#L1-L554)
+- [ReportPage.jsx:1-824](file://app/frontend/src/pages/ReportPage.jsx#L1-L824)
 
 ### ComparePage
 - Purpose: Compare up to five candidate results side-by-side.
@@ -570,6 +584,10 @@ Tab --> Security["Manage account/security"]
 - IndexedDB Integration
   - **New** AnalyzePage uses IndexedDB for persistent JD file caching across browser sessions.
   - **New** Seamless fallback between sessionStorage and IndexedDB for JD context persistence.
+- Automatic Data Refresh System
+  - **New** ReportPage implements automatic data refresh mechanisms for enhanced user experience.
+  - **New** InlineNameEditor component provides immediate visual feedback through local state updates.
+  - **New** Automatic re-fetch of screening results and audit logs after successful candidate name updates.
 
 ```mermaid
 graph LR
@@ -590,6 +608,7 @@ AS --> Ana["AnalyzePage.jsx"]
 Ana -.->|"Session Storage"| Rep
 Rep -.->|"Session Storage"| Ana
 Ana -.->|"IndexedDB Cache"| Ana
+Rep -.->|"Auto Refresh"| Rep
 ```
 
 **Diagram sources**
@@ -610,12 +629,18 @@ Ana -.->|"IndexedDB Cache"| Ana
   - **New** IndexedDB operations are asynchronous and non-blocking, preventing UI freezes.
   - **New** Database initialization occurs only when needed, minimizing startup overhead.
   - **New** File caching uses efficient object store operations for minimal memory footprint.
+- Automatic Data Refresh Performance:
+  - **New** Optimized re-fetch strategy that only updates necessary data points.
+  - **New** Concurrent operations for audit log and result refresh to minimize perceived latency.
+  - **New** Local state updates provide immediate feedback while background re-fetch operations complete.
+  - **New** Error handling ensures UI remains responsive even if refresh operations fail.
 - Recommendations:
   - Defer non-critical data fetching (e.g., templates/history) until needed.
   - Use virtualized lists for very large datasets.
   - Debounce search inputs where applicable.
   - Implement proper error handling for sessionStorage and IndexedDB operations.
   - Consider IndexedDB quota management for large file caching scenarios.
+  - Optimize auto-refresh intervals to balance responsiveness with performance.
 
 ## Troubleshooting Guide
 - Authentication issues
@@ -640,17 +665,22 @@ Ana -.->|"IndexedDB Cache"| Ana
 - Cross-Browser Compatibility:
   - **New** IndexedDB is supported in all modern browsers; fallback mechanisms ensure consistent behavior.
   - **New** File mode JD caching works across different browser sessions and tabs.
+- Automatic Data Refresh Issues:
+  - **New** ReportPage handles refresh failures gracefully without blocking the UI.
+  - **New** Local state updates ensure users see immediate feedback even if server re-fetch fails.
+  - **New** Audit log refresh failures don't prevent candidate name updates from completing successfully.
+  - **New** Error boundaries protect against cascading failures in the refresh system.
 
 **Section sources**
 - [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
 - [ReportPage.jsx:99-118](file://app/frontend/src/pages/ReportPage.jsx#L99-L118)
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
-- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
+- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-286)
 - [BatchPage.jsx:89-121](file://app/frontend/src/pages/BatchPage.jsx#L89-L121)
 - [VideoPage.jsx:542-610](file://app/frontend/src/pages/VideoPage.jsx#L542-L610)
 
 ## Conclusion
-The Resume AI frontend organizes pages around a clean routing and protection layer, with shared providers and layout. Each page encapsulates its data fetching, state, and navigation, while leveraging common components and responsive patterns. The architecture supports scalability and maintainability, with clear separation of concerns and predictable data flows. Recent enhancements include improved session storage integration for seamless user workflows and cross-page continuity, along with the addition of IndexedDB-based file-mode JD caching functionality for persistent storage across browser sessions.
+The Resume AI frontend organizes pages around a clean routing and protection layer, with shared providers and layout. Each page encapsulates its data fetching, state, and navigation, while leveraging common components and responsive patterns. The architecture supports scalability and maintainability, with clear separation of concerns and predictable data flows. Recent enhancements include improved session storage integration for seamless user workflows and cross-page continuity, along with the addition of IndexedDB-based file-mode JD caching functionality for persistent storage across browser sessions. The most significant recent improvement is the automatic data refresh system in ReportPage, which provides immediate visual feedback to users when they update candidate information, significantly enhancing the user experience through real-time state synchronization and automatic result re-fetching.
 
 ## Appendices
 
@@ -680,6 +710,7 @@ The Resume AI frontend organizes pages around a clean routing and protection lay
 - Keep loading/error states explicit and user-friendly.
 - Implement proper session storage integration when enabling cross-page features.
 - Consider IndexedDB integration for persistent data storage when appropriate.
+- Implement automatic refresh mechanisms for critical user-facing data updates.
 
 ### Session Storage Integration Patterns
 - Store context data in sessionStorage with structured keys (e.g., `aria_active_jd`, `report_${id}`).
@@ -688,7 +719,7 @@ The Resume AI frontend organizes pages around a clean routing and protection lay
 - Use sessionStorage for temporary context that enhances user workflow continuity.
 
 **Section sources**
-- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
+- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-286)
 - [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
 - [ReportPage.jsx:133-142](file://app/frontend/src/pages/ReportPage.jsx#L133-L142)
 - [ReportPage.jsx:224-231](file://app/frontend/src/pages/ReportPage.jsx#L224-L231)
@@ -704,3 +735,16 @@ The Resume AI frontend organizes pages around a clean routing and protection lay
 - [AnalyzePage.jsx:30-80](file://app/frontend/src/pages/AnalyzePage.jsx#L30-L80)
 - [AnalyzePage.jsx:193-210](file://app/frontend/src/pages/AnalyzePage.jsx#L193-L210)
 - [AnalyzePage.jsx:359-369](file://app/frontend/src/pages/AnalyzePage.jsx#L359-L369)
+
+### Automatic Data Refresh System Patterns
+- **New** Implement immediate local state updates for user-facing changes to provide instant feedback.
+- **New** Design re-fetch mechanisms that update only necessary data points to minimize network overhead.
+- **New** Handle refresh failures gracefully without blocking the user experience.
+- **New** Maintain consistency between local state and server state through concurrent operations.
+- **New** Provide error boundaries and fallback mechanisms for refresh operations.
+- **New** Optimize refresh intervals and error handling to balance responsiveness with reliability.
+
+**Section sources**
+- [ReportPage.jsx:435-463](file://app/frontend/src/pages/ReportPage.jsx#L435-L463)
+- [ReportPage.jsx:451-461](file://app/frontend/src/pages/ReportPage.jsx#L451-L461)
+- [ReportPage.jsx:447-450](file://app/frontend/src/pages/ReportPage.jsx#L447-L450)

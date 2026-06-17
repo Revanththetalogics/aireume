@@ -1,11 +1,15 @@
 """
 Authentication routes: register, login, refresh, me, logout.
 """
+import logging
+import time
 import os
 import re
 import secrets
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import JSONResponse
@@ -15,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user, SECRET_KEY, ALGORITHM
-from app.backend.models.db_models import Tenant, User, RevokedToken, SSOConfig
+from app.backend.models.db_models import Tenant, User, RevokedToken, SSOConfig, PasswordResetToken
 from app.backend.models.schemas import (
     RegisterRequest, LoginRequest, TokenResponse, RefreshRequest
 )
@@ -26,12 +30,48 @@ from app.backend.services.security_event_service import (
     is_suspicious,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-ACCESS_TOKEN_EXPIRE_MINUTES  = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES",  "60"))
+ACCESS_TOKEN_EXPIRE_MINUTES  = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES",  "5"))
 REFRESH_TOKEN_EXPIRE_DAYS    = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS",    "30"))
+
+
+# ─── Per-IP Rate Limiter ─────────────────────────────────────────────────────
+
+class InMemoryRateLimiter:
+    """Simple per-key rate limiter with sliding window."""
+
+    def __init__(self):
+        self._attempts = defaultdict(list)  # key -> [timestamps]
+        self._lock = Lock()
+
+    def is_rate_limited(self, key: str, max_attempts: int, window_seconds: int) -> tuple:
+        """Returns (is_limited, retry_after_seconds)."""
+        now = time.time()
+        with self._lock:
+            # Clean old entries
+            self._attempts[key] = [t for t in self._attempts[key] if now - t < window_seconds]
+            if len(self._attempts[key]) >= max_attempts:
+                oldest = self._attempts[key][0]
+                retry_after = int(window_seconds - (now - oldest)) + 1
+                return True, retry_after
+            self._attempts[key].append(now)
+            return False, 0
+
+    def cleanup(self):
+        """Remove stale entries (call periodically)."""
+        now = time.time()
+        with self._lock:
+            stale_keys = [k for k, v in self._attempts.items() if not v or now - v[-1] > 300]
+            for k in stale_keys:
+                del self._attempts[k]
+
+
+auth_rate_limiter = InMemoryRateLimiter()
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -133,7 +173,16 @@ def _create_auth_response(user: User, tenant: Tenant, access_token: str, refresh
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
 @router.post("/register")
-def register(body: RegisterRequest, db: Session = Depends(get_db)):
+def register(request: Request, body: RegisterRequest, db: Session = Depends(get_db)):
+    client_ip = _get_client_ip(request)
+    is_limited, retry_after = auth_rate_limiter.is_rate_limited(f"register:{client_ip}", max_attempts=5, window_seconds=60)
+    if is_limited:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many registration attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -153,25 +202,76 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     db.flush()  # get tenant.id
 
     # Create admin user
+    verification_token = str(uuid.uuid4())
     user = User(
         tenant_id=tenant.id,
         email=body.email,
         hashed_password=_hash_password(body.password),
         role="admin",
+        email_verified=False,
+        email_verification_token=verification_token,
+        email_verification_sent_at=datetime.now(timezone.utc),
     )
     db.add(user)
     db.commit()
     db.refresh(user)
 
+    # Send verification email
+    try:
+        from app.backend.services.email_service import email_service, get_tenant_email_service
+        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+        verify_url = f"{frontend_url}/verify-email/{verification_token}"
+        html_body = (
+            f"<h2>Welcome to ARIA — Verify Your Email</h2>"
+            f"<p>Please verify your email address to activate your account.</p>"
+            f'<p><a href="{verify_url}">Verify Email Address</a></p>'
+            f"<p>If you didn't create this account, you can safely ignore this email.</p>"
+            f"<hr><p style='color:gray;font-size:12px;'>"
+            f"This is an automated message from ARIA Resume Intelligence.</p>"
+        )
+        email_service.send_email(body.email, "Verify Your Email — ARIA Platform", html_body)
+    except Exception as e:
+        logger.error("Failed to send verification email: %s", e)
+
     access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     refresh_token = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
-    return _create_auth_response(user, tenant, access_token, refresh_token)
+    response = _create_auth_response(user, tenant, access_token, refresh_token)
+    # Overlay message so frontend knows to prompt for verification
+    import json as _json
+    body_data = _json.loads(response.body)
+    body_data["message"] = "Registration successful. Please check your email to verify your account."
+    from fastapi.responses import JSONResponse as _JSONResponse
+    new_response = _JSONResponse(content=body_data)
+    for header_name, header_value in response.headers.items():
+        if header_name.lower() == "set-cookie":
+            new_response.raw_headers.append((b"set-cookie", header_value.encode()))
+    return new_response
+
+
+@router.get("/verify-email/{token}")
+def verify_email(token: str, db: Session = Depends(get_db)):
+    """Verify a user's email address via the one-time token sent on registration."""
+    user = db.query(User).filter(User.email_verification_token == token).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+    user.email_verified = True
+    user.email_verification_token = None
+    db.commit()
+    return {"message": "Email verified successfully"}
 
 
 @router.post("/login")
 def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     ip = _get_client_ip(request)
+    is_limited, retry_after = auth_rate_limiter.is_rate_limited(f"login:{ip}", max_attempts=5, window_seconds=60)
+    if is_limited:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     user_agent = request.headers.get("User-Agent")
 
     user = db.query(User).filter(User.email == body.email, User.is_active == True).first()
@@ -182,6 +282,13 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
         if is_suspicious(db, ip_address=ip, email=body.email, window_minutes=30, threshold=5):
             record_suspicious_activity(db, ip_address=ip, email=body.email, details={"reason": "brute_force_detected"})
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Check email verification
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Please verify your email before logging in. Check your inbox."
+        )
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 
@@ -236,10 +343,22 @@ def refresh_token(request: Request, body: RefreshRequest = None, db: Session = D
         if revoked:
             raise HTTPException(status_code=401, detail="Token has been revoked")
 
-    user   = db.query(User).filter(User.id == user_id, User.is_active == True).first()
-    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user else None
+    # Check if user exists at all (regardless of active status)
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    if not user.is_active:
+        # User was deactivated — revoke this refresh token permanently
+        if jti:
+            existing_revoked = db.query(RevokedToken).filter(RevokedToken.jti == jti).first()
+            if not existing_revoked:
+                revoked_entry = RevokedToken(jti=jti, expires_at=datetime.utcnow() + timedelta(days=30))
+                db.add(revoked_entry)
+                db.commit()
+        raise HTTPException(status_code=401, detail="User account has been deactivated")
+
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 
     access_token  = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id)}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     new_refresh   = _create_token({"sub": str(user.id), "tenant_id": str(user.tenant_id), "type": "refresh"}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
@@ -300,3 +419,98 @@ async def logout(request: Request, db: Session = Depends(get_db)):
     response.delete_cookie("refresh_token", path="/")
     response.delete_cookie("csrf_token", path="/")
     return response
+
+
+@router.post("/forgot-password")
+def forgot_password(request: Request, request_data: dict, db: Session = Depends(get_db)):
+    """Generate password reset token. Always returns 200 to prevent email enumeration."""
+    # Rate limit password reset requests
+    client_ip = _get_client_ip(request)
+    is_limited, retry_after = auth_rate_limiter.is_rate_limited(f"forgot:{client_ip}", max_attempts=3, window_seconds=60)
+    if is_limited:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many password reset attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    email = request_data.get("email", "").strip().lower()
+
+    # Always return success to prevent email enumeration
+    user = db.query(User).filter(User.email == email, User.is_active == True).first()
+    if not user:
+        return {"message": "If an account with that email exists, a reset link has been sent."}
+
+    # Delete any existing tokens for this user
+    db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user.id).delete()
+
+    # Create new token
+    token = secrets.token_urlsafe(32)
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token=token,
+        expires_at=datetime.utcnow() + timedelta(hours=1)
+    )
+    db.add(reset_token)
+    db.commit()
+
+    # Send password reset email
+    try:
+        from app.backend.services.email_service import email_service, get_tenant_email_service
+        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+        reset_url = f"{frontend_url}/reset-password/{token}"
+        html_body = (
+            f"<h2>Password Reset Request</h2>"
+            f"<p>Click the link below to reset your password. This link expires in 1 hour.</p>"
+            f'<p><a href="{reset_url}">Reset Password</a></p>'
+            f"<p>If you didn't request this, you can safely ignore this email.</p>"
+            f"<hr><p style='color:gray;font-size:12px;'>"
+            f"This is an automated message from ARIA Resume Intelligence.</p>"
+        )
+        # Try tenant-specific email config first, fall back to global
+        tenant_svc = get_tenant_email_service(db, user.tenant_id) if user.tenant_id else None
+        if tenant_svc:
+            tenant_svc.send_email(user.email, "Password Reset - ARIA Platform", html_body)
+        else:
+            email_service.send_email(user.email, "Password Reset - ARIA Platform", html_body)
+    except Exception as e:
+        logger.error("Failed to send password reset email: %s", e)
+
+    logger.info("Password reset token generated for user %s", user.id)
+
+    return {"message": "If an account with that email exists, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+def reset_password(request_data: dict, db: Session = Depends(get_db)):
+    """Reset password using token."""
+    token = request_data.get("token", "")
+    new_password = request_data.get("new_password", "")
+
+    if not token or not new_password:
+        raise HTTPException(status_code=400, detail="Token and new password are required")
+
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    # Find valid token
+    reset_token = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token == token,
+        PasswordResetToken.expires_at > datetime.utcnow()
+    ).first()
+
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    # Update password
+    user = db.query(User).filter(User.id == reset_token.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+
+    user.hashed_password = _hash_password(new_password)
+
+    # Delete used token
+    db.delete(reset_token)
+    db.commit()
+
+    return {"message": "Password has been reset successfully"}

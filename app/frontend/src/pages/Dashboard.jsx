@@ -35,7 +35,7 @@ const PIPELINE_STAGES = [
   },
   {
     id:    'interview_qs',
-    label: 'Agent 3B — Generating interview kit',
+    label: 'Agent 3B — Generating recruiter screen kit',
     group: 3,
   },
 ]
@@ -43,7 +43,7 @@ const PIPELINE_STAGES = [
 const GROUP_LABELS = {
   1: 'Stage 1 — Extraction',
   2: 'Stage 2 — Analysis',
-  3: 'Stage 3 — Scoring & Interview Kit',
+  3: 'Stage 3 — Scoring & Recruiter Screen Kit',
 }
 
 // ─── Agent progress panel ─────────────────────────────────────────────────────

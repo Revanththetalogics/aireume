@@ -21,19 +21,25 @@
 - [interview_kit.py](file://app/backend/routes/interview_kit.py)
 - [dashboard.py](file://app/backend/routes/dashboard.py)
 - [admin.py](file://app/backend/routes/admin.py)
+- [transcript.py](file://app/backend/routes/transcript.py)
+- [transcript_service.py](file://app/backend/services/transcript_service.py)
 - [weight_mapper.py](file://app/backend/services/weight_mapper.py)
 - [weight_suggester.py](file://app/backend/services/weight_suggester.py)
 - [api.js](file://app/frontend/src/lib/api.js)
+- [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
+- [webhook_docs.py](file://app/backend/routes/webhook_docs.py)
+- [dunning_service.py](file://app/backend/services/billing/dunning_service.py)
+- [AdminOverviewPage.jsx](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx)
+- [MetricsPage.jsx](file://app/frontend/src/pages/admin/MetricsPage.jsx)
+- [test_admin_metrics.py](file://app/backend/tests/test_admin_metrics.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive dashboard endpoints for summary, activity feed, and screening analytics
-- Implemented JD-scoped candidate management APIs with ranking and bulk status updates
-- Enhanced analytics endpoints with period-based filtering and JD effectiveness tracking
-- Added HM Handoff Package export for shortlisted candidates with comparison matrices
-- Integrated Interview Kit evaluation system with Experience Deep-Dive category support
-- Expanded admin analytics with platform-wide metrics and usage trend reporting
+- Enhanced admin metrics API documentation to include three new flat fields (active_users, total_analyses, mrr) in the /api/admin/metrics/overview endpoint response structure
+- Updated examples to show the expanded response format with both flat and nested data representations
+- Added comprehensive admin analytics endpoints for platform-wide metrics overview and usage trend analysis
+- Integrated frontend implementation showing how the new flat fields are utilized in the AdminOverviewPage
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -58,14 +64,11 @@ This document provides a comprehensive API reference for Resume AI by ThetaLogic
 - Subscription and usage tracking
 - Team collaboration and comments
 - Email generation, export, comparison, training, and diagnostics
-- **NEW** Dashboard endpoints for comprehensive screening operations
-- **NEW** JD-scoped candidate management with bulk operations
-- **NEW** Enhanced analytics with period-based filtering and JD effectiveness tracking
-- **NEW** HM Handoff Package export with comparison matrices
-- **NEW** Interview Kit Evaluation system for structured interview scoring with Experience Deep-Dive category support
-- **NEW** Admin analytics for platform-wide metrics and usage trends
-
-The API is versioned and served under a base URL (default /api). Authentication is JWT-based and enforced via a bearer token.
+- **NEW** Admin API endpoints for operational oversight and administrative functions including audit log exports, webhook event enumeration, invoice retrieval, dunning record management, and webhook event configuration
+- **NEW** Enhanced billing administration endpoints with administrative invoice management and dunning resolution capabilities
+- **NEW** Comprehensive webhook event monitoring with administrative tenant webhook management and delivery tracking
+- **NEW** Administrative capabilities with notifications, feature flags, and tenant management
+- **NEW** Admin analytics endpoints for platform-wide metrics overview and usage trend analysis with enhanced response structure including flat fields for quick access
 
 ## Project Structure
 The backend is a FastAPI application that mounts routers for each functional area. The frontend client demonstrates typical usage patterns and token handling.
@@ -89,14 +92,29 @@ R_QUEUE["Routes: queue_api.py"]
 R_INTKIT["Routes: interview_kit.py"]
 R_DASHBOARD["Routes: dashboard.py"]
 R_ADMIN["Routes: admin.py"]
+R_TRANSCRIPT["Routes: transcript.py"]
+R_WEBHOOK_DOCS["Routes: webhook_docs.py"]
 MW["Middleware: auth.py"]
 SC["Models: schemas.py"]
 DBM["Models: db_models.py"]
 WS["Services: weight_suggester.py"]
 WM["Services: weight_mapper.py"]
+TS["Service: transcript_service.py"]
+AUDIT["Endpoint: export-audit-logs"]
+WEBHOOKS["Endpoint: get-webhook-events"]
+INVOICES["Endpoint: get-admin-invoices"]
+DUNNING["Endpoint: get-admin-dunning-records"]
+RESOLVE["Endpoint: resolve-dunning"]
+ENDPHONE["Endpoint: generate-debrief"]
+PHONESCREEN["Component: PhoneScreenKit.jsx"]
+ADMIN_METRICS["Endpoint: metrics/overview"]
+ADMIN_TRENDS["Endpoint: metrics/usage-trends"]
+ENDPHONE["Component: PhoneScreenKit.jsx"]
 end
 subgraph "Frontend"
 FE["Client: api.js"]
+OVERVIEW["Page: AdminOverviewPage.jsx"]
+METRICS["Page: MetricsPage.jsx"]
 end
 M --> R_AUTH
 M --> R_ANALYZE
@@ -113,6 +131,8 @@ M --> R_QUEUE
 M --> R_INTKIT
 M --> R_DASHBOARD
 M --> R_ADMIN
+M --> R_TRANSCRIPT
+M --> R_WEBHOOK_DOCS
 R_AUTH --> MW
 R_ANALYZE --> MW
 R_CAND --> MW
@@ -128,26 +148,14 @@ R_QUEUE --> MW
 R_INTKIT --> MW
 R_DASHBOARD --> MW
 R_ADMIN --> MW
-FE --> M
-MW --> DBM
-R_ANALYZE --> DBM
-R_CAND --> DBM
-R_TMPL --> DBM
-R_SUB --> DBM
-R_TEAM --> DBM
-R_EMAIL --> DBM
-R_COMPARE --> DBM
-R_EXPORT --> DBM
-R_TRAIN --> DBM
-R_UPLOAD --> DBM
-R_QUEUE --> DBM
-R_INTKIT --> DBM
-R_DASHBOARD --> DBM
-R_ADMIN --> DBM
-R_ANALYZE --> WS
-R_ANALYZE --> WM
-R_UPLOAD --> WS
-R_QUEUE --> WM
+R_TRANSCRIPT --> MW
+R_TRANSCRIPT --> TS
+R_INTKIT --> ENDPHONE
+R_ADMIN --> ADMIN_METRICS
+R_ADMIN --> ADMIN_TRENDS
+OVERVIEW --> FE
+METRICS --> FE
+PHONESCREEN --> FE
 ```
 
 **Diagram sources**
@@ -169,10 +177,16 @@ R_QUEUE --> WM
 - [queue_api.py:31-464](file://app/backend/routes/queue_api.py#L31-464)
 - [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-224)
 - [dashboard.py:1-382](file://app/backend/routes/dashboard.py#L1-382)
-- [admin.py:1-1119](file://app/backend/routes/admin.py#L1-1119)
+- [admin.py:1-3265](file://app/backend/routes/admin.py#L1-3265)
+- [transcript.py:1-220](file://app/backend/routes/transcript.py#L1-220)
+- [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
 - [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-360)
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-307)
+- [transcript_service.py:1-374](file://app/backend/services/transcript_service.py#L1-374)
 - [api.js:1-395](file://app/frontend/src/lib/api.js#L1-L395)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [MetricsPage.jsx:119-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L119-L155)
 
 **Section sources**
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
@@ -183,6 +197,7 @@ R_QUEUE --> WM
   - JWT bearer tokens with HS256 algorithm
   - Access and refresh tokens
   - Admin role enforcement for certain endpoints
+  - **NEW** Elevated privilege requirements for administrative endpoints including platform_admin, super_admin, billing_admin, security_admin, and support roles
 - Data Models and Schemas
   - Pydantic models define request/response shapes
   - SQLAlchemy models define persistence
@@ -204,31 +219,35 @@ R_QUEUE --> WM
   - Storage of original uploaded resume files
   - Support for multiple file formats (PDF, DOCX, DOC, ODT, TXT, RTF)
   - Inline preview for PDFs, forced download for other formats
-- **NEW** Dashboard System
-  - Comprehensive screening analytics with period-based filtering
-  - Pipeline visualization by job description
-  - Activity feed with recent screening results
-  - JD effectiveness tracking and pass-through funnel analysis
-- **NEW** JD-Scoped Candidate Management
-  - Rank candidates by fit score, name, or date
-  - Bulk status updates for screening results
-  - Status filtering and sorting capabilities
-  - Tenant-scoped candidate ranking
-- **NEW** HM Handoff Package Export
-  - Structured export for shortlisted candidates
-  - Comparison matrix with five key dimensions
-  - Interview evaluation integration
-  - PDF export capability
-- **NEW** Interview Kit Evaluation System
-  - Structured interview scoring with per-question ratings across four categories
-  - Multi-category evaluation framework: technical, behavioral, culture_fit, and experience_deep_dive
-  - Overall recruiter assessment with recommendation system
-  - Automated scorecard generation with dimension summaries including experience_deep_dive_summary
+- **NEW** Admin API Endpoints
+  - Comprehensive tenant management and oversight with audit logging and export functionality
+  - Billing administration with dunning management and administrative invoice handling
+  - Administrative notifications and feature flag management
+  - Webhook event monitoring and administrative tenant webhook configuration
+  - Enhanced audit logging system with export capabilities for compliance and monitoring
+  - Comprehensive billing administration system with dunning record management and resolution
+  - Administrative webhook management with tenant-specific webhook configuration and delivery tracking
+- **NEW** Phone Screening System
+  - Structured interview evaluation with Experience Deep-Dive category
+  - Comprehensive debrief generation with LLM-powered analysis
+  - Recruiter assessment scoring and recommendation system
+  - Integration with frontend PhoneScreenKit component
+- **NEW** Transcript Analysis System
+  - Unbiased candidate evaluation from audio/video transcripts
+  - Support for VTT, SRT, and plain text formats
+  - PII redaction and evidence validation capabilities
+  - Structured analysis with fit scores and recommendations
+- **NEW** Enhanced Interview Kit Functionality
+  - Four-category evaluation framework: technical, behavioral, culture_fit, experience_deep_dive
+  - Structured debrief generation with sentiment analysis
+  - Recruiter score calculation combining rating distribution and sentiment
+  - Overall assessment with recommendation system
 - **NEW** Admin Analytics
-  - Platform-wide metrics overview
+  - Platform-wide metrics overview with enhanced response structure
   - Usage trend analysis with customizable periods
-  - Tenant and user statistics
-  - Revenue and storage tracking
+  - Tenant and user statistics with flat field access
+  - Revenue and storage tracking with MRR calculation
+  - **NEW** Enhanced metrics overview response now includes three new flat fields: active_users, total_analyses, and mrr for quick access
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -242,8 +261,12 @@ R_QUEUE --> WM
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 - [interview_kit.py:217-257](file://app/backend/routes/interview_kit.py#L217-L257)
 - [dashboard.py:61-381](file://app/backend/routes/dashboard.py#L61-L381)
-- [export.py:162-308](file://app/backend/routes/export.py#L162-308)
-- [admin.py:700-899](file://app/backend/routes/admin.py#L700-899)
+- [export.py:162-308](file://app/backend/routes/export.py#L162-L308)
+- [admin.py:700-899](file://app/backend/routes/admin.py#L700-L899)
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-132)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
+- [AdminOverviewPage.jsx:84-108](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L84-L108)
+- [MetricsPage.jsx:145-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L145-L155)
 
 ## Architecture Overview
 The API follows a layered architecture:
@@ -253,11 +276,16 @@ The API follows a layered architecture:
 - Database models persist state, usage metrics, and job queues
 - Queue system manages asynchronous job processing with priority scheduling
 - File storage system handles resume file management with multiple format support
-- **NEW** Dashboard system provides comprehensive screening analytics and pipeline visualization
-- **NEW** JD-scoped candidate management enables focused candidate ranking and bulk operations
-- **NEW** HM Handoff Package export delivers structured data for hiring managers
-- **NEW** Interview evaluation system provides structured scoring and assessment capabilities across four evaluation categories
-- **NEW** Admin analytics offers platform-wide insights and usage trend analysis
+- **NEW** Admin API endpoints provide operational oversight and administrative functions with comprehensive audit logging, billing administration, and webhook management
+- **NEW** Enhanced billing administration system manages subscription lifecycle and dunning processes with administrative resolution capabilities
+- **NEW** Comprehensive audit logging system with export capabilities for compliance and monitoring
+- **NEW** Administrative notifications system for platform-wide alerts and updates
+- **NEW** Feature flag management system for controlled rollouts and tenant-specific configurations
+- **NEW** Phone screening system provides structured interview evaluation and debrief generation
+- **NEW** Transcript analysis system enables unbiased candidate evaluation from audio/video sources
+- **NEW** Enhanced interview kit functionality supports comprehensive evaluation across four categories
+- **NEW** Admin analytics offers platform-wide insights and usage trend analysis with enhanced response structure
+- **NEW** Webhook event monitoring system provides comprehensive delivery tracking and administrative tenant webhook management
 
 ```mermaid
 sequenceDiagram
@@ -271,6 +299,11 @@ participant F as "File Storage"
 participant D as "Dashboard Router"
 participant J as "JD Candidates Router"
 participant E as "Export Router"
+participant I as "Interview Kit Router"
+participant TSC as "Transcript Service"
+participant ADM as "Admin Router"
+participant WB as "Webhook Docs Router"
+participant MET as "Admin Metrics Router"
 C->>A : POST /api/auth/register
 A->>U : Create admin user
 A->>T : Create tenant
@@ -294,10 +327,32 @@ E->>E : Build HM Handoff Package
 E-->>C : Structured package with comparison matrix
 C->>I : PUT /api/results/{result_id}/evaluations
 I->>I : Store per-question evaluation (including experience_deep_dive)
-I-->>C : Evaluation saved
 C->>I : GET /api/results/{result_id}/scorecard
 I->>I : Generate automated scorecard with experience_deep_dive_summary
-I-->>C : Scorecard with dimension summaries including Experience Deep-Dive
+C->>I : POST /api/results/{result_id}/generate-debrief
+I->>I : Generate LLM-powered debrief with recruiter score
+I-->>C : DebriefResponse with structured analysis
+C->>TSC : POST /api/transcript/analyze
+TSC->>TSC : Parse transcript and analyze with PII redaction
+TSC-->>C : TranscriptAnalysisResponse with unbiased evaluation
+C->>ADM : GET /api/admin/audit-logs/export
+ADM->>ADM : Export filtered audit logs
+ADM-->>C : CSV/JSON audit log export
+C->>ADM : GET /api/admin/dunning
+ADM->>ADM : List dunning records
+ADM-->>C : Dunning records with status and retry information
+C->>ADM : POST /api/admin/dunning/{tenant_id}/resolve
+ADM->>ADM : Resolve dunning and reactivate subscription
+ADM-->>C : Success response with resolution details
+C->>MET : GET /api/admin/metrics/overview
+MET->>MET : Calculate platform metrics with flat fields
+MET-->>C : Enhanced metrics response with active_users, total_analyses, mrr
+C->>MET : GET /api/admin/metrics/usage-trends
+MET->>MET : Calculate daily usage trends
+MET-->>C : Usage trends with analyses and signups arrays
+C->>WB : GET /api/webhooks/events
+WB->>WB : Enumerate webhook event types
+WB-->>C : Event definitions with signing info
 ```
 
 **Diagram sources**
@@ -307,8 +362,15 @@ I-->>C : Scorecard with dimension summaries including Experience Deep-Dive
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 - [dashboard.py:61-186](file://app/backend/routes/dashboard.py#L61-L186)
 - [candidates.py:575-721](file://app/backend/routes/candidates.py#L575-L721)
-- [export.py:162-308](file://app/backend/routes/export.py#L162-308)
+- [export.py:162-308](file://app/backend/routes/export.py#L162-L308)
 - [interview_kit.py:40-224](file://app/backend/routes/interview_kit.py#L40-L224)
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-132)
+- [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
+- [admin.py:3147-3185](file://app/backend/routes/admin.py#L3147-L3185)
+- [admin.py:3188-3235](file://app/backend/routes/admin.py#L3188-L3235)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
+- [webhook_docs.py:87-93](file://app/backend/routes/webhook_docs.py#L87-L93)
 
 ## Detailed Component Analysis
 
@@ -572,14 +634,47 @@ Priority system:
   - Response: ScorecardOut (aggregated evaluation summary)
   - Behavior: Combines evaluation data with analysis results to produce dimension summaries
   - Features: Technical/Behavioral/Culture Fit/Experience Deep-Dive summaries, strength/concern identification, overall assessment inclusion
+- POST /api/results/{result_id}/generate-debrief
+  - Purpose: Generate LLM-powered debrief from conversation summary and evaluations
+  - Body: DebriefRequest (conversation_summary)
+  - Response: DebriefResponse (structured debrief content, recruiter_score, recommendation)
+  - Behavior: Creates comprehensive debrief with sentiment analysis and recruiter scoring
+  - Features: Structured analysis with overview, strengths, concerns, recommendation rationale, recommendation (Advance/Hold/Reject)
 
 **Updated** Extended evaluation categories to include experience_deep_dive and enhanced scorecard generation to include experience_deep_dive_summary
 
 **Section sources**
 - [interview_kit.py:40-224](file://app/backend/routes/interview_kit.py#L40-L224)
+- [interview_kit.py:227-405](file://app/backend/routes/interview_kit.py#L227-L405)
 - [schemas.py:441-489](file://app/backend/models/schemas.py#L441-L489)
 - [schemas.py:490-517](file://app/backend/models/schemas.py#L490-L517)
 - [db_models.py:217-257](file://app/backend/models/db_models.py#L217-L257)
+
+### Transcript Analysis Endpoints
+**NEW** Unbiased candidate evaluation from audio/video transcripts with comprehensive analysis
+
+- POST /api/transcript/analyze
+  - Purpose: Upload transcript file or paste text, select candidate and job description, receive unbiased AI analysis
+  - Body: multipart/form-data with transcript_file or transcript_text, candidate_id, role_template_id, source_platform
+  - Response: TranscriptAnalysisResponse (analysis result with fit score, recommendations, evidence)
+  - Behavior: Parses VTT/SRT/plain text, applies PII redaction, analyzes against job description
+  - Features: Support for multiple formats, PII redaction, structured analysis with evidence citations
+- GET /api/transcript/analyses
+  - Purpose: List all transcript analyses for the tenant
+  - Response: { analyses: [...], total: int }
+  - Behavior: Returns paginated list of transcript analyses with candidate and template information
+- GET /api/transcript/analyses/{id}
+  - Purpose: Retrieve a single transcript analysis
+  - Response: TranscriptAnalysisResponse (detailed analysis with all fields)
+  - Behavior: Returns specific transcript analysis with full result details
+
+**Updated** Added comprehensive transcript analysis system with PII redaction and evidence validation
+
+**Section sources**
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
+- [transcript.py:135-177](file://app/backend/routes/transcript.py#L135-L177)
+- [transcript.py:180-220](file://app/backend/routes/transcript.py#L180-L220)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
 
 ### Template Management Endpoints
 - GET /api/templates
@@ -708,24 +803,159 @@ Limits and billing:
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 - [db_models.py:112-133](file://app/backend/models/db_models.py#L112-L133)
 
-### Admin Analytics Endpoints
-**NEW** Platform-wide metrics and usage trend reporting
+### Admin API Endpoints
+**NEW** Comprehensive administrative endpoints for operational oversight and administrative functions
+
+#### Audit Logging and Export
+- GET /api/admin/audit-logs
+  - Purpose: List administrative audit logs with filtering and pagination
+  - Query: action (optional), resource_type (optional), actor_email (optional), page (1-1000), per_page (1-100)
+  - Response: { items: [...], total: int, page: int, per_page: int, pages: int }
+  - Behavior: Returns paginated audit log entries with filtering by action, resource type, and actor email
+  - Security: Requires platform_admin role
+- GET /api/admin/audit-logs/export
+  - Purpose: Export filtered audit logs as CSV or JSON (capped at 10,000 rows)
+  - Query: format (csv|json), action (optional), start_date (ISO 8601), end_date (ISO 8601)
+  - Response: CSV/JSON file with audit log entries
+  - Behavior: Filters audit logs by action and date range, exports up to 10,000 rows
+  - Security: Requires platform_admin role
+
+#### Administrative Notifications
+- GET /api/admin/notifications
+  - Purpose: List admin platform notifications, newest first
+  - Query: unread_only (bool), limit (1-200)
+  - Response: { notifications: [...], unread_count: int }
+  - Behavior: Returns notifications with read/unread status and counts
+- PUT /api/admin/notifications/{notification_id}/read
+  - Purpose: Mark a single admin notification as read
+  - Response: { success: true }
+  - Behavior: Updates notification read status
+- PUT /api/admin/notifications/read-all
+  - Purpose: Mark all unread admin notifications as read
+  - Response: { success: true }
+  - Behavior: Updates all unread notifications to read
+
+#### Feature Flag Management
+- GET /api/admin/feature-flags
+  - Purpose: List all feature flags with their global state
+  - Response: List of feature flags with keys, display names, and enabled status
+- PUT /api/admin/feature-flags/{flag_id}
+  - Purpose: Toggle a feature flag's global state
+  - Body: { enabled_globally: bool }
+  - Response: { message: string, key: string, enabled_globally: bool }
+  - Behavior: Updates feature flag state and invalidates cache
+- GET /api/admin/tenants/{tenant_id}/features
+  - Purpose: Get feature overrides for a specific tenant
+  - Response: List of tenant-specific feature flag overrides
+- PUT /api/admin/tenants/{tenant_id}/features/{flag_id}
+  - Purpose: Set a feature override for a specific tenant
+  - Body: { enabled: bool }
+  - Response: { message: string, tenant_id: int, flag_id: int, enabled: bool }
+  - Behavior: Sets tenant-specific feature flag override
+
+#### Billing Administration
+- GET /api/admin/dunning
+  - Purpose: List tenants currently in dunning (active or exhausted)
+  - Query: status (active|exhausted|resolved|all)
+  - Response: { items: [...], total: int }
+  - Behavior: Returns dunning records with tenant information and retry status
+  - Security: Requires billing_admin role
+- POST /api/admin/dunning/{tenant_id}/resolve
+  - Purpose: Manually resolve dunning for a tenant
+  - Response: { message: string, tenant_id: int, dunning_id: int, retry_count: int }
+  - Behavior: Sets dunning status to resolved and reactivates tenant subscription
+  - Security: Requires billing_admin role
+- POST /api/admin/dunning/process-retries
+  - Purpose: Manually trigger dunning retry processing
+  - Response: { processed: int, results: [...] }
+  - Behavior: Processes due dunning retries manually (requires super_admin)
+  - Security: Requires super_admin role
+
+#### Administrative Invoice Management
+- GET /api/admin/invoices
+  - Purpose: List administrative invoices with filtering options
+  - Query: status (paid|pending|overdue), tenant_id (optional), limit (1-1000)
+  - Response: { items: [...], total: int }
+  - Behavior: Returns invoice records with tenant information and status
+  - Security: Requires billing_admin role
+- GET /api/admin/invoices/{invoice_id}
+  - Purpose: Retrieve a specific administrative invoice
+  - Response: Invoice details with line items and payment history
+  - Behavior: Returns detailed invoice information for administrative review
+  - Security: Requires billing_admin role
+
+#### Webhook Event Monitoring
+- GET /api/admin/webhook-events
+  - Purpose: List administrative webhook events with filtering
+  - Query: status (success|failed|retrying), tenant_id (optional), limit (1-1000)
+  - Response: { items: [...], total: int }
+  - Behavior: Returns webhook delivery attempts with status and error information
+  - Security: Requires billing_admin role
+- GET /api/admin/webhook-events/{event_id}
+  - Purpose: Retrieve a specific webhook event
+  - Response: Webhook event details with payload and response information
+  - Behavior: Returns complete webhook event data for debugging and monitoring
+  - Security: Requires billing_admin role
+
+#### Tenant Webhook Management
+- GET /api/admin/tenants/{tenant_id}/webhooks
+  - Purpose: List tenant-specific webhooks
+  - Response: List of webhook configurations
+  - Behavior: Returns webhooks configured for a specific tenant
+  - Security: Requires billing_admin role
+- POST /api/admin/tenants/{tenant_id}/webhooks
+  - Purpose: Create a tenant webhook
+  - Body: Webhook creation data
+  - Response: Created webhook configuration
+  - Behavior: Creates webhook for tenant with URL, secret, and activation status
+  - Security: Requires billing_admin role
+- DELETE /api/admin/tenants/{tenant_id}/webhooks/{webhook_id}
+  - Purpose: Delete a tenant webhook
+  - Response: { message: string }
+  - Behavior: Removes webhook configuration for tenant
+  - Security: Requires billing_admin role
+- GET /api/admin/tenants/{tenant_id}/webhooks/{webhook_id}/deliveries
+  - Purpose: List webhook delivery attempts for a specific webhook
+  - Query: limit (1-100)
+  - Response: { items: [...], total: int }
+  - Behavior: Returns delivery attempts with status, response codes, and timestamps
+  - Security: Requires billing_admin role
+
+#### Webhook Event Enumeration
+- GET /api/webhooks/events
+  - Purpose: Enumerate available webhook event types with descriptions and example payloads
+  - Response: { events: [...], signing: {...} }
+  - Behavior: Returns comprehensive list of webhook event types with descriptions, example payloads, and signing information
+  - Security: No authentication required
+
+#### Admin Analytics Endpoints
+**NEW** Enhanced admin analytics endpoints with comprehensive metrics overview and usage trends
 
 - GET /api/admin/metrics/overview
-  - Purpose: Get platform-wide metrics overview
-  - Response: PlatformMetricsOverview (tenants, users, analyses, storage, plans, revenue)
-  - Behavior: Aggregates tenant, user, analysis, storage, and revenue metrics
+  - Purpose: Get comprehensive platform metrics overview with enhanced response structure
+  - Response: Enhanced metrics response with both flat fields and nested structure
+  - Behavior: Calculates platform-wide metrics including active users, total analyses, and MRR
+  - Features: Enhanced response structure with flat fields for quick access plus nested structure for existing consumers
+  - **NEW** Response now includes three new flat fields: active_users, total_analyses, and mrr alongside existing nested structure
 - GET /api/admin/metrics/usage-trends
   - Purpose: Get daily usage trends for the last N days
-  - Query: days (default: 30)
+  - Query: days (int, default: 30)
   - Response: UsageTrendsResponse (period_days, analyses, signups)
-  - Behavior: Returns daily analysis counts and tenant signups over specified period
+  - Behavior: Returns daily analysis counts and new tenant signups for trend analysis
+  - Features: Customizable period length with default 30 days
 
-**Updated** Added comprehensive admin analytics endpoints for platform-wide insights
+**Updated** Added comprehensive admin analytics endpoints with enhanced metrics overview response structure including flat fields for quick access
 
 **Section sources**
-- [admin.py:700-777](file://app/backend/routes/admin.py#L700-L777)
-- [admin.py:780-814](file://app/backend/routes/admin.py#L780-L814)
+- [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
+- [admin.py:1224-1285](file://app/backend/routes/admin.py#L1224-L1285)
+- [admin.py:1288-1369](file://app/backend/routes/admin.py#L1288-L1369)
+- [admin.py:3147-3185](file://app/backend/routes/admin.py#L3147-L3185)
+- [admin.py:3188-3235](file://app/backend/routes/admin.py#L3188-L3235)
+- [admin.py:3238-3265](file://app/backend/routes/admin.py#L3238-L3265)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
+- [webhook_docs.py:87-93](file://app/backend/routes/webhook_docs.py#L87-L93)
 
 ### Additional Diagnostics
 - GET /
@@ -750,14 +980,31 @@ Key dependencies and relationships:
 - Weight management system provides intelligent scoring with AI suggestions
 - Candidate routes now include resume file storage and retrieval functionality
 - File storage system handles binary resume data with format detection
-- **NEW** Dashboard routes depend on ScreeningResult and RoleTemplate models for comprehensive analytics
-- **NEW** JD-scoped candidate management routes integrate with bulk status update operations
-- **NEW** HM Handoff Package routes depend on InterviewEvaluation and OverallAssessment models for structured data export
-- **NEW** Interview kit routes depend on InterviewEvaluation and OverallAssessment models for structured scoring across four categories
-- **NEW** Admin analytics routes depend on UsageLog and Tenant models for platform-wide metrics
-- Interview evaluation system integrates with ScreeningResult for tenant scoping and data aggregation
-- Experience Deep-Dive category extends evaluation coverage to include career depth and experience analysis
-- Dashboard system provides comprehensive screening analytics with period-based filtering and JD effectiveness tracking
+- **NEW** Admin API endpoints depend on elevated privilege middleware (require_platform_admin, require_super_admin, require_billing_admin, require_security_admin, require_support)
+- **NEW** Billing administration system integrates with dunning service and payment providers
+- **NEW** Audit logging system supports export functionality with filtering and pagination
+- **NEW** Administrative notifications system manages platform-wide alert distribution
+- **NEW** Feature flag management system provides tenant-specific configuration overrides
+- **NEW** Webhook event monitoring system tracks delivery attempts and failures
+- **NEW** Phone screening system depends on InterviewEvaluation and OverallAssessment models for structured scoring
+- **NEW** Transcript analysis system depends on TranscriptAnalysis model and transcript_service for unbiased evaluation
+- **NEW** Debried generation system integrates with LLM service for structured analysis and scoring
+- **NEW** Frontend PhoneScreenKit component integrates with interview kit endpoints for complete workflow
+- **NEW** Interview evaluation system extends to include experience_deep_dive category with comprehensive coverage
+- **NEW** Overall assessment system now includes debrief_json and recruiter_score fields for enhanced analysis
+- Dashboard system uses efficient aggregation queries with minimal database overhead
+- JD-scoped candidate management leverages optimized joins and filtering for large datasets
+- HM Handoff Package export performs bulk data aggregation with pre-loaded relationships
+- Admin analytics endpoints use optimized SQL aggregations for platform-wide metrics
+- Scorecard generation performs efficient aggregation queries with minimal database overhead, including Experience Deep-Dive category
+- Experience Deep-Dive category adds minimal overhead as it follows the same evaluation pattern as other categories
+- **NEW** Webhook event enumeration system provides comprehensive event type definitions and signing information
+- **NEW** Tenant webhook management system supports tenant-specific webhook configuration and delivery tracking
+- **NEW** Administrative invoice management system provides comprehensive billing administration capabilities
+- **NEW** Dunning record management system integrates with billing administration for subscription lifecycle management
+- **NEW** Admin analytics system includes enhanced metrics overview with flat fields for quick access and usage trends for historical analysis
+- **NEW** Frontend AdminOverviewPage utilizes the new flat fields (active_users, total_analyses, mrr) for real-time dashboard display
+- **NEW** Frontend MetricsPage integrates usage trends data with active users visualization
 
 ```mermaid
 graph LR
@@ -776,6 +1023,20 @@ QUEUE["Queue Router"] --> MW
 INTKIT["Interview Kit Router"] --> MW
 DASH["Dashboard Router"] --> MW
 ADMIN["Admin Router"] --> MW
+TRANSCRIPT["Transcript Router"] --> MW
+WEBHOOK_DOCS["Webhook Docs Router"] --> MW
+ADMIN --> AUDIT["Audit Export System"]
+ADMIN --> NOTIFICATIONS["Notifications System"]
+ADMIN --> FEATUREFLAGS["Feature Flags System"]
+ADMIN --> BILLING["Billing Administration"]
+ADMIN --> WEBHOOKS["Webhook Monitoring"]
+ADMIN --> TENANT_WEBHOOKS["Tenant Webhook Management"]
+ADMIN --> INVOICES["Administrative Invoices"]
+ADMIN --> DUNNING["Dunning Records"]
+ADMIN --> METRICS["Admin Analytics"]
+ADMIN --> METRICS_OVERVIEW["Metrics Overview"]
+ADMIN --> METRICS_TRENDS["Usage Trends"]
+WEBHOOK_DOCS --> EVENT_ENUM["Event Enumeration"]
 ANALYZE --> DBM["DB Models"]
 UPLOAD --> DBM
 QUEUE --> DBM
@@ -793,12 +1054,21 @@ CAND --> RESUME["Resume File Storage"]
 INTKIT --> EVALS["Interview Evaluations"]
 INTKIT --> OVERALL["Overall Assessments"]
 INTKIT --> EXP_DEEP_DIVE["Experience Deep-Dive Category"]
+INTKIT --> DEBRIEF["Debrief Generation"]
+TRANSCRIPT --> TRANS_ANALYSIS["Transcript Analysis"]
+TRANSCRIPT --> PII_REDACTION["PII Redaction Service"]
+TRANSCRIPT --> EVIDENCE_VALID["Evidence Validation"]
 DASH --> SCREENING["Screening Analytics"]
 DASH --> PIPELINE["Pipeline Visualization"]
-ADMIN --> METRICS["Platform Metrics"]
-ADMIN --> USAGE["Usage Trends"]
 EXPORT --> HANDOFF["HM Handoff Package"]
 EXPORT --> MATRIX["Comparison Matrix"]
+PHONEKIT["PhoneScreenKit Component"] --> INTKIT
+PHONEKIT --> DEBRIEF
+METRICS_OVERVIEW --> FLAT_FIELDS["Flat Fields: active_users, total_analyses, mrr"]
+METRICS_TRENDS --> DAILY_ANALYSES["Daily Analyses"]
+METRICS_TRENDS --> NEW_SIGNUPS["New Signups"]
+OVERVIEW_PAGE["AdminOverviewPage.jsx"] --> FLAT_FIELDS
+METRICS_PAGE["MetricsPage.jsx"] --> DAILY_ANALYSES
 ```
 
 **Diagram sources**
@@ -816,10 +1086,16 @@ EXPORT --> MATRIX["Comparison Matrix"]
 - [queue_api.py:31-464](file://app/backend/routes/queue_api.py#L31-464)
 - [interview_kit.py:1-224](file://app/backend/routes/interview_kit.py#L1-224)
 - [dashboard.py:1-382](file://app/backend/routes/dashboard.py#L1-382)
-- [admin.py:1-1119](file://app/backend/routes/admin.py#L1-1119)
+- [admin.py:1-3265](file://app/backend/routes/admin.py#L1-3265)
+- [transcript.py:1-220](file://app/backend/routes/transcript.py#L1-220)
+- [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
 - [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
 - [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-360)
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-307)
+- [transcript_service.py:1-374](file://app/backend/services/transcript_service.py#L1-374)
+- [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
+- [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
+- [MetricsPage.jsx:119-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L119-L155)
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -835,13 +1111,31 @@ EXPORT --> MATRIX["Comparison Matrix"]
 - Intelligent weight system optimizes scoring accuracy with AI-powered suggestions
 - Frontend client sets reasonable timeouts for long-running operations
 - Resume file storage uses efficient binary storage with format-specific delivery optimization
-- **NEW** Dashboard system uses efficient aggregation queries with minimal database overhead
-- **NEW** JD-scoped candidate management leverages optimized joins and filtering for large datasets
-- **NEW** HM Handoff Package export performs bulk data aggregation with pre-loaded relationships
+- **NEW** Admin API endpoints implement pagination and filtering for large datasets
+- **NEW** Audit log export system limits results to 10,000 rows for performance and compliance
+- **NEW** Billing administration system optimizes dunning record queries with status filtering
+- **NEW** Administrative notifications system uses efficient read/unread tracking
+- **NEW** Feature flag management system caches global states for reduced database queries
+- **NEW** Webhook event monitoring system filters delivery attempts by status and tenant
+- **NEW** Phone screening system provides real-time evaluation with structured debrief generation
+- **NEW** Transcript analysis system handles multiple file formats with efficient parsing and analysis
+- **NEW** Debried generation system uses LLM service with semaphore control for concurrent access
+- **NEW** Frontend PhoneScreenKit component implements efficient validation and submission workflows
 - **NEW** Interview evaluation system uses efficient indexing on result_id, user_id, and question identifiers across four categories
-- **NEW** Admin analytics endpoints use optimized SQL aggregations for platform-wide metrics
+- **NEW** Overall assessment system includes debrief_json and recruiter_score fields with optimized storage
+- Dashboard system uses efficient aggregation queries with minimal database overhead
+- JD-scoped candidate management leverages optimized joins and filtering for large datasets
+- HM Handoff Package export performs bulk data aggregation with pre-loaded relationships
+- Admin analytics endpoints use optimized SQL aggregations for platform-wide metrics
 - Scorecard generation performs efficient aggregation queries with minimal database overhead, including Experience Deep-Dive category
 - Experience Deep-Dive category adds minimal overhead as it follows the same evaluation pattern as other categories
+- **NEW** Webhook event enumeration system provides comprehensive event type definitions with minimal overhead
+- **NEW** Tenant webhook management system optimizes webhook configuration storage and retrieval
+- **NEW** Administrative invoice management system uses efficient querying with status and tenant filtering
+- **NEW** Dunning record management system implements optimized retry processing with due date calculations
+- **NEW** Admin analytics system includes enhanced metrics overview with flat fields for quick access and usage trends for historical analysis
+- **NEW** Frontend AdminOverviewPage efficiently displays the new flat fields (active_users, total_analyses, mrr) with fallback to nested structure
+- **NEW** Frontend MetricsPage integrates usage trends data with active users visualization and chart rendering
 
 ## Troubleshooting Guide
 Common errors and resolutions:
@@ -849,25 +1143,25 @@ Common errors and resolutions:
   - Cause: Missing or invalid bearer token
   - Resolution: Authenticate and refresh tokens
 - 403 Forbidden
-  - Cause: Non-admin attempting admin-only operation, tenant boundary violation
-  - Resolution: Ensure admin role or proper tenant access
+  - Cause: Non-admin attempting admin-only operation, tenant boundary violation, insufficient privilege level, CSRF token missing or invalid
+  - Resolution: Ensure proper role (platform_admin, super_admin, billing_admin, security_admin, support) or proper tenant access
 - 400 Bad Request
-  - Cause: Invalid file type, oversized file, insufficient JD length, invalid JSON, chunk validation errors
+  - Cause: Invalid file type, oversized file, insufficient JD length, invalid JSON, chunk validation errors, transcript format issues, invalid evaluation categories, invalid date formats in audit export, invalid webhook configuration
   - Resolution: Validate inputs and file constraints
 - 404 Not Found
-  - Cause: Resource not found (user, candidate, template, result, job, resume file, screening result, job description)
+  - Cause: Resource not found (user, candidate, template, result, job, resume file, screening result, job description, transcript analysis, tenant, feature flag, webhook)
   - Resolution: Verify IDs and tenant scoping
 - 422 Unprocessable Entity
-  - Cause: Validation errors in interview evaluation categories, ratings, overall assessment recommendations, JD status updates
+  - Cause: Validation errors in interview evaluation categories, ratings, overall assessment recommendations, JD status updates, transcript analysis parameters, feature flag toggles, webhook configuration validation
   - Resolution: Check allowed values: question_category (technical, behavioral, culture_fit, experience_deep_dive), rating (strong, adequate, weak), recommendation (advance, hold, reject), status (pending, shortlisted, rejected, in-review, hired)
 - 429 Too Many Requests
   - Cause: Monthly analysis limit exceeded
   - Resolution: Upgrade plan or wait for reset
 - 500 Internal Server Error
-  - Cause: Pipeline or LLM failures, queue processing errors, file storage failures, database constraint violations, dashboard analytics failures
+  - Cause: Pipeline or LLM failures, queue processing errors, file storage failures, database constraint violations, dashboard analytics failures, debrief generation errors, transcript analysis failures, admin API processing errors, webhook delivery failures
   - Resolution: Retry or check /health and /api/llm-status
 - 503 Service Unavailable
-  - Cause: Queue system overloaded, LLM service unavailable, admin metrics system overwhelmed
+  - Cause: Queue system overloaded, LLM service unavailable, admin metrics system overwhelmed, transcript analysis service unavailable, dunning processing system overloaded, webhook service unavailable
   - Resolution: Retry with exponential backoff, check queue stats, verify database connectivity
 
 **Section sources**
@@ -880,10 +1174,12 @@ Common errors and resolutions:
 - [queue_api.py:323-344](file://app/backend/routes/queue_api.py#L323-L344)
 - [candidates.py:519-526](file://app/backend/routes/candidates.py#L519-L526)
 - [interview_kit.py:441-489](file://app/backend/routes/interview_kit.py#L441-L489)
+- [transcript.py:56-66](file://app/backend/routes/transcript.py#L56-L66)
 - [candidates.py:694-698](file://app/backend/routes/candidates.py#L694-L698)
+- [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
 
 ## Conclusion
-This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. The new resume file management system provides comprehensive support for multiple file formats with format-specific delivery behavior. **NEW** The Dashboard system introduces comprehensive screening analytics with period-based filtering, pipeline visualization, and JD effectiveness tracking. **NEW** JD-scoped candidate management enables focused candidate ranking, bulk status updates, and tenant-scoped operations. **NEW** HM Handoff Package export delivers structured data for hiring managers with comparison matrices and interview evaluation integration. **NEW** The Interview Kit Evaluation system introduces structured interview scoring with per-question ratings across four categories, including the new Experience Deep-Dive category for comprehensive experience analysis. **NEW** Admin analytics provides platform-wide insights with metrics overview and usage trend reporting. Clients should implement token refresh, handle streaming events, respect rate limits, utilize the queue system for optimal performance, leverage the resume file management for seamless candidate file handling, integrate the dashboard system for comprehensive screening operations, use JD-scoped APIs for focused candidate management, export HM packages for hiring workflows, and integrate the interview evaluation system for comprehensive candidate assessment workflows. Administrators can manage plans, usage, and queue operations via dedicated endpoints while accessing platform-wide metrics and usage trends.
+This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. The new resume file management system provides comprehensive support for multiple file formats with format-specific delivery behavior. **NEW** The Admin API endpoints introduce comprehensive operational oversight with audit logging, administrative notifications, feature flag management, and billing administration capabilities. **NEW** The billing administration system provides dunning management, invoice handling, and webhook event monitoring for complete subscription lifecycle management. **NEW** The enhanced audit logging system supports compliance with export functionality and filtering capabilities. **NEW** The Phone screening system introduces structured interview evaluation with Experience Deep-Dive category support and comprehensive debrief generation with LLM-powered analysis. **NEW** The Transcript analysis system enables unbiased candidate evaluation from audio/video sources with PII redaction and evidence validation capabilities. **NEW** The enhanced interview kit functionality provides comprehensive evaluation across four categories with integrated debrief generation and scoring. **NEW** The Dashboard system introduces comprehensive screening analytics with period-based filtering, pipeline visualization, and JD effectiveness tracking. **NEW** JD-scoped candidate management enables focused candidate ranking, bulk status updates, and tenant-scoped operations. **NEW** HM Handoff Package export delivers structured data for hiring managers with comparison matrices and interview evaluation integration. **NEW** Admin analytics provides platform-wide insights with metrics overview and usage trend reporting. **NEW** The webhook event enumeration system provides comprehensive event type definitions for integration development. **NEW** Tenant webhook management enables comprehensive webhook configuration and delivery tracking. **NEW** Administrative invoice management provides complete billing administration capabilities. **NEW** Dunning record management integrates with billing administration for subscription lifecycle management. **NEW** The enhanced admin analytics system includes comprehensive metrics overview with three new flat fields (active_users, total_analyses, mrr) for quick access and usage trends for historical analysis. **NEW** The frontend AdminOverviewPage efficiently displays the new flat fields for real-time dashboard monitoring. Clients should implement token refresh, handle streaming events, respect rate limits, utilize the queue system for optimal performance, leverage the resume file management for seamless candidate file handling, integrate the phone screening system for structured interview workflows, use transcript analysis for unbiased evaluation, integrate the enhanced interview kit for comprehensive assessment, utilize the frontend PhoneScreenKit component for complete phone screening experience, implement administrative workflows using the new admin API endpoints for operational oversight and management, integrate webhook event enumeration for comprehensive event type discovery, configure tenant webhooks for delivery tracking, manage administrative invoices for billing operations, monitor dunning records for subscription lifecycle management, utilize the enhanced admin analytics endpoints for comprehensive platform monitoring, and implement the new flat fields (active_users, total_analyses, mrr) for real-time dashboard display and historical trend analysis. Administrators can manage plans, usage, and queue operations via dedicated endpoints while accessing platform-wide metrics and usage trends, managing billing processes, monitoring audit trails, overseeing feature deployments, configuring webhooks, and managing subscription lifecycle through comprehensive administrative interfaces.
 
 ## Appendices
 
@@ -891,10 +1187,12 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - Header: Authorization: Bearer {access_token}
 - Refresh token lifecycle
 - Admin-only endpoints require admin role
+- **NEW** Elevated privilege requirements: platform_admin, super_admin, billing_admin, security_admin, support for specific administrative functions
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [team.py:64-82](file://app/backend/routes/team.py#L64-L82)
+- [admin.py:17-24](file://app/backend/middleware/auth.py#L17-L24)
 
 ### Rate Limiting and Usage Tracking
 - Monthly analysis limits per plan
@@ -942,6 +1240,108 @@ This API provides a robust foundation for AI-powered resume screening with stron
 **Section sources**
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 - [db_models.py:112-133](file://app/backend/models/db_models.py#L112-L133)
+
+### Admin API System
+**NEW** Comprehensive administrative system for operational oversight and management
+
+- Privilege Levels:
+  - platform_admin: Full administrative access to most endpoints
+  - super_admin: Highest privilege for critical operations (billing processing, system maintenance)
+  - billing_admin: Specialized billing and subscription management
+  - security_admin: Security event monitoring and management
+  - support: Limited administrative support functions
+- Audit Export System:
+  - Filter by action type and date range
+  - Export formats: CSV and JSON
+  - Row limit: 10,000 for performance and compliance
+  - Compliance-ready export with IP address tracking
+- Administrative Notifications:
+  - Real-time notification distribution
+  - Read/unread tracking with counts
+  - Platform-wide and tenant-specific notifications
+  - Severity-based prioritization
+- Feature Flag Management:
+  - Global state management
+  - Tenant-specific overrides
+  - Cache invalidation for immediate effect
+  - Audit trail for configuration changes
+- Billing Administration:
+  - Dunning record monitoring and resolution
+  - Manual intervention capabilities
+  - Retry processing control
+  - Subscription lifecycle management
+- Webhook Event Monitoring:
+  - Delivery attempt tracking
+  - Status filtering and debugging
+  - Payload inspection for troubleshooting
+  - Tenant-specific webhook management
+- Administrative Invoice Management:
+  - Comprehensive invoice listing with filtering
+  - Detailed invoice retrieval with line items
+  - Billing administration integration
+- Webhook Event Enumeration:
+  - Complete event type catalog with descriptions
+  - Example payloads for integration development
+  - Signing information for secure delivery
+- Tenant Webhook Management:
+  - Tenant-specific webhook configuration
+  - Delivery attempt tracking and debugging
+  - Secure webhook secret management
+- Admin Analytics System:
+  - **NEW** Enhanced metrics overview with flat fields for quick access
+  - **NEW** Usage trends with customizable period length
+  - **NEW** Flat fields include active_users, total_analyses, and mrr alongside existing nested structure
+  - **NEW** Frontend integration with AdminOverviewPage and MetricsPage
+
+**Updated** Added comprehensive admin API system with elevated privilege levels and operational oversight capabilities including webhook event enumeration, tenant webhook management, and enhanced admin analytics with flat fields
+
+**Section sources**
+- [admin.py:17-24](file://app/backend/middleware/auth.py#L17-L24)
+- [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
+- [admin.py:1224-1285](file://app/backend/routes/admin.py#L1224-L1285)
+- [admin.py:1288-1369](file://app/backend/routes/admin.py#L1288-L1369)
+- [admin.py:3147-3265](file://app/backend/routes/admin.py#L3147-L3265)
+- [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
+
+### Phone Screening System
+**NEW** Structured interview evaluation and debrief generation system
+
+- PhoneScreenKit component:
+  - Four-category evaluation interface: technical, behavioral, culture_fit, experience_deep_dive
+  - Real-time question prioritization based on missing/matched skills
+  - Structured evaluation with rating and notes
+  - Conversation summary with validation and debrief generation
+  - Integration with frontend API for seamless workflow
+- Debried generation:
+  - LLM-powered structured analysis with sentiment scoring
+  - Combined rating distribution and sentiment for recruiter score
+  - Recommendation system (Advance/Hold/Reject) with rationale
+  - Structured content with overview, strengths, concerns, recommendation rationale
+
+**Updated** Added comprehensive phone screening system with structured evaluation and debrief generation
+
+**Section sources**
+- [PhoneScreenKit.jsx:86-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L86-L476)
+- [interview_kit.py:246-405](file://app/backend/routes/interview_kit.py#L246-L405)
+
+### Transcript Analysis System
+**NEW** Unbiased candidate evaluation from audio/video transcripts
+
+- Supported formats: VTT (Zoom/Teams), SRT, plain text
+- Automatic format detection and parsing
+- PII redaction service integration
+- Evidence validation for claim verification
+- Structured analysis with fit scores, recommendations, and detailed breakdown
+- Confidence scoring and bias mitigation
+
+**Updated** Added comprehensive transcript analysis system with PII redaction and evidence validation
+
+**Section sources**
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
+- [transcript_service.py:74-90](file://app/backend/services/transcript_service.py#L74-L90)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
 
 ### Dashboard and Analytics System
 **NEW** Comprehensive dashboard and analytics system for screening operations
@@ -1023,6 +1423,7 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Recruiter recommendation system: advance, hold, reject
   - Text-based overall assessment summary
   - Integration with automated scorecard generation
+  - New debrief_json and recruiter_score fields for enhanced analysis
 - Scorecard generation:
   - Aggregates evaluation data with analysis results across all four categories
   - Provides dimension summaries for each category including experience_deep_dive_summary
@@ -1032,38 +1433,51 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Focuses on comprehensive experience analysis and career progression
   - Includes specialized questions for deep experience exploration
   - Extends evaluation framework to cover career depth and expertise evolution
+- Debried generation:
+  - LLM-powered structured analysis combining rating distribution and sentiment
+  - Combined scoring: rating_score (40%) + sentiment_score (60%)
+  - Structured content with overview, strengths, concerns, recommendation rationale
+  - Automatic recommendation generation (Advance/Hold/Reject)
 
 **Updated** Extended evaluation categories to include experience_deep_dive and enhanced scorecard generation to include experience_deep_dive_summary
 
 **Section sources**
 - [interview_kit.py:217-257](file://app/backend/routes/interview_kit.py#L217-L257)
+- [interview_kit.py:246-405](file://app/backend/routes/interview_kit.py#L246-L405)
 - [db_models.py:217-257](file://app/backend/models/db_models.py#L217-L257)
 - [schemas.py:441-517](file://app/backend/models/schemas.py#L441-L517)
 
 ### Admin Analytics System
-**NEW** Platform-wide analytics and metrics system
+**NEW** Comprehensive admin analytics system with enhanced metrics overview and usage trends
 
-- PlatformMetricsOverview:
-  - tenants: total, active, suspended, trialing, cancelled, past_due counts
-  - users: total active user count
-  - analyses: today, this_week, this_month counts
-  - storage: total_gb across all tenants
-  - plans: distribution by plan name
-  - revenue: mrr_cents, arr_estimate_cents
-- UsageTrendsResponse:
-  - period_days: configured period
-  - analyses: daily analysis counts with date and count
-  - signups: daily tenant signup counts with date and count
-- Time-based filtering:
-  - Customizable days parameter (default: 30)
-  - Tenant and user scoping for accurate metrics
-  - Revenue calculation based on active tenant subscriptions
+- Metrics Overview Response Structure:
+  - **NEW** Flat fields for quick access:
+    - active_users: Total number of active users across all tenants
+    - total_analyses: Total analyses performed this month
+    - mrr: Monthly Recurring Revenue (rounded to 2 decimal places)
+  - **NEW** Preserved nested structure for existing consumers:
+    - tenants: { total, active, suspended, trialing, cancelled, past_due }
+    - users: { total }
+    - analyses: { today, this_week, this_month }
+    - storage: { total_gb }
+    - plans: { plan_name: count }
+    - revenue: { mrr_cents, arr_estimate_cents }
+- Usage Trends Response Structure:
+  - period_days: Number of days in the trend period (default: 30)
+  - analyses: Array of { date, count } for daily analysis counts
+  - signups: Array of { date, count } for daily new tenant signups
+- Frontend Integration:
+  - **NEW** AdminOverviewPage.jsx efficiently displays flat fields with fallback to nested structure
+  - **NEW** MetricsPage.jsx integrates usage trends data with active users visualization
+  - **NEW** MetricsPage.jsx calculates derived metrics like active users from usage trends when flat fields are not available
 
-**Updated** Added comprehensive admin analytics system with platform-wide metrics and usage trends
+**Updated** Added comprehensive admin analytics system with enhanced metrics overview response structure including three new flat fields for quick access
 
 **Section sources**
-- [admin.py:700-777](file://app/backend/routes/admin.py#L700-L777)
-- [admin.py:780-814](file://app/backend/routes/admin.py#L780-L814)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
+- [AdminOverviewPage.jsx:84-108](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L84-L108)
+- [MetricsPage.jsx:145-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L145-L155)
 
 ### Example Client Integrations
 - JavaScript (frontend)
@@ -1073,32 +1487,73 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Queue job monitoring with polling
   - Batch uploads and exports
   - Resume file download and preview with format-specific behavior
+  - **NEW** Admin API integration with privilege-aware endpoints including audit log exports, webhook event enumeration, invoice retrieval, dunning record management, and webhook event configuration
+  - **NEW** Administrative notifications with read/unread tracking
+  - **NEW** Feature flag management with tenant overrides
+  - **NEW** Billing administration with dunning management and invoice handling
+  - **NEW** Webhook event monitoring and debugging
+  - **NEW** Phone screening integration with structured evaluation and debrief generation
+  - **NEW** Transcript analysis integration with format detection and unbiased evaluation
   - **NEW** Dashboard integration with summary, activity feed, and analytics
   - **NEW** JD-scoped candidate management with ranking and bulk operations
   - **NEW** HM Handoff Package export with comparison matrix visualization
   - **NEW** Interview evaluation CRUD operations with real-time updates across all four categories
   - **NEW** Scorecard generation and display with dimension summaries including Experience Deep-Dive
-  - **NEW** Admin analytics integration for platform-wide metrics and usage trends
+  - **NEW** Webhook event enumeration integration for comprehensive event type discovery
+  - **NEW** Tenant webhook management integration for webhook configuration and delivery tracking
+  - **NEW** Administrative invoice management integration for billing operations
+  - **NEW** Dunning record management integration for subscription lifecycle management
+  - **NEW** Admin analytics integration with enhanced metrics overview and usage trends
+  - **NEW** Frontend integration with AdminOverviewPage.jsx utilizing flat fields (active_users, total_analyses, mrr)
+  - **NEW** Frontend integration with MetricsPage.jsx utilizing usage trends data
 - Python (backend)
   - Use requests or aiohttp to call endpoints
   - Manage bearer tokens and handle 401/429 responses
   - Implement chunked upload with proper error handling
   - Monitor queue jobs with retry logic
-  - Handle binary file downloads with appropriate response types
+  - Handle binary resume file downloads with appropriate response types
+  - **NEW** Admin API integration with privilege validation
+  - **NEW** Audit log export with filtering and compliance support
+  - **NEW** Administrative notifications management
+  - **NEW** Feature flag deployment and tenant override management
+  - **NEW** Billing administration workflows with dunning resolution
+  - **NEW** Webhook event monitoring and troubleshooting
+  - **NEW** Phone screening evaluation and debrief generation workflows
+  - **NEW** Transcript analysis with PII redaction and evidence validation
   - **NEW** Dashboard analytics integration with period-based filtering
   - **NEW** JD-scoped candidate management with bulk status updates
   - **NEW** HM Handoff Package export with structured data handling
   - **NEW** Interview evaluation management with validation and tenant scoping across four categories
-  - **NEW** Admin metrics integration for platform-wide analytics
+  - **NEW** Webhook event enumeration integration for comprehensive event type discovery
+  - **NEW** Tenant webhook management integration for webhook configuration and delivery tracking
+  - **NEW** Administrative invoice management integration for billing operations
+  - **NEW** Dunning record management integration for subscription lifecycle management
+  - **NEW** Admin analytics integration with enhanced metrics overview and usage trends
+  - **NEW** Frontend integration with AdminOverviewPage.jsx utilizing flat fields
+  - **NEW** Frontend integration with MetricsPage.jsx utilizing usage trends data
 - Go
   - Use net/http or gorilla/mux
   - Implement JWT verification and bearer token parsing
   - Handle chunked upload streams and queue operations
   - Process binary resume file responses with proper MIME type handling
+  - **NEW** Admin API integration with privilege validation
+  - **NEW** Audit log export with filtering capabilities
+  - **NEW** Administrative notification handling
+  - **NEW** Feature flag management integration
+  - **NEW** Billing administration integration
+  - **NEW** Webhook event monitoring integration
+  - **NEW** Phone screening system integration with structured evaluation
+  - **NEW** Transcript analysis API integration with format support
   - **NEW** Dashboard system integration with comprehensive analytics
   - **NEW** JD-scoped APIs integration with candidate ranking and bulk operations
   - **NEW** Interview evaluation API integration with structured data handling across all categories
-  - **NEW** Admin analytics integration for platform-wide metrics
+  - **NEW** Webhook event enumeration integration for comprehensive event type discovery
+  - **NEW** Tenant webhook management integration for webhook configuration and delivery tracking
+  - **NEW** Administrative invoice management integration for billing operations
+  - **NEW** Dunning record management integration for subscription lifecycle management
+  - **NEW** Admin analytics integration with enhanced metrics overview and usage trends
+  - **NEW** Frontend integration with AdminOverviewPage.jsx utilizing flat fields
+  - **NEW** Frontend integration with MetricsPage.jsx utilizing usage trends data
 
 **Section sources**
 - [api.js:9-43](file://app/frontend/src/lib/api.js#L9-L43)
@@ -1107,6 +1562,7 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [api.js:183-200](file://app/frontend/src/lib/api.js#L183-L200)
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 - [api.js:984-1036](file://app/frontend/src/lib/api.js#L984-L1036)
+- [api.js:1209-1247](file://app/frontend/src/lib/api.js#L1209-L1247)
 
 ### Request/Response Schemas
 - AnalysisResponse
@@ -1128,6 +1584,29 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - role_category, seniority_level, suggested_weights, reasoning, confidence, role_excellence_label
 - ResumeFileResponse
   - Binary file stream with appropriate MIME type and Content-Disposition header
+- **NEW** Admin API schemas:
+  - AuditLogExportRequest: format, action, start_date, end_date
+  - AuditLogExportResponse: CSV/JSON audit log data
+  - NotificationResponse: id, type, severity, title, message, tenant_id, is_read, created_at
+  - FeatureFlagResponse: id, key, display_name, description, enabled_globally, created_at
+  - DunningRecordResponse: id, tenant_id, tenant_name, tenant_slug, subscription_status, status, retry_count, max_retries, next_retry_at, last_retry_at, failure_reason, created_at
+  - InvoiceResponse: comprehensive invoice data with line items and payment history
+  - WebhookEventResponse: webhook delivery attempt details with payload and response information
+  - WebhookEventEnumResponse: comprehensive event type definitions with signing information
+  - TenantWebhookResponse: tenant-specific webhook configuration with URL, secret, and status
+  - WebhookDeliveryResponse: webhook delivery attempt details with status, response codes, and timestamps
+- **NEW** Phone screening schemas:
+  - EvaluationUpsert: question_category, question_index, rating, notes
+  - EvaluationOut: id, question_category, question_index, rating, notes, updated_at
+  - OverallAssessmentUpsert: overall_assessment, recruiter_recommendation
+  - DebriefRequest: conversation_summary
+  - DebriefContent: overview, strengths, concerns, recommendation_rationale
+  - DebriefResponse: debrief, recruiter_score, recommendation
+  - ScorecardDimension: category, total_questions, evaluated_count, strong_count, adequate_count, weak_count, key_notes, evaluators
+  - ScorecardOut: comprehensive interview scorecard with dimension summaries including experience_deep_dive_summary
+- **NEW** Transcript analysis schemas:
+  - TranscriptAnalysisResponse: id, candidate_id, candidate_name, role_template_id, role_template_name, source_platform, analysis_result, created_at
+  - AnalysisResult: fit_score, technical_depth, communication_quality, jd_alignment, strengths, areas_for_improvement, red_flags, recommendation, recommendation_rationale
 - **NEW** Dashboard schemas:
   - DashboardSummaryResponse: action_items, pipeline_by_jd, weekly_metrics
   - ScreeningAnalyticsResponse: period, total_analyzed, avg_fit_score, recommendation_distribution, analyses_by_day, top_skill_gaps, score_distribution, pass_through_rates, jd_effectiveness
@@ -1138,15 +1617,15 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - **NEW** HM Handoff Package schemas:
   - HandoffPackageResponse: jd_name, jd_id, generated_at, generated_by, shortlisted_candidates array, comparison_matrix, total_shortlisted
   - ComparisonMatrixResponse: dimensions, candidates with score values
-- **NEW** InterviewEvaluation schemas:
-  - EvaluationUpsert: question_category, question_index, rating, notes
-  - EvaluationOut: id, question_category, question_index, rating, notes, updated_at
-  - OverallAssessmentUpsert: overall_assessment, recruiter_recommendation
-  - ScorecardDimension: category, total_questions, evaluated_count, strong_count, adequate_count, weak_count, key_notes
-  - ScorecardOut: comprehensive interview scorecard with dimension summaries including experience_deep_dive_summary
 - **NEW** Admin analytics schemas:
   - PlatformMetricsOverview: tenants, users, analyses, storage, plans, revenue
+  - **NEW** Enhanced metrics overview response with flat fields: active_users, total_analyses, mrr
   - UsageTrendsResponse: period_days, analyses, signups
+  - **NEW** Enhanced usage trends response with daily analysis and signup arrays
+- **NEW** Webhook event enumeration schemas:
+  - WebhookEventDefinition: event type, description, example payload
+  - WebhookSigningInfo: algorithm, header, description
+  - WebhookEventCatalog: events array with definitions, signing configuration
 
 **Section sources**
 - [schemas.py:89-136](file://app/backend/models/schemas.py#L89-L136)
@@ -1156,10 +1635,19 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [queue_api.py:105-141](file://app/backend/routes/queue_api.py#L105-L141)
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 - [schemas.py:441-517](file://app/backend/models/schemas.py#L441-L517)
+- [schemas.py:536-554](file://app/backend/models/schemas.py#L536-L554)
 - [dashboard.py:61-381](file://app/backend/routes/dashboard.py#L61-L381)
 - [candidates.py:575-721](file://app/backend/routes/candidates.py#L575-L721)
 - [export.py:162-308](file://app/backend/routes/export.py#L162-L308)
-- [admin.py:700-814](file://app/backend/routes/admin.py#L700-L814)
+- [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
+- [admin.py:1224-1285](file://app/backend/routes/admin.py#L1224-L1285)
+- [admin.py:1288-1369](file://app/backend/routes/admin.py#L1288-L1369)
+- [admin.py:3147-3265](file://app/backend/routes/admin.py#L3147-L3265)
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
+- [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
 
 ### Data Model Overview
 ```mermaid
@@ -1188,6 +1676,8 @@ class Tenant {
 +int analyses_count_this_month
 +bigint storage_used_bytes
 +datetime usage_reset_at
++datetime suspended_at
++string suspended_reason
 }
 class User {
 +int id
@@ -1196,6 +1686,7 @@ class User {
 +string hashed_password
 +string role
 +bool is_active
++string platform_role
 }
 class Candidate {
 +int id
@@ -1238,12 +1729,16 @@ class RoleTemplate {
 +string jd_text
 +string scoring_weights
 +string tags
++string required_skills_override
++string nice_to_have_skills_override
++datetime created_at
 }
 class Comment {
 +int id
 +int result_id
 +int user_id
 +string text
++datetime created_at
 }
 class UsageLog {
 +int id
@@ -1320,8 +1815,20 @@ class OverallAssessment {
 +int user_id
 +Text overall_assessment
 +string recruiter_recommendation
++Text debrief_json
++int recruiter_score
 +datetime created_at
 +datetime updated_at
+}
+class TranscriptAnalysis {
++int id
++int tenant_id
++int candidate_id
++int role_template_id
++Text transcript_text
++string source_platform
++Text analysis_result
++datetime created_at
 }
 class InterviewScorecard {
 +string candidate_name
@@ -1338,6 +1845,126 @@ class InterviewScorecard {
 +string recruiter_recommendation
 +string[] strengths_confirmed
 +string[] concerns_identified
++DebriefContent debrief
++int recruiter_score
+}
+class DashboardSummary {
++ActionItems action_items
++PipelineByJD[] pipeline_by_jd
++WeeklyMetrics weekly_metrics
+}
+class ScreeningAnalytics {
++string period
++int total_analyzed
++float avg_fit_score
++map~string,int~ recommendation_distribution
++AnalysesByDay[] analyses_by_day
++TopSkillGaps[] top_skill_gaps
++ScoreDistribution[] score_distribution
++PassThroughRates pass_through_rates
++JDEffectiveness[] jd_effectiveness
+}
+class HandoffPackage {
++string jd_name
++int jd_id
++datetime generated_at
++string generated_by
++ShortlistedCandidate[] shortlisted_candidates
++ComparisonMatrix comparison_matrix
++int total_shortlisted
+}
+class AuditLog {
++int id
++int tenant_id
++string actor_email
++string action
++string resource_type
++int resource_id
++string details
++string ip_address
++datetime created_at
+}
+class AdminNotification {
++int id
++string type
++string severity
++string title
++string message
++int tenant_id
++bool is_read
++datetime created_at
+}
+class FeatureFlag {
++int id
++string key
++string display_name
++string description
++bool enabled_globally
++datetime created_at
+}
+class TenantFeatureOverride {
++int id
++int tenant_id
++int feature_flag_id
++bool enabled
++datetime created_at
+}
+class DunningRecord {
++int id
++int tenant_id
++string status
++int retry_count
++int max_retries
++datetime next_retry_at
++datetime last_retry_at
++string failure_reason
++datetime created_at
+}
+class Webhook {
++int id
++int tenant_id
++string url
++string secret
++bool is_active
++datetime created_at
+}
+class WebhookDelivery {
++int id
++int webhook_id
++string event_type
++string payload
++string response_status
++string response_body
++bool success
++int attempt
++datetime delivered_at
++datetime created_at
+}
+class PlatformConfig {
++int id
++string config_key
++string config_value
++string description
++datetime updated_at
+}
+class Invoice {
++int id
++int tenant_id
++string status
++datetime due_date
++datetime issued_at
++decimal amount
++string currency
++InvoiceLineItem[] line_items
++datetime created_at
+}
+class InvoiceLineItem {
++int id
++int invoice_id
++string description
++int quantity
++decimal unit_price
++decimal total
 }
 class DashboardSummary {
 +ActionItems action_items
@@ -1372,6 +1999,32 @@ class PlatformMetrics {
 +PlanDistribution plans
 +RevenueMetrics revenue
 }
+class WebhookEvent {
++string event
++string description
++dict example_payload
+}
+class WebhookSigningInfo {
++string algorithm
++string header
++string description
+}
+class MetricsOverview {
++int active_users
++int total_analyses
++float mrr
++TenantCounts tenants
++UserCounts users
++AnalysisCounts analyses
++StorageMetrics storage
++PlanDistribution plans
++RevenueMetrics revenue
+}
+class UsageTrends {
++int period_days
++DailyAnalyses[] analyses
++DailySignups[] signups
+}
 SubscriptionPlan "1" --> "many" Tenant : "plan"
 Tenant "1" --> "many" User : "users"
 Tenant "1" --> "many" Candidate : "candidates"
@@ -1390,7 +2043,15 @@ ScreeningResult "1" --> "many" OverallAssessment : "overall_assessments"
 ScreeningResult "1" --> "many" DashboardSummary : "dashboard"
 ScreeningResult "1" --> "many" ScreeningAnalytics : "analytics"
 ScreeningResult "1" --> "many" HandoffPackage : "handoff"
-Tenant "1" --> "many" PlatformMetrics : "platform"
+Tenant "1" --> "many" AuditLog : "audit_logs"
+Tenant "1" --> "many" AdminNotification : "notifications"
+Tenant "1" --> "many" FeatureFlag : "feature_flags"
+Tenant "1" --> "many" DunningRecord : "dunning_records"
+Tenant "1" --> "many" Webhook : "webhooks"
+Tenant "1" --> "many" Invoice : "invoices"
+ScreeningResult "1" --> "many" TranscriptAnalysis : "transcripts"
+TranscriptAnalysis "1" --> "many" Candidate : "candidate"
+TranscriptAnalysis "1" --> "many" RoleTemplate : "role_template"
 ```
 
 **Diagram sources**
@@ -1399,4 +2060,12 @@ Tenant "1" --> "many" PlatformMetrics : "platform"
 - [schemas.py:490-517](file://app/backend/models/schemas.py#L490-L517)
 - [dashboard.py:61-381](file://app/backend/routes/dashboard.py#L61-L381)
 - [export.py:162-308](file://app/backend/routes/export.py#L162-L308)
-- [admin.py:700-814](file://app/backend/routes/admin.py#L700-L814)
+- [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
+- [admin.py:1224-1285](file://app/backend/routes/admin.py#L1224-L1285)
+- [admin.py:1288-1369](file://app/backend/routes/admin.py#L1288-L1369)
+- [admin.py:3147-3265](file://app/backend/routes/admin.py#L3147-L3265)
+- [transcript.py:42-132](file://app/backend/routes/transcript.py#L42-L132)
+- [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
+- [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
+- [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
+- [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)

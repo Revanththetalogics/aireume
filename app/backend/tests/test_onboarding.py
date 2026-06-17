@@ -195,8 +195,12 @@ class TestCompleteOnboarding:
         response = client.post("/api/onboarding/complete")
         assert response.status_code in (401, 403)
 
-    def test_complete_onboarding(self, auth_client, db):
+    def test_complete_onboarding(self, auth_client, seed_subscription_plans, db):
         """Should mark onboarding as complete."""
+        # Prerequisite: select a plan before completing
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        auth_client.post("/api/onboarding/select-plan", json={"plan_id": free_plan.id})
+
         response = auth_client.post("/api/onboarding/complete")
         assert response.status_code == 200
         data = response.json()
@@ -208,17 +212,25 @@ class TestCompleteOnboarding:
         assert tenant.onboarding_completed is True
         assert tenant.onboarding_completed_at is not None
 
-    def test_complete_onboarding_idempotent(self, auth_client, db):
+    def test_complete_onboarding_idempotent(self, auth_client, seed_subscription_plans, db):
         """Calling complete again should still succeed."""
+        # Prerequisite: select a plan before completing
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        auth_client.post("/api/onboarding/select-plan", json={"plan_id": free_plan.id})
+
         auth_client.post("/api/onboarding/complete")
 
         response = auth_client.post("/api/onboarding/complete")
         assert response.status_code == 200
         data = response.json()
-        assert data["completed"] is True
+        assert data["already_completed"] is True
 
-    def test_status_after_complete(self, auth_client, db):
+    def test_status_after_complete(self, auth_client, seed_subscription_plans, db):
         """Status endpoint should reflect completed onboarding."""
+        # Prerequisite: select a plan before completing
+        free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
+        auth_client.post("/api/onboarding/select-plan", json={"plan_id": free_plan.id})
+
         auth_client.post("/api/onboarding/complete")
 
         response = auth_client.get("/api/onboarding/status")

@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import api from '../lib/api'
+import useIdleTimeout from '../hooks/useIdleTimeout'
+import SessionTimeoutModal from '../components/SessionTimeoutModal'
 
 const AuthContext = createContext(null)
 
@@ -18,8 +20,22 @@ export function AuthProvider({ children }) {
       if (gen !== authGenRef.current) return   // stale — login/register won
       setUser(res.data.user)
       setTenant(res.data.tenant)
-    } catch {
+    } catch (err) {
       if (gen !== authGenRef.current) return   // stale — login/register won
+      // Retry once on network error (not 401)
+      if (!err.response) {
+        await new Promise(r => setTimeout(r, 1000))
+        if (gen !== authGenRef.current) return
+        try {
+          const res = await api.get('/auth/me')
+          if (gen !== authGenRef.current) return
+          setUser(res.data.user)
+          setTenant(res.data.tenant)
+          return
+        } catch (retryErr) {
+          if (gen !== authGenRef.current) return
+        }
+      }
       // Cookie is invalid or expired - user is not authenticated
       setUser(null)
       setTenant(null)
@@ -34,25 +50,42 @@ export function AuthProvider({ children }) {
     loadUser()
   }, [loadUser])
 
-  const login = async (email, password) => {
+  // Listen for auth:logout event dispatched from api.js interceptor
+  useEffect(() => {
+    const handleAuthLogout = () => {
+      setUser(null)
+      setTenant(null)
+      setLoading(false)
+    }
+    window.addEventListener('auth:logout', handleAuthLogout)
+    return () => window.removeEventListener('auth:logout', handleAuthLogout)
+  }, [])
+
+  const login = async (email, password, tenant_slug) => {
     authGenRef.current++   // invalidate any in-flight loadUser
-    const res = await api.post('/auth/login', { email, password })
-    // Tokens are set as httpOnly cookies by the server
-    // We still receive tokens in response body for API clients
-    setUser(res.data.user)
-    setTenant(res.data.tenant)
-    setLoading(false)
-    return res.data
+    try {
+      const res = await api.post('/auth/login', { email, password, tenant_slug })
+      // Tokens are set as httpOnly cookies by the server
+      // We still receive tokens in response body for API clients
+      setUser(res.data.user)
+      setTenant(res.data.tenant)
+      return res.data
+    } finally {
+      setLoading(false)
+    }
   }
 
   const register = async (companyName, email, password) => {
     authGenRef.current++   // invalidate any in-flight loadUser
-    const res = await api.post('/auth/register', { company_name: companyName, email, password })
-    // Tokens are set as httpOnly cookies by the server
-    setUser(res.data.user)
-    setTenant(res.data.tenant)
-    setLoading(false)
-    return res.data
+    try {
+      const res = await api.post('/auth/register', { company_name: companyName, email, password })
+      // Tokens are set as httpOnly cookies by the server
+      setUser(res.data.user)
+      setTenant(res.data.tenant)
+      return res.data
+    } finally {
+      setLoading(false)
+    }
   }
 
   const logout = async () => {
@@ -66,9 +99,39 @@ export function AuthProvider({ children }) {
     setTenant(null)
   }
 
+  // ── Idle session timeout ──────────────────────────────────────────
+  const handleIdleTimeout = useCallback(() => {
+    logout()
+    // Redirect to login — ProtectedRoute will also catch the null user,
+    // but this ensures the redirect even on the current cycle
+    window.location.href = '/login'
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const { isWarning, countdown, resetTimer } = useIdleTimeout(!!user, handleIdleTimeout)
+
+  const handleStayLoggedIn = useCallback(() => {
+    resetTimer()
+    // Attempt a silent token refresh to extend the backend session
+    api.post('/auth/refresh', {}, { withCredentials: true }).catch(() => {})
+  }, [resetTimer])
+
+  const handleLogoutNow = useCallback(() => {
+    logout()
+    window.location.href = '/login'
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <AuthContext.Provider value={{ user, tenant, loading, login, register, logout }}>
       {children}
+      {isWarning && (
+        <SessionTimeoutModal
+          countdown={countdown}
+          onStayLoggedIn={handleStayLoggedIn}
+          onLogoutNow={handleLogoutNow}
+        />
+      )}
     </AuthContext.Provider>
   )
 }

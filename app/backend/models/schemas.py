@@ -533,6 +533,44 @@ class EvaluationOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class DebriefRequest(BaseModel):
+    """Request body for LLM debrief generation."""
+    conversation_summary: str
+    recommendation: Optional[str] = None  # strong_hire | lean_hire | no_decision | lean_no_hire | strong_no_hire
+
+    @field_validator('conversation_summary')
+    @classmethod
+    def validate_summary_length(cls, v):
+        if len(v.strip()) < 100:
+            raise ValueError('Conversation summary must be at least 100 characters')
+        return v.strip()
+
+    @field_validator('recommendation')
+    @classmethod
+    def validate_recommendation(cls, v):
+        if v is None:
+            return v
+        allowed = {'strong_hire', 'lean_hire', 'no_decision', 'lean_no_hire', 'strong_no_hire'}
+        if v not in allowed:
+            raise ValueError(f'recommendation must be one of {allowed}')
+        return v
+
+
+class DebriefContent(BaseModel):
+    """Structured LLM-generated debrief content."""
+    overview: str = ""
+    strengths: str = ""
+    concerns: str = ""
+    recommendation_rationale: str = ""
+
+
+class DebriefResponse(BaseModel):
+    """Response from debrief generation endpoint."""
+    debrief: DebriefContent
+    recruiter_score: int
+    recommendation: str  # "Advance" | "Hold" | "Reject"
+
+
 class OverallAssessmentUpsert(BaseModel):
     """Request body for overall recruiter assessment."""
     overall_assessment: str
@@ -547,6 +585,15 @@ class OverallAssessmentUpsert(BaseModel):
                 raise ValueError(f'recruiter_recommendation must be one of {allowed}')
         return v
 
+class EvaluatorInfo(BaseModel):
+    """Attribution info for a single question evaluation."""
+    user_id: int
+    email: str
+    rating: str
+    question_index: int
+    notes: Optional[str] = None
+
+
 class ScorecardDimension(BaseModel):
     """Summary of one evaluation dimension."""
     category: str
@@ -556,6 +603,7 @@ class ScorecardDimension(BaseModel):
     adequate_count: int = 0
     weak_count: int = 0
     key_notes: List[str] = []
+    evaluators: List[EvaluatorInfo] = []  # Who rated what
 
 class ScorecardOut(BaseModel):
     """HM-facing scorecard aggregating evaluations."""
@@ -573,3 +621,5 @@ class ScorecardOut(BaseModel):
     recruiter_recommendation: Optional[str] = None
     strengths_confirmed: List[str] = []
     concerns_identified: List[str] = []
+    debrief: Optional[DebriefContent] = None
+    recruiter_score: Optional[int] = None

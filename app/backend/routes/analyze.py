@@ -17,6 +17,8 @@ import os
 import asyncio
 import logging
 import time
+import concurrent.futures
+from collections import defaultdict
 from datetime import datetime, date, timezone
 from decimal import Decimal
 from typing import Optional
@@ -83,6 +85,10 @@ FILE_SIGNATURES = {
     '.txt':  None,                        # No signature check for plain text
 }
 
+# PDF resource limits
+MAX_PDF_PAGES = 500
+PARSE_TIMEOUT_SECONDS = 30
+
 
 def _validate_file_content(content: bytes, filename: str) -> None:
     """Verify that file content matches its extension via magic-byte signatures.
@@ -137,6 +143,20 @@ def _validate_file_content(content: bytes, filename: str) -> None:
 
     for sig in signatures:
         if content.startswith(sig):
+            # For PDFs, additionally check page count to prevent resource exhaustion
+            if ext == '.pdf':
+                try:
+                    import pdfplumber, io
+                    with pdfplumber.open(io.BytesIO(content)) as _pdf:
+                        if len(_pdf.pages) > MAX_PDF_PAGES:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"PDF exceeds maximum {MAX_PDF_PAGES} pages",
+                            )
+                except HTTPException:
+                    raise
+                except Exception:
+                    pass  # Page-count check is best-effort; parsing errors handled later
             return  # signature matches
 
     log.warning("File signature mismatch for %s: expected %s format", filename, ext)
@@ -149,6 +169,15 @@ def _validate_file_content(content: bytes, filename: str) -> None:
 
 _BATCH_SEMAPHORE = asyncio.Semaphore(int(os.getenv("BATCH_MAX_CONCURRENT", "30")))
 MAX_BATCH_SIZE = 50
+
+# ─── Per-tenant quota locks (prevents double-spend on concurrent requests) ──────
+
+_tenant_quota_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+
+def _get_tenant_lock(tenant_id: int) -> asyncio.Lock:
+    """Return the asyncio.Lock for this tenant, creating one on first access."""
+    return _tenant_quota_locks[tenant_id]
 
 
 # ─── JSON serialization helper ────────────────────────────────────────────────
@@ -163,6 +192,56 @@ def _json_default(obj):
         import base64
         return base64.b64encode(obj).decode("ascii")
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _upsert_screening_result(
+    db: Session,
+    tenant_id: int,
+    candidate_id: int,
+    role_template_id: int | None,
+    resume_text: str,
+    jd_text: str,
+    parsed_data: str,
+    analysis_result: str,
+    narrative_status: str | None = None,
+) -> ScreeningResult:
+    """Insert or update a ScreeningResult, respecting the unique constraint."""
+    existing = db.query(ScreeningResult).filter(
+        ScreeningResult.tenant_id == tenant_id,
+        ScreeningResult.candidate_id == candidate_id,
+        ScreeningResult.role_template_id == role_template_id,
+    ).first()
+
+    if existing:
+        existing.resume_text = resume_text
+        existing.jd_text = jd_text
+        existing.parsed_data = parsed_data
+        existing.analysis_result = analysis_result
+        existing.is_active = True
+        existing.version_number = (existing.version_number or 1) + 1
+        existing.status_updated_at = datetime.utcnow()
+        if narrative_status is not None:
+            existing.narrative_status = narrative_status
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    new_result = ScreeningResult(
+        tenant_id=tenant_id,
+        candidate_id=candidate_id,
+        role_template_id=role_template_id,
+        resume_text=resume_text,
+        jd_text=jd_text,
+        parsed_data=parsed_data,
+        analysis_result=analysis_result,
+    )
+    if narrative_status is not None:
+        new_result.narrative_status = narrative_status
+
+    db.add(new_result)
+    db.commit()
+    db.refresh(new_result)
+    return new_result
 
 
 def _apply_skill_overrides(jd_analysis: dict, overrides: dict | None) -> dict:
@@ -308,8 +387,13 @@ def _store_candidate_profile(
     file_content: bytes | None = None,
     filename: str | None = None,
     converted_pdf_content: bytes | None = None,
+    db: Session | None = None,
 ) -> None:
     """Write parsed profile data into the Candidate row."""
+    # Track old storage bytes for incremental update
+    old_raw_bytes = len((candidate.raw_resume_text or "").encode("utf-8")) if candidate.raw_resume_text else 0
+    old_snapshot_bytes = len((candidate.parser_snapshot_json or "").encode("utf-8")) if candidate.parser_snapshot_json else 0
+
     work_exp = parsed_data.get("work_experience", [])
     candidate.resume_file_hash   = file_hash
     if filename:
@@ -324,6 +408,20 @@ def _store_candidate_profile(
     candidate.parsed_education   = json.dumps(parsed_data.get("education", []), default=_json_default)
     candidate.parsed_work_exp    = json.dumps(work_exp, default=_json_default)
     candidate.gap_analysis_json  = json.dumps(gap_analysis, default=_json_default)
+
+    # Incrementally update tenant storage_used_bytes
+    if db is not None:
+        try:
+            new_raw_bytes = len((candidate.raw_resume_text or "").encode("utf-8"))
+            new_snapshot_bytes = len((candidate.parser_snapshot_json or "").encode("utf-8"))
+            delta = (new_raw_bytes + new_snapshot_bytes) - (old_raw_bytes + old_snapshot_bytes)
+            if delta != 0:
+                from app.backend.models.db_models import Tenant as _Tenant
+                tenant_row = db.query(_Tenant).filter(_Tenant.id == candidate.tenant_id).first()
+                if tenant_row:
+                    tenant_row.storage_used_bytes = (tenant_row.storage_used_bytes or 0) + delta
+        except Exception:
+            log.warning("Failed to update storage_used_bytes for candidate %s", candidate.id, exc_info=True)
 
     # Truncate current_role and current_company to 255 chars to prevent DB truncation errors
     _raw_role = work_exp[0].get("title", "") if work_exp else None
@@ -402,7 +500,7 @@ def _get_or_create_candidate(
     if existing is not None:
         # Update profile when explicitly requested
         if action == "update_profile" and gap_analysis is not None:
-            _store_candidate_profile(existing, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content)
+            _store_candidate_profile(existing, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content, db=db)
         return existing.id, True
 
     # Create new candidate
@@ -416,7 +514,7 @@ def _get_or_create_candidate(
     db.flush()  # get the new id
 
     if gap_analysis is not None:
-        _store_candidate_profile(candidate, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content)
+        _store_candidate_profile(candidate, parsed_data, gap_analysis, file_hash or "", profile_quality, file_content, filename, converted_pdf_content, db=db)
 
     return candidate.id, False
 
@@ -1016,11 +1114,23 @@ async def _parse_resume_with_doc_conversion(content: bytes, filename: str) -> tu
         pdf_bytes = await asyncio.to_thread(convert_to_pdf, content, filename)
         if pdf_bytes:
             log.info("DOC converted to PDF (%d bytes), parsing from PDF for better accuracy", len(pdf_bytes))
-            parsed_data = await asyncio.to_thread(parse_resume, pdf_bytes, "converted.pdf")
+            parsed_data = await asyncio.wait_for(
+                asyncio.to_thread(parse_resume, pdf_bytes, "converted.pdf"),
+                timeout=PARSE_TIMEOUT_SECONDS,
+            )
             return parsed_data, pdf_bytes
         log.warning("DOC-to-PDF conversion failed for %s, falling back to legacy parser", filename)
 
-    parsed_data = await asyncio.to_thread(parse_resume, content, filename)
+    try:
+        parsed_data = await asyncio.wait_for(
+            asyncio.to_thread(parse_resume, content, filename),
+            timeout=PARSE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=400,
+            detail="Resume parsing timed out — file may be too complex or contain too many pages",
+        )
     return parsed_data, pdf_bytes
 
 
@@ -1288,7 +1398,8 @@ async def analyze_endpoint(
     _check_jd_size(job_description)
     
     # ─── CHECK AND INCREMENT USAGE (after validation) ─────────────────────────
-    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, 1)
+    async with _get_tenant_lock(current_user.tenant_id):
+        allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, 1)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
@@ -1387,19 +1498,17 @@ async def analyze_endpoint(
                 db, current_user.tenant_id, jd_analysis, team_id=team_id,
             )
 
-            # Create result record first for background LLM
-            db_result = ScreeningResult(
+            # Create or update result record for background LLM
+            db_result = _upsert_screening_result(
+                db,
                 tenant_id=current_user.tenant_id,
                 candidate_id=existing.id,
+                role_template_id=template_id,
                 resume_text=existing.raw_resume_text,
                 jd_text=job_description,
                 parsed_data=json.dumps(parsed_data, default=_json_default),
-                analysis_result="{}",  # Placeholder
-                role_template_id=template_id,
+                analysis_result="{}",
             )
-            db.add(db_result)
-            db.commit()
-            db.refresh(db_result)
 
             result = await run_hybrid_pipeline(
                 resume_text=existing.raw_resume_text,
@@ -1472,18 +1581,16 @@ async def analyze_endpoint(
         converted_pdf_content=pdf_bytes,
     )
 
-    db_result = ScreeningResult(
+    db_result = _upsert_screening_result(
+        db,
         tenant_id=current_user.tenant_id,
         candidate_id=candidate_id,
+        role_template_id=template_id,
         resume_text=parsed_data.get("raw_text", ""),
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
-        analysis_result="{}",  # Placeholder — will be updated
-        role_template_id=template_id,
+        analysis_result="{}",
     )
-    db.add(db_result)
-    db.commit()
-    db.refresh(db_result)
 
     # Run pipeline with background LLM
     result = await run_hybrid_pipeline(
@@ -1510,6 +1617,7 @@ async def analyze_endpoint(
         result.get("analysis_quality", "medium"),
         file_content=content,
         filename=resume.filename,
+        db=db,
     )
     db.commit()
 
@@ -1564,7 +1672,8 @@ async def analyze_endpoint(
     # Webhook dispatch — never let webhook failure affect analysis
     try:
         from app.backend.services.webhook_service import dispatch_event_background
-        dispatch_event_background(None, current_user.tenant_id, "analysis.completed", {"result_id": db_result.id})
+        from app.backend.db.database import SessionLocal
+        dispatch_event_background(SessionLocal, current_user.tenant_id, "analysis.completed", {"result_id": db_result.id})
     except Exception:
         pass
 
@@ -1639,7 +1748,8 @@ async def analyze_stream_endpoint(
     _check_jd_size(job_description)
     
     # ─── CHECK AND INCREMENT USAGE (after validation) ─────────────────────────
-    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, 1)
+    async with _get_tenant_lock(current_user.tenant_id):
+        allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, 1)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
@@ -1744,20 +1854,20 @@ async def analyze_stream_endpoint(
         converted_pdf_content=pdf_bytes,
     )
     
-    # Create placeholder result to get the ID
-    db_result = ScreeningResult(
+    db_result = _upsert_screening_result(
+        db,
         tenant_id=tenant_id,
         candidate_id=candidate_id,
+        role_template_id=template_id,
         resume_text=parsed_data.get("raw_text", ""),
         jd_text=job_description,
         parsed_data=json.dumps(parsed_data, default=_json_default),
-        analysis_result="{}",  # Placeholder — will be updated
-        role_template_id=template_id,
+        analysis_result="{}",
     )
-    db.add(db_result)
-    db.commit()
-    db.refresh(db_result)
     screening_result_id = db_result.id
+
+    # Cancellation token: set when client disconnects so pipeline can break early
+    cancel_event = asyncio.Event()
 
     async def event_stream():
         final_result: dict = {}
@@ -1767,6 +1877,7 @@ async def analyze_stream_endpoint(
             # Check for client disconnect before starting pipeline
             if await request.is_disconnected():
                 log.warning("Client disconnected before streaming analysis started")
+                cancel_event.set()
                 return
 
             async for event in astream_hybrid_pipeline(
@@ -1783,6 +1894,7 @@ async def analyze_stream_endpoint(
                 # Check for client disconnect between stages
                 if await request.is_disconnected():
                     log.warning("Client disconnected during streaming analysis")
+                    cancel_event.set()
                     # Early DB save: ensure Python results are preserved
                     # Only save on "parsing" stage which has the full Python results
                     if not python_scores_saved and event.get("stage") in ("parsing", "complete"):
@@ -1808,7 +1920,7 @@ async def analyze_stream_endpoint(
                                     disc_db.close()
                         except Exception as db_exc:
                             log.warning("Failed to save early DB results: %s", db_exc)
-                    return
+                    break
 
                 if isinstance(event, str):
                     # SSE heartbeat ping from the generator
@@ -1852,7 +1964,15 @@ async def analyze_stream_endpoint(
             yield f"data: {json.dumps(error_event, default=_json_default)}\n\n"
             final_result = _fallback_result(gap_analysis)
 
+        # If the client disconnected, skip the final save/complete cycle
+        if cancel_event.is_set():
+            log.info("Skipping final save/complete — client already disconnected")
+            return
+
         # Update the ScreeningResult with the final analysis_result
+        # CRITICAL: DB save must complete BEFORE yielding the 'complete' event
+        # so the frontend can safely poll for results immediately on receipt.
+        save_db = None
         try:
             final_result["result_id"]    = screening_result_id
             final_result["candidate_id"] = candidate_id
@@ -1879,7 +1999,7 @@ async def analyze_stream_endpoint(
                     # Also update candidate profile
                     cand = save_db.query(Candidate).filter(Candidate.id == candidate_id).first()
                     if cand:
-                        _store_candidate_profile(cand, parsed_data, gap_analysis, file_hash, final_result.get("analysis_quality", "medium"), content, resume.filename)
+                        _store_candidate_profile(cand, parsed_data, gap_analysis, file_hash, final_result.get("analysis_quality", "medium"), content, resume.filename, db=save_db)
                     save_db.commit()
                     log.info("Final DB save completed for screening_result_id=%s (fit_score=%s)", screening_result_id, final_result.get("fit_score"))
 
@@ -1903,13 +2023,18 @@ async def analyze_stream_endpoint(
                             log.warning("Failed to persist skill overrides to template: %s", e)
                 else:
                     log.error("ScreeningResult id=%s not found for final save", screening_result_id)
+            except Exception as inner_db_exc:
+                save_db.rollback()
+                raise inner_db_exc
             finally:
                 save_db.close()
+                save_db = None
         except Exception as db_exc:
             log.error("Final DB save failed for screening_result_id=%s: %s", screening_result_id, db_exc)
-            final_result["pipeline_errors"] = final_result.get("pipeline_errors", []) + [
-                f"DB save error: {str(db_exc)}"
-            ]
+            # DB save failed — yield error event instead of complete so the frontend
+            # knows the result was not persisted and should not poll for it.
+            yield f"data: {json.dumps({'stage': 'error', 'message': 'Failed to save analysis result'}, default=_json_default)}\n\n"
+            return
 
         log.info(json.dumps({
             "event":       "analysis_complete",
@@ -1924,11 +2049,12 @@ async def analyze_stream_endpoint(
         # Webhook dispatch — never let webhook failure affect analysis
         try:
             from app.backend.services.webhook_service import dispatch_event_background
-            dispatch_event_background(None, tenant_id, "analysis.completed", {"result_id": screening_result_id})
+            from app.backend.db.database import SessionLocal
+            dispatch_event_background(SessionLocal, tenant_id, "analysis.completed", {"result_id": screening_result_id})
         except Exception:
             pass
 
-        # Yield final complete with result_id for polling
+        # Yield final complete ONLY after successful DB save
         complete_payload = {"stage": "complete", "result": final_result}
         yield f"data: {json.dumps(complete_payload, default=_json_default)}\n\n"
 
@@ -2100,7 +2226,8 @@ async def batch_analyze_chunked_endpoint(
         )
 
     # CHECK AND INCREMENT USAGE
-    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
+    async with _get_tenant_lock(current_user.tenant_id):
+        allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
@@ -2149,19 +2276,17 @@ async def batch_analyze_chunked_endpoint(
                 filename=filename,
             )
 
-            db_result = ScreeningResult(
+            db_result = _upsert_screening_result(
+                db,
                 tenant_id=current_user.tenant_id,
                 candidate_id=candidate_id,
+                role_template_id=template_id,
                 resume_text=parsed_data.get("raw_text", ""),
                 jd_text=job_description,
                 parsed_data=json.dumps(parsed_data),
                 analysis_result=json.dumps(raw),
-                role_template_id=template_id,
                 narrative_status="pending",
             )
-            db.add(db_result)
-            db.flush()
-            db.commit()
             raw["result_id"] = db_result.id
 
             # Spawn background LLM narrative generation
@@ -2372,7 +2497,8 @@ async def batch_analyze_stream_endpoint(
         )
 
     # CHECK AND INCREMENT USAGE
-    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
+    async with _get_tenant_lock(current_user.tenant_id):
+        allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
@@ -2517,21 +2643,20 @@ async def batch_analyze_stream_endpoint(
                         raw.get("analysis_quality", "medium"),
                         file_content=content,
                         filename=filename,
+                        db=save_db,
                     )
 
-                db_result = ScreeningResult(
+                db_result = _upsert_screening_result(
+                    save_db,
                     tenant_id=tenant_id,
                     candidate_id=candidate_id,
+                    role_template_id=_template_id,
                     resume_text=parsed_data.get("raw_text", ""),
                     jd_text=job_description,
                     parsed_data=json.dumps(parsed_data, default=_json_default),
                     analysis_result=json.dumps(raw, default=_json_default),
-                    role_template_id=_template_id,
                     narrative_status="pending",
                 )
-                save_db.add(db_result)
-                save_db.commit()
-                save_db.refresh(db_result)
 
                 screening_result_id = db_result.id
 
@@ -2719,7 +2844,8 @@ async def batch_analyze_endpoint(
         )
     
     # ─── CHECK AND INCREMENT USAGE (after validation, before processing) ────────
-    allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
+    async with _get_tenant_lock(current_user.tenant_id):
+        allowed, message = _check_and_increment_usage(db, current_user.tenant_id, current_user.id, valid_count)
     if not allowed:
         raise HTTPException(status_code=429, detail=message)
 
@@ -2775,18 +2901,17 @@ async def batch_analyze_endpoint(
             converted_pdf_content=pdf_bytes,
         )
 
-        db_result = ScreeningResult(
+        db_result = _upsert_screening_result(
+            db,
             tenant_id=current_user.tenant_id,
             candidate_id=candidate_id,
+            role_template_id=template_id,
             resume_text=parsed_data.get("raw_text", ""),
             jd_text=job_description,
             parsed_data=json.dumps(parsed_data),
             analysis_result=json.dumps(raw),
-            role_template_id=template_id,
             narrative_status="pending",
         )
-        db.add(db_result)
-        db.flush()
         raw["result_id"] = db_result.id
 
         # Spawn background LLM narrative generation
@@ -3222,8 +3347,22 @@ def get_narrative(
     # Use narrative_status column if available, fall back to checking narrative_json
     status = getattr(result, 'narrative_status', None)
     
+    if status == 'fallback':
+        # Fallback — return fallback narrative + error message
+        narrative = None
+        if result.narrative_json:
+            try:
+                narrative = json.loads(result.narrative_json)
+            except json.JSONDecodeError:
+                pass
+        return {
+            "status": "fallback",
+            "error": result.narrative_error or "AI analysis encountered an error",
+            "narrative": narrative,
+        }
+
     if status == 'failed':
-        # Failed — return fallback narrative + error message
+        # Failed — return fallback narrative + error message (legacy, should not happen with new fallback logic)
         narrative = None
         if result.narrative_json:
             try:
@@ -3235,7 +3374,7 @@ def get_narrative(
             "error": result.narrative_error or "AI analysis encountered an error",
             "narrative": narrative,
         }
-    
+
     if status == 'ready' or (status is None and result.narrative_json):
         # Ready — return narrative
         if result.narrative_json:

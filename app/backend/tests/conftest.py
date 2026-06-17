@@ -14,32 +14,50 @@ from unittest.mock import patch, AsyncMock, MagicMock
 # Ensure project root is on the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
+# Set testing mode so JWT secret enforcement bypasses for tests
+os.environ.setdefault("TESTING", "true")
+os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only")
+
 from app.backend.db import database
 from app.backend.main import app
 
 # ─── In-memory SQLite DB ──────────────────────────────────────────────────────
+#
+# Guard against double-import.  pytest loads conftest as a plugin under one
+# module name, but ``from app.backend.tests.conftest import X`` triggers a
+# second load under a *different* qualified name, which would create a NEW
+# in-memory SQLite and break the test DB ("no such table" errors).
+_conftest_initialized = getattr(database, '_conftest_initialized', False)
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+if not _conftest_initialized:
+    database._conftest_initialized = True
 
-test_engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,  # single shared in-memory DB for all connections
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
+    test_engine = create_engine(
+        SQLALCHEMY_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,  # single shared in-memory DB for all connections
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
-database.engine = test_engine
-database.SessionLocal = TestingSessionLocal
-app.dependency_overrides[database.get_db] = override_get_db
+    def override_get_db():
+        try:
+            db = TestingSessionLocal()
+            yield db
+        finally:
+            db.close()
+
+
+    database.engine = test_engine
+    database.SessionLocal = TestingSessionLocal
+    app.dependency_overrides[database.get_db] = override_get_db
+else:
+    # Re-import: reuse the already-initialized objects so that fixture
+    # references stay consistent with the first-load module scope.
+    test_engine = database.engine
+    TestingSessionLocal = database.SessionLocal
 
 
 # Import all models
@@ -196,6 +214,26 @@ except Exception:
     pass  # If patching fails, fall through and let tests error naturally
 
 
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _verify_user_via_api(email: str):
+    """Mark a user's email as verified via the DB session.
+
+    Uses ``database.SessionLocal`` which is set to ``TestingSessionLocal``
+    by conftest.py at startup, so it always targets the in-memory test DB
+    regardless of which module scope the caller lives in.
+    """
+    from app.backend.models.db_models import User
+    db = database.SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            user.email_verified = True
+            db.commit()
+    finally:
+        db.close()
+
+
 # ─── Base fixtures ────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="function")
@@ -218,6 +256,12 @@ def _clear_rate_limit_buckets():
     if middleware is not None:
         middleware.buckets.clear()
         middleware.config_cache.clear()
+    # Also clear the auth route's per-IP rate limiter
+    try:
+        from app.backend.routes.auth import auth_rate_limiter
+        auth_rate_limiter._attempts.clear()
+    except Exception:
+        pass
     yield
 
 
@@ -247,6 +291,9 @@ def auth_client(client):
     reg_resp = client.post("/api/auth/register", json=register_payload)
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
 
+    # Mark user as verified for testing
+    _verify_user_via_api("admin@testcorp.com")
+
     login_resp = client.post("/api/auth/login", json={
         "email": "admin@testcorp.com",
         "password": "TestPass123!",
@@ -270,6 +317,10 @@ def auth_client_with_token(client):
         "full_name": "Token User",
     }
     client.post("/api/auth/register", json=register_payload)
+
+    # Mark user as verified for testing
+    _verify_user_via_api("user@tokencorp.com")
+
     login_resp = client.post("/api/auth/login", json={
         "email": "user@tokencorp.com",
         "password": "SecurePass456!",
@@ -295,6 +346,9 @@ def platform_admin_client(client, db):
     }
     reg_resp = client.post("/api/auth/register", json=register_payload)
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+
+    # Mark user as verified for testing
+    _verify_user_via_api("platformadmin@test.com")
 
     login_resp = client.post("/api/auth/login", json={
         "email": "platformadmin@test.com",
@@ -703,14 +757,17 @@ def auth_client_with_free_plan(client, db, seed_subscription_plans):
     }
     reg_resp = client.post("/api/auth/register", json=register_payload)
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
-    
+
+    # Mark user as verified for testing
+    _verify_user_via_api("free@freecorp.com")
+
     # Get the tenant and set it to free plan
     free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
     free_plan_id = free_plan.id
     tenant = db.query(Tenant).filter(Tenant.slug == "freecorp").first()
     tenant.plan_id = free_plan_id
     db.commit()
-    
+
     login_resp = client.post("/api/auth/login", json={
         "email": "free@freecorp.com",
         "password": "TestPass123!",
@@ -733,7 +790,10 @@ def auth_client_with_pro_plan(client, db, seed_subscription_plans):
     }
     reg_resp = client.post("/api/auth/register", json=register_payload)
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
-    
+
+    # Mark user as verified for testing
+    _verify_user_via_api("pro@procorp.com")
+
     # Get the tenant and set it to pro plan
     pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "pro").first()
     pro_plan_id = pro_plan.id
@@ -742,7 +802,7 @@ def auth_client_with_pro_plan(client, db, seed_subscription_plans):
     tenant.subscription_status = "active"
     tenant.analyses_count_this_month = 0
     db.commit()
-    
+
     login_resp = client.post("/api/auth/login", json={
         "email": "pro@procorp.com",
         "password": "TestPass123!",
@@ -765,7 +825,10 @@ def auth_client_at_usage_limit(client, db, seed_subscription_plans):
     }
     reg_resp = client.post("/api/auth/register", json=register_payload)
     assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
-    
+
+    # Mark user as verified for testing
+    _verify_user_via_api("limited@limitedcorp.com")
+
     # Get the tenant and set it to free plan at limit
     free_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.name == "free").first()
     free_plan_id = free_plan.id
@@ -774,7 +837,7 @@ def auth_client_at_usage_limit(client, db, seed_subscription_plans):
     tenant.analyses_count_this_month = 5  # At limit
     tenant.subscription_status = "active"
     db.commit()
-    
+
     login_resp = client.post("/api/auth/login", json={
         "email": "limited@limitedcorp.com",
         "password": "TestPass123!",

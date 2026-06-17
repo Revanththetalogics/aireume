@@ -28,6 +28,7 @@
 - Updated file validation system documentation with comprehensive magic-byte signature verification for .txt, .rtf, and .odt formats
 - Expanded supported file formats documentation with binary detection algorithms and multi-layered validation
 - Updated streaming analysis endpoint documentation to reflect enhanced data persistence reliability
+- **Added _upsert_screening_result helper function that standardizes screening result creation and updates across all analysis endpoints, eliminating unique constraint violations during re-analysis operations and providing automatic version incrementing**
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -112,6 +113,7 @@ Routes --> Nginx
 - **Status Tracking: Enhanced narrative endpoint with three-state status system (pending, ready, failed) and fallback mechanisms.**
 - **Contact Information: Simplified handling through parser service fallback methods (NER, email-based, relaxed header scan, filename-based) without LLM-based enrichment.**
 - **Data Persistence Reliability: Enhanced streaming endpoint with early database save mechanism to ensure Python results are preserved when clients disconnect.**
+- **Upsert Helper Function: Standardized screening result creation and updates across all analysis endpoints, eliminating unique constraint violations during re-analysis operations and providing automatic version incrementing.**
 
 **Section sources**
 - [auth.py:19-40](file://app/backend/middleware/auth.py#L19-L40)
@@ -124,7 +126,7 @@ Routes --> Nginx
 - [weight_suggester.py:86-177](file://app/backend/services/weight_suggester.py#L86-L177)
 
 ## Architecture Overview
-The analysis pipeline integrates file parsing, gap analysis, and hybrid scoring with optional LLM narrative. The hybrid pipeline supports both synchronous and streaming modes with enhanced status tracking for narrative generation. Contact information is now handled through enhanced fallback methods in the parser service. The streaming endpoint includes enhanced data persistence reliability through early database saving mechanisms. The new weight suggestion system provides AI-powered recommendations with comprehensive fallback mechanisms.
+The analysis pipeline integrates file parsing, gap analysis, and hybrid scoring with optional LLM narrative. The hybrid pipeline supports both synchronous and streaming modes with enhanced status tracking for narrative generation. Contact information is now handled through enhanced fallback methods in the parser service. The streaming endpoint includes enhanced data persistence reliability through early database saving mechanisms. The new weight suggestion system provides AI-powered recommendations with comprehensive fallback mechanisms. The standardized upsert helper function ensures consistent screening result management across all endpoints.
 
 ```mermaid
 sequenceDiagram
@@ -136,6 +138,7 @@ participant G as "Gap Detector"
 participant H as "Hybrid Pipeline"
 participant S as "Subscription"
 participant D as "Database"
+participant U as "_upsert_screening_result<br/>Standardized Upsert Function"
 C->>R : POST /api/analyze (multipart/form-data)
 R->>S : Check usage limits
 S-->>R : Allowed/Forbidden
@@ -144,9 +147,8 @@ P-->>R : Parsed resume data (improved contact info)
 R->>G : analyze_gaps(work_experience)
 G-->>R : Gap analysis
 R->>H : run_hybrid_pipeline(...)
-H-->>R : Python results + fallback narrative
-R->>D : Store ScreeningResult + Candidate
-D-->>R : Stored IDs
+R->>U : _upsert_screening_result(tenant_id, candidate_id, role_template_id, resume_text, jd_text, parsed_data, analysis_result)
+U-->>R : ScreeningResult with version_number incremented
 R-->>C : AnalysisResponse JSON (without LLM contact enrichment)
 C->>R : POST /api/analyze/suggest-weights (job_description)
 R->>WS : suggest_weights_for_jd(job_description)
@@ -165,6 +167,7 @@ R-->>C : Status response with fallback/LLM narrative
 - [gap_detector.py:217-219](file://app/backend/services/gap_detector.py#L217-L219)
 - [hybrid_pipeline.py:1-800](file://app/backend/services/hybrid_pipeline.py#L1-L800)
 - [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
+- [analyze.py:196-244](file://app/backend/routes/analyze.py#L196-L244)
 
 ## Detailed Component Analysis
 
@@ -197,6 +200,14 @@ The endpoint now includes comprehensive file validation beyond simple extension 
 - **JSON Parsing Validation**: Invalid JSON triggers graceful fallback to default weights
 - **Automatic Size Checking**: Applied before processing resumes to prevent oversized payloads
 
+**Standardized Screening Result Management:**
+The endpoint now uses the `_upsert_screening_result` helper function to ensure consistent result management:
+
+- **Unique Constraint Elimination**: Prevents conflicts when re-analyzing the same candidate
+- **Automatic Version Incrementing**: Each re-analysis increments version_number for proper tracking
+- **Consistent Data Updates**: Standardizes update behavior across all analysis operations
+- **Narrative Status Handling**: Properly manages narrative_status during result creation/update
+
 Request validation and limits:
 - Allowed resume extensions: .pdf, .docx, .doc, .txt, .rtf, .odt
 - Resume file size limit: 10 MB
@@ -210,6 +221,7 @@ Processing steps:
 - Analyze gaps
 - Parse or cache job description analysis
 - Run hybrid pipeline
+- **Use _upsert_screening_result for standardized result creation/update**
 - Deduplicate candidates (3-layer) and optionally update stored profile
 - Persist result and candidate profile
 - Return result with identifiers
@@ -235,6 +247,7 @@ Error handling:
 - [schemas.py:89-125](file://app/backend/models/schemas.py#L89-L125)
 - [auth.py:19-40](file://app/backend/middleware/auth.py#L19-L40)
 - [subscription.py:427-477](file://app/backend/routes/subscription.py#L427-L477)
+- [analyze.py:196-244](file://app/backend/routes/analyze.py#L196-L244)
 
 ### Endpoint: POST /api/analyze/stream
 Real-time streaming analysis using Server-Sent Events (SSE) with enhanced data persistence reliability.
@@ -266,6 +279,13 @@ The streaming endpoint also benefits from the enhanced file validation system:
 - **JSON Parsing Validation**: Invalid JSON triggers graceful fallback to default weights
 - **Automatic Size Checking**: Applied before processing resumes to prevent oversized payloads
 
+**Standardized Screening Result Management:**
+The streaming endpoint uses the `_upsert_screening_result` helper function for consistent result management:
+
+- **Immediate Result Creation:** Creates ScreeningResult entry with Python scores for background LLM processing
+- **Version Control:** Ensures proper version tracking for re-analysis scenarios
+- **Narrative Status Initialization:** Sets initial narrative_status to "pending" for background processing
+
 Streaming stages:
 - Stage "parsing": Python-only scores and partial analysis (within 2s)
 - Stage "scoring": LLM narrative and explainability (after ~40s)
@@ -293,6 +313,7 @@ Frontend consumption example:
 - [hybrid_pipeline.py:1410-1498](file://app/backend/services/hybrid_pipeline.py#L1410-L1498)
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [api.js:96-141](file://app/frontend/src/lib/api.js#L96-L141)
+- [analyze.py:196-244](file://app/backend/routes/analyze.py#L196-L244)
 
 ### Endpoint: POST /api/analyze/batch
 Concurrent batch processing of multiple resumes with automatic ranking.
@@ -320,12 +341,20 @@ Batch processing now includes comprehensive file validation:
 - **JSON Parsing Validation**: Invalid JSON triggers graceful fallback to default weights
 - **Automatic Size Checking**: Applied before processing resumes to prevent oversized payloads
 
+**Standardized Screening Result Management:**
+Batch processing uses the `_upsert_screening_result` helper function for consistent result management:
+
+- **Consistent Upsert Pattern:** All batch items use the same upsert logic for uniform behavior
+- **Version Number Tracking:** Proper version tracking for re-analysis scenarios across batch items
+- **Narrative Status Coordination:** Initializes narrative_status consistently for background processing
+
 Processing:
 - Validates allowed extensions and size limits
 - **Pre-validates all files using enhanced _validate_file_content function**
 - Checks usage limits for the batch size
 - Pre-parses and caches job description analysis
 - Processes resumes concurrently using asyncio.gather
+- **Uses _upsert_screening_result for standardized result creation**
 - Persists each result and candidate
 - Sorts results by fit_score descending
 
@@ -343,6 +372,7 @@ BatchAnalysisResult:
 - [analyze.py:1151-1162](file://app/backend/routes/analyze.py#L1151-L1162)
 - [schemas.py:127-136](file://app/backend/models/schemas.py#L127-L136)
 - [subscription.py:670-681](file://app/backend/routes/subscription.py#L670-L681)
+- [analyze.py:196-244](file://app/backend/routes/analyze.py#L196-L244)
 
 ### Endpoint: POST /api/analyze/suggest-weights
 **New** AI-powered weight suggestion endpoint that analyzes job descriptions and provides intelligent scoring weight recommendations with comprehensive fallback mechanisms.
@@ -522,6 +552,86 @@ FILE_SIGNATURES = {
 - [analyze.py:1197-1206](file://app/backend/routes/analyze.py#L1197-L1206)
 - [analyze.py:1364-1373](file://app/backend/routes/analyze.py#L1364-L1373)
 
+### Enhanced Screening Result Upsert Helper
+**New** Standardized screening result management system that eliminates unique constraint violations and provides automatic version incrementing.
+
+**Core Upsert Function:**
+The `_upsert_screening_result` function provides consistent screening result creation and updates:
+
+```python
+def _upsert_screening_result(
+    db: Session,
+    tenant_id: int,
+    candidate_id: int,
+    role_template_id: int | None,
+    resume_text: str,
+    jd_text: str,
+    parsed_data: str,
+    analysis_result: str,
+    narrative_status: str | None = None,
+) -> ScreeningResult:
+    """Insert or update a ScreeningResult, respecting the unique constraint."""
+    existing = db.query(ScreeningResult).filter(
+        ScreeningResult.tenant_id == tenant_id,
+        ScreeningResult.candidate_id == candidate_id,
+        ScreeningResult.role_template_id == role_template_id,
+    ).first()
+
+    if existing:
+        existing.resume_text = resume_text
+        existing.jd_text = jd_text
+        existing.parsed_data = parsed_data
+        existing.analysis_result = analysis_result
+        existing.is_active = True
+        existing.version_number = (existing.version_number or 1) + 1
+        existing.status_updated_at = datetime.utcnow()
+        if narrative_status is not None:
+            existing.narrative_status = narrative_status
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    new_result = ScreeningResult(
+        tenant_id=tenant_id,
+        candidate_id=candidate_id,
+        role_template_id=role_template_id,
+        resume_text=resume_text,
+        jd_text=jd_text,
+        parsed_data=parsed_data,
+        analysis_result=analysis_result,
+    )
+    if narrative_status is not None:
+        new_result.narrative_status = narrative_status
+
+    db.add(new_result)
+    db.commit()
+    db.refresh(new_result)
+    return new_result
+```
+
+**Unique Constraint Elimination:**
+- **Tenant-Candidate-Template Combination**: Prevents conflicts when analyzing the same candidate for the same role template
+- **Automatic Conflict Resolution**: Uses existing record when conflict occurs instead of raising exception
+- **Seamless Re-analysis**: Allows re-processing without manual cleanup
+
+**Automatic Version Incrementing:**
+- **Version Tracking**: Each re-analysis increments version_number for proper history tracking
+- **Default Version**: Starts with version_number = 1 for new records
+- **Increment Logic**: (existing.version_number or 1) + 1 for subsequent analyses
+
+**Consistent Data Updates:**
+- **Full Record Updates**: Updates all relevant fields when existing record is found
+- **Active State Management**: Sets is_active = True for updated records
+- **Timestamp Updates**: Updates status_updated_at for proper audit trails
+
+**Narrative Status Management:**
+- **Optional Parameter**: narrative_status can be provided during creation/update
+- **Conditional Updates**: Only updates when provided, preserving existing values otherwise
+- **Background Processing**: Enables proper initialization for background LLM narrative generation
+
+**Section sources**
+- [analyze.py:196-244](file://app/backend/routes/analyze.py#L196-L244)
+
 ### Deduplication and Candidate Profile Storage
 Three-layer deduplication:
 - Email match within tenant
@@ -620,6 +730,7 @@ M["db_models.py"]
 U["subscription.py"]
 T["auth.py"]
 N["nginx.prod.conf"]
+UP["Upser Helper<br/>_upsert_screening_result"]
 A --> WS
 A --> WM
 A --> P
@@ -630,6 +741,7 @@ A --> M
 A --> U
 A --> T
 A --> N
+A --> UP
 ```
 
 **Diagram sources**
@@ -644,6 +756,7 @@ A --> N
 - [subscription.py:1-477](file://app/backend/routes/subscription.py#L1-L477)
 - [auth.py:1-47](file://app/backend/middleware/auth.py#L1-L47)
 - [nginx.prod.conf:50-95](file://app/nginx/nginx.prod.conf#L50-L95)
+- [analyze.py:196-244](file://app/backend/routes/analyze.py#L196-L244)
 
 **Section sources**
 - [analyze.py:1-1577](file://app/backend/routes/analyze.py#L1-L1577)
@@ -667,6 +780,7 @@ A --> N
 - **Status tracking:** Database-level status tracking reduces polling overhead and improves user experience.
 - **Enhanced contact fallbacks:** Improved contact information extraction reduces dependency on LLM-based contact enrichment.
 - **Enhanced Streaming Reliability:** Early database save mechanism prevents data loss during client disconnections and ensures complete analysis results are always persisted.
+- **Standardized Upsert Performance:** The _upsert_screening_result function eliminates unique constraint exceptions and provides consistent performance across all analysis endpoints.
 
 ## Troubleshooting Guide
 Common errors and resolutions:
@@ -682,6 +796,7 @@ Common errors and resolutions:
 - **Contact information issues:** Verify that enhanced fallback methods are working correctly. Check parser service contact extraction logs.
 - **Weight suggestion failures:** The system automatically falls back to default weights when AI analysis fails. Check LLM availability and configuration.
 - **File validation failures:** The enhanced validation system may reject files with incorrect magic bytes or binary content masquerading as text. Check file signatures and content encoding.
+- **Upsert conflicts:** The _upsert_screening_result function automatically handles unique constraint violations during re-analysis operations. Check that tenant_id, candidate_id, and role_template_id combinations are correct.
 
 **Enhanced File Validation Troubleshooting:**
 - **Magic-byte signature mismatches:** Files may have incorrect extensions or corrupted content
@@ -708,6 +823,12 @@ Common errors and resolutions:
 - **JSON Parsing Errors:** LLM responses are validated and fallback mechanisms trigger on parsing failures
 - **Weight Normalization Issues:** System automatically normalizes weights to ensure they sum to 1.0
 
+**Upsert Helper Troubleshooting:**
+- **Version Number Issues:** Ensure version_number is properly incremented during re-analysis operations
+- **Unique Constraint Violations:** The _upsert_screening_result function automatically resolves conflicts by updating existing records
+- **Tenant Isolation Problems:** Verify that tenant_id is correctly passed to prevent cross-tenant data access
+- **Role Template Conflicts:** Check that role_template_id combinations are unique per candidate for proper conflict resolution
+
 **Section sources**
 - [analyze.py:369-384](file://app/backend/routes/analyze.py#L369-L384)
 - [analyze.py:255-266](file://app/backend/routes/analyze.py#L255-L266)
@@ -716,6 +837,7 @@ Common errors and resolutions:
 - [subscription.py:256-343](file://app/backend/routes/subscription.py#L256-L343)
 - [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
 - [test_routes_phase2.py:221-262](file://app/backend/tests/test_routes_phase2.py#L221-L262)
+- [analyze.py:196-244](file://app/backend/routes/analyze.py#L196-L244)
 
 ## Conclusion
 The analysis endpoints provide robust, scalable resume screening with optional real-time streaming and batch processing. They enforce usage limits through a subscription system, support multiple file formats with comprehensive validation, and deliver comprehensive results with explainability and risk signals. The enhanced GET /api/analysis/{id}/narrative endpoint with three-state status tracking significantly improves user experience by providing clear feedback on narrative generation progress and fallback mechanisms.
@@ -728,4 +850,6 @@ The analysis endpoints provide robust, scalable resume screening with optional r
 
 **New Weight Suggestion System:** The addition of the AI-powered weight suggestion endpoint provides intelligent scoring recommendations based on job descriptions. The system includes comprehensive validation, fallback mechanisms, and automatic weight normalization to ensure reliable and consistent weight recommendations across different role types and requirements.
 
-Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments with enhanced data integrity guarantees, intelligent weight recommendation capabilities, comprehensive file validation security measures, and robust streaming reliability features.
+**Standardized Screening Result Management:** The introduction of the _upsert_screening_result helper function provides consistent screening result creation and updates across all analysis endpoints. This eliminates unique constraint violations during re-analysis operations, provides automatic version incrementing, and ensures proper conflict resolution for improved system reliability and user experience.
+
+Proper configuration of authentication, rate limiting, and proxy buffering ensures reliable operation in production environments with enhanced data integrity guarantees, intelligent weight recommendation capabilities, comprehensive file validation security measures, robust streaming reliability features, and standardized screening result management across all analysis endpoints.
