@@ -8,6 +8,7 @@ Tests for voice screening API routes:
 """
 import pytest
 from datetime import datetime, timezone, timedelta
+from unittest.mock import patch
 from app.backend.models.db_models import (
     Candidate, RoleTemplate, VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry,
 )
@@ -175,7 +176,8 @@ class TestScheduleVoiceCall:
         })
         assert resp.status_code == 401
 
-    def test_schedule_success(self, auth_client, db):
+    @patch("app.backend.services.voice_call_scheduler.schedule_voice_call")
+    def test_schedule_success(self, mock_scheduler, auth_client, db):
         """Should create a voice screening session."""
         tenant_id = _get_tenant_id(auth_client, db)
         candidate = _create_candidate(db, tenant_id)
@@ -235,7 +237,8 @@ class TestScheduleVoiceCall:
         })
         assert resp.status_code == 404
 
-    def test_schedule_without_jd(self, auth_client, db):
+    @patch("app.backend.services.voice_call_scheduler.schedule_voice_call")
+    def test_schedule_without_jd(self, mock_scheduler, auth_client, db):
         """Should allow scheduling without a JD (jd_id=None)."""
         tenant_id = _get_tenant_id(auth_client, db)
         candidate = _create_candidate(db, tenant_id)
