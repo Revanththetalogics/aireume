@@ -94,6 +94,39 @@ jobs:
         cache-to: type=gha,mode=max
         provenance: false
 
+    - name: Build and push livekit
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./app/voice_agent/Dockerfile.livekit
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-livekit:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        provenance: false
+
+    - name: Build and push speech-service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./app/speech_service/Dockerfile
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-speech-service:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        provenance: false
+
+    - name: Build and push voice-agent
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./app/voice_agent/Dockerfile
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-voice-agent:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        provenance: false
+
   # Deployment is manual — after a successful build-and-push, SSH into the
   # VPS and run:
   #   docker compose -f docker-compose.prod.yml pull backend frontend nginx
