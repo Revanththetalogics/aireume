@@ -2,8 +2,8 @@
 Voice Agent — LiveKit Agents process for voice screening.
 
 Handles:
-  • Outbound screening calls (bot → candidate)
-  • Inbound callback routing (candidate → bot)
+  • HTTP dispatch API (backend → agent: create room + SIP outbound call)
+  • LiveKit Agent Worker (auto-joins rooms, runs conversation)
   • Conversation state machine (greeting → consent → screening → wrap-up)
   • Integration with Speech Service (STT/TTS) and Ollama Cloud (LLM)
 """
@@ -12,12 +12,15 @@ import json
 import logging
 import os
 import time
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -33,6 +36,9 @@ ARIA_BACKEND_URL = os.getenv("ARIA_BACKEND_URL", "http://backend:8000")
 LIVEKIT_URL = os.getenv("LIVEKIT_URL", "ws://livekit:7880")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "")
+SIP_TRUNK_ID = os.getenv("SIP_TRUNK_ID", "twilio-aria")
+SIP_OUTBOUND_NUMBER = os.getenv("SIP_OUTBOUND_NUMBER", "+18722789563")
+AGENT_PORT = int(os.getenv("AGENT_PORT", "8002"))
 
 # Conversation settings (defaults, overridden per-call by tenant config)
 DEFAULT_BOT_NAME = "ARIA Assistant"
@@ -524,34 +530,352 @@ async def handle_inbound_callback(ctx: ScreeningContext):
         await speech.stop()
 
 
+# ─── LiveKit SIP Dispatcher ───────────────────────────────────────────────────
+
+class LiveKitSIPDispatcher:
+    """Creates LiveKit rooms and dials out via SIP to candidates."""
+
+    def __init__(self):
+        self.lk_url = LIVEKIT_URL.replace("ws://", "http://").replace("wss://", "https://")
+        self.api_key = LIVEKIT_API_KEY
+        self.api_secret = LIVEKIT_API_SECRET
+
+    def _create_agent_token(self, room_name: str, identity: str = "aria-agent") -> str:
+        """Generate a LiveKit access token for the agent participant."""
+        from livekit.api import AccessToken, VideoGrant
+        token = AccessToken(self.api_key, self.api_secret)
+        token.with_identity(identity)
+        token.with_name("ARIA Assistant")
+        grant = VideoGrant(
+            room=room_name,
+            room_join=True,
+            can_publish=True,
+            can_subscribe=True,
+        )
+        token.with_grants(grant)
+        return token.to_jwt()
+
+    async def dispatch_call(
+        self,
+        session_id: int,
+        phone_number: str,
+        candidate_name: str,
+    ) -> dict:
+        """Create a LiveKit room and initiate SIP outbound call to the candidate."""
+        from livekit.api import LiveKitAPI, CreateSIPParticipantRequest
+
+        room_name = f"voice-screen-{session_id}"
+        participant_identity = f"candidate-{session_id}"
+
+        api = LiveKitAPI(self.lk_url, self.api_key, self.api_secret)
+
+        try:
+            # 1. Create room
+            await api.room.create_room(name=room_name, empty_timeout=120, max_participants=2)
+            logger.info("Room created: %s", room_name)
+
+            # 2. Create SIP participant (triggers outbound PSTN call)
+            sip_req = CreateSIPParticipantRequest(
+                sip_trunk_id=SIP_TRUNK_ID,
+                sip_call_to=phone_number,
+                room_name=room_name,
+                participant_identity=participant_identity,
+                participant_name=candidate_name,
+                hide_phone_number=False,
+            )
+            await api.sip.create_sip_participant(sip_req)
+            logger.info(
+                "SIP participant created: room=%s phone=%s trunk=%s",
+                room_name, phone_number, SIP_TRUNK_ID,
+            )
+
+            # 3. Generate agent token for the voice agent worker to join
+            agent_token = self._create_agent_token(room_name)
+
+            return {
+                "room_name": room_name,
+                "agent_token": agent_token,
+                "lk_url": LIVEKIT_URL,
+            }
+        finally:
+            await api.aclose()
+
+
+# ─── LiveKit Agent Worker ─────────────────────────────────────────────────────
+
+class VoiceAgentWorker:
+    """
+    Joins LiveKit rooms and runs the conversation engine.
+
+    When a SIP participant (candidate) joins a voice-screen room,
+    this worker joins as the ARIA agent, handles audio via the
+    Speech Service, and drives the conversation state machine.
+    """
+
+    def __init__(self):
+        self._active_sessions: dict = {}
+
+    async def handle_room(self, room_name: str, agent_token: str, session_ctx: ScreeningContext):
+        """Join a LiveKit room and run the screening conversation."""
+        from livekit import rtc
+
+        room = rtc.Room()
+        speech = SpeechClient()
+        llm = LLMClient()
+        backend = BackendClient()
+        engine = ConversationEngine(session_ctx, speech, llm, backend)
+
+        # Audio buffer for STT (accumulate ~3s of audio per chunk)
+        audio_buffer = bytearray()
+        SAMPLE_RATE = 16000
+        CHUNK_DURATION_SEC = 3.0
+        CHUNK_SIZE = int(SAMPLE_RATE * 2 * CHUNK_DURATION_SEC)  # 16-bit samples
+
+        async def on_track_subscribed(track, publication, participant):
+            """Called when a participant's audio track is subscribed."""
+            if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
+                logger.info(
+                    "Audio track subscribed: participant=%s session=%d",
+                    participant.identity, session_ctx.session_id,
+                )
+                stream = rtc.AudioStream(track)
+
+                async for event in stream:
+                    frame = event.frame
+                    audio_buffer.extend(frame.data)
+
+                    if len(audio_buffer) >= CHUNK_SIZE:
+                        chunk = bytes(audio_buffer[:CHUNK_SIZE])
+                        audio_buffer.clear()
+
+                        # Transcribe
+                        text = await speech.transcribe(chunk, "audio/wav")
+                        if text.strip():
+                            session_ctx.transcript.append({
+                                "role": "candidate",
+                                "text": text,
+                                "timestamp": time.time(),
+                            })
+                            logger.info("Candidate said: %s", text)
+
+                            # Get bot response
+                            bot_text = await engine.get_bot_response(text)
+                            if bot_text:
+                                session_ctx.transcript.append({
+                                    "role": "bot",
+                                    "text": bot_text,
+                                    "timestamp": time.time(),
+                                })
+                                logger.info("Bot responds: %s", bot_text)
+
+                                # Synthesize speech
+                                audio_out = await speech.synthesize(bot_text)
+                                if audio_out:
+                                    # Publish audio back to room
+                                    source = rtc.AudioSource(SAMPLE_RATE, 1)
+                                    audio_frame = rtc.AudioFrame(
+                                        data=audio_out,
+                                        sample_rate=SAMPLE_RATE,
+                                        num_channels=1,
+                                        samples_per_channel=len(audio_out) // 2,
+                                    )
+                                    await source.capture_frame(audio_frame)
+
+                            # Advance conversation state
+                            engine.advance_state()
+
+                            # Check for call end conditions
+                            if not engine.check_time_budget():
+                                logger.info("Time budget exceeded, ending call")
+                                session_ctx.state = CallState.ENDED
+                            if "reschedule" in text.lower() or "not a good time" in text.lower():
+                                session_ctx.state = CallState.ENDED
+
+        room.on("track_subscribed", on_track_subscribed)
+
+        try:
+            await speech.start()
+            session_ctx.call_start_time = time.time()
+
+            # Connect to the room
+            await room.connect(LIVEKIT_URL, agent_token)
+            logger.info("Agent joined room: %s (session=%d)", room_name, session_ctx.session_id)
+
+            # Update backend
+            await backend.update_session(session_ctx.session_id, {"status": "in_progress"})
+
+            # Generate screening questions
+            if session_ctx.jd_must_have_skills:
+                session_ctx.screening_questions = await llm.generate_screening_questions(
+                    session_ctx.jd_title or "the role",
+                    session_ctx.jd_must_have_skills,
+                )
+                logger.info("Generated %d screening questions", len(session_ctx.screening_questions))
+
+            # Deliver initial greeting via TTS
+            greeting = (
+                f"Hi, is this {session_ctx.candidate_name}? "
+                f"This is {session_ctx.bot_name} calling about the {session_ctx.jd_title or 'open'} position."
+            )
+            session_ctx.transcript.append({"role": "bot", "text": greeting, "timestamp": time.time()})
+            audio_out = await speech.synthesize(greeting)
+            if audio_out:
+                logger.info("Playing greeting for session %d", session_ctx.session_id)
+
+            # Keep the call alive until ended or max duration
+            while session_ctx.state != CallState.ENDED and engine.check_time_budget():
+                await asyncio.sleep(1)
+
+            # Call ended — save transcript and update backend
+            logger.info(
+                "Call ended: session=%d state=%s duration=%.1fs",
+                session_ctx.session_id, session_ctx.state.value,
+                time.time() - session_ctx.call_start_time,
+            )
+
+            await backend.update_session(session_ctx.session_id, {
+                "status": "completed",
+                "transcript": json.dumps(session_ctx.transcript),
+                "duration_seconds": int(time.time() - session_ctx.call_start_time),
+            })
+
+        except Exception as e:
+            logger.error("Agent session %d failed: %s", session_ctx.session_id, e, exc_info=True)
+            await backend.update_session(session_ctx.session_id, {
+                "status": "failed",
+                "error_log": str(e),
+            })
+        finally:
+            await speech.stop()
+            try:
+                await room.disconnect()
+            except Exception:
+                pass
+
+    async def dispatch_and_run(self, session_ctx: ScreeningContext, room_info: dict):
+        """Dispatch a call and run the agent in the room."""
+        task = asyncio.create_task(
+            self.handle_room(
+                room_info["room_name"],
+                room_info["agent_token"],
+                session_ctx,
+            )
+        )
+        self._active_sessions[session_ctx.session_id] = task
+        task.add_done_callback(
+            lambda t: self._active_sessions.pop(session_ctx.session_id, None)
+        )
+
+
+# Shared worker instance
+worker = VoiceAgentWorker()
+
+
+# ─── FastAPI Dispatch Server ──────────────────────────────────────────────────
+
+app = FastAPI(title="ARIA Voice Agent", version="1.0.0")
+
+sip_dispatcher = LiveKitSIPDispatcher()
+
+
+class DispatchRequest(BaseModel):
+    session_id: int
+    phone_number: str
+    candidate_name: str
+    tenant_id: int
+    candidate_id: int
+    jd_title: Optional[str] = None
+    jd_must_have_skills: Optional[list] = None
+
+
+class DispatchResponse(BaseModel):
+    success: bool
+    room_name: Optional[str] = None
+    message: str
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "voice-agent"}
+
+
+@app.post("/dispatch", response_model=DispatchResponse)
+async def dispatch_call(req: DispatchRequest):
+    """
+    Triggered by backend scheduler when it's time to place a call.
+    Creates a LiveKit room and initiates a SIP outbound call to the candidate.
+    The agent worker then joins the room and runs the conversation.
+    """
+    try:
+        # 1. Create room + SIP outbound call
+        room_info = await sip_dispatcher.dispatch_call(
+            session_id=req.session_id,
+            phone_number=req.phone_number,
+            candidate_name=req.candidate_name,
+        )
+
+        # 2. Build screening context
+        ctx = ScreeningContext(
+            session_id=req.session_id,
+            tenant_id=req.tenant_id,
+            candidate_id=req.candidate_id,
+            candidate_name=req.candidate_name,
+            phone_number=req.phone_number,
+            jd_title=req.jd_title,
+            jd_must_have_skills=req.jd_must_have_skills or [],
+        )
+
+        # 3. Launch agent worker in the room (non-blocking)
+        await worker.dispatch_and_run(ctx, room_info)
+
+        return DispatchResponse(
+            success=True,
+            room_name=room_info["room_name"],
+            message=f"SIP call initiated to {req.phone_number} in room {room_info['room_name']}",
+        )
+
+    except Exception as e:
+        logger.error("Dispatch failed for session %d: %s", req.session_id, e, exc_info=True)
+        # Update backend session status on failure
+        try:
+            backend = BackendClient()
+            await backend.update_session(req.session_id, {
+                "status": "failed",
+                "error_log": f"Dispatch failed: {str(e)}",
+            })
+        except Exception:
+            pass
+
+        return DispatchResponse(
+            success=False,
+            message=f"Dispatch failed: {str(e)}",
+        )
+
+
 # ─── Main ──────────────────────────────────────────────────────────────────────
 
 async def main():
-    """
-    Voice Agent entrypoint.
+    """Voice Agent entrypoint — starts FastAPI dispatch server."""
+    import uvicorn
 
-    In Phase 1.4, this will:
-    1. Connect to LiveKit server
-    2. Register SIP trunk for outbound/inbound calls
-    3. Start the agent worker process
-    """
     logging.basicConfig(level=logging.INFO)
     logger.info("════════════════════════════════════════════")
     logger.info("  ARIA Voice Agent — Starting")
     logger.info("  Speech Service: %s", SPEECH_SERVICE_URL)
     logger.info("  LiveKit: %s", LIVEKIT_URL)
     logger.info("  Ollama: %s (model: %s)", OLLAMA_BASE_URL, OLLAMA_MODEL)
+    logger.info("  SIP Trunk: %s (outbound: %s)", SIP_TRUNK_ID, SIP_OUTBOUND_NUMBER)
+    logger.info("  Dispatch API: http://0.0.0.0:%d", AGENT_PORT)
     logger.info("════════════════════════════════════════════")
 
-    # Phase 1.4: LiveKit Agents worker will be initialized here
-    # from livekit import agents
-    # agents.cli.run(agents.WorkerOptions(...))
-
-    logger.info("Voice Agent initialized. Awaiting LiveKit SIP integration (Phase 1.4).")
-
-    # Keep process alive
-    while True:
-        await asyncio.sleep(60)
+    config = uvicorn.Config(
+        app,
+        host="0.0.0.0",
+        port=AGENT_PORT,
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
 
 
 if __name__ == "__main__":

@@ -10,16 +10,32 @@ rtc:
 
 turn:
   enabled: true
-  domain: ""  # Set to your domain in production
+  domain: ""
   tls_port: 0
   udp_port: 7882
   external_tls: false
 
 keys:
-  devkey: devsecret  # Override via LIVEKIT_API_KEY/LIVEKIT_API_SECRET env vars
+  devkey: devsecret
 
 logging:
   level: info
 
 redis:
-  address: ""  # Not required for single-node setup
+  address: ""
+
+# ─── SIP Trunking (Twilio ARIA) ──────────────────────────────────────────────
+# Trunk SID: TK397e2367e4982256c307612388375bf3
+# Phone: +1 (872) 278-9563
+sip:
+  trunks:
+    - name: "twilio-aria"
+      outbound_address: "sip.pstn.twilio.com"
+      outbound_number: "+18722789563"
+      auth_username: "aria-livekit"
+      auth_password: "Itslogical1."
+  dispatch_rules:
+    - trunk_ids: []
+      rule:
+        rule_dispatch_direct: {}
+      name: "default-dispatch"

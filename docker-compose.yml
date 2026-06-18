@@ -72,6 +72,7 @@ services:
       - ENVIRONMENT=development
       # Automatically skipped when using Ollama Cloud
       - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
+      - VOICE_AGENT_URL=http://voice-agent:8002
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,6 +105,72 @@ services:
     depends_on:
       - frontend
       - backend
+    restart: unless-stopped
+
+  # ─── Voice Screening Services ────────────────────────────────────────────────
+
+  # LiveKit Server — WebRTC SFU + SIP trunking for voice calls.
+  # Handles outbound PSTN calls via Twilio and inbound call routing.
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: resume-screener-livekit
+    command: >
+      --config /etc/livekit.yaml
+    volumes:
+      - ./app/voice_agent/livekit.yaml:/etc/livekit.yaml:ro
+    environment:
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
+    ports:
+      - "7880:7880"       # WebSocket
+      - "7881:7881"       # ICE/TCP fallback
+      - "7882:7882/udp"   # TURN
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Speech Service — Parakeet TDT (STT) + Kokoro 82M (TTS) + Silero VAD.
+  # CPU-only inference (no GPU on VPS).
+  speech-service:
+    build:
+      context: .
+      dockerfile: app/speech_service/Dockerfile
+    container_name: resume-screener-speech-service
+    restart: unless-stopped
+
+  # Voice Agent — FastAPI dispatch server + LiveKit conversation orchestration.
+  # Receives /dispatch calls from backend scheduler, creates LiveKit rooms,
+  # initiates SIP outbound calls via Twilio, and runs the screening conversation.
+  voice-agent:
+    build:
+      context: .
+      dockerfile: app/voice_agent/Dockerfile
+    container_name: resume-screener-voice-agent
+    environment:
+      - SPEECH_SERVICE_URL=http://speech-service:8001
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      - ARIA_BACKEND_URL=http://backend:8000
+      - SIP_TRUNK_ID=${SIP_TRUNK_ID:-twilio-aria}
+      - SIP_OUTBOUND_NUMBER=${SIP_OUTBOUND_NUMBER:-+18722789563}
+      - AGENT_PORT=8002
+    ports:
+      - "8002:8002"
+    depends_on:
+      livekit:
+        condition: service_healthy
+      speech-service:
+        condition: service_started
+      backend:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

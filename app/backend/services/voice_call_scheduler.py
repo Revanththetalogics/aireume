@@ -12,9 +12,11 @@ Follows the same APScheduler pattern as scheduler.py.
 """
 import json
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import select, and_, or_
 
@@ -27,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 # Shared scheduler instance (started by main.py lifespan)
 voice_scheduler = BackgroundScheduler()
+
+# Voice Agent dispatch URL
+VOICE_AGENT_URL = os.environ.get("VOICE_AGENT_URL", "http://voice-agent:8002")
 
 
 # ─── Business Hours Enforcement ───────────────────────────────────────────────
@@ -126,7 +131,8 @@ def execute_scheduled_call(session_id: int):
     Execute a scheduled voice screening call.
 
     Called by APScheduler at the scheduled time.
-    In Phase 1, this triggers the voice agent to place the call.
+    Dispatches the call via the voice-agent's HTTP /dispatch endpoint,
+    which creates a LiveKit room and initiates a SIP outbound call.
     """
     db = SessionLocal()
     try:
@@ -143,11 +149,6 @@ def execute_scheduled_call(session_id: int):
             logger.info("Session %d already in terminal state: %s", session_id, session.status)
             return
 
-        # Get tenant config for business hours check
-        config = db.execute(
-            select(VoiceTenantConfig).where(VoiceTenantConfig.tenant_id == session.tenant_id)
-        ).scalar_one_or_none()
-
         # Update status to ringing
         session.status = "ringing"
         session.started_at = datetime.now(timezone.utc)
@@ -158,15 +159,55 @@ def execute_scheduled_call(session_id: int):
             session_id, session.candidate_id, session.phone_number,
         )
 
-        # TODO: Trigger LiveKit SIP outbound call via voice-agent
-        # In Phase 1.4, this will call the voice-agent's HTTP API
-        # to initiate the actual phone call.
-        #
-        # For now, mark as scheduled (will be picked up by voice-agent)
-        session.status = "scheduled"
-        db.commit()
+        # Fetch candidate name for context
+        candidate = db.execute(
+            select(Candidate).where(Candidate.id == session.candidate_id)
+        ).scalar_one_or_none()
+        candidate_name = candidate.full_name if candidate else "Candidate"
 
-        logger.info("Call session %d queued for voice-agent pickup", session_id)
+        # Get JD title if available
+        jd_title = None
+        if session.jd_id:
+            try:
+                from app.backend.models.db_models import JobDescription
+                jd = db.execute(
+                    select(JobDescription).where(JobDescription.id == session.jd_id)
+                ).scalar_one_or_none()
+                jd_title = jd.title if jd else None
+            except Exception:
+                pass
+
+        # Dispatch via voice-agent HTTP API
+        dispatch_payload = {
+            "session_id": session.id,
+            "phone_number": session.phone_number,
+            "candidate_name": candidate_name,
+            "tenant_id": session.tenant_id,
+            "candidate_id": session.candidate_id,
+            "jd_title": jd_title,
+            "jd_must_have_skills": [],
+        }
+
+        resp = httpx.post(
+            f"{VOICE_AGENT_URL}/dispatch",
+            json=dispatch_payload,
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+
+        if result.get("success"):
+            session.status = "in_progress"
+            logger.info(
+                "Call dispatched: session=%d room=%s",
+                session_id, result.get("room_name"),
+            )
+        else:
+            session.status = "failed"
+            session.error_log = result.get("message", "Dispatch returned failure")
+            logger.error("Dispatch failed for session %d: %s", session_id, result.get("message"))
+
+        db.commit()
 
     except Exception as e:
         logger.error("Failed to execute scheduled call %d: %s", session_id, e, exc_info=True)
