@@ -480,9 +480,17 @@ export default function ReportPage() {
     : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
 
   const handleShare = () => {
-    const id = crypto.randomUUID()
-    sessionStorage.setItem(`report_${id}`, JSON.stringify(result))
-    const shareUrl = `${window.location.origin}/report?id=${id}`
+    const resultId = result?.result_id || result?.id
+    let shareUrl
+    if (resultId) {
+      // Permanent per-candidate URL — works for anyone with app access
+      shareUrl = `${window.location.origin}/report?id=${resultId}`
+    } else {
+      // Fallback for unsaved results — session-only
+      const id = crypto.randomUUID()
+      sessionStorage.setItem(`report_${id}`, JSON.stringify(result))
+      shareUrl = `${window.location.origin}/report?id=${id}`
+    }
     navigator.clipboard.writeText(shareUrl).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
@@ -601,13 +609,25 @@ export default function ReportPage() {
               </span>
             )}
           </div>
-          <button
-            onClick={() => setScreenMode(false)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shrink-0"
-          >
-            <XIcon className="w-4 h-4" />
-            Exit Screen Mode
-          </button>
+          <div className="flex items-center gap-2">
+            {result?.candidate_id && (
+              <button
+                onClick={() => setVoiceScheduleOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold text-white bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 rounded-lg transition-all shrink-0"
+                title="Schedule AI voice screening call"
+              >
+                <PhoneCall className="w-3.5 h-3.5" />
+                Voice Screen
+              </button>
+            )}
+            <button
+              onClick={() => setScreenMode(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shrink-0"
+            >
+              <XIcon className="w-4 h-4" />
+              Exit Screen Mode
+            </button>
+          </div>
         </div>
 
         {/* ── Split content ── */}
