@@ -234,9 +234,6 @@ services:
   # LiveKit Server — WebRTC SFU + SIP trunking for voice calls.
   # ~1 GB RAM. Handles outbound PSTN calls and inbound call routing.
   livekit:
-    build:
-      context: .
-      dockerfile: app/voice_agent/Dockerfile.livekit
     image: revanth2245/resume-livekit:latest
     container_name: resume-screener-livekit
     command: >
@@ -264,9 +261,6 @@ services:
   # Speech Service — Parakeet TDT (STT) + Kokoro 82M (TTS) + Silero VAD.
   # ~4 GB RAM. CPU-only inference.
   speech-service:
-    build:
-      context: .
-      dockerfile: app/speech_service/Dockerfile
     image: revanth2245/resume-speech-service:latest
     container_name: resume-screener-speech-service
     deploy:
@@ -279,9 +273,6 @@ services:
   # Voice Agent — LiveKit Agents process for conversation orchestration.
   # ~2 GB RAM. Connects to LiveKit + Speech Service + Ollama Cloud.
   voice-agent:
-    build:
-      context: .
-      dockerfile: app/voice_agent/Dockerfile
     image: revanth2245/resume-voice-agent:latest
     container_name: resume-screener-voice-agent
     environment:
@@ -297,7 +288,7 @@ services:
       livekit:
         condition: service_healthy
       speech-service:
-        condition: service_healthy
+        condition: service_started
       backend:
         condition: service_healthy
     deploy:
