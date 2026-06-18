@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { NotificationProvider } from './contexts/NotificationContext'
 import { OnboardingProvider, useOnboarding } from './contexts/OnboardingContext'
@@ -37,6 +38,7 @@ const VideoPage    = lazy(() => import('./pages/VideoPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
 const AnalyticsPage  = lazy(() => import('./pages/AnalyticsPage'))
+const VoiceScreeningPage = lazy(() => import('./pages/VoiceScreeningPage'))
 
 // Admin layout + pages
 const AdminLayout        = lazy(() => import('./layouts/AdminLayout'))
@@ -100,12 +102,16 @@ function OnboardingGate({ children }) {
 }
 
 function App() {
+  const location = useLocation()
+
   return (
     <AuthProvider>
         <NotificationProvider>
           <OnboardingProvider>
             <ErrorBoundary>
               <Suspense fallback={<PageLoader />}>
+                <AnimatePresence mode="wait">
+                <motion.div key={location.pathname}>
                 <Routes>
               {/* Public routes */}
               <Route path="/login"      element={<LoginPage />} />
@@ -134,6 +140,7 @@ function App() {
               <Route path="/transcript" element={<Shell><OnboardingGate><TranscriptPage /></OnboardingGate></Shell>} />
               <Route path="/video"      element={<Shell><OnboardingGate><VideoPage /></OnboardingGate></Shell>} />
               <Route path="/analytics"  element={<Shell><OnboardingGate><AnalyticsPage /></OnboardingGate></Shell>} />
+              <Route path="/voice-screening" element={<Shell><OnboardingGate><VoiceScreeningPage /></OnboardingGate></Shell>} />
               <Route path="/settings"   element={<Shell><OnboardingGate><SettingsPage /></OnboardingGate></Shell>} />
               {/* Admin portal - standalone layout (no recruiter nav) */}
               <Route path="/admin" element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}>
@@ -175,6 +182,8 @@ function App() {
                 </div>
               } />
               </Routes>
+              </motion.div>
+              </AnimatePresence>
               </Suspense>
             </ErrorBoundary>
           </OnboardingProvider>

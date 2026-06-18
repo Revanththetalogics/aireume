@@ -81,6 +81,7 @@ from app.backend.routes import dashboard
 from app.backend.routes import onboarding
 from app.backend.routes import sso
 from app.backend.routes import webhook_docs
+from app.backend.routes import voice
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -311,6 +312,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.exception("Failed to start background scheduler: %s", e)
 
+    # Start voice call scheduler (screening call scheduling + retries)
+    try:
+        from app.backend.services.voice_call_scheduler import start_voice_scheduler
+        start_voice_scheduler()
+    except Exception as e:
+        log.exception("Failed to start voice call scheduler: %s", e)
+
     yield
 
     # Shutdown: stop the sentinel gracefully
@@ -334,6 +342,13 @@ async def lifespan(app: FastAPI):
         stop_scheduler()
     except Exception as e:
         log.exception("Error stopping background scheduler: %s", e)
+
+    # Stop voice call scheduler
+    try:
+        from app.backend.services.voice_call_scheduler import stop_voice_scheduler
+        stop_voice_scheduler()
+    except Exception as e:
+        log.exception("Error stopping voice call scheduler: %s", e)
 
     # Cancel the cleanup tasks
     cleanup_task.cancel()
@@ -425,6 +440,7 @@ app.include_router(dashboard.router)
 app.include_router(onboarding.router)
 app.include_router(sso.sso_router)
 app.include_router(webhook_docs.router)
+app.include_router(voice.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

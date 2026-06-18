@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, Link, Navigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import {
   Clock, FileText, ArrowRight, RefreshCw,
   LayoutTemplate, AlertCircle, Loader2,
@@ -13,6 +14,7 @@ import { safeStr } from '../lib/utils'
 import { getScoreColor } from '../lib/constants'
 import Skeleton from '../components/Skeleton'
 import GettingStarted from '../components/GettingStarted'
+import { StaggerContainer, StaggerItem } from '../components/motion'
 
 /** Convert ISO timestamp to relative time string */
 function timeAgo(timestamp) {
@@ -293,7 +295,7 @@ function DashboardContent() {
 
       {/* ── Improvement #4 & #6: Compact Header + Quick Actions ──────────── */}
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
-        <h1 className="text-lg font-semibold text-brand-900 whitespace-nowrap">
+        <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-brand-900 whitespace-nowrap">
           Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}
         </h1>
         <div className="grid grid-cols-2 sm:flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
@@ -443,10 +445,10 @@ function DashboardContent() {
 
       {/* ── Pipeline Summary (Improvements #1 & #2 — progress bars, urgency, sorting) */}
       <div className="mb-8">
-        <h2 className="text-lg font-bold text-brand-900 mb-4">Pipeline Summary</h2>
+        <h2 className="text-xl font-bold tracking-tight text-brand-900 mb-4">Pipeline Summary</h2>
         {sortedPipelineByJd.length > 0 ? (
           <div className="max-h-[480px] overflow-y-auto scroll-smooth pr-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {sortedPipelineByJd.map((jd) => {
               const total = jd.total_candidates ?? 0
               const breakdown = jd.status_breakdown || {}
@@ -455,8 +457,8 @@ function DashboardContent() {
               const segments = Object.entries(breakdown).filter(([, c]) => c > 0)
 
               return (
+                <StaggerItem key={jd.jd_id}>
                 <div
-                  key={jd.jd_id}
                   className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 hover:shadow-md transition-shadow"
                 >
                   <div className="flex items-start justify-between mb-3">
@@ -517,9 +519,10 @@ function DashboardContent() {
                     </Link>
                   </div>
                 </div>
+                </StaggerItem>
               )
             })}
-            </div>
+            </StaggerContainer>
           </div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-10 text-center">
@@ -542,7 +545,7 @@ function DashboardContent() {
         {/* Left — Activity Feed (Improvement #5 — time groupings, clickable, action type) */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-brand-900">Recent Activity</h2>
+            <h2 className="text-xl font-bold tracking-tight text-brand-900">Recent Activity</h2>
             <Link
               to="/candidates"
               className="text-xs font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-1"
@@ -624,7 +627,7 @@ function DashboardContent() {
 
         {/* Right — Weekly Metrics (Improvements #3 & #7 — ring gauge, trend indicators) */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-          <h2 className="text-lg font-bold text-brand-900 mb-5">Weekly Metrics</h2>
+          <h2 className="text-xl font-bold tracking-tight text-brand-900 mb-5">Weekly Metrics</h2>
 
           <div className="grid grid-cols-2 gap-4 mb-6">
             {/* Analyses This Week — Improvement #7: color-coded */}

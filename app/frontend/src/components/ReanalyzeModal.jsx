@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { X, Sparkles, Play, AlertCircle, Loader2 } from 'lucide-react'
 import UniversalWeightsPanel from './UniversalWeightsPanel'
 import WeightSuggestionPanel from './WeightSuggestionPanel'
@@ -45,8 +46,20 @@ export default function ReanalyzeModal({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.92, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+        className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+      >
         {/* Header */}
         <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-purple-50">
           <div className="flex items-start justify-between">
@@ -158,7 +171,7 @@ export default function ReanalyzeModal({
             </button>
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 // Reusable skeleton loader with variants
-// Uses the existing 'shimmer' animation from tailwind.config.js
+// Uses smooth shimmer animation instead of animate-pulse
 
-const baseClasses = 'bg-slate-200 animate-pulse rounded'
+const baseClasses = 'skeleton-shimmer rounded'
 
 /**
  * Single skeleton element.

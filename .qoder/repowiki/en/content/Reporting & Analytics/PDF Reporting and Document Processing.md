@@ -8,11 +8,19 @@
 - [export.py](file://app/backend/routes/export.py)
 - [upload.py](file://app/backend/routes/upload.py)
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
+- [EvaluationChecklist.jsx](file://app/frontend/src/components/EvaluationChecklist.jsx)
 - [HandoffPackage.jsx](file://app/frontend/src/components/HandoffPackage.jsx)
 - [requirements.txt](file://requirements.txt)
 - [backend_requirements.txt](file://app/backend/requirements.txt)
 - [db_models.py](file://app/backend/models/db_models.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Enhanced PDF report generation with dynamic evaluation checklist status tracking
+- Added comprehensive evaluation stage tracking with real-time status computation
+- Improved template styling with status-specific CSS classes for consistent frontend-to-print experience
+- Updated evaluation checklist logic to mirror frontend implementation for PDF parity
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -35,6 +43,8 @@ The Resume AI by ThetaLogics platform provides comprehensive PDF reporting and d
 
 The platform combines server-side PDF generation using WeasyPrint with Jinja2 templating, client-side PDF creation capabilities, and robust document conversion services. It supports multiple document formats including DOC, DOCX, and native PDF processing, with fallback mechanisms for reliability.
 
+**Updated** Enhanced with dynamic evaluation checklist status tracking that mirrors frontend implementation for consistent reporting experience across platforms.
+
 ## System Architecture
 
 The PDF reporting and document processing system follows a layered architecture with clear separation of concerns:
@@ -43,7 +53,7 @@ The PDF reporting and document processing system follows a layered architecture 
 graph TB
 subgraph "Frontend Layer"
 FE1[ReportPage.jsx]
-FE2[HandoffPackage.jsx]
+FE2[EvaluationChecklist.jsx]
 FE3[Client-Side PDF Generation]
 end
 subgraph "API Layer"
@@ -87,8 +97,8 @@ FE3 --> EXT4
 ```
 
 **Diagram sources**
-- [pdf_report_service.py:1-300](file://app/backend/services/pdf_report_service.py#L1-L300)
-- [export.py:313-364](file://app/backend/routes/export.py#L313-L364)
+- [pdf_report_service.py:1-373](file://app/backend/services/pdf_report_service.py#L1-L373)
+- [export.py:323-363](file://app/backend/routes/export.py#L323-L363)
 - [upload.py:99-361](file://app/backend/routes/upload.py#L99-L361)
 
 ## Core Components
@@ -107,6 +117,7 @@ class PdfReportService {
 -_build_score_breakdown(analysis) dict
 -_build_evaluation_summary(evaluations) dict
 -_build_follow_up_questions(analysis, evaluations, missing_skills) list
++generate_checklist_statuses(analysis, evaluations, overall) dict
 }
 class ScreeningResult {
 +int id
@@ -141,8 +152,8 @@ PdfReportService --> OverallAssessment : "reads"
 ```
 
 **Diagram sources**
-- [pdf_report_service.py:41-300](file://app/backend/services/pdf_report_service.py#L41-L300)
-- [db_models.py:171-200](file://app/backend/models/db_models.py#L171-L200)
+- [pdf_report_service.py:41-373](file://app/backend/services/pdf_report_service.py#L41-L373)
+- [db_models.py:292-329](file://app/backend/models/db_models.py#L292-L329)
 
 ### Document Conversion Service
 
@@ -172,7 +183,7 @@ ReturnPDF --> End
 - [doc_converter.py:56-136](file://app/backend/services/doc_converter.py#L56-L136)
 
 **Section sources**
-- [pdf_report_service.py:1-300](file://app/backend/services/pdf_report_service.py#L1-L300)
+- [pdf_report_service.py:1-373](file://app/backend/services/pdf_report_service.py#L1-L373)
 - [doc_converter.py:1-159](file://app/backend/services/doc_converter.py#L1-L159)
 
 ## PDF Report Generation
@@ -194,6 +205,7 @@ API->>DB : Verify Access & Load ScreeningResult
 API->>Service : generate_pdf_report(result_id, db, user_id)
 Service->>DB : Query Related Records
 Service->>Service : Process Data & Build Context
+Service->>Service : Generate Checklist Statuses
 Service->>Template : Render HTML with Context
 Template->>WeasyPrint : Convert HTML to PDF
 WeasyPrint-->>Service : PDF Bytes
@@ -202,23 +214,52 @@ API-->>Client : PDF Download
 ```
 
 **Diagram sources**
-- [export.py:313-364](file://app/backend/routes/export.py#L313-L364)
-- [pdf_report_service.py:41-300](file://app/backend/services/pdf_report_service.py#L41-L300)
+- [export.py:323-363](file://app/backend/routes/export.py#L323-L363)
+- [pdf_report_service.py:41-373](file://app/backend/services/pdf_report_service.py#L41-L373)
+
+### Dynamic Evaluation Checklist Status Tracking
+
+**Updated** The PDF report generation now includes comprehensive evaluation checklist status tracking that mirrors the frontend implementation for consistent reporting experience.
+
+The system calculates real-time status for four evaluation stages:
+
+1. **Initial Screening**: Based on AI analysis completion (fit_score presence)
+2. **Technical Interview**: Based on technical and behavioral evaluation completion
+3. **Cultural Fit Assessment**: Based on culture fit evaluation completion
+4. **Final Decision**: Based on recruiter recommendation submission
+
+```mermaid
+flowchart TD
+subgraph "Checklist Status Computation"
+A[Analysis Data] --> B[Initial Screening Logic]
+C[Evaluation Data] --> D[Technical Interview Logic]
+E[Overall Assessment] --> F[Cultural Fit Logic]
+G[Interview Questions] --> H[Final Decision Logic]
+B --> I[Status Calculation]
+D --> I
+F --> I
+H --> I
+I --> J[Status Mapping]
+end
+```
+
+**Diagram sources**
+- [pdf_report_service.py:227-291](file://app/backend/services/pdf_report_service.py#L227-L291)
 
 ### Report Content Structure
 
 The generated PDF reports contain comprehensive candidate assessment information organized across multiple sections:
 
 1. **Executive Summary**: Candidate information, role title, AI score, recommendation, and recruiter status
-2. **Recruiter Evaluation**: Detailed evaluation checklist and decision summary
+2. **Recruiter Evaluation**: Detailed evaluation checklist with dynamic status tracking and decision summary
 3. **Score Breakdown**: Visual representation of skill match, experience, domain fit, education, stability, and architecture scores
 4. **Skills Analysis**: Missing skills with severity indicators and matched skills display
 5. **Risk Assessment**: Identified risk signals with severity categorization
 6. **Detailed Analysis**: Employment gaps and comprehensive AI reasoning
 
 **Section sources**
-- [report.html:1-699](file://app/backend/templates/report.html#L1-L699)
-- [pdf_report_service.py:262-299](file://app/backend/services/pdf_report_service.py#L262-L299)
+- [report.html:625-649](file://app/backend/templates/report.html#L625-L649)
+- [pdf_report_service.py:337-373](file://app/backend/services/pdf_report_service.py#L337-L373)
 
 ## Document Conversion Pipeline
 
@@ -296,7 +337,7 @@ end
 ```
 
 **Diagram sources**
-- [ReportPage.jsx:308-377](file://app/frontend/src/pages/ReportPage.jsx#L308-L377)
+- [ReportPage.jsx:368-408](file://app/frontend/src/pages/ReportPage.jsx#L368-L408)
 
 ### Client-Side Features
 
@@ -309,8 +350,7 @@ The client-side PDF generation includes advanced features for reliable document 
 - **Error Recovery**: Comprehensive error handling with user-friendly feedback
 
 **Section sources**
-- [ReportPage.jsx:308-377](file://app/frontend/src/pages/ReportPage.jsx#L308-L377)
-- [HandoffPackage.jsx:319-329](file://app/frontend/src/components/HandoffPackage.jsx#L319-L329)
+- [ReportPage.jsx:368-408](file://app/frontend/src/pages/ReportPage.jsx#L368-L408)
 
 ## Export Capabilities
 
@@ -535,6 +575,13 @@ H --> K
 - **Solution**: Implement retry mechanisms and cleanup procedures
 - **Prevention**: Monitor upload progress and implement automatic cleanup
 
+#### Evaluation Checklist Discrepancies
+
+**Issue**: PDF checklist status differs from frontend
+- **Cause**: Inconsistent status calculation logic
+- **Solution**: Ensure PDF service mirrors frontend EvaluationChecklist.jsx logic
+- **Prevention**: Implement shared status calculation utility
+
 **Section sources**
 - [pdf_report_service.py:117-129](file://app/backend/services/pdf_report_service.py#L117-L129)
 - [doc_converter.py:124-129](file://app/backend/services/doc_converter.py#L124-L129)
@@ -544,10 +591,14 @@ H --> K
 
 The Resume AI by ThetaLogics PDF reporting and document processing system provides a comprehensive solution for enterprise recruitment workflows. The system combines robust server-side PDF generation with flexible client-side alternatives, extensive document conversion capabilities, and scalable file management infrastructure.
 
+**Updated** Key enhancements include comprehensive evaluation checklist status tracking that ensures consistent reporting experience across frontend and PDF outputs, with real-time status computation mirroring the frontend implementation.
+
 Key strengths of the system include:
 
 - **Multi-format Support**: Comprehensive document processing across various formats
 - **Professional Output**: High-quality PDF generation with consistent branding
+- **Dynamic Evaluation Tracking**: Real-time status computation for evaluation stages
+- **Consistent Frontend-to-Print Experience**: Status-specific CSS classes for reliable PDF rendering
 - **Reliability**: Graceful fallback mechanisms and comprehensive error handling
 - **Scalability**: Designed for horizontal scaling and high-volume processing
 - **Security**: Multi-tenant isolation with comprehensive access controls

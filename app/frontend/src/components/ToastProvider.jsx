@@ -12,10 +12,11 @@ export default function ToastProvider() {
           fontFamily: "'Inter', system-ui, sans-serif",
           fontSize: '0.875rem',
           fontWeight: 500,
-          borderRadius: '0.75rem',
-          padding: '12px 16px',
-          boxShadow: '0 8px 32px rgba(124,58,237,0.12)',
+          borderRadius: '1rem',
+          padding: '14px 18px',
+          boxShadow: '0 8px 32px rgba(124,58,237,0.14)',
           border: '1px solid #EDE9FE',
+          animation: 'fadeInUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)',
         },
         success: {
           duration: 4000,
@@ -25,7 +26,7 @@ export default function ToastProvider() {
           },
         },
         error: {
-          duration: 4000,
+          duration: 5000,
           iconTheme: {
             primary: '#EF4444',
             secondary: '#ffffff',

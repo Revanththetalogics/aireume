@@ -8,6 +8,7 @@
 - [Dashboard.jsx](file://app/frontend/src/pages/Dashboard.jsx)
 - [CandidatesPage.jsx](file://app/frontend/src/pages/CandidatesPage.jsx)
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
+- [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
 - [ComparePage.jsx](file://app/frontend/src/pages/ComparePage.jsx)
 - [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)
 - [TemplatesPage.jsx](file://app/frontend/src/pages/TemplatesPage.jsx)
@@ -22,11 +23,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced ReportPage documentation to include automatic data refresh mechanisms after candidate name updates
-- Added detailed explanation of immediate visual feedback system for user actions
-- Updated ReportPage section to cover automatic re-fetch of screening results and audit logs
-- Enhanced InlineNameEditor component documentation with real-time state synchronization
-- Added comprehensive coverage of the automatic refresh workflow and user experience improvements
+- Enhanced ReportPage documentation to include the new ResumeTextRenderer component with sophisticated text parsing algorithms
+- Updated phone screen mode documentation to reflect the integration of ResumeTextRenderer for structured HTML rendering
+- Added comprehensive coverage of pattern matching for different resume elements (sections, bullets, dates, paragraphs)
+- Enhanced automatic data refresh mechanisms documentation with improved state synchronization
+- Updated split-view layout architecture to reflect the new ResumeTextRenderer integration
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -233,27 +234,36 @@ View --> End(["Navigate to ReportPage"])
 ### ReportPage
 - Purpose: Present a detailed screening report with score visualization, narrative, and actions.
 - Layout:
-  - Left sidebar: back button, candidate name editor, score gauge, training label controls, **Analyze Another Resume** feature.
-  - Right panel: sticky action bar (share/download), scrollable content (ResultCard, Timeline).
+  - **Enhanced** Split-view phone screen mode with 40/60 layout ratio:
+    - Left panel (40%): Resume viewer with inline preview support using ResumeTextRenderer
+    - Right panel (60%): PhoneScreenKit integrated interface
+  - **Traditional** sidebar layout for non-phone-screen mode:
+    - Left sidebar: back button, candidate name editor, score gauge, training label controls, Analyze Another Resume feature
+    - Right panel: sticky action bar (share/download), scrollable content (ResultCard, Timeline)
 - Data fetching:
   - Resolves result from location.state or sessionStorage via report id.
   - updateCandidateName, labelTrainingExample, updateResultStatus for inline edits and labeling.
   - Loads active JD context from sessionStorage for "Analyze Another Resume" feature.
 - State management:
-  - Tracks copied state, label status/loading/done, resolves candidate name, and JD context.
+  - Tracks copied state, label status/loading/done, resolves candidate name, JD context.
+  - **Enhanced** Phone screen mode state: screenMode, resumeBlobUrl, resumeLoading, resumeIsText, resumeText.
+  - **New** ResumeTextRenderer state for structured text parsing and HTML rendering.
 - Navigation:
   - Back to Dashboard; view individual results from Compare or Candidates.
   - Navigate to AnalyzePage with pre-filled JD context when "Analyze Another Resume" is clicked.
+  - **New** Enter/exit phone screen mode with dedicated split-view layout.
 - Loading/Error:
   - Redirects to Dashboard if no result found.
 - Print:
   - Dedicated print header and styles.
+- **Enhanced** Automatic Data Refresh System:
+  - **New** Immediate local state updates for instant visual feedback
+  - **New** Automatic re-fetch of screening results after successful candidate name updates
+  - **New** Concurrent audit log refresh to include new edit operations
+  - **New** Real-time state synchronization across multiple data points
+  - **New** ResumeTextRenderer integration for enhanced resume preview functionality
 
-**Enhanced** with automatic data refresh mechanisms that provide immediate visual feedback to users after candidate name updates
-
-**Updated** Enhanced with automatic data refresh mechanisms that re-fetch screening results after successful candidate name updates, providing immediate visual feedback to users
-
-The ReportPage now implements a sophisticated automatic refresh system that ensures users receive immediate visual feedback when they update candidate information. This system operates through several key mechanisms:
+The ReportPage now implements a sophisticated automatic data refresh system that ensures users receive immediate visual feedback when they update candidate information. This system operates through several key mechanisms:
 
 1. **Immediate Local State Updates**: When a user saves a candidate name, the component immediately updates the local state and result object, providing instant visual feedback without waiting for API responses.
 
@@ -263,30 +273,40 @@ The ReportPage now implements a sophisticated automatic refresh system that ensu
 
 4. **Real-time State Synchronization**: The system maintains consistency between local state and server state by updating multiple data points simultaneously when changes occur.
 
-```mermaid
-sequenceDiagram
-participant U as "User"
-participant INE as "InlineNameEditor"
-participant API as "updateCandidateName"
-participant SR as "getScreeningResult"
-participant AL as "getCandidateAuditLog"
-U->>INE : Edit candidate name
-INE->>API : Update candidate name
-API-->>INE : Success response
-INE->>INE : Update local state immediately
-INE->>SR : Re-fetch complete result
-SR-->>INE : Updated result data
-INE->>AL : Refresh audit log
-AL-->>INE : Latest audit trail
-INE-->>U : Immediate visual feedback
-```
+**New** ResumeTextRenderer Integration:
+The ReportPage now includes a sophisticated ResumeTextRenderer component that provides advanced text parsing capabilities for resume content. This component transforms raw plain-text resumes into structured, readable HTML with proper visual hierarchy and formatting.
 
-**Diagram sources**
-- [ReportPage.jsx:435-463](file://app/frontend/src/pages/ReportPage.jsx#L435-L463)
-- [ReportPage.jsx:451-461](file://app/frontend/src/pages/ReportPage.jsx#L451-L461)
+**ResumeTextRenderer Features**:
+- **Pattern Matching**: Sophisticated regular expressions detect different resume elements including section headings, bullet points, and date formats
+- **Structured HTML Rendering**: Converts plain text into semantic HTML with appropriate CSS classes for visual hierarchy
+- **Visual Formatting**: Provides professional styling with typography scales, spacing, and color schemes
+- **Element Detection**: Automatically identifies candidate names, contact information, job titles, and educational backgrounds
+- **Responsive Design**: Adapts formatting for both screen and print views
 
 **Section sources**
-- [ReportPage.jsx:1-824](file://app/frontend/src/pages/ReportPage.jsx#L1-L824)
+- [ReportPage.jsx:21-139](file://app/frontend/src/pages/ReportPage.jsx#L21-L139)
+- [ReportPage.jsx:633-636](file://app/frontend/src/pages/ReportPage.jsx#L633-L636)
+- [ReportPage.jsx:728-756](file://app/frontend/src/pages/ReportPage.jsx#L728-L756)
+- [ReportPage.jsx:740-754](file://app/frontend/src/pages/ReportPage.jsx#L740-L754)
+
+### PhoneScreenKit
+- Purpose: Integrated phone screening interface for conducting structured interviews alongside resume review.
+- Layout:
+  - **Enhanced** Split-view integration with ReportPage:
+    - Left panel: Resume preview using ResumeTextRenderer (40% width)
+    - Right panel: PhoneScreenKit interface (60% width)
+  - **Standalone** mode: Full-screen interview interface
+- Data fetching:
+  - getEvaluations, saveEvaluation, saveOverallAssessment, generateDebrief, getScorecard for interview data management.
+- State management:
+  - Tracks evaluations, saving states, conversation summary, recommendation, debrief generation status.
+- Navigation:
+  - Integrates with ReportPage's split-view mode for seamless phone screening workflow.
+- Loading/Error:
+  - Spinner during evaluation loading; validation for conversation summary requirements.
+
+**Section sources**
+- [PhoneScreenKit.jsx:1-545](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L545)
 
 ### ComparePage
 - Purpose: Compare up to five candidate results side-by-side.
@@ -588,6 +608,12 @@ Tab --> Security["Manage account/security"]
   - **New** ReportPage implements automatic data refresh mechanisms for enhanced user experience.
   - **New** InlineNameEditor component provides immediate visual feedback through local state updates.
   - **New** Automatic re-fetch of screening results and audit logs after successful candidate name updates.
+  - **New** Split-view mode integrates seamlessly with the refresh system.
+  - **New** ResumeTextRenderer provides sophisticated text parsing and structured HTML rendering.
+- PhoneScreenKit Integration
+  - **New** Enhanced integration between PhoneScreenKit and ReportPage for coordinated phone screening workflows.
+  - **New** 40/60 split-view layout with dedicated resume and screening interfaces.
+  - **New** ResumeTextRenderer integration for enhanced resume preview functionality.
 
 ```mermaid
 graph LR
@@ -609,6 +635,9 @@ Ana -.->|"Session Storage"| Rep
 Rep -.->|"Session Storage"| Ana
 Ana -.->|"IndexedDB Cache"| Ana
 Rep -.->|"Auto Refresh"| Rep
+Rep -.->|"Phone Screen"| PSK["PhoneScreenKit.jsx"]
+PSK -.->|"Split View"| Rep
+Rep -.->|"ResumeTextRenderer"| RT["ResumeTextRenderer.jsx"]
 ```
 
 **Diagram sources**
@@ -634,6 +663,18 @@ Rep -.->|"Auto Refresh"| Rep
   - **New** Concurrent operations for audit log and result refresh to minimize perceived latency.
   - **New** Local state updates provide immediate feedback while background re-fetch operations complete.
   - **New** Error handling ensures UI remains responsive even if refresh operations fail.
+  - **New** Split-view mode optimizes resource usage by loading resume content only when needed.
+  - **New** ResumeTextRenderer provides efficient text parsing with optimized DOM rendering.
+- PhoneScreenKit Performance:
+  - **New** Efficient evaluation loading with caching mechanisms.
+  - **New** Optimized debrief generation process with progress indicators.
+  - **New** Responsive design that adapts to different screen sizes and orientations.
+  - **New** ResumeTextRenderer integration minimizes rendering overhead through efficient pattern matching.
+- ResumeTextRenderer Performance:
+  - **New** Optimized regular expression patterns for fast element detection.
+  - **New** Efficient DOM node creation with minimal reflows and repaints.
+  - **New** Memory-efficient text processing with streaming approach.
+  - **New** CSS class-based styling reduces style recalculation overhead.
 - Recommendations:
   - Defer non-critical data fetching (e.g., templates/history) until needed.
   - Use virtualized lists for very large datasets.
@@ -641,6 +682,10 @@ Rep -.->|"Auto Refresh"| Rep
   - Implement proper error handling for sessionStorage and IndexedDB operations.
   - Consider IndexedDB quota management for large file caching scenarios.
   - Optimize auto-refresh intervals to balance responsiveness with performance.
+  - **New** Implement lazy loading for resume content in split-view mode.
+  - **New** Use efficient state management for phone screening evaluations.
+  - **New** Optimize ResumeTextRenderer performance through memoization and caching strategies.
+  - **New** Consider virtual scrolling for large resume documents in split-view mode.
 
 ## Troubleshooting Guide
 - Authentication issues
@@ -670,6 +715,22 @@ Rep -.->|"Auto Refresh"| Rep
   - **New** Local state updates ensure users see immediate feedback even if server re-fetch fails.
   - **New** Audit log refresh failures don't prevent candidate name updates from completing successfully.
   - **New** Error boundaries protect against cascading failures in the refresh system.
+  - **New** ResumeTextRenderer gracefully handles malformed text input with fallback rendering.
+- PhoneScreenKit Issues:
+  - **New** Split-view mode handles resume loading failures gracefully with fallback options.
+  - **New** Evaluation saving operations are wrapped in error handlers to prevent UI disruption.
+  - **New** Debrief generation failures are handled with user-friendly error messages.
+  - **New** ResumeTextRenderer integration handles various resume formats and content types.
+- Split-View Mode Issues:
+  - **New** Screen mode exits gracefully when resume content fails to load.
+  - **New** Responsive breakpoints adapt layout for different screen sizes.
+  - **New** Mobile optimization ensures usability on smaller screens.
+  - **New** ResumeTextRenderer provides optimal text rendering across different devices and screen sizes.
+- ResumeTextRenderer Issues:
+  - **New** Malformed text input is handled gracefully with fallback rendering.
+  - **New** Large text documents are processed efficiently with streaming approach.
+  - **New** Pattern matching handles various resume formats and writing styles.
+  - **New** CSS class-based styling ensures consistent visual hierarchy across different resume types.
 
 **Section sources**
 - [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
@@ -680,7 +741,7 @@ Rep -.->|"Auto Refresh"| Rep
 - [VideoPage.jsx:542-610](file://app/frontend/src/pages/VideoPage.jsx#L542-L610)
 
 ## Conclusion
-The Resume AI frontend organizes pages around a clean routing and protection layer, with shared providers and layout. Each page encapsulates its data fetching, state, and navigation, while leveraging common components and responsive patterns. The architecture supports scalability and maintainability, with clear separation of concerns and predictable data flows. Recent enhancements include improved session storage integration for seamless user workflows and cross-page continuity, along with the addition of IndexedDB-based file-mode JD caching functionality for persistent storage across browser sessions. The most significant recent improvement is the automatic data refresh system in ReportPage, which provides immediate visual feedback to users when they update candidate information, significantly enhancing the user experience through real-time state synchronization and automatic result re-fetching.
+The Resume AI frontend organizes pages around a clean routing and protection layer, with shared providers and layout. Each page encapsulates its data fetching, state, and navigation, while leveraging common components and responsive patterns. The architecture supports scalability and maintainability, with clear separation of concerns and predictable data flows. Recent enhancements include improved session storage integration for seamless user workflows and cross-page continuity, along with the addition of IndexedDB-based file-mode JD caching functionality for persistent storage across browser sessions. The most significant recent improvement is the automatic data refresh system in ReportPage, which provides immediate visual feedback to users when they update candidate information, significantly enhancing the user experience through real-time state synchronization and automatic result re-fetching. The new split-view phone screening interface further enhances the user experience by providing an integrated environment for resume review and structured phone interviews. The newly integrated ResumeTextRenderer component adds sophisticated text parsing capabilities, transforming raw resume content into structured, readable HTML with proper visual hierarchy and formatting, significantly improving the resume preview experience in both standalone and split-view modes.
 
 ## Appendices
 
@@ -711,6 +772,9 @@ The Resume AI frontend organizes pages around a clean routing and protection lay
 - Implement proper session storage integration when enabling cross-page features.
 - Consider IndexedDB integration for persistent data storage when appropriate.
 - Implement automatic refresh mechanisms for critical user-facing data updates.
+- **New** Consider split-view layout patterns for enhanced user workflows.
+- **New** Integrate PhoneScreenKit for phone screening capabilities.
+- **New** Implement sophisticated text parsing and rendering capabilities for enhanced content presentation.
 
 ### Session Storage Integration Patterns
 - Store context data in sessionStorage with structured keys (e.g., `aria_active_jd`, `report_${id}`).
@@ -743,8 +807,36 @@ The Resume AI frontend organizes pages around a clean routing and protection lay
 - **New** Maintain consistency between local state and server state through concurrent operations.
 - **New** Provide error boundaries and fallback mechanisms for refresh operations.
 - **New** Optimize refresh intervals and error handling to balance responsiveness with reliability.
+- **New** Implement split-view mode optimizations for efficient resource loading.
+- **New** Consider performance implications of frequent re-fetch operations and implement caching strategies.
 
 **Section sources**
-- [ReportPage.jsx:435-463](file://app/frontend/src/pages/ReportPage.jsx#L435-L463)
-- [ReportPage.jsx:451-461](file://app/frontend/src/pages/ReportPage.jsx#L451-L461)
-- [ReportPage.jsx:447-450](file://app/frontend/src/pages/ReportPage.jsx#L447-L450)
+- [ReportPage.jsx:728-756](file://app/frontend/src/pages/ReportPage.jsx#L728-L756)
+- [ReportPage.jsx:740-754](file://app/frontend/src/pages/ReportPage.jsx#L740-L754)
+- [ReportPage.jsx:731-739](file://app/frontend/src/pages/ReportPage.jsx#L731-L739)
+
+### PhoneScreenKit Integration Patterns
+- **New** Implement split-view layout coordination between ReportPage and PhoneScreenKit.
+- **New** Design responsive layouts that adapt to different screen sizes and orientations.
+- **New** Optimize evaluation loading and saving for real-time phone screening workflows.
+- **New** Provide seamless integration with resume preview functionality.
+- **New** Implement debrief generation and scorecard integration patterns.
+- **New** Consider performance optimization for real-time text rendering in split-view mode.
+
+**Section sources**
+- [PhoneScreenKit.jsx:131-142](file://app/frontend/src/components/PhoneScreenKit.jsx#L131-L142)
+- [ReportPage.jsx:543-551](file://app/frontend/src/pages/ReportPage.jsx#L543-L551)
+
+### ResumeTextRenderer Integration Patterns
+- **New** Implement sophisticated text parsing algorithms for resume content transformation.
+- **New** Design pattern matching systems for detecting different resume elements (sections, bullets, dates).
+- **New** Create structured HTML rendering with CSS classes for visual hierarchy.
+- **New** Optimize performance for large text documents through streaming and efficient DOM manipulation.
+- **New** Implement graceful fallback mechanisms for malformed or unsupported text formats.
+- **New** Consider accessibility implications of text rendering and provide semantic markup.
+- **New** Implement responsive design considerations for different screen sizes and orientations.
+- **New** Consider memory optimization strategies for large resume documents in split-view mode.
+
+**Section sources**
+- [ReportPage.jsx:21-139](file://app/frontend/src/pages/ReportPage.jsx#L21-L139)
+- [ReportPage.jsx:633-636](file://app/frontend/src/pages/ReportPage.jsx#L633-L636)

@@ -1570,6 +1570,53 @@ export async function recordOutcomeFeedback(outcomeId, data) {
   return res.data
 }
 
+// ─── Voice Screening API ─────────────────────────────────────────────────────
+
+export async function getVoiceSettings() {
+  const res = await api.get('/voice/settings')
+  return res.data
+}
+
+export async function updateVoiceSettings(data) {
+  const res = await api.put('/voice/settings', data)
+  return res.data
+}
+
+export async function scheduleVoiceCall(candidateId, phoneNumber, jdId = null, scheduledAt = null) {
+  const res = await api.post('/voice/schedule', {
+    candidate_id: candidateId,
+    phone_number: phoneNumber,
+    jd_id: jdId,
+    scheduled_at: scheduledAt,
+  })
+  return res.data
+}
+
+export async function getVoiceSessions(params = {}) {
+  const res = await api.get('/voice/sessions', { params })
+  return res.data
+}
+
+export async function getVoiceSession(sessionId) {
+  const res = await api.get(`/voice/sessions/${sessionId}`)
+  return res.data
+}
+
+export async function updateVoiceSession(sessionId, data) {
+  const res = await api.patch(`/voice/sessions/${sessionId}`, data)
+  return res.data
+}
+
+export async function rescheduleVoiceCall(sessionId, data) {
+  const res = await api.post(`/voice/sessions/${sessionId}/reschedule`, data)
+  return res.data
+}
+
+export async function cancelVoiceSession(sessionId) {
+  const res = await api.post(`/voice/sessions/${sessionId}/cancel`)
+  return res.data
+}
+
 export async function getOutcomePatterns(params) {
   const res = await api.get('/candidates/analytics/outcome-patterns', { params })
   return res.data

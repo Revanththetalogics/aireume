@@ -12,6 +12,7 @@ import CandidateCard from '../components/CandidateCard'
 import ScoreBadge from '../components/ScoreBadge'
 import RecommendationBadge from '../components/RecommendationBadge'
 import QuickActions from '../components/QuickActions'
+import { StaggerContainer, StaggerItem } from '../components/motion'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -860,8 +861,9 @@ export default function CandidatesPage() {
 
             {/* ── CARDS VIEW ── */}
             {viewMode === 'cards' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {displayedCandidates.map((c, idx) => (
+                  <StaggerItem key={c.id}>
                   <CandidateCard
                     key={c.id}
                     candidate={{
@@ -881,8 +883,9 @@ export default function CandidatesPage() {
                     onMouseEnter={() => prefetchCandidate(c.id)}
                     onMouseLeave={cancelPrefetch}
                   />
+                  </StaggerItem>
                 ))}
-              </div>
+              </StaggerContainer>
             )}
 
             {/* ── SPLIT PANEL VIEW ── */}

@@ -207,6 +207,8 @@ services:
       resume-screener-backend
       resume-screener-frontend
       resume-screener-nginx
+      resume-screener-speech-service
+      resume-screener-voice-agent
     environment:
       - WATCHTOWER_INCLUDE_STOPPED=false
       - WATCHTOWER_NO_PULL=false
@@ -224,6 +226,83 @@ services:
       - certbot_certs:/etc/letsencrypt
       - certbot_www:/var/www/certbot
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h; done'"
+    restart: unless-stopped
+
+  # ─── Voice Screening Services ────────────────────────────────────────────────
+
+  # LiveKit Server — WebRTC SFU + SIP trunking for voice calls.
+  # ~1 GB RAM. Handles outbound PSTN calls and inbound call routing.
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: resume-screener-livekit
+    command: >
+      --config /etc/livekit.yaml
+    volumes:
+      - ./app/voice_agent/livekit.yaml:/etc/livekit.yaml:ro
+    environment:
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
+    ports:
+      - "7880:7880"   # WebSocket
+      - "7881:7881"   # RTC
+      - "7882:7882/udp"  # TURN
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Speech Service — Parakeet TDT (STT) + Kokoro 82M (TTS) + Silero VAD.
+  # ~4 GB RAM. CPU-only inference.
+  speech-service:
+    build:
+      context: .
+      dockerfile: app/speech_service/Dockerfile
+    image: revanth2245/resume-speech-service:latest
+    container_name: resume-screener-speech-service
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+    restart: unless-stopped
+
+  # Voice Agent — LiveKit Agents process for conversation orchestration.
+  # ~2 GB RAM. Connects to LiveKit + Speech Service + Ollama Cloud.
+  voice-agent:
+    build:
+      context: .
+      dockerfile: app/voice_agent/Dockerfile
+    image: revanth2245/resume-voice-agent:latest
+    container_name: resume-screener-voice-agent
+    environment:
+      - SPEECH_SERVICE_URL=http://speech-service:8001
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      - ARIA_BACKEND_URL=http://backend:8000
+    depends_on:
+      livekit:
+        condition: service_healthy
+      speech-service:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
     restart: unless-stopped
 
 volumes:

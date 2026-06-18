@@ -1,9 +1,20 @@
+import { motion } from 'framer-motion'
 import { Clock } from 'lucide-react'
 
 export default function SessionTimeoutModal({ countdown, onStayLoggedIn, onLogoutNow }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+        className="relative bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden"
+      >
         {/* Header */}
         <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-amber-50 to-orange-50 text-center">
           <div className="mx-auto w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mb-3">
@@ -41,7 +52,7 @@ export default function SessionTimeoutModal({ countdown, onStayLoggedIn, onLogou
             Stay Logged In
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

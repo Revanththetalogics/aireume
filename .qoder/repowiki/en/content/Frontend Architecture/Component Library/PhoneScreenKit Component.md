@@ -13,11 +13,11 @@
 
 ## Update Summary
 **Changes Made**
-- Updated to reflect the new five-color-coded recommendation chip selector system with Strong Hire, Lean Hire, No Decision, Lean No Hire, and Strong No Hire options
-- Enhanced frontend validation with visual chip selection replacing previous text-based validation approach
-- Improved UX for recruiter debrief generation with color-coded recommendation system
-- Updated backend integration to map chip selections to advance/hold/reject recommendations
-- Enhanced success notification system with immediate visual feedback
+- Updated to reflect the major redesign from tabbed navigation to 40/60 split layout with ReportPage integration
+- Enhanced star rating system with 5-star capabilities replacing Strong/Adequate/Weak buttons
+- Implemented flat, scrollable list system with sticky category dividers
+- Improved layout integration with ReportPage showing resume (40%) and Screen Kit (60%)
+- Updated recommendation chip system with enhanced validation and backend mapping
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -25,23 +25,25 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Recommendation Chip System](#recommendation-chip-system)
-7. [Success Notification System](#success-notification-system)
-8. [Mobile-First Design Enhancements](#mobile-first-design-enhancements)
-9. [Dependency Analysis](#dependency-analysis)
-10. [Performance Considerations](#performance-considerations)
-11. [Troubleshooting Guide](#troubleshooting-guide)
-12. [Conclusion](#conclusion)
+6. [Enhanced Star Rating System](#enhanced-star-rating-system)
+7. [40/60 Split Layout Integration](#4060-split-layout-integration)
+8. [Recommendation Chip System](#recommendation-chip-system)
+9. [Success Notification System](#success-notification-system)
+10. [Mobile-First Design Enhancements](#mobile-first-design-enhancements)
+11. [Dependency Analysis](#dependency-analysis)
+12. [Performance Considerations](#performance-considerations)
+13. [Troubleshooting Guide](#troubleshooting-guide)
+14. [Conclusion](#conclusion)
 
 ## Introduction
 
-The PhoneScreenKit component is a specialized React component designed for conducting phone interviews in a split-view interface. It provides recruiters with a comprehensive toolkit for evaluating candidates during telephone screenings, featuring structured interview questions, real-time evaluation capabilities, and automated debrief generation.
+The PhoneScreenKit component is a specialized React component designed for conducting phone interviews in a modern split-view interface. It provides recruiters with a comprehensive toolkit for evaluating candidates during telephone screenings, featuring structured interview questions, real-time evaluation capabilities, and automated debrief generation.
 
-**Updated** The component now features an innovative five-color-coded recommendation chip system that replaces traditional text-based validation with intuitive visual selection. This enhancement significantly improves user experience by providing immediate visual feedback and reducing cognitive load during decision-making processes.
+**Updated** The component has undergone a major redesign featuring a 40/60 split layout with ReportPage integration, showcasing the candidate's resume (40%) alongside the Screen Kit (60%). The component now features an enhanced 5-star rating system that replaces the previous Strong/Adequate/Weak buttons with intuitive star-based evaluation, significantly improving user experience and evaluation precision.
 
 This component integrates seamlessly with the broader Resume AI platform, offering a streamlined workflow for phone screening processes. It combines candidate analysis data with interactive interview guidance to create an intelligent screening experience that enhances recruitment efficiency and consistency.
 
-**Current Status**: The PhoneScreenKit component remains fully operational with complete functionality including interview evaluation system, question categorization, rating mechanisms, automated debrief generation, and the new recommendation chip selector system.
+**Current Status**: The PhoneScreenKit component remains fully operational with complete functionality including the new split-view layout, enhanced star rating system, flat scrollable question list with sticky category dividers, automated debrief generation, and improved recommendation chip selector system.
 
 ## Project Structure
 
@@ -51,8 +53,8 @@ The PhoneScreenKit component is organized within the frontend application struct
 graph TB
 subgraph "Frontend Components"
 PSK[PhoneScreenKit.jsx]
-ISP[InterviewScorecard.jsx]
 RP[ReportPage.jsx]
+ISP[InterviewScorecard.jsx]
 API[api.js]
 ENDPT[Backend Endpoints]
 end
@@ -77,14 +79,14 @@ IK --> OA
 ```
 
 **Diagram sources**
-- [PhoneScreenKit.jsx:1-514](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L514)
-- [ReportPage.jsx:522-565](file://app/frontend/src/pages/ReportPage.jsx#L522-L565)
-- [api.js:1209-1243](file://app/frontend/src/lib/api.js#L1209-L1243)
-- [interview_kit.py:24-435](file://app/backend/routes/interview_kit.py#L24-L435)
+- [PhoneScreenKit.jsx:1-545](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L545)
+- [ReportPage.jsx:490-565](file://app/frontend/src/pages/ReportPage.jsx#L490-L565)
+- [api.js:1271-1307](file://app/frontend/src/lib/api.js#L1271-L1307)
+- [interview_kit.py:26-435](file://app/backend/routes/interview_kit.py#L26-L435)
 
 **Section sources**
-- [PhoneScreenKit.jsx:1-514](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L514)
-- [ReportPage.jsx:522-565](file://app/frontend/src/pages/ReportPage.jsx#L522-L565)
+- [PhoneScreenKit.jsx:1-545](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L545)
+- [ReportPage.jsx:490-565](file://app/frontend/src/pages/ReportPage.jsx#L490-L565)
 
 ## Core Components
 
@@ -93,7 +95,9 @@ IK --> OA
 The PhoneScreenKit component serves as the primary interface for phone screening activities, featuring:
 
 #### Key Features:
-- **Multi-tab Question Management**: Technical, Behavioral, Culture Fit, and Experience Deep-Dive categories
+- **40/60 Split Layout Integration**: Seamlessly integrated with ReportPage showing resume (40%) and Screen Kit (60%)
+- **Flat Scrollable Question List**: Single-column layout with sticky category dividers replacing tabbed navigation
+- **Enhanced 5-Star Rating System**: Intuitive star-based evaluation replacing Strong/Adequate/Weak buttons
 - **Dynamic Question Prioritization**: Automatic sorting based on candidate skill gaps and matches
 - **Real-time Evaluation System**: Interactive rating and note-taking for each question
 - **Integrated Guidance**: Contextual hints and follow-up suggestions for interviewers
@@ -108,11 +112,11 @@ The PhoneScreenKit component serves as the primary interface for phone screening
 flowchart TD
 A[Analysis Data] --> B[Question Normalization]
 B --> C[Priority Calculation]
-C --> D[Tab Organization]
+C --> D[Flat List Organization]
 D --> E[Evaluation Storage]
 E --> F[Scorecard Generation]
 F --> G[Debrief Creation]
-H[User Input] --> I[Rating Selection]
+H[User Input] --> I[5-Star Rating Selection]
 I --> J[Chip Selection]
 J --> K[Evaluation Save]
 K --> E
@@ -120,9 +124,9 @@ L[Summary Input] --> M[Validation]
 M --> N[Assessment Save]
 N --> O[Debrief Generation]
 O --> G
-P[Mobile View] --> Q[Responsive Layout]
-Q --> R[Optimized Height Classes]
-R --> S[Enhanced Touch Targets]
+P[Split Layout] --> Q[40/60 View]
+Q --> R[Resume Panel]
+Q --> S[Screen Kit Panel]
 T[Success Notification] --> U[Green Banner with Checkmark]
 U --> V[Immediate Visual Feedback]
 V --> W[Scorecard Refresh Trigger]
@@ -133,11 +137,11 @@ Z --> AA[Advance/Hold/Reject]
 
 **Diagram sources**
 - [PhoneScreenKit.jsx:62-75](file://app/frontend/src/components/PhoneScreenKit.jsx#L62-L75)
-- [PhoneScreenKit.jsx:151-168](file://app/frontend/src/components/PhoneScreenKit.jsx#L151-L168)
-- [PhoneScreenKit.jsx:454-482](file://app/frontend/src/components/PhoneScreenKit.jsx#L454-L482)
+- [PhoneScreenKit.jsx:444-448](file://app/frontend/src/components/PhoneScreenKit.jsx#L444-L448)
+- [PhoneScreenKit.jsx:525-530](file://app/frontend/src/components/PhoneScreenKit.jsx#L525-L530)
 
 **Section sources**
-- [PhoneScreenKit.jsx:77-85](file://app/frontend/src/components/PhoneScreenKit.jsx#L77-L85)
+- [PhoneScreenKit.jsx:131-142](file://app/frontend/src/components/PhoneScreenKit.jsx#L131-L142)
 
 ### Backend Integration Points
 
@@ -155,9 +159,9 @@ The backend utilizes two primary tables for evaluation persistence:
 - `overall_assessments`: Maintains recruiter summaries and recommendations
 
 **Section sources**
-- [api.js:1209-1243](file://app/frontend/src/lib/api.js#L1209-L1243)
-- [interview_kit.py:41-139](file://app/backend/routes/interview_kit.py#L41-L139)
-- [db_models.py:282-323](file://app/backend/models/db_models.py#L282-L323)
+- [api.js:1271-1307](file://app/frontend/src/lib/api.js#L1271-L1307)
+- [interview_kit.py:41-141](file://app/backend/routes/interview_kit.py#L41-L141)
+- [db_models.py:292-333](file://app/backend/models/db_models.py#L292-L333)
 
 ## Architecture Overview
 
@@ -166,19 +170,21 @@ The PhoneScreenKit component follows a client-server architecture pattern with c
 ```mermaid
 sequenceDiagram
 participant User as Recruiter
+participant RP as ReportPage
 participant PSK as PhoneScreenKit
 participant API as Frontend API
 participant BE as Backend Service
 participant DB as Database
-User->>PSK : Load Interview Questions
+User->>RP : Click Start Phone Screen
+RP->>PSK : Load Split Layout
 PSK->>API : GET /results/{result_id}/evaluations
 API->>BE : HTTP Request
 BE->>DB : Query Interview Evaluations
 DB-->>BE : Evaluation Data
 BE-->>API : JSON Response
 API-->>PSK : Evaluation Results
-PSK-->>User : Display Questions with Ratings
-User->>PSK : Rate Question
+PSK-->>User : Display Flat List with Ratings
+User->>PSK : Rate Question with Stars
 PSK->>PSK : Update Local State
 PSK->>API : PUT /results/{result_id}/evaluations
 API->>BE : HTTP Request
@@ -203,12 +209,12 @@ ISP-->>User : Display Updated Debrief
 ```
 
 **Diagram sources**
-- [PhoneScreenKit.jsx:114-133](file://app/frontend/src/components/PhoneScreenKit.jsx#L114-L133)
-- [PhoneScreenKit.jsx:151-168](file://app/frontend/src/components/PhoneScreenKit.jsx#L151-L168)
-- [PhoneScreenKit.jsx:174-214](file://app/frontend/src/components/PhoneScreenKit.jsx#L174-L214)
+- [PhoneScreenKit.jsx:163-184](file://app/frontend/src/components/PhoneScreenKit.jsx#L163-L184)
+- [PhoneScreenKit.jsx:200-217](file://app/frontend/src/components/PhoneScreenKit.jsx#L200-L217)
+- [PhoneScreenKit.jsx:223-251](file://app/frontend/src/components/PhoneScreenKit.jsx#L223-L251)
 
 **Section sources**
-- [PhoneScreenKit.jsx:86-168](file://app/frontend/src/components/PhoneScreenKit.jsx#L86-L168)
+- [PhoneScreenKit.jsx:143-198](file://app/frontend/src/components/PhoneScreenKit.jsx#L143-L198)
 - [interview_kit.py:246-435](file://app/backend/routes/interview_kit.py#L246-L435)
 
 ## Detailed Component Analysis
@@ -247,26 +253,39 @@ I --> B
 - [PhoneScreenKit.jsx:62-75](file://app/frontend/src/components/PhoneScreenKit.jsx#L62-L75)
 
 **Section sources**
-- [PhoneScreenKit.jsx:96-101](file://app/frontend/src/components/PhoneScreenKit.jsx#L96-L101)
-- [PhoneScreenKit.jsx:303-304](file://app/frontend/src/components/PhoneScreenKit.jsx#L303-L304)
+- [PhoneScreenKit.jsx:154-159](file://app/frontend/src/components/PhoneScreenKit.jsx#L154-L159)
+- [PhoneScreenKit.jsx:334-474](file://app/frontend/src/components/PhoneScreenKit.jsx#L334-L474)
 
-### Evaluation System
+### Enhanced Star Rating System
 
-The evaluation system provides comprehensive rating capabilities with contextual guidance:
+**Updated** The PhoneScreenKit now features an innovative 5-star rating system that replaces the previous Strong/Adequate/Weak buttons with intuitive star-based evaluation:
 
-#### Rating Categories:
-- **Strong**: Deep, specific, evidence-backed answers with measurable outcomes
-- **Adequate**: General understanding with some relevant experience
-- **Weak**: Surface-level or theoretical responses
+#### Star Rating Features:
+- **5-Star Scale**: Intuitive star-based evaluation system
+- **Color Coding**: Emerald green for Strong (4-5 stars), Amber for Adequate (3 stars), Red for Weak (1-2 stars)
+- **Hover Effects**: Interactive hover states showing star selection preview
+- **Adaptive Follow-up Prompts**: Contextual guidance based on rating selection
+- **Real-time Visual Feedback**: Immediate color and text updates based on rating
 
-#### Contextual Guidance:
-The system provides intelligent follow-up prompts based on ratings:
-- **Weak Ratings**: Questions to understand candidate competency levels
-- **Adequate Ratings**: Prompts to dig deeper for clarification
-- **Strong Ratings**: Confirmation questions to validate expertise
+#### Rating Mapping:
+- **4-5 Stars** → Strong rating (emerald green)
+- **3 Stars** → Adequate rating (amber)
+- **1-2 Stars** → Weak rating (red)
+
+#### Adaptive Follow-up Prompts:
+The system provides intelligent follow-up prompts based on star ratings:
+- **Weak Ratings (1-2 stars)**: Questions to understand candidate competency levels
+- **Adequate Ratings (3 stars)**: Prompts to dig deeper for clarification
+- **Strong Ratings (4-5 stars)**: Confirmation questions to validate expertise
 
 ```mermaid
 classDiagram
+class StarRating {
++stars : number
++onChange : function
++saving : boolean
++render()
+}
 class EvaluationSystem {
 +rating : string
 +notes : string
@@ -289,16 +308,18 @@ class GuidanceSystem {
 +expandAll()
 +collapseAll()
 }
+StarRating --> EvaluationSystem : updates
 EvaluationSystem --> Question : evaluates
 EvaluationSystem --> GuidanceSystem : provides
 ```
 
 **Diagram sources**
-- [PhoneScreenKit.jsx:387-434](file://app/frontend/src/components/PhoneScreenKit.jsx#L387-L434)
-- [PhoneScreenKit.jsx:336-383](file://app/frontend/src/components/PhoneScreenKit.jsx#L336-L383)
+- [PhoneScreenKit.jsx:85-122](file://app/frontend/src/components/PhoneScreenKit.jsx#L85-L122)
+- [PhoneScreenKit.jsx:444-467](file://app/frontend/src/components/PhoneScreenKit.jsx#L444-L467)
 
 **Section sources**
-- [PhoneScreenKit.jsx:387-434](file://app/frontend/src/components/PhoneScreenKit.jsx#L387-L434)
+- [PhoneScreenKit.jsx:85-122](file://app/frontend/src/components/PhoneScreenKit.jsx#L85-L122)
+- [PhoneScreenKit.jsx:444-467](file://app/frontend/src/components/PhoneScreenKit.jsx#L444-L467)
 
 ### Debrief Generation Pipeline
 
@@ -350,19 +371,19 @@ V --> W[Advance/Hold/Reject]
 
 ### Integration with Report Page
 
-The PhoneScreenKit integrates seamlessly with the main report page in a split-view layout with enhanced success notification system:
+**Updated** The PhoneScreenKit integrates seamlessly with the main report page in a sophisticated 40/60 split-view layout with enhanced success notification system:
 
 ```mermaid
 graph LR
 subgraph "Report Page Layout"
-A[Left Panel - Candidate Info]
-B[Right Panel - PhoneScreenKit]
+A[Left Panel - Resume 40%]
+B[Right Panel - PhoneScreenKit 60%]
 C[Bottom - InterviewScorecard]
 end
 subgraph "PhoneScreenKit Features"
-D[Question Tabs]
-E[Evaluation System]
-F[Guidance Panel]
+D[Flat Question List]
+E[5-Star Rating System]
+F[Sticky Category Dividers]
 G[Summary Section]
 H[Success Notification System]
 I[Recommendation Chip System]
@@ -387,11 +408,127 @@ M --> C
 ```
 
 **Diagram sources**
-- [ReportPage.jsx:522-565](file://app/frontend/src/pages/ReportPage.jsx#L522-L565)
-- [PhoneScreenKit.jsx:228-514](file://app/frontend/src/components/PhoneScreenKit.jsx#L228-L514)
+- [ReportPage.jsx:490-565](file://app/frontend/src/pages/ReportPage.jsx#L490-L565)
+- [PhoneScreenKit.jsx:332-545](file://app/frontend/src/components/PhoneScreenKit.jsx#L332-L545)
 
 **Section sources**
-- [ReportPage.jsx:522-565](file://app/frontend/src/pages/ReportPage.jsx#L522-L565)
+- [ReportPage.jsx:490-565](file://app/frontend/src/pages/ReportPage.jsx#L490-L565)
+
+## Enhanced Star Rating System
+
+### 5-Star Rating Capabilities
+
+**Updated** The PhoneScreenKit now features an innovative 5-star rating system that replaces the previous Strong/Adequate/Weak buttons with intuitive star-based evaluation:
+
+#### Star Rating Features:
+- **Interactive Star Selection**: Click to rate questions from 1 to 5 stars
+- **Visual Color Coding**: Emerald green for Strong (4-5 stars), Amber for Adequate (3 stars), Red for Weak (1-2 stars)
+- **Hover Preview**: Hover effects show star selection preview
+- **Adaptive Follow-up Prompts**: Contextual guidance based on rating selection
+- **Real-time Visual Feedback**: Immediate color and text updates based on rating
+
+#### Star Rating Logic:
+Each star rating maps to backend rating system:
+- **4-5 Stars** → Strong rating
+- **3 Stars** → Adequate rating  
+- **1-2 Stars** → Weak rating
+
+#### Adaptive Follow-up Prompts:
+The system provides intelligent follow-up prompts based on star ratings:
+- **Weak Ratings (1-2 stars)**: "Understand their level" guidance with specific skill questions
+- **Adequate Ratings (3 stars)**: "Dig deeper to decide" prompts for clarification
+- **Strong Ratings (4-5 stars)**: Confirmation questions to validate expertise
+
+```mermaid
+flowchart TD
+A[Star Selection] --> B{Stars Selected?}
+B --> |1-2 Stars| C[Weak Rating - Red]
+B --> |3 Stars| D[Adequate Rating - Amber]
+B --> |4-5 Stars| E[Strong Rating - Emerald]
+C --> F[Show "Understand their level" prompt]
+D --> G[Show "Dig deeper to decide" prompt]
+E --> H[Show confirmation questions]
+F --> I[Extract Skill from Question]
+G --> I
+H --> I
+I --> J[Display Contextual Prompt]
+J --> K[Update Evaluation State]
+K --> L[Save to Backend]
+```
+
+**Diagram sources**
+- [PhoneScreenKit.jsx:62-75](file://app/frontend/src/components/PhoneScreenKit.jsx#L62-L75)
+- [PhoneScreenKit.jsx:451-467](file://app/frontend/src/components/PhoneScreenKit.jsx#L451-L467)
+
+#### Rating Mapping Enhancements:
+The star rating system provides enhanced precision compared to text-based approaches:
+- **Granular Evaluation**: 5 levels of evaluation precision vs 3 levels
+- **Visual Clarity**: Immediate visual feedback through color coding
+- **Contextual Guidance**: Intelligent follow-up prompts based on rating
+- **Backend Consistency**: Seamless mapping to existing rating system
+
+**Section sources**
+- [PhoneScreenKit.jsx:62-75](file://app/frontend/src/components/PhoneScreenKit.jsx#L62-L75)
+- [PhoneScreenKit.jsx:451-467](file://app/frontend/src/components/PhoneScreenKit.jsx#L451-L467)
+
+## 40/60 Split Layout Integration
+
+### Modern Split-View Architecture
+
+**Updated** The PhoneScreenKit now features a sophisticated 40/60 split layout that integrates seamlessly with ReportPage:
+
+#### Split Layout Features:
+- **40% Resume Panel**: Dedicated space for candidate resume viewing
+- **60% Screen Kit Panel**: Primary area for interview questions and evaluation
+- **Responsive Design**: Adapts to different screen sizes and orientations
+- **Sticky Category Dividers**: Fixed position category headers for easy navigation
+- **Flat Question List**: Single-column layout replacing tabbed navigation
+
+#### Layout Implementation:
+The split layout is implemented in ReportPage with PhoneScreenKit as the right panel:
+
+```jsx
+<div className="flex-1 flex lg:flex-row flex-col min-h-0">
+  {/* Left panel — Resume (40%) */}
+  <div className="lg:w-[40%] w-full border-r border-slate-200 flex flex-col lg:h-full h-[45vh]">
+    {/* Resume Content */}
+  </div>
+  {/* Right panel — Screen Kit (60%) */}
+  <div className="lg:w-[60%] w-full flex flex-col min-h-0 lg:h-full">
+    <PhoneScreenKit
+      interview_questions={interviewQs}
+      resultId={result?.result_id}
+      analysisData={{
+        missing_skills: result?.analysis_result?.missing_skills || result?.missing_skills || [],
+        matched_skills: result?.analysis_result?.matched_skills || result?.matched_skills || [],
+      }}
+      onDebriefGenerated={() => setScorecardKey(prev => prev + 1)}
+    />
+  </div>
+</div>
+```
+
+#### Responsive Behavior:
+- **Desktop**: Full-height 40/60 split with fixed panels
+- **Mobile**: Vertical stack with optimized heights (`h-[45vh]` for mobile)
+- **Touch Optimization**: Larger touch targets for mobile interaction
+- **Scroll Isolation**: Independent scrolling for resume and Screen Kit panels
+
+```mermaid
+flowchart TD
+A[Screen Mode Active] --> B{Device Type?}
+B --> |Desktop| C[Full 40/60 Split]
+B --> |Mobile| D[Vertical Stack h-[45vh]]
+C --> E[Fixed Panels]
+D --> F[Responsive Layout]
+E --> G[Independent Scrolling]
+F --> G
+G --> H[Enhanced User Experience]
+```
+
+**Section sources**
+- [ReportPage.jsx:490-565](file://app/frontend/src/pages/ReportPage.jsx#L490-L565)
+- [PhoneScreenKit.jsx:332-474](file://app/frontend/src/components/PhoneScreenKit.jsx#L332-L474)
 
 ## Recommendation Chip System
 
@@ -441,7 +578,7 @@ K --> L[Debrief Generation]
 ```
 
 **Diagram sources**
-- [PhoneScreenKit.jsx:454-482](file://app/frontend/src/components/PhoneScreenKit.jsx#L454-L482)
+- [PhoneScreenKit.jsx:491-511](file://app/frontend/src/components/PhoneScreenKit.jsx#L491-L511)
 - [interview_kit.py:279-288](file://app/backend/routes/interview_kit.py#L279-L288)
 
 #### Validation Enhancements:
@@ -452,7 +589,7 @@ The chip system provides enhanced validation compared to text-based approaches:
 - **Consistent Terminology**: Standardized chip labels across all instances
 
 **Section sources**
-- [PhoneScreenKit.jsx:454-482](file://app/frontend/src/components/PhoneScreenKit.jsx#L454-L482)
+- [PhoneScreenKit.jsx:491-511](file://app/frontend/src/components/PhoneScreenKit.jsx#L491-L511)
 - [interview_kit.py:279-288](file://app/backend/routes/interview_kit.py#L279-L288)
 
 ## Success Notification System
@@ -475,7 +612,7 @@ The success notification appears as a green banner with a checkmark icon when `d
 {debriefGenerated && (
   <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
     <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
-    <span className="text-sm text-green-700 font-medium">Debrief generated successfully! View it in the Recruiter Scorecard below.</span>
+    <span className="text-sm text-green-700 font-medium">Debrief generated. View it in the Recruiter Scorecard below.</span>
   </div>
 )}
 ```
@@ -487,7 +624,7 @@ The success notification appears as a green banner with a checkmark icon when `d
 - **Consistent Branding**: Maintains visual consistency with other success states throughout the platform
 
 **Section sources**
-- [PhoneScreenKit.jsx:494-499](file://app/frontend/src/components/PhoneScreenKit.jsx#L494-L499)
+- [PhoneScreenKit.jsx:525-530](file://app/frontend/src/components/PhoneScreenKit.jsx#L525-L530)
 
 ### Automatic Scorecard Refresh Integration
 
@@ -513,7 +650,7 @@ The success notification system works in conjunction with the ReportPage compone
 ```
 
 **Section sources**
-- [ReportPage.jsx:547-555](file://app/frontend/src/pages/ReportPage.jsx#L547-L555)
+- [ReportPage.jsx:546-551](file://app/frontend/src/pages/ReportPage.jsx#L546-L551)
 
 ## Mobile-First Design Enhancements
 
@@ -591,11 +728,11 @@ DB --> STORAGE
 
 **Diagram sources**
 - [PhoneScreenKit.jsx:1-6](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L6)
-- [interview_kit.py:1-24](file://app/backend/routes/interview_kit.py#L1-L24)
+- [interview_kit.py:1-26](file://app/backend/routes/interview_kit.py#L1-L26)
 
 **Section sources**
 - [PhoneScreenKit.jsx:1-6](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L6)
-- [interview_kit.py:1-24](file://app/backend/routes/interview_kit.py#L1-L24)
+- [interview_kit.py:1-26](file://app/backend/routes/interview_kit.py#L1-L26)
 
 ## Performance Considerations
 
@@ -605,6 +742,7 @@ DB --> STORAGE
 - **Memory Management**: Proper cleanup of blob URLs and event listeners
 - **Mobile Optimization**: Reduced complexity for mobile device performance
 - **Success Notification Optimization**: Minimal DOM overhead for instant visual feedback
+- **Star Rating Optimization**: Efficient state management for 5-star rating system
 - **Chip Selection Optimization**: Efficient state management for recommendation chips
 
 ### Server-Side Efficiency:
@@ -634,6 +772,15 @@ DB --> STORAGE
 - Check user authentication status
 - Review database constraint violations
 
+#### Star Rating System Issues:
+**Symptoms**: Stars not selecting or rating not updating
+**Causes**: State management issues, click handler problems, backend mapping errors
+**Solutions**:
+- Verify `stars` state updates correctly in StarRating component
+- Check star click handlers and state assignments
+- Ensure backend rating mapping is functioning
+- Validate star selection logic and error messages
+
 #### Debrief Generation Errors:
 **Symptoms**: Debrief not generated despite successful summary submission
 **Causes**: LLM service unavailability, JSON parsing failures, Python 3.11 compatibility issues
@@ -661,8 +808,8 @@ DB --> STORAGE
 - Ensure backend recommendation mapping is functioning
 - Validate chip selection logic and error messages
 
-#### Mobile Display Issues:
-**Symptoms**: Poor mobile experience or layout problems
+#### Split Layout Issues:
+**Symptoms**: Poor split-view experience or layout problems
 **Causes**: Inadequate responsive design, touch target sizing, viewport configuration
 **Solutions**:
 - Test on various mobile devices and screen sizes
@@ -680,17 +827,19 @@ DB --> STORAGE
 - Consider mobile-specific optimizations
 
 **Section sources**
-- [PhoneScreenKit.jsx:127-129](file://app/frontend/src/components/PhoneScreenKit.jsx#L127-L129)
-- [PhoneScreenKit.jsx:209-211](file://app/frontend/src/components/PhoneScreenKit.jsx#L209-L211)
+- [PhoneScreenKit.jsx:163-184](file://app/frontend/src/components/PhoneScreenKit.jsx#L163-L184)
+- [PhoneScreenKit.jsx:200-217](file://app/frontend/src/components/PhoneScreenKit.jsx#L200-L217)
 
 ## Conclusion
 
 The PhoneScreenKit component represents a comprehensive solution for modern phone screening processes, combining intelligent question management with automated evaluation and debrief generation. Its modular architecture ensures maintainability while providing powerful functionality for recruitment teams.
 
-**Updated** The component now features an innovative five-color-coded recommendation chip system that significantly enhances user experience through intuitive visual selection, improved validation, and reduced cognitive load. This enhancement, combined with the existing intelligent question prioritization, real-time collaboration capabilities, and automated workflow automation, makes the PhoneScreenKit an essential tool for efficient and effective phone screening processes.
+**Updated** The component now features a revolutionary redesign with a 40/60 split layout integrating seamlessly with ReportPage, showcasing candidate resumes alongside Screen Kit content. The enhanced 5-star rating system provides precise evaluation capabilities replacing the previous Strong/Adequate/Weak buttons, while the flat scrollable list with sticky category dividers improves navigation efficiency.
 
 Key strengths include:
-- **Intelligent Question Prioritization**: Enhances interview effectiveness by focusing on critical skill gaps
+- **Modern Split-View Layout**: 40/60 split with ReportPage integration for optimal phone screen experience
+- **Enhanced 5-Star Rating System**: Precise star-based evaluation replacing text-based rating with adaptive guidance
+- **Flat Scrollable Interface**: Single-column layout with sticky category dividers replacing tabbed navigation
 - **Real-time Collaboration**: Supports team-based evaluation with shared insights
 - **Automated Workflow**: Reduces administrative burden through AI-powered debrief generation
 - **Seamless Integration**: Works harmoniously with existing candidate analysis workflows
@@ -702,4 +851,4 @@ Key strengths include:
 
 The component's design emphasizes scalability, performance, and user experience, making it an essential tool for efficient and effective phone screening processes in the Resume AI platform ecosystem.
 
-**Current Status**: The PhoneScreenKit component remains fully operational with complete functionality, providing comprehensive interview evaluation capabilities and automated debrief generation as documented, now enhanced with the revolutionary recommendation chip selector system.
+**Current Status**: The PhoneScreenKit component remains fully operational with complete functionality, providing comprehensive interview evaluation capabilities and automated debrief generation as documented, now enhanced with the revolutionary 40/60 split layout, 5-star rating system, and improved recommendation chip selector system.

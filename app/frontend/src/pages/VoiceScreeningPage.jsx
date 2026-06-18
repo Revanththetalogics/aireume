@@ -1,0 +1,695 @@
+import { useState, useEffect, useCallback } from 'react'
+import {
+  Phone, Settings as SettingsIcon, Clock, CheckCircle2, XCircle,
+  AlertTriangle, Play, Pause, RefreshCw, ChevronRight, Loader2,
+  Calendar, User, FileText, BarChart3, Mic, Volume2, Shield,
+  ChevronDown, ChevronUp, Save, X, Edit3, PhoneCall, PhoneOff,
+  MessageSquare, Star, TrendingUp,
+} from 'lucide-react'
+import {
+  getVoiceSettings, updateVoiceSettings, getVoiceSessions, getVoiceSession,
+  rescheduleVoiceCall, cancelVoiceSession,
+} from '../lib/api'
+import VoiceScheduleModal from '../components/VoiceScheduleModal'
+import VoiceAssessmentPanel from '../components/VoiceAssessmentPanel'
+import VoiceTranscriptViewer from '../components/VoiceTranscriptViewer'
+import { StaggerContainer, StaggerItem } from '../components/motion'
+
+const STATUS_CONFIG = {
+  scheduled:  { label: 'Scheduled',  color: 'bg-blue-100 text-blue-700',   icon: Calendar },
+  ringing:    { label: 'Ringing',    color: 'bg-amber-100 text-amber-700', icon: Phone },
+  in_progress:{ label: 'In Progress',color: 'bg-green-100 text-green-700', icon: PhoneCall },
+  completed:  { label: 'Completed',  color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle2 },
+  failed:     { label: 'Failed',     color: 'bg-red-100 text-red-700',     icon: XCircle },
+  no_answer:  { label: 'No Answer',  color: 'bg-orange-100 text-orange-700', icon: PhoneOff },
+  escalated:  { label: 'Escalated',  color: 'bg-purple-100 text-purple-700', icon: AlertTriangle },
+  cancelled:  { label: 'Cancelled',  color: 'bg-slate-100 text-slate-600', icon: X },
+}
+
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const VOICE_OPTIONS = [
+  { value: 'female', label: 'Female' },
+  { value: 'male', label: 'Male' },
+]
+const GREETING_OPTIONS = [
+  { value: 'professional', label: 'Professional' },
+  { value: 'casual', label: 'Casual' },
+  { value: 'friendly', label: 'Friendly' },
+]
+const DETAIL_OPTIONS = [
+  { value: 'brief', label: 'Brief Summary' },
+  { value: 'full', label: 'Full Detail' },
+]
+const FOLLOW_UP_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+]
+
+function StatusBadge({ status }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.scheduled
+  const Icon = cfg.icon
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.color}`}>
+      <Icon className="w-3 h-3" />
+      {cfg.label}
+    </span>
+  )
+}
+
+function Section({ title, icon: Icon, children, description, action }) {
+  return (
+    <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-6 card-animate">
+      <div className="flex items-start justify-between mb-5">
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 rounded-2xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center shrink-0">
+            <Icon className="w-5 h-5 text-brand-600" />
+          </div>
+          <div>
+            <h3 className="font-extrabold text-brand-900 text-lg tracking-tight">{title}</h3>
+            {description && <p className="text-sm text-slate-500 mt-0.5">{description}</p>}
+          </div>
+        </div>
+        {action}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Field({ label, children, hint }) {
+  return (
+    <div>
+      <label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>
+      {children}
+      {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
+    </div>
+  )
+}
+
+function TextInput({ value, onChange, placeholder, type = 'text' }) {
+  return (
+    <input
+      type={type}
+      value={value ?? ''}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm transition-all outline-none"
+    />
+  )
+}
+
+function Select({ value, onChange, options }) {
+  return (
+    <select
+      value={value ?? ''}
+      onChange={e => onChange(e.target.value)}
+      className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm transition-all outline-none appearance-none"
+    >
+      {options.map(o => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  )
+}
+
+function DayPicker({ value, onChange }) {
+  const days = value || [1, 2, 3, 4, 5]
+  function toggle(dayIdx) {
+    const next = days.includes(dayIdx)
+      ? days.filter(d => d !== dayIdx)
+      : [...days, dayIdx].sort()
+    onChange(next)
+  }
+  return (
+    <div className="flex gap-1.5">
+      {DAY_NAMES.map((name, idx) => {
+        const dayNum = idx + 1
+        const active = days.includes(dayNum)
+        return (
+          <button
+            key={idx}
+            onClick={() => toggle(dayNum)}
+            className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${
+              active
+                ? 'bg-brand-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+            }`}
+          >
+            {name}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+export default function VoiceScreeningPage() {
+  const [settings, setSettings] = useState(null)
+  const [sessions, setSessions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [editMode, setEditMode] = useState(false)
+  const [draft, setDraft] = useState(null)
+  const [selectedSession, setSelectedSession] = useState(null)
+  const [sessionDetail, setSessionDetail] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [scheduleModal, setScheduleModal] = useState(false)
+  const [activeTab, setActiveTab] = useState('sessions') // sessions | settings
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      const [cfg, sess] = await Promise.all([
+        getVoiceSettings(),
+        getVoiceSessions({ limit: 20 }),
+      ])
+      setSettings(cfg)
+      setDraft(cfg)
+      setSessions(sess)
+    } catch (err) {
+      setError(err.message || 'Failed to load voice settings')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const fetchSessions = useCallback(async () => {
+    try {
+      setSessionsLoading(true)
+      const sess = await getVoiceSessions({ limit: 20 })
+      setSessions(sess)
+    } catch { /* ignore */ }
+    finally { setSessionsLoading(false) }
+  }, [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  async function handleSave() {
+    try {
+      setSaving(true)
+      const updated = await updateVoiceSettings({
+        bot_name: draft.bot_name,
+        bot_voice_gender: draft.bot_voice_gender,
+        greeting_style: draft.greeting_style,
+        outbound_phone_number: draft.outbound_phone_number,
+        caller_id_name: draft.caller_id_name,
+        business_hours_start: draft.business_hours_start,
+        business_hours_end: draft.business_hours_end,
+        allowed_days: draft.allowed_days,
+        timezone: draft.timezone,
+        consent_script: draft.consent_script || null,
+        call_duration_min: draft.call_duration_min,
+        call_duration_max: draft.call_duration_max,
+        max_retries: draft.max_retries,
+        retry_intervals: draft.retry_intervals,
+        assessment_detail_level: draft.assessment_detail_level,
+        auto_update_status: draft.auto_update_status,
+        follow_up_aggressiveness: draft.follow_up_aggressiveness,
+      })
+      setSettings(updated)
+      setDraft(updated)
+      setEditMode(false)
+    } catch (err) {
+      setError(err.message || 'Failed to save settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleSessionClick(session) {
+    setSelectedSession(session)
+    try {
+      setDetailLoading(true)
+      const detail = await getVoiceSession(session.id)
+      setSessionDetail(detail)
+    } catch { /* ignore */ }
+    finally { setDetailLoading(false) }
+  }
+
+  function closeDetail() {
+    setSelectedSession(null)
+    setSessionDetail(null)
+  }
+
+  if (loading) {
+    return (
+      <div className="h-screen bg-surface flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-brand-600 animate-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-surface">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-400 flex items-center justify-center shadow-lg shadow-brand-200">
+              <Mic className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-extrabold text-brand-900 tracking-tight">Voice Screening</h1>
+              <p className="text-sm text-slate-500">AI-powered phone screening bot</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setScheduleModal(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white rounded-xl font-semibold text-sm hover:bg-brand-700 transition-all shadow-sm shadow-brand-200"
+          >
+            <PhoneCall className="w-4 h-4" />
+            Schedule Call
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 bg-white/60 backdrop-blur rounded-2xl p-1 ring-1 ring-brand-100 w-fit">
+          {[
+            { key: 'sessions', label: 'Sessions', icon: Phone },
+            { key: 'settings', label: 'Settings', icon: SettingsIcon },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                activeTab === tab.key
+                  ? 'bg-brand-600 text-white shadow-sm'
+                  : 'text-slate-500 hover:text-brand-700 hover:bg-brand-50'
+              }`}
+            >
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+            <p className="text-sm text-red-700">{error}</p>
+            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Sessions Tab */}
+        {activeTab === 'sessions' && (
+          <div className="space-y-4">
+            {sessionsLoading && (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 text-brand-600 animate-spin" />
+              </div>
+            )}
+            {!sessionsLoading && sessions.length === 0 && (
+              <div className="text-center py-16">
+                <Phone className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-lg font-bold text-slate-500 mb-2">No screening sessions yet</h3>
+                <p className="text-sm text-slate-400 mb-6">Schedule a voice screening call to get started</p>
+                <button
+                  onClick={() => setScheduleModal(true)}
+                  className="px-5 py-2.5 bg-brand-600 text-white rounded-xl font-semibold text-sm hover:bg-brand-700 transition-all"
+                >
+                  Schedule First Call
+                </button>
+              </div>
+            )}
+            {!sessionsLoading && sessions.length > 0 && (
+              <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
+                <div className="px-6 py-4 border-b border-brand-50 flex items-center justify-between">
+                  <h3 className="font-bold text-brand-900">Recent Sessions</h3>
+                  <button
+                    onClick={fetchSessions}
+                    className="p-2 rounded-lg hover:bg-brand-50 text-slate-400 hover:text-brand-600 transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+                <StaggerContainer className="divide-y divide-brand-50">
+                  {sessions.map(session => (
+                    <StaggerItem key={session.id}>
+                    <button
+                      key={session.id}
+                      onClick={() => handleSessionClick(session)}
+                      className="w-full flex items-center gap-4 px-6 py-4 hover:bg-brand-50/50 transition-colors text-left"
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        session.status === 'completed' ? 'bg-emerald-100' :
+                        session.status === 'in_progress' ? 'bg-green-100' :
+                        session.status === 'failed' ? 'bg-red-100' :
+                        'bg-slate-100'
+                      }`}>
+                        <Phone className={`w-5 h-5 ${
+                          session.status === 'completed' ? 'text-emerald-600' :
+                          session.status === 'in_progress' ? 'text-green-600' :
+                          session.status === 'failed' ? 'text-red-600' :
+                          'text-slate-500'
+                        }`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-semibold text-slate-800">
+                            Candidate #{session.candidate_id}
+                          </span>
+                          <StatusBadge status={session.status} />
+                          <span className="text-xs text-slate-400">
+                            {session.direction === 'inbound' ? '↙ Inbound' : '↗ Outbound'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-400">
+                          <span className="flex items-center gap-1">
+                            <Phone className="w-3 h-3" />
+                            {session.phone_number}
+                          </span>
+                          {session.duration_seconds && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {Math.floor(session.duration_seconds / 60)}m {session.duration_seconds % 60}s
+                            </span>
+                          )}
+                          {session.retry_count > 0 && (
+                            <span className="flex items-center gap-1 text-amber-500">
+                              <RefreshCw className="w-3 h-3" />
+                              Retry #{session.retry_count}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {session.scheduled_at
+                          ? new Date(session.scheduled_at).toLocaleString()
+                          : session.created_at
+                            ? new Date(session.created_at).toLocaleDateString()
+                            : ''}
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300" />
+                    </button>
+                    </StaggerItem>
+                  ))}
+                </StaggerContainer>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Settings Tab */}
+        {activeTab === 'settings' && draft && (
+          <div className="space-y-6">
+            {/* Bot Identity */}
+            <Section
+              title="Bot Identity"
+              icon={Volume2}
+              description="Configure how the AI bot presents itself to candidates"
+              action={
+                !editMode ? (
+                  <button
+                    onClick={() => setEditMode(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" /> Edit
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setDraft(settings); setEditMode(false) }}
+                      className="px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      Save
+                    </button>
+                  </div>
+                )
+              }
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Bot Name">
+                  <TextInput
+                    value={draft.bot_name}
+                    onChange={v => setDraft({ ...draft, bot_name: v })}
+                    placeholder="ARIA"
+                  />
+                </Field>
+                <Field label="Voice">
+                  <Select
+                    value={draft.bot_voice_gender}
+                    onChange={v => setDraft({ ...draft, bot_voice_gender: v })}
+                    options={VOICE_OPTIONS}
+                  />
+                </Field>
+                <Field label="Greeting Style">
+                  <Select
+                    value={draft.greeting_style}
+                    onChange={v => setDraft({ ...draft, greeting_style: v })}
+                    options={GREETING_OPTIONS}
+                  />
+                </Field>
+                <Field label="Caller ID Name">
+                  <TextInput
+                    value={draft.caller_id_name}
+                    onChange={v => setDraft({ ...draft, caller_id_name: v })}
+                    placeholder="ARIA Screening"
+                  />
+                </Field>
+                <Field label="Outbound Phone Number">
+                  <TextInput
+                    value={draft.outbound_phone_number}
+                    onChange={v => setDraft({ ...draft, outbound_phone_number: v })}
+                    placeholder="+14155551234"
+                    hint="E.164 format"
+                  />
+                </Field>
+              </div>
+            </Section>
+
+            {/* Schedule & Business Hours */}
+            <Section title="Schedule & Business Hours" icon={Clock} description="When the bot is allowed to make calls">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <Field label="Timezone">
+                  <TextInput
+                    value={draft.timezone}
+                    onChange={v => setDraft({ ...draft, timezone: v })}
+                    placeholder="America/New_York"
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Start Time">
+                    <TextInput
+                      value={draft.business_hours_start}
+                      onChange={v => setDraft({ ...draft, business_hours_start: v })}
+                      placeholder="09:00"
+                    />
+                  </Field>
+                  <Field label="End Time">
+                    <TextInput
+                      value={draft.business_hours_end}
+                      onChange={v => setDraft({ ...draft, business_hours_end: v })}
+                      placeholder="17:00"
+                    />
+                  </Field>
+                </div>
+              </div>
+              <Field label="Allowed Days">
+                <DayPicker
+                  value={draft.allowed_days}
+                  onChange={v => setDraft({ ...draft, allowed_days: v })}
+                />
+              </Field>
+            </Section>
+
+            {/* Call Behavior */}
+            <Section title="Call Behavior" icon={PhoneCall} description="Duration, retries, and follow-up settings">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <Field label="Min Duration (sec)">
+                  <TextInput
+                    value={draft.call_duration_min}
+                    onChange={v => setDraft({ ...draft, call_duration_min: parseInt(v) || 180 })}
+                    type="number"
+                  />
+                </Field>
+                <Field label="Max Duration (sec)">
+                  <TextInput
+                    value={draft.call_duration_max}
+                    onChange={v => setDraft({ ...draft, call_duration_max: parseInt(v) || 420 })}
+                    type="number"
+                  />
+                </Field>
+                <Field label="Max Retries">
+                  <TextInput
+                    value={draft.max_retries}
+                    onChange={v => setDraft({ ...draft, max_retries: parseInt(v) || 3 })}
+                    type="number"
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Assessment Detail Level">
+                  <Select
+                    value={draft.assessment_detail_level}
+                    onChange={v => setDraft({ ...draft, assessment_detail_level: v })}
+                    options={DETAIL_OPTIONS}
+                  />
+                </Field>
+                <Field label="Follow-up Aggressiveness">
+                  <Select
+                    value={draft.follow_up_aggressiveness}
+                    onChange={v => setDraft({ ...draft, follow_up_aggressiveness: v })}
+                    options={FOLLOW_UP_OPTIONS}
+                  />
+                </Field>
+              </div>
+              <div className="mt-4 flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={draft.auto_update_status ?? true}
+                    onChange={e => setDraft({ ...draft, auto_update_status: e.target.checked })}
+                    className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span className="text-sm font-medium text-slate-700">Auto-update candidate status after screening</span>
+                </label>
+              </div>
+            </Section>
+
+            {/* Compliance */}
+            <Section title="Compliance" icon={Shield} description="Consent recording and custom scripts">
+              <Field label="Custom Consent Script (optional)">
+                <textarea
+                  value={draft.consent_script || ''}
+                  onChange={e => setDraft({ ...draft, consent_script: e.target.value || null })}
+                  placeholder="Leave empty to use default consent script..."
+                  rows={3}
+                  className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm transition-all outline-none resize-none"
+                />
+              </Field>
+            </Section>
+          </div>
+        )}
+
+        {/* Session Detail Drawer */}
+        {selectedSession && (
+          <div className="fixed inset-0 z-50 flex">
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={closeDetail} />
+            <div className="relative ml-auto w-full max-w-2xl bg-white shadow-2xl overflow-y-auto animate-slide-in-right">
+              <div className="sticky top-0 bg-white/95 backdrop-blur-md border-b border-brand-100 px-6 py-4 flex items-center justify-between z-10">
+                <div>
+                  <h2 className="font-bold text-brand-900">Session #{selectedSession.id}</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <StatusBadge status={selectedSession.status} />
+                    <span className="text-xs text-slate-400">
+                      {selectedSession.direction === 'inbound' ? 'Inbound' : 'Outbound'}
+                    </span>
+                  </div>
+                </div>
+                <button onClick={closeDetail} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {detailLoading ? (
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="w-6 h-6 text-brand-600 animate-spin" />
+                  </div>
+                ) : sessionDetail ? (
+                  <>
+                    {/* Session Info */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-slate-50 rounded-xl">
+                        <p className="text-xs text-slate-400 mb-1">Phone</p>
+                        <p className="text-sm font-semibold text-slate-700">{sessionDetail.phone_number}</p>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-xl">
+                        <p className="text-xs text-slate-400 mb-1">Duration</p>
+                        <p className="text-sm font-semibold text-slate-700">
+                          {sessionDetail.duration_seconds
+                            ? `${Math.floor(sessionDetail.duration_seconds / 60)}m ${sessionDetail.duration_seconds % 60}s`
+                            : '—'}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-xl">
+                        <p className="text-xs text-slate-400 mb-1">Scheduled</p>
+                        <p className="text-sm font-semibold text-slate-700">
+                          {sessionDetail.scheduled_at ? new Date(sessionDetail.scheduled_at).toLocaleString() : '—'}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-xl">
+                        <p className="text-xs text-slate-400 mb-1">Retries</p>
+                        <p className="text-sm font-semibold text-slate-700">{sessionDetail.retry_count}</p>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    {['scheduled', 'no_answer', 'failed'].includes(selectedSession.status) && (
+                      <div className="flex gap-3">
+                        <button
+                          onClick={async () => {
+                            try {
+                              await cancelVoiceSession(selectedSession.id)
+                              closeDetail()
+                              fetchSessions()
+                            } catch (err) {
+                              setError(err.message || 'Failed to cancel')
+                            }
+                          }}
+                          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-red-600 bg-red-50 rounded-xl hover:bg-red-100 transition-colors"
+                        >
+                          <X className="w-4 h-4" /> Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            closeDetail()
+                            setScheduleModal(true)
+                          }}
+                          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-brand-600 bg-brand-50 rounded-xl hover:bg-brand-100 transition-colors"
+                        >
+                          <RefreshCw className="w-4 h-4" /> Reschedule
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Transcript */}
+                    {sessionDetail.transcript && sessionDetail.transcript.length > 0 && (
+                      <VoiceTranscriptViewer entries={sessionDetail.transcript} />
+                    )}
+
+                    {/* Assessment */}
+                    {sessionDetail.assessment_json && (
+                      <VoiceAssessmentPanel assessment={
+                        typeof sessionDetail.assessment_json === 'string'
+                          ? JSON.parse(sessionDetail.assessment_json)
+                          : sessionDetail.assessment_json
+                      } />
+                    )}
+                  </>
+                ) : (
+                  <p className="text-center text-slate-400 py-8">Failed to load session details</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Schedule Modal */}
+        {scheduleModal && (
+          <VoiceScheduleModal
+            onClose={() => setScheduleModal(false)}
+            onScheduled={() => {
+              setScheduleModal(false)
+              fetchSessions()
+            }}
+          />
+        )}
+      </div>
+    </div>
+  )
+}

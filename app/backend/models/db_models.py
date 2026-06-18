@@ -869,3 +869,92 @@ class UsageAlert(Base):
         UniqueConstraint("tenant_id", "alert_type", "period_key", name="uq_usage_alert_per_period"),
     )
 
+
+# ─── Voice Screening ───────────────────────────────────────────────────────────
+
+class VoiceTenantConfig(Base):
+    """Per-tenant voice screening bot configuration."""
+    __tablename__ = "voice_tenant_configs"
+
+    id                        = Column(Integer, primary_key=True, index=True)
+    tenant_id                 = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    bot_name                  = Column(String(100), nullable=False, server_default="ARIA Assistant")
+    bot_voice_gender          = Column(String(10), nullable=False, server_default="female")  # male / female
+    bot_voice_sample_url      = Column(Text, nullable=True)  # S3 URL to voice cloning audio
+    outbound_phone_number     = Column(String(20), nullable=True)  # E.164 format e.g. +14155551234
+    caller_id_name            = Column(String(100), nullable=True)
+    business_hours_start      = Column(String(5), nullable=False, server_default="09:00")  # HH:MM
+    business_hours_end        = Column(String(5), nullable=False, server_default="18:00")  # HH:MM
+    allowed_days              = Column(JSON, nullable=False, server_default="[1,2,3,4,5]")  # Mon=1 .. Sun=7
+    timezone                  = Column(String(50), nullable=False, server_default="UTC")
+    consent_script            = Column(Text, nullable=True)  # NULL = use default
+    greeting_style            = Column(String(20), nullable=False, server_default="professional")  # professional / casual / friendly
+    call_duration_min         = Column(Integer, nullable=False, server_default="5")
+    call_duration_max         = Column(Integer, nullable=False, server_default="7")
+    max_retries               = Column(Integer, nullable=False, server_default="3")
+    retry_intervals           = Column(JSON, nullable=False, server_default="[24,48]")  # hours between retries
+    escalation_contact_id     = Column(Integer, ForeignKey("team_members.id", ondelete="SET NULL"), nullable=True)
+    assessment_detail_level   = Column(String(10), nullable=False, server_default="full")  # brief / full
+    auto_update_status        = Column(Boolean, nullable=False, server_default="true", default=True)
+    follow_up_aggressiveness  = Column(String(10), nullable=False, server_default="medium")  # low / medium / high
+    created_at                = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at                = Column(DateTime(timezone=True), onupdate=func.now())
+
+    tenant              = relationship("Tenant", backref="voice_config", uselist=False)
+    escalation_contact  = relationship("TeamMember", foreign_keys=[escalation_contact_id])
+
+
+class VoiceScreeningSession(Base):
+    """A single voice screening call session (outbound or inbound callback)."""
+    __tablename__ = "voice_screening_sessions"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    tenant_id         = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    candidate_id      = Column(Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True)
+    jd_id             = Column(Integer, ForeignKey("role_templates.id", ondelete="SET NULL"), nullable=True)
+    phone_number      = Column(String(20), nullable=False)  # E.164
+    direction         = Column(String(10), nullable=False, server_default="outbound")  # outbound / inbound
+    callback_of_id    = Column(Integer, ForeignKey("voice_screening_sessions.id", ondelete="SET NULL"), nullable=True)  # links callback to original
+    status            = Column(String(20), nullable=False, server_default="scheduled", index=True)  # scheduled/ringing/in_progress/completed/failed/no_answer/voicemail
+    scheduled_at      = Column(DateTime(timezone=True), nullable=True)
+    started_at        = Column(DateTime(timezone=True), nullable=True)
+    ended_at          = Column(DateTime(timezone=True), nullable=True)
+    transcript_json   = Column(Text, nullable=True)  # JSON array of transcript entries
+    assessment_json   = Column(Text, nullable=True)  # JSON structured assessment
+    duration_seconds  = Column(Integer, nullable=True)
+    retry_count       = Column(Integer, nullable=False, server_default="0")
+    consent_recorded  = Column(Boolean, nullable=False, server_default="false", default=False)
+    call_sid          = Column(String(100), nullable=True)  # LiveKit/Twilio call identifier
+    error_log         = Column(Text, nullable=True)
+    created_at        = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at        = Column(DateTime(timezone=True), onupdate=func.now())
+
+    tenant      = relationship("Tenant", backref="voice_sessions")
+    candidate   = relationship("Candidate", backref="voice_sessions")
+    jd          = relationship("RoleTemplate", backref="voice_sessions")
+    callback_of = relationship("VoiceScreeningSession", remote_side=[id], foreign_keys=[callback_of_id])
+    transcript_entries = relationship("VoiceTranscriptEntry", back_populates="session", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_voice_sessions_tenant_candidate", "tenant_id", "candidate_id"),
+        Index("ix_voice_sessions_phone_status", "phone_number", "status"),
+    )
+
+
+class VoiceTranscriptEntry(Base):
+    """A single speaker turn in a voice screening session transcript."""
+    __tablename__ = "voice_transcript_entries"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("voice_screening_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    speaker    = Column(String(10), nullable=False)  # bot / candidate
+    text       = Column(Text, nullable=False)
+    timestamp  = Column(DateTime(timezone=True), nullable=False)
+    audio_url  = Column(Text, nullable=True)  # URL to audio clip for this turn
+
+    session = relationship("VoiceScreeningSession", back_populates="transcript_entries")
+
+    __table_args__ = (
+        Index("ix_voice_transcript_session_ts", "session_id", "timestamp"),
+    )
+

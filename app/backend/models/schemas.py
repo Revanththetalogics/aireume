@@ -623,3 +623,111 @@ class ScorecardOut(BaseModel):
     concerns_identified: List[str] = []
     debrief: Optional[DebriefContent] = None
     recruiter_score: Optional[int] = None
+
+
+# ─── Voice Screening ───────────────────────────────────────────────────────────
+
+class VoiceTenantConfigUpdate(BaseModel):
+    """Body for PUT /api/voice/settings — tenant updates their voice bot config."""
+    bot_name: Optional[str] = None
+    bot_voice_gender: Optional[str] = None  # male / female
+    bot_voice_sample_url: Optional[str] = None
+    outbound_phone_number: Optional[str] = None
+    caller_id_name: Optional[str] = None
+    business_hours_start: Optional[str] = None  # HH:MM
+    business_hours_end: Optional[str] = None  # HH:MM
+    allowed_days: Optional[List[int]] = None  # 1=Mon .. 7=Sun
+    timezone: Optional[str] = None
+    consent_script: Optional[str] = None  # null = use default
+    greeting_style: Optional[str] = None  # professional / casual / friendly
+    call_duration_min: Optional[int] = None
+    call_duration_max: Optional[int] = None
+    max_retries: Optional[int] = None
+    retry_intervals: Optional[List[int]] = None  # hours
+    escalation_contact_id: Optional[int] = None
+    assessment_detail_level: Optional[str] = None  # brief / full
+    auto_update_status: Optional[bool] = None
+    follow_up_aggressiveness: Optional[str] = None  # low / medium / high
+
+
+class VoiceTenantConfigOut(BaseModel):
+    """Response for GET /api/voice/settings."""
+    id: int
+    tenant_id: int
+    bot_name: str
+    bot_voice_gender: str
+    bot_voice_sample_url: Optional[str] = None
+    outbound_phone_number: Optional[str] = None
+    caller_id_name: Optional[str] = None
+    business_hours_start: str
+    business_hours_end: str
+    allowed_days: List[int]
+    timezone: str
+    consent_script: Optional[str] = None
+    greeting_style: str
+    call_duration_min: int
+    call_duration_max: int
+    max_retries: int
+    retry_intervals: List[int]
+    escalation_contact_id: Optional[int] = None
+    assessment_detail_level: str
+    auto_update_status: bool
+    follow_up_aggressiveness: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class VoiceTranscriptEntryOut(BaseModel):
+    """A single speaker turn in a transcript."""
+    id: int
+    session_id: int
+    speaker: str  # bot / candidate
+    text: str
+    timestamp: datetime
+    audio_url: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class VoiceScreeningSessionOut(BaseModel):
+    """Response for a voice screening session."""
+    id: int
+    tenant_id: int
+    candidate_id: int
+    jd_id: Optional[int] = None
+    phone_number: str
+    direction: str  # outbound / inbound
+    callback_of_id: Optional[int] = None
+    status: str
+    scheduled_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    transcript_json: Optional[str] = None
+    assessment_json: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    retry_count: int
+    consent_recorded: bool
+    call_sid: Optional[str] = None
+    error_log: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ScheduleVoiceCallRequest(BaseModel):
+    """Body for POST /api/voice/schedule — recruiter schedules a screening call."""
+    candidate_id: int
+    jd_id: Optional[int] = None
+    phone_number: str  # E.164
+    scheduled_at: Optional[datetime] = None  # UTC; None = schedule immediately
+
+
+class ScheduleVoiceCallResponse(BaseModel):
+    """Response after scheduling a voice call."""
+    session_id: int
+    status: str
+    scheduled_at: Optional[datetime] = None
+    phone_number: str

@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
+import { motion } from 'framer-motion'
 
 const PATH_LABELS = {
   admin:         'Admin',
@@ -40,14 +41,32 @@ export default function Breadcrumbs() {
   return (
     <nav className="flex items-center gap-1.5 text-sm" aria-label="Breadcrumb">
       {crumbs.map((crumb, idx) => (
-        <span key={crumb.path} className="flex items-center gap-1.5">
+        <motion.span
+          key={crumb.path}
+          initial={{ opacity: 0, x: -4 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: idx * 0.05 }}
+          className="flex items-center gap-1.5"
+        >
           {idx > 0 && (
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-gray-300 shrink-0">
+            <motion.svg
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: idx * 0.05 + 0.025 }}
+              viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-gray-300 shrink-0"
+            >
               <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd"/>
-            </svg>
+            </motion.svg>
           )}
           {crumb.isLast ? (
-            <span className="font-semibold text-gray-800">{crumb.label}</span>
+            <motion.span
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: idx * 0.05 + 0.05 }}
+              className="font-semibold text-gray-800 dark:text-dark-text-primary"
+            >
+              {crumb.label}
+            </motion.span>
           ) : (
             <Link
               to={crumb.path}
@@ -56,7 +75,7 @@ export default function Breadcrumbs() {
               {crumb.label}
             </Link>
           )}
-        </span>
+        </motion.span>
       ))}
     </nav>
   )

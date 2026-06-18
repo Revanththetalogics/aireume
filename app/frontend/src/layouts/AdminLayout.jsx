@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
 import Breadcrumbs from '../components/admin/Breadcrumbs'
 
@@ -92,19 +93,30 @@ function SidebarItem({ item, onClick }) {
       className={() =>
         `group flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 relative
         ${isActive
-          ? 'bg-slate-800 text-white border-l-2 border-teal-400 pl-[10px]'
+          ? 'text-white'
           : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
         }`
       }
     >
-      <span className={`shrink-0 ${isActive ? 'text-teal-400' : 'text-slate-500 group-hover:text-slate-300'}`}>
-        {ICONS[item.label] || (
-          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-            <circle cx="10" cy="10" r="3"/>
-          </svg>
-        )}
-      </span>
-      <span className="truncate">{item.label}</span>
+      {({ isActive: active }) => (
+        <>
+          {active && (
+            <motion.div
+              layoutId="admin-sidebar-active"
+              className="absolute inset-0 bg-slate-800 rounded-md border-l-2 border-teal-400"
+              transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+            />
+          )}
+          <span className={`shrink-0 relative z-10 ${active ? 'text-teal-400' : 'text-slate-500 group-hover:text-slate-300'}`}>
+            {ICONS[item.label] || (
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <circle cx="10" cy="10" r="3"/>
+              </svg>
+            )}
+          </span>
+          <span className="truncate relative z-10">{item.label}</span>
+        </>
+      )}
     </NavLink>
   )
 }

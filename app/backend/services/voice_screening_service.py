@@ -1,0 +1,513 @@
+"""
+Voice Screening Service — Core orchestration layer.
+
+Module-level functions (follows transcript_service.py pattern):
+  - generate_screening_questions() — LLM generates Qs from JD skills
+  - generate_post_call_assessment() — LLM generates structured assessment from transcript
+  - evaluate_answer_quality() — LLM evaluates candidate answer in real-time
+  - build_conversation_context() — Assembles tenant config + JD + candidate into context
+  - process_completed_call() — Post-call pipeline: transcript → assessment → status update
+"""
+import json
+import logging
+import os
+from datetime import datetime, timezone
+from typing import Optional
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
+from app.backend.models.db_models import (
+    VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry,
+    Candidate, RoleTemplate,
+)
+
+logger = logging.getLogger(__name__)
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+
+
+# ─── Dynamic Question Generation ──────────────────────────────────────────────
+
+async def generate_screening_questions(jd_text: str, must_have_skills: list, jd_title: str = "") -> list:
+    """
+    Generate 3-5 screening questions from JD must-have skills.
+
+    Returns a list of question strings, one per key skill.
+    """
+    if not must_have_skills:
+        return ["Tell me about your most challenging project in the last year."]
+
+    skills_str = ", ".join(must_have_skills[:10])
+    system_prompt = (
+        "You are an expert technical recruiter conducting a phone screening. "
+        "Generate concise, open-ended screening questions that probe a candidate's "
+        "depth of knowledge. Each question should target a specific skill. "
+        "Return ONLY a JSON array of strings, no other text.\n\n"
+        "Rules:\n"
+        "- 3-5 questions total\n"
+        "- Each question should be specific to a skill, not generic\n"
+        "- Use 'Tell me about...', 'Describe how...', 'Walk me through...' style\n"
+        "- Avoid yes/no questions\n"
+    )
+
+    user_msg = (
+        f"Role: {jd_title or 'the position'}\n"
+        f"Must-have skills: {skills_str}\n"
+        f"Job description excerpt: {jd_text[:1000]}\n\n"
+        f"Generate screening questions."
+    )
+
+    try:
+        semaphore = get_ollama_semaphore()
+        async with semaphore:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "prompt": f"{system_prompt}\n\n{user_msg}",
+                        "stream": False,
+                        "options": {"temperature": 0.7, "num_predict": 512},
+                    },
+                    headers=get_ollama_headers(),
+                )
+                resp.raise_for_status()
+                response_text = resp.json().get("response", "")
+
+        # Try JSON parse first
+        try:
+            questions = json.loads(response_text)
+            if isinstance(questions, list) and all(isinstance(q, str) for q in questions):
+                return questions[:5]
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: extract question lines
+        lines = [
+            line.strip().lstrip("0123456789.-) ")
+            for line in response_text.split("\n")
+            if line.strip() and "?" in line
+        ]
+        return lines[:5] if lines else [f"Tell me about your experience with {s}." for s in must_have_skills[:3]]
+
+    except Exception as e:
+        logger.error("Question generation failed: %s", e, exc_info=True)
+        return [f"Tell me about your experience with {s}." for s in must_have_skills[:3]]
+
+
+# ─── Answer Quality Evaluation ────────────────────────────────────────────────
+
+async def evaluate_answer_quality(question: str, answer: str, skill: str = "") -> dict:
+    """
+    Evaluate a candidate's answer quality in real-time.
+
+    Returns:
+        {
+            "quality": "strong" | "adequate" | "weak",
+            "score": 1-5,
+            "should_follow_up": bool,
+            "follow_up_prompt": str or None,
+        }
+    """
+    system_prompt = (
+        "You are a recruiter evaluating a candidate's phone screening answer. "
+        "Assess the answer quality and decide if a follow-up is needed. "
+        "Return ONLY a JSON object with these keys:\n"
+        '{"quality": "strong|adequate|weak", "score": 1-5, '
+        '"should_follow_up": true/false, "follow_up_prompt": "..." or null}'
+    )
+
+    user_msg = (
+        f"Skill being assessed: {skill or 'general'}\n"
+        f"Question: {question}\n"
+        f"Candidate's answer: {answer}\n\n"
+        f"Evaluate the answer quality."
+    )
+
+    try:
+        semaphore = get_ollama_semaphore()
+        async with semaphore:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "prompt": f"{system_prompt}\n\n{user_msg}",
+                        "stream": False,
+                        "options": {"temperature": 0.3, "num_predict": 256},
+                    },
+                    headers=get_ollama_headers(),
+                )
+                resp.raise_for_status()
+                response_text = resp.json().get("response", "")
+
+        try:
+            result = json.loads(response_text)
+            return {
+                "quality": result.get("quality", "adequate"),
+                "score": min(5, max(1, int(result.get("score", 3)))),
+                "should_follow_up": result.get("should_follow_up", False),
+                "follow_up_prompt": result.get("follow_up_prompt"),
+            }
+        except (json.JSONDecodeError, ValueError):
+            return {"quality": "adequate", "score": 3, "should_follow_up": False, "follow_up_prompt": None}
+
+    except Exception as e:
+        logger.error("Answer evaluation failed: %s", e, exc_info=True)
+        return {"quality": "adequate", "score": 3, "should_follow_up": False, "follow_up_prompt": None}
+
+
+# ─── Post-Call Assessment ─────────────────────────────────────────────────────
+
+async def generate_post_call_assessment(
+    transcript: list,
+    jd_text: str,
+    candidate_name: str,
+    jd_title: str = "",
+    must_have_skills: list = None,
+    detail_level: str = "full",
+) -> dict:
+    """
+    Generate a structured post-call assessment from the full transcript.
+
+    Returns:
+        {
+            "overall_recommendation": "strong_yes|yes|maybe|no|strong_no",
+            "overall_score": 1-100,
+            "summary": "...",
+            "skill_assessments": [{"skill": "...", "rating": 1-5, "evidence": "..."}],
+            "communication_score": 1-5,
+            "risk_flags": ["..."],
+            "per_question_assessment": [{"question": "...", "answer_summary": "...", "rating": 1-5, "evidence": "..."}],
+        }
+    """
+    # Format transcript for LLM
+    transcript_text = "\n".join(
+        f"{'Recruiter' if e.get('speaker') == 'bot' else 'Candidate'}: {e.get('text', '')}"
+        for e in transcript
+    )
+
+    skills_str = ", ".join(must_have_skills[:10]) if must_have_skills else "general skills"
+
+    detail_instruction = (
+        "Provide a FULL assessment with per-question breakdowns, skill-by-skill ratings, "
+        "and detailed evidence quotes."
+        if detail_level == "full"
+        else "Provide a BRIEF assessment with just the overall recommendation, summary, and top 3 strengths/concerns."
+    )
+
+    system_prompt = (
+        "You are a senior recruiter evaluating a phone screening call. "
+        "Generate a structured assessment based on the conversation transcript. "
+        "Return ONLY a JSON object with these keys:\n"
+        "{\n"
+        '  "overall_recommendation": "strong_yes|yes|maybe|no|strong_no",\n'
+        '  "overall_score": 0-100,\n'
+        '  "summary": "2-3 sentence summary",\n'
+        '  "skill_assessments": [{"skill": "...", "rating": 1-5, "evidence": "quote from transcript"}],\n'
+        '  "communication_score": 1-5,\n'
+        '  "risk_flags": ["concern1", "concern2"],\n'
+        '  "per_question_assessment": [{"question": "...", "answer_summary": "...", "rating": 1-5, "evidence": "..."}]\n'
+        "}\n\n"
+        f"{detail_instruction}\n"
+        "Be objective and evidence-based. Quote specific parts of the transcript."
+    )
+
+    user_msg = (
+        f"Candidate: {candidate_name}\n"
+        f"Role: {jd_title or 'the position'}\n"
+        f"Must-have skills: {skills_str}\n"
+        f"Job description: {jd_text[:1500]}\n\n"
+        f"--- TRANSCRIPT ---\n{transcript_text[:5000]}\n--- END TRANSCRIPT ---"
+    )
+
+    try:
+        semaphore = get_ollama_semaphore()
+        async with semaphore:
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                resp = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "prompt": f"{system_prompt}\n\n{user_msg}",
+                        "stream": False,
+                        "options": {"temperature": 0.3, "num_predict": 2048},
+                    },
+                    headers=get_ollama_headers(),
+                )
+                resp.raise_for_status()
+                response_text = resp.json().get("response", "")
+
+        try:
+            result = json.loads(response_text)
+        except json.JSONDecodeError:
+            result = _fallback_assessment(candidate_name)
+
+        # Validate and normalize
+        valid_recommendations = {"strong_yes", "yes", "maybe", "no", "strong_no"}
+        if result.get("overall_recommendation") not in valid_recommendations:
+            result["overall_recommendation"] = "maybe"
+
+        result["overall_score"] = min(100, max(0, int(result.get("overall_score", 50))))
+        result.setdefault("summary", "")
+        result.setdefault("skill_assessments", [])
+        result.setdefault("communication_score", 3)
+        result.setdefault("risk_flags", [])
+        result.setdefault("per_question_assessment", [])
+
+        return result
+
+    except Exception as e:
+        logger.error("Post-call assessment generation failed: %s", e, exc_info=True)
+        return _fallback_assessment(candidate_name)
+
+
+def _fallback_assessment(candidate_name: str) -> dict:
+    """Fallback assessment when LLM fails."""
+    return {
+        "overall_recommendation": "maybe",
+        "overall_score": 50,
+        "summary": f"Assessment generation failed. Manual review recommended for {candidate_name}.",
+        "skill_assessments": [],
+        "communication_score": 3,
+        "risk_flags": ["Automated assessment unavailable — manual review required"],
+        "per_question_assessment": [],
+    }
+
+
+# ─── Conversation Context Builder ─────────────────────────────────────────────
+
+def build_conversation_context(db: Session, session_id: int) -> dict:
+    """
+    Assemble all context needed for a screening call from the DB.
+
+    Returns dict with: tenant_config, candidate, jd, screening_questions
+    """
+    voice_session = db.execute(
+        select(VoiceScreeningSession).where(VoiceScreeningSession.id == session_id)
+    ).scalar_one_or_none()
+
+    if voice_session is None:
+        return {}
+
+    # Tenant config
+    config = db.execute(
+        select(VoiceTenantConfig).where(VoiceTenantConfig.tenant_id == voice_session.tenant_id)
+    ).scalar_one_or_none()
+
+    # Candidate
+    candidate = db.execute(
+        select(Candidate).where(Candidate.id == voice_session.candidate_id)
+    ).scalar_one_or_none()
+
+    # JD (optional)
+    jd = None
+    if voice_session.jd_id:
+        jd = db.execute(
+            select(RoleTemplate).where(RoleTemplate.id == voice_session.jd_id)
+        ).scalar_one_or_none()
+
+    # Extract must-have skills from JD
+    must_have_skills = []
+    jd_text = ""
+    jd_title = ""
+    if jd:
+        jd_text = jd.jd_text or ""
+        jd_title = jd.name or ""
+        if jd.required_skills_override:
+            try:
+                skills_data = json.loads(jd.required_skills_override)
+                if isinstance(skills_data, list):
+                    for s in skills_data:
+                        if isinstance(s, str):
+                            must_have_skills.append(s)
+                        elif isinstance(s, dict) and "skill" in s:
+                            must_have_skills.append(s["skill"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    return {
+        "session": voice_session,
+        "tenant_config": config,
+        "candidate": candidate,
+        "jd": jd,
+        "jd_text": jd_text,
+        "jd_title": jd_title,
+        "must_have_skills": must_have_skills,
+        "candidate_name": candidate.name if candidate else "Candidate",
+        "phone_number": voice_session.phone_number,
+        "bot_name": config.bot_name if config else "ARIA Assistant",
+        "greeting_style": config.greeting_style if config else "professional",
+        "call_duration_max": config.call_duration_max if config else 420,
+        "consent_script": config.consent_script if config else None,
+    }
+
+
+# ─── Post-Call Pipeline ───────────────────────────────────────────────────────
+
+async def process_completed_call(db: Session, session_id: int):
+    """
+    Full post-call pipeline:
+    1. Load transcript from DB
+    2. Generate structured assessment
+    3. Store assessment in session
+    4. Update candidate status if auto_update_status is enabled
+    """
+    ctx = build_conversation_context(db, session_id)
+    if not ctx:
+        logger.error("Cannot process call — session %d not found", session_id)
+        return
+
+    voice_session = ctx["session"]
+    candidate = ctx["candidate"]
+    config = ctx["tenant_config"]
+
+    # Load transcript entries
+    entries = db.execute(
+        select(VoiceTranscriptEntry)
+        .where(VoiceTranscriptEntry.session_id == session_id)
+        .order_by(VoiceTranscriptEntry.timestamp.asc())
+    ).scalars().all()
+
+    transcript = [{"speaker": e.speaker, "text": e.text} for e in entries]
+
+    if not transcript:
+        logger.warning("Session %d has no transcript — skipping assessment", session_id)
+        return
+
+    # Generate assessment
+    assessment = await generate_post_call_assessment(
+        transcript=transcript,
+        jd_text=ctx["jd_text"],
+        candidate_name=ctx["candidate_name"],
+        jd_title=ctx["jd_title"],
+        must_have_skills=ctx["must_have_skills"],
+        detail_level=config.assessment_detail_level if config else "full",
+    )
+
+    # Store assessment
+    voice_session.assessment_json = json.dumps(assessment, default=str)
+    voice_session.status = "completed"
+    voice_session.ended_at = datetime.now(timezone.utc)
+
+    if entries:
+        voice_session.duration_seconds = int(
+            (entries[-1].timestamp - entries[0].timestamp).total_seconds()
+        ) if len(entries) > 1 else 0
+
+    db.commit()
+    logger.info(
+        "Post-call assessment complete for session %d: recommendation=%s score=%d",
+        session_id,
+        assessment.get("overall_recommendation"),
+        assessment.get("overall_score", 0),
+    )
+
+    # Send notification to recruiter
+    _notify_call_completed(db, voice_session, candidate, config, assessment)
+
+
+def _notify_call_completed(db, voice_session, candidate, config, assessment):
+    """Send in-app notification + email to recruiter after a completed call."""
+    try:
+        from app.backend.services.notification_service import create_admin_notification
+        from app.backend.models.db_models import User
+
+        score = assessment.get("overall_score", "N/A")
+        recommendation = assessment.get("overall_recommendation", "N/A")
+
+        # In-app notification for all tenant users
+        create_admin_notification(
+            db=db,
+            type="voice_screening_completed",
+            severity="info",
+            title=f"Voice Screening Complete: {candidate.name if candidate else 'Candidate'}",
+            message=(
+                f"Screening call for {candidate.name if candidate else 'Candidate'} "
+                f"(phone: {voice_session.phone_number}) completed.\n"
+                f"Score: {score}/10 | Recommendation: {recommendation}\n"
+                f"Duration: {voice_session.duration_seconds or 0}s"
+            ),
+            tenant_id=voice_session.tenant_id,
+        )
+
+        # Email notification to tenant users
+        try:
+            from app.backend.services.email_service import (
+                email_service,
+                get_tenant_email_service,
+            )
+            users = db.execute(
+                select(User).where(User.tenant_id == voice_session.tenant_id)
+            ).scalars().all()
+
+            tenant_svc = get_tenant_email_service(db, voice_session.tenant_id)
+            svc = tenant_svc if tenant_svc else email_service
+
+            if svc and svc.is_configured:
+                subject = f"Voice Screening Complete — {candidate.name if candidate else 'Candidate'}"
+                body_html = (
+                    f"<h3>Voice Screening Call Completed</h3>"
+                    f"<p><strong>Candidate:</strong> {candidate.name if candidate else 'N/A'}</p>"
+                    f"<p><strong>Phone:</strong> {voice_session.phone_number}</p>"
+                    f"<p><strong>Score:</strong> {score}/10</p>"
+                    f"<p><strong>Recommendation:</strong> {recommendation}</p>"
+                    f"<p><strong>Duration:</strong> {voice_session.duration_seconds or 0}s</p>"
+                    f"<p><a href='/voice-screening'>View full transcript and assessment</a></p>"
+                )
+                for user in users:
+                    if user.email:
+                        svc.send_email(user.email, subject, body_html)
+        except Exception as e:
+            logger.warning("Failed to send voice screening email: %s", e)
+
+    except Exception as e:
+        logger.warning("Failed to send voice screening notification: %s", e)
+
+
+def _notify_call_failed(db, voice_session, candidate, config):
+    """Send in-app notification when a call fails (all retries exhausted)."""
+    try:
+        from app.backend.services.notification_service import create_admin_notification
+
+        create_admin_notification(
+            db=db,
+            type="voice_screening_failed",
+            severity="warning",
+            title=f"Voice Screening Failed: {candidate.name if candidate else 'Candidate'}",
+            message=(
+                f"All retry attempts exhausted for {candidate.name if candidate else 'Candidate'} "
+                f"(phone: {voice_session.phone_number}).\n"
+                f"Retries: {voice_session.retry_count}\n"
+                f"This candidate may need manual follow-up."
+            ),
+            tenant_id=voice_session.tenant_id,
+        )
+    except Exception as e:
+        logger.warning("Failed to send failed call notification: %s", e)
+
+
+def _notify_escalation(db, voice_session, candidate, config):
+    """Send notification when a call is escalated (all retries exhausted)."""
+    try:
+        from app.backend.services.notification_service import create_admin_notification
+
+        create_admin_notification(
+            db=db,
+            type="voice_screening_escalated",
+            severity="error",
+            title=f"Voice Screening Escalated: {candidate.name if candidate else 'Candidate'}",
+            message=(
+                f"Screening for {candidate.name if candidate else 'Candidate'} "
+                f"(phone: {voice_session.phone_number}) has been escalated.\n"
+                f"All {voice_session.retry_count} retry attempts failed.\n"
+                f"Manual follow-up required."
+            ),
+            tenant_id=voice_session.tenant_id,
+        )
+    except Exception as e:
+        logger.warning("Failed to send escalation notification: %s", e)

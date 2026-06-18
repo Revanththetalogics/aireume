@@ -2,10 +2,12 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Briefcase, Users, BarChart3, Columns,
   Users2, Video, Settings, Shield, LogOut, Sparkles,
-  MoreHorizontal,
+  MoreHorizontal, Phone, Moon, Sun,
 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
+import { useTheme } from '../contexts/ThemeContext'
 import { STATUS_CONFIG } from '../lib/constants'
 import ProgressBadge from './ProgressBadge'
 
@@ -23,6 +25,7 @@ const USER_MENU_LINKS = [
   { label: 'Team', path: '/team', icon: Users2 },
   { label: 'Team Skills', path: '/team-skills', icon: Users },
   { label: 'Interviews', path: '/video', icon: Video },
+  { label: 'Voice Screening', path: '/voice-screening', icon: Phone },
   { label: 'Settings', path: '/settings', icon: Settings },
 ]
 
@@ -30,6 +33,7 @@ const USER_MENU_LINKS = [
 
 function UserMenu({ user, tenant, logout, onClose }) {
   const navigate = useNavigate()
+  const { theme, toggleTheme } = useTheme()
   const isPlatformAdmin = user?.is_platform_admin || !!user?.platform_role
   const initials = user?.email ? user.email[0].toUpperCase() : '?'
 
@@ -39,7 +43,13 @@ function UserMenu({ user, tenant, logout, onClose }) {
   }
 
   return (
-    <div className="absolute right-0 top-full mt-2 w-64 bg-white/95 backdrop-blur-xl border border-brand-100 rounded-2xl shadow-brand-lg py-1.5 z-50 animate-fade-up">
+    <motion.div
+      initial={{ opacity: 0, y: -8, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -4, scale: 0.95 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+      className="absolute right-0 top-full mt-2 w-64 bg-white/95 dark:bg-dark-card/95 backdrop-blur-2xl border border-brand-100 dark:border-white/10 rounded-2xl shadow-brand-lg py-1.5 z-50"
+    >
       {/* User info */}
       <div className="px-4 py-3 border-b border-brand-50">
         <div className="flex items-center gap-3">
@@ -69,7 +79,16 @@ function UserMenu({ user, tenant, logout, onClose }) {
         ))}
       </div>
 
-      <div className="mx-3 my-1 border-t border-brand-50" />
+      <div className="mx-3 my-1 border-t border-brand-50 dark:border-white/10" />
+
+      {/* Theme toggle */}
+      <button
+        onClick={toggleTheme}
+        className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-slate-600 dark:text-dark-text-secondary hover:bg-brand-50 dark:hover:bg-dark-card-elevated hover:text-brand-700 transition-colors"
+      >
+        {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+        {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+      </button>
 
       {/* Logout */}
       <button
@@ -79,7 +98,7 @@ function UserMenu({ user, tenant, logout, onClose }) {
         <LogOut className="w-4 h-4" />
         Sign out
       </button>
-    </div>
+    </motion.div>
   )
 }
 
@@ -127,7 +146,7 @@ function MobileTabBar({ location }) {
       )}
 
       {/* Tab bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-brand-100/60 z-40 md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-dark-card/80 backdrop-blur-2xl border-t border-brand-100/60 dark:border-white/10 z-40 md:hidden">
         <div className="flex items-center justify-around h-16 px-2">
           {tabs.map(tab => {
             const active = location.pathname === tab.path
@@ -135,12 +154,24 @@ function MobileTabBar({ location }) {
               <Link
                 key={tab.path}
                 to={tab.path}
-                className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors ${
+                className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors ${
                   active ? 'text-brand-600' : 'text-slate-400'
                 }`}
               >
-                <tab.icon className="w-5 h-5" />
+                <motion.div
+                  animate={{ scale: active ? 1.1 : 1 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 15 }}
+                >
+                  <tab.icon className="w-5 h-5" />
+                </motion.div>
                 <span className="text-[10px] font-medium">{tab.label}</span>
+                {active && (
+                  <motion.span
+                    layoutId="mobile-tab-indicator"
+                    className="absolute -top-px left-1/2 -translate-x-1/2 w-8 h-0.5 bg-brand-600 rounded-full"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                )}
               </Link>
             )
           })}
@@ -238,7 +269,7 @@ export default function NavBar() {
 
   return (
     <>
-      <header className="bg-white/80 backdrop-blur-xl border-b border-brand-100/60 sticky top-0 z-30 print:hidden">
+      <header className="bg-white/70 dark:bg-dark-card/70 backdrop-blur-2xl border-b border-brand-100/60 dark:border-white/10 sticky top-0 z-30 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-4">
 
           {/* Logo */}
@@ -270,9 +301,13 @@ export default function NavBar() {
                 >
                   <item.icon className={`w-4 h-4 ${active ? 'text-brand-600' : ''}`} />
                   {item.label}
-                  {/* Active underline */}
+                  {/* Animated active underline */}
                   {active && (
-                    <span className="absolute -bottom-[9px] left-1/2 -translate-x-1/2 w-5 h-0.5 bg-brand-600 rounded-full" />
+                    <motion.span
+                      layoutId="nav-active-underline"
+                      className="absolute -bottom-[9px] left-1/2 -translate-x-1/2 w-5 h-0.5 bg-brand-600 rounded-full"
+                      transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                    />
                   )}
                 </Link>
               )
@@ -303,9 +338,11 @@ export default function NavBar() {
                 </div>
               </button>
 
-              {userMenuOpen && (
-                <UserMenu user={user} tenant={tenant} logout={logout} onClose={() => setUserMenuOpen(false)} />
-              )}
+              <AnimatePresence>
+                {userMenuOpen && (
+                  <UserMenu user={user} tenant={tenant} logout={logout} onClose={() => setUserMenuOpen(false)} />
+                )}
+              </AnimatePresence>
             </div>
           </div>
 

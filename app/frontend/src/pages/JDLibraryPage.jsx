@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { LayoutTemplate, Plus, Trash2, Edit2, X, Save, Sparkles, TrendingUp, Filter, Users, ChevronRight, Briefcase } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
 import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getAllJDStats } from '../lib/api'
+import { StaggerContainer, StaggerItem } from '../components/motion'
 
 /**
  * Parse template.tags into a structured object.
@@ -368,14 +369,14 @@ export default function JDLibraryPage() {
             />
           )
         ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <StaggerContainer className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredTemplates.map(t => {
               const weights = getWeights(t)
               const stats = jdStats[t.id]
               const shortlisted = stats?.by_status?.shortlisted || 0
               return (
+                <StaggerItem key={t.id}>
                 <div 
-                  key={t.id} 
                   className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand p-5 hover:shadow-brand-lg transition-shadow card-animate flex flex-col"
                 >
                   {/* Header */}
@@ -511,9 +512,10 @@ export default function JDLibraryPage() {
                     <Sparkles className="w-4 h-4" /> Use This JD
                   </button>
                 </div>
+                </StaggerItem>
               )
             })}
-          </div>
+          </StaggerContainer>
         )}
       </main>
 

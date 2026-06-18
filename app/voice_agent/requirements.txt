@@ -1,0 +1,6 @@
+# Voice Agent Dependencies
+livekit-agents>=0.12.0
+livekit-api>=0.7.0
+livekit-protocol>=0.6.0
+httpx==0.28.1
+python-dotenv==1.0.1
