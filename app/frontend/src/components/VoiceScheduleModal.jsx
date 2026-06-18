@@ -9,18 +9,21 @@ import { getCandidates } from '../lib/api'
 
 const springTransition = { type: 'spring', stiffness: 300, damping: 28 }
 
-export default function VoiceScheduleModal({ onClose, onScheduled }) {
+export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCandidate = null, preselectedJdId = null }) {
   const [candidates, setCandidates] = useState([])
   const [loadingCandidates, setLoadingCandidates] = useState(true)
-  const [selectedCandidate, setSelectedCandidate] = useState(null)
-  const [phoneNumber, setPhoneNumber] = useState('')
+  const [selectedCandidate, setSelectedCandidate] = useState(preselectedCandidate)
+  const [phoneNumber, setPhoneNumber] = useState(preselectedCandidate?.phone || preselectedCandidate?.contact_info?.phone || '')
   const [scheduledAt, setScheduledAt] = useState('')
-  const [jdId] = useState(null)
+  const [jdId] = useState(preselectedJdId)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
 
+  const isPreselected = !!preselectedCandidate
+
   useEffect(() => {
+    if (isPreselected) return
     async function loadCandidates() {
       try {
         const data = await getCandidates()
@@ -32,7 +35,7 @@ export default function VoiceScheduleModal({ onClose, onScheduled }) {
       }
     }
     loadCandidates()
-  }, [])
+  }, [isPreselected])
 
   function handleCandidateSelect(candidate) {
     setSelectedCandidate(candidate)
@@ -138,37 +141,56 @@ export default function VoiceScheduleModal({ onClose, onScheduled }) {
         )}
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Candidate Selection */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              <span className="flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5" /> Candidate
-              </span>
-            </label>
-            {loadingCandidates ? (
-              <div className="flex items-center gap-2 py-3 text-sm text-slate-400">
-                <Loader2 className="w-4 h-4 animate-spin" /> Loading candidates...
+          {/* Pre-selected candidate info */}
+          {isPreselected && (
+            <div className="flex items-center gap-3 p-3 bg-brand-50 rounded-xl ring-1 ring-brand-200">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-600 to-brand-400 flex items-center justify-center text-white text-sm font-bold shrink-0">
+                {(selectedCandidate?.name || selectedCandidate?.email || '?')[0].toUpperCase()}
               </div>
-            ) : (
-              <div className="relative">
-                <select
-                  value={selectedCandidate?.id || ''}
-                  onChange={e => {
-                    const c = candidates.find(c => c.id === parseInt(e.target.value))
-                    if (c) handleCandidateSelect(c)
-                  }}
-                  className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 text-sm outline-none appearance-none"
-                >
-                  <option value="">Select a candidate...</option>
-                  {candidates.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name || c.email || `Candidate #${c.id}`}
-                    </option>
-                  ))}
-                </select>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-800 truncate">
+                  {selectedCandidate?.name || selectedCandidate?.email || `Candidate #${selectedCandidate?.id}`}
+                </p>
+                <p className="text-xs text-slate-500 truncate">
+                  {selectedCandidate?.email || 'No email'}
+                </p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* Candidate Selection — only show when not pre-selected */}
+          {!isPreselected && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                <span className="flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5" /> Candidate
+                </span>
+              </label>
+              {loadingCandidates ? (
+                <div className="flex items-center gap-2 py-3 text-sm text-slate-400">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading candidates...
+                </div>
+              ) : (
+                <div className="relative">
+                  <select
+                    value={selectedCandidate?.id || ''}
+                    onChange={e => {
+                      const c = candidates.find(c => c.id === parseInt(e.target.value))
+                      if (c) handleCandidateSelect(c)
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 text-sm outline-none appearance-none"
+                  >
+                    <option value="">Select a candidate...</option>
+                    {candidates.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name || c.email || `Candidate #${c.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Phone Number */}
           <div>

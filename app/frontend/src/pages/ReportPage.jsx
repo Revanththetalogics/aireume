@@ -16,6 +16,7 @@ import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
 import PhoneScreenKit from '../components/PhoneScreenKit'
 import EvaluationChecklist from '../components/EvaluationChecklist'
+import VoiceScheduleModal from '../components/VoiceScheduleModal'
 import api from '../lib/api'
 
 /**
@@ -232,6 +233,9 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(true)
   const [auditLogs, setAuditLogs] = useState([])
   const [auditExpanded, setAuditExpanded] = useState(false)
+
+  // ── Voice Screening modal state ──────────────────────────────────────────
+  const [voiceScheduleOpen, setVoiceScheduleOpen] = useState(false)
 
   // ── Phone Screen split-view state ─────────────────────────────────────────
   const [screenMode, setScreenMode] = useState(false)
@@ -919,10 +923,20 @@ export default function ReportPage() {
         {/* Sticky action bar */}
         <div className="bg-white/80 backdrop-blur-xl border-b border-brand-100/60 shrink-0 z-10 print:hidden">
           <div className="px-6 h-14 flex items-center justify-end gap-2">
+            {result?.candidate_id && (
+              <button
+                onClick={() => setVoiceScheduleOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 shadow-brand-sm transition-all"
+                title="Schedule AI voice screening call"
+              >
+                <PhoneCall className="w-4 h-4" />
+                Schedule Voice Screen
+              </button>
+            )}
             {interviewQs && (
               <button
                 onClick={() => setScreenMode(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 shadow-brand-sm transition-colors"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-brand-700 bg-brand-50 ring-1 ring-brand-200 hover:bg-brand-100 transition-colors"
                 title="Open split-view phone screen mode"
               >
                 <PhoneCall className="w-4 h-4" />
@@ -1137,6 +1151,21 @@ export default function ReportPage() {
           />
         </div>
       </div>
+
+      {/* Voice Screening Schedule Modal */}
+      {voiceScheduleOpen && result?.candidate_id && (
+        <VoiceScheduleModal
+          onClose={() => setVoiceScheduleOpen(false)}
+          onScheduled={() => setVoiceScheduleOpen(false)}
+          preselectedCandidate={{
+            id: result.candidate_id,
+            name: candidateName || result.candidate_name,
+            email: result?.contact_info?.email,
+            phone: result?.contact_info?.phone,
+          }}
+          preselectedJdId={result?.jd_id || jdContext?.jd_id || null}
+        />
+      )}
     </div>
   )
 }
