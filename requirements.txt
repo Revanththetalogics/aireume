@@ -48,6 +48,9 @@ langchain-ollama>=0.2.0
 # PDF Generation (enterprise reports)
 weasyprint>=61.0
 
+# Voice screening scheduler
+apscheduler==3.10.4
+
 # Observability
 prometheus-fastapi-instrumentator>=6.0
 

@@ -6,9 +6,27 @@ Tests for voice screening API routes:
   GET    /api/voice/sessions
   GET    /api/voice/sessions/{id}
 """
+import sys
+import types
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+
+# ── Ensure voice_call_scheduler is importable even without apscheduler ────────
+# CI may not have apscheduler installed.  Inject a minimal stub so that
+# @patch("app.backend.services.voice_call_scheduler.schedule_voice_call")
+# can resolve the module path.
+if "apscheduler" not in sys.modules:
+    _fake_ap = types.ModuleType("apscheduler")
+    _fake_schedulers = types.ModuleType("apscheduler.schedulers")
+    _fake_bg = types.ModuleType("apscheduler.schedulers.background")
+    _fake_bg.BackgroundScheduler = MagicMock
+    _fake_ap.schedulers = _fake_schedulers
+    _fake_schedulers.background = _fake_bg
+    sys.modules["apscheduler"] = _fake_ap
+    sys.modules["apscheduler.schedulers"] = _fake_schedulers
+    sys.modules["apscheduler.schedulers.background"] = _fake_bg
+
 from app.backend.models.db_models import (
     Candidate, RoleTemplate, VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry,
 )
