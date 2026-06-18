@@ -1,0 +1,2 @@
+FROM livekit/livekit-server:latest
+COPY app/voice_agent/livekit.yaml /etc/livekit.yaml

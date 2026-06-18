@@ -112,12 +112,13 @@ services:
   # LiveKit Server — WebRTC SFU + SIP trunking for voice calls.
   # Handles outbound PSTN calls via Twilio and inbound call routing.
   livekit:
-    image: livekit/livekit-server:latest
+    build:
+      context: .
+      dockerfile: app/voice_agent/Dockerfile.livekit
+    image: revanth2245/resume-livekit:latest
     container_name: resume-screener-livekit
     command: >
       --config /etc/livekit.yaml
-    volumes:
-      - ./app/voice_agent/livekit.yaml:/etc/livekit.yaml:ro
     environment:
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}

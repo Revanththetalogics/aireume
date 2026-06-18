@@ -209,6 +209,7 @@ services:
       resume-screener-nginx
       resume-screener-speech-service
       resume-screener-voice-agent
+      resume-screener-livekit
     environment:
       - WATCHTOWER_INCLUDE_STOPPED=false
       - WATCHTOWER_NO_PULL=false
@@ -233,12 +234,13 @@ services:
   # LiveKit Server — WebRTC SFU + SIP trunking for voice calls.
   # ~1 GB RAM. Handles outbound PSTN calls and inbound call routing.
   livekit:
-    image: livekit/livekit-server:latest
+    build:
+      context: .
+      dockerfile: app/voice_agent/Dockerfile.livekit
+    image: revanth2245/resume-livekit:latest
     container_name: resume-screener-livekit
     command: >
       --config /etc/livekit.yaml
-    volumes:
-      - ./app/voice_agent/livekit.yaml:/etc/livekit.yaml:ro
     environment:
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
