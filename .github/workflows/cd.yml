@@ -2,15 +2,52 @@ name: CD - Build & Push Images
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, production ]
   # Re-run build & push from GitHub → Actions → "CD - Build & Push Images" → Run workflow
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # ─── Determine image tag based on branch ───────────────────────────────
+  resolve-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+      environment: ${{ steps.tag.outputs.environment }}
+    steps:
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [ "${{ github.ref_name }}" = "production" ]; then
+            ENV="production"
+          else
+            ENV="staging"
+          fi
+
+          if [ "$ENV" = "production" ]; then
+            echo "image_tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_tag=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "Branch: ${{ github.ref_name }} → Environment: $ENV → Tag: $([ "$ENV" = "production" ] && echo "latest" || echo "staging")"
+
+  # ─── Run tests ──────────────────────────────────────────────────────────
   test:
     runs-on: ubuntu-latest
 
@@ -47,9 +84,13 @@ jobs:
       working-directory: app/frontend
       run: npm test
 
+  # ─── Build and push images ─────────────────────────────────────────────
   build-and-push:
-    needs: test
+    needs: [resolve-tag, test]
     runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
+      DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
 
     steps:
     - uses: actions/checkout@v4
@@ -69,7 +110,7 @@ jobs:
         context: .
         file: ./app/backend/Dockerfile
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-backend:latest
+        tags: ${{ env.DH_USER }}/resume-backend:${{ env.IMAGE_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
@@ -79,7 +120,7 @@ jobs:
       with:
         context: ./app/frontend
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-frontend:latest
+        tags: ${{ env.DH_USER }}/resume-frontend:${{ env.IMAGE_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
@@ -89,7 +130,7 @@ jobs:
       with:
         context: ./nginx
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-nginx:latest
+        tags: ${{ env.DH_USER }}/resume-nginx:${{ env.IMAGE_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
@@ -100,7 +141,7 @@ jobs:
         context: .
         file: ./app/voice_agent/Dockerfile.livekit
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-livekit:latest
+        tags: ${{ env.DH_USER }}/resume-livekit:${{ env.IMAGE_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
@@ -111,7 +152,7 @@ jobs:
         context: .
         file: ./app/speech_service/Dockerfile
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-speech-service:latest
+        tags: ${{ env.DH_USER }}/resume-speech-service:${{ env.IMAGE_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
@@ -122,12 +163,22 @@ jobs:
         context: .
         file: ./app/voice_agent/Dockerfile
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/resume-voice-agent:latest
+        tags: ${{ env.DH_USER }}/resume-voice-agent:${{ env.IMAGE_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         provenance: false
 
-  # Deployment is manual — after a successful build-and-push, SSH into the
-  # VPS and run:
-  #   docker compose -f docker-compose.prod.yml pull backend frontend nginx
-  #   docker compose -f docker-compose.prod.yml up -d --no-deps backend frontend nginx
+  # ─── Summary ────────────────────────────────────────────────────────────
+  deploy-summary:
+    needs: [resolve-tag, build-and-push]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment summary
+        run: |
+          echo "=== Deployment Complete ==="
+          echo "Environment: ${{ needs.resolve-tag.outputs.environment }}"
+          echo "Image tag:   ${{ needs.resolve-tag.outputs.image_tag }}"
+          echo ""
+          echo "Watchtower on VPS will auto-pull updated images within ~60 seconds."
+          echo "  - Staging stack:    docker-compose.staging.yml (tag: staging)"
+          echo "  - Production stack: docker-compose.prod.yml    (tag: latest)"

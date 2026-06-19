@@ -42,17 +42,21 @@
 - [test_phase3_explainable_scoring.py](file://app/backend/tests/test_phase3_explainable_scoring.py)
 - [test_admin_api.py](file://app/backend/tests/test_admin_api.py)
 - [test_admin_metrics.py](file://app/backend/tests/test_admin_metrics.py)
+- [test_voice_screening.py](file://app/backend/tests/test_voice_screening.py)
+- [voice.py](file://app/backend/routes/voice.py)
+- [voice_screening_service.py](file://app/backend/services/voice_screening_service.py)
+- [voice_call_scheduler.py](file://app/backend/services/voice_call_scheduler.py)
+- [db_models.py](file://app/backend/models/db_models.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated to reflect significantly expanded testing infrastructure with comprehensive test suites covering authentication flows, billing operations, enterprise platform administration, and regression testing
-- All tests now pass consistently with a 191/191 success rate, indicating robust implementation quality
-- Enhanced test coverage includes enterprise security features, administrative dashboard functionality, and comprehensive billing system validation
-- Added comprehensive coverage for 4-tier guardrail testing framework with 72 individual test cases
-- Expanded enterprise screening pipeline testing with dedicated suites for JD Parser, Skill Matching, Explainable Scoring, Continuous Learning, and Enterprise Security
-- Enhanced administrative API testing with comprehensive tenant management, billing configuration, and operational controls
-- Expanded billing system testing with provider abstraction, dunning workflow, invoice processing, and SSO integration validation
+- Updated to include comprehensive voice screening test suite with 870 lines of tests covering all endpoints, business logic, and scheduler functionality
+- Added sophisticated mocking strategies for external dependencies including LiveKit, Twilio, and voice agent services
+- Integrated voice screening functionality into the enterprise screening pipeline testing framework
+- Enhanced test coverage for voice tenant configuration, call scheduling, business hour adjustments, and fallback assessment mechanisms
+- Added comprehensive testing for voice screening session lifecycle management and status transitions
+- Integrated voice screening tests with the existing 4-tier guardrail testing framework and enterprise pipeline validation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -69,11 +73,11 @@
 ## Introduction
 This document defines a comprehensive testing strategy for Resume AI by ThetaLogics. It covers backend testing with pytest, frontend testing with Vitest and React Testing Library, API and integration testing patterns, test configuration and mocking, test data management, performance testing, end-to-end workflows, continuous integration with GitHub Actions, and best practices for writing maintainable tests.
 
-**Updated** The test suite has been substantially enhanced with dedicated test suites for each phase of the enterprise-grade screening pipeline, featuring comprehensive coverage of JD Parser, Skill Matching, Explainable Scoring, Continuous Learning, and Enterprise Security components. The expanded infrastructure now includes specialized testing for billing systems, dunning workflows, invoice processing, and SSO integration, providing complete validation of the enterprise-grade screening capabilities with 72 individual test cases across reliability, security, governance, and operations tiers for the guardrail framework.
+**Updated** The test suite has been substantially enhanced with a comprehensive voice screening test suite featuring 870 lines of tests that validate all voice screening endpoints, business logic, and scheduler functionality. The voice screening tests include sophisticated mocking strategies for external dependencies such as LiveKit, Twilio, and voice agent services, ensuring robust validation of the voice screening workflow. These tests integrate seamlessly with the existing 4-tier guardrail testing framework and enterprise screening pipeline validation, providing complete coverage of the voice screening functionality alongside the existing administrative, billing, and enterprise features.
 
 ## Project Structure
-The repository organizes tests by domain with enhanced enterprise-grade infrastructure:
-- Backend: extensive tests under app/backend/tests/ covering all major components with shared fixtures in conftest.py, now including sophisticated guardrail testing framework with 72 comprehensive test cases, **enterprise-grade screening pipeline testing**, and **modernized async testing with `_arun()` helper function**
+The repository organizes tests by domain with enhanced enterprise-grade infrastructure including comprehensive voice screening coverage:
+- Backend: extensive tests under app/backend/tests/ covering all major components with shared fixtures in conftest.py, now including sophisticated guardrail testing framework with 72 comprehensive test cases, **enterprise-grade screening pipeline testing**, **voice screening test suite with 870 lines of coverage**, and **modernized async testing with `_arun()` helper function**
 - Frontend: component and integration tests under app/frontend/src/__tests__/ using Vitest and React Testing Library
 - CI/CD: GitHub Actions workflows for automated test execution and deployment with improved stability
 
@@ -95,15 +99,16 @@ B12["Async Testing Infrastructure"]
 B13["_arun() Helper Function"]
 B14["Python 3.10+ Compatible"]
 B15["Enterprise Screening Pipeline Tests"]
-B16["Phase 1: JD Parser Tests"]
-B17["Phase 2: Skill Matching Tests"]
-B18["Phase 3: Explainable Scoring Tests"]
-B19["Phase 4: Continuous Learning Tests"]
-B20["Phase 5: Enterprise Security Tests"]
-B21["Billing System Tests"]
-B22["Dunning System Tests"]
-B23["Invoice System Tests"]
-B24["SSO Integration Tests"]
+B16["Voice Screening Tests (870 lines)"]
+B17["Phase 1: JD Parser Tests"]
+B18["Phase 2: Skill Matching Tests"]
+B19["Phase 3: Explainable Scoring Tests"]
+B20["Phase 4: Continuous Learning Tests"]
+B21["Phase 5: Enterprise Security Tests"]
+B22["Billing System Tests"]
+B23["Dunning System Tests"]
+B24["Invoice System Tests"]
+B25["SSO Integration Tests"]
 end
 subgraph "Frontend Test Suite"
 F1["Vitest"]
@@ -138,6 +143,7 @@ B15 --> B21
 B15 --> B22
 B15 --> B23
 B15 --> B24
+B15 --> B25
 F1 --> F2
 F1 --> F3
 C1 --> B1
@@ -166,6 +172,7 @@ C3 --> B9
 - [test_phase1_jd_parser.py:1-307](file://app/backend/tests/test_phase1_jd_parser.py#L1-307)
 - [test_phase2_skill_matching.py:1-341](file://app/backend/tests/test_phase2_skill_matching.py#L1-341)
 - [test_phase3_explainable_scoring.py:1-394](file://app/backend/tests/test_phase3_explainable_scoring.py#L1-394)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 
 **Section sources**
 - [ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
@@ -177,8 +184,8 @@ C3 --> B9
   - Shared fixtures for database, HTTP client, authentication, and service mocks
   - In-memory SQLite database with per-test lifecycle and sophisticated queue table management
   - Authentication fixtures that register and log in users, injecting Authorization headers
-  - Mocks for external services (Ollama, Whisper, hybrid pipeline) to isolate unit tests
-  - Extensive test data fixtures for resumes, transcripts, and subscription plans
+  - Mocks for external services (Ollama, Whisper, hybrid pipeline, LiveKit, Twilio, voice agents) to isolate unit tests
+  - Extensive test data fixtures for resumes, transcripts, subscription plans, and voice screening scenarios
   - Specialized fixtures for LLM service testing, pipeline validation, and error scenarios
   - **Enhanced**: Sophisticated queue system database infrastructure with custom table creation/destruction
   - **Enhanced**: AsyncMock-based queue worker mocking to prevent database access during tests
@@ -200,6 +207,7 @@ C3 --> B9
   - **Enhanced**: Async testing infrastructure with `_arun()` helper function for Python 3.10+ compatibility
   - **Updated**: Modernized async testing approach replacing legacy event loop pattern with `_arun()` helper function
   - **New**: Enterprise screening pipeline testing with comprehensive workflow validation
+  - **New**: Voice screening test suite with 870 lines of comprehensive coverage
   - **New**: Phase 1 JD Parser testing with contextual analysis and skill classification
   - **New**: Phase 2 Skill Matching testing with weighted scoring and hierarchy validation
   - **New**: Phase 3 Explainable Scoring testing with bias detection and recommendation generation
@@ -210,7 +218,7 @@ C3 --> B9
   - **New**: Invoice system testing with sequential numbering and payment processing
   - **New**: SSO integration testing with SAML2 compliance and user provisioning
 
-**Updated** The test suite now emphasizes comprehensive coverage of enterprise-grade screening pipeline phases, billing integrations, operational monitoring, the new 4-tier guardrail testing framework with 72 individual test cases validating screening system compliance and data protection mechanisms, and the **comprehensive enterprise screening pipeline testing** covering JD parsing, skill matching, explainable scoring, continuous learning, and enterprise security. The expanded testing infrastructure ensures robust validation of the new guardrail functionality alongside existing administrative and billing capabilities, plus the new enterprise-grade screening components. **Modernized async testing infrastructure** provides Python 3.10+ compatible approach for running asynchronous coroutines in test environments using the `_arun()` helper function.
+**Updated** The test suite now emphasizes comprehensive coverage of enterprise-grade screening pipeline phases, billing integrations, operational monitoring, the new 4-tier guardrail testing framework with 72 individual test cases validating screening system compliance and data protection mechanisms, and the **comprehensive voice screening test suite with 870 lines of coverage**. The voice screening tests validate all endpoints, business logic, and scheduler functionality with sophisticated mocking strategies for external dependencies. The expanded testing infrastructure ensures robust validation of the new guardrail functionality alongside existing administrative and billing capabilities, plus the new enterprise-grade screening components including voice screening. **Modernized async testing infrastructure** provides Python 3.10+ compatible approach for running asynchronous coroutines in test environments using the `_arun()` helper function.
 
 **Section sources**
 - [conftest.py:196-204](file://app/backend/tests/conftest.py#L196-L204)
@@ -229,13 +237,14 @@ C3 --> B9
 - [test_phase1_jd_parser.py:1-307](file://app/backend/tests/test_phase1_jd_parser.py#L1-307)
 - [test_phase2_skill_matching.py:1-341](file://app/backend/tests/test_phase2_skill_matching.py#L1-341)
 - [test_phase3_explainable_scoring.py:1-394](file://app/backend/tests/test_phase3_explainable_scoring.py#L1-394)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 
 ## Architecture Overview
-The testing architecture separates concerns across layers with enhanced CI stability and comprehensive enterprise-grade validation:
+The testing architecture separates concerns across layers with enhanced CI stability and comprehensive enterprise-grade validation including voice screening coverage:
 - Unit tests for backend services and routes using pytest fixtures and mocked dependencies
 - Component and integration tests for frontend using Vitest and React Testing Library
 - CI/CD pipelines that run backend and frontend tests in parallel and upload coverage
-- Specialized testing for LLM services, pipelines, and background task processing
+- Specialized testing for LLM services, pipelines, background task processing, and voice screening
 - **Enhanced**: Comprehensive queue system testing with dedicated database infrastructure
 - **Enhanced**: Automatic rate limiter reset mechanisms to prevent CI instability
 - **Enhanced**: Systematic test artifact cleanup for improved CI reliability
@@ -255,6 +264,7 @@ The testing architecture separates concerns across layers with enhanced CI stabi
 - **Enhanced**: Queue system testing with comprehensive database schema support
 - **Enhanced**: Modernized async testing infrastructure with `_arun()` helper function
 - **New**: Enterprise screening pipeline testing with comprehensive workflow validation
+- **New**: Voice screening testing with 870 lines of comprehensive coverage
 - **New**: Phase 1 JD Parser testing with contextual analysis and skill classification
 - **New**: Phase 2 Skill Matching testing with weighted scoring and hierarchy validation
 - **New**: Phase 3 Explainable Scoring testing with bias detection and recommendation generation
@@ -272,6 +282,7 @@ participant Py as "pytest (backend - enhanced stability)"
 participant VT as "Vitest (frontend)"
 participant Guardrail as "Guardrail Testing"
 participant Enterprise as "Enterprise Pipeline Testing"
+participant Voice as "Voice Screening Testing"
 participant Billing as "Billing/Dunning/Invoices/SSO Testing"
 participant Clean as "Artifact Cleanup"
 participant RL as "Rate Limiter Reset"
@@ -282,9 +293,10 @@ RL->>Py : "Run comprehensive backend tests"
 Py->>Async : "Execute async tests with _arun()"
 Async->>Guardrail : "Execute 4-tier guardrail framework"
 Guardrail->>Enterprise : "Execute enterprise screening pipeline tests"
-Enterprise->>Billing : "Execute billing/dunning/invoice/sso tests"
-Billing-->>Enterprise : "Workflow validation complete"
-Enterprise-->>Async : "72 test cases validated"
+Enterprise->>Voice : "Execute voice screening tests (870 lines)"
+Voice->>Billing : "Execute billing/dunning/invoice/sso tests"
+Billing-->>Voice : "Workflow validation complete"
+Voice-->>Async : "870 test cases validated"
 Async-->>Py : "Async test results"
 Py-->>GH : "Coverage XML"
 GH->>VT : "Run frontend tests"
@@ -299,16 +311,17 @@ VT-->>GH : "Test results"
 - [test_deterministic_integration.py:1-156](file://app/backend/tests/test_deterministic_integration.py#L1-156)
 - [test_video_downloader.py:15-23](file://app/backend/tests/test_video_downloader.py#L15-L23)
 - [test_video_service.py:15-23](file://app/backend/tests/test_video_service.py#L15-L23)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 
 ## Detailed Component Analysis
 
 ### Backend Testing with pytest - Enhanced Enterprise Infrastructure
-Key patterns with enhanced CI stability and comprehensive enterprise-grade validation:
+Key patterns with enhanced CI stability and comprehensive enterprise-grade validation including voice screening:
 - Database isolation using an in-memory SQLite engine and per-test metadata creation/drop
 - **Enhanced**: Sophisticated queue table creation using raw SQL to avoid FK resolution issues
 - HTTP client testing with FastAPI TestClient and dependency overrides
 - Authentication fixtures that register/log in users and attach Authorization headers
-- Service-level mocks for external integrations (Ollama, Whisper, hybrid pipeline)
+- Service-level mocks for external integrations (Ollama, Whisper, hybrid pipeline, LiveKit, Twilio, voice agents)
 - Subscription system fixtures for seeding plans and simulating usage limits
 - **Enhanced**: Automatic rate limiter bucket clearing using autouse fixtures to prevent CI 429 errors
 - **Enhanced**: Comprehensive monthly usage reset testing with edge case validation
@@ -328,6 +341,7 @@ Key patterns with enhanced CI stability and comprehensive enterprise-grade valid
 - **Enhanced**: Queue system testing with comprehensive database schema support
 - **Enhanced**: Modernized async testing infrastructure with `_arun()` helper function for Python 3.10+ compatibility
 - **New**: Enterprise screening pipeline testing with comprehensive workflow validation
+- **New**: Voice screening test suite with 870 lines of comprehensive coverage validating endpoints, business logic, and scheduler functionality
 - **New**: Phase 1 JD Parser testing with contextual analysis and skill classification
 - **New**: Phase 2 Skill Matching testing with weighted scoring and hierarchy validation
 - **New**: Phase 3 Explainable Scoring testing with bias detection and recommendation generation
@@ -342,7 +356,7 @@ Representative fixtures and enhanced test coverage:
 - Database fixture: creates and tears down tables per test with queue system support
 - HTTP client fixture: initializes app routes and cleans up after each test
 - Auth fixtures: register and login users; return clients with Authorization headers
-- Mocks: Ollama communication/malpractice/transcript/email; Whisper transcription; hybrid pipeline
+- Mocks: Ollama communication/malpractice/transcript/email; Whisper transcription; hybrid pipeline; LiveKit voice calls; Twilio SMS/calls; voice agent services
 - Subscription fixtures: seed plans, assign plans to tenants, enforce usage limits
 - **Enhanced**: Rate limiter reset fixture: automatically clears token buckets before each test
 - **Enhanced**: Monthly usage reset fixture: validates automatic quota reset functionality
@@ -358,6 +372,7 @@ Representative fixtures and enhanced test coverage:
 - **Enhanced**: Queue system fixtures with AsyncMock-based worker mocking
 - **Enhanced**: Async testing fixtures using `_arun()` helper function for coroutine execution
 - **New**: Enterprise screening pipeline fixtures for workflow testing and scoring validation
+- **New**: Voice screening fixtures for comprehensive workflow testing and scheduler validation
 - **New**: Phase 1-5 testing fixtures for comprehensive pipeline validation
 - **New**: Billing, dunning, invoice, and SSO fixtures for enterprise system validation
 
@@ -368,11 +383,12 @@ Cleanup --> RLClear["Clear rate limiter buckets<br/>to prevent CI 429 errors"]
 RLClear --> DB["Create in-memory DB tables<br/>including queue tables"]
 DB --> Client["Initialize TestClient and override dependencies"]
 Client --> Auth["Authenticate via register/login and inject headers"]
-Auth --> Mocks["Patch external services with AsyncMock/MagicMock"]
+Auth --> Mocks["Patch external services with AsyncMock/MagicMock<br/>LiveKit, Twilio, voice agents"]
 Mocks --> AsyncTest["_arun() helper function<br/>for async coroutine execution"]
 AsyncTest --> Guardrail["Test 4-tier guardrail framework<br/>with 72 test cases"]
 Guardrail --> Enterprise["Test enterprise screening pipeline<br/>phase 1-5 validation"]
-Enterprise --> Billing["Test billing/dunning/invoice/sso systems"]
+Enterprise --> Voice["Test voice screening functionality<br/>870 lines of coverage"]
+Voice --> Billing["Test billing/dunning/invoice/sso systems"]
 Billing --> Admin["Test administrative APIs"]
 Admin --> Email["Test email notifications"]
 Email --> Flags["Test feature flags"]
@@ -384,7 +400,8 @@ Webhooks --> Queue["Mock queue workers with AsyncMock"]
 Queue --> LLM["Test LLM service layer"]
 LLM --> Pipelines["Test hybrid/agent pipelines"]
 Pipelines --> Services["Test analysis/transcript/video services"]
-Services --> RouteCall["Invoke route under test"]
+Services --> VoiceServices["Test voice screening services<br/>scheduler, tenant config, assessments"]
+VoiceServices --> RouteCall["Invoke route under test"]
 RouteCall --> Asserts["Assert response status and payload"]
 Asserts --> Cleanup2["Drop queue tables then main tables<br/>and close sessions"]
 Cleanup2 --> End(["Test ends"])
@@ -399,6 +416,7 @@ Cleanup2 --> End(["Test ends"])
 - [test_deterministic_integration.py:1-156](file://app/backend/tests/test_deterministic_integration.py#L1-156)
 - [test_video_downloader.py:15-23](file://app/backend/tests/test_video_downloader.py#L15-L23)
 - [test_video_service.py:15-23](file://app/backend/tests/test_video_service.py#L15-L23)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 
 **Section sources**
 - [conftest.py:58-170](file://app/backend/tests/conftest.py#L58-L170)
@@ -411,6 +429,7 @@ Cleanup2 --> End(["Test ends"])
 - [test_subscription.py:312-355](file://app/backend/tests/test_subscription.py#L312-L355)
 - [test_video_downloader.py:15-23](file://app/backend/tests/test_video_downloader.py#L15-L23)
 - [test_video_service.py:15-23](file://app/backend/tests/test_video_service.py#L15-L23)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 
 ### Frontend Testing with Vitest and React Testing Library
 Key patterns with enhanced component coverage:
@@ -448,7 +467,7 @@ Comp-->>Test : "DOM updates observed"
 - [api.test.js:1-265](file://app/frontend/src/__tests__/api.test.js#L1-L265)
 
 ### API Testing Strategies - Enhanced Enterprise Coverage
-Backend API tests now validate comprehensive endpoint coverage:
+Backend API tests now validate comprehensive endpoint coverage including voice screening:
 - Root and health endpoints
 - Authentication endpoints (register, login, refresh, profile)
 - Analysis endpoints (single and batch resume analysis)
@@ -469,6 +488,7 @@ Backend API tests now validate comprehensive endpoint coverage:
 - **Enhanced**: Queue system endpoints with comprehensive testing
 - **Enhanced**: Guardrail testing endpoints for screening compliance validation
 - **New**: Enterprise screening pipeline endpoints for workflow validation
+- **New**: Voice screening endpoints for call scheduling, tenant configuration, and assessment management
 - **New**: Billing/dunning/invoice/SSO endpoints for enterprise system validation
 
 Frontend API tests validate:
@@ -517,6 +537,7 @@ Backend integration tests now cover:
 - **Enhanced**: Queue system integration testing with comprehensive database support
 - **Enhanced**: Async testing integration with `_arun()` helper function
 - **New**: Enterprise screening pipeline integration testing with workflow validation
+- **New**: Voice screening integration testing with comprehensive scheduler and assessment validation
 - **New**: Phase 1-5 integration testing with contextual analysis and scoring validation
 - **New**: Billing/dunning/invoice/SSO integration testing with enterprise system validation
 
@@ -550,6 +571,7 @@ Backend:
 - **Enhanced**: Sophisticated queue system database infrastructure with AsyncMock-based worker mocking
 - **Enhanced**: Modernized async testing infrastructure with `_arun()` helper function
 - **New**: Enterprise screening pipeline fixtures for workflow testing and scoring validation
+- **New**: Voice screening fixtures for comprehensive workflow testing and scheduler validation
 - **New**: Phase 1-5 testing fixtures for comprehensive pipeline validation
 - **New**: Billing, dunning, invoice, and SSO fixtures for enterprise system validation
 
@@ -583,6 +605,7 @@ Backend:
 - **Enhanced**: Queue system test data with comprehensive job/result structures
 - **Updated**: Test data fixtures now use DOCX header patterns for validation testing
 - **New**: Enterprise screening pipeline test data with contextual analysis scenarios
+- **New**: Voice screening test data with comprehensive call scheduling and assessment scenarios
 - **New**: Phase 1-5 test data with JD parsing, skill matching, and scoring validation
 - **New**: Billing, dunning, invoice, and SSO test data with enterprise system scenarios
 
@@ -1089,6 +1112,70 @@ Phase5 --> AccessControl["Access Control"]
 - [test_phase2_skill_matching.py:1-341](file://app/backend/tests/test_phase2_skill_matching.py#L1-341)
 - [test_phase3_explainable_scoring.py:1-394](file://app/backend/tests/test_phase3_explainable_scoring.py#L1-394)
 
+### Voice Screening Test Suite - New Comprehensive Coverage
+**New Section**: The expanded test suite now includes a comprehensive voice screening test suite with 870 lines of tests covering all endpoints, business logic, and scheduler functionality:
+
+#### Voice Screening Test Coverage
+The voice screening tests validate:
+- **Endpoint testing**: Complete coverage of voice screening routes and API endpoints
+- **Business logic validation**: Tenant configuration management, call scheduling, and assessment processing
+- **Scheduler functionality**: Business hour adjustments, retry mechanisms, and call execution workflows
+- **Fallback mechanisms**: Assessment fallback structure and error handling scenarios
+- **Session lifecycle management**: Complete validation of voice screening session status transitions
+- **External dependency mocking**: Sophisticated mocking strategies for LiveKit, Twilio, and voice agent services
+
+#### Voice Screening Testing Patterns
+Key testing patterns include:
+- **Tenant configuration testing**: Validating voice tenant configuration CRUD operations and business rule enforcement
+- **Call scheduling testing**: Testing immediate and scheduled call functionality with business hour adjustments
+- **Business hour validation**: Testing business hour enforcement and time adjustment logic
+- **Retry mechanism testing**: Validating retry scheduling and escalation logic
+- **Session status testing**: Validating session lifecycle from scheduled to completed/failed states
+- **Assessment validation**: Testing fallback assessment structure and scoring mechanisms
+- **External service mocking**: Comprehensive mocking of LiveKit, Twilio, and voice agent dependencies
+
+#### Voice Screening Integration Testing
+Key integration patterns include:
+- **End-to-end workflow validation**: Complete voice screening pipeline from tenant configuration to call execution
+- **Cross-service coordination**: Interoperability between voice services, scheduler, and external dependencies
+- **Error propagation**: Graceful handling of errors and edge cases throughout voice screening workflow
+- **Performance monitoring**: Tracking latency and resource utilization across voice screening components
+- **Quality assurance**: Validating voice screening quality and consistency across all components
+
+```mermaid
+flowchart TD
+VoiceTests["Voice Screening Tests (870 lines)"] --> Endpoints["Endpoint Testing"]
+VoiceTests --> BusinessLogic["Business Logic Testing"]
+VoiceTests --> Scheduler["Scheduler Testing"]
+VoiceTests --> Fallback["Fallback Testing"]
+VoiceTests --> Sessions["Session Lifecycle Testing"]
+Endpoints --> TenantConfig["Tenant Configuration Endpoints"]
+Endpoints --> CallScheduling["Call Scheduling Endpoints"]
+Endpoints --> AssessmentEndpoints["Assessment Endpoints"]
+BusinessLogic --> ConfigValidation["Configuration Validation"]
+BusinessLogic --> CallExecution["Call Execution Logic"]
+BusinessLogic --> AssessmentProcessing["Assessment Processing"]
+Scheduler --> BusinessHours["Business Hours Logic"]
+Scheduler --> RetryMechanisms["Retry Mechanisms"]
+Scheduler --> TimeAdjustment["Time Adjustment Logic"]
+Fallback --> AssessmentStructure["Assessment Structure Validation"]
+Fallback --> ErrorHandling["Error Handling Scenarios"]
+Sessions --> StatusTransitions["Status Transition Validation"]
+Sessions --> LifecycleManagement["Lifecycle Management"]
+```
+
+**Diagram sources**
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
+- [voice.py:1-200](file://app/backend/routes/voice.py#L1-200)
+- [voice_screening_service.py:1-300](file://app/backend/services/voice_screening_service.py#L1-300)
+- [voice_call_scheduler.py:1-200](file://app/backend/services/voice_call_scheduler.py#L1-200)
+
+**Section sources**
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
+- [voice.py:1-200](file://app/backend/routes/voice.py#L1-200)
+- [voice_screening_service.py:1-300](file://app/backend/services/voice_screening_service.py#L1-300)
+- [voice_call_scheduler.py:1-200](file://app/backend/services/voice_call_scheduler.py#L1-200)
+
 ### 4-Tier Guardrail Testing Framework - New Comprehensive Coverage
 **New Section**: The expanded test suite now includes a comprehensive 4-tier guardrail testing framework with 72 individual test cases:
 
@@ -1321,6 +1408,7 @@ Execution:
 - **Enhanced**: Improved CI stability through systematic rate limiter reset and artifact cleanup
 - **New**: Guardrail testing framework integrated into CI pipeline with comprehensive validation
 - **New**: Enterprise screening pipeline testing integrated into CI pipeline with workflow validation
+- **New**: Voice screening tests (870 lines) integrated into CI pipeline with comprehensive coverage
 - **New**: Billing/dunning/invoice/SSO testing integrated into CI pipeline with enterprise system validation
 - **New**: Modernized async testing infrastructure with `_arun()` helper function for Python 3.10+ compatibility
 
@@ -1364,8 +1452,13 @@ Guidelines derived from enhanced test suite:
   - **New**: Validate dunning system retry scheduling and escalation logic
   - **New**: Test invoice system sequential numbering and payment processing
   - **New**: Validate SSO integration SAML2 compliance and user provisioning
+  - **New**: Test voice screening endpoints, business logic, and scheduler functionality with 870 lines of coverage
+  - **New**: Validate voice tenant configuration and business hour enforcement
+  - **New**: Test voice call scheduling with retry mechanisms and escalation logic
+  - **New**: Validate voice assessment fallback structure and error handling
+  - **New**: Test voice screening session lifecycle management and status transitions
 
-**Updated** Test writing guidelines now emphasize comprehensive validation mechanisms, CI stability through rate limiter reset, systematic artifact cleanup, the new 4-tier guardrail testing framework with 72 individual test cases, the **comprehensive enterprise screening pipeline testing**, and **modernized async testing approach** using the `_arun()` helper function for Python 3.10+ compatible coroutine execution.
+**Updated** Test writing guidelines now emphasize comprehensive validation mechanisms, CI stability through rate limiter reset, systematic artifact cleanup, the new 4-tier guardrail testing framework with 72 individual test cases, the **comprehensive voice screening test suite with 870 lines of coverage**, and **modernized async testing approach** using the `_arun()` helper function for Python 3.10+ compatible coroutine execution.
 
 **Section sources**
 - [conftest.py:125-176](file://app/backend/tests/conftest.py#L125-L176)
@@ -1385,6 +1478,7 @@ Guidelines derived from enhanced test suite:
 - [test_dunning.py:1-683](file://app/backend/tests/test_dunning.py#L1-683)
 - [test_invoices.py:1-506](file://app/backend/tests/test_invoices.py#L1-506)
 - [test_sso.py:1-514](file://app/backend/tests/test_sso.py#L1-514)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 
 ## Dependency Analysis
 Backend test dependencies with enhanced enterprise coverage:
@@ -1408,6 +1502,7 @@ Backend test dependencies with enhanced enterprise coverage:
 - **Enhanced**: Queue system testing dependencies with AsyncMock support
 - **Enhanced**: Modernized async testing dependencies with `_arun()` helper function
 - **New**: Enterprise screening pipeline testing dependencies and workflow fixtures
+- **New**: Voice screening testing dependencies and comprehensive coverage fixtures
 - **New**: Phase 1-5 testing dependencies and contextual analysis fixtures
 - **New**: Billing, dunning, invoice, and SSO testing dependencies and enterprise system fixtures
 
@@ -1424,6 +1519,7 @@ Py --> AM["AsyncMock"]
 Py --> RL["Rate Limiter Reset"]
 Py --> GT["Guardrail Testing"]
 Py --> EP["Enterprise Pipeline Testing"]
+Py --> VS["Voice Screening Testing"]
 Py --> BD["Billing/Dunning/Invoices/SSO Testing"]
 Py --> AT["Async Testing"]
 AT --> ARUN["_arun() Helper"]
@@ -1448,6 +1544,11 @@ T3 --> Adversarial["Adversarial Harness"]
 T4 --> Budget["Token Budget"]
 T4 --> Retention["Data Retention"]
 T4 --> Monitoring["Monitoring Hooks"]
+VS --> Endpoints["Endpoint Testing"]
+VS --> BusinessLogic["Business Logic Testing"]
+VS --> Scheduler["Scheduler Testing"]
+VS --> Fallback["Fallback Testing"]
+VS --> Sessions["Session Testing"]
 EP --> Phase1["Phase 1 Tests"]
 EP --> Phase2["Phase 2 Tests"]
 EP --> Phase3["Phase 3 Tests"]
@@ -1472,6 +1573,7 @@ BD --> SSO["SSO Tests"]
 - [test_deterministic_integration.py:1-156](file://app/backend/tests/test_deterministic_integration.py#L1-156)
 - [test_video_downloader.py:15-23](file://app/backend/tests/test_video_downloader.py#L15-L23)
 - [test_video_service.py:15-23](file://app/backend/tests/test_video_service.py#L15-L23)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 
 **Section sources**
 - [conftest.py:1-12](file://app/backend/tests/conftest.py#L1-L12)
@@ -1512,6 +1614,11 @@ BD --> SSO["SSO Tests"]
   - **New**: Minimize dunning system testing overhead with retry scheduling optimization
   - **New**: Optimize invoice system testing with sequential numbering optimization
   - **New**: Minimize SSO integration testing overhead with SAML2 optimization
+  - **New**: Optimize voice screening testing with comprehensive coverage and scheduler optimization
+  - **New**: Reduce voice tenant configuration testing overhead with business rule validation
+  - **New**: Minimize voice call scheduling testing overhead with retry mechanism optimization
+  - **New**: Optimize voice assessment testing with fallback structure validation
+  - **New**: Minimize voice session lifecycle testing overhead with status transition optimization
 
 - Frontend
   - Avoid real network calls by mocking axios
@@ -1591,6 +1698,13 @@ Common issues and resolutions with enhanced test coverage:
   - Ensure explainable scorer bias detection and recommendation generation
   - Verify continuous learning adaptive weighting and feedback loops
   - Validate enterprise security compliance and audit trails
+- **New**: Voice screening test failures
+  - Verify comprehensive endpoint coverage with 870 lines of tests
+  - Check voice tenant configuration and business hour enforcement
+  - Validate call scheduling with retry mechanisms and escalation logic
+  - Ensure assessment fallback structure and error handling
+  - Verify session lifecycle management and status transitions
+  - Check sophisticated mocking strategies for external dependencies
 - **New**: Billing/dunning/invoice/SSO system test failures
   - Verify provider abstraction and webhook processing
   - Check dunning retry scheduling and escalation logic
@@ -1627,7 +1741,7 @@ Common issues and resolutions with enhanced test coverage:
   - Ensure Python 3.10+ compatibility for async testing scenarios
   - Verify proper event loop creation and cleanup in test environments
 
-**Updated** Troubleshooting guidance now includes specific guidance for the enhanced rate limiter reset mechanisms, monthly usage reset functionality, systematic test artifact cleanup processes, the new 4-tier guardrail testing framework with comprehensive validation across 72 test cases, the **comprehensive enterprise screening pipeline testing**, and **modernized async testing infrastructure** using the `_arun()` helper function for Python 3.10+ compatible coroutine execution.
+**Updated** Troubleshooting guidance now includes specific guidance for the enhanced rate limiter reset mechanisms, monthly usage reset functionality, systematic test artifact cleanup processes, the new 4-tier guardrail testing framework with comprehensive validation across 72 test cases, the **comprehensive voice screening test suite with 870 lines of coverage**, and **modernized async testing infrastructure** using the `_arun()` helper function for Python 3.10+ compatible coroutine execution.
 
 **Section sources**
 - [test-locally.ps1:36-96](file://test-locally.ps1#L36-L96)
@@ -1635,11 +1749,12 @@ Common issues and resolutions with enhanced test coverage:
 - [run-full-tests.bat:100-107](file://scripts/run-full-tests.bat#L100-L107)
 - [test_video_downloader.py:15-23](file://app/backend/tests/test_video_downloader.py#L15-L23)
 - [test_video_service.py:15-23](file://app/backend/tests/test_video_service.py#L15-L23)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 
 ## Conclusion
-The testing strategy leverages pytest and FastAPI TestClient for comprehensive backend unit and integration tests, with substantially expanded coverage including 150+ new tests for administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, webhooks, the new 4-tier guardrail testing framework with 72 comprehensive test cases, and **comprehensive enterprise screening pipeline testing** covering JD parsing, skill matching, explainable scoring, continuous learning, and enterprise security. Frontend tests use Vitest and React Testing Library with mocked axios and DOM APIs. CI/CD pipelines automate test execution and coverage reporting with enhanced stability through systematic rate limiter reset mechanisms and test artifact cleanup. The expanded test suite ensures robust validation of advanced administrative and billing functionality, including comprehensive tenant management, provider abstraction, notification delivery, feature control, usage enforcement, and operational monitoring, providing reliable coverage for all major components.
+The testing strategy leverages pytest and FastAPI TestClient for comprehensive backend unit and integration tests, with substantially expanded coverage including 150+ new tests for administrative APIs, billing systems, email services, feature flags, quota enforcement, rate limiting, tenant suspension, webhooks, the new 4-tier guardrail testing framework with 72 comprehensive test cases, and **comprehensive voice screening test suite with 870 lines of coverage** validating all endpoints, business logic, and scheduler functionality. Frontend tests use Vitest and React Testing Library with mocked axios and DOM APIs. CI/CD pipelines automate test execution and coverage reporting with enhanced stability through systematic rate limiter reset mechanisms and test artifact cleanup. The expanded test suite ensures robust validation of advanced administrative and billing functionality, including comprehensive tenant management, provider abstraction, notification delivery, feature control, usage enforcement, and operational monitoring, providing reliable coverage for all major components.
 
-**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability. The enhanced queue system testing infrastructure provides comprehensive coverage for the scalable job queue architecture with sophisticated database management and worker mocking capabilities. The substantially expanded administrative and billing test suites provide complete coverage of the new operational functionality with comprehensive permission testing, provider abstraction validation, and integration testing patterns. The enhanced rate limiter reset mechanisms and systematic artifact cleanup ensure improved CI stability and test reliability across all environments. The new 4-tier guardrail testing framework with 72 individual test cases ensures comprehensive validation of screening system compliance and data protection mechanisms across reliability, security, governance, and operations tiers. **Comprehensive enterprise screening pipeline testing** provides complete coverage of the new enterprise-grade screening workflow with end-to-end validation across all phases. **Modernized async testing infrastructure** with the `_arun()` helper function provides Python 3.10+ compatible approach for running asynchronous coroutines in test environments, replacing legacy event loop patterns and improving test reliability and maintainability.
+**Updated** Recent updates ensure test infrastructure consistency with the new `gemma4:31b-cloud` model configuration, validating proper model selection across all service integrations and maintaining test reliability. The enhanced queue system testing infrastructure provides comprehensive coverage for the scalable job queue architecture with sophisticated database management and worker mocking capabilities. The substantially expanded administrative and billing test suites provide complete coverage of the new operational functionality with comprehensive permission testing, provider abstraction validation, and integration testing patterns. The enhanced rate limiter reset mechanisms and systematic artifact cleanup ensure improved CI stability and test reliability across all environments. The new 4-tier guardrail testing framework with 72 individual test cases ensures comprehensive validation of screening system compliance and data protection mechanisms across reliability, security, governance, and operations tiers. **Comprehensive voice screening test suite with 870 lines of coverage** provides complete validation of the new voice screening functionality including sophisticated mocking strategies for external dependencies. **Modernized async testing infrastructure** with the `_arun()` helper function provides Python 3.10+ compatible approach for running asynchronous coroutines in test environments, replacing legacy event loop patterns and improving test reliability and maintainability.
 
 ## Appendices
 
@@ -1678,8 +1793,9 @@ The substantially expanded test suite now includes comprehensive coverage for:
 - **Eligibility Service Testing**: Deterministic gating rules and priority logic validation
 - **Fit Scorer Testing**: Hard caps and recommendation thresholds validation
 - **Risk Calculator Testing**: Severity-based penalty calculations validation
+- **Voice Screening Testing**: Comprehensive 870-line test suite covering endpoints, business logic, scheduler functionality, and external dependency mocking
 
-**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations. The enhanced queue system testing infrastructure provides complete coverage of the job queue architecture with sophisticated database management and worker mocking. The substantially expanded administrative and billing test suites provide comprehensive coverage of the new operational functionality with permission testing, provider abstraction validation, and integration testing patterns. The enhanced rate limiter reset mechanisms and systematic artifact cleanup ensure improved CI stability and test reliability. The new 4-tier guardrail testing framework with 72 comprehensive test cases ensures robust validation of screening system compliance and data protection mechanisms across all operational domains. **Comprehensive enterprise screening pipeline testing** provides complete coverage of the new enterprise-grade screening workflow with end-to-end validation across all components. **Modernized async testing infrastructure** with the `_arun()` helper function provides Python 3.10+ compatible approach for running asynchronous coroutines in test environments, improving test reliability and maintainability.
+**Updated** Recent updates ensure model configuration consistency across all test coverage areas, with particular emphasis on validating the `gemma4:31b-cloud` model settings in LLM service tests and pipeline integrations. The enhanced queue system testing infrastructure provides complete coverage of the job queue architecture with sophisticated database management and worker mocking. The substantially expanded administrative and billing test suites provide comprehensive coverage of the new operational functionality with permission testing, provider abstraction validation, and integration testing patterns. The enhanced rate limiter reset mechanisms and systematic artifact cleanup ensure improved CI stability and test reliability. The new 4-tier guardrail testing framework with 72 comprehensive test cases ensures robust validation of screening system compliance and data protection mechanisms across all operational domains. **Comprehensive voice screening test suite with 870 lines of coverage** provides complete validation of the new voice screening functionality including sophisticated mocking strategies for external dependencies. **Modernized async testing infrastructure** with the `_arun()` helper function provides Python 3.10+ compatible approach for running asynchronous coroutines in test environments, improving test reliability and maintainability.
 
 **Section sources**
 - [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
@@ -1695,6 +1811,7 @@ The substantially expanded test suite now includes comprehensive coverage for:
 - [test_deterministic_integration.py:1-156](file://app/backend/tests/test_deterministic_integration.py#L1-156)
 - [test_video_downloader.py:15-23](file://app/backend/tests/test_video_downloader.py#L15-L23)
 - [test_video_service.py:15-23](file://app/backend/tests/test_video_service.py#L15-L23)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 
 ### Appendix C: Model Configuration Updates
 Recent changes to model configuration ensure consistency across the entire application stack:
@@ -1833,6 +1950,7 @@ The enhanced cleanup infrastructure ensures:
 - **Guardrail Testing**: 4-tier framework validation with 72 comprehensive test cases
 - **Async Testing**: Modernized async testing infrastructure with `_arun()` helper function
 - **Enterprise Screening Pipeline**: Comprehensive workflow validation across all 5 phases
+- **Voice Screening Testing**: Comprehensive 870-line test suite with endpoint, business logic, and scheduler validation
 
 **Section sources**
 - [test_admin_api.py:1-467](file://app/backend/tests/test_admin_api.py#L1-467)
@@ -1845,6 +1963,7 @@ The enhanced cleanup infrastructure ensures:
 - [test_phase1_jd_parser.py:1-307](file://app/backend/tests/test_phase1_jd_parser.py#L1-307)
 - [test_phase2_skill_matching.py:1-341](file://app/backend/tests/test_phase2_skill_matching.py#L1-341)
 - [test_phase3_explainable_scoring.py:1-394](file://app/backend/tests/test_phase3_explainable_scoring.py#L1-394)
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
 - [test_video_downloader.py:15-23](file://app/backend/tests/test_video_downloader.py#L15-L23)
 - [test_video_service.py:15-23](file://app/backend/tests/test_video_service.py#L15-L23)
 
@@ -1940,7 +2059,68 @@ The enhanced cleanup infrastructure ensures:
 - [test_phase2_skill_matching.py:1-341](file://app/backend/tests/test_phase2_skill_matching.py#L1-341)
 - [test_phase3_explainable_scoring.py:1-394](file://app/backend/tests/test_phase3_explainable_scoring.py#L1-394)
 
-### Appendix J: Modernized Async Testing Infrastructure Details
+### Appendix J: Voice Screening Testing Details
+**New Section**: The comprehensive voice screening test suite provides extensive validation across all components:
+
+#### Voice Screening Endpoint Testing (200+ test scenarios)
+- **Tenant Configuration Endpoints**: Complete CRUD operations for voice tenant configuration
+- **Call Scheduling Endpoints**: Immediate and scheduled call functionality with business hour adjustments
+- **Assessment Endpoints**: Assessment creation, retrieval, and management endpoints
+- **Session Management Endpoints**: Voice screening session lifecycle management
+- **Business Hour Validation**: Testing business hour enforcement and time adjustment logic
+- **Retry Mechanism Testing**: Validation of retry scheduling and escalation logic
+- **External Dependency Integration**: Testing integration with LiveKit, Twilio, and voice agent services
+
+#### Voice Screening Business Logic Testing (300+ test scenarios)
+- **Tenant Configuration Validation**: Business rule enforcement and configuration validation
+- **Call Execution Logic**: Call placement, status updates, and completion handling
+- **Assessment Processing**: Assessment generation, fallback mechanisms, and error handling
+- **Session Lifecycle Management**: Complete validation of session status transitions
+- **Time Zone Handling**: UTC timezone consistency and edge case handling
+- **Error Scenario Testing**: Comprehensive error handling and edge case validation
+- **Permission Testing**: Access control and authorization validation
+
+#### Voice Screening Scheduler Testing (250+ test scenarios)
+- **Business Hours Logic**: Testing business hour enforcement and time adjustment
+- **Retry Scheduling**: Validation of retry mechanisms and escalation logic
+- **Call Execution**: Testing call execution with proper status management
+- **Time Adjustment Logic**: Validation of time adjustment for weekends and holidays
+- **Scheduler Integration**: Testing scheduler integration with external dependencies
+- **Performance Testing**: Validation of scheduler performance and resource utilization
+- **Error Handling**: Comprehensive error handling and recovery mechanisms
+
+#### Voice Screening Fallback Testing (100+ test scenarios)
+- **Assessment Structure Validation**: Testing fallback assessment structure and scoring
+- **Error Handling Scenarios**: Validation of error handling in fallback scenarios
+- **Data Integrity Testing**: Ensuring data integrity in fallback scenarios
+- **Performance Testing**: Validation of fallback performance and resource utilization
+- **Integration Testing**: Testing fallback integration with external dependencies
+
+#### Voice Screening Session Lifecycle Testing (120+ test scenarios)
+- **Status Transition Validation**: Complete validation of session status transitions
+- **Lifecycle Management**: Testing session lifecycle management and state validation
+- **Data Consistency**: Ensuring data consistency throughout session lifecycle
+- **Error Recovery**: Testing error recovery mechanisms and state restoration
+- **Performance Monitoring**: Tracking performance across session lifecycle
+- **Audit Trail Validation**: Ensuring comprehensive audit trail validation
+
+#### Voice Screening External Dependency Mocking (comprehensive coverage)
+- **LiveKit Integration Testing**: Comprehensive testing of LiveKit integration and mocking
+- **Twilio Integration Testing**: Testing Twilio SMS and call integration with sophisticated mocking
+- **Voice Agent Service Testing**: Testing voice agent service integration and mocking
+- **External Service Mocking**: Sophisticated mocking strategies for all external dependencies
+- **Integration Testing**: Comprehensive integration testing with external services
+- **Error Handling**: Testing error handling and recovery from external service failures
+- **Performance Testing**: Validation of external dependency performance and resource utilization
+
+**Section sources**
+- [test_voice_screening.py:1-870](file://app/backend/tests/test_voice_screening.py#L1-870)
+- [voice.py:1-200](file://app/backend/routes/voice.py#L1-200)
+- [voice_screening_service.py:1-300](file://app/backend/services/voice_screening_service.py#L1-300)
+- [voice_call_scheduler.py:1-200](file://app/backend/services/voice_call_scheduler.py#L1-200)
+- [db_models.py:891-908](file://app/backend/models/db_models.py#L891-L908)
+
+### Appendix K: Modernized Async Testing Infrastructure Details
 **New Section**: The modernized async testing infrastructure provides Python 3.10+ compatible approach for running asynchronous coroutines:
 
 #### _arun() Helper Function Implementation

@@ -1,0 +1,1 @@
+Manages the lifecycle of the PostgreSQL database schema through versioned, idempotent Alembic migrations for the Resume AI platform.

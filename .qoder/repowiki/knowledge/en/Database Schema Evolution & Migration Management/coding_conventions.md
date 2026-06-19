@@ -1,0 +1,4 @@
+- Migrations implement idempotency by using `sa.inspect(op.get_bind())` to check for the existence of tables, columns, and indexes before attempting creation or alteration.
+- Helper functions like `_table_exists`, `_column_names`, and `_index_names` are defined locally within migration scripts to encapsulate inspection logic and improve readability.
+- Downgrade functions consistently reverse operations in the exact opposite order of the upgrade function, ensuring clean rollback paths for every schema change.
+- Schema changes involving multiple columns or complex constraints often use `op.batch_alter_table` for SQLite compatibility or atomic execution where applicable.

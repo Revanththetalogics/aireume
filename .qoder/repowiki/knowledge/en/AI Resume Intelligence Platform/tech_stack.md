@@ -1,0 +1,1 @@
+FastAPI with async/await for high-concurrency request handling; LangGraph-inspired state management for structured multi-stage agent pipelines; Ollama (local/cloud) for self-hosted LLM inference with custom keep-alive and timeout configurations; SQLAlchemy with PostgreSQL for shared JD caching and multi-tenant candidate storage.

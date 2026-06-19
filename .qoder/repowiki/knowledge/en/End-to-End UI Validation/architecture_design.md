@@ -1,0 +1,4 @@
+- Uses Playwright Test framework with a dedicated global setup script (`auth.setup.ts`) to handle authentication state persistence.
+- Organizes tests by functional domain (analysis, candidates, dashboard) in separate spec files.
+- Relies on shared authentication state stored in `e2e/.auth/` to avoid redundant logins across test suites.
+- Tests interact with the application via direct URL navigation and DOM assertions, assuming a pre-deployed frontend instance.

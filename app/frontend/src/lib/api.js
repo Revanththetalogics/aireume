@@ -337,6 +337,8 @@ export async function analyzeResumeStream(
     const parts = buffer.split('\n\n')
     buffer = parts.pop() ?? ''   // last fragment (possibly incomplete)
 
+    let streamError = null
+
     for (const part of parts) {
       const line = part.trim()
       if (!line.startsWith('data: ')) continue
@@ -363,7 +365,7 @@ export async function analyzeResumeStream(
             onStageComplete(event)
           }
         } else if (event.stage === 'error') {
-          throw new Error(event.result?.message || 'Analysis failed')
+          streamError = new Error(event.result?.message || 'Analysis failed')
         } else if (onStageComplete) {
           onStageComplete(event)
         }
@@ -372,6 +374,9 @@ export async function analyzeResumeStream(
         // Don't throw - continue processing other events
       }
     }
+
+    // Propagate server-side errors (e.g. scanned PDF rejection) outside the try-catch
+    if (streamError) throw streamError
     
     if (streamDone) break
   }

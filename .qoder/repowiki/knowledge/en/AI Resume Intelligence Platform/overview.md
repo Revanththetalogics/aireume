@@ -1,0 +1,1 @@
+Orchestrates a hybrid deterministic-LLM pipeline for bias-mitigated resume screening, enforcing enterprise security and multi-tenant isolation across parsing, scoring, and narrative generation.

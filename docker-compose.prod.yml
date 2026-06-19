@@ -1,8 +1,11 @@
 version: '3.8'
 
-# Project name scopes all containers to "aria" — safe to run alongside other stacks on the same VPS.
-# All container names, networks, and volumes are prefixed with "aria_".
-name: aria
+# ─── PRODUCTION ENVIRONMENT ─────────────────────────────────────────────────
+# Image tag: latest  (built from `production` branch by CD workflow)
+# Portainer: deploy this as stack named "aria-production"
+# Staging stack: see docker-compose.staging.yml (separate project, tag: staging)
+# ─────────────────────────────────────────────────────────────────────────────
+name: aria-production
 
 services:
   postgres:
@@ -24,7 +27,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: ${POSTGRES_DB:-aria_db}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - prod_postgres_data:/var/lib/postgresql/data
     deploy:
       resources:
         limits:
@@ -56,7 +59,7 @@ services:
       # Keep model always hot in RAM (-1 = never unload)
       - OLLAMA_KEEP_ALIVE=-1
     volumes:
-      - ollama_data:/root/.ollama
+      - prod_ollama_data:/root/.ollama
     deploy:
       resources:
         limits:
@@ -224,8 +227,8 @@ services:
     image: certbot/certbot
     container_name: resume-screener-certbot
     volumes:
-      - certbot_certs:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
+      - prod_certbot_certs:/etc/letsencrypt
+      - prod_certbot_www:/var/www/certbot
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h; done'"
     restart: unless-stopped
 
@@ -299,12 +302,12 @@ services:
     restart: unless-stopped
 
 volumes:
-  ollama_data:
-  postgres_data:
-  certbot_certs:
-  certbot_www:
+  prod_ollama_data:
+  prod_postgres_data:
+  prod_certbot_certs:
+  prod_certbot_www:
 
 networks:
   default:
-    name: aria_network
+    name: aria_production_network
     driver: bridge

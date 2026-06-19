@@ -1,0 +1,252 @@
+version: '3.8'
+
+# ─── STAGING ENVIRONMENT ───────────────────────────────────────────────────
+# Separate stack from production. All container names, volumes, and networks
+# are prefixed with "staging_" to avoid collisions with the production stack.
+#
+# Image tag: staging  (built from `main` branch by CD workflow)
+# Portainer: deploy this as a separate stack named "aria-staging"
+# ────────────────────────────────────────────────────────────────────────────
+name: aria-staging
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: staging-postgres
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1GB
+      -c work_mem=32MB
+      -c maintenance_work_mem=128MB
+      -c max_connections=100
+    environment:
+      POSTGRES_USER: ${STAGING_POSTGRES_USER:-aria_staging}
+      POSTGRES_PASSWORD: ${STAGING_POSTGRES_PASSWORD:?STAGING_POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${STAGING_POSTGRES_DB:-aria_staging_db}
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${STAGING_POSTGRES_USER:-aria_staging} -d ${STAGING_POSTGRES_DB:-aria_staging_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: staging-ollama
+    environment:
+      - OLLAMA_NUM_THREAD=4
+      - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+      - OLLAMA_KEEP_ALIVE=-1
+    volumes:
+      - staging_ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 6G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  backend:
+    image: revanth2245/resume-backend:staging
+    container_name: staging-backend
+    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 3 --timeout-graceful-shutdown 30
+    stop_grace_period: 30s
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:?OLLAMA_API_KEY is required}
+      - DATABASE_URL=postgresql://${STAGING_POSTGRES_USER:-aria_staging}:${STAGING_POSTGRES_PASSWORD}@postgres:5432/${STAGING_POSTGRES_DB:-aria_staging_db}
+      - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY:?STAGING_JWT_SECRET_KEY must be set}
+      - ENVIRONMENT=staging
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
+      - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
+      - VOICE_AGENT_URL=http://staging-voice-agent:8002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    image: revanth2245/resume-frontend:staging
+    container_name: staging-frontend
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    restart: unless-stopped
+
+  nginx:
+    image: revanth2245/resume-nginx:staging
+    container_name: staging-nginx
+    ports:
+      - "8080:80"
+    depends_on:
+      - frontend
+      - backend
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ollama-warmup:
+    image: ollama/ollama:latest
+    container_name: staging-ollama-warmup
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        echo '=== Staging: Ollama Warmup ===';
+        until ollama list > /dev/null 2>&1; do sleep 3; done;
+        ollama run gemma4:31b 'warmup' --nowordwrap;
+        echo 'Warmup complete';
+      "
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+    restart: "no"
+
+  # Staging Watchtower — only watches staging containers
+  watchtower:
+    image: containrrr/watchtower
+    container_name: staging-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      --rolling-restart
+      --interval 60
+      --cleanup
+      staging-backend
+      staging-frontend
+      staging-nginx
+      staging-speech-service
+      staging-voice-agent
+      staging-livekit
+    environment:
+      - WATCHTOWER_INCLUDE_STOPPED=false
+      - WATCHTOWER_NO_PULL=false
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+    restart: unless-stopped
+
+  # ─── Voice Screening Services (Staging) ──────────────────────────────────
+
+  livekit:
+    image: revanth2245/resume-livekit:staging
+    container_name: staging-livekit
+    command: >
+      --config /etc/livekit.yaml
+    environment:
+      - LIVEKIT_API_KEY=${STAGING_LIVEKIT_API_KEY:-staging_devkey}
+      - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET:-staging_devsecret}
+    ports:
+      - "7890:7880"
+      - "7891:7881"
+      - "7892:7882/udp"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  speech-service:
+    image: revanth2245/resume-speech-service:staging
+    container_name: staging-speech-service
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+    restart: unless-stopped
+
+  voice-agent:
+    image: revanth2245/resume-voice-agent:staging
+    container_name: staging-voice-agent
+    environment:
+      - SPEECH_SERVICE_URL=http://speech-service:8001
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=${STAGING_LIVEKIT_API_KEY:-staging_devkey}
+      - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET:-staging_devsecret}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      - ARIA_BACKEND_URL=http://backend:8000
+    depends_on:
+      livekit:
+        condition: service_healthy
+      speech-service:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    restart: unless-stopped
+
+volumes:
+  staging_ollama_data:
+  staging_postgres_data:
+
+networks:
+  default:
+    name: aria_staging_network
+    driver: bridge

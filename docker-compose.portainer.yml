@@ -1,5 +1,12 @@
 version: '3.8'
 
+# ─── Portainer-managed production compose ───────────────────────────────────
+# This is the compose file used by Portainer on the VPS.
+# It mirrors docker-compose.prod.yml but may omit certain services (like
+# watchtower or certbot) that are managed outside Portainer.
+# ─────────────────────────────────────────────────────────────────────────────
+name: aria-production
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -19,7 +26,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-aria_db}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - prod_postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aria} -d ${POSTGRES_DB:-aria_db}"]
@@ -39,7 +46,7 @@ services:
       - OLLAMA_KV_CACHE_TYPE=q8_0
       - OLLAMA_KEEP_ALIVE=-1
     volumes:
-      - ollama_data:/root/.ollama
+      - prod_ollama_data:/root/.ollama
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ollama", "list"]
@@ -63,8 +70,10 @@ services:
       - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
       - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
     depends_on:
-      - postgres
-      - ollama
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -101,25 +110,16 @@ services:
     image: ollama/ollama:latest
     container_name: resume-screener-ollama-warmup
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     entrypoint: >
       /bin/sh -c "
         echo '============================================';
-        echo '  ARIA — Ollama Model Warmup';
+        echo '  ARIA Production — Ollama Model Warmup';
         echo '============================================';
-        echo '';
-        echo '  Waiting for Ollama...';
-        until ollama list > /dev/null 2>&1; do
-          echo '  Waiting for Ollama...';
-          sleep 3;
-        done;
-        echo '  ✓  Ollama is up';
-        echo '';
-        echo '  Loading gemma4:31b into RAM...';
+        until ollama list > /dev/null 2>&1; do sleep 3; done;
         ollama run gemma4:31b 'warmup' --nowordwrap;
-        echo '  ✓  gemma4:31b is HOT in RAM';
-        echo '  ✓  Warmup complete — exiting (KEEP_ALIVE=-1 keeps model loaded)';
-        echo '============================================';
+        echo 'Warmup complete';
       "
     environment:
       - OLLAMA_HOST=http://ollama:11434
@@ -137,6 +137,9 @@ services:
       resume-screener-backend
       resume-screener-frontend
       resume-screener-nginx
+      resume-screener-speech-service
+      resume-screener-voice-agent
+      resume-screener-livekit
     environment:
       - WATCHTOWER_INCLUDE_STOPPED=false
       - WATCHTOWER_NO_PULL=false
@@ -146,18 +149,66 @@ services:
     image: certbot/certbot
     container_name: resume-screener-certbot
     volumes:
-      - certbot_certs:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
+      - prod_certbot_certs:/etc/letsencrypt
+      - prod_certbot_www:/var/www/certbot
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h; done'"
     restart: unless-stopped
 
+  # ─── Voice Screening Services ────────────────────────────────────────────
+
+  livekit:
+    image: revanth2245/resume-livekit:latest
+    container_name: resume-screener-livekit
+    command: >
+      --config /etc/livekit.yaml
+    environment:
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  speech-service:
+    image: revanth2245/resume-speech-service:latest
+    container_name: resume-screener-speech-service
+    restart: unless-stopped
+
+  voice-agent:
+    image: revanth2245/resume-voice-agent:latest
+    container_name: resume-screener-voice-agent
+    environment:
+      - SPEECH_SERVICE_URL=http://speech-service:8001
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      - ARIA_BACKEND_URL=http://backend:8000
+    depends_on:
+      livekit:
+        condition: service_healthy
+      speech-service:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
-  ollama_data:
-  postgres_data:
-  certbot_certs:
-  certbot_www:
+  prod_ollama_data:
+  prod_postgres_data:
+  prod_certbot_certs:
+  prod_certbot_www:
 
 networks:
   default:
-    name: aria_network
+    name: aria_production_network
     driver: bridge

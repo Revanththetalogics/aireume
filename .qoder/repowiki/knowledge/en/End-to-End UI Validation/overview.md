@@ -1,0 +1,1 @@
+Validates core user journeys including authentication, resume analysis workflow, candidate management, and dashboard navigation using Playwright.

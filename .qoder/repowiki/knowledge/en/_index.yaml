@@ -1,0 +1,58 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: en-US
+branch: main
+exported_at: "2026-06-19T05:32:37Z"
+modules:
+    "":
+        dir_name: AI Resume Intelligence Platform
+        title: AI Resume Intelligence Platform
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    database_migrations:
+        dir_name: Database Schema Evolution & Migration Management
+        title: Database Schema Evolution & Migration Management
+        scope:
+            - alembic/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    decisions:
+        dir_name: Decisions
+        title: Decisions
+        scope: []
+        source_files: []
+        children:
+            - decisions/dc66c1a34c1c_314491a85d06
+            - decisions/dc66c1a34c1c_0129d8e93481
+        depends_on: []
+        related_to: []
+    decisions/dc66c1a34c1c_0129d8e93481:
+        dir_name: Implement class-based Dark Mode with Tailwind CSS
+        title: Implement class-based Dark Mode with Tailwind CSS
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    decisions/dc66c1a34c1c_314491a85d06:
+        dir_name: Adopt framer-motion for application-wide motion and interactions
+        title: Adopt framer-motion for application-wide motion and interactions
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    e2e_tests:
+        dir_name: End-to-End UI Validation
+        title: End-to-End UI Validation
+        scope:
+            - e2e/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

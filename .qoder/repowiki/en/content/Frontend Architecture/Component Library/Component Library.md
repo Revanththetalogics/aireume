@@ -2,9 +2,6 @@
 
 <cite>
 **Referenced Files in This Document**
-- [App.jsx](file://app/frontend/src/App.jsx)
-- [main.jsx](file://app/frontend/src/main.jsx)
-- [AuthContext.jsx](file://app/frontend/src/contexts/AuthContext.jsx)
 - [AppShell.jsx](file://app/frontend/src/components/AppShell.jsx)
 - [NavBar.jsx](file://app/frontend/src/components/NavBar.jsx)
 - [ProtectedRoute.jsx](file://app/frontend/src/components/ProtectedRoute.jsx)
@@ -13,28 +10,23 @@
 - [ScoreGauge.jsx](file://app/frontend/src/components/ScoreGauge.jsx)
 - [Timeline.jsx](file://app/frontend/src/components/Timeline.jsx)
 - [SkillsRadar.jsx](file://app/frontend/src/components/SkillsRadar.jsx)
-- [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
-- [ComparisonView.jsx](file://app/frontend/src/components/ComparisonView.jsx)
-- [Dashboard.jsx](file://app/frontend/src/pages/Dashboard.jsx)
-- [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
-- [BatchPage.jsx](file://app/frontend/src/pages/BatchPage.jsx)
-- [AnalyzePage.jsx](file://app/frontend/src/pages/AnalyzePage.jsx)
-- [CandidatesPage.jsx](file://app/frontend/src/pages/CandidatesPage.jsx)
-- [ComparePage.jsx](file://app/frontend/src/pages/ComparePage.jsx)
-- [DashboardNew.jsx](file://app/frontend/src/pages/DashboardNew.jsx)
+- [VoiceScheduleModal.jsx](file://app/frontend/src/components/VoiceScheduleModal.jsx)
+- [ToastProvider.jsx](file://app/frontend/src/components/ToastProvider.jsx)
+- [AuthContext.jsx](file://app/frontend/src/contexts/AuthContext.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
-- [ResultCard.test.jsx](file://app/frontend/src/__tests__/ResultCard.test.jsx)
-- [ScoreGauge.test.jsx](file://app/frontend/src/__tests__/ScoreGauge.test.jsx)
-- [UploadForm.test.jsx](file://app/frontend/src/__tests__/UploadForm.test.jsx)
-- [analyze.py](file://app/backend/routes/analyze.py)
+- [Dashboard.jsx](file://app/frontend/src/pages/Dashboard.jsx)
+- [VoiceScreeningPage.jsx](file://app/frontend/src/pages/VoiceScreeningPage.jsx)
+- [App.jsx](file://app/frontend/src/App.jsx)
+- [main.jsx](file://app/frontend/src/main.jsx)
+- [useSubscription.jsx](file://app/frontend/src/hooks/useSubscription.jsx)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated UI label standardization: Interview Scorecard renamed to Recruiter Scorecard and Interview Kit renamed to Recruiter Screen Kit throughout the component library
-- Enhanced component documentation to reflect standardized terminology
-- Updated component references and usage patterns to use new Recruiter Scorecard terminology
-- Maintained all existing functionality while standardizing user-facing labels
+- Enhanced VoiceScheduleModal component documentation with improved error handling capabilities
+- Added details about structured error message extraction for both single and array validation errors
+- Updated error handling patterns and user feedback mechanisms
+- Integrated VoiceScheduleModal into VoiceScreeningPage component documentation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,1156 +34,603 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [XSS Protection and Safe String Utilities](#xss-protection-and-safe-string-utilities)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
-11. [Appendices](#appendices)
+6. [Dependency Analysis](#dependency-analysis)
+7. [Performance Considerations](#performance-considerations)
+8. [Troubleshooting Guide](#troubleshooting-guide)
+9. [Conclusion](#conclusion)
+10. [Appendices](#appendices)
 
 ## Introduction
-This document describes the reusable UI component library used by Resume AI's frontend. It covers layout and navigation wrappers, authentication gating, and specialized analysis visualization components. For each component, we outline purpose, props interface, event handlers, composition patterns, styling customization with TailwindCSS, accessibility considerations, and integration examples. The components are designed for responsiveness, cross-browser compatibility, and maintainable composition across pages.
-
-**UI Label Standardization**: All components now use standardized terminology with "Recruiter Scorecard" replacing "Interview Scorecard" and "Recruiter Screen Kit" replacing "Interview Kit" throughout the user interface.
+This document describes the reusable UI component library used by Resume AI's frontend. It focuses on the main layout wrapper (AppShell), navigation (NavBar), authentication gating (ProtectedRoute), and the core analysis UI components: UploadForm for resume and job description uploads with drag-and-drop and AI suggestions, ResultCard for displaying analysis results, ScoreGauge for visual score representation, Timeline for employment history visualization, SkillsRadar for skills assessment charts, and VoiceScheduleModal for voice screening call scheduling. It also covers composition patterns, prop validation, error handling, accessibility, styling customization with TailwindCSS, state management integration, and responsive design considerations.
 
 ## Project Structure
-The frontend is a React application bootstrapped with Vite and routed via React Router. Components live under src/components, pages under src/pages, shared contexts under src/contexts, and shared hooks under src/hooks. Styling leverages TailwindCSS with a consistent brand palette and backdrop blur effects.
+The frontend is a React application bootstrapped with Vite and styled with TailwindCSS. Components live under src/components, pages under src/pages, shared utilities under src/lib, and global providers under src/contexts and src/hooks. Routing is configured in App.jsx with protected routes and nested layouts.
 
 ```mermaid
 graph TB
 subgraph "Routing Layer"
-Routes["Routes in App.jsx"]
-end
-subgraph "Auth Layer"
-AuthProvider["AuthProvider (AuthContext.jsx)"]
-ProtectedRoute["ProtectedRoute.jsx"]
-end
+APP["App.jsx"]
+ROUTES["React Router Routes"]
+END
+subgraph "Providers"
+AUTH["AuthContext.jsx"]
+SUB["useSubscription.jsx"]
+THEME["ThemeContext (referenced)"]
+TOAST["ToastProvider.jsx"]
+END
 subgraph "Layout"
-AppShell["AppShell.jsx"]
-NavBar["NavBar.jsx"]
-end
+SHELL["AppShell.jsx"]
+NAV["NavBar.jsx"]
+END
 subgraph "Pages"
-Dashboard["Dashboard.jsx"]
-ReportPage["ReportPage.jsx"]
-BatchPage["BatchPage.jsx"]
-AnalyzePage["AnalyzePage.jsx"]
-CandidatesPage["CandidatesPage.jsx"]
-ComparePage["ComparePage.jsx"]
-DashboardNew["DashboardNew.jsx"]
-end
+DASH["Dashboard.jsx"]
+VOICE["VoiceScreeningPage.jsx"]
+REPORT["ReportPage (referenced)"]
+END
 subgraph "Components"
-UploadForm["UploadForm.jsx"]
-ResultCard["ResultCard.jsx"]
-ScoreGauge["ScoreGauge.jsx"]
-Timeline["Timeline.jsx"]
-SkillsRadar["SkillsRadar.jsx"]
-InterviewScorecard["InterviewScorecard.jsx"]
-ComparisonView["ComparisonView.jsx"]
-end
-Routes --> AuthProvider
-AuthProvider --> ProtectedRoute
-ProtectedRoute --> AppShell
-AppShell --> NavBar
-AppShell --> Dashboard
-Dashboard --> UploadForm
-Dashboard --> ResultCard
-ReportPage --> ResultCard
-BatchPage --> UploadForm
-BatchPage --> ResultCard
-AnalyzePage --> UploadForm
-ReportPage --> Timeline
-ReportPage --> ScoreGauge
-CandidatesPage --> ResultCard
-ComparePage --> ComparisonView
-DashboardNew --> ResultCard
+UPLOAD["UploadForm.jsx"]
+RESULT["ResultCard.jsx"]
+GAUGE["ScoreGauge.jsx"]
+TIME["Timeline.jsx"]
+SKILL["SkillsRadar.jsx"]
+VOICESCHED["VoiceScheduleModal.jsx"]
+PROTECT["ProtectedRoute.jsx"]
+END
+APP --> ROUTES
+ROUTES --> DASH
+ROUTES --> VOICE
+DASH --> UPLOAD
+DASH --> SHELL
+VOICE --> VOICESCHED
+SHELL --> NAV
+SHELL --> TOAST
+DASH --> RESULT
+RESULT --> GAUGE
+RESULT --> TIME
+RESULT --> SKILL
+APP --> AUTH
+APP --> SUB
+APP --> THEME
 ```
 
 **Diagram sources**
-- [App.jsx:39-61](file://app/frontend/src/App.jsx#L39-L61)
-- [AuthContext.jsx:6-62](file://app/frontend/src/contexts/AuthContext.jsx#L6-L62)
-- [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
-- [AppShell.jsx:3-11](file://app/frontend/src/components/AppShell.jsx#L3-L11)
-- [NavBar.jsx:17-116](file://app/frontend/src/components/NavBar.jsx#L17-L116)
-- [Dashboard.jsx:204-329](file://app/frontend/src/pages/Dashboard.jsx#L204-L329)
-- [ReportPage.jsx:82-297](file://app/frontend/src/pages/ReportPage.jsx#L82-L297)
-- [BatchPage.jsx:27-539](file://app/frontend/src/pages/BatchPage.jsx#L27-L539)
-- [AnalyzePage.jsx:150-200](file://app/frontend/src/pages/AnalyzePage.jsx#L150-L200)
-- [CandidatesPage.jsx:1-200](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L200)
-- [ComparePage.jsx:1-200](file://app/frontend/src/pages/ComparePage.jsx#L1-L200)
-- [DashboardNew.jsx:1-200](file://app/frontend/src/pages/DashboardNew.jsx#L1-L200)
-- [UploadForm.jsx:77-89](file://app/frontend/src/components/UploadForm.jsx#L77-L89)
-- [ResultCard.jsx:265-705](file://app/frontend/src/components/ResultCard.jsx#L265-L705)
+- [App.jsx:104-196](file://app/frontend/src/App.jsx#L104-L196)
+- [Dashboard.jsx:204-335](file://app/frontend/src/pages/Dashboard.jsx#L204-L335)
+- [VoiceScreeningPage.jsx:767-781](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L767-L781)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
+- [NavBar.jsx:251-364](file://app/frontend/src/components/NavBar.jsx#L251-L364)
+- [ToastProvider.jsx:1-51](file://app/frontend/src/components/ToastProvider.jsx#L1-L51)
+- [UploadForm.jsx:85-99](file://app/frontend/src/components/UploadForm.jsx#L85-L99)
+- [ResultCard.jsx:558-640](file://app/frontend/src/components/ResultCard.jsx#L558-L640)
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
-- [Timeline.jsx:3-115](file://app/frontend/src/components/Timeline.jsx#L3-L115)
-- [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
-- [InterviewScorecard.jsx:1-255](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L255)
-- [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
+- [Timeline.jsx:11-123](file://app/frontend/src/components/Timeline.jsx#L11-L123)
+- [SkillsRadar.jsx:118-140](file://app/frontend/src/components/SkillsRadar.jsx#L118-L140)
+- [ProtectedRoute.jsx:4-24](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L24)
 
 **Section sources**
-- [main.jsx:7-13](file://app/frontend/src/main.jsx#L7-L13)
-- [App.jsx:39-61](file://app/frontend/src/App.jsx#L39-L61)
+- [App.jsx:104-196](file://app/frontend/src/App.jsx#L104-L196)
+- [main.jsx:17-26](file://app/frontend/src/main.jsx#L17-L26)
 
 ## Core Components
-- AppShell: A minimal layout wrapper that renders the navigation bar and wraps page content with a scrollable container.
-- NavBar: A responsive header with logo, navigation links, and a user menu powered by AuthContext.
-- ProtectedRoute: A route guard that blocks unauthenticated users and shows a loading spinner while checking auth state.
-- UploadForm: Drag-and-drop resume and job description upload with multiple input modes (text, file, URL), scoring weight controls, and submission. Now supports expanded file formats including .txt, .rtf, and .odt.
-- ResultCard: A comprehensive results display with enhanced features including adaptive polling logic, concerns section, executive summary banners, risk flag displays, seniority alignment indicators, skill depth counts, and expanded explainability sections. Now includes robust safe string coercion utilities for reliable data rendering.
-- ScoreGauge: A circular gauge indicating recommendation fit level with thresholds and pending state.
-- Timeline: Employment history visualization with short-tenure indicators and gap severity. Now includes safe string coercion utilities for robust data rendering.
-- SkillsRadar: A category-based skills visualization with matched/missing counts and a bar chart breakdown.
-- InterviewScorecard: **Updated** Recruiter Scorecard component for comprehensive candidate evaluation with dimension summaries, strengths/concerns display, and overall assessment functionality.
-- ComparisonView: Side-by-side comparison component with scoring weights and results analysis. Includes safe string utilities for consistent data rendering.
-- CandidatesPage: Candidate management interface with detailed candidate information and application history. Implements safe string conversion for all text displays.
-- ComparePage: Multi-candidate comparison interface with historical analysis and scoring comparisons. Utilizes safe string utilities for XSS protection.
+This section summarizes each component's purpose, key props, event handlers, and usage patterns.
+
+- AppShell
+  - Purpose: Provides the main layout shell with fixed header, navigation, and scrollable content area.
+  - Props: children (ReactNode)
+  - Behavior: Renders NavBar and ToastProvider, wraps children in a scrollable container.
+  - Accessibility: Uses semantic header and proper z-index stacking.
+  - Styling: Tailwind classes define layout, spacing, and backdrop blur.
+
+- NavBar
+  - Purpose: Application navigation bar with desktop and mobile variants, user menu, and theme toggle.
+  - Props: None (uses AuthContext and ThemeContext internally)
+  - Behavior: Desktop nav links, mobile bottom tab bar, user menu dropdown, logout, admin link for platform admins.
+  - Accessibility: Proper aria-labels and keyboard focus management for interactive elements.
+
+- ProtectedRoute
+  - Purpose: Authentication gating for routes.
+  - Props: children (ReactNode)
+  - Behavior: Redirects unauthenticated users to login; shows loading spinner while auth state resolves.
+  - Error handling: Gracefully handles loading state and absence of user.
+
+- UploadForm
+  - Purpose: Upload resume and job description with drag-and-drop, JD parsing previews, skill confirmation, AI weight suggestions, and scoring weights panels.
+  - Key props:
+    - onFileSelect(file)
+    - jobDescription(string)
+    - onJobDescriptionChange(text)
+    - onJobFileSelect(file)
+    - onSubmit()
+    - isLoading(boolean)
+    - selectedFile(File?)
+    - selectedJobFile(File?)
+    - error(string?)
+    - scoringWeights(object?)
+    - onScoringWeightsChange(weights)
+    - skillOverrides(object?)
+    - onSkillOverridesChange(overrides?)
+  - Event handlers: Drag-and-drop handlers via react-dropzone, URL extraction, saving/loading JD templates, toggling weight panels, confirming skills.
+  - Validation: Disables submit when required fields are missing; debounced JD text parsing; file size/type constraints.
+  - Accessibility: Proper labels, ARIA attributes on interactive elements, focus states.
+
+- ResultCard
+  - Purpose: Displays analysis results including recommendation, risk, score breakdown, narrative, and action buttons.
+  - Key props: result(object) with keys such as fit_score, strengths, weaknesses, education_analysis, risk_signals, final_recommendation, score_breakdown, matched_skills, missing_skills, risk_level, result_id, candidate_id, explainability, adjacent_skills, skill_analysis, edu_timeline_analysis, jd_analysis, recommendation_rationale, narrative_pending, analysis_quality, fit_summary, concerns, score_rationales, risk_summary, analysis_id, onet_hot_skills.
+  - Behavior: Merges polled narrative data; shows AI-enhanced badge; collapsible sections; outcome recording; feedback collection; email generation modal.
+  - Accessibility: Collapsible sections use buttons with chevrons; copy-to-clipboard actions include aria-labels.
+
+- ScoreGauge
+  - Purpose: Visual gauge showing normalized fit score with threshold-based coloring and "Pending" state.
+  - Key props: score(number|null)
+  - Behavior: Calculates arc offsets and colors based on thresholds; displays pending state with dashed ring and label.
+  - Accessibility: Uses semantic labels and color contrast appropriate for thresholds.
+
+- Timeline
+  - Purpose: Visualizes work experience entries with optional gaps and short-tenure indicators.
+  - Key props: workExperience(array), gaps(array)
+  - Behavior: Sorts jobs by start date; renders timeline dots/icons; highlights short tenures; formats dates; shows gap severity.
+  - Accessibility: Safe string coercion for labels; readable typography and color coding.
+
+- SkillsRadar
+  - Purpose: Bar chart and summary of matched/missing skills grouped by categories with percentage coverage.
+  - Key props: matchedSkills(array), missingSkills(array)
+  - Behavior: Categorizes skills, tallies counts, sorts categories, renders bar chart with responsive container, and category chips.
+  - Accessibility: Tooltip and legend included; readable colors and labels.
+
+- VoiceScheduleModal
+  - Purpose: Modal component for scheduling and rescheduling voice screening calls with enhanced error handling.
+  - Key props: onClose(function), onScheduled(function), preselectedCandidate(object|null), preselectedJdId(string|null), editSession(object|null)
+  - Behavior: Handles candidate selection, phone number input, scheduling time selection, and submission with improved error processing.
+  - Error handling: Processes both single error responses and arrays of validation errors from backend with structured message extraction.
+  - Accessibility: Proper form controls, error messaging, and success states with visual feedback.
 
 **Section sources**
-- [AppShell.jsx:3-11](file://app/frontend/src/components/AppShell.jsx#L3-L11)
-- [NavBar.jsx:17-116](file://app/frontend/src/components/NavBar.jsx#L17-L116)
-- [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
-- [UploadForm.jsx:77-89](file://app/frontend/src/components/UploadForm.jsx#L77-L89)
-- [UploadForm.jsx:177-190](file://app/frontend/src/components/UploadForm.jsx#L177-L190)
-- [UploadForm.jsx:192-206](file://app/frontend/src/components/UploadForm.jsx#L192-L206)
-- [ResultCard.jsx:265-705](file://app/frontend/src/components/ResultCard.jsx#L265-L705)
+- [AppShell.jsx:4-14](file://app/frontend/src/components/AppShell.jsx#L4-L14)
+- [NavBar.jsx:251-364](file://app/frontend/src/components/NavBar.jsx#L251-L364)
+- [ProtectedRoute.jsx:4-24](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L24)
+- [UploadForm.jsx:85-99](file://app/frontend/src/components/UploadForm.jsx#L85-L99)
+- [ResultCard.jsx:558-640](file://app/frontend/src/components/ResultCard.jsx#L558-L640)
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
-- [Timeline.jsx:3-115](file://app/frontend/src/components/Timeline.jsx#L3-L115)
-- [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
-- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
-- [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
-- [CandidatesPage.jsx:1-200](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L200)
-- [ComparePage.jsx:1-200](file://app/frontend/src/pages/ComparePage.jsx#L1-L200)
+- [Timeline.jsx:11-123](file://app/frontend/src/components/Timeline.jsx#L11-L123)
+- [SkillsRadar.jsx:118-140](file://app/frontend/src/components/SkillsRadar.jsx#L118-L140)
+- [VoiceScheduleModal.jsx:12-98](file://app/frontend/src/components/VoiceScheduleModal.jsx#L12-L98)
 
 ## Architecture Overview
-The routing layer mounts providers for authentication and subscription, then wraps page content with ProtectedRoute and AppShell. Pages like Dashboard orchestrate state and pass props to UploadForm and ResultCard. BatchPage provides batch processing capabilities with enhanced error reporting. ResultCard composes SkillsRadar and Timeline to visualize analysis results, with enhanced functionality for comprehensive candidate evaluation and adaptive polling optimization. All components now utilize safe string coercion utilities for robust data rendering during SSE streaming and XSS protection.
+The routing layer composes providers and layout wrappers around pages. ProtectedRoute ensures authenticated access; AppShell hosts NavBar and Toast notifications. Dashboard integrates UploadForm and drives analysis via SSE streaming. VoiceScreeningPage integrates VoiceScheduleModal for voice call scheduling. ResultCard consumes analysis results and presents them with supporting components.
 
 ```mermaid
 sequenceDiagram
-participant Browser as "Browser"
-participant Router as "React Router"
-participant Auth as "AuthProvider"
-participant Guard as "ProtectedRoute"
-participant Shell as "AppShell"
-participant Nav as "NavBar"
-participant Page as "Dashboard"
-participant Batch as "BatchPage"
-participant Analyze as "AnalyzePage"
-participant Form as "UploadForm"
-participant Result as "ResultCard"
-participant Timeline as "Timeline"
-participant Backend as "Backend API"
-Browser->>Router : Navigate to "/"
-Router->>Auth : Initialize tokens
-Auth-->>Router : user, tenant, loading
-Router->>Guard : Render with children
-Guard->>Guard : Check loading/user
-Guard-->>Shell : Render AppShell if authorized
-Shell->>Nav : Render NavBar
-Shell->>Page : Render Dashboard
-Page->>Form : Pass props (files, JD, weights)
-Form-->>Page : onSubmit callback
-Page->>Batch : Navigate to BatchPage
-Batch->>Form : Pass props (batch files, JD)
-Form-->>Batch : onSubmit callback with enhanced validation
-Batch->>Result : Display results with failed uploads section
-Result->>Backend : Start adaptive polling
-Backend-->>Result : Polling responses (2s intervals)
-Result->>Backend : Switch to slower polling (5s intervals)
-Result-->>Batch : Display comprehensive analysis with failure details
-Timeline->>Backend : Render employment data safely
-Result->>Backend : Render analysis data safely
+participant U as "User"
+participant R as "Router(App.jsx)"
+participant P as "ProtectedRoute.jsx"
+participant S as "AppShell.jsx"
+participant N as "NavBar.jsx"
+participant VP as "VoiceScreeningPage.jsx"
+participant VM as "VoiceScheduleModal.jsx"
+participant API as "api.js"
+U->>R : Navigate to "/voice-screening"
+R->>P : Render ProtectedRoute
+P-->>U : Redirect to "/login" if not authenticated
+P->>S : Render AppShell
+S->>N : Render NavBar
+R->>VP : Render VoiceScreeningPage
+VP->>VM : Render VoiceScheduleModal
+U->>VM : Submit scheduling form
+VM->>API : scheduleVoiceCall/rescheduleVoiceCall
+API-->>VM : Response or Error
+VM->>U : Show success or structured error message
 ```
 
 **Diagram sources**
-- [App.jsx:39-61](file://app/frontend/src/App.jsx#L39-L61)
-- [AuthContext.jsx:6-62](file://app/frontend/src/contexts/AuthContext.jsx#L6-L62)
-- [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
-- [AppShell.jsx:3-11](file://app/frontend/src/components/AppShell.jsx#L3-L11)
-- [NavBar.jsx:17-116](file://app/frontend/src/components/NavBar.jsx#L17-L116)
-- [Dashboard.jsx:204-329](file://app/frontend/src/pages/Dashboard.jsx#L204-L329)
-- [BatchPage.jsx:27-539](file://app/frontend/src/pages/BatchPage.jsx#L27-L539)
-- [AnalyzePage.jsx:150-200](file://app/frontend/src/pages/AnalyzePage.jsx#L150-L200)
-- [UploadForm.jsx:77-89](file://app/frontend/src/components/UploadForm.jsx#L77-L89)
-- [ResultCard.jsx:265-705](file://app/frontend/src/components/ResultCard.jsx#L265-L705)
-- [Timeline.jsx:3-115](file://app/frontend/src/components/Timeline.jsx#L3-L115)
-- [api.js:413-416](file://app/frontend/src/lib/api.js#L413-L416)
+- [App.jsx:115-186](file://app/frontend/src/App.jsx#L115-L186)
+- [ProtectedRoute.jsx:4-24](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L24)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
+- [NavBar.jsx:251-364](file://app/frontend/src/components/NavBar.jsx#L251-L364)
+- [VoiceScreeningPage.jsx:767-781](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L767-L781)
+- [VoiceScheduleModal.jsx:57-98](file://app/frontend/src/components/VoiceScheduleModal.jsx#L57-L98)
+- [api.js:1585-1613](file://app/frontend/src/lib/api.js#L1585-L1613)
 
 ## Detailed Component Analysis
 
 ### AppShell
-- Purpose: Provides a consistent layout scaffold with a fixed header and scrollable content area.
-- Props: children (ReactNode).
-- Behavior: Renders NavBar and wraps children in a flex column with overflow handling.
-- Accessibility: Uses semantic headings and maintains focus order; relies on NavBar for global navigation.
-- Styling: Tailwind classes define height, spacing, and backdrop blur; responsive padding and overflow control.
-
-**Section sources**
-- [AppShell.jsx:3-11](file://app/frontend/src/components/AppShell.jsx#L3-L11)
-
-### NavBar
-- Purpose: Global navigation and user menu with branding, nav links, and account actions.
-- Props: None.
-- Behavior: Reads current user and tenant from AuthContext; toggles user dropdown; navigates to settings and logs out.
-- Accessibility: Keyboard-friendly buttons, aria-aware icons, and controlled open/close state.
-- Styling: Responsive layout with mobile-first design; backdrop blur and brand accents.
-
-**Section sources**
-- [NavBar.jsx:17-116](file://app/frontend/src/components/NavBar.jsx#L17-L116)
-- [AuthContext.jsx:65-69](file://app/frontend/src/contexts/AuthContext.jsx#L65-L69)
-
-### ProtectedRoute
-- Purpose: Enforces authentication at the route level.
-- Props: children (ReactNode).
-- Behavior: Shows a spinner while loading; redirects to login if no user; otherwise renders children.
-- Accessibility: Minimal DOM; spinner is visually centered and labeled by animation.
-- Styling: Centered loader with brand colors.
-
-**Section sources**
-- [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
-- [AuthContext.jsx:65-69](file://app/frontend/src/contexts/AuthContext.jsx#L65-L69)
-
-### UploadForm
-**Enhanced** The UploadForm component has been significantly expanded with comprehensive new file format support and improved validation capabilities.
-
-- Purpose: Accepts resume and job description via drag-and-drop, URL extraction, or file upload; exposes scoring weights. Now supports expanded file formats including .txt, .rtf, and .odt documents.
-- Props:
-  - onFileSelect(file)
-  - jobDescription(string)
-  - onJobDescriptionChange(text)
-  - onJobFileSelect(file)
-  - onSubmit(event)
-  - isLoading(boolean)
-  - selectedFile(File|null)
-  - selectedJobFile(File|null)
-  - error(string|null)
-  - scoringWeights(object|null)
-  - onScoringWeightsChange(weights)
-- Events: Triggers onSubmit when conditions are met; updates internal state for JD modes and weights.
-- Validation: Disables submit when required inputs are missing; shows errors; enforces file size/type limits with expanded format support.
-- Composition: Integrates react-dropzone for drag-and-drop; includes a Weight presets panel; supports saved JD templates.
-- Accessibility: Clear labels, keyboard navigation, disabled states, and visual feedback for drag-active states.
-- Styling: Tailwind cards, borders, and brand accents; responsive grid and typography.
-
-**Updated** Enhanced File Format Support:
-- **Resume Upload**: Now accepts PDF, DOCX, DOC, TXT, RTF, and ODT files with 10MB size limit
-- **Job Description Upload**: Now accepts PDF, DOCX, DOC, TXT, RTF, HTML, and ODT files with 5MB size limit
-- **Improved Labels**: Upload areas now clearly indicate supported formats: "PDF, DOCX, DOC, TXT, RTF, ODT" for resumes and "PDF, DOCX, DOC, TXT, RTF, HTML, ODT" for job descriptions
-- **Enhanced Validation**: Comprehensive file type validation with proper MIME type handling for all supported formats
+- Composition: Wraps children in a flex column with a sticky header and scrollable content area.
+- Providers: Includes ToastProvider for global notifications.
+- Styling: Uses Tailwind utilities for sizing, backdrop blur, and shadows.
 
 ```mermaid
 flowchart TD
-Start(["User interacts"]) --> Mode["Switch JD Mode<br/>Text/File/URL"]
-Mode --> Input["Provide Resume + JD"]
-Input --> Validate{"Inputs valid?<br/>File formats supported"}
-Validate --> |No| ShowError["Display error"]
-Validate --> |Yes| Weights["Adjust scoring weights"]
-Weights --> Submit["Click Analyze"]
-Submit --> Loading["Show spinner"]
-Loading --> Done["Navigate to Report"]
-ShowError --> Input
+Start(["Render AppShell"]) --> Header["Render NavBar"]
+Header --> Toast["Render ToastProvider"]
+Toast --> Content["Render scrollable content area"]
+Content --> Children["Render children"]
+Children --> End(["Finish"])
 ```
 
 **Diagram sources**
-- [UploadForm.jsx:77-89](file://app/frontend/src/components/UploadForm.jsx#L77-L89)
-- [UploadForm.jsx:137-194](file://app/frontend/src/components/UploadForm.jsx#L137-L194)
-- [UploadForm.jsx:177-190](file://app/frontend/src/components/UploadForm.jsx#L177-L190)
-- [UploadForm.jsx:192-206](file://app/frontend/src/components/UploadForm.jsx#L192-L206)
-- [UploadForm.jsx:459-479](file://app/frontend/src/components/UploadForm.jsx#L459-L479)
+- [AppShell.jsx:4-14](file://app/frontend/src/components/AppShell.jsx#L4-L14)
+- [ToastProvider.jsx:3-50](file://app/frontend/src/components/ToastProvider.jsx#L3-L50)
 
 **Section sources**
-- [UploadForm.jsx:77-89](file://app/frontend/src/components/UploadForm.jsx#L77-L89)
-- [UploadForm.jsx:137-194](file://app/frontend/src/components/UploadForm.jsx#L137-L194)
-- [UploadForm.jsx:177-190](file://app/frontend/src/components/UploadForm.jsx#L177-L190)
-- [UploadForm.jsx:192-206](file://app/frontend/src/components/UploadForm.jsx#L192-L206)
-- [UploadForm.jsx:236](file://app/frontend/src/components/UploadForm.jsx#L236)
-- [UploadForm.jsx:431](file://app/frontend/src/components/UploadForm.jsx#L431)
-- [UploadForm.jsx:459-479](file://app/frontend/src/components/UploadForm.jsx#L459-L479)
-- [UploadForm.test.jsx:26-58](file://app/frontend/src/__tests__/UploadForm.test.jsx#L26-L58)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
+- [ToastProvider.jsx:1-51](file://app/frontend/src/components/ToastProvider.jsx#L1-L51)
 
-### BatchPage
-**Enhanced** The BatchPage component now includes a comprehensive failed uploads section that displays individual file names and specific error messages for troubleshooting.
-
-- Purpose: Provides batch processing capabilities for analyzing multiple resumes against a single job description. Now includes detailed error reporting for failed uploads.
-- Props: None (manages state internally).
-- Enhanced Features:
-  - **Failed Uploads Section**: Dedicated section displaying all files that failed to process with individual file names and specific error messages
-  - **Comprehensive Error Display**: Shows filename and error details for each failed upload item
-  - **Visual Distinction**: Red-themed section with alert icons and clear "Failed" badges for failed uploads
-  - **Integration with Results**: Failed uploads are included in the results object alongside successful analyses
-  - **Enhanced Success Count**: Updated success count shows both successful and failed uploads in the results summary
-- Composition: Uses UploadForm for file selection, integrates with ResultCard for analysis display, and includes enhanced error handling.
-- Accessibility: Clear visual hierarchy with red-themed failed section; accessible table structure for results display.
-- Styling: Card-based layout with brand accents, red-themed failed section for error visibility, and responsive table design.
-
-**Updated** Failed Uploads Section:
-- **Dedicated Section**: Separate red-themed section for failed uploads with alert triangle icon
-- **Individual File Display**: Lists each failed file with filename and specific error message
-- **Clear Status Indicators**: Shows "Failed" badge next to each failed upload item
-- **Integration**: Seamlessly integrated with the main results table and analytics
+### NavBar
+- Desktop navigation: Primary links with animated active underline.
+- Mobile navigation: Bottom tab bar with "More" sheet and backdrop.
+- User menu: Avatar dropdown with theme toggle, logout, and admin link.
+- Accessibility: Buttons and menus use aria-labels and focus management.
 
 ```mermaid
 classDiagram
-class BatchPage {
-+props none
-+state files, results, error
-+failedUploadsSection enhanced
-+comprehensiveErrorReporting
-+integrationWithResults
+class NavBar {
++renders primary nav
++renders mobile tab bar
++renders user menu
++uses AuthContext
++uses ThemeContext
 }
-class UploadForm
-class ResultCard
-class FailedUploadsSection {
-+individualFileDisplay
-+specificErrorMessages
-+visualDistinction
-+clearStatusIndicators
+class UserMenu {
++renders user info
++renders links
++theme toggle
++logout
 }
-BatchPage --> UploadForm : "uses for file selection"
-BatchPage --> ResultCard : "displays analysis results"
-BatchPage --> FailedUploadsSection : "shows failed uploads"
+class MobileTabBar {
++renders tabs
++opens "More" sheet
+}
+NavBar --> UserMenu : "contains"
+NavBar --> MobileTabBar : "contains"
 ```
 
 **Diagram sources**
-- [BatchPage.jsx:27-539](file://app/frontend/src/pages/BatchPage.jsx#L27-L539)
-- [BatchPage.jsx:500-532](file://app/frontend/src/pages/BatchPage.jsx#L500-L532)
-- [UploadForm.jsx:77-89](file://app/frontend/src/components/UploadForm.jsx#L77-L89)
-- [ResultCard.jsx:265-705](file://app/frontend/src/components/ResultCard.jsx#L265-L705)
+- [NavBar.jsx:34-103](file://app/frontend/src/components/NavBar.jsx#L34-L103)
+- [NavBar.jsx:107-191](file://app/frontend/src/components/NavBar.jsx#L107-L191)
+- [NavBar.jsx:251-364](file://app/frontend/src/components/NavBar.jsx#L251-L364)
 
 **Section sources**
-- [BatchPage.jsx:27-539](file://app/frontend/src/pages/BatchPage.jsx#L27-L539)
-- [BatchPage.jsx:500-532](file://app/frontend/src/pages/BatchPage.jsx#L500-L532)
-- [BatchPage.jsx:403](file://app/frontend/src/pages/BatchPage.jsx#L403)
-- [UploadForm.jsx:89](file://app/frontend/src/components/UploadForm.jsx#L89)
+- [NavBar.jsx:1-364](file://app/frontend/src/components/NavBar.jsx#L1-L364)
+
+### ProtectedRoute
+- Gate: Checks user and loading state; redirects to login if not authenticated.
+- UX: Loading spinner while resolving auth state.
+
+```mermaid
+flowchart TD
+Start(["ProtectedRoute"]) --> CheckLoading{"loading?"}
+CheckLoading --> |Yes| ShowSpinner["Show loading spinner"]
+CheckLoading --> |No| CheckUser{"user?"}
+CheckUser --> |No| Redirect["<Navigate to='/login'/>"]
+CheckUser --> |Yes| RenderChildren["Render children"]
+ShowSpinner --> End(["Finish"])
+Redirect --> End
+RenderChildren --> End
+```
+
+**Diagram sources**
+- [ProtectedRoute.jsx:4-24](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L24)
+
+**Section sources**
+- [ProtectedRoute.jsx:1-24](file://app/frontend/src/components/ProtectedRoute.jsx#L1-L24)
+
+### UploadForm
+- Features:
+  - Drag-and-drop resume upload with react-dropzone.
+  - Job description modes: text, file, URL with auto-extraction.
+  - JD parsing preview with debounced text parsing and file parsing.
+  - Skill classification editor with mandatory confirmation.
+  - AI weight suggestion panel and manual weight controls (legacy 4-factor and universal 7-factor).
+  - Error handling and notices for save/load JD templates.
+- Props and handlers:
+  - onFileSelect, onJobDescriptionChange, onJobFileSelect, onSubmit, isLoading, selectedFile, selectedJobFile, error, scoringWeights, onScoringWeightsChange, skillOverrides, onSkillOverridesChange.
+- Validation:
+  - Submit disabled when required fields are missing; short JD warning; file size/type constraints.
+
+```mermaid
+sequenceDiagram
+participant U as "User"
+participant F as "UploadForm.jsx"
+participant API as "api.js"
+U->>F : Drop resume / select JD
+F->>F : Validate inputs
+F->>API : parseJdPreview(...) or parseJdPreviewFromFile(...)
+API-->>F : Parse result
+F->>U : Show SkillClassificationEditor
+U->>F : Confirm skills
+F->>API : analyzeResumeStream(...)
+API-->>F : Progress events
+F->>U : Enable submit
+U->>F : Click submit
+F-->>U : Trigger onSubmit
+```
+
+**Diagram sources**
+- [UploadForm.jsx:248-356](file://app/frontend/src/components/UploadForm.jsx#L248-L356)
+- [UploadForm.jsx:782-800](file://app/frontend/src/components/UploadForm.jsx#L782-L800)
+- [api.js:272-385](file://app/frontend/src/lib/api.js#L272-L385)
+
+**Section sources**
+- [UploadForm.jsx:85-99](file://app/frontend/src/components/UploadForm.jsx#L85-L99)
+- [UploadForm.jsx:161-220](file://app/frontend/src/components/UploadForm.jsx#L161-L220)
+- [UploadForm.jsx:248-356](file://app/frontend/src/components/UploadForm.jsx#L248-L356)
+- [UploadForm.jsx:707-772](file://app/frontend/src/components/UploadForm.jsx#L707-L772)
 
 ### ResultCard
-**Enhanced** The ResultCard component has been significantly expanded with comprehensive new features and adaptive polling logic for optimal user experience during AI analysis generation. Now includes robust safe string coercion utilities for reliable data rendering.
-
-- Purpose: Presents a comprehensive analysis report with recommendation, score breakdown, strengths/weaknesses/risk signals, explainability, education analysis, domain fit, and **Updated** Recruiter Screen Kit. Now includes enhanced features for concerns section, executive summary banners, risk flag displays, seniority alignment indicators, skill depth counts, and adaptive polling optimization. Includes safe string coercion utilities for robust data rendering during SSE streaming.
-- Props: result(object) with enhanced keys including fit_summary, concerns, risk_summary, skill_depth, score_rationales, and expanded analysis fields.
-- Enhanced Features:
-  - **Adaptive Polling Logic**: Implements a two-tier polling approach with rapid polling for initial cloud model completion and slower polling for local model processing
-  - **Concerns Section**: Dedicated concerns display replacing traditional weaknesses with improved formatting and backward compatibility
-  - **Executive Summary Banners**: Gradient executive summary banners with prominent visual presentation
-  - **Risk Flag Displays**: Comprehensive risk flag system with severity levels (high, medium, low) and detailed explanations
-  - **Seniority Alignment Indicators**: Seniority alignment information in score breakdown sections
-  - **Skill Depth Counts**: Visual skill depth indicators showing frequency of skills (e.g., "(8x)", "(3x)")
-  - **Enhanced Explainability**: Improved explainability sections with fallback to score rationales
-  - **Expanded Analysis Quality**: Enhanced analysis source badges with quality indicators
-  - **Safe String Coercion**: Robust string conversion utilities prevent runtime errors from null/undefined/non-string values
-  - **Recruiter Screen Kit**: **Updated** Comprehensive interview preparation toolkit with technical, behavioral, culture fit, and experience deep-dive questions
-- Safe String Coercion Utilities:
-  - Converts null/undefined to empty strings
-  - Converts numbers and booleans to strings
-  - Attempts JSON serialization for complex objects, falls back to string conversion
-  - Prevents runtime errors during SSE streaming and data rendering
-- Adaptive Polling Implementation:
-  - **Initial Phase (First 15 attempts)**: 2-second polling intervals for rapid cloud model completion
-  - **Optimization Phase (After 15 attempts)**: 5-second polling intervals for slower local model processing
-  - **Total Timeout**: 2.25 minutes maximum (15 attempts × 2s + 21 attempts × 5s = 135 seconds)
-  - **Smart Error Handling**: Graceful degradation with fallback data when AI enhancement fails
-- Composition: Uses ScoreBar, RiskBadge, CopyButton, CollapsibleSection, EmailModal, and AnalysisSourceBadge internally.
-- Accessibility: Expandable/collapsible sections with chevrons; copy buttons with tooltips; readable typography hierarchy; comprehensive color-coded risk indicators.
-- Styling: Card-based layout with brand accents, colored badges, subtle shadows, and enhanced visual hierarchy for improved readability.
-
-**Updated** Recruiter Screen Kit Integration:
-- **Recruiter Screen Kit Section**: Dedicated collapsible section with clipboard icon and "Recruiter Screen Kit" label
-- **Question Categories**: Technical, Behavioral, Culture Fit, and Experience Deep-Dive questions
-- **Candidate Briefing**: Contextual information for interviewers
-- **Export Functionality**: PDF export capability for sharing with hiring managers
-- **Evaluation Integration**: Seamless integration with InterviewScorecard for comprehensive candidate assessment
+- Displays recommendation, risk badge, and score breakdown with expandable details.
+- Integrates narrative polling with adaptive delays and fallback handling.
+- Outcome recording and feedback collection.
+- Email generation modal with draft management.
 
 ```mermaid
-classDiagram
-class ResultCard {
-+props result
-+defaultExpandEducation boolean
-+enhancedFeatures concerns, executiveSummary, riskFlags, seniorityAlignment, skillDepth
-+recruiterScreenKit integrated
-+narrativePolling adaptive, two-tier
-+safeStringCoercion utilities
-}
-class SkillsRadar
-class ScoreBar
-class RiskBadge
-class CopyButton
-class CollapsibleSection
-class EmailModal
-class AnalysisSourceBadge
-class PendingBanner
-class AdaptivePolling {
-+initialPhase 2s intervals
-+optimizationPhase 5s intervals
-+maxAttempts 36
-+smartErrorHandling
-}
-class SafeStringUtilities {
-+convertNullToEmpty
-+convertNumbersBooleans
-+jsonSerializationFallback
-+preventRuntimeErrors
-}
-class RecruiterScreenKit {
-+technicalQuestions
-+behavioralQuestions
-+cultureFitQuestions
-+experienceDeepDiveQuestions
-+candidateBriefing
-+exportPDF
-}
-ResultCard --> SkillsRadar : "renders"
-ResultCard --> ScoreBar : "uses"
-ResultCard --> RiskBadge : "uses"
-ResultCard --> CopyButton : "uses"
-ResultCard --> CollapsibleSection : "uses"
-ResultCard --> EmailModal : "opens"
-ResultCard --> AnalysisSourceBadge : "renders"
-ResultCard --> PendingBanner : "shows"
-ResultCard --> AdaptivePolling : "implements"
-ResultCard --> SafeStringUtilities : "uses"
-ResultCard --> RecruiterScreenKit : "integrates"
+flowchart TD
+Start(["ResultCard"]) --> CheckPending{"narrative_pending?"}
+CheckPending --> |Yes| Poll["Poll getNarrative() with adaptive delay"]
+Poll --> Ready{"ready or failed?"}
+Ready --> |Ready| Merge["Merge narrativeData with result"]
+Ready --> |Failed| Fallback["Set fallback narrative and error"]
+CheckPending --> |No| Merge
+Merge --> Render["Render recommendation, scores, sections"]
+Render --> Actions["Outcome recording, feedback, email"]
+Actions --> End(["Finish"])
 ```
 
 **Diagram sources**
-- [ResultCard.jsx:265-705](file://app/frontend/src/components/ResultCard.jsx#L265-L705)
-- [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
-- [ResultCard.jsx:13-37](file://app/frontend/src/components/ResultCard.jsx#L13-L37)
-- [ResultCard.jsx:39-50](file://app/frontend/src/components/ResultCard.jsx#L39-L50)
-- [ResultCard.jsx:52-63](file://app/frontend/src/components/ResultCard.jsx#L52-L63)
-- [ResultCard.jsx:65-90](file://app/frontend/src/components/ResultCard.jsx#L65-L90)
-- [ResultCard.jsx:94-194](file://app/frontend/src/components/ResultCard.jsx#L94-L194)
-- [ResultCard.jsx:198-247](file://app/frontend/src/components/ResultCard.jsx#L198-L247)
-- [ResultCard.jsx:251-261](file://app/frontend/src/components/ResultCard.jsx#L251-L261)
-- [ResultCard.jsx:1350-1379](file://app/frontend/src/components/ResultCard.jsx#L1350-L1379)
+- [ResultCard.jsx:657-735](file://app/frontend/src/components/ResultCard.jsx#L657-L735)
+- [ResultCard.jsx:558-640](file://app/frontend/src/components/ResultCard.jsx#L558-L640)
 
 **Section sources**
-- [ResultCard.jsx:265-705](file://app/frontend/src/components/ResultCard.jsx#L265-L705)
-- [ResultCard.jsx:13-37](file://app/frontend/src/components/ResultCard.jsx#L13-L37)
-- [ResultCard.jsx:39-50](file://app/frontend/src/components/ResultCard.jsx#L39-L50)
-- [ResultCard.jsx:52-63](file://app/frontend/src/components/ResultCard.jsx#L52-L63)
-- [ResultCard.jsx:65-90](file://app/frontend/src/components/ResultCard.jsx#L65-L90)
-- [ResultCard.jsx:94-194](file://app/frontend/src/components/ResultCard.jsx#L94-L194)
-- [ResultCard.jsx:198-247](file://app/frontend/src/components/ResultCard.jsx#L198-L247)
-- [ResultCard.jsx:251-261](file://app/frontend/src/components/ResultCard.jsx#L251-L261)
-- [ResultCard.jsx:1350-1379](file://app/frontend/src/components/ResultCard.jsx#L1350-L1379)
-- [ResultCard.test.jsx:14-133](file://app/frontend/src/__tests__/ResultCard.test.jsx#L14-L133)
+- [ResultCard.jsx:558-640](file://app/frontend/src/components/ResultCard.jsx#L558-L640)
+- [ResultCard.jsx:200-490](file://app/frontend/src/components/ResultCard.jsx#L200-L490)
 
 ### ScoreGauge
-- Purpose: Visualizes a single-fit score with threshold-based coloring and a pending state indicator.
-- Props: score(number|null).
-- Behavior: Computes arc offset based on score; displays "Pending" when score is null/undefined.
-- Accessibility: Clear numeric labeling and threshold labels; transitions for smooth arc rendering.
-- Styling: SVG-based circular progress with brand shadows and color-coded labels.
+- Visualizes fit score with threshold-based color and label.
+- Handles pending state with dashed ring and "Pending" label.
+
+```mermaid
+flowchart TD
+Start(["ScoreGauge"]) --> IsPending{"score is null/undefined?"}
+IsPending --> |Yes| Pending["Render pending state"]
+IsPending --> |No| Compute["Compute arc offset and color"]
+Compute --> Render["Render SVG gauge and label"]
+Pending --> End(["Finish"])
+Render --> End
+```
+
+**Diagram sources**
+- [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
 
 **Section sources**
 - [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
-- [ScoreGauge.test.jsx:5-24](file://app/frontend/src/__tests__/ScoreGauge.test.jsx#L5-L24)
 
 ### Timeline
-**Enhanced** The Timeline component now includes robust safe string coercion utilities for reliable data rendering during SSE streaming and other scenarios.
-
-- Purpose: Renders employment history with optional gaps and short-tenure warnings. Now includes safe string coercion utilities for robust data rendering.
-- Props: workExperience(array), gaps(array|null).
-- Behavior: Sorts jobs by start date; marks short tenures; renders gap metadata with severity.
-- Safe String Coercion Utilities:
-  - Converts null/undefined job titles and company names to "Unknown Title"/"Unknown Company"
-  - Handles various data types safely during rendering
-  - Prevents runtime errors when employment data is incomplete or malformed
-- Accessibility: Semantic headings and readable date formatting; minimal interactive elements.
-- Styling: Vertical timeline with brand accents and severity badges.
-
-**Updated** Safe String Coercion Implementation:
-- Job titles and company names are safely coerced to strings with fallback values
-- Gap duration and severity information is rendered safely with proper string conversion
-- Prevents runtime errors during SSE streaming when employment data arrives incrementally
-
-**Section sources**
-- [Timeline.jsx:3-115](file://app/frontend/src/components/Timeline.jsx#L3-L115)
-- [Timeline.jsx:3-9](file://app/frontend/src/components/Timeline.jsx#L3-L9)
-
-### SkillsRadar
-- Purpose: Visualizes matched vs missing skills grouped by categories with a bar chart and summary metrics.
-- Props: matchedSkills(array), missingSkills(array).
-- Behavior: Categorizes skills, tallies counts, computes match percentage, and renders a bar chart with tooltips.
-- Accessibility: Tooltips for chart details; readable legends and category labels.
-- Styling: Responsive chart container, category-specific colors, and summary progress indicator.
-
-**Section sources**
-- [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
-
-### InterviewScorecard
-**Updated** The InterviewScorecard component has been renamed to Recruiter Scorecard and now provides comprehensive candidate evaluation functionality.
-
-- Purpose: **Updated** Recruiter Scorecard for comprehensive candidate evaluation with dimension summaries, strengths/concerns display, and overall assessment functionality.
-- Props: resultId(number) - unique identifier for the screening result.
-- Enhanced Features:
-  - **Dimension Summaries**: Technical, Behavioral, Culture Fit, and Experience Deep-Dive question categories with evaluation metrics
-  - **Strengths & Concerns**: Dedicated sections for confirmed strengths and identified concerns
-  - **Overall Assessment**: Editable textarea for recruiter's comprehensive evaluation
-  - **Recommendation System**: Dropdown selection for advance/hold/reject recommendations
-  - **Team Evaluations**: Display of evaluator ratings and notes for transparency
-  - **PDF Export**: One-click export functionality for sharing with hiring managers
-  - **Safe String Coercion**: Robust data rendering with XSS protection
-- Composition: Uses dimension cards, evaluation summaries, and assessment forms with comprehensive data binding.
-- Accessibility: Clear form controls with proper labeling; editable text areas with focus management; accessible export button.
-- Styling: Card-based layout with dimension-specific styling, gradient headers for strengths, and red-themed sections for concerns.
-
-**Updated** Terminology Standardization:
-- Component name remains "InterviewScorecard.jsx" but displays "Recruiter Scorecard" in UI
-- All user-facing labels now use "Recruiter Scorecard" terminology
-- Consistent with backend API and database models
+- Sorts and renders work history with optional gaps and short-tenure indicators.
 
 ```mermaid
-classDiagram
-class InterviewScorecard {
-+props resultId
-+state scorecard, loading, error, overall, recommendation
-+dimensionSummaries technical, behavioral, cultureFit, experienceDeepDive
-+strengthsConcernsSections
-+overallAssessmentEditable
-+recommendationDropdown
-+teamEvaluationsDisplay
-+pdfExportFunctionality
-+safeStringCoercion
-}
-class DimensionCard {
-+props dimension, label, icon
-+evaluatedCount
-+ratingCounts
-+keyNotesDisplay
-+evaluatorRatings
-}
-class RecruiterScorecardAPI {
-+getScorecard(resultId)
-+saveOverallAssessment(resultId, data)
-}
-InterviewScorecard --> DimensionCard : "renders"
-InterviewScorecard --> RecruiterScorecardAPI : "uses"
+flowchart TD
+Start(["Timeline"]) --> Validate{"workExperience present?"}
+Validate --> |No| Empty["Render empty state"]
+Validate --> |Yes| Sort["Sort by start_date desc"]
+Sort --> Loop["Iterate sorted jobs"]
+Loop --> Render["Render job entry, gap, and short-tenure badge"]
+Render --> End(["Finish"])
 ```
 
 **Diagram sources**
-- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
-- [InterviewScorecard.jsx:20-85](file://app/frontend/src/components/InterviewScorecard.jsx#L20-L85)
+- [Timeline.jsx:11-123](file://app/frontend/src/components/Timeline.jsx#L11-L123)
 
 **Section sources**
-- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
-- [InterviewScorecard.jsx:20-85](file://app/frontend/src/components/InterviewScorecard.jsx#L20-L85)
+- [Timeline.jsx:11-123](file://app/frontend/src/components/Timeline.jsx#L11-L123)
 
-### ComparisonView
-**Enhanced** The ComparisonView component now includes comprehensive safe string coercion utilities for secure data rendering across all comparison displays.
+### SkillsRadar
+- Categorizes skills, computes totals, and renders a responsive bar chart with category chips.
 
-- Purpose: Provides side-by-side comparison of analysis results with scoring weights and reasoning. Includes safe string utilities for XSS protection and consistent data rendering.
-- Props: version1(object), version2(object), onClose(function), className(string).
-- Safe String Coercion Utilities:
-  - Converts null/undefined recommendation values to empty strings
-  - Safely handles complex objects in weight reasoning fields
-  - Prevents runtime errors during comparison data rendering
-- Enhanced Features:
-  - Version comparison with score differences and recommendation changes
-  - Weight adjustment analysis with visual indicators
-  - Impact summary with trend arrows and color-coded changes
-- Composition: Uses ScoreBadge, weight difference calculations, and formatted display components.
-- Accessibility: Clear visual hierarchy with comparison indicators; accessible tabular layout for results.
-- Styling: Gradient headers, side-by-side layout with comparison badges and trend indicators.
-
-**Section sources**
-- [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
-
-### CandidatesPage
-**Enhanced** The CandidatesPage component implements comprehensive safe string coercion utilities for secure candidate data display and management.
-
-- Purpose: Manages candidate profiles with detailed application history and analysis results. Includes safe string utilities for XSS protection across all text displays.
-- Props: None (manages state internally).
-- Safe String Coercion Utilities:
-  - Converts null/undefined candidate names and emails to safe strings
-  - Handles complex application history objects safely
-  - Prevents runtime errors in candidate detail rendering
-- Enhanced Features:
-  - Candidate search with real-time filtering
-  - Application history tracking with status badges
-  - Detailed candidate profile with analysis results
-- Composition: Uses CandidateDetail modal, ScoreBadge components, and API integration for data fetching.
-- Accessibility: Clear search interface with accessible table structure; modal dialogs with proper focus management.
-- Styling: Responsive grid layout, status badges with color coding, and detailed profile cards.
-
-**Section sources**
-- [CandidatesPage.jsx:1-200](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L200)
-
-### ComparePage
-**Enhanced** The ComparePage component utilizes centralized safe string coercion utilities for secure multi-candidate comparison and historical analysis.
-
-- Purpose: Enables comparison of up to 5 candidates from analysis history with scoring and recommendation analysis. Implements safe string utilities for XSS protection.
-- Props: None (manages state internally).
-- Safe String Coercion Utilities:
-  - Converts null/undefined candidate names to safe strings with fallbacks
-  - Handles complex analysis result objects safely
-  - Prevents runtime errors in comparison selector and results
-- Enhanced Features:
-  - Multi-candidate selection with visual indicators
-  - Historical analysis comparison with scoring differences
-  - Export functionality for comparison results
-- Composition: Uses CollapsibleSection components, ScoreCell badges, and API integration for data retrieval.
-- Accessibility: Clear selection interface with accessible toggle controls; comparison tables with proper semantic structure.
-- Styling: Gradient headers, comparison tables with status indicators, and export controls.
-
-**Section sources**
-- [ComparePage.jsx:1-200](file://app/frontend/src/pages/ComparePage.jsx#L1-L200)
-
-## XSS Protection and Safe String Utilities
-
-**New** The Resume AI component library now implements comprehensive XSS protection through the centralized safeStr utility function, providing universal string conversion and sanitization across all frontend components.
-
-### Safe String Utility Function
-The safeStr function serves as the cornerstone of XSS protection throughout the application:
-
-```javascript
-function safeStr(v) {
-  if (v == null) return ''           // Convert null/undefined to empty string
-  if (typeof v === 'string') return v // Return strings as-is
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v) // Convert primitives
-  try { return JSON.stringify(v) } catch { return String(v) } // Fallback to string conversion
-}
+```mermaid
+flowchart TD
+Start(["SkillsRadar"]) --> Validate{"matchedSkills or missingSkills?"}
+Validate --> |No| Null["Return null"]
+Validate --> |Yes| Tally["Tally per category"]
+Tally --> Sort["Sort by total desc"]
+Sort --> Chart["Render bar chart and chips"]
+Chart --> End(["Finish"])
 ```
 
-### Implementation Across Components
-All text-rendering components now utilize safeStr for XSS protection:
-
-**ResultCard.jsx** (Lines 13-19, 423-424, 478-479, 504-505, 510-511, 528-532, 545-546, 562-563, 590-596, 619-620, 640-641, 657-658, 689-690, 703-704, 731-732, 736-737, 742-743, 748-749):
-- Recommendation text rendering
-- Executive summary display
-- Skill lists and depth indicators
-- Risk flag details and severities
-- Explainability sections
-- Education analysis content
-
-**Timeline.jsx** (Lines 3-9, 57-62, 81-88):
-- Job titles and company names
-- Gap duration and severity information
-- Employment period display
-
-**SkillsRadar.jsx** (Lines 3-9):
-- Category names and skill labels
-- Chart data and tooltips
-
-**InterviewScorecard.jsx** (Lines 6-12, 160-161, 174, 247-248):
-- Candidate names and role titles
-- Dimension labels and ratings
-- Overall assessment text
-- Evaluator information
-
-**ComparisonView.jsx** (Lines 3-9, 114-115, 139-140, 177-178, 213-214):
-- Version recommendations
-- Weight reasoning text
-- Comparison scores and differences
-
-**CandidatesPage.jsx** (Lines 6-12, 43-44, 63):
-- Candidate names and emails
-- Application recommendations
-- Status indicators
-
-**ComparePage.jsx** (Lines 6-12, 150-151, 167):
-- Candidate names and recommendations
-- Analysis scores and statuses
-
-**ReportPage.jsx** (Lines 13-19):
-- Inline name editor functionality
-- Candidate name display
-
-### Security Benefits
-- **Universal Protection**: All text rendering now uses safe string conversion
-- **Runtime Error Prevention**: Eliminates crashes from null/undefined/non-string values
-- **XSS Mitigation**: Prevents malicious script injection through proper string conversion
-- **Data Type Flexibility**: Handles various data types without manual conversion
-- **Performance Optimization**: Centralized utility reduces code duplication and improves maintainability
-
-### Integration Patterns
-Components consistently apply safeStr in rendering contexts:
-
-```jsx
-// Safe string usage patterns
-<span>{safeStr(final_recommendation)}</span>
-<p>{safeStr(fit_summary)}</p>
-<div title={safeStr(flag.detail)}>{safeStr(flag.flag)}</div>
-```
+**Diagram sources**
+- [SkillsRadar.jsx:118-140](file://app/frontend/src/components/SkillsRadar.jsx#L118-L140)
+- [SkillsRadar.jsx:200-239](file://app/frontend/src/components/SkillsRadar.jsx#L200-L239)
 
 **Section sources**
-- [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
-- [ResultCard.jsx:423-424](file://app/frontend/src/components/ResultCard.jsx#L423-L424)
-- [ResultCard.jsx:478-479](file://app/frontend/src/components/ResultCard.jsx#L478-L479)
-- [ResultCard.jsx:504-505](file://app/frontend/src/components/ResultCard.jsx#L504-L505)
-- [ResultCard.jsx:510-511](file://app/frontend/src/components/ResultCard.jsx#L510-L511)
-- [ResultCard.jsx:528-532](file://app/frontend/src/components/ResultCard.jsx#L528-L532)
-- [ResultCard.jsx:545-546](file://app/frontend/src/components/ResultCard.jsx#L545-L546)
-- [ResultCard.jsx:562-563](file://app/frontend/src/components/ResultCard.jsx#L562-L563)
-- [ResultCard.jsx:590-596](file://app/frontend/src/components/ResultCard.jsx#L590-L596)
-- [ResultCard.jsx:619-620](file://app/frontend/src/components/ResultCard.jsx#L619-L620)
-- [ResultCard.jsx:640-641](file://app/frontend/src/components/ResultCard.jsx#L640-L641)
-- [ResultCard.jsx:657-658](file://app/frontend/src/components/ResultCard.jsx#L657-L658)
-- [ResultCard.jsx:689-690](file://app/frontend/src/components/ResultCard.jsx#L689-L690)
-- [ResultCard.jsx:703-704](file://app/frontend/src/components/ResultCard.jsx#L703-L704)
-- [ResultCard.jsx:731-732](file://app/frontend/src/components/ResultCard.jsx#L731-L732)
-- [ResultCard.jsx:736-737](file://app/frontend/src/components/ResultCard.jsx#L736-L737)
-- [ResultCard.jsx:742-743](file://app/frontend/src/components/ResultCard.jsx#L742-L743)
-- [ResultCard.jsx:748-749](file://app/frontend/src/components/ResultCard.jsx#L748-L749)
-- [Timeline.jsx:3-9](file://app/frontend/src/components/Timeline.jsx#L3-L9)
-- [Timeline.jsx:57-62](file://app/frontend/src/components/Timeline.jsx#L57-L62)
-- [Timeline.jsx:81-88](file://app/frontend/src/components/Timeline.jsx#L81-L88)
-- [SkillsRadar.jsx:3-9](file://app/frontend/src/components/SkillsRadar.jsx#L3-L9)
-- [InterviewScorecard.jsx:6-12](file://app/frontend/src/components/InterviewScorecard.jsx#L6-12)
-- [InterviewScorecard.jsx:160-161](file://app/frontend/src/components/InterviewScorecard.jsx#L160-L161)
-- [InterviewScorecard.jsx:174](file://app/frontend/src/components/InterviewScorecard.jsx#L174)
-- [InterviewScorecard.jsx:247-248](file://app/frontend/src/components/InterviewScorecard.jsx#L247-L248)
-- [ComparisonView.jsx:3-9](file://app/frontend/src/components/ComparisonView.jsx#L3-L9)
-- [ComparisonView.jsx:114-115](file://app/frontend/src/components/ComparisonView.jsx#L114-L115)
-- [ComparisonView.jsx:139-140](file://app/frontend/src/components/ComparisonView.jsx#L139-L140)
-- [ComparisonView.jsx:177-178](file://app/frontend/src/components/ComparisonView.jsx#L177-L178)
-- [ComparisonView.jsx:213-214](file://app/frontend/src/components/ComparisonView.jsx#L213-L214)
-- [CandidatesPage.jsx:6-12](file://app/frontend/src/pages/CandidatesPage.jsx#L6-L12)
-- [CandidatesPage.jsx:43-44](file://app/frontend/src/pages/CandidatesPage.jsx#L43-L44)
-- [CandidatesPage.jsx:63](file://app/frontend/src/pages/CandidatesPage.jsx#L63)
-- [ComparePage.jsx:6-12](file://app/frontend/src/pages/ComparePage.jsx#L6-L12)
-- [ComparePage.jsx:150-151](file://app/frontend/src/pages/ComparePage.jsx#L150-L151)
-- [ComparePage.jsx:167](file://app/frontend/src/pages/ComparePage.jsx#L167)
-- [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
+- [SkillsRadar.jsx:118-140](file://app/frontend/src/components/SkillsRadar.jsx#L118-L140)
+- [SkillsRadar.jsx:200-239](file://app/frontend/src/components/SkillsRadar.jsx#L200-L239)
+
+### VoiceScheduleModal
+- **Enhanced** Improved error handling with support for both single error responses and arrays of validation errors from backend.
+- Features:
+  - Candidate selection with pre-selection support for existing sessions.
+  - Phone number input with E.164 format validation.
+  - DateTime picker for scheduling future calls.
+  - Success state with animated confirmation.
+  - Structured error message extraction from backend validation responses.
+- Error handling improvements:
+  - Processes `err.response?.data?.detail` as either a single error object or array of validation errors.
+  - Extracts user-friendly messages using `msg || message || JSON.stringify(e)` for each validation error.
+  - Joins multiple error messages with comma separation for comprehensive feedback.
+- Props and handlers:
+  - onClose, onScheduled, preselectedCandidate, preselectedJdId, editSession.
+- Validation:
+  - Client-side validation for required fields before submission.
+  - Server-side validation with enhanced error reporting.
+
+```mermaid
+sequenceDiagram
+participant U as "User"
+participant VM as "VoiceScheduleModal.jsx"
+participant API as "api.js"
+U->>VM : Open modal
+VM->>VM : Load candidates (if needed)
+U->>VM : Fill form fields
+VM->>VM : Client-side validation
+VM->>API : scheduleVoiceCall/rescheduleVoiceCall
+API-->>VM : Success or Error response
+alt Error response with validation errors
+VM->>VM : Process detail array with structured extraction
+VM->>U : Show combined error message
+else Single error response
+VM->>VM : Extract single error message
+VM->>U : Show error message
+end
+VM->>U : Show success state or allow retry
+```
+
+**Diagram sources**
+- [VoiceScheduleModal.jsx:57-98](file://app/frontend/src/components/VoiceScheduleModal.jsx#L57-L98)
+- [VoiceScheduleModal.jsx:89-98](file://app/frontend/src/components/VoiceScheduleModal.jsx#L89-L98)
+- [api.js:1585-1613](file://app/frontend/src/lib/api.js#L1585-L1613)
+
+**Section sources**
+- [VoiceScheduleModal.jsx:12-98](file://app/frontend/src/components/VoiceScheduleModal.jsx#L12-L98)
+- [VoiceScheduleModal.jsx:89-98](file://app/frontend/src/components/VoiceScheduleModal.jsx#L89-L98)
 
 ## Dependency Analysis
-- App.jsx orchestrates providers and routes, wrapping page shells with ProtectedRoute and AppShell.
-- Dashboard integrates UploadForm and drives state for analysis submission and progress.
-- BatchPage provides batch processing capabilities with enhanced error reporting and integrates with UploadForm for file selection.
-- ReportPage renders ResultCard with enhanced features for comprehensive analysis display and includes safe string coercion utilities.
-- ResultCard composes SkillsRadar and Timeline for visualization with robust data rendering.
-- InterviewScorecard provides comprehensive candidate evaluation with dimension summaries and overall assessment functionality.
-- AuthContext supplies authentication state to NavBar and ProtectedRoute.
-- Backend API provides adaptive polling endpoints for LLM narrative generation.
-- All components utilize safe string coercion utilities for reliable data rendering during SSE streaming and XSS protection.
+- Routing and layout:
+  - App.jsx composes ProtectedRoute, SubscriptionProvider, and AppShell around pages.
+  - Dashboard.jsx composes UploadForm and orchestrates analysis via SSE.
+  - VoiceScreeningPage.jsx composes VoiceScheduleModal for voice call scheduling.
+- Authentication:
+  - ProtectedRoute depends on AuthContext for user and loading state.
+  - AuthContext manages login, logout, refresh, and idle timeout.
+- State and subscriptions:
+  - useSubscription provides usage checks, plan limits, and optimistic refresh after analysis.
+- API integration:
+  - api.js centralizes Axios configuration, interceptors, retries, and analysis endpoints (SSE streaming).
+  - Voice API functions for scheduling and managing voice screening sessions.
+- Notifications:
+  - ToastProvider provides global toast styling and behavior.
 
 ```mermaid
 graph LR
-App["App.jsx"] --> Auth["AuthProvider (AuthContext.jsx)"]
-App --> Routes["Routes"]
-Routes --> Protected["ProtectedRoute.jsx"]
-Protected --> Shell["AppShell.jsx"]
-Shell --> Nav["NavBar.jsx"]
-Routes --> Dash["Dashboard.jsx"]
-Routes --> Batch["BatchPage.jsx"]
-Routes --> Analyze["AnalyzePage.jsx"]
-Routes --> Report["ReportPage.jsx"]
-Routes --> Candidates["CandidatesPage.jsx"]
-Routes --> Compare["ComparePage.jsx"]
-Routes --> DashboardNew["DashboardNew.jsx"]
-Dash --> Upload["UploadForm.jsx"]
-Batch --> Upload
-Analyze --> Upload
-Dash --> Result["ResultCard.jsx"]
-Batch --> Result
-Report --> Result
-Result --> Radar["SkillsRadar.jsx"]
-Dash --> Time["Timeline.jsx"]
-Report --> Time
-Report --> Gauge["ScoreGauge.jsx"]
-Result --> Polling["Adaptive Polling API"]
-Result --> RecruiterKit["Recruiter Screen Kit"]
-Result --> SafeStr["Safe String Utilities"]
-Time --> SafeStr
-Report --> SafeStr
-Candidates --> SafeStr
-Compare --> SafeStr
-InterviewScorecard --> SafeStr
+APP["App.jsx"] --> PROTECT["ProtectedRoute.jsx"]
+APP --> SHELL["AppShell.jsx"]
+SHELL --> NAV["NavBar.jsx"]
+APP --> SUB["useSubscription.jsx"]
+APP --> AUTH["AuthContext.jsx"]
+DASH["Dashboard.jsx"] --> UPLOAD["UploadForm.jsx"]
+DASH --> API["api.js"]
+VOICE["VoiceScreeningPage.jsx"] --> VOICESCHED["VoiceScheduleModal.jsx"]
+VOICE --> API
+RESULT["ResultCard.jsx"] --> API
+NAV --> AUTH
+PROTECT --> AUTH
 ```
 
 **Diagram sources**
-- [App.jsx:39-61](file://app/frontend/src/App.jsx#L39-L61)
-- [AuthContext.jsx:6-62](file://app/frontend/src/contexts/AuthContext.jsx#L6-L62)
-- [ProtectedRoute.jsx:4-23](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L23)
-- [AppShell.jsx:3-11](file://app/frontend/src/components/AppShell.jsx#L3-L11)
-- [NavBar.jsx:17-116](file://app/frontend/src/components/NavBar.jsx#L17-L116)
-- [Dashboard.jsx:204-329](file://app/frontend/src/pages/Dashboard.jsx#L204-L329)
-- [BatchPage.jsx:27-539](file://app/frontend/src/pages/BatchPage.jsx#L27-L539)
-- [AnalyzePage.jsx:150-200](file://app/frontend/src/pages/AnalyzePage.jsx#L150-L200)
-- [ReportPage.jsx:82-297](file://app/frontend/src/pages/ReportPage.jsx#L82-L297)
-- [CandidatesPage.jsx:1-200](file://app/frontend/src/pages/CandidatesPage.jsx#L1-L200)
-- [ComparePage.jsx:1-200](file://app/frontend/src/pages/ComparePage.jsx#L1-L200)
-- [DashboardNew.jsx:1-200](file://app/frontend/src/pages/DashboardNew.jsx#L1-L200)
-- [UploadForm.jsx:77-89](file://app/frontend/src/components/UploadForm.jsx#L77-L89)
-- [ResultCard.jsx:265-705](file://app/frontend/src/components/ResultCard.jsx#L265-L705)
-- [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
-- [Timeline.jsx:3-115](file://app/frontend/src/components/Timeline.jsx#L3-L115)
-- [ScoreGauge.jsx:1-97](file://app/frontend/src/components/ScoreGauge.jsx#L1-L97)
-- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
-- [api.js:413-416](file://app/frontend/src/lib/api.js#L413-L416)
+- [App.jsx:104-196](file://app/frontend/src/App.jsx#L104-L196)
+- [ProtectedRoute.jsx:4-24](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L24)
+- [AppShell.jsx:1-15](file://app/frontend/src/components/AppShell.jsx#L1-L15)
+- [NavBar.jsx:251-364](file://app/frontend/src/components/NavBar.jsx#L251-L364)
+- [Dashboard.jsx:204-335](file://app/frontend/src/pages/Dashboard.jsx#L204-L335)
+- [VoiceScreeningPage.jsx:767-781](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L767-L781)
+- [useSubscription.jsx:7-164](file://app/frontend/src/hooks/useSubscription.jsx#L7-L164)
+- [AuthContext.jsx:8-137](file://app/frontend/src/contexts/AuthContext.jsx#L8-L137)
+- [api.js:1-141](file://app/frontend/src/lib/api.js#L1-L141)
 
 **Section sources**
-- [App.jsx:39-61](file://app/frontend/src/App.jsx#L39-L61)
-- [ReportPage.jsx:82-297](file://app/frontend/src/pages/ReportPage.jsx#L82-L297)
+- [App.jsx:104-196](file://app/frontend/src/App.jsx#L104-L196)
+- [Dashboard.jsx:204-335](file://app/frontend/src/pages/Dashboard.jsx#L204-L335)
+- [VoiceScreeningPage.jsx:767-781](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L767-L781)
+- [useSubscription.jsx:1-200](file://app/frontend/src/hooks/useSubscription.jsx#L1-L200)
+- [AuthContext.jsx:1-144](file://app/frontend/src/contexts/AuthContext.jsx#L1-L144)
+- [api.js:1-141](file://app/frontend/src/lib/api.js#L1-L141)
 
 ## Performance Considerations
-- Lazy-load routes to reduce initial bundle size.
-- Use responsive containers (e.g., SkillsRadar) to avoid layout thrashing on small screens.
-- Debounce or throttle heavy UI updates (e.g., real-time progress) to minimize re-renders.
-- Prefer memoization for expensive computations in ResultCard (e.g., explainability sections).
-- Keep SVG animations minimal; rely on transitions for gauge updates.
-- Optimize enhanced ResultCard rendering with conditional displays for new features.
-- **Adaptive Polling Optimization**: Implement intelligent polling intervals to balance user experience and server load.
-- **Smart Fallback Mechanisms**: Graceful degradation when AI enhancement fails to maintain usability.
-- **Enhanced Batch Processing**: Optimized chunked upload handling for large batch operations with progress tracking.
-- **Safe String Coercion Performance**: Efficient string conversion utilities prevent unnecessary re-renders and runtime errors.
-- **Centralized Security**: Single safeStr utility reduces code duplication and improves maintainability across components.
-- **UI Label Standardization**: Consistent terminology improves user experience and reduces confusion across the application.
+- Debounced JD parsing reduces unnecessary API calls during typing.
+- Adaptive polling for narrative minimizes network overhead and respects backend latency.
+- SSE streaming avoids long polling and provides progressive updates.
+- Lazy loading of routes and pages improves initial load performance.
+- Tailwind utilities enable efficient styling without heavy CSS frameworks.
+- VoiceScheduleModal uses client-side validation to reduce unnecessary API calls.
 
 ## Troubleshooting Guide
-- Authentication not persisting:
-  - Verify tokens are stored in localStorage and AuthProvider fetches /auth/me on mount.
-- ProtectedRoute shows spinner indefinitely:
-  - Ensure AuthProvider resolves user or clears stale tokens.
-- UploadForm submit disabled:
-  - Confirm selectedFile exists and jobDescription is present for text mode or selectedJobFile for file mode.
-  - **Updated** Check that file format is supported (.pdf, .docx, .doc, .txt, .rtf, .odt).
-- ResultCard sections not expanding:
-  - Check defaultOpen prop and state toggles; ensure collapsible sections receive proper children.
-- Enhanced ResultCard features not displaying:
-  - Verify result object contains new fields (concerns, fit_summary, risk_summary, skill_depth, score_rationales).
-  - Ensure backward compatibility with weaknesses field for concerns fallback.
-- **Adaptive Polling Issues**:
-  - **Polling not starting**: Check narrative_pending flag and effectiveAnalysisId existence.
-  - **Too frequent polling**: Verify initial 2-second intervals for first 15 attempts.
-  - **Slow polling after 15 attempts**: Confirm 5-second intervals kick in after threshold.
-  - **Max attempts reached**: Ensure polling stops after 36 attempts (2.25 minutes).
-  - **Error handling failures**: Check fallback data and error messages when AI enhancement fails.
-- **Batch Processing Issues**:
-  - **Failed uploads not showing**: Verify results object contains failed array with filename and error properties.
-  - **File format errors**: Check that files are in supported formats (.pdf, .docx, .doc, .txt, .rtf, .odt).
-  - **Upload progress not displayed**: Ensure chunked upload is being used for large files.
-- ScoreGauge shows pending:
-  - Indicates score is null/undefined; trigger re-analysis after resolving backend issues.
-- Timeline gaps misreported:
-  - Validate date parsing and ensure gaps array aligns with job indices.
-- **Safe String Coercion Issues**:
-  - **Data rendering errors**: Verify safeStr function is used consistently for all text display components.
-  - **Null/undefined values**: Ensure safeStr converts null/undefined to empty strings to prevent runtime errors.
-  - **Complex objects**: Check that JSON serialization fallback works correctly for complex data structures.
-  - **SSE streaming**: Verify safe string utilities prevent errors when partial data arrives during streaming.
-  - **XSS protection failures**: Ensure all user-generated content passes through safeStr before rendering.
-- **Component Security Issues**:
-  - **Injection attacks**: Verify that all dynamic content uses safeStr for XSS protection.
-  - **Data type errors**: Check that safeStr handles unexpected data types gracefully.
-  - **Memory leaks**: Ensure safeStr usage doesn't create unnecessary string conversions in performance-critical paths.
-- **UI Label Standardization Issues**:
-  - **Terminology inconsistencies**: Verify all components use "Recruiter Scorecard" and "Recruiter Screen Kit" terminology.
-  - **Component naming conflicts**: Ensure InterviewScorecard component continues to function with updated UI labels.
-  - **Backend API alignment**: Confirm backend endpoints and database models support the new terminology.
+- Authentication issues:
+  - ProtectedRoute shows a loading spinner while resolving auth state; redirects to login if user is absent.
+  - AuthContext handles refresh failures and dispatches a logout event; idle timeout triggers logout.
+- Network and retries:
+  - api.js retries transient 5xx and network errors with exponential backoff; CSRF tokens refreshed automatically.
+- UploadForm:
+  - Submit disabled when required fields are missing; short JD warning; file size/type constraints enforced.
+  - JD parsing errors show retry option; saved JD library loads templates on mount.
+- ResultCard:
+  - Polling stops when narrative is ready or fails; fallback narrative displayed with notice; error banners shown for narrative failures.
+- VoiceScheduleModal:
+  - **Enhanced** Error handling now processes both single error responses and arrays of validation errors from backend.
+  - Structured error message extraction provides comprehensive user feedback for form validation failures.
+  - Success state with animated confirmation provides clear user feedback for successful scheduling.
 
 **Section sources**
-- [AuthContext.jsx:11-27](file://app/frontend/src/contexts/AuthContext.jsx#L11-L27)
-- [ProtectedRoute.jsx:7-16](file://app/frontend/src/components/ProtectedRoute.jsx#L7-L16)
-- [UploadForm.jsx:190-194](file://app/frontend/src/components/UploadForm.jsx#L190-L194)
-- [UploadForm.jsx:177-190](file://app/frontend/src/components/UploadForm.jsx#L177-L190)
-- [UploadForm.jsx:192-206](file://app/frontend/src/components/UploadForm.jsx#L192-L206)
-- [ResultCard.jsx:65-90](file://app/frontend/src/components/ResultCard.jsx#L65-L90)
-- [ResultCard.jsx:282-283](file://app/frontend/src/components/ResultCard.jsx#L282-L283)
-- [ResultCard.jsx:302-380](file://app/frontend/src/components/ResultCard.jsx#L302-L380)
-- [BatchPage.jsx:500-532](file://app/frontend/src/pages/BatchPage.jsx#L500-L532)
-- [ScoreGauge.jsx:2-3](file://app/frontend/src/components/ScoreGauge.jsx#L2-L3)
-- [Timeline.jsx:96-114](file://app/frontend/src/components/Timeline.jsx#L96-L114)
+- [ProtectedRoute.jsx:4-24](file://app/frontend/src/components/ProtectedRoute.jsx#L4-L24)
+- [AuthContext.jsx:56-107](file://app/frontend/src/contexts/AuthContext.jsx#L56-L107)
+- [api.js:60-140](file://app/frontend/src/lib/api.js#L60-L140)
+- [UploadForm.jsx:161-220](file://app/frontend/src/components/UploadForm.jsx#L161-L220)
+- [ResultCard.jsx:657-735](file://app/frontend/src/components/ResultCard.jsx#L657-L735)
+- [VoiceScheduleModal.jsx:89-98](file://app/frontend/src/components/VoiceScheduleModal.jsx#L89-L98)
 
 ## Conclusion
-The component library emphasizes composability, accessibility, and responsive design. Layout and navigation are centralized via AppShell and NavBar, while ProtectedRoute ensures secure access. UploadForm and ResultCard integrate tightly with page-level state to deliver a seamless analysis workflow. The enhanced UploadForm now provides comprehensive file format support including .txt, .rtf, and .odt documents with improved validation and user feedback. BatchPage offers advanced batch processing capabilities with detailed error reporting for failed uploads. The enhanced ResultCard now provides comprehensive candidate evaluation with executive summaries, risk assessments, and detailed skill analysis. The adaptive polling system optimizes user experience during AI analysis generation with intelligent two-tier polling logic. Visualization components (ScoreGauge, Timeline, SkillsRadar) provide actionable insights with clear thresholds and category breakdowns. **The implementation of centralized safeStr utility functions across all components ensures robust XSS protection and prevents runtime errors from malformed or incomplete data, creating a secure and reliable user experience throughout the application.** **UI label standardization has been successfully implemented with "Recruiter Scorecard" replacing "Interview Scorecard" and "Recruiter Screen Kit" replacing "Interview Kit" throughout the user interface, providing consistent terminology across all components.**
+The component library provides a cohesive, accessible, and responsive foundation for Resume AI's analysis workflow. AppShell and NavBar establish consistent layout and navigation; ProtectedRoute enforces authentication; UploadForm and ResultCard orchestrate the core user journey with robust validation, error handling, and progressive feedback. VoiceScheduleModal enhances the voice screening experience with improved error handling that processes both single error responses and arrays of validation errors from the backend. Supporting providers and hooks manage subscriptions, auth, and global notifications, enabling scalable and maintainable UI composition.
 
 ## Appendices
 
 ### Component Composition Patterns
-- Provider-first routing: AuthProvider -> ProtectedRoute -> AppShell -> Page -> Component.
-- Page-driven orchestration: Dashboard manages file/weight/state and passes callbacks to UploadForm; Dashboard also renders ResultCard and auxiliary components.
-- Enhanced ResultCard composition: ResultCard composes ScoreBar, RiskBadge, CollapsibleSection, EmailModal, and AnalysisSourceBadge with expanded feature support and adaptive polling optimization.
-- ReportPage integration: ReportPage renders enhanced ResultCard with comprehensive analysis display and timeline visualization, utilizing safe string coercion utilities.
-- **Enhanced Batch Processing**: BatchPage orchestrates UploadForm for file selection, processes multiple files with chunked upload, and displays results with comprehensive error reporting.
-- **Safe String Coercion Pattern**: All text-rendering components now utilize safe string coercion utilities to prevent runtime errors during data streaming and XSS protection.
-- **Centralized Security Pattern**: Single safeStr utility provides consistent XSS protection across all components without code duplication.
-- **UI Label Standardization Pattern**: All user-facing components now use consistent "Recruiter Scorecard" and "Recruiter Screen Kit" terminology.
+- Layout composition: AppShell wraps pages; ProtectedRoute guards routes; SubscriptionProvider injects usage state.
+- Form composition: UploadForm delegates JD parsing, skill confirmation, and weight management to child panels and editors.
+- Result composition: ResultCard composes ScoreGauge, Timeline, and SkillsRadar; supports collapsible sections and modals.
+- Voice screening composition: VoiceScreeningPage composes VoiceScheduleModal for scheduling and managing voice calls.
 
 **Section sources**
-- [App.jsx:29-37](file://app/frontend/src/App.jsx#L29-L37)
-- [Dashboard.jsx:204-329](file://app/frontend/src/pages/Dashboard.jsx#L204-L329)
-- [ReportPage.jsx:286](file://app/frontend/src/pages/ReportPage.jsx#L286)
-- [BatchPage.jsx:27-539](file://app/frontend/src/pages/BatchPage.jsx#L27-L539)
-- [ResultCard.jsx:65-90](file://app/frontend/src/components/ResultCard.jsx#L65-L90)
+- [App.jsx:73-102](file://app/frontend/src/App.jsx#L73-L102)
+- [Dashboard.jsx:294-308](file://app/frontend/src/pages/Dashboard.jsx#L294-L308)
+- [ResultCard.jsx:558-640](file://app/frontend/src/components/ResultCard.jsx#L558-L640)
+- [VoiceScreeningPage.jsx:767-781](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L767-L781)
 
-### Prop Validation and Error Handling
-- UploadForm validates inputs and displays errors; disables submit until ready.
-- **Updated** Enhanced file format validation with comprehensive MIME type checking for all supported formats.
-- ResultCard handles missing data gracefully and shows placeholders; includes backward compatibility for concerns fallback.
-- Enhanced ResultCard validation: Checks for new fields (concerns, fit_summary, risk_summary, skill_depth, score_rationales) with graceful fallbacks.
-- **Adaptive Polling Error Handling**: Smart fallback mechanisms when AI enhancement fails; graceful degradation maintains usability.
-- **Enhanced Batch Error Handling**: Comprehensive error reporting for failed uploads with individual file details and specific error messages.
-- ScoreGauge and Timeline handle null/undefined inputs and render safe defaults.
-- **Safe String Coercion Error Handling**: Prevents runtime errors from null/undefined/non-string values across all text-rendering components.
-- **XSS Protection Error Handling**: Centralized safeStr function prevents injection attacks and ensures secure data rendering.
-- **UI Label Standardization Error Handling**: Consistent terminology prevents user confusion and ensures proper component identification.
+### Prop Validation and Accessibility
+- Props: Components expose explicit props for state and callbacks; internal validation prevents rendering errors.
+- Accessibility: Buttons include aria-labels; collapsible sections use buttons; tooltips and legends improve readability.
+- VoiceScheduleModal: Enhanced error handling with proper ARIA labels for error messages and success states.
 
 **Section sources**
-- [UploadForm.jsx:190-194](file://app/frontend/src/components/UploadForm.jsx#L190-L194)
-- [UploadForm.jsx:177-190](file://app/frontend/src/components/UploadForm.jsx#L177-L190)
-- [UploadForm.jsx:192-206](file://app/frontend/src/components/UploadForm.jsx#L192-L206)
-- [ResultCard.jsx:282-283](file://app/frontend/src/components/ResultCard.jsx#L282-L283)
-- [ResultCard.jsx:299-304](file://app/frontend/src/components/ResultCard.jsx#L299-L304)
-- [ResultCard.jsx:302-380](file://app/frontend/src/components/ResultCard.jsx#L302-L380)
-- [BatchPage.jsx:500-532](file://app/frontend/src/pages/BatchPage.jsx#L500-L532)
-- [ScoreGauge.jsx:2-3](file://app/frontend/src/components/ScoreGauge.jsx#L2-L3)
-- [Timeline.jsx:4-11](file://app/frontend/src/components/Timeline.jsx#L4-L11)
-
-### Accessibility Features
-- Semantic headings and labels.
-- Keyboard operable buttons and collapsible sections.
-- Focus management in modals (e.g., EmailModal).
-- Sufficient color contrast and readable typography.
-- Enhanced accessibility: Color-coded risk indicators with proper ARIA labels; comprehensive tooltip support for risk flags.
-- **Enhanced File Format Accessibility**: Clear upload labels with supported format information for screen readers.
-- **Enhanced Batch Accessibility**: Visual distinction between successful and failed uploads with clear status indicators.
-- **Adaptive Polling Accessibility**: Optimized polling intervals reduce user frustration during long waits.
-- **Safe String Coercion Accessibility**: Prevents runtime errors that could disrupt screen reader navigation and accessibility features.
-- **Centralized Security Accessibility**: Safe string utilities ensure consistent data rendering without accessibility barriers.
-- **UI Label Standardization Accessibility**: Consistent terminology improves screen reader comprehension and user experience.
-
-**Section sources**
-- [NavBar.jsx:67-111](file://app/frontend/src/components/NavBar.jsx#L67-L111)
-- [ResultCard.jsx:94-194](file://app/frontend/src/components/ResultCard.jsx#L94-L194)
-- [ResultCard.jsx:444-473](file://app/frontend/src/components/ResultCard.jsx#L444-L473)
-- [UploadForm.jsx:236](file://app/frontend/src/components/UploadForm.jsx#L236)
-- [UploadForm.jsx:431](file://app/frontend/src/components/UploadForm.jsx#L431)
+- [UploadForm.jsx:85-99](file://app/frontend/src/components/UploadForm.jsx#L85-L99)
+- [ResultCard.jsx:59-67](file://app/frontend/src/components/ResultCard.jsx#L59-L67)
+- [NavBar.jsx:334-346](file://app/frontend/src/components/NavBar.jsx#L334-L346)
+- [VoiceScheduleModal.jsx:162-167](file://app/frontend/src/components/VoiceScheduleModal.jsx#L162-L167)
 
 ### Styling Customization with TailwindCSS
-- Brand tokens: Use bg-brand-*, text-brand-*, ring-brand-* for consistent theming.
-- Backdrop blur: backdrop-blur-md for glass-like UIs.
-- Responsive grids and spacing: Use md:/lg: prefixes for breakpoints.
-- Interactive states: Hover/focus rings and transitions for feedback.
-- Enhanced styling: Gradient backgrounds for executive summaries; color-coded risk badges; skill depth indicators with frequency styling.
-- **Enhanced File Format Styling**: Clear upload area styling with format-specific guidance.
-- **Enhanced Batch Styling**: Red-themed failed uploads section with alert icons and clear visual hierarchy.
-- **Adaptive Polling Visual Feedback**: Loading indicators and status badges provide clear user feedback during polling.
-- **Safe String Coercion Styling**: Consistent fallback styling ensures text elements always render properly regardless of data type.
-- **Centralized Security Styling**: Safe string utilities enable consistent styling across all components without security concerns.
-- **UI Label Standardization Styling**: Consistent terminology improves visual consistency and user recognition across the interface.
+- Components rely on Tailwind utilities for layout, colors, spacing, and responsiveness.
+- Providers like ToastProvider customize toast appearance globally.
+- Theme-aware components integrate with ThemeContext (referenced).
+- VoiceScheduleModal uses brand-specific colors and animations for visual feedback.
 
 **Section sources**
-- [AppShell.jsx:5](file://app/frontend/src/components/AppShell.jsx#L5)
-- [NavBar.jsx:26](file://app/frontend/src/components/NavBar.jsx#L26)
-- [UploadForm.jsx:198](file://app/frontend/src/components/UploadForm.jsx#L198)
-- [UploadForm.jsx:236](file://app/frontend/src/components/UploadForm.jsx#L236)
-- [UploadForm.jsx:431](file://app/frontend/src/components/UploadForm.jsx#L431)
-- [ResultCard.jsx:342-354](file://app/frontend/src/components/ResultCard.jsx#L342-L354)
-- [ResultCard.jsx:444-473](file://app/frontend/src/components/ResultCard.jsx#L444-L473)
-- [ResultCard.jsx:401-403](file://app/frontend/src/components/ResultCard.jsx#L401-L403)
-- [BatchPage.jsx:500-532](file://app/frontend/src/pages/BatchPage.jsx#L500-L532)
+- [ToastProvider.jsx:3-50](file://app/frontend/src/components/ToastProvider.jsx#L3-L50)
+- [NavBar.jsx:272-361](file://app/frontend/src/components/NavBar.jsx#L272-L361)
+- [VoiceScheduleModal.jsx:100-130](file://app/frontend/src/components/VoiceScheduleModal.jsx#L100-L130)
 
 ### State Management Integration
-- Dashboard holds file, JD, weights, and loading/error state; passes callbacks to UploadForm.
-- BatchPage manages multiple file state, batch processing state, and results with enhanced error handling.
-- ReportPage manages result state and passes enhanced ResultCard with comprehensive analysis data.
-- AuthContext centralizes login/logout and user/tenant state.
-- ProtectedRoute reads AuthContext to gate routes.
-- **Adaptive Polling State**: ResultCard manages polling state with useRef for attempt tracking and timeout management.
-- **Enhanced Batch State**: BatchPage manages upload progress, overall progress, and failed uploads state.
-- **Safe String Coercion State**: Components maintain consistent data rendering state across all text-display elements.
-- **Centralized Security State**: Safe string utilities ensure consistent XSS protection without additional state management.
-- **UI Label Standardization State**: Components maintain consistent terminology state across all user-facing labels.
+- AuthContext: Centralized authentication state and lifecycle.
+- useSubscription: Usage checks, plan limits, and optimistic refresh after analysis.
+- Dashboard: Manages local state for selected files, JD, weights, and SSE progress.
+- VoiceScreeningPage: Manages voice screening state including sessions, settings, and modal visibility.
 
 **Section sources**
-- [Dashboard.jsx:209-214](file://app/frontend/src/pages/Dashboard.jsx#L209-L214)
-- [Dashboard.jsx:243-275](file://app/frontend/src/pages/Dashboard.jsx#L243-L275)
-- [BatchPage.jsx:27-539](file://app/frontend/src/pages/BatchPage.jsx#L27-L539)
-- [ReportPage.jsx:86-118](file://app/frontend/src/pages/ReportPage.jsx#L86-L118)
-- [AuthContext.jsx:65-69](file://app/frontend/src/contexts/AuthContext.jsx#L65-L69)
-- [ProtectedRoute.jsx:5](file://app/frontend/src/components/ProtectedRoute.jsx#L5)
-- [ResultCard.jsx:267-272](file://app/frontend/src/components/ResultCard.jsx#L267-L272)
+- [AuthContext.jsx:8-137](file://app/frontend/src/contexts/AuthContext.jsx#L8-L137)
+- [useSubscription.jsx:7-164](file://app/frontend/src/hooks/useSubscription.jsx#L7-L164)
+- [Dashboard.jsx:209-242](file://app/frontend/src/pages/Dashboard.jsx#L209-L242)
+- [VoiceScreeningPage.jsx:168-182](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L168-L182)
 
-### Enhanced Feature Testing Coverage
-The enhanced ResultCard includes comprehensive testing for new features:
-- Executive Summary banners with gradient styling
-- Risk Flag displays with severity-based color coding
-- Seniority Alignment indicators in score breakdown
-- Skill Depth counts with frequency indicators
-- Enhanced Explainability sections with fallback support
-- Backward compatibility for concerns/weaknesses fields
-- **Adaptive Polling Logic Testing**: Two-tier polling approach with intelligent timing and error handling
-- **Enhanced File Format Testing**: Comprehensive testing for .txt, .rtf, and .odt file support
-- **Batch Processing Testing**: Testing for failed uploads section and error reporting
-- **Safe String Coercion Testing**: Comprehensive testing for null/undefined value handling and XSS protection
-- **Centralized Security Testing**: Testing for safeStr utility function across all components
-- **UI Label Standardization Testing**: Testing for consistent "Recruiter Scorecard" and "Recruiter Screen Kit" terminology
+### Responsive Design and Cross-Browser Compatibility
+- Responsive breakpoints and mobile-first patterns are evident in NavBar and ResultCard.
+- Drag-and-drop and form controls adapt across devices.
+- Cross-browser compatibility is supported by modern React toolchain and Tailwind utilities.
+- VoiceScheduleModal uses Framer Motion for smooth animations across different browsers.
 
 **Section sources**
-- [ResultCard.test.jsx:50-133](file://app/frontend/src/__tests__/ResultCard.test.jsx#L50-L133)
-- [UploadForm.test.jsx:26-58](file://app/frontend/src/__tests__/UploadForm.test.jsx#L26-L58)
-
-### Adaptive Polling Implementation Details
-The ResultCard implements sophisticated adaptive polling logic for optimal user experience:
-
-**Two-Tier Polling Strategy**:
-- **Initial Phase (Attempts 1-15)**: 2-second polling intervals for rapid cloud model completion
-- **Optimization Phase (Attempts 16-36)**: 5-second polling intervals for slower local model processing
-- **Total Duration**: 2.25 minutes maximum (15×2s + 21×5s = 135 seconds)
-- **Smart Error Handling**: Graceful fallback when AI enhancement fails
-
-**Backend Integration**:
-- Polling endpoint: `/api/analysis/{analysis_id}/narrative`
-- Status responses: "ready", "pending", "failed"
-- Fallback data preservation during failures
-
-**Frontend Implementation**:
-- useRef for attempt tracking and timeout management
-- useEffect cleanup to prevent memory leaks
-- Conditional rendering based on polling state
-- User feedback through loading indicators and status badges
-
-**Section sources**
-- [ResultCard.jsx:302-380](file://app/frontend/src/components/ResultCard.jsx#L302-L380)
-- [api.js:413-416](file://app/frontend/src/lib/api.js#L413-L416)
-- [analyze.py:1118-1169](file://app/backend/routes/analyze.py#L1118-L1169)
-
-### Enhanced File Format Support Details
-The UploadForm component now supports comprehensive file format validation:
-
-**Resume Upload Formats**:
-- PDF (.pdf): Application/pdf
-- DOCX (.docx): Application/vnd.openxmlformats-officedocument.wordprocessingml.document
-- DOC (.doc): Application/msword
-- TXT (.txt): Text/plain
-- RTF (.rtf): Application/rtf or Text/rtf
-- ODT (.odt): Application/vnd.oasis.opendocument.text
-
-**Job Description Upload Formats**:
-- PDF (.pdf): Application/pdf
-- DOCX (.docx): Application/vnd.openxmlformats-officedocument.wordprocessingml.document
-- DOC (.doc): Application/msword
-- TXT (.txt): Text/plain (with .md extension support)
-- RTF (.rtf): Application/rtf or Text/rtf
-- HTML (.html, .htm): Text/html
-- ODT (.odt): Application/vnd.oasis.opendocument.text
-
-**Validation and Error Handling**:
-- MIME type validation for all supported formats
-- Size limit enforcement (10MB for resumes, 5MB for job descriptions)
-- Clear error messages for unsupported formats
-- Visual feedback for drag-and-drop operations
-
-**Section sources**
-- [UploadForm.jsx:177-190](file://app/frontend/src/components/UploadForm.jsx#L177-L190)
-- [UploadForm.jsx:192-206](file://app/frontend/src/components/UploadForm.jsx#L192-L206)
-- [BatchPage.jsx:89-102](file://app/frontend/src/pages/BatchPage.jsx#L89-L102)
-- [AnalyzePage.jsx:150-200](file://app/frontend/src/pages/AnalyzePage.jsx#L150-L200)
-
-### Batch Processing Error Reporting
-The BatchPage component provides comprehensive error reporting for failed uploads:
-
-**Failed Uploads Section Structure**:
-- **Header**: Red-themed section with alert triangle icon and "Failed Uploads" title
-- **Individual Items**: Each failed upload displayed as a row with filename and error message
-- **Visual Indicators**: Red file icon and "Failed" badge for clear status identification
-- **Integration**: Seamless integration with successful results table
-
-**Error Display Features**:
-- Individual file name display with truncation for long filenames
-- Specific error message display for troubleshooting
-- Clear visual distinction from successful uploads
-- Accessible table structure with proper semantics
-
-**Usage Integration**:
-- Automatically populated from results.failed array
-- Updated success count reflects both successful and failed uploads
-- Export functionality includes failed uploads when selected
-
-**Section sources**
-- [BatchPage.jsx:500-532](file://app/frontend/src/pages/BatchPage.jsx#L500-L532)
-- [BatchPage.jsx:403](file://app/frontend/src/pages/BatchPage.jsx#L403)
-
-### Safe String Coercion Utilities
-**New** All text-rendering components now include safe string coercion utilities to prevent runtime errors and ensure robust data rendering during SSE streaming and XSS protection.
-
-**Implementation Details**:
-- **Null/Undefined Handling**: Converts null and undefined values to empty strings
-- **Type Conversion**: Safely converts numbers and booleans to strings
-- **Object Serialization**: Attempts JSON serialization for complex objects with fallback to string conversion
-- **Error Prevention**: Prevents runtime errors when data arrives incrementally during streaming
-- **XSS Mitigation**: Provides universal string conversion and sanitization across all components
-- **Consistent Rendering**: Ensures all text elements render properly regardless of data source or format
-
-**Usage Across Components**:
-- **ResultCard**: Extensively used for recommendation text, executive summaries, skill lists, risk flags, and explainability sections
-- **Timeline**: Used for job titles, company names, gap durations, and severity indicators
-- **SkillsRadar**: Used for category names and chart data
-- **InterviewScorecard**: Used for candidate names, role titles, dimension labels, and assessment text
-- **ComparisonView**: Used for version recommendations and weight reasoning
-- **CandidatesPage**: Used for candidate names, emails, and application details
-- **ComparePage**: Used for candidate names and analysis results
-- **ReportPage**: Used for inline name editing and candidate display
-
-**Benefits**:
-- **SSE Streaming Compatibility**: Prevents errors when partial data arrives during streaming
-- **Data Type Flexibility**: Handles various data types without manual conversion
-- **Error Resilience**: Maintains UI stability even with malformed or incomplete data
-- **Performance Optimization**: Efficient conversion prevents unnecessary re-renders and memory issues
-- **Centralized Security**: Single utility provides consistent XSS protection across all components
-
-**Section sources**
-- [ResultCard.jsx:13-19](file://app/frontend/src/components/ResultCard.jsx#L13-L19)
-- [Timeline.jsx:3-9](file://app/frontend/src/components/Timeline.jsx#L3-L9)
-- [SkillsRadar.jsx:3-9](file://app/frontend/src/components/SkillsRadar.jsx#L3-L9)
-- [InterviewScorecard.jsx:6-12](file://app/frontend/src/components/InterviewScorecard.jsx#L6-L12)
-- [InterviewScorecard.jsx:160-161](file://app/frontend/src/components/InterviewScorecard.jsx#L160-L161)
-- [InterviewScorecard.jsx:174](file://app/frontend/src/components/InterviewScorecard.jsx#L174)
-- [InterviewScorecard.jsx:247-248](file://app/frontend/src/components/InterviewScorecard.jsx#L247-L248)
-- [ComparisonView.jsx:3-9](file://app/frontend/src/components/ComparisonView.jsx#L3-L9)
-- [CandidatesPage.jsx:6-12](file://app/frontend/src/pages/CandidatesPage.jsx#L6-L12)
-- [ComparePage.jsx:6-12](file://app/frontend/src/pages/ComparePage.jsx#L6-L12)
-- [ReportPage.jsx:13-19](file://app/frontend/src/pages/ReportPage.jsx#L13-L19)
-
-### UI Label Standardization Implementation
-**New** The component library has been updated with comprehensive UI label standardization to improve user experience and consistency.
-
-**Standardization Changes**:
-- **Interview Scorecard** → **Recruiter Scorecard** throughout all user-facing components
-- **Interview Kit** → **Recruiter Screen Kit** throughout all user-facing components
-- **Stage 3 Label**: Updated from "Scoring & Interview Kit" to "Scoring & Recruiter Screen Kit"
-- **Component Naming**: InterviewScorecard component continues to function while displaying "Recruiter Scorecard" in UI
-- **Backend Alignment**: Database models and API endpoints support the new terminology
-
-**Implementation Details**:
-- **ResultCard.jsx**: Line 1358 displays "Recruiter Screen Kit" in the collapsible section header
-- **ReportPage.jsx**: Line 797 displays "Recruiter Scorecard" in the section title
-- **Dashboard.jsx**: Line 46 updates stage label to "Stage 3 — Scoring & Recruiter Screen Kit"
-- **InterviewScorecard.jsx**: Component continues to function with "Recruiter Scorecard" UI label
-- **Safe String Coercion**: All components utilize safeStr for XSS protection with standardized labels
-
-**Benefits**:
-- **Consistent Terminology**: Users receive consistent messaging across all components
-- **Professional Branding**: "Recruiter Scorecard" and "Recruiter Screen Kit" provide clearer professional context
-- **Reduced Confusion**: Eliminates ambiguity between different types of scorecards and kits
-- **Maintained Functionality**: All underlying functionality remains unchanged while improving user experience
-- **Centralized Management**: Single safeStr utility ensures consistent XSS protection across all standardized labels
-
-**Section sources**
-- [ResultCard.jsx:1358](file://app/frontend/src/components/ResultCard.jsx#L1358)
-- [ReportPage.jsx:797](file://app/frontend/src/pages/ReportPage.jsx#L797)
-- [Dashboard.jsx:46](file://app/frontend/src/pages/Dashboard.jsx#L46)
-- [InterviewScorecard.jsx:87-255](file://app/frontend/src/components/InterviewScorecard.jsx#L87-L255)
-
-### Batch Processing Error Reporting
-The BatchPage component provides comprehensive error reporting for failed uploads:
-
-**Failed Uploads Section Structure**:
-- **Header**: Red-themed section with alert triangle icon and "Failed Uploads" title
-- **Individual Items**: Each failed upload displayed as a row with filename and error message
-- **Visual Indicators**: Red file icon and "Failed" badge for clear status identification
-- **Integration**: Seamless integration with successful results table
-
-**Error Display Features**:
-- Individual file name display with truncation for long filenames
-- Specific error message display for troubleshooting
-- Clear visual distinction from successful uploads
-- Accessible table structure with proper semantics
-
-**Usage Integration**:
-- Automatically populated from results.failed array
-- Updated success count reflects both successful and failed uploads
-- Export functionality includes failed uploads when selected
-
-**Section sources**
-- [BatchPage.jsx:500-532](file://app/frontend/src/pages/BatchPage.jsx#L500-L532)
-- [BatchPage.jsx:403](file://app/frontend/src/pages/BatchPage.jsx#L403)
+- [NavBar.jsx:107-191](file://app/frontend/src/components/NavBar.jsx#L107-L191)
+- [ResultCard.jsx:200-490](file://app/frontend/src/components/ResultCard.jsx#L200-L490)
+- [VoiceScheduleModal.jsx:100-130](file://app/frontend/src/components/VoiceScheduleModal.jsx#L100-L130)

@@ -1,0 +1,3 @@
+- Tests use descriptive names that reflect the user action or business scenario being validated.
+- Assertions rely on flexible text matching (regex or case-insensitive strings) to locate elements rather than brittle CSS selectors.
+- Navigation steps are followed by explicit waits for network idle or specific element visibility to ensure stability.

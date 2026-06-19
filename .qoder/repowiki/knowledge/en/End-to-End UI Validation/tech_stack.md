@@ -1,0 +1,1 @@
+Playwright Test for browser automation and end-to-end testing.
