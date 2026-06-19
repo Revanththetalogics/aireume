@@ -163,17 +163,17 @@ def execute_scheduled_call(session_id: int):
         candidate = db.execute(
             select(Candidate).where(Candidate.id == session.candidate_id)
         ).scalar_one_or_none()
-        candidate_name = candidate.full_name if candidate else "Candidate"
+        candidate_name = candidate.name if candidate else "Candidate"
 
         # Get JD title if available
         jd_title = None
         if session.jd_id:
             try:
-                from app.backend.models.db_models import JobDescription
+                from app.backend.models.db_models import RoleTemplate
                 jd = db.execute(
-                    select(JobDescription).where(JobDescription.id == session.jd_id)
+                    select(RoleTemplate).where(RoleTemplate.id == session.jd_id)
                 ).scalar_one_or_none()
-                jd_title = jd.title if jd else None
+                jd_title = jd.name if jd else None
             except Exception:
                 pass
 
