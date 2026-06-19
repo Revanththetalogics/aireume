@@ -632,6 +632,29 @@ export default function VoiceScreeningPage() {
                 />
               </Field>
             </Section>
+
+            {/* Sticky Save Bar — visible only in edit mode */}
+            {editMode && (
+              <div className="sticky bottom-0 z-10 bg-white/95 backdrop-blur-md rounded-2xl ring-1 ring-brand-200 shadow-lg px-6 py-4 flex items-center justify-between mt-2">
+                <p className="text-sm font-medium text-slate-600">You have unsaved changes</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setDraft(settings); setEditMode(false) }}
+                    className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition-colors disabled:opacity-50 shadow-sm shadow-brand-200"
+                  >
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
