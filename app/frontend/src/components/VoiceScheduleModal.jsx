@@ -4,26 +4,36 @@ import {
   AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { scheduleVoiceCall } from '../lib/api'
+import { scheduleVoiceCall, rescheduleVoiceCall } from '../lib/api'
 import { getCandidates } from '../lib/api'
 
 const springTransition = { type: 'spring', stiffness: 300, damping: 28 }
 
-export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCandidate = null, preselectedJdId = null }) {
+export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCandidate = null, preselectedJdId = null, editSession = null }) {
   const [candidates, setCandidates] = useState([])
   const [loadingCandidates, setLoadingCandidates] = useState(true)
   const [selectedCandidate, setSelectedCandidate] = useState(preselectedCandidate)
-  const [phoneNumber, setPhoneNumber] = useState(preselectedCandidate?.phone || preselectedCandidate?.contact_info?.phone || '')
-  const [scheduledAt, setScheduledAt] = useState('')
+  const [phoneNumber, setPhoneNumber] = useState(
+    editSession?.phone_number || preselectedCandidate?.phone || preselectedCandidate?.contact_info?.phone || ''
+  )
+  const [scheduledAt, setScheduledAt] = useState(() => {
+    if (editSession?.scheduled_at) {
+      const d = new Date(editSession.scheduled_at)
+      const offset = d.getTimezoneOffset()
+      return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 16)
+    }
+    return ''
+  })
   const [jdId] = useState(preselectedJdId)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
 
   const isPreselected = !!preselectedCandidate
+  const isEditing = !!editSession
 
   useEffect(() => {
-    if (isPreselected) return
+    if (isPreselected || isEditing) return
     async function loadCandidates() {
       try {
         const data = await getCandidates()
@@ -35,7 +45,7 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
       }
     }
     loadCandidates()
-  }, [isPreselected])
+  }, [isPreselected, isEditing])
 
   function handleCandidateSelect(candidate) {
     setSelectedCandidate(candidate)
@@ -46,7 +56,7 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!selectedCandidate) {
+    if (!selectedCandidate && !isEditing) {
       setError('Please select a candidate')
       return
     }
@@ -58,12 +68,22 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
     try {
       setSubmitting(true)
       setError(null)
-      await scheduleVoiceCall(
-        selectedCandidate.id,
-        phoneNumber.trim(),
-        jdId,
-        scheduledAt ? new Date(scheduledAt).toISOString() : null,
-      )
+
+      if (isEditing) {
+        // Reschedule existing session
+        await rescheduleVoiceCall(editSession.id, {
+          phone_number: phoneNumber.trim(),
+          scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        })
+      } else {
+        // Create new session
+        await scheduleVoiceCall(
+          selectedCandidate.id,
+          phoneNumber.trim(),
+          jdId,
+          scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        )
+      }
       setSuccess(true)
       setTimeout(() => onScheduled(), 1500)
     } catch (err) {
@@ -126,7 +146,9 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
             <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
               <Phone className="w-5 h-5 text-brand-600" />
             </div>
-            <h2 className="text-lg font-bold text-slate-800">Schedule Screening Call</h2>
+            <h2 className="text-lg font-bold text-slate-800">
+              {isEditing ? 'Reschedule Screening Call' : 'Schedule Screening Call'}
+            </h2>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400">
             <X className="w-5 h-5" />
@@ -142,24 +164,24 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           {/* Pre-selected candidate info */}
-          {isPreselected && (
+          {(isPreselected || isEditing) && (
             <div className="flex items-center gap-3 p-3 bg-brand-50 rounded-xl ring-1 ring-brand-200">
               <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-600 to-brand-400 flex items-center justify-center text-white text-sm font-bold shrink-0">
-                {(selectedCandidate?.name || selectedCandidate?.email || '?')[0].toUpperCase()}
+                {(selectedCandidate?.name || selectedCandidate?.email || editSession?.candidate_name || '?')[0].toUpperCase()}
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-slate-800 truncate">
-                  {selectedCandidate?.name || selectedCandidate?.email || `Candidate #${selectedCandidate?.id}`}
+                  {selectedCandidate?.name || selectedCandidate?.email || editSession?.candidate_name || `Candidate #${editSession?.candidate_id}`}
                 </p>
                 <p className="text-xs text-slate-500 truncate">
-                  {selectedCandidate?.email || 'No email'}
+                  {selectedCandidate?.email || editSession?.candidate_email || 'No email'}
                 </p>
               </div>
             </div>
           )}
 
-          {/* Candidate Selection — only show when not pre-selected */}
-          {!isPreselected && (
+          {/* Candidate Selection — only show when not pre-selected and not editing */}
+          {!isPreselected && !isEditing && (
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
                 <span className="flex items-center gap-1.5">
@@ -238,7 +260,7 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
             </button>
             <button
               type="submit"
-              disabled={submitting || !selectedCandidate || !phoneNumber.trim()}
+              disabled={submitting || (!selectedCandidate && !isEditing) || !phoneNumber.trim()}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-brand-600 rounded-xl hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
@@ -246,7 +268,7 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
               ) : (
                 <Phone className="w-4 h-4" />
               )}
-              Schedule Call
+              {isEditing ? 'Update Schedule' : 'Schedule Call'}
             </button>
           </div>
         </form>

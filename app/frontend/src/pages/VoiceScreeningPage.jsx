@@ -178,6 +178,7 @@ export default function VoiceScreeningPage() {
   const [sessionDetail, setSessionDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [scheduleModal, setScheduleModal] = useState(false)
+  const [editingSession, setEditingSession] = useState(null)
   const [activeTab, setActiveTab] = useState('sessions') // sessions | settings
 
   const fetchData = useCallback(async () => {
@@ -418,7 +419,7 @@ export default function VoiceScreeningPage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setSelectedSession(session)
+                                setEditingSession(session)
                                 setScheduleModal(true)
                               }}
                               className="p-1.5 rounded-lg hover:bg-brand-100 text-brand-500 transition-colors"
@@ -730,6 +731,7 @@ export default function VoiceScreeningPage() {
                         </button>
                         <button
                           onClick={() => {
+                            setEditingSession(selectedSession)
                             closeDetail()
                             setScheduleModal(true)
                           }}
@@ -765,9 +767,14 @@ export default function VoiceScreeningPage() {
         {/* Schedule Modal */}
         {scheduleModal && (
           <VoiceScheduleModal
-            onClose={() => setScheduleModal(false)}
+            editSession={editingSession}
+            onClose={() => {
+              setScheduleModal(false)
+              setEditingSession(null)
+            }}
             onScheduled={() => {
               setScheduleModal(false)
+              setEditingSession(null)
               fetchSessions()
             }}
           />
