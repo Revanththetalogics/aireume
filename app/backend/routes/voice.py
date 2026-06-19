@@ -13,12 +13,12 @@ import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import (
-    User, VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry, Candidate,
+    User, VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry, Candidate, RoleTemplate,
 )
 from app.backend.models.schemas import (
     VoiceTenantConfigUpdate,
@@ -156,8 +156,13 @@ def list_voice_sessions(
     db: Session = Depends(get_db),
 ):
     """List voice screening sessions for the current tenant."""
-    query = select(VoiceScreeningSession).where(
-        VoiceScreeningSession.tenant_id == user.tenant_id
+    query = (
+        select(VoiceScreeningSession)
+        .where(VoiceScreeningSession.tenant_id == user.tenant_id)
+        .options(
+            selectinload(VoiceScreeningSession.candidate),
+            selectinload(VoiceScreeningSession.jd),
+        )
     )
 
     if candidate_id is not None:
@@ -168,7 +173,14 @@ def list_voice_sessions(
     query = query.order_by(VoiceScreeningSession.created_at.desc()).limit(limit).offset(offset)
     sessions = db.execute(query).scalars().all()
 
-    return [VoiceScreeningSessionOut.model_validate(s) for s in sessions]
+    results = []
+    for s in sessions:
+        out = VoiceScreeningSessionOut.model_validate(s)
+        out.candidate_name = s.candidate.name if s.candidate else None
+        out.candidate_email = s.candidate.email if s.candidate else None
+        out.jd_title = s.jd.name if s.jd else None
+        results.append(out)
+    return results
 
 
 # ── Session Detail ───────────────────────────────────────────────────────────
@@ -181,9 +193,14 @@ def get_voice_session(
 ):
     """Get a voice screening session detail with transcript entries."""
     session = db.execute(
-        select(VoiceScreeningSession).where(
+        select(VoiceScreeningSession)
+        .where(
             VoiceScreeningSession.id == session_id,
             VoiceScreeningSession.tenant_id == user.tenant_id,
+        )
+        .options(
+            selectinload(VoiceScreeningSession.candidate),
+            selectinload(VoiceScreeningSession.jd),
         )
     ).scalar_one_or_none()
 
@@ -198,6 +215,9 @@ def get_voice_session(
     ).scalars().all()
 
     result = VoiceScreeningSessionOut.model_validate(session)
+    result.candidate_name = session.candidate.name if session.candidate else None
+    result.candidate_email = session.candidate.email if session.candidate else None
+    result.jd_title = session.jd.name if session.jd else None
     result_dict = result.model_dump()
     result_dict["transcript"] = [VoiceTranscriptEntryOut.model_validate(e) for e in entries]
 

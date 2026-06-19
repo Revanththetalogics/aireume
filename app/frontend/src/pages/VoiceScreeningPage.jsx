@@ -45,6 +45,27 @@ const FOLLOW_UP_OPTIONS = [
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
 ]
+const TIMEZONE_OPTIONS = [
+  { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
+  { value: 'America/New_York', label: 'US Eastern (ET)' },
+  { value: 'America/Chicago', label: 'US Central (CT)' },
+  { value: 'America/Denver', label: 'US Mountain (MT)' },
+  { value: 'America/Los_Angeles', label: 'US Pacific (PT)' },
+  { value: 'America/Anchorage', label: 'US Alaska (AKT)' },
+  { value: 'Pacific/Honolulu', label: 'US Hawaii (HST)' },
+  { value: 'Europe/London', label: 'UK (GMT/BST)' },
+  { value: 'Europe/Berlin', label: 'Central Europe (CET)' },
+  { value: 'Europe/Paris', label: 'France (CET)' },
+  { value: 'Europe/Helsinki', label: 'Eastern Europe (EET)' },
+  { value: 'Asia/Dubai', label: 'UAE (GST)' },
+  { value: 'Asia/Kolkata', label: 'India (IST)' },
+  { value: 'Asia/Bangkok', label: 'Thailand (ICT)' },
+  { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
+  { value: 'Asia/Shanghai', label: 'China (CST)' },
+  { value: 'Asia/Tokyo', label: 'Japan (JST)' },
+  { value: 'Australia/Sydney', label: 'Australia Eastern (AEST)' },
+  { value: 'Pacific/Auckland', label: 'New Zealand (NZST)' },
+]
 
 function StatusBadge({ status }) {
   const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.scheduled
@@ -352,7 +373,7 @@ export default function VoiceScreeningPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-sm font-semibold text-slate-800">
-                            Candidate #{session.candidate_id}
+                            {session.candidate_name || session.candidate_email || `Candidate #${session.candidate_id}`}
                           </span>
                           <StatusBadge status={session.status} />
                           <span className="text-xs text-slate-400">
@@ -360,6 +381,12 @@ export default function VoiceScreeningPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-xs text-slate-400">
+                          {session.jd_title && (
+                            <span className="flex items-center gap-1">
+                              <FileText className="w-3 h-3" />
+                              {session.jd_title}
+                            </span>
+                          )}
                           <span className="flex items-center gap-1">
                             <Phone className="w-3 h-3" />
                             {session.phone_number}
@@ -378,14 +405,47 @@ export default function VoiceScreeningPage() {
                           )}
                         </div>
                       </div>
-                      <div className="text-xs text-slate-400">
-                        {session.scheduled_at
-                          ? new Date(session.scheduled_at).toLocaleString()
-                          : session.created_at
-                            ? new Date(session.created_at).toLocaleDateString()
-                            : ''}
+                      <div className="flex items-center gap-2">
+                        <div className="text-xs text-slate-400 mr-1">
+                          {session.scheduled_at
+                            ? new Date(session.scheduled_at).toLocaleString()
+                            : session.created_at
+                              ? new Date(session.created_at).toLocaleDateString()
+                              : ''}
+                        </div>
+                        {['scheduled', 'no_answer', 'failed'].includes(session.status) && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedSession(session)
+                                setScheduleModal(true)
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-brand-100 text-brand-500 transition-colors"
+                              title="Reschedule"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                if (!confirm('Cancel this screening call?')) return
+                                try {
+                                  await cancelVoiceSession(session.id)
+                                  fetchSessions()
+                                } catch (err) {
+                                  setError(err.message || 'Failed to cancel')
+                                }
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-red-100 text-red-400 transition-colors"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-slate-300" />
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300" />
                     </button>
                     </StaggerItem>
                   ))}
@@ -475,10 +535,10 @@ export default function VoiceScreeningPage() {
             <Section title="Schedule & Business Hours" icon={Clock} description="When the bot is allowed to make calls">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <Field label="Timezone">
-                  <TextInput
+                  <Select
                     value={draft.timezone}
                     onChange={v => setDraft({ ...draft, timezone: v })}
-                    placeholder="America/New_York"
+                    options={TIMEZONE_OPTIONS}
                   />
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
