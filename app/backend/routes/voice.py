@@ -27,6 +27,7 @@ from app.backend.models.schemas import (
     VoiceTranscriptEntryOut,
     ScheduleVoiceCallRequest,
     ScheduleVoiceCallResponse,
+    RescheduleVoiceCallRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -306,7 +307,7 @@ def update_voice_session(
 @router.post("/sessions/{session_id}/reschedule")
 def reschedule_voice_session(
     session_id: int,
-    body: ScheduleVoiceCallRequest,
+    body: RescheduleVoiceCallRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

@@ -728,6 +728,13 @@ class ScheduleVoiceCallRequest(BaseModel):
     scheduled_at: Optional[datetime] = None  # UTC; None = schedule immediately
 
 
+class RescheduleVoiceCallRequest(BaseModel):
+    """Body for POST /api/voice/sessions/{id}/reschedule."""
+    phone_number: Optional[str] = None  # E.164; None = keep existing
+    scheduled_at: Optional[datetime] = None  # UTC; None = schedule immediately
+    jd_id: Optional[int] = None
+
+
 class ScheduleVoiceCallResponse(BaseModel):
     """Response after scheduling a voice call."""
     session_id: int

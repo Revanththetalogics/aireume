@@ -87,7 +87,11 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
       setSuccess(true)
       setTimeout(() => onScheduled(), 1500)
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Failed to schedule call')
+      const detail = err.response?.data?.detail
+      const msg = Array.isArray(detail)
+        ? detail.map(e => e.msg || e.message || JSON.stringify(e)).join(', ')
+        : (detail || err.message || 'Failed to schedule call')
+      setError(msg)
     } finally {
       setSubmitting(false)
     }
