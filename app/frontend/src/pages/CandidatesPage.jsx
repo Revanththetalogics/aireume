@@ -544,7 +544,7 @@ export default function CandidatesPage() {
 
   return (
     <div>
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <main className="max-w-[95vw] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3 card-animate">
           <div>
             <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">Candidates</h2>
@@ -709,7 +709,7 @@ export default function CandidatesPage() {
             <table className="w-full text-sm min-w-[1100px]">
               <thead className="bg-brand-50 border-b border-brand-100">
                 <tr>
-                  <th className="px-3 py-2 text-left w-10">
+                  <th className="px-4 py-3 text-left w-10">
                     <input
                       type="checkbox"
                       checked={selectedIds.size === selectableIds.length && selectableIds.length > 0}
@@ -719,32 +719,32 @@ export default function CandidatesPage() {
                   </th>
                   <th
                     onClick={() => handleSort('name')}
-                    className={`px-3 py-2 text-left text-xs uppercase tracking-wide min-w-[180px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'name' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide min-w-[200px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'name' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
                   >
                     Name <SortIcon column="name" />
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Email</th>
-                  <th className="px-3 py-2 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Email</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-brand-700 uppercase tracking-wide">Status</th>
                   <th
                     onClick={() => handleSort('result_count')}
-                    className={`px-3 py-2 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'result_count' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'result_count' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
                   >
                     Applications <SortIcon column="result_count" />
                   </th>
                   <th
                     onClick={() => handleSort('best_score')}
-                    className={`px-3 py-2 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'best_score' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'best_score' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
                   >
                     Best Score <SortIcon column="best_score" />
                   </th>
-                  <th className="px-3 py-2 text-left text-xs font-bold text-brand-700 uppercase tracking-wide max-w-[160px]">Top Skills</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-brand-700 uppercase tracking-wide max-w-[200px]">Top Skills</th>
                   <th
                     onClick={() => handleSort('created_at')}
-                    className={`px-3 py-2 text-left text-xs uppercase tracking-wide whitespace-nowrap min-w-[90px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'created_at' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
+                    className={`px-4 py-3 text-left text-xs uppercase tracking-wide whitespace-nowrap min-w-[100px] cursor-pointer hover:text-indigo-600 select-none ${sortBy === 'created_at' ? 'font-extrabold text-indigo-600' : 'font-bold text-brand-700'}`}
                   >
                     Added <SortIcon column="created_at" />
                   </th>
-                  <th className="px-3 py-2"></th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
@@ -758,7 +758,7 @@ export default function CandidatesPage() {
                       selectedIds.has(c.latest_result_id) ? 'bg-brand-50/60' : ''
                     } ${selectedIndex === idx ? 'ring-2 ring-inset ring-brand-500 bg-brand-50/40' : ''}`}
                   >
-                    <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       {c.latest_result_id ? (
                         <input
                           type="checkbox"
@@ -770,9 +770,9 @@ export default function CandidatesPage() {
                         <span className="inline-block w-4 h-4" />
                       )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
-                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${getAvatarColor(c.name)}`}>
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${getAvatarColor(c.name)}`}>
                           {getInitials(c.name)}
                         </span>
                         <span className="font-bold text-brand-900 hover:text-brand-700 transition-colors">
@@ -780,8 +780,8 @@ export default function CandidatesPage() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-slate-500 font-medium">{c.email || '—'}</td>
-                    <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
+                    <td className="px-4 py-3 text-slate-500 font-medium">{c.email || '—'}</td>
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       {c.latest_result_id ? (
                         <QuickActions
                           candidateId={c.latest_result_id}
@@ -793,16 +793,16 @@ export default function CandidatesPage() {
                         <span className="text-xs text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-4 py-3">
                       <span className="text-brand-700 font-bold">{c.result_count}</span>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <ScoreBadge score={c.best_score} size="sm" />
                         <RecommendationBadge score={c.best_score} size="sm" />
                       </div>
                     </td>
-                    <td className="px-3 py-2 max-w-[160px] overflow-hidden">
+                    <td className="px-4 py-3 max-w-[200px] overflow-hidden">
                       {c.matched_skills && c.matched_skills.length > 0 ? (
                         <div className="flex flex-wrap gap-1 max-h-[2.5rem] overflow-hidden">
                           {c.matched_skills.slice(0, 2).map((skill, i) => (
@@ -820,12 +820,12 @@ export default function CandidatesPage() {
                         <span className="text-xs text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slate-400 text-xs font-medium whitespace-nowrap min-w-[90px]">
+                    <td className="px-4 py-3 text-slate-400 text-xs font-medium whitespace-nowrap min-w-[100px]">
                       {c.created_at
                         ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                         : '—'}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-4 py-3">
                       <span className="text-xs text-brand-600 hover:text-brand-700 font-bold flex items-center gap-1 hover:underline">
                         View <ChevronRight className="w-3.5 h-3.5" />
                       </span>
