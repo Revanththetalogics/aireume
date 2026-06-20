@@ -97,7 +97,7 @@ services:
     pull_policy: always
     container_name: staging-nginx
     ports:
-      - "8081:80"
+      - "80:80"
     depends_on:
       - frontend
       - backend
