@@ -113,7 +113,7 @@ services:
     image: revanth2245/resume-nginx:staging
     container_name: staging-nginx
     ports:
-      - "8080:80"
+      - "8081:80"
     depends_on:
       - frontend
       - backend
