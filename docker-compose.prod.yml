@@ -141,6 +141,9 @@ services:
     depends_on:
       - frontend
       - backend
+    # Allow nginx to reach host ports (e.g. staging nginx on 8081)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Graceful shutdown for zero-downtime deployment
     stop_grace_period: 30s
     deploy:
