@@ -66,6 +66,7 @@ services:
 
   backend:
     image: revanth2245/resume-backend:staging
+    pull_policy: always
     container_name: staging-backend
     command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 3 --timeout-graceful-shutdown 30
     stop_grace_period: 30s
@@ -94,11 +95,12 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 90s
 
   frontend:
     image: revanth2245/resume-frontend:staging
+    pull_policy: always
     container_name: staging-frontend
     depends_on:
       - backend
@@ -111,6 +113,7 @@ services:
 
   nginx:
     image: revanth2245/resume-nginx:staging
+    pull_policy: always
     container_name: staging-nginx
     ports:
       - "8081:80"
@@ -183,6 +186,7 @@ services:
 
   livekit:
     image: revanth2245/resume-livekit:staging
+    pull_policy: always
     container_name: staging-livekit
     command: >
       --config /etc/livekit.yaml
@@ -202,6 +206,7 @@ services:
 
   speech-service:
     image: revanth2245/resume-speech-service:staging
+    pull_policy: always
     container_name: staging-speech-service
     deploy:
       resources:
@@ -212,6 +217,7 @@ services:
 
   voice-agent:
     image: revanth2245/resume-voice-agent:staging
+    pull_policy: always
     container_name: staging-voice-agent
     environment:
       - SPEECH_SERVICE_URL=http://speech-service:8001
