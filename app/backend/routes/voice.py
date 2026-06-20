@@ -249,47 +249,6 @@ def list_voice_sessions(
     return results
 
 
-# ── Session Detail ───────────────────────────────────────────────────────────
-
-@router.get("/sessions/{session_id}")
-def get_voice_session(
-    session_id: int,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Get a voice screening session detail with transcript entries."""
-    session = db.execute(
-        select(VoiceScreeningSession)
-        .where(
-            VoiceScreeningSession.id == session_id,
-            VoiceScreeningSession.tenant_id == user.tenant_id,
-        )
-        .options(
-            selectinload(VoiceScreeningSession.candidate),
-            selectinload(VoiceScreeningSession.jd),
-        )
-    ).scalar_one_or_none()
-
-    if session is None:
-        raise HTTPException(status_code=404, detail="Voice session not found")
-
-    # Load transcript entries
-    entries = db.execute(
-        select(VoiceTranscriptEntry)
-        .where(VoiceTranscriptEntry.session_id == session_id)
-        .order_by(VoiceTranscriptEntry.timestamp.asc())
-    ).scalars().all()
-
-    result = VoiceScreeningSessionOut.model_validate(session)
-    result.candidate_name = session.candidate.name if session.candidate else None
-    result.candidate_email = session.candidate.email if session.candidate else None
-    result.jd_title = session.jd.name if session.jd else None
-    result_dict = result.model_dump()
-    result_dict["transcript"] = [VoiceTranscriptEntryOut.model_validate(e) for e in entries]
-
-    return result_dict
-
-
 # ─── Session Analytics ────────────────────────────────────────────────────────
 
 @router.get("/sessions/analytics")
@@ -435,6 +394,47 @@ def export_sessions_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ── Session Detail ───────────────────────────────────────────────────────────
+
+@router.get("/sessions/{session_id}")
+def get_voice_session(
+    session_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get a voice screening session detail with transcript entries."""
+    session = db.execute(
+        select(VoiceScreeningSession)
+        .where(
+            VoiceScreeningSession.id == session_id,
+            VoiceScreeningSession.tenant_id == user.tenant_id,
+        )
+        .options(
+            selectinload(VoiceScreeningSession.candidate),
+            selectinload(VoiceScreeningSession.jd),
+        )
+    ).scalar_one_or_none()
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="Voice session not found")
+
+    # Load transcript entries
+    entries = db.execute(
+        select(VoiceTranscriptEntry)
+        .where(VoiceTranscriptEntry.session_id == session_id)
+        .order_by(VoiceTranscriptEntry.timestamp.asc())
+    ).scalars().all()
+
+    result = VoiceScreeningSessionOut.model_validate(session)
+    result.candidate_name = session.candidate.name if session.candidate else None
+    result.candidate_email = session.candidate.email if session.candidate else None
+    result.jd_title = session.jd.name if session.jd else None
+    result_dict = result.model_dump()
+    result_dict["transcript"] = [VoiceTranscriptEntryOut.model_validate(e) for e in entries]
+
+    return result_dict
 
 
 # ─── Next Available Slot ─────────────────────────────────────────────────────
