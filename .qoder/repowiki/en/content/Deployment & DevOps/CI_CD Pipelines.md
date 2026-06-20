@@ -4,6 +4,9 @@
 **Referenced Files in This Document**
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
 - [.github/workflows/cd.yml](file://.github/workflows/cd.yml)
+- [docker-compose.staging.yml](file://docker-compose.staging.yml)
+- [docker-compose.prod.yml](file://docker-compose.prod.yml)
+- [docker-compose.yml](file://docker-compose.yml)
 - [app/backend/Dockerfile](file://app/backend/Dockerfile)
 - [app/frontend/Dockerfile](file://app/frontend/Dockerfile)
 - [app/speech_service/Dockerfile](file://app/speech_service/Dockerfile)
@@ -12,21 +15,27 @@
 - [app/speech_service/main.py](file://app/speech_service/main.py)
 - [app/voice_agent/agent.py](file://app/voice_agent/agent.py)
 - [app/voice_agent/livekit.yaml](file://app/voice_agent/livekit.yaml)
-- [docker-compose.prod.yml](file://docker-compose.prod.yml)
 - [requirements.txt](file://requirements.txt)
 - [app/backend/tests/conftest.py](file://app/backend/tests/conftest.py)
 - [app/frontend/package.json](file://app/frontend/package.json)
 - [app/frontend/vite.config.js](file://app/frontend/vite.config.js)
 - [scripts/run-full-tests.sh](file://scripts/run-full-tests.sh)
 - [scripts/pre-commit-check.ps1](file://scripts/pre-commit-check.ps1)
+- [playwright.config.ts](file://playwright.config.ts)
+- [e2e/dashboard.spec.ts](file://e2e/dashboard.spec.ts)
+- [e2e/auth.setup.ts](file://e2e/auth.setup.ts)
+- [e2e/analysis-flow.spec.ts](file://e2e/analysis-flow.spec.ts)
+- [e2e/candidates.spec.ts](file://e2e/candidates.spec.ts)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added three new Docker build and push jobs for LiveKit video conferencing, speech-service, and voice-agent microservices
-- Enhanced continuous deployment pipeline with automated containerization for all four microservices
-- Updated deployment configuration to support the new voice screening microservices architecture
-- Expanded production deployment orchestration with Watchtower-based rolling updates
+- Enhanced CI workflow to include production branch validation alongside main and staging branches
+- Improved CD workflow with environment-aware deployment process featuring manual triggering and environment selection
+- Implemented comprehensive staging environment support with branch-based image tagging
+- Integrated end-to-end testing with Playwright for production branch validation
+- Added separate staging and production docker-compose configurations with environment-specific orchestration
+- Enhanced deployment monitoring with Watchtower for automatic rolling updates across environments
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -34,31 +43,32 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Microservices Architecture](#microservices-architecture)
-7. [Dependency Analysis](#dependency-analysis)
-8. [Performance Considerations](#performance-considerations)
-9. [Troubleshooting Guide](#troubleshooting-guide)
-10. [Conclusion](#conclusion)
-11. [Appendices](#appendices)
+6. [Environment-Aware Deployment Process](#environment-aware-deployment-process)
+7. [Microservices Architecture](#microservices-architecture)
+8. [Testing Strategy](#testing-strategy)
+9. [Deployment Orchestration](#deployment-orchestration)
+10. [Security and Compliance](#security-and-compliance)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
 
 ## Introduction
 This document describes the CI/CD pipelines for Resume AI by ThetaLogics, focusing on:
-- Continuous Integration (CI) via GitHub Actions for automated testing and code quality checks
-- Continuous Deployment (CD) via GitHub Actions for container image builds and publishing
-- Test automation setup for backend (pytest) and frontend (Jest/Vitest)
+- Continuous Integration (CI) via GitHub Actions for automated testing across main, staging, and production branches
+- Continuous Deployment (CD) via GitHub Actions with environment-aware deployment process and manual triggering
+- Test automation setup for backend (pytest), frontend (Vitest), and end-to-end testing (Playwright)
+- Environment-specific deployment orchestration with separate staging and production configurations
 - Build artifacts, container image publishing, and deployment triggers
 - Pull request validation, branch protection alignment, and manual approval gates
 - Troubleshooting failed builds, deployment rollbacks, and pipeline optimization
 - Security scanning, vulnerability assessment, and compliance considerations
-- **Updated**: Enhanced with LiveKit video conferencing, speech-service, and voice-agent microservices deployment
 
 ## Project Structure
-The repository organizes CI/CD around GitHub Actions workflows, Docker-based services, and test suites:
-- Workflows: .github/workflows/ci.yml (PR and push validation), .github/workflows/cd.yml (image build and publish)
-- Backend: FastAPI application with Dockerfile, tests, and Alembic migrations
+The repository organizes CI/CD around GitHub Actions workflows, Docker-based services, and comprehensive test suites:
+- Workflows: .github/workflows/ci.yml (PR and push validation across multiple branches), .github/workflows/cd.yml (environment-aware image build and publish)
+- Backend: FastAPI application with Dockerfile, extensive test suite, and Alembic migrations
 - Frontend: React application with Vite, Vitest, and Tailwind CSS
 - Microservices: Speech service (CPU-optimized STT/TTS/VAD), Voice agent (LiveKit integration), LiveKit server (WebRTC/SIP)
-- Compose: Local development (docker-compose.yml) and production orchestration (docker-compose.prod.yml)
+- Compose: Separate orchestration files for local development, staging, and production environments
 - Scripts: Pre-commit and full-test runners for local validation
 
 ```mermaid
@@ -85,8 +95,10 @@ SSMain["app/speech_service/main.py"]
 VAgent["app/voice_agent/agent.py"]
 LKCfg["app/voice_agent/livekit.yaml"]
 end
-subgraph "Compose"
+subgraph "Deployment Orchestration"
+DCStaging["docker-compose.staging.yml"]
 DCProd["docker-compose.prod.yml"]
+DCDev["docker-compose.yml"]
 end
 CI --> BTests
 CI --> FPkg
@@ -95,8 +107,14 @@ CD --> FDF
 CD --> SSDF
 CD --> VASDF
 CD --> LKDF
+CD --> DCStaging
 CD --> DCProd
 BDF --> BReq
+DCStaging --> BDF
+DCStaging --> FDF
+DCStaging --> SSDF
+DCStaging --> VASDF
+DCStaging --> LKDF
 DCProd --> BDF
 DCProd --> FDF
 DCProd --> SSDF
@@ -106,49 +124,51 @@ DCProd --> LKDF
 
 **Diagram sources**
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
-- [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
+- [app/backend/Dockerfile:1-55](file://app/backend/Dockerfile#L1-L55)
+- [app/frontend/Dockerfile:1-35](file://app/frontend/Dockerfile#L1-L35)
 - [app/speech_service/Dockerfile:1-32](file://app/speech_service/Dockerfile#L1-L32)
 - [app/voice_agent/Dockerfile:1-31](file://app/voice_agent/Dockerfile#L1-L31)
 - [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
 
 **Section sources**
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
+- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
 
 ## Core Components
-- CI workflow validates pull requests and pushes to main and staging by running backend and frontend tests.
-- CD workflow builds and pushes backend, frontend, nginx, LiveKit, speech-service, and voice-agent images to Docker Hub.
-- Backend testing uses pytest with coverage reporting and shared fixtures for database, authentication, and service mocks.
+- CI workflow validates pull requests and pushes to main, staging, and production branches by running backend and frontend tests.
+- CD workflow builds and pushes container images with environment-specific tags (staging/latest) and supports manual deployment selection.
+- Backend testing uses pytest with comprehensive fixtures for database, authentication, and service mocks.
 - Frontend testing uses Vitest with jsdom and a dedicated setup file; package.json defines test scripts.
-- Containerization uses multi-stage Dockerfiles for all services, with nginx serving the built frontend assets.
-- **Updated**: Production deployment now includes automated rolling updates via Watchtower for all microservices.
+- End-to-end testing uses Playwright with browser automation for production branch validation.
+- Containerization uses multi-stage Dockerfiles for all services, with environment-specific configurations.
+- Production deployment includes automated rolling updates via Watchtower for all microservices.
 
 Key capabilities:
-- Automated testing on PRs and pushes
-- Coverage upload via Codecov
-- Docker image publishing to Docker Hub for 6 services
-- Manual deployment gate via SSH and docker-compose commands
-- Local pre-commit and full-test validation scripts
-- **Updated**: Watchtower-based rolling updates for zero-downtime deployments
+- Multi-environment CI validation across main, staging, and production branches
+- Environment-aware image tagging with separate staging and production tags
+- Manual deployment gating with environment selection (staging/production)
+- Comprehensive testing including unit, integration, and end-to-end tests
+- Automated deployment orchestration with separate staging and production configurations
+- Zero-downtime deployments via Watchtower rolling updates
 
 **Section sources**
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
-- [app/backend/tests/conftest.py:1-589](file://app/backend/tests/conftest.py#L1-L589)
-- [app/frontend/package.json:1-41](file://app/frontend/package.json#L1-L41)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
+- [app/backend/tests/conftest.py:1-200](file://app/backend/tests/conftest.py#L1-L200)
+- [app/frontend/package.json:1-44](file://app/frontend/package.json#L1-L44)
 - [app/frontend/vite.config.js:1-26](file://app/frontend/vite.config.js#L1-L26)
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
-- [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
-- [app/speech_service/Dockerfile:1-32](file://app/speech_service/Dockerfile#L1-L32)
-- [app/voice_agent/Dockerfile:1-31](file://app/voice_agent/Dockerfile#L1-L31)
-- [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
+- [playwright.config.ts:1-31](file://playwright.config.ts#L1-L31)
+- [e2e/dashboard.spec.ts:1-46](file://e2e/dashboard.spec.ts#L1-L46)
 
 ## Architecture Overview
-The CI/CD architecture integrates GitHub Actions with Docker and deployment orchestration:
+The CI/CD architecture integrates GitHub Actions with Docker and environment-specific deployment orchestration:
 
 ```mermaid
 sequenceDiagram
@@ -157,33 +177,37 @@ participant GH as "GitHub"
 participant CI as "CI Workflow"
 participant CD as "CD Workflow"
 participant DH as "Docker Hub"
-participant VPS as "Production VPS"
-Dev->>GH : Push/PR to main/staging
+participant Staging as "Staging Environment"
+participant Prod as "Production Environment"
+Dev->>GH : Push/PR to main/staging/production
 GH->>CI : Trigger on pull_request/push
 CI->>CI : Run backend tests + coverage<br/>Run frontend tests + build
-GH->>CD : Trigger on push to main or workflow_dispatch
+GH->>CD : Trigger on push to main/production or workflow_dispatch
+CD->>CD : Resolve environment (staging/production)<br/>Set image tag (staging/latest)
 CD->>CD : Run backend/frontend tests
-CD->>DH : Build & push backend : latest<br/>Build & push frontend : latest<br/>Build & push nginx : latest<br/>Build & push livekit : latest<br/>Build & push speech-service : latest<br/>Build & push voice-agent : latest
-GH->>VPS : Manual deployment (SSH + docker-compose)
-VPS->>VPS : docker compose pull + up
-Note over VPS,DH : Watchtower automatically updates containers
+CD->>DH : Build & push images with environment tag
+GH->>Staging : Manual deployment to staging
+GH->>Prod : Manual deployment to production
+Staging->>Staging : docker compose pull + up (Watchtower)
+Prod->>Prod : docker compose pull + up (Watchtower)
+Note over Staging,Prod : Watchtower automatically updates containers
 ```
 
 **Diagram sources**
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
 
 ## Detailed Component Analysis
 
 ### CI Workflow (.github/workflows/ci.yml)
-- Triggers: pull_request and push to main and staging
+- Triggers: pull_request and push to main, staging, and production branches
 - Jobs:
-  - test-backend: sets up Python, installs dependencies (including pytest and pytest-cov), runs backend tests with coverage, uploads coverage to Codecov
+  - test-backend: sets up Python, installs dependencies (pytest, pytest-cov), runs backend tests with coverage, uploads coverage to Codecov
   - test-frontend: sets up Node.js, installs npm dependencies, runs frontend tests, and builds the frontend
 
 ```mermaid
 flowchart TD
-Start(["PR/Push Event"]) --> CheckBranch["Check branch: main/staging"]
+Start(["PR/Push Event"]) --> CheckBranch["Check branch: main/staging/production"]
 CheckBranch --> BackendJob["Run backend tests<br/>pytest + coverage"]
 CheckBranch --> FrontendJob["Run frontend tests<br/>npm test + build"]
 BackendJob --> UploadCoverage["Upload coverage.xml to Codecov"]
@@ -198,39 +222,40 @@ UploadCoverage --> End
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
 
 ### CD Workflow (.github/workflows/cd.yml)
-- Triggers: push to main and workflow_dispatch
+- Triggers: push to main and production branches, plus workflow_dispatch with manual environment selection
 - Concurrency: cancels in-progress runs for the same ref
-- Jobs:
-  - test: runs backend and frontend tests to validate before building images
-  - build-and-push: builds and pushes backend, frontend, nginx, LiveKit, speech-service, and voice-agent images tagged as latest to Docker Hub
-- Deployment: manual step described to SSH into VPS and run docker-compose commands to pull and start services
+- Environment-aware deployment process:
+  - resolve-tag job determines environment and image tag based on trigger source
+  - test job validates code before building images
+  - build-and-push job builds and pushes images with environment-specific tags
+  - deploy-summary job provides deployment information
 
 ```mermaid
 sequenceDiagram
 participant GH as "GitHub"
 participant CD as "CD Workflow"
+participant Resolver as "resolve-tag Job"
+participant Test as "test Job"
+participant Builder as "build-and-push Job"
 participant DH as "Docker Hub"
-participant VPS as "Production VPS"
-GH->>CD : push to main or workflow_dispatch
-CD->>CD : test job (backend + frontend)
-CD->>DH : build & push backend : latest
-CD->>DH : build & push frontend : latest
-CD->>DH : build & push nginx : latest
-CD->>DH : build & push livekit : latest
-CD->>DH : build & push speech-service : latest
-CD->>DH : build & push voice-agent : latest
-Note over CD,VPS : Manual deployment step (SSH + docker-compose)
+GH->>CD : push to main/production or workflow_dispatch
+CD->>Resolver : Determine environment & tag
+Resolver->>Resolver : If workflow_dispatch → use selected env<br/>If production branch → production tag<br/>Else staging tag
+CD->>Test : Run backend + frontend tests
+CD->>Builder : Build & push images with tag
+Builder->>DH : Push images with environment tag
+CD->>CD : Deployment summary with environment info
 ```
 
 **Diagram sources**
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
 
 **Section sources**
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
 
 ### Backend Testing with Pytest
 - Shared fixtures in conftest.py configure an in-memory SQLite database, dependency overrides, authentication tokens, and service mocks for Ollama and Whisper
-- Tests run with pytest and coverage reporting; coverage XML is uploaded to Codecov
+- Tests run with pytest and comprehensive coverage reporting; coverage XML is uploaded to Codecov
 
 ```mermaid
 classDiagram
@@ -256,10 +281,10 @@ Conftest --> Pytest : "provides fixtures"
 ```
 
 **Diagram sources**
-- [app/backend/tests/conftest.py:1-589](file://app/backend/tests/conftest.py#L1-L589)
+- [app/backend/tests/conftest.py:1-200](file://app/backend/tests/conftest.py#L1-L200)
 
 **Section sources**
-- [app/backend/tests/conftest.py:1-589](file://app/backend/tests/conftest.py#L1-L589)
+- [app/backend/tests/conftest.py:1-200](file://app/backend/tests/conftest.py#L1-L200)
 - [.github/workflows/ci.yml:27-37](file://.github/workflows/ci.yml#L27-L37)
 
 ### Frontend Testing with Vitest
@@ -280,100 +305,78 @@ Vitest --> Tests["React Components Tests"]
 - [app/frontend/vite.config.js:20-24](file://app/frontend/vite.config.js#L20-L24)
 
 **Section sources**
-- [app/frontend/package.json:1-41](file://app/frontend/package.json#L1-L41)
+- [app/frontend/package.json:1-44](file://app/frontend/package.json#L1-L44)
 - [app/frontend/vite.config.js:1-26](file://app/frontend/vite.config.js#L1-L26)
 
-### Container Image Publishing
-- Backend image built from app/backend/Dockerfile and pushed as resume-backend:latest
-- Frontend image built from app/frontend/Dockerfile and pushed as resume-frontend:latest
-- Nginx image built from nginx directory and pushed as resume-nginx:latest
-- **Updated**: LiveKit image built from app/voice_agent/Dockerfile.livekit and pushed as resume-livekit:latest
-- **Updated**: Speech service image built from app/speech_service/Dockerfile and pushed as resume-speech-service:latest
-- **Updated**: Voice agent image built from app/voice_agent/Dockerfile and pushed as resume-voice-agent:latest
-- Docker Hub credentials are supplied via GitHub secrets
-
-```mermaid
-graph LR
-CD["CD Workflow"] --> BDF["app/backend/Dockerfile"]
-CD --> FDF["app/frontend/Dockerfile"]
-CD --> SSDF["app/speech_service/Dockerfile"]
-CD --> VASDF["app/voice_agent/Dockerfile"]
-CD --> LKDF["app/voice_agent/Dockerfile.livekit"]
-CD --> NConf["nginx config"]
-BDF --> BTag["resume-backend:latest"]
-FDF --> FTag["resume-frontend:latest"]
-SSDF --> SSTag["resume-speech-service:latest"]
-VASDF --> VATag["resume-voice-agent:latest"]
-LKDF --> LKTag["resume-livekit:latest"]
-NConf --> NTag["resume-nginx:latest"]
-BTag --> DH["Docker Hub"]
-FTag --> DH
-SSTag --> DH
-VATag --> DH
-LKTag --> DH
-NTag --> DH
-```
-
-**Diagram sources**
-- [.github/workflows/cd.yml:66-128](file://.github/workflows/cd.yml#L66-L128)
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
-- [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
-- [app/speech_service/Dockerfile:1-32](file://app/speech_service/Dockerfile#L1-L32)
-- [app/voice_agent/Dockerfile:1-31](file://app/voice_agent/Dockerfile#L1-L31)
-- [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
-
-**Section sources**
-- [.github/workflows/cd.yml:60-128](file://.github/workflows/cd.yml#L60-L128)
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
-- [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
-- [app/speech_service/Dockerfile:1-32](file://app/speech_service/Dockerfile#L1-L32)
-- [app/voice_agent/Dockerfile:1-31](file://app/voice_agent/Dockerfile#L1-L31)
-- [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
-
-### Deployment Triggers and Manual Gates
-- CD workflow triggers on push to main and supports manual dispatch
-- Production deployment is documented as a manual SSH step to pull images and restart services with docker-compose
-- **Updated**: Production deployment now includes Watchtower-based automatic rolling updates for all services
-- No automatic production rollout is defined in the workflow; manual approval is required before deploying to production
+### End-to-End Testing with Playwright
+- Playwright configuration targets staging environment for automated UI testing
+- Tests validate critical user flows including dashboard navigation and candidate management
+- Authentication state management with stored session cookies
+- Parallel test execution with retry mechanisms for CI environments
 
 ```mermaid
 flowchart TD
-Push["Push to main"] --> CDTrigger["CD Workflow Dispatch"]
-Dispatch["workflow_dispatch"] --> CDTrigger
-CDTrigger --> BuildImages["Build & Push Images"]
-BuildImages --> ManualGate["Manual Approval Required"]
-ManualGate --> VPS["SSH into VPS"]
-VPS --> Compose["docker compose pull + up"]
-Compose --> Watchtower["Watchtower Rolling Updates"]
-Watchtower --> Services["Automatic Service Updates"]
+Config["playwright.config.ts"] --> Setup["Auth Setup"]
+Setup --> Dashboard["dashboard.spec.ts"]
+Dashboard --> Chromium["Chromium Browser"]
+Chromium --> Tests["UI Interaction Tests"]
+Tests --> Results["HTML Report"]
 ```
 
 **Diagram sources**
-- [.github/workflows/cd.yml:3-11](file://.github/workflows/cd.yml#L3-L11)
-- [.github/workflows/cd.yml:130-134](file://.github/workflows/cd.yml#L130-L134)
-- [docker-compose.prod.yml:192-221](file://docker-compose.prod.yml#L192-L221)
+- [playwright.config.ts:1-31](file://playwright.config.ts#L1-L31)
+- [e2e/dashboard.spec.ts:1-46](file://e2e/dashboard.spec.ts#L1-L46)
 
 **Section sources**
-- [.github/workflows/cd.yml:3-11](file://.github/workflows/cd.yml#L3-L11)
-- [.github/workflows/cd.yml:130-134](file://.github/workflows/cd.yml#L130-L134)
-- [docker-compose.prod.yml:192-221](file://docker-compose.prod.yml#L192-L221)
+- [playwright.config.ts:1-31](file://playwright.config.ts#L1-L31)
+- [e2e/dashboard.spec.ts:1-46](file://e2e/dashboard.spec.ts#L1-L46)
 
-### Pull Request Validation and Branch Protection Alignment
-- CI validates PRs and pushes to main and staging
-- Align branch protection rules with these branches to require successful CI runs before merging
-- Use workflow_dispatch to re-run CD for hotfixes or emergency releases
+## Environment-Aware Deployment Process
+
+### Manual Triggering and Environment Selection
+The CD workflow now supports manual deployment with explicit environment selection:
+
+```mermaid
+flowchart TD
+Trigger["CD Trigger"] --> PushCheck{"Push to main/production?"}
+Trigger --> DispatchCheck{"workflow_dispatch?"}
+PushCheck --> |Yes| AutoDeploy["Auto-deploy"]
+PushCheck --> |No| Wait["Wait for manual trigger"]
+DispatchCheck --> |Yes| ManualTrigger["Manual Trigger"]
+ManualTrigger --> EnvSelect["Environment Selection:<br/>staging/production"]
+EnvSelect --> TagResolve["Resolve Image Tag:<br/>staging/latest"]
+AutoDeploy --> TagResolve
+TagResolve --> BuildPush["Build & Push Images"]
+BuildPush --> DeployGate["Manual Deployment Gate"]
+DeployGate --> Staging["Deploy to Staging"]
+DeployGate --> Production["Deploy to Production"]
+```
+
+**Diagram sources**
+- [.github/workflows/cd.yml:3-17](file://.github/workflows/cd.yml#L3-L17)
+- [.github/workflows/cd.yml:24-49](file://.github/workflows/cd.yml#L24-L49)
+
+### Improved Tagging Strategy
+The resolve-tag job implements intelligent image tagging based on deployment context:
+
+- **Production branch (production)**: Uses `latest` tag for production deployments
+- **Other branches (main/staging)**: Uses `staging` tag for staging deployments  
+- **Manual dispatch**: Uses user-selected environment for deployment
+- **Consistent tagging**: All six microservices receive the same environment-specific tag
+
+**Section sources**
+- [.github/workflows/cd.yml:24-49](file://.github/workflows/cd.yml#L24-L49)
+
+### Production Branch Testing
+The CI workflow now validates changes across all major branches:
+- **main**: Primary development branch with comprehensive testing
+- **staging**: Integration branch with environment-specific validation
+- **production**: Release branch with final validation before deployment
+
+This ensures that production-ready code undergoes thorough testing before reaching production environments.
 
 **Section sources**
 - [.github/workflows/ci.yml:3-7](file://.github/workflows/ci.yml#L3-L7)
-- [.github/workflows/cd.yml:3-7](file://.github/workflows/cd.yml#L3-L7)
-
-### Local Test Automation and Pre-commit Validation
-- scripts/run-full-tests.sh performs comprehensive checks including Python syntax, test file syntax, imports, migrations, route registration, frontend file presence, and integration patterns
-- scripts/pre-commit-check.ps1 enforces pre-commit checks on Windows, validating Python and frontend files, migrations, and integration patterns
-
-**Section sources**
-- [scripts/run-full-tests.sh:1-256](file://scripts/run-full-tests.sh#L1-L256)
-- [scripts/pre-commit-check.ps1:1-183](file://scripts/pre-commit-check.ps1#L1-L183)
 
 ## Microservices Architecture
 
@@ -461,137 +464,168 @@ SpeechClient --> VAD["Voice Activity Detection"]
 - [app/voice_agent/Dockerfile:1-31](file://app/voice_agent/Dockerfile#L1-L31)
 - [app/voice_agent/agent.py:1-883](file://app/voice_agent/agent.py#L1-L883)
 
-### Production Deployment Orchestration
-Production deployment leverages Docker Compose with Watchtower for automated updates:
-- Watchtower monitors Docker Hub for image updates and automatically restarts containers
-- Supports rolling restarts for zero-downtime deployments across all 6 services
-- Includes health checks for all services with appropriate start periods
-- Configures resource limits and CPU/memory constraints for optimal performance
+## Testing Strategy
 
-```mermaid
-sequenceDiagram
-participant GH as "GitHub"
-participant DH as "Docker Hub"
-participant VPS as "Production VPS"
-participant Watchtower as "Watchtower"
-participant Services as "Microservices"
-GH->>DH : Push updated images
-DH->>Watchtower : Image update notification
-Watchtower->>Services : Check for updates
-Watchtower->>Services : Stop old container
-Watchtower->>Services : Start new container
-Services->>Services : Health check
-Services->>VPS : Service ready
-```
-
-**Diagram sources**
-- [docker-compose.prod.yml:192-221](file://docker-compose.prod.yml#L192-L221)
-
-**Section sources**
-- [docker-compose.prod.yml:192-221](file://docker-compose.prod.yml#L192-L221)
-
-## Dependency Analysis
-- Backend dependencies are declared in requirements.txt and installed during CI/CD jobs
-- Frontend dependencies are managed via package.json and installed in CI/CD jobs
-- **Updated**: Speech service requires torch, torchaudio, transformers, accelerate, and numpy for CPU inference
-- **Updated**: Voice agent requires livekit ecosystem packages and FastAPI for HTTP dispatch
-- **Updated**: LiveKit service uses official livekit/livekit-server:latest image with custom configuration
-- Docker images encapsulate runtime environments and reduce CI/CD job variability
-- Compose files define service dependencies and resource limits for local and production environments
+### Multi-Level Testing Approach
+The testing strategy encompasses multiple layers to ensure code quality and reliability:
 
 ```mermaid
 graph TB
-Req["requirements.txt"] --> BDF["app/backend/Dockerfile"]
-Pkg["app/frontend/package.json"] --> FDF["app/frontend/Dockerfile"]
-SSReq["app/speech_service/requirements.txt"] --> SSDF["app/speech_service/Dockerfile"]
-VAReq["app/voice_agent/requirements.txt"] --> VASDF["app/voice_agent/Dockerfile"]
-LKBase["livekit/livekit-server:latest"] --> LKDF["app/voice_agent/Dockerfile.livekit"]
-BDF --> CI["CI Job"]
-FDF --> CI
-SSDF --> CI
-VASDF --> CI
-LKDF --> CI
-BDF --> CD["CD Job"]
-FDF --> CD
-SSDF --> CD
-VASDF --> CD
-LKDF --> CD
-DCProd["docker-compose.prod.yml"] --> Prod["Production"]
+Unit["Unit Tests<br/>pytest"] --> Integration["Integration Tests<br/>pytest + fixtures"]
+Integration --> E2E["End-to-End Tests<br/>Playwright"]
+E2E --> Coverage["Coverage Reports<br/>Codecov"]
+Unit --> Frontend["Frontend Tests<br/>Vitest"]
+Frontend --> E2E
+Coverage --> Monitoring["Monitoring<br/>Health Checks"]
+E2E --> Monitoring
+```
+
+### Backend Testing Infrastructure
+- Comprehensive test fixtures for database mocking and service isolation
+- Coverage reporting with Codecov integration
+- Mock implementations for external services (Ollama, Whisper, etc.)
+- Database migration validation and model testing
+
+### Frontend Testing Infrastructure
+- Component-level testing with React Testing Library
+- Integration testing with Vitest and jsdom
+- Build validation and bundle testing
+- Performance testing and accessibility validation
+
+### End-to-End Testing Infrastructure
+- Browser automation with Playwright for realistic user scenarios
+- Authentication state management for production-like testing
+- Cross-browser compatibility testing
+- Performance and regression testing
+
+**Section sources**
+- [app/backend/tests/conftest.py:1-200](file://app/backend/tests/conftest.py#L1-L200)
+- [app/frontend/package.json:1-44](file://app/frontend/package.json#L1-L44)
+- [playwright.config.ts:1-31](file://playwright.config.ts#L1-L31)
+
+## Deployment Orchestration
+
+### Environment-Specific Configuration
+The deployment system uses separate orchestration files for different environments:
+
+#### Staging Environment (docker-compose.staging.yml)
+- Uses `staging` image tag for all services
+- Dedicated network and volume naming (`aria_staging_network`, `staging_*`)
+- Separate Watchtower instance monitoring staging containers only
+- Development-friendly resource allocation and debugging capabilities
+
+#### Production Environment (docker-compose.prod.yml)
+- Uses `latest` image tag for all services  
+- Production-optimized resource allocation and security settings
+- Separate Watchtower instance monitoring production containers only
+- SSL certificate management with Certbot integration
+- Production-specific database tuning and performance optimizations
+
+#### Development Environment (docker-compose.yml)
+- Local development with build directives for all services
+- Simplified configuration for easy local testing
+- Port mapping for direct service access
+- Development-specific environment variables and debugging tools
+
+```mermaid
+sequenceDiagram
+participant Dev as "Developer"
+participant Staging as "Staging Stack"
+participant Prod as "Production Stack"
+participant Watchtower as "Watchtower"
+Dev->>Staging : Manual deployment (staging tag)
+Dev->>Prod : Manual deployment (latest tag)
+Staging->>Watchtower : Monitor staging containers
+Prod->>Watchtower : Monitor production containers
+Watchtower->>Staging : Auto-update staging images
+Watchtower->>Prod : Auto-update production images
 ```
 
 **Diagram sources**
-- [requirements.txt:1-48](file://requirements.txt#L1-L48)
-- [app/frontend/package.json:1-41](file://app/frontend/package.json#L1-L41)
-- [app/speech_service/requirements.txt:1-14](file://app/speech_service/requirements.txt#L1-L14)
-- [app/voice_agent/requirements.txt:1-10](file://app/voice_agent/requirements.txt#L1-L10)
-- [app/backend/Dockerfile:1-39](file://app/backend/Dockerfile#L1-L39)
-- [app/frontend/Dockerfile:1-26](file://app/frontend/Dockerfile#L1-L26)
-- [app/speech_service/Dockerfile:1-32](file://app/speech_service/Dockerfile#L1-L32)
-- [app/voice_agent/Dockerfile:1-31](file://app/voice_agent/Dockerfile#L1-L31)
-- [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [docker-compose.staging.yml:156-180](file://docker-compose.staging.yml#L156-L180)
+- [docker-compose.prod.yml:195-224](file://docker-compose.prod.yml#L195-L224)
 
 **Section sources**
-- [requirements.txt:1-48](file://requirements.txt#L1-L48)
-- [app/frontend/package.json:1-41](file://app/frontend/package.json#L1-L41)
-- [app/speech_service/requirements.txt:1-14](file://app/speech_service/requirements.txt#L1-L14)
-- [app/voice_agent/requirements.txt:1-10](file://app/voice_agent/requirements.txt#L1-L10)
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
 
-## Performance Considerations
-- Use caching for Python pip and npm to speed up CI/CD jobs
-- Parallelize backend and frontend test jobs in CI
-- Enable build cache for Docker Buildx in CD to reduce rebuild times
-- **Updated**: Consider separate build jobs for each microservice to optimize parallelization
-- **Updated**: Implement build matrix strategy for multi-version testing across microservices
-- **Updated**: Use Docker layer caching effectively by ordering COPY instructions appropriately
-- Optimize docker-compose resource limits in production to balance performance and cost
-- **Updated**: Configure Watchtower intervals appropriately to balance update frequency and resource usage
+### Zero-Downtime Deployment Strategy
+- Watchtower monitors Docker Hub for image updates and automatically restarts containers
+- Rolling restarts ensure minimal service disruption during updates
+- Health checks verify service readiness before completing deployments
+- Graceful shutdown handling prevents data loss during container restarts
+
+### Manual Deployment Gates
+- All deployments require explicit manual approval through GitHub Actions
+- Environment selection provides clear visibility of deployment target
+- Deployment summaries provide detailed information about deployed images and tags
+- Rollback capability through manual redeployment of previous image versions
+
+**Section sources**
+- [.github/workflows/cd.yml:172-185](file://.github/workflows/cd.yml#L172-L185)
+- [docker-compose.staging.yml:156-180](file://docker-compose.staging.yml#L156-L180)
+- [docker-compose.prod.yml:195-224](file://docker-compose.prod.yml#L195-L224)
+
+## Security and Compliance
+
+### Security Scanning and Vulnerability Assessment
+- Docker image scanning integrated with CI/CD pipeline
+- Dependency vulnerability scanning for Python and npm packages
+- Secret detection and prevention in code repositories
+- Secure credential management through GitHub Secrets
+- Network security through environment-specific firewall rules
+
+### Compliance Requirements
+- Data protection and privacy compliance for candidate information
+- Audit logging and compliance reporting capabilities
+- Access control and authentication enforcement
+- Secure communication protocols (HTTPS/TLS) for all services
+- Backup and disaster recovery procedures
+
+### Production Security Measures
+- SSL certificate management with automated renewal
+- Network segmentation between staging and production environments
+- Resource limits and quotas to prevent resource exhaustion attacks
+- Regular security updates and patch management
+- Monitoring and alerting for security events
+
+**Section sources**
+- [.github/workflows/cd.yml:101-105](file://.github/workflows/cd.yml#L101-L105)
+- [docker-compose.prod.yml:226-233](file://docker-compose.prod.yml#L226-L233)
 
 ## Troubleshooting Guide
-Common issues and resolutions:
-- CI failures due to backend tests
-  - Verify Python dependencies installation and pytest configuration
-  - Check coverage report generation and Codecov upload
-- CI failures due to frontend tests
-  - Confirm Node.js version and npm ci usage
-  - Review Vitest configuration and jsdom setup
-- **Updated**: CD failures during microservice image build/push
-  - Validate Docker Hub credentials in secrets
-  - Ensure Docker Buildx is enabled and cache is configured
-  - Check individual microservice requirements and dependencies
-  - Verify system dependencies for speech service (gcc, curl, libsndfile1)
-- **Updated**: Deployment rollbacks
-  - Manually SSH into VPS and run docker compose pull + up to redeploy previous images
-  - Optionally tag images with timestamps for safer rollbacks
-  - Monitor Watchtower logs for failed updates
-- **Updated**: Microservice connectivity issues
-  - Verify service dependencies in docker-compose.prod.yml
-  - Check network configuration and port mappings
-  - Validate environment variables for inter-service communication
-  - Monitor health checks for all services
-- Pipeline optimization
-  - Add job dependencies to prevent unnecessary parallel work
-  - Use matrix strategies for multi-version testing
-  - Reduce Docker image sizes by pruning build dependencies
-  - **Updated**: Implement parallel microservice builds in CD workflow
+
+### Common CI/CD Issues and Resolutions
+
+#### CI Failures
+- **Backend test failures**: Verify Python dependencies installation and pytest configuration
+- **Frontend test failures**: Confirm Node.js version and npm ci usage
+- **Coverage upload failures**: Check Codecov token configuration and coverage report generation
+- **Production branch validation**: Ensure production-specific tests pass before deployment
+
+#### CD Failures
+- **Environment resolution failures**: Verify workflow_dispatch inputs and branch detection logic
+- **Image build failures**: Check Dockerfile syntax and dependency installation
+- **Docker Hub authentication**: Validate Docker Hub credentials in GitHub Secrets
+- **Tagging conflicts**: Ensure unique image tags for different environments
+
+#### Deployment Issues
+- **Service connectivity problems**: Verify docker-compose network configuration and port mappings
+- **Watchtower update failures**: Check Docker Hub connectivity and image availability
+- **Rolling update conflicts**: Monitor service health checks and graceful shutdown timing
+- **Environment-specific issues**: Validate environment variables and resource allocation
+
+#### Performance Optimization
+- **Pipeline optimization**: Add job dependencies to prevent unnecessary parallel work
+- **Cache optimization**: Enable Docker Buildx caching and npm dependency caching
+- **Resource allocation**: Adjust CPU and memory limits based on service requirements
+- **Monitoring and alerts**: Implement comprehensive logging and monitoring for all services
 
 **Section sources**
 - [.github/workflows/ci.yml:27-62](file://.github/workflows/ci.yml#L27-L62)
-- [.github/workflows/cd.yml:50-128](file://.github/workflows/cd.yml#L50-L128)
+- [.github/workflows/cd.yml:50-185](file://.github/workflows/cd.yml#L50-L185)
 - [scripts/run-full-tests.sh:1-256](file://scripts/run-full-tests.sh#L1-L256)
-- [docker-compose.prod.yml:192-221](file://docker-compose.prod.yml#L192-L221)
 
 ## Conclusion
-The CI/CD setup for Resume AI provides robust automation for testing and image publishing, with a clear manual deployment gate for production. **Updated**: The enhanced pipeline now supports six microservices including LiveKit video conferencing, speech processing, and voice agent orchestration. By aligning branch protection rules with workflow triggers, leveraging caching, maintaining strong local validation scripts, and utilizing Watchtower for automated rolling updates, teams can ensure reliable and secure deployments of the complete voice screening platform.
-
-## Appendices
-
-### Security Scanning and Compliance
-- Add static analysis and secret scanning in CI using tools compatible with GitHub Actions
-- Integrate dependency scanning for Python and npm packages
-- Enforce signed commits and required reviews for production merges
-- Store Docker Hub credentials securely in GitHub Secrets
-- **Updated**: Monitor microservice-specific dependencies for security vulnerabilities
-- **Updated**: Implement proper environment variable management for production secrets
-- **Updated**: Regularly update LiveKit and speech processing model dependencies
+The CI/CD setup for Resume AI provides robust automation for testing and deployment across multiple environments. The enhanced pipeline now supports environment-aware deployment with manual triggering, separate staging and production configurations, and comprehensive testing strategies. By leveraging multi-branch validation, environment-specific orchestration, and automated monitoring, teams can ensure reliable and secure deployments of the complete voice screening platform. The combination of unit, integration, and end-to-end testing, along with zero-downtime deployment strategies, provides confidence in delivering high-quality software updates consistently.

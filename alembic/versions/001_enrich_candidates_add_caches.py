@@ -43,37 +43,38 @@ def upgrade() -> None:
     insp = _inspector()
 
     # ── candidates: add profile columns (skip if already present) ───────────
-    cand_cols = _column_names(insp, "candidates")
-    add = []
-    if "resume_file_hash" not in cand_cols:
-        add.append(sa.Column("resume_file_hash", sa.String(64), nullable=True))
-    if "raw_resume_text" not in cand_cols:
-        add.append(sa.Column("raw_resume_text", sa.Text(), nullable=True))
-    if "parsed_skills" not in cand_cols:
-        add.append(sa.Column("parsed_skills", sa.Text(), nullable=True))
-    if "parsed_education" not in cand_cols:
-        add.append(sa.Column("parsed_education", sa.Text(), nullable=True))
-    if "parsed_work_exp" not in cand_cols:
-        add.append(sa.Column("parsed_work_exp", sa.Text(), nullable=True))
-    if "gap_analysis_json" not in cand_cols:
-        add.append(sa.Column("gap_analysis_json", sa.Text(), nullable=True))
-    if "current_role" not in cand_cols:
-        add.append(sa.Column("current_role", sa.String(255), nullable=True))
-    if "current_company" not in cand_cols:
-        add.append(sa.Column("current_company", sa.String(255), nullable=True))
-    if "total_years_exp" not in cand_cols:
-        add.append(sa.Column("total_years_exp", sa.Float(), nullable=True))
-    if "profile_quality" not in cand_cols:
-        add.append(sa.Column("profile_quality", sa.String(20), nullable=True))
-    if "profile_updated_at" not in cand_cols:
-        add.append(sa.Column("profile_updated_at", sa.DateTime(timezone=True), nullable=True))
+    if _table_exists(insp, "candidates"):
+        cand_cols = _column_names(insp, "candidates")
+        add = []
+        if "resume_file_hash" not in cand_cols:
+            add.append(sa.Column("resume_file_hash", sa.String(64), nullable=True))
+        if "raw_resume_text" not in cand_cols:
+            add.append(sa.Column("raw_resume_text", sa.Text(), nullable=True))
+        if "parsed_skills" not in cand_cols:
+            add.append(sa.Column("parsed_skills", sa.Text(), nullable=True))
+        if "parsed_education" not in cand_cols:
+            add.append(sa.Column("parsed_education", sa.Text(), nullable=True))
+        if "parsed_work_exp" not in cand_cols:
+            add.append(sa.Column("parsed_work_exp", sa.Text(), nullable=True))
+        if "gap_analysis_json" not in cand_cols:
+            add.append(sa.Column("gap_analysis_json", sa.Text(), nullable=True))
+        if "current_role" not in cand_cols:
+            add.append(sa.Column("current_role", sa.String(255), nullable=True))
+        if "current_company" not in cand_cols:
+            add.append(sa.Column("current_company", sa.String(255), nullable=True))
+        if "total_years_exp" not in cand_cols:
+            add.append(sa.Column("total_years_exp", sa.Float(), nullable=True))
+        if "profile_quality" not in cand_cols:
+            add.append(sa.Column("profile_quality", sa.String(20), nullable=True))
+        if "profile_updated_at" not in cand_cols:
+            add.append(sa.Column("profile_updated_at", sa.DateTime(timezone=True), nullable=True))
 
-    for col in add:
-        op.add_column("candidates", col)
+        for col in add:
+            op.add_column("candidates", col)
 
-    insp = _inspector()
-    if "ix_candidates_resume_file_hash" not in _index_names(insp, "candidates"):
-        op.create_index("ix_candidates_resume_file_hash", "candidates", ["resume_file_hash"])
+        insp = _inspector()
+        if "ix_candidates_resume_file_hash" not in _index_names(insp, "candidates"):
+            op.create_index("ix_candidates_resume_file_hash", "candidates", ["resume_file_hash"])
 
     # ── jd_cache table ─────────────────────────────────────────────────────────
     insp = _inspector()

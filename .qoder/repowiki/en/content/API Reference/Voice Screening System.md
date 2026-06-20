@@ -26,12 +26,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced rescheduling functionality with new RescheduleVoiceCallRequest model supporting phone_number, scheduled_at, and jd_id fields
-- Improved error handling in frontend components with comprehensive validation and user feedback
-- Added jd_id field support for job description ID tracking in rescheduling operations
-- Enhanced rescheduling API endpoint with proper validation and state management
-- Updated frontend VoiceScheduleModal to handle rescheduling operations with improved error handling
-- Added comprehensive test coverage for rescheduling functionality including validation scenarios
+- Updated database field references from JobDescription to RoleTemplate throughout the voice scheduling system
+- Corrected candidate.full_name to candidate.name in voice call scheduling operations
+- Enhanced data model alignment for proper runtime operation with candidate.name field access
+- Improved error prevention in voice call scheduling operations with consistent field naming
+- Updated database relationships to use RoleTemplate.name instead of JobDescription.title
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,7 +41,7 @@
 6. [Frontend Implementation](#frontend-implementation)
 7. [API Endpoints](#api-endpoints)
 8. [Testing Framework](#testing-framework)
-9. [Deployment Configuration](#deployment-configuration)
+9. [Deployment Configuration](#deployment_configuration)
 10. [Troubleshooting Guide](#troubleshooting-guide)
 
 ## Introduction
@@ -111,7 +110,7 @@ BusinessHours[Business Hours Configuration]
 RetryIntervals[Retry Intervals Configuration]
 AssessmentDetail[Assessment Detail Levels]
 FollowUpAggressiveness[Follow-up Aggressiveness]
-JDTracking[Job Description ID Tracking]
+JDTracking[RoleTemplate ID Tracking]
 end
 FE --> API
 Mobile --> API
@@ -184,9 +183,9 @@ The architecture implements several key design patterns:
 - **Dual-Mode Display**: Seamless transition between standard report view and split-view phone screening mode
 - **Sticky Save Bars**: Persistent save controls for enhanced user experience
 - **Enhanced Error Handling**: Comprehensive validation and user feedback mechanisms
-- **Job Description Tracking**: jd_id field support for job description ID tracking in rescheduling operations
+- **RoleTemplate Tracking**: RoleTemplate ID field support for job description tracking in rescheduling operations
 
-**Updated** Enhanced architecture now includes dedicated LiveKit WebRTC server, FastAPI-based voice agent with comprehensive conversation management, integrated speech service with CPU-optimized inference, and seamless ReportPage integration for improved scalability and performance, featuring spring-loaded animations and dual-mode display capabilities with 21-timezone support, eager loading optimizations, comprehensive rescheduling functionality with jd_id tracking, enhanced error handling with validation, and robust session management.
+**Updated** Enhanced architecture now includes dedicated LiveKit WebRTC server, FastAPI-based voice agent with comprehensive conversation management, integrated speech service with CPU-optimized inference, and seamless ReportPage integration for improved scalability and performance, featuring spring-loaded animations and dual-mode display capabilities with 21-timezone support, eager loading optimizations, comprehensive rescheduling functionality with RoleTemplate ID tracking, enhanced error handling with validation, and robust session management.
 
 ## Database Schema
 
@@ -278,9 +277,9 @@ The schema includes several optimization features:
 - **Assessment Detail Levels**: Configurable assessment granularity (brief/full)
 - **Follow-up Aggressiveness**: Adjustable follow-up intensity settings
 - **Auto Status Updates**: Automated candidate status updates after screening completion
-- **Job Description Tracking**: Enhanced rescheduling with jd_id field support for job description ID tracking
+- **RoleTemplate Tracking**: Enhanced rescheduling with jd_id field support for RoleTemplate ID tracking
 
-**Updated** Database schema now supports comprehensive voice screening data with enhanced indexing, foreign key relationships, business hours configuration, sophisticated retry management, 21-timezone support for global operations, and eager loading optimizations for improved query performance and operational flexibility. The schema includes enhanced rescheduling capabilities with jd_id field support for job description ID tracking in rescheduling operations.
+**Updated** Database schema now supports comprehensive voice screening data with enhanced indexing, foreign key relationships, business hours configuration, sophisticated retry management, 21-timezone support for global operations, and eager loading optimizations for improved query performance and operational flexibility. The schema includes enhanced rescheduling capabilities with RoleTemplate ID field support for job description tracking in rescheduling operations.
 
 ## Core Components
 
@@ -429,7 +428,7 @@ Analyzer->>DB : Store Assessment
 DB->>API : Return Results
 API->>ReportPage : Send Results
 ReportPage->>Recruiter : Display Report with Enhanced Actions
-Note over Recruiter,DB : Seamless Voice Screening Integration with Rescheduling/Cancellation and Job Description Tracking
+Note over Recruiter,DB : Seamless Voice Screening Integration with Rescheduling/Cancellation and RoleTemplate ID Tracking
 ```
 
 **Diagram sources**
@@ -446,9 +445,9 @@ Note over Recruiter,DB : Seamless Voice Screening Integration with Rescheduling/
 2. **Live Assessment Phase**: Real-time voice communication with automatic transcription and spring-loaded animations
 3. **Processing Phase**: AI-powered analysis of linguistic patterns and behavioral indicators
 4. **Reporting Phase**: Generation of comprehensive assessment reports with actionable insights and enhanced action capabilities
-5. **Session Management Phase**: Rescheduling and cancellation operations with comprehensive session tracking, job description ID management, and enhanced validation
+5. **Session Management Phase**: Rescheduling and cancellation operations with comprehensive session tracking, RoleTemplate ID management, and enhanced validation
 
-**Updated** Enhanced workflow now includes seamless integration with ReportPage for improved accessibility and user experience with spring-loaded animations and dual-mode display capabilities, utilizing LiveKit WebRTC infrastructure for real-time audio processing and Twilio SIP trunking for PSTN connectivity, featuring comprehensive rescheduling and cancellation capabilities with 21-timezone support, job description ID tracking, and comprehensive validation with enhanced error handling.
+**Updated** Enhanced workflow now includes seamless integration with ReportPage for improved accessibility and user experience with spring-loaded animations and dual-mode display capabilities, utilizing LiveKit WebRTC infrastructure for real-time audio processing and Twilio SIP trunking for PSTN connectivity, featuring comprehensive rescheduling and cancellation capabilities with 21-timezone support, RoleTemplate ID tracking, and comprehensive validation with enhanced error handling.
 
 ## Frontend Implementation
 
@@ -484,7 +483,7 @@ ReschedulingButtons[Rescheduling/Cancellation Buttons]
 TimezoneSelector[21 Timezone Selector]
 EagerLoading[Eager Loading Optimizations]
 ValidationError[Comprehensive Validation Errors]
-JDTracking[Job Description ID Tracking]
+JDTracking[RoleTemplate ID Tracking]
 end
 Header --> Controls
 Controls --> Schedule
@@ -548,7 +547,7 @@ VoiceTranscriptViewer[Voice Transcript Viewer]
 PhoneScreenKit[Phone Screen Kit Integration]
 ErrorBoundary[Enhanced Error Boundary]
 ValidationError[Comprehensive Validation Errors]
-JDTracking[Job Description ID Tracking]
+JDTracking[RoleTemplate ID Tracking]
 end
 subgraph "Voice Screening Features"
 ScheduleButton[Schedule Call Button]
@@ -647,11 +646,11 @@ AssistantPanel --> JDTracking
 - **Phone Screen Kit Integration**: Seamless integration with existing phone screening capabilities
 - **Enhanced Error Boundary**: Comprehensive error handling with user-friendly error messages and retry options
 - **Comprehensive Validation**: Enhanced form validation with real-time error feedback and detailed error messages
-- **Job Description Tracking**: Support for job description ID tracking in rescheduling operations
+- **RoleTemplate Tracking**: Support for RoleTemplate ID tracking in rescheduling operations
 - **API Error Handling**: Robust error handling for API communication failures
 - **Component Error Handling**: Individual component-level error handling with graceful degradation
 
-**Updated** Enhanced frontend with AI assistant integration, video call support, seamless ReportPage integration, spring-loaded animations, dual-mode display capabilities, comprehensive voice screening functionality, LiveKit WebRTC integration, speech service integration, Twilio SIP trunking, rescheduling and cancellation capabilities with comprehensive validation, 21-timezone support, eager loading optimizations, sticky save bars, voice assessment panels, voice transcript viewers, phone screen kit integration, enhanced error boundary, comprehensive validation, job description tracking, API error handling, and component error handling for seamless candidate assessment experiences.
+**Updated** Enhanced frontend with AI assistant integration, video call support, seamless ReportPage integration, spring-loaded animations, dual-mode display capabilities, comprehensive voice screening functionality, LiveKit WebRTC integration, speech service integration, Twilio SIP trunking, rescheduling and cancellation capabilities with comprehensive validation, 21-timezone support, eager loading optimizations, sticky save bars, voice assessment panels, voice transcript viewers, phone screen kit integration, enhanced error boundary, comprehensive validation, RoleTemplate tracking, API error handling, and component error handling for seamless candidate assessment experiences.
 
 ## API Endpoints
 
@@ -664,7 +663,7 @@ The voice screening API provides comprehensive functionality for managing voice 
 | `POST /api/voice/sessions` | Create new voice screening session | Candidate details, scheduling info | Session object | Initialize voice assessment |
 | `GET /api/voice/sessions/{id}` | Retrieve session details | - | Session with transcripts | Get assessment progress with enhanced information |
 | `PATCH /api/voice/sessions/{id}` | Update session fields | Allowed fields only | Updated session | Modify scheduling or details |
-| `POST /api/voice/sessions/{id}/reschedule` | Reschedule voice call | RescheduleVoiceCallRequest | Success message with session details | Change call timing with validation and job description tracking |
+| `POST /api/voice/sessions/{id}/reschedule` | Reschedule voice call | RescheduleVoiceCallRequest | Success message with session details | Change call timing with validation and RoleTemplate ID tracking |
 | `POST /api/voice/sessions/{id}/cancel` | Cancel session | - | Success message with session status | Abort ongoing assessment |
 | `GET /api/voice/internal/config/{tenant_id}` | Get voice config | - | Config object | Internal service access |
 | `GET /api/voice/internal/candidate/{tenant_id}/{candidate_id}` | Get candidate info | - | Candidate details | Internal service access |
@@ -694,7 +693,7 @@ classDiagram
 class RescheduleVoiceCallRequest {
 +phone_number : Optional[str] // E.164 format, None = keep existing
 +scheduled_at : Optional[datetime] // UTC, None = schedule immediately
-+jd_id : Optional[int] // Job description ID for tracking
++jd_id : Optional[int] // RoleTemplate ID for tracking
 }
 class VoiceCallScheduler {
 +reschedule_voice_session(session_id, request) Dict
@@ -713,7 +712,7 @@ VoiceCallScheduler --> VoiceScreeningService : uses_for_context
 - [voice_call_scheduler.py](file://app/backend/services/voice_call_scheduler.py)
 - [voice_screening_service.py](file://app/backend/services/voice_screening_service.py)
 
-**Updated** Added new API endpoints for voice agent dispatch server, speech service integration, comprehensive rescheduling and cancellation functionality with enhanced validation, job description tracking, and improved response formats with action capabilities. The RescheduleVoiceCallRequest model now supports phone_number, scheduled_at, and jd_id fields for comprehensive session management.
+**Updated** Added new API endpoints for voice agent dispatch server, speech service integration, comprehensive rescheduling and cancellation functionality with enhanced validation, RoleTemplate tracking, and improved response formats with action capabilities. The RescheduleVoiceCallRequest model now supports phone_number, scheduled_at, and jd_id fields for comprehensive session management.
 
 **Section sources**
 - [voice.py](file://app/backend/routes/voice.py)
@@ -761,8 +760,9 @@ FallbackAssessment[Fallback Assessment Tests]
 ErrorBoundary[Enhanced Error Boundary Tests]
 APIErrorHandling[API Error Handling Tests]
 ComponentErrorHandling[Component Error Handling Tests]
-JDTracking[Job Description Tracking Tests]
+JDTracking[RoleTemplate ID Tracking Tests]
 RescheduleValidation[Reschedule Validation Tests]
+FieldNamingConsistency[Field Naming Consistency Tests]
 end
 subgraph "Test Components"
 SessionTests[Session Management Tests]
@@ -797,8 +797,9 @@ FallbackAssessmentTests[Fallback Assessment Tests]
 ErrorBoundaryTests[Enhanced Error Boundary Functionality Tests]
 APIErrorHandlingTests[API Error Handling Tests]
 ComponentErrorHandlingTests[Component Error Handling Tests]
-JDTrackingTests[Job Description Tracking Tests]
+JDTrackingTests[RoleTemplate ID Tracking Tests]
 RescheduleValidationTests[Reschedule Validation Tests]
+FieldNamingConsistencyTests[Field Naming Consistency Tests]
 end
 subgraph "Testing Tools"
 PyTest[PyTest Framework]
@@ -824,8 +825,9 @@ FallbackAssessmentMock[Fallback Assessment Mock Tests]
 ErrorBoundaryMock[Enhanced Error Boundary Mock Tests]
 APIErrorHandlingMock[API Error Handling Mock Tests]
 ComponentErrorHandlingMock[Component Error Handling Mock Tests]
-JDTrackingMock[Job Description Tracking Mock Tests]
+JDTrackingMock[RoleTemplate ID Tracking Mock Tests]
 RescheduleValidationMock[Reschedule Validation Mock Tests]
+FieldNamingConsistencyMock[Field Naming Consistency Mock Tests]
 end
 Unit --> SessionTests
 Unit --> TranscriptTests
@@ -859,6 +861,7 @@ Integration --> APIErrorHandlingTests
 Integration --> ComponentErrorHandlingTests
 Integration --> JDTrackingTests
 Integration --> RescheduleValidationTests
+Integration --> FieldNamingConsistencyTests
 E2E --> SessionTests
 E2E --> TranscriptTests
 E2E --> SpeechEndpoints
@@ -885,6 +888,7 @@ E2E --> APIErrorHandlingTests
 E2E --> ComponentErrorHandlingTests
 E2E --> JDTrackingTests
 E2E --> RescheduleValidationTests
+E2E --> FieldNamingConsistencyTests
 Performance --> AssessmentTests
 Performance --> SpeechEndpoints
 Performance --> LiveKitDispatch
@@ -924,6 +928,7 @@ APIErrorHandlingTests --> APIErrorHandlingMock
 ComponentErrorHandlingTests --> ComponentErrorHandlingMock
 JDTrackingTests --> JDTrackingMock
 RescheduleValidationTests --> RescheduleValidationMock
+FieldNamingConsistencyTests --> FieldNamingConsistencyMock
 ```
 
 **Diagram sources**
@@ -969,10 +974,11 @@ The testing framework covers critical scenarios including:
 - **Enhanced Error Boundary Testing**: Comprehensive error handling with user-friendly error messages and retry options
 - **API Error Handling Testing**: Robust error handling for API communication failures
 - **Component Error Handling Testing**: Individual component-level error handling with graceful degradation
-- **Job Description Tracking Testing**: Support for job description ID tracking in rescheduling operations
+- **RoleTemplate Tracking Testing**: Support for RoleTemplate ID tracking in rescheduling operations
 - **Reschedule Validation Testing**: Comprehensive validation scenarios including authentication, session not found, status validation, and proper error responses
+- **Field Naming Consistency Testing**: Proper data model alignment validation ensuring candidate.name access patterns and RoleTemplate.name field access
 
-**Updated** Enhanced testing framework now includes comprehensive coverage for LiveKit WebRTC infrastructure, voice agent operations, Twilio SIP trunking, speech service integration, ReportPage integration, enhanced voice modal functionality, dual-mode display capabilities, spring-loaded animations, comprehensive validation testing, rescheduling and cancellation functionality with comprehensive validation, 21-timezone support, eager loading performance optimizations, sticky save bar functionality, voice assessment panel rendering, voice transcript viewer functionality, phone screen kit integration, end call management, retry logic validation, escalation functionality, business hours testing, enhanced error boundary functionality, API error handling, component error handling, job description tracking, and comprehensive reschedule validation testing.
+**Updated** Enhanced testing framework now includes comprehensive coverage for LiveKit WebRTC infrastructure, voice agent operations, Twilio SIP trunking, speech service integration, ReportPage integration, enhanced voice modal functionality, dual-mode display capabilities, spring-loaded animations, comprehensive validation testing, rescheduling and cancellation functionality with comprehensive validation, 21-timezone support, eager loading performance optimizations, sticky save bar functionality, voice assessment panel rendering, voice transcript viewer functionality, phone screen kit integration, end call management, retry logic validation, escalation functionality, business hours testing, enhanced error boundary functionality, API error handling, component error handling, RoleTemplate tracking, comprehensive reschedule validation testing, and field naming consistency testing.
 
 ## Deployment Configuration
 
@@ -1002,9 +1008,10 @@ TimezoneSupport[21 Timezone Support]
 EagerLoadingOptimization[Eager Loading Optimization]
 ErrorBoundary[Enhanced Error Boundary]
 ValidationError[Comprehensive Validation]
-JDTracking[Job Description ID Tracking]
+JDTracking[RoleTemplate ID Tracking]
 APIErrorHandling[API Error Handling]
 ComponentErrorHandling[Component Error Handling]
+FieldNamingConsistency[Field Naming Consistency]
 end
 subgraph "Environment Variables"
 DBConfig[Database Config]
@@ -1023,9 +1030,10 @@ AssessmentConfig[Assessment Configuration]
 FollowUpConfig[Follow-up Configuration]
 ErrorBoundaryConfig[Enhanced Error Boundary Config]
 ValidationErrorConfig[Comprehensive Validation Config]
-JDTrackingConfig[Job Description Tracking Config]
+JDTrackingConfig[RoleTemplate ID Tracking Config]
 APIErrorHandlingConfig[API Error Handling Config]
 ComponentErrorHandlingConfig[Component Error Handling Config]
+FieldNamingConsistencyConfig[Field Naming Consistency Config]
 end
 subgraph "Deployment Targets"
 Local[Local Development]
@@ -1045,6 +1053,7 @@ Backend --> ValidationErrorConfig
 Backend --> JDTrackingConfig
 Backend --> APIErrorHandlingConfig
 Backend --> ComponentErrorHandlingConfig
+Backend --> FieldNamingConsistencyConfig
 Speech --> STTConfig
 Agent --> LiveKitConfig
 Agent --> VoiceAgentConfig
@@ -1065,6 +1074,7 @@ ValidationError --> ValidationError
 JDTracking --> JDTracking
 APIErrorHandling --> APIErrorHandling
 ComponentErrorHandling --> ComponentErrorHandling
+FieldNamingConsistency --> FieldNamingConsistency
 Production --> Backend
 Production --> Speech
 Production --> Agent
@@ -1121,11 +1131,12 @@ Production --> ComponentErrorHandling
 - **Business Hours Enforcement**: Timezone-aware scheduling with configurable working hours
 - **Enhanced Error Boundary**: Comprehensive error handling with user-friendly error messages
 - **Comprehensive Validation**: Enhanced form validation with real-time error feedback
-- **Job Description Tracking**: Support for job description ID tracking in rescheduling operations
+- **RoleTemplate Tracking**: Support for RoleTemplate ID tracking in rescheduling operations
 - **API Error Handling**: Robust error handling for API communication failures
 - **Component Error Handling**: Individual component-level error handling with graceful degradation
+- **Field Naming Consistency**: Proper data model alignment ensuring candidate.name access patterns and RoleTemplate.name field access
 
-**Updated** Deployment configuration now includes comprehensive LiveKit WebRTC infrastructure, FastAPI-based voice agent with real-time conversation management, integrated speech service with CPU-optimized inference, Twilio SIP trunking for PSTN connectivity, enhanced infrastructure requirements for seamless voice screening operations, 21-timezone support, eager loading optimizations, comprehensive rescheduling and cancellation capabilities with validation, sticky save bars, voice assessment panels, voice transcript viewers, phone screen kit integration, end call management, retry logic infrastructure, business hours enforcement, enhanced error boundary, comprehensive validation, job description tracking, API error handling, and component error handling.
+**Updated** Deployment configuration now includes comprehensive LiveKit WebRTC infrastructure, FastAPI-based voice agent with real-time conversation management, integrated speech service with CPU-optimized inference, Twilio SIP trunking for PSTN connectivity, enhanced infrastructure requirements for seamless voice screening operations, 21-timezone support, eager loading optimizations, comprehensive rescheduling and cancellation capabilities with validation, sticky save bars, voice assessment panels, voice transcript viewers, phone screen kit integration, end call management, retry logic infrastructure, business hours enforcement, enhanced error boundary, comprehensive validation, RoleTemplate tracking, API error handling, component error handling, and field naming consistency.
 
 ## Troubleshooting Guide
 
@@ -1241,11 +1252,11 @@ Common issues and their solutions for the Voice Screening System with enhanced f
 - Validate LiveKit audio processing validation
 - Check speech service audio format compatibility
 
-**Problem**: Job description tracking issues
+**Problem**: RoleTemplate tracking issues
 - Verify jd_id field handling in rescheduling operations
-- Check for proper job description ID validation and tracking
-- Ensure proper session context updates with job description information
-- Validate proper error handling for invalid job description IDs
+- Check for proper RoleTemplate ID validation and tracking
+- Ensure proper session context updates with RoleTemplate information
+- Validate proper error handling for invalid RoleTemplate IDs
 
 **Problem**: API error handling issues
 - Verify proper error response formatting and user-friendly messages
@@ -1258,6 +1269,12 @@ Common issues and their solutions for the Voice Screening System with enhanced f
 - Check for proper error boundaries around critical components
 - Ensure proper graceful degradation when components fail
 - Validate proper error state management and recovery mechanisms
+
+**Problem**: Field naming consistency issues
+- Verify proper candidate data access using candidate.name instead of candidate.full_name
+- Check RoleTemplate field access using RoleTemplate.name instead of RoleTemplate.title
+- Ensure proper data model alignment across all voice call scheduling operations
+- Validate proper error prevention in voice call scheduling operations
 
 ### Performance Issues
 
@@ -1384,11 +1401,11 @@ Common issues and their solutions for the Voice Screening System with enhanced f
 - Validate LiveKit audio processing validation performance
 - Check speech service audio format compatibility performance
 
-**Problem**: Job description tracking performance
+**Problem**: RoleTemplate tracking performance
 - Monitor jd_id field handling performance in rescheduling
-- Check for proper job description ID validation performance
+- Check for proper RoleTemplate ID validation performance
 - Ensure proper session context updates performance
-- Validate proper error handling performance for invalid job description IDs
+- Validate proper error handling performance for invalid RoleTemplate IDs
 
 **Problem**: API error handling performance
 - Monitor error response formatting and user-friendly message performance
@@ -1401,6 +1418,12 @@ Common issues and their solutions for the Voice Screening System with enhanced f
 - Check for proper error boundaries performance around critical components
 - Ensure proper graceful degradation performance when components fail
 - Validate proper error state management and recovery mechanisms performance
+
+**Problem**: Field naming consistency performance
+- Monitor candidate data access performance using candidate.name
+- Check RoleTemplate field access performance using RoleTemplate.name
+- Ensure proper data model alignment performance across all voice call scheduling operations
+- Validate proper error prevention performance in voice call scheduling operations
 
 ### Data Integrity Issues
 
@@ -1533,11 +1556,11 @@ Common issues and their solutions for the Voice Screening System with enhanced f
 - Validate proper LiveKit audio processing validation state
 - Check proper speech service audio format compatibility state
 
-**Problem**: Job description tracking state issues
+**Problem**: RoleTemplate tracking state issues
 - Verify proper jd_id field state handling in rescheduling
-- Check for proper job description ID validation state
+- Check for proper RoleTemplate ID validation state
 - Ensure proper session context state updates
-- Validate proper error handling state for invalid job description IDs
+- Validate proper error handling state for invalid RoleTemplate IDs
 
 **Problem**: API error handling state issues
 - Verify proper error response formatting state
@@ -1551,7 +1574,13 @@ Common issues and their solutions for the Voice Screening System with enhanced f
 - Ensure proper graceful degradation state when components fail
 - Validate proper error state management and recovery mechanisms state
 
-**Updated** Enhanced troubleshooting guide now includes specific issues related to LiveKit WebRTC infrastructure, voice agent operations, Twilio SIP trunking, speech service integration, ReportPage voice screening integration, spring-loaded animations, dual-mode display capabilities, enhanced validation functionality, rescheduling and cancellation operations with comprehensive validation, 21-timezone support, eager loading optimizations, sticky save bar functionality, voice assessment panel rendering, voice transcript viewer functionality, phone screen kit integration, end call management, retry logic validation, escalation functionality, business hours enforcement, comprehensive error boundary functionality, API error handling, component error handling, job description tracking, and comprehensive infrastructure troubleshooting.
+**Problem**: Field naming consistency state issues
+- Verify proper candidate data access state using candidate.name
+- Check RoleTemplate field access state using RoleTemplate.name
+- Ensure proper data model alignment state across all voice call scheduling operations
+- Validate proper error prevention state in voice call scheduling operations
+
+**Updated** Enhanced troubleshooting guide now includes specific issues related to LiveKit WebRTC infrastructure, voice agent operations, Twilio SIP trunking, speech service integration, ReportPage voice screening integration, spring-loaded animations, dual-mode display capabilities, enhanced validation functionality, rescheduling and cancellation operations with comprehensive validation, 21-timezone support, eager loading optimizations, sticky save bar functionality, voice assessment panel rendering, voice transcript viewer functionality, phone screen kit integration, end call management, retry logic validation, escalation functionality, business hours enforcement, comprehensive error boundary functionality, API error handling, component error handling, RoleTemplate tracking, field naming consistency, and comprehensive infrastructure troubleshooting.
 
 **Section sources**
 - [voice_screening_service.py](file://app/backend/services/voice_screening_service.py)

@@ -18,14 +18,12 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced streaming capabilities with improved batch analysis streaming using Server-Sent Events
-- Implemented staggered processing delays to prevent LLM thundering herd effects
-- Added real-time progress tracking for batch operations with individual resume streaming
-- Integrated queue-based architecture for scalable job processing
+- Enhanced streaming error handling with improved error propagation mechanism
+- Better server-side error handling for resume analysis streams
 - Enhanced database session management for SSE streaming operations
-- Added comprehensive error handling for ScreeningResult record persistence
-- Introduced systematic data recovery mechanisms for incomplete analysis results
-- **Enhanced** Improved data persistence reliability through the new `_upsert_screening_result` function with version tracking and re-analysis support
+- Improved client disconnection handling with automatic early database saves
+- Enhanced error propagation from backend to frontend with proper exception handling
+- Improved error handling patterns for both single and batch streaming operations
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -39,22 +37,23 @@
 9. [Conclusion](#conclusion)
 
 ## Introduction
-This document provides comprehensive documentation for the POST /api/analyze/batch-stream endpoint using Server-Sent Events (SSE). The endpoint delivers real-time batch analysis of resumes with progressive streaming updates, featuring enhanced batch processing capabilities with staggered LLM processing to prevent thundering herd effects. The system processes multiple resumes concurrently and streams individual results as they complete, rather than waiting for all resumes to finish processing.
+This document provides comprehensive documentation for the POST /api/analyze/stream endpoint using Server-Sent Events (SSE). The endpoint delivers real-time streaming analysis of resumes with progressive updates, featuring enhanced error handling capabilities and improved server-side error propagation mechanisms. The system processes resumes with Python scoring within 2 seconds, followed by LLM narrative generation after approximately 40 seconds, and concludes with complete analysis results.
 
-The implementation ensures SSE protocol compliance, includes heartbeat pings to maintain connections, and handles connection lifecycle, error propagation, and graceful degradation when the LLM is unavailable. **Updated** to include enhanced streaming capabilities with improved batch analysis streaming, staggered processing delays to prevent LLM thundering herd effects, and real-time progress tracking for batch operations.
+The implementation ensures SSE protocol compliance, includes heartbeat pings to maintain connections, and handles connection lifecycle, error propagation, and graceful degradation when the LLM is unavailable. **Updated** to reflect enhanced streaming error handling with improved error propagation mechanism and better server-side error handling for resume analysis streams.
 
 ## Project Structure
-The streaming analysis spans backend route handlers, queue management systems, and frontend client-side consumption. The architecture now supports both direct streaming for smaller batches and queue-based processing for larger-scale operations.
+The streaming analysis spans backend route handlers, queue management systems, and frontend client-side consumption. The architecture now supports both direct streaming for smaller batches and queue-based processing for larger-scale operations with enhanced error handling.
 
 ```mermaid
 graph TB
 subgraph "Frontend"
-FE_API["api.js<br/>analyzeBatchStream()"]
+FE_API["api.js<br/>analyzeStream()"]
+FE_ANALYZE["AnalyzePage.jsx<br/>Single Resume Streaming"]
 FE_BATCH["BatchPage.jsx<br/>Batch Analysis UI"]
 FE_UPLOAD["Upload Components<br/>(chunked upload)"]
 end
 subgraph "Backend"
-ROUTES["routes/analyze.py<br/>batch_analyze_stream_endpoint()"]
+ROUTES["routes/analyze.py<br/>analyze_stream_endpoint()"]
 QUEUE_API["routes/queue_api.py<br/>Queue Management APIs"]
 QUEUE_MANAGER["services/queue_manager.py<br/>Queue Worker System"]
 SCHEMA["models/schemas.py<br/>BatchStreamEvent Model"]
@@ -63,10 +62,11 @@ DB_MODELS["models/db_models.py<br/>Candidate & ScreeningResult"]
 DB_SESSION["db/database.py<br/>SessionLocal()"]
 end
 subgraph "Infrastructure"
-NGINX_APP["app/nginx/nginx.prod.conf<br/>/api/analyze/batch-stream"]
+NGINX_APP["app/nginx/nginx.prod.conf<br/>/api/analyze/stream"]
 NGINX_ROOT["nginx/nginx.prod.conf<br/>root nginx config"]
 end
 FE_API --> ROUTES
+FE_ANALYZE --> FE_API
 FE_BATCH --> FE_API
 FE_UPLOAD --> FE_API
 ROUTES --> QUEUE_MANAGER
@@ -80,125 +80,114 @@ DB_SESSION --> ROUTES
 ```
 
 **Diagram sources**
-- [analyze.py:2312-2700](file://app/backend/routes/analyze.py#L2312-L2700)
-- [queue_manager.py:189-612](file://app/backend/services/queue_manager.py#L189-L612)
+- [analyze.py:1686-1885](file://app/backend/routes/analyze.py#L1686-L1885)
+- [queue_manager.py:195-388](file://app/backend/services/queue_manager.py#L195-L388)
 - [queue_api.py:38-464](file://app/backend/routes/queue_api.py#L38-L464)
+- [AnalyzePage.jsx:1686-1717](file://app/frontend/src/pages/AnalyzePage.jsx#L1686-L1717)
 - [BatchPage.jsx:104-194](file://app/frontend/src/pages/BatchPage.jsx#L104-L194)
-- [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
 - [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
 - [db_models.py:177-214](file://app/backend/models/db_models.py#L177-L214)
 - [database.py:39-40](file://app/backend/db/database.py#L39-L40)
-- [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
+- [nginx.prod.conf:76-98](file://app/nginx/nginx.prod.conf#L76-L98)
 - [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
 
 **Section sources**
-- [analyze.py:2312-2700](file://app/backend/routes/analyze.py#L2312-L2700)
-- [queue_manager.py:189-612](file://app/backend/services/queue_manager.py#L189-L612)
+- [analyze.py:1686-1885](file://app/backend/routes/analyze.py#L1686-L1885)
+- [queue_manager.py:195-388](file://app/backend/services/queue_manager.py#L195-L388)
 - [queue_api.py:38-464](file://app/backend/routes/queue_api.py#L38-L464)
+- [AnalyzePage.jsx:1686-1717](file://app/frontend/src/pages/AnalyzePage.jsx#L1686-L1717)
 - [BatchPage.jsx:104-194](file://app/frontend/src/pages/BatchPage.jsx#L104-L194)
-- [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
 - [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
 - [db_models.py:177-214](file://app/backend/models/db_models.py#L177-L214)
 - [database.py:39-40](file://app/backend/db/database.py#L39-L40)
-- [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
+- [nginx.prod.conf:76-98](file://app/nginx/nginx.prod.conf#L76-L98)
 - [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
 
 ## Core Components
-- **Batch Streaming Route**: Implements the /api/analyze/batch-stream endpoint with concurrent processing and real-time streaming of individual resume results.
+- **Enhanced Streaming Route**: Implements the /api/analyze/stream endpoint with improved error propagation and server-side error handling for resume analysis streams.
 - **Queue Management System**: Provides scalable job queue processing with priority scheduling, retry mechanisms, and worker health monitoring.
-- **Batch Stream Event Model**: Defines the SSE event structure for streaming batch analysis results with progress tracking.
-- **Frontend Batch Consumer**: Uses fetch with ReadableStream to process SSE events and update UI progressively with individual resume rankings.
-- **Infrastructure**: Nginx configuration for SSE buffering and FastAPI application initialization.
+- **Enhanced Error Propagation**: **Updated** Implements proper error propagation from backend to frontend with server-side error events and client-side error handling.
 - **Enhanced Database Session Management**: Improved mechanisms ensure reliable database operations during streaming by using dedicated SessionLocal instances to prevent detached object errors.
 - **Enhanced ScreeningResult Upsert**: **Updated** The `_upsert_screening_result` function now provides better handling of re-analysis operations with version tracking and improved data persistence reliability.
+- **Frontend Streaming Consumer**: Uses fetch with ReadableStream to process SSE events with enhanced error handling and proper error propagation.
+- **Infrastructure**: Nginx configuration for SSE buffering and FastAPI application initialization.
 
 Key implementation references:
-- Batch streaming endpoint: [analyze.py:2312-2700](file://app/backend/routes/analyze.py#L2312-L2700)
-- Queue management system: [queue_manager.py:189-612](file://app/backend/services/queue_manager.py#L189-L612)
+- Enhanced streaming endpoint: [analyze.py:1686-1885](file://app/backend/routes/analyze.py#L1686-L1885)
+- Enhanced error propagation: [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
+- Queue management system: [queue_manager.py:195-388](file://app/backend/services/queue_manager.py#L195-L388)
 - Queue API endpoints: [queue_api.py:38-464](file://app/backend/routes/queue_api.py#L38-L464)
-- Batch stream event model: [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
-- Frontend batch processing: [BatchPage.jsx:104-194](file://app/frontend/src/pages/BatchPage.jsx#L104-L194)
-- SSE consumption: [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
-- Nginx SSE configuration: [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95), [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
+- Enhanced database session management: [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956)
+- Enhanced ScreeningResult upsert: [analyze.py:197-244](file://app/backend/routes/analyze.py#L197-L244)
 
 **Section sources**
-- [analyze.py:2312-2700](file://app/backend/routes/analyze.py#L2312-L2700)
-- [queue_manager.py:189-612](file://app/backend/services/queue_manager.py#L189-L612)
+- [analyze.py:1686-1885](file://app/backend/routes/analyze.py#L1686-L1885)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
+- [queue_manager.py:195-388](file://app/backend/services/queue_manager.py#L195-L388)
 - [queue_api.py:38-464](file://app/backend/routes/queue_api.py#L38-L464)
-- [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
-- [BatchPage.jsx:104-194](file://app/frontend/src/pages/BatchPage.jsx#L104-L194)
-- [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
-- [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
-- [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
+- [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956)
+- [analyze.py:197-244](file://app/backend/routes/analyze.py#L197-L244)
 
 ## Architecture Overview
-The streaming analysis now supports two primary processing modes: direct SSE streaming for smaller batches and queue-based processing for larger-scale operations. The system processes resumes concurrently with staggered delays to prevent LLM thundering herd effects while providing real-time progress tracking.
+The streaming analysis now supports enhanced error handling with improved server-side error propagation and client-side error handling. The system processes resumes with Python scoring within 2 seconds, followed by LLM narrative generation after approximately 40 seconds, and concludes with complete analysis results while maintaining robust error handling throughout the process.
 
 ```mermaid
 sequenceDiagram
 participant Client as "Browser Client"
-participant API as "FastAPI Route<br/>/api/analyze/batch-stream"
-participant Schema as "BatchStreamEvent<br/>Model Definition"
-participant Queue as "Queue Manager<br/>(Optional)"
-participant Pipeline as "Analysis Pipeline<br/>_process_with_semaphore()"
-LTM as "LLM (Ollama)<br/>Staggered Processing"
+participant API as "FastAPI Route<br/>/api/analyze/stream"
+participant Pipeline as "Hybrid Pipeline<br/>astream_hybrid_pipeline()"
+LTM as "LLM (Ollama)<br/>Narrative Generation"
 participant DB as "Database<br/>ScreeningResult & Candidate"
 participant SessionLocal as "SessionLocal()<br/>Dedicated Sessions"
-Client->>API : POST /api/analyze/batch-stream (multipart/form-data)
+Client->>API : POST /api/analyze/stream (multipart/form-data)
 API->>API : Validate inputs, parse resume/JD
-API->>Schema : Define BatchStreamEvent structure
-API->>API : Create tagged tasks with staggered delays
-API->>Pipeline : Start concurrent processing with semaphore
-Pipeline->>Pipeline : Run Python phase (scores)
-Pipeline-->>API : Event {"event" : "failed","index" : 1,...}
-API-->>Client : data : {"event" : "failed",...}
-Pipeline-->>API : Event {"event" : "result","index" : 1,...}
+API->>API : Create ScreeningResult with candidate
+API->>Pipeline : Start streaming hybrid pipeline
+Pipeline-->>API : Event {"stage" : "parsing","result" : {...}}
 API->>SessionLocal : Use dedicated session for early save
-API->>DB : Early save - persist Python results with candidate_profile
-API-->>Client : data : {"event" : "result",...}
-Pipeline->>LTM : Generate narrative with staggered delay
-LTM-->>API : Event {"event" : "result","index" : 2,...}
-API-->>Client : data : {"event" : "result",...}
+API->>DB : Early save - persist Python results
+API-->>Client : data : {"stage" : "parsing",...}
+Pipeline->>LTM : Generate narrative with heartbeat pings
+LTM-->>API : Event {"stage" : "complete","result" : {...}}
 API->>SessionLocal : Use dedicated session for final save
 API->>DB : Persist final result (candidate + screening)
-API-->>Client : data : {"event" : "done",...}
+API-->>Client : data : {"stage" : "complete",...}
 API-->>Client : data : [DONE]
+Note over API,Client : Enhanced Error Handling : <br/>- Server-side errors emit "error" events<br/>- Client-side propagates errors outside try-catch<br/>- Early DB saves on client disconnect
 ```
 
 **Diagram sources**
-- [analyze.py:2553-2682](file://app/backend/routes/analyze.py#L2553-L2682)
-- [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
-- [queue_manager.py:349-495](file://app/backend/services/queue_manager.py#L349-L495)
-- [api.js:530-591](file://app/frontend/src/lib/api.js#L530-L591)
+- [analyze.py:1883-2059](file://app/backend/routes/analyze.py#L1883-L2059)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
 - [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 **Section sources**
-- [analyze.py:2553-2682](file://app/backend/routes/analyze.py#L2553-L2682)
-- [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
-- [queue_manager.py:349-495](file://app/backend/services/queue_manager.py#L349-L495)
-- [api.js:530-591](file://app/frontend/src/lib/api.js#L530-L591)
+- [analyze.py:1883-2059](file://app/backend/routes/analyze.py#L1883-L2059)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
 - [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 ## Detailed Component Analysis
 
-### Enhanced Batch Streaming Endpoint: /api/analyze/batch-stream
+### Enhanced Streaming Endpoint: /api/analyze/stream
 Responsibilities:
 - Validate file types and sizes, job description source, and scoring weights.
-- Process resumes concurrently using asyncio.as_completed for optimal performance.
+- Process resumes with hybrid pipeline (Python scoring + LLM narrative).
 - Stream individual resume results as they complete using FastAPI's StreamingResponse.
-- Implement staggered processing delays (0.3 seconds × index) to prevent LLM thundering herd effects.
-- Emit SSE events for pre-flight failures, individual results, and final completion summary.
+- Implement heartbeat pings to maintain connection during LLM processing.
+- Emit SSE events for parsing stage (Python scores within 2s), complete stage (final result), and error events.
 - **Enhanced** Serialize all events using `_json_default` to handle datetime, date, and Decimal objects.
 - **Enhanced** Implement sophisticated database persistence with dedicated SessionLocal instances.
-- Persist individual resume results to the database using dedicated sessions and track screening_result_id.
-- Emit a final "done" event followed by "[DONE]" marker.
+- **Enhanced** Emit proper error events for server-side failures and propagate them to frontend.
+- **Enhanced** Handle client disconnections with automatic early database saves using dedicated sessions.
 
 Event emission timeline:
-- Stage "failed": emitted immediately for pre-flight validation failures or runtime exceptions.
-- Stage "result": emitted as each resume completes processing with individual screening_result_id.
-- Stage "done": emitted after all resumes processed with summary statistics.
+- Stage "parsing": emitted immediately after Python scoring completes with fit_score and analysis metrics.
+- Stage "complete": emitted after LLM narrative generation completes with full analysis result.
+- Stage "error": emitted when server-side errors occur during processing.
 - Marker "[DONE]": signals end of stream.
 
 Headers:
@@ -207,20 +196,40 @@ Headers:
 - X-Accel-Buffering: no (Nginx-specific header to disable buffering)
 
 Error handling:
-- On validation failures, emits a "failed" event with filename and error details.
-- On processing exceptions, emits a "failed" event and continues with remaining resumes.
+- On validation failures, emits a "parsing" event with error details.
+- On processing exceptions, emits an "error" event with error message and continues with remaining resumes.
 - **Enhanced** Uses `_json_default` for all JSON serialization to prevent crashes.
 - **Enhanced** Handles client disconnections with automatic early database saves using dedicated sessions.
+- **Enhanced** Emits proper error events that are propagated to frontend outside try-catch blocks.
 
 References:
-- Batch streaming endpoint: [analyze.py:2312-2700](file://app/backend/routes/analyze.py#L2312-L2700)
-- Event stream generator: [analyze.py:2553-2682](file://app/backend/routes/analyze.py#L2553-L2682)
-- Staggered processing implementation: [analyze.py:2544](file://app/backend/routes/analyze.py#L2544)
+- Enhanced streaming endpoint: [analyze.py:1686-1885](file://app/backend/routes/analyze.py#L1686-L1885)
+- Enhanced error handling: [analyze.py:1961-1965](file://app/backend/routes/analyze.py#L1961-L1965)
+- Enhanced client disconnection handling: [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956)
 
 **Section sources**
-- [analyze.py:2312-2700](file://app/backend/routes/analyze.py#L2312-L2700)
-- [analyze.py:2553-2682](file://app/backend/routes/analyze.py#L2553-L2682)
-- [analyze.py:2544](file://app/backend/routes/analyze.py#L2544)
+- [analyze.py:1686-1885](file://app/backend/routes/analyze.py#L1686-L1885)
+- [analyze.py:1961-1965](file://app/backend/routes/analyze.py#L1961-L1965)
+- [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956)
+
+### Enhanced Error Propagation Mechanism
+**Updated** The system now includes enhanced error propagation mechanisms that ensure server-side errors are properly communicated to the frontend:
+
+**Server-Side Error Handling:**
+- **Enhanced** Error events are emitted with proper JSON structure containing error messages.
+- **Enhanced** Exceptions during pipeline execution trigger error events with detailed error information.
+- **Enhanced** Client disconnection detection triggers automatic early database saves with proper error handling.
+- **Enhanced** Final database save failures emit error events instead of complete events.
+
+**Frontend Error Propagation:**
+- **Enhanced** Client-side SSE consumption detects "error" events and stores them in `streamError`.
+- **Enhanced** Error events are propagated outside the try-catch block to the caller.
+- **Enhanced** Final result validation ensures proper error handling when stream ends without completion.
+- **Enhanced** Error messages from server-side validation are properly transmitted to frontend.
+
+**Section sources**
+- [analyze.py:1961-1965](file://app/backend/routes/analyze.py#L1961-L1965)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
 
 ### Queue-Based Analysis System
 The system now includes a comprehensive queue-based architecture for scalable job processing:
@@ -248,72 +257,11 @@ The system now includes a comprehensive queue-based architecture for scalable jo
 - Horizontal scaling support with multiple worker instances
 
 **Section sources**
-- [queue_manager.py:189-612](file://app/backend/services/queue_manager.py#L189-L612)
+- [queue_manager.py:195-388](file://app/backend/services/queue_manager.py#L195-L388)
 - [queue_api.py:38-464](file://app/backend/routes/queue_api.py#L38-L464)
 
-### Batch Stream Event Model
-Defines the SSE event structure for streaming batch analysis results:
-
-**Event Types:**
-- `"failed"`: Pre-flight or runtime failure with filename and error details
-- `"result"`: Individual resume analysis result with screening_result_id
-- `"done"`: Final summary with total counts and completion status
-
-**Event Payload Structure:**
-- `event`: Type of event ("failed", "result", "done")
-- `index`: Position in batch (1-based)
-- `total`: Total number of resumes in batch
-- `filename`: Source filename (for result events)
-- `result`: Analysis data (for result events)
-- `screening_result_id`: Database ID for persisted result (for result events)
-- `error`: Error message (for failed events)
-- `successful`: Count of successful analyses (for done events)
-- `failed_count`: Count of failed analyses (for done events)
-
-**Section sources**
-- [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
-
-### Frontend Batch Consumer: analyzeBatchStream
-Responsibilities:
-- Construct multipart/form-data with upload_ids, filenames, and optional job description.
-- Send POST request to /api/analyze/batch-stream using fetch.
-- Consume the SSE stream via ReadableStream, parsing individual events.
-- Process "failed" events for validation errors and runtime exceptions.
-- Process "result" events to update individual resume rankings in real-time.
-- Process "done" events for final batch completion summary.
-- Track streaming progress and resolve when "[DONE]" is received.
-
-Client-side event processing:
-- Parses each SSE event line, skipping non-data lines and the "[DONE]" marker.
-- Updates UI progressively as individual resume results arrive.
-- Maintains real-time ranking based on fit_score values.
-- Resolves with final batch completion status.
-
-References:
-- SSE consumption implementation: [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
-- Frontend batch UI: [BatchPage.jsx:104-194](file://app/frontend/src/pages/BatchPage.jsx#L104-L194)
-
-**Section sources**
-- [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
-- [BatchPage.jsx:104-194](file://app/frontend/src/pages/BatchPage.jsx#L104-L194)
-
-### Infrastructure: Nginx SSE Configuration
-Responsibilities:
-- Disable proxy buffering for /api/analyze/batch-stream to ensure immediate event delivery.
-- Set extended timeouts to accommodate long-running batch processing.
-- Disable gzip for the stream and strip Connection header to prevent proxy interference.
-- Provide a dedicated location block for SSE with appropriate headers.
-
-References:
-- Application-level Nginx config: [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
-- Root Nginx config (alternative): [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
-
-**Section sources**
-- [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
-- [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
-
 ### Enhanced Database Session Management for SSE Streaming
-The analyze_stream_endpoint now includes sophisticated database session management to prevent detached object errors and ensure reliable data persistence:
+**Updated** The analyze_stream_endpoint now includes sophisticated database session management to prevent detached object errors and ensure reliable data persistence:
 
 **Dedicated Database Sessions:**
 - Uses SessionLocal() instances for all database operations during streaming to prevent session detachment issues
@@ -341,8 +289,8 @@ The analyze_stream_endpoint now includes sophisticated database session manageme
 - Logging of all persistence operations for debugging and monitoring
 
 **Section sources**
-- [analyze.py:1887-1935](file://app/backend/routes/analyze.py#L1887-L1935)
-- [analyze.py:1970-2010](file://app/backend/routes/analyze.py#L1970-L2010)
+- [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956)
+- [analyze.py:1991-2031](file://app/backend/routes/analyze.py#L1991-L2031)
 - [database.py:39-40](file://app/backend/db/database.py#L39-L40)
 
 ### Enhanced ScreeningResult Upsert Function
@@ -369,37 +317,33 @@ The analyze_stream_endpoint now includes sophisticated database session manageme
 - [analyze.py:197-244](file://app/backend/routes/analyze.py#L197-L244)
 - [db_models.py:177-214](file://app/backend/models/db_models.py#L177-L214)
 
-### Event Payload Formats for Batch Streaming
-Each event emitted by the batch streaming endpoint adheres to the SSE "data:" line format with a JSON payload. The payload structure defines three distinct event types with comprehensive progress tracking.
+### Event Payload Formats for Single Streaming
+Each event emitted by the streaming endpoint adheres to the SSE "data:" line format with a JSON payload. The payload structure defines three distinct event stages with comprehensive progress tracking.
 
 **Base structure:**
-- event: "failed" | "result" | "done"
-- index: int (1-based position in batch)
-- total: int (total resumes in batch)
-- filename: string (source filename, for result events)
-- result: object (analysis data, for result events)
-- screening_result_id: int (database ID, for result events)
-- error: string (error message, for failed events)
-- successful: int (count, for done events)
-- failed_count: int (count, for done events)
+- stage: "parsing" | "complete" | "error"
+- result: object (analysis data, for parsing and complete events)
+- error: string (error message, for error events)
 
 **Event Type Details:**
 
-**Stage "failed":**
-- Contains filename and error details for validation failures or runtime exceptions
-- Emitted immediately for pre-flight validation errors or processing exceptions
-- Example structure reference: [analyze.py:2592-2598](file://app/backend/routes/analyze.py#L2592-L2598)
+**Stage "parsing":**
+- Contains Python-generated analysis with fit_score, strengths, weaknesses, and other metrics
+- Emitted immediately after parsing phase completes (within 2s)
+- Includes full candidate_profile and contact_info data
+- Example structure reference: [analyze.py:1709](file://app/backend/routes/analyze.py#L1709)
 
-**Stage "result":**
-- Contains individual resume analysis with screening_result_id for database persistence
-- Includes fit_score, final_recommendation, strengths, weaknesses, and other analysis metrics
-- Emitted as each resume completes processing in real-time
-- Example structure reference: [analyze.py:2663-2671](file://app/backend/routes/analyze.py#L2663-L2671)
+**Stage "complete":**
+- Contains final analysis result with LLM narrative and all metrics
+- Emitted after LLM narrative generation completes (after ~40s)
+- Includes analysis_id for polling and narrative_pending status
+- Example structure reference: [analyze.py:1710](file://app/backend/routes/analyze.py#L1710)
 
-**Stage "done":**
-- Contains final batch completion summary with successful and failed counts
-- Emitted after all resumes processed to provide completion statistics
-- Example structure reference: [analyze.py:2674-2681](file://app/backend/routes/analyze.py#L2674-L2681)
+**Stage "error":**
+- Contains error message for server-side failures
+- Emitted when validation fails, processing exceptions occur, or database operations fail
+- Propagated to frontend outside try-catch blocks
+- Example structure reference: [analyze.py:1963](file://app/backend/routes/analyze.py#L1963)
 
 **SSE Protocol Compliance:**
 - Each event line begins with "data: " followed by JSON.
@@ -407,38 +351,43 @@ Each event emitted by the batch streaming endpoint adheres to the SSE "data:" li
 - Non-data lines (comments, empty lines) are ignored by the client.
 
 **Section sources**
-- [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
-- [analyze.py:2592-2598](file://app/backend/routes/analyze.py#L2592-L2598)
-- [analyze.py:2663-2671](file://app/backend/routes/analyze.py#L2663-L2671)
-- [analyze.py:2674-2681](file://app/backend/routes/analyze.py#L2674-L2681)
+- [analyze.py:1709](file://app/backend/routes/analyze.py#L1709)
+- [analyze.py:1710](file://app/backend/routes/analyze.py#L1710)
+- [analyze.py:1963](file://app/backend/routes/analyze.py#L1963)
 
 ### Client-Side Event Processing and Examples
-JavaScript fetch event stream consumption for batch analysis:
-- Establishes a POST request with multipart/form-data containing upload_ids and filenames.
+**Updated** JavaScript fetch event stream consumption for streaming analysis with enhanced error handling:
+- Establishes a POST request with multipart/form-data containing resume file and optional job description.
 - Reads the response body as a stream and decodes chunks.
 - Splits on "\n\n" boundaries and processes "data: " lines.
-- Parses JSON events and invokes appropriate callbacks for "failed", "result", and "done" events.
-- Updates real-time rankings as "result" events arrive.
+- Parses JSON events and invokes appropriate callbacks for "parsing", "complete", and "error" events.
+- **Enhanced** Stores error events in `streamError` variable for later propagation.
+- **Enhanced** Propagates server-side errors outside the try-catch block to the caller.
+- **Enhanced** Validates final result presence and throws descriptive errors if missing.
 - Tracks completion progress and resolves when "[DONE]" is received.
 
 **Frontend Callbacks:**
-- `onResult(index, total, filename, result, screeningResultId)`: Updates individual resume display
-- `onFailed(index, total, filename, error)`: Handles validation and processing errors
-- `onDone(total, successful, failedCount)`: Final batch completion summary
+- `onStageComplete(stage, result)`: Handles parsing and complete stage events
+- `onError(error)`: Handles server-side error events
+- **Enhanced** Proper error propagation to parent components
 
 References:
-- SSE consumption implementation: [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
-- Frontend batch UI: [BatchPage.jsx:104-194](file://app/frontend/src/pages/BatchPage.jsx#L104-L194)
+- Enhanced SSE consumption implementation: [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
+- Frontend streaming UI: [AnalyzePage.jsx:1686-1717](file://app/frontend/src/pages/AnalyzePage.jsx#L1686-L1717)
 
 **Section sources**
-- [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
-- [BatchPage.jsx:104-194](file://app/frontend/src/pages/BatchPage.jsx#L104-L194)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
+- [AnalyzePage.jsx:1686-1717](file://app/frontend/src/pages/AnalyzePage.jsx#L1686-L1717)
 
 ### Connection Handling, Timeouts, and Retry Strategies
-Connection handling:
+**Updated** Connection handling with enhanced error propagation:
 - Backend uses StreamingResponse with text/event-stream and disables caching.
 - Nginx disables buffering and gzip for SSE, sets extended timeouts, and strips Connection header.
 - **Enhanced** Client disconnection detection with automatic early database saves using dedicated sessions.
+- **Enhanced** Heartbeat pings every 5 seconds keep the connection alive during LLM wait.
+- **Enhanced** Graceful fallback to Python-generated narrative when LLM is unavailable or times out.
+- **Enhanced** Automatic early result persistence prevents data loss on client disconnects using dedicated database sessions.
+- **Enhanced** Queue-based system provides automatic retry with exponential backoff for failed jobs.
 
 **Timeouts and Delays:**
 - LLM narrative timeout defaults to 150 seconds; configurable via LLM_NARRATIVE_TIMEOUT environment variable.
@@ -449,19 +398,20 @@ Connection handling:
 - Heartbeat pings every 5 seconds keep the connection alive during LLM wait.
 - Graceful fallback to Python-generated narrative when LLM is unavailable or times out.
 - **Enhanced** Automatic early result persistence prevents data loss on client disconnects using dedicated database sessions.
-- **Enhanced** Queue-based system provides automatic retry with exponential backoff for failed jobs.
+- **Enhanced** Queue-based system provides automatic retry with exponential backoff (1min, 5min, 15min).
 
 **Section sources**
-- [analyze.py:642-646](file://app/backend/routes/analyze.py#L642-L646)
-- [nginx.prod.conf:81-94](file://app/nginx/nginx.prod.conf#L81-L94)
-- [analyze.py:2544](file://app/backend/routes/analyze.py#L2544)
-- [queue_manager.py:307-326](file://app/backend/services/queue_manager.py#L307-L326)
+- [analyze.py:1712](file://app/backend/routes/analyze.py#L1712)
+- [nginx.prod.conf:76-98](file://app/nginx/nginx.prod.conf#L76-L98)
+- [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956)
+- [queue_manager.py:212-213](file://app/backend/services/queue_manager.py#L212-L213)
 
 ### Real-Time Progress Updates and Streaming Response Headers
-Real-time updates:
+**Updated** Real-time updates with enhanced error handling:
 - Progressive UI updates occur as individual resume results are received.
 - The frontend maintains real-time ranking based on fit_score values as results stream in.
 - **Enhanced** Early database saves ensure reliable data persistence even if client disconnects using dedicated sessions.
+- **Enhanced** Error events are properly propagated to frontend for immediate user feedback.
 
 **Streaming Response Headers:**
 - Content-Type: text/event-stream
@@ -469,31 +419,37 @@ Real-time updates:
 - X-Accel-Buffering: no (Nginx-specific)
 
 **Progress Tracking:**
-- Individual resume completion tracked via index/total counters
+- Individual resume completion tracked via stage progression (parsing → complete)
 - Real-time batch completion percentage calculated from completed/resume_count
 - Live ranking updates as new results arrive
+- **Enhanced** Error tracking with proper error event emission
 
 References:
-- SSE headers: [analyze.py:2696-2700](file://app/backend/routes/analyze.py#L2696-L2700)
-- Nginx headers: [nginx.prod.conf:84-85](file://app/nginx/nginx.prod.conf#L84-L85)
+- SSE headers: [analyze.py:2073-2077](file://app/backend/routes/analyze.py#L2073-L2077)
+- Nginx headers: [nginx.prod.conf:94-98](file://app/nginx/nginx.prod.conf#L94-L98)
 
 **Section sources**
-- [analyze.py:2696-2700](file://app/backend/routes/analyze.py#L2696-L2700)
-- [nginx.prod.conf:84-85](file://app/nginx/nginx.prod.conf#L84-L85)
+- [analyze.py:2073-2077](file://app/backend/routes/analyze.py#L2073-L2077)
+- [nginx.prod.conf:94-98](file://app/nginx/nginx.prod.conf#L94-L98)
 
-### Error Handling Patterns
+### Enhanced Error Handling Patterns
+**Updated** Backend and frontend error handling with improved propagation:
+
 **Backend Error Handling:**
-- Validation errors: emits "failed" event with filename and error details, continues with remaining resumes
-- Processing exceptions: emits "failed" event and continues with remaining resumes
-- DB persistence errors: appended to pipeline_errors in the final result
+- Validation errors: emits "parsing" event with error details, continues with remaining resumes
+- Processing exceptions: emits "error" event with detailed error message and continues processing
+- DB persistence errors: emitted as error events instead of complete events
 - **Enhanced** JSON serialization errors: prevented by `_json_default` function
 - **Enhanced** Client disconnection errors: triggers automatic early database saves using dedicated sessions
+- **Enhanced** Final database save failures: emit error events to inform frontend of persistence issues
 
 **Frontend Error Handling:**
 - Validates response.ok and throws descriptive errors
-- Skips malformed events and continues processing until "[DONE]"
-- Resolves with final batch completion status only if "done" event is received
-- **Enhanced** Real-time error display for individual failed resumes
+- **Enhanced** Detects "error" events and stores them in `streamError` variable
+- **Enhanced** Propagates server-side errors outside try-catch blocks to parent components
+- **Enhanced** Skips malformed events and continues processing until "[DONE]"
+- **Enhanced** Resolves with final batch completion status only if "done" event is received
+- **Enhanced** Validates final result presence and throws descriptive errors if missing
 
 **Queue System Error Handling:**
 - **Enhanced** Automatic retry with exponential backoff (1min, 5min, 15min)
@@ -501,21 +457,21 @@ References:
 - **Enhanced** Comprehensive error logging and metrics collection
 
 References:
-- Backend error events: [analyze.py:2589-2599](file://app/backend/routes/analyze.py#L2589-L2599)
-- Frontend error handling: [api.js:547-550](file://app/frontend/src/lib/api.js#L547-L550)
-- Queue error handling: [queue_manager.py:450-495](file://app/backend/services/queue_manager.py#L450-L495)
+- Enhanced backend error events: [analyze.py:1961-1965](file://app/backend/routes/analyze.py#L1961-L1965)
+- Enhanced frontend error handling: [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
+- Queue error handling: [queue_manager.py:356-388](file://app/backend/services/queue_manager.py#L356-L388)
 
 **Section sources**
-- [analyze.py:2589-2599](file://app/backend/routes/analyze.py#L2589-L2599)
-- [api.js:547-550](file://app/frontend/src/lib/api.js#L547-L550)
-- [queue_manager.py:450-495](file://app/backend/services/queue_manager.py#L450-L495)
+- [analyze.py:1961-1965](file://app/backend/routes/analyze.py#L1961-L1965)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
+- [queue_manager.py:356-388](file://app/backend/services/queue_manager.py#L356-L388)
 
 ## Dependency Analysis
-The streaming analysis system depends on:
-- FastAPI route handler for SSE response and event emission.
+**Updated** The streaming analysis system depends on:
+- FastAPI route handler for SSE response and enhanced error event emission.
 - Queue management system for scalable job processing.
-- Batch stream event model for SSE payload structure.
-- Frontend consumer for consuming SSE and updating UI.
+- Enhanced error propagation utilities for proper error handling.
+- Frontend consumer for consuming SSE with enhanced error propagation.
 - Nginx configuration for buffering control and timeouts.
 - Health checks and environment diagnostics for LLM readiness.
 - **Enhanced** JSON serialization utilities for handling datetime, date, and Decimal objects.
@@ -525,12 +481,11 @@ The streaming analysis system depends on:
 
 ```mermaid
 graph TB
-Routes["routes/analyze.py<br/>batch_analyze_stream_endpoint()"]
+Routes["routes/analyze.py<br/>analyze_stream_endpoint()"]
 QueueAPI["routes/queue_api.py<br/>Queue Management APIs"]
 QueueManager["services/queue_manager.py<br/>Queue Worker System"]
-Schema["models/schemas.py<br/>BatchStreamEvent Model"]
-Frontend["frontend/src/lib/api.js<br/>analyzeBatchStream()"]
-NginxApp["app/nginx/nginx.prod.conf<br/>/api/analyze/batch-stream"]
+Frontend["frontend/src/lib/api.js<br/>analyzeStream()"]
+NginxApp["app/nginx/nginx.prod.conf<br/>/api/analyze/stream"]
 NginxRoot["nginx/nginx.prod.conf<br/>root config"]
 Health["main.py<br/>/health + /api/llm-status"]
 Serializer["routes/analyze.py<br/>_json_default()"]
@@ -538,15 +493,15 @@ TemplateSerializer["routes/templates.py<br/>_json_default()"]
 DBModels["models/db_models.py<br/>Candidate & ScreeningResult"]
 DBSession["db/database.py<br/>SessionLocal()"]
 UpsertFunc["_upsert_screening_result<br/>Enhanced Version Tracking"]
+EnhancedError["Enhanced Error Propagation<br/>Server-Frontend Communication"]
 ```
 
 **Diagram sources**
-- [analyze.py:2312-2700](file://app/backend/routes/analyze.py#L2312-L2700)
+- [analyze.py:1686-1885](file://app/backend/routes/analyze.py#L1686-L1885)
 - [queue_api.py:38-464](file://app/backend/routes/queue_api.py#L38-L464)
-- [queue_manager.py:189-612](file://app/backend/services/queue_manager.py#L189-L612)
-- [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
-- [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
-- [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
+- [queue_manager.py:195-388](file://app/backend/services/queue_manager.py#L195-L388)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
+- [nginx.prod.conf:76-98](file://app/nginx/nginx.prod.conf#L76-L98)
 - [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
 - [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57)
@@ -556,12 +511,11 @@ UpsertFunc["_upsert_screening_result<br/>Enhanced Version Tracking"]
 - [analyze.py:197-244](file://app/backend/routes/analyze.py#L197-L244)
 
 **Section sources**
-- [analyze.py:2312-2700](file://app/backend/routes/analyze.py#L2312-L2700)
+- [analyze.py:1686-1885](file://app/backend/routes/analyze.py#L1686-L1885)
 - [queue_api.py:38-464](file://app/backend/routes/queue_api.py#L38-L464)
-- [queue_manager.py:189-612](file://app/backend/services/queue_manager.py#L189-L612)
-- [schemas.py:147-158](file://app/backend/models/schemas.py#L147-L158)
-- [api.js:487-591](file://app/frontend/src/lib/api.js#L487-L591)
-- [nginx.prod.conf:66-95](file://app/nginx/nginx.prod.conf#L66-L95)
+- [queue_manager.py:195-388](file://app/backend/services/queue_manager.py#L195-L388)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
+- [nginx.prod.conf:76-98](file://app/nginx/nginx.prod.conf#L76-L98)
 - [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
 - [main.py:228-259](file://app/backend/main.py#L228-L259)
 - [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57)
@@ -571,6 +525,7 @@ UpsertFunc["_upsert_screening_result<br/>Enhanced Version Tracking"]
 - [analyze.py:197-244](file://app/backend/routes/analyze.py#L197-L244)
 
 ## Performance Considerations
+**Updated** Performance considerations with enhanced error handling:
 - **Enhanced** Concurrent processing with asyncio.as_completed for optimal performance
 - **Enhanced** Staggered processing delays (0.3 seconds × index) prevent LLM thundering herd effects
 - **Enhanced** Individual resume streaming reduces perceived latency and improves user experience
@@ -583,82 +538,69 @@ UpsertFunc["_upsert_screening_result<br/>Enhanced Version Tracking"]
 - **Enhanced** Queue-based system provides horizontal scalability with multiple worker instances.
 - **Enhanced** Real-time progress tracking with individual resume completion percentages.
 - **Enhanced** Version tracking in `_upsert_screening_result` enables efficient re-analysis without data loss.
+- **Enhanced** Error propagation overhead is minimal compared to improved reliability benefits.
 
 ## Troubleshooting Guide
-**Common Issues and Resolutions:**
+**Updated** Common Issues and Resolutions with Enhanced Error Handling:
 
 **524 Gateway Timeout from CDN/proxy:**
 - Cause: Nginx buffering holding SSE events.
-- Resolution: Ensure proxy_buffering off and X-Accel-Buffering no for /api/analyze/batch-stream.
-- References: [nginx.prod.conf:81-85](file://app/nginx/nginx.prod.conf#L81-L85), [nginx.prod.conf:43-51](file://nginx/nginx.prod.conf#L43-L51)
+- Resolution: Ensure proxy_buffering off and X-Accel-Buffering no for /api/analyze/stream.
+- References: [nginx.prod.conf:76-98](file://app/nginx/nginx.prod.conf#L76-L98), [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
 
-**Connection Drops During Batch Processing:**
+**Connection Drops During Streaming:**
 - Cause: Absence of heartbeat pings or network interruptions.
 - Resolution: Verify SSE stream is maintained and monitor for "[DONE]" marker.
-- References: [api.js:572](file://app/frontend/src/lib/api.js#L572)
+- References: [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
 
 **LLM Unavailable or Slow:**
 - Behavior: Fallback narrative with narrative_pending set to True.
 - Resolution: Pull and warm the model; adjust LLM_NARRATIVE_TIMEOUT if needed.
 - References: [queue_manager.py:377-386](file://app/backend/services/queue_manager.py#L377-L386)
 
-**Frontend Not Receiving Events:**
-- Verify SSE consumption logic and that the stream is not aborted prematurely.
-- Check browser console for CORS or network errors.
-- References: [api.js:530-591](file://app/frontend/src/lib/api.js#L530-L591)
-
-**Enhanced** JSON Serialization Errors:
-- Symptom: Crashes when encountering datetime, date, or Decimal objects in SSE payloads.
-- Solution: Ensure `_json_default` function is used for all JSON serialization in streaming endpoints.
-- References: [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57), [templates.py:18-25](file://app/backend/routes/templates.py#L18-L25)
-
-**Enhanced** Database Session Errors:
-- Symptom: "Object is not associated with this session" errors during streaming.
-- Solution: Verify dedicated SessionLocal instances are used for all database operations during streaming.
-- References: [analyze.py:1887-1935](file://app/backend/routes/analyze.py#L1887-L1935), [analyze.py:1970-2010](file://app/backend/routes/analyze.py#L1970-L2010), [database.py:39-40](file://app/backend/db/database.py#L39-L40)
-
-**Enhanced** Data Persistence Failures:
-- Symptom: Missing candidate_profile or contact_info data after analysis.
-- Solution: Check database logs for early save operations; verify client disconnection handling with dedicated sessions.
-- References: [analyze.py:1887-1935](file://app/backend/routes/analyze.py#L1887-L1935), [analyze.py:1970-2010](file://app/backend/routes/analyze.py#L1970-L2010)
+**Enhanced** Server-Side Errors Not Propagating:
+- Symptom: Frontend not receiving proper error messages from backend.
+- Solution: Verify "error" events are emitted with proper JSON structure and check frontend error propagation logic.
+- References: [analyze.py:1961-1965](file://app/backend/routes/analyze.py#L1961-L1965), [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
 
 **Enhanced** Client Disconnection Issues:
 - Symptom: Analysis appears to fail when client closes browser window.
 - Solution: Early database saves automatically capture Python results using dedicated sessions; verify python_scores_saved flag.
-- References: [analyze.py:1887-1935](file://app/backend/routes/analyze.py#L1887-L1935), [analyze.py:1970-2010](file://app/backend/routes/analyze.py#L1970-L2010)
+- References: [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956), [analyze.py:1991-2031](file://app/backend/routes/analyze.py#L1991-L2031)
+
+**Enhanced** Database Session Errors:
+- Symptom: "Object is not associated with this session" errors during streaming.
+- Solution: Verify dedicated SessionLocal instances are used for all database operations during streaming.
+- References: [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956), [analyze.py:1991-2031](file://app/backend/routes/analyze.py#L1991-L2031), [database.py:39-40](file://app/backend/db/database.py#L39-L40)
+
+**Enhanced** Data Persistence Failures:
+- Symptom: Missing candidate_profile or contact_info data after analysis.
+- Solution: Check database logs for early save operations; verify client disconnection handling with dedicated sessions.
+- References: [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956), [analyze.py:1991-2031](file://app/backend/routes/analyze.py#L1991-L2031)
 
 **Enhanced** Queue System Issues:
 - Symptom: Jobs stuck in "processing" status.
 - Solution: Check worker health and heartbeat monitoring; verify stale job recovery is working.
-- References: [queue_manager.py:497-524](file://app/backend/services/queue_manager.py#L497-L524)
+- References: [queue_manager.py:356-388](file://app/backend/services/queue_manager.py#L356-L388)
 
-**Enhanced** Batch Processing Delays:
-- Symptom: Resumes not processing in parallel due to staggered delays.
-- Solution: Adjust staggered delay calculation (0.3 seconds × index) based on LLM capacity.
-- References: [analyze.py:2544](file://app/backend/routes/analyze.py#L2544)
-
-**Enhanced** ScreeningResult Version Tracking Issues:
-- Symptom: Missing version history or inability to re-analyze candidates.
-- Solution: Verify `_upsert_screening_result` function is properly incrementing `version_number` on updates.
-- References: [analyze.py:197-244](file://app/backend/routes/analyze.py#L197-L244), [db_models.py:193](file://app/backend/models/db_models.py#L193)
+**Enhanced** Error Propagation Problems:
+- Symptom: Frontend not properly handling server-side errors.
+- Solution: Verify frontend detects "error" events and stores them in streamError variable; ensure errors are propagated outside try-catch blocks.
+- References: [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
 
 **Section sources**
-- [nginx.prod.conf:81-85](file://app/nginx/nginx.prod.conf#L81-L85)
-- [nginx.prod.conf:43-51](file://nginx/nginx.prod.conf#L43-L51)
-- [api.js:572](file://app/frontend/src/lib/api.js#L572)
+- [nginx.prod.conf:76-98](file://app/nginx/nginx.prod.conf#L76-L98)
+- [nginx.prod.conf:36-52](file://nginx/nginx.prod.conf#L36-L52)
+- [api.js:340-539](file://app/frontend/src/lib/api.js#L340-L539)
 - [queue_manager.py:377-386](file://app/backend/services/queue_manager.py#L377-L386)
-- [analyze.py:48-57](file://app/backend/routes/analyze.py#L48-L57)
-- [templates.py:18-25](file://app/backend/routes/templates.py#L18-L25)
-- [analyze.py:1887-1935](file://app/backend/routes/analyze.py#L1887-L1935)
-- [analyze.py:1970-2010](file://app/backend/routes/analyze.py#L1970-L2010)
+- [analyze.py:1961-1965](file://app/backend/routes/analyze.py#L1961-L1965)
+- [analyze.py:1898-1956](file://app/backend/routes/analyze.py#L1898-L1956)
+- [analyze.py:1991-2031](file://app/backend/routes/analyze.py#L1991-L2031)
 - [database.py:39-40](file://app/backend/db/database.py#L39-L40)
-- [queue_manager.py:497-524](file://app/backend/services/queue_manager.py#L497-L524)
-- [analyze.py:2544](file://app/backend/routes/analyze.py#L2544)
-- [analyze.py:197-244](file://app/backend/routes/analyze.py#L197-L244)
-- [db_models.py:193](file://app/backend/models/db_models.py#L193)
+- [queue_manager.py:356-388](file://app/backend/services/queue_manager.py#L356-L388)
 
 ## Conclusion
-The POST /api/analyze/batch-stream endpoint provides a robust, real-time streaming analysis experience with enhanced batch processing capabilities. By implementing concurrent processing with staggered delays to prevent LLM thundering herd effects, the system ensures responsive UI updates and reliable operation even under adverse conditions. **Updated** to include enhanced streaming capabilities with improved batch analysis streaming, staggered processing delays to prevent LLM thundering herd effects, and real-time progress tracking for batch operations.
+The POST /api/analyze/stream endpoint provides a robust, real-time streaming analysis experience with enhanced error handling capabilities. By implementing comprehensive error propagation mechanisms, the system ensures that server-side errors are properly communicated to the frontend and handled gracefully. The enhanced streaming capabilities now include improved error handling with proper error events, client-side error propagation, and automatic early database saves during client disconnections.
 
 The system now supports both direct SSE streaming for smaller batches and queue-based processing for larger-scale operations, providing comprehensive scalability and reliability. The implementation uses dedicated SessionLocal instances throughout the streaming lifecycle to ensure reliable database operations, automatic early saves during client disconnections, and final result persistence with proper transaction handling. These enhancements ensure that critical analysis data is never lost, improving the overall reliability and user experience of the streaming analysis system.
 
@@ -666,4 +608,6 @@ The system now supports both direct SSE streaming for smaller batches and queue-
 
 The addition of comprehensive queue management provides enterprise-grade scalability with priority-based scheduling, automatic retry mechanisms, worker health monitoring, and detailed performance metrics. This dual-architecture approach allows the system to handle everything from small batch operations to enterprise-scale resume processing while maintaining real-time responsiveness and data integrity.
 
-The enhanced data persistence model with version tracking represents a significant improvement in the system's ability to handle complex analysis workflows, particularly in enterprise environments where audit trails and version control are critical requirements. This enhancement ensures that the streaming analysis system can evolve to meet the demands of increasingly sophisticated recruitment workflows while maintaining its core strengths in real-time processing and user experience.
+**Enhanced** The enhanced error propagation mechanism represents a significant improvement in the system's ability to handle complex analysis workflows, particularly in enterprise environments where robust error handling and user feedback are critical requirements. This enhancement ensures that the streaming analysis system can evolve to meet the demands of increasingly sophisticated recruitment workflows while maintaining its core strengths in real-time processing, user experience, and reliable error handling.
+
+The enhanced data persistence model with version tracking and improved error handling represents a significant advancement in the system's ability to provide enterprise-grade streaming analysis capabilities. This enhancement ensures that the streaming analysis system can handle complex scenarios with proper error recovery, data integrity, and user experience guarantees.

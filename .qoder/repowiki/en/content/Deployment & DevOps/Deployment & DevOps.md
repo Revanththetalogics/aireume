@@ -4,6 +4,8 @@
 **Referenced Files in This Document**
 - [docker-compose.yml](file://docker-compose.yml)
 - [docker-compose.prod.yml](file://docker-compose.prod.yml)
+- [docker-compose.staging.yml](file://docker-compose.staging.yml)
+- [docker-compose.portainer.yml](file://docker-compose.portainer.yml)
 - [app/backend/Dockerfile](file://app/backend/Dockerfile)
 - [app/frontend/Dockerfile](file://app/frontend/Dockerfile)
 - [nginx/Dockerfile](file://nginx/Dockerfile)
@@ -35,13 +37,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced CI/CD infrastructure with new voice-related microservices integration
-- Expanded deployment capabilities to include LiveKit, speech-service, and voice-agent container deployments
-- Added comprehensive voice screening architecture with STT/TTS/VAD capabilities
-- Integrated LiveKit WebRTC SFU with SIP trunking for PSTN call handling
-- Implemented voice agent orchestration with conversation state management
-- Updated Docker Compose configurations for multi-service voice screening pipeline
-- Enhanced production deployment with dedicated resource allocation for voice services
+- Added comprehensive staging environment with dedicated docker-compose.staging.yml (252 lines) featuring separate container naming, volume isolation, and network separation
+- Enhanced CI/CD pipeline with branch-based image tagging supporting both staging (staging tag) and production (latest tag) environments
+- Improved production deployment configuration with aria-production naming convention and enhanced resource allocation
+- Expanded voice screening microservices integration across all environments with dedicated resource allocation
+- Added Portainer-managed production setup with selective service deployment capabilities
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -59,20 +59,25 @@
 13. [CI/CD Pipeline Enhancements](#cicd-pipeline-enhancements)
 14. [Migration System Support](#migration-system-support)
 15. [DNS Resolution and Networking](#dns-resolution-and-networking)
-16. [Dependency Analysis](#dependency-analysis)
-17. [Performance Considerations](#performance-considerations)
-18. [Troubleshooting Guide](#troubleshooting-guide)
-19. [Conclusion](#conclusion)
-20. [Appendices](#appendices)
+16. [Environment Management](#environment-management)
+17. [Production Deployment Strategy](#production-deployment-strategy)
+18. [Staging Environment Configuration](#staging-environment-configuration)
+19. [Portainer Integration](#portainer-integration)
+20. [Dependency Analysis](#dependency-analysis)
+21. [Performance Considerations](#performance-considerations)
+22. [Troubleshooting Guide](#troubleshooting-guide)
+23. [Conclusion](#conclusion)
+24. [Appendices](#appendices)
 
 ## Introduction
-This document provides comprehensive deployment and DevOps guidance for Resume AI by ThetaLogics with enhanced cloud-first approach and integrated voice screening capabilities. The platform now features a robust voice screening microservices architecture with LiveKit WebRTC SFU, speech processing services, and intelligent conversation orchestration. It covers Docker configuration for development and production, multi-container orchestration, voice service integration, SSL termination, environment variables and secrets management, monitoring and logging, health checks, maintenance, troubleshooting, rollback procedures, scaling, security hardening, backups, and disaster recovery.
+This document provides comprehensive deployment and DevOps guidance for Resume AI by ThetaLogics with enhanced cloud-first approach and integrated voice screening capabilities. The platform now features a robust voice screening microservices architecture with LiveKit WebRTC SFU, speech processing services, and intelligent conversation orchestration. It covers Docker configuration for development, staging, and production environments, multi-container orchestration, voice service integration, SSL termination, environment variables and secrets management, monitoring and logging, health checks, maintenance, troubleshooting, rollback procedures, scaling, security hardening, backups, and disaster recovery.
 
-**Updated** Enhanced with comprehensive voice screening microservices integration, LiveKit WebRTC SFU, speech processing capabilities, and automated CI/CD builds for all four core services.
+**Updated** Enhanced with comprehensive voice screening microservices integration, LiveKit WebRTC SFU, speech processing capabilities, automated CI/CD builds for all four core services, dedicated staging environment configuration with branch-based image tagging, and improved production deployment with aria-production naming convention.
 
 ## Cloud-First Architecture
 The Resume AI platform is designed with a cloud-first approach featuring a comprehensive voice screening microservices architecture. The architecture emphasizes:
 
+- **Multi-Environment Deployment**: Separate staging and production environments with distinct naming conventions (aria-staging vs aria-production)
 - **Microservices Architecture**: Separate services for backend processing, frontend delivery, voice screening, and speech processing
 - **LiveKit WebRTC SFU**: Real-time communication infrastructure with SIP trunking for PSTN call handling
 - **Speech Processing Services**: Dedicated STT, TTS, and VAD capabilities for voice screening automation
@@ -81,6 +86,7 @@ The Resume AI platform is designed with a cloud-first approach featuring a compr
 - **Automated CI/CD**: Four-service pipeline with Docker Hub integration for backend, frontend, speech-service, and voice-agent
 - **Migration Management**: Automated database schema updates with rollback support
 - **DNS Resolution**: Embedded DNS configuration for reliable container networking
+- **Portainer Integration**: Production deployment management with dedicated stack naming
 
 ```mermaid
 graph TB
@@ -124,8 +130,12 @@ VoiceAgent --> QueueWorker
 - [docker-compose.prod.yml:232-299](file://docker-compose.prod.yml#L232-L299)
 
 ## Project Structure
-The repository organizes the stack into six primary services plus supporting configurations, optimized for cloud deployment with comprehensive voice screening integration:
+The repository organizes the stack into six primary services plus supporting configurations, optimized for cloud deployment with comprehensive voice screening integration across multiple environments:
 
+- **Development Environment** (docker-compose.yml): Local development with integrated voice services
+- **Staging Environment** (docker-compose.staging.yml): Separate staging stack with aria-staging naming and dedicated resources
+- **Production Environment** (docker-compose.prod.yml): Production deployment with aria-production naming and enhanced resource allocation
+- **Portainer Management** (docker-compose.portainer.yml): Production compose for Portainer orchestration
 - **Backend service (FastAPI)** with enhanced cloud-native health checks, queue worker integration, and Ollama Cloud authentication
 - **Frontend service (React)** built into Nginx static assets for optimal CDN delivery
 - **Nginx reverse proxy** with cloud-optimized SSL termination, rate limiting, and streaming configuration
@@ -138,43 +148,58 @@ The repository organizes the stack into six primary services plus supporting con
 ```mermaid
 graph TB
 subgraph "Enhanced Voice Screening Services"
-DCDev["docker-compose.yml"]
-DCDev --> PostgresDev["PostgreSQL (Managed)"]
-DCDev --> OllamaCloudDev["Ollama Cloud (Default)"]
-DCDev --> BackendDev["Backend (FastAPI + Queue)"]
-DCDev --> FrontendDev["Frontend (Nginx static)"]
-DCDev --> NginxDev["Nginx (Cloud Config)"]
-DCDev --> LiveKitDev["LiveKit (WebRTC + SIP)"]
-DCDev --> SpeechServiceDev["Speech Service (STT/TTS/VAD)"]
-DCDev --> VoiceAgentDev["Voice Agent (Conversations)"]
-DCDev --> QueueWorkerDev["Queue Worker (Background)"]
+Dev["docker-compose.yml"]
+Dev --> PostgresDev["PostgreSQL (Managed)"]
+Dev --> OllamaCloudDev["Ollama Cloud (Default)"]
+Dev --> BackendDev["Backend (FastAPI + Queue)"]
+Dev --> FrontendDev["Frontend (Nginx static)"]
+Dev --> NginxDev["Nginx (Cloud Config)"]
+Dev --> LiveKitDev["LiveKit (WebRTC + SIP)"]
+Dev --> SpeechServiceDev["Speech Service (STT/TTS/VAD)"]
+Dev --> VoiceAgentDev["Voice Agent (Conversations)"]
+Dev --> QueueWorkerDev["Queue Worker (Background)"]
+end
+subgraph "Staging Environment"
+Staging["docker-compose.staging.yml"]
+Staging --> PostgresStaging["PostgreSQL (Managed)"]
+Staging --> OllamaCloudStaging["Ollama Cloud (Default)"]
+Staging --> BackendStaging["Backend (FastAPI + Queue)"]
+Staging --> FrontendStaging["Frontend (Nginx static)"]
+Staging --> NginxStaging["Nginx (Cloud Config)"]
+Staging --> LiveKitStaging["LiveKit (WebRTC + SIP)"]
+Staging --> SpeechServiceStaging["Speech Service (STT/TTS/VAD)"]
+Staging --> VoiceAgentStaging["Voice Agent (Conversations)"]
+Staging --> WatchtowerStaging["Watchtower (Cloud Updates)"]
+Staging --> QueueWorkerStaging["Queue Worker (Background)"]
 end
 subgraph "Production Cloud"
-DCP["docker-compose.prod.yml"]
-DCP --> PostgresProd["PostgreSQL (Managed)"]
-DCP --> OllamaCloudProd["Ollama Cloud (Default)"]
-DCP --> BackendProd["Backend (FastAPI + Queue)"]
-DCP --> FrontendProd["Frontend (Nginx static)"]
-DCP --> NginxProd["Nginx (Cloud Config)"]
-DCP --> LiveKitProd["LiveKit (WebRTC + SIP)"]
-DCP --> SpeechServiceProd["Speech Service (STT/TTS/VAD)"]
-DCP --> VoiceAgentProd["Voice Agent (Conversations)"]
-DCP --> Watchtower["Watchtower (Cloud Updates)"]
-DCP --> Certbot["Certbot (Cloud SSL)"]
-DCP --> QueueWorkerProd["Queue Worker (Background)"]
+Prod["docker-compose.prod.yml"]
+Prod --> PostgresProd["PostgreSQL (Managed)"]
+Prod --> OllamaCloudProd["Ollama Cloud (Default)"]
+Prod --> BackendProd["Backend (FastAPI + Queue)"]
+Prod --> FrontendProd["Frontend (Nginx static)"]
+Prod --> NginxProd["Nginx (Cloud Config)"]
+Prod --> LiveKitProd["LiveKit (WebRTC + SIP)"]
+Prod --> SpeechServiceProd["Speech Service (STT/TTS/VAD)"]
+Prod --> VoiceAgentProd["Voice Agent (Conversations)"]
+Prod --> WatchtowerProd["Watchtower (Cloud Updates)"]
+Prod --> Certbot["Certbot (Cloud SSL)"]
+Prod --> QueueWorkerProd["Queue Worker (Background)"]
 end
 ```
 
 **Diagram sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
 - [app/nginx/nginx.conf:1-45](file://app/nginx/nginx.conf#L1-L45)
 - [app/nginx/nginx.prod.conf:1-110](file://app/nginx/nginx.prod.conf#L1-L110)
 
 **Section sources**
 - [README.md:231-251](file://README.md#L231-L251)
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
 
 ## Core Components
 - **Backend service**
@@ -213,9 +238,11 @@ end
   - Comprehensive job tracking with metrics collection and progress reporting
 - **Orchestration**
   - Local compose for development with cloud-first defaults
-  - Production compose optimized for cloud infrastructure with resource limits and healthchecks
+  - Staging compose with aria-staging naming and dedicated resources
+  - Production compose optimized for cloud infrastructure with aria-production naming
+  - Portainer-managed production setup with selective service deployment
 
-**Updated** Enhanced backend service with integrated queue worker, voice screening API, and improved cloud-native Ollama Cloud integration. Added comprehensive voice screening microservices architecture.
+**Updated** Enhanced backend service with integrated queue worker, voice screening API, and improved cloud-native Ollama Cloud integration. Added comprehensive voice screening microservices architecture with dedicated staging and production environments.
 
 **Section sources**
 - [app/backend/main.py:354-460](file://app/backend/main.py#L354-L460)
@@ -265,7 +292,7 @@ VoiceAgent -.-> SpeechService
 
 **Diagram sources**
 - [app/nginx/nginx.prod.conf:1-110](file://app/nginx/nginx.prod.conf#L1-L110)
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
 
 ## Detailed Component Analysis
 
@@ -368,6 +395,14 @@ SSL --> Resolver["Embedded DNS Resolution"]
   - Cloud-first defaults with Ollama Cloud as default configuration
   - Ports exposed for local access
   - Voice screening services included (LiveKit, speech-service, voice-agent)
+- **Staging environment**
+  - Separate stack from production with aria-staging naming convention
+  - Dedicated container names, volumes, and networks to avoid collisions
+  - Cloud-optimized resource limits and deploy constraints for CPU/memory
+  - Watchtower auto-updates containers with zero-downtime rolling restarts
+  - Enhanced health checks for all services with cloud-native monitoring
+  - Queue worker service for background job processing
+  - Dedicated resource allocation for voice services (LiveKit: 1G, Speech Service: 3G, Voice Agent: 1G)
 - **Production**
   - Cloud-optimized resource limits and deploy constraints for CPU/memory
   - Watchtower auto-updates containers with zero-downtime rolling restarts
@@ -375,6 +410,7 @@ SSL --> Resolver["Embedded DNS Resolution"]
   - Enhanced health checks for all services with cloud-native monitoring
   - Queue worker service for background job processing
   - Dedicated resource allocation for voice services (LiveKit: 1G, Speech Service: 4G, Voice Agent: 2G)
+  - Portainer-managed production setup with selective service deployment
 
 ```mermaid
 graph LR
@@ -386,8 +422,8 @@ Nginx --> Certbot["Certbot (SSL)"]
 Backend --> Watchtower["Watchtower (Updates)"]
 Backend --> QueueWorker["Queue Worker"]
 LiveKit["LiveKit (1G RAM)"] --> Backend
-SpeechService["Speech Service (4G RAM)"] --> Backend
-VoiceAgent["Voice Agent (2G RAM)"] --> Backend
+SpeechService["Speech Service (3-4G RAM)"] --> Backend
+VoiceAgent["Voice Agent (1-2G RAM)"] --> Backend
 QueueWorker --> Postgres
 LiveKit --> PSTN["PSTN Calls"]
 VoiceAgent --> SpeechService
@@ -396,11 +432,13 @@ VoiceAgent --> LiveKit
 
 **Diagram sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
 
 **Section sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
 
 ## Voice Screening Microservices
 
@@ -581,16 +619,18 @@ DNS --> IPv6Off["ipv6=off"]
 - [nginx/nginx.prod.conf:12-21](file://nginx/nginx.prod.conf#L12-L21)
 
 ## CI/CD Pipeline Enhancements
-The CI/CD pipeline has been updated to support automated Docker builds for all four services:
+The CI/CD pipeline has been updated to support automated Docker builds for all four services with environment-specific image tagging:
 
 - **CI Workflow**
-  - Runs backend and frontend tests on PRs and pushes
+  - Runs backend and frontend tests on PRs and pushes to main, staging, and production branches
   - Publishes coverage artifacts with cloud-native testing
 - **CD Workflow**
   - Builds and pushes backend, frontend, Nginx, LiveKit, speech-service, and voice-agent images to Docker Hub
   - Provides manual trigger and cloud deployment steps
-  - Supports concurrent builds with caching optimization
+  - Supports environment-specific image tagging (staging vs production) based on branch
   - Enhanced deployment with dedicated resource allocation for voice services
+
+**Updated** Enhanced CI/CD pipeline with branch-based image tagging supporting both staging (staging tag) and production (latest tag) environments, enabling automated deployment to different environments based on branch selection.
 
 ```mermaid
 sequenceDiagram
@@ -600,28 +640,37 @@ participant CI as "CI Workflow"
 participant CD as "CD Workflow"
 participant Hub as "Docker Hub (Cloud)"
 participant Cloud as "Cloud Provider"
-Dev->>GH : "Push code"
+Dev->>GH : "Push code to branch"
 GH->>CI : "Run tests"
 CI-->>GH : "Test results"
 GH->>CD : "Build & push images"
 CD->>Hub : "Publish cloud images"
+alt Production Branch
 CD->>Hub : "Build backend : latest"
 CD->>Hub : "Build frontend : latest"
 CD->>Hub : "Build nginx : latest"
 CD->>Hub : "Build livekit : latest"
 CD->>Hub : "Build speech-service : latest"
 CD->>Hub : "Build voice-agent : latest"
+else Staging Branch
+CD->>Hub : "Build backend : staging"
+CD->>Hub : "Build frontend : staging"
+CD->>Hub : "Build nginx : staging"
+CD->>Hub : "Build livekit : staging"
+CD->>Hub : "Build speech-service : staging"
+CD->>Hub : "Build voice-agent : staging"
+end
 Dev->>GH : "Manual deploy trigger"
 GH->>Cloud : "Deploy to cloud infrastructure"
 ```
 
 **Diagram sources**
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
 
 **Section sources**
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
 
 ## Migration System Support
 The platform now includes comprehensive migration system support with dedicated deployment scripts:
@@ -662,6 +711,118 @@ The platform implements advanced DNS resolution mechanisms for reliable containe
 **Section sources**
 - [nginx/nginx.prod.conf:12-21](file://nginx/nginx.prod.conf#L12-L21)
 - [app/nginx/nginx.prod.conf:36-41](file://app/nginx/nginx.prod.conf#L36-L41)
+
+## Environment Management
+The platform supports multiple deployment environments with distinct configurations and naming conventions:
+
+- **Development Environment** (docker-compose.yml)
+  - Local development with integrated voice services
+  - Default container naming without prefixes
+  - Local Ollama integration for self-hosted inference
+  - Standard resource allocation for development
+- **Staging Environment** (docker-compose.staging.yml)
+  - Separate staging stack with aria-staging naming convention
+  - Dedicated container names, volumes, and networks to avoid collisions
+  - Cloud-optimized resource limits and deploy constraints
+  - Watchtower auto-updates with selective service targeting
+  - Enhanced health checks for all services
+- **Production Environment** (docker-compose.prod.yml)
+  - Production deployment with aria-production naming convention
+  - Enhanced resource allocation for production workloads
+  - Certbot integration for SSL certificate management
+  - Production-specific health checks and monitoring
+- **Portainer Management** (docker-compose.portainer.yml)
+  - Production compose for Portainer orchestration
+  - Mirrors production configuration with selective service deployment
+  - Simplified environment variable management
+
+**Updated** Enhanced environment management with dedicated staging environment featuring separate container naming (staging- prefix), isolated volumes and networks, and environment-specific resource allocation for voice services.
+
+**Section sources**
+- [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
+- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.portainer.yml:1-215](file://docker-compose.portainer.yml#L1-L215)
+
+## Production Deployment Strategy
+The production deployment follows a structured approach with enhanced naming conventions and resource allocation:
+
+- **Stack Naming Convention**
+  - Production stack named "aria-production" for clear identification
+  - Staging stack named "aria-staging" for separation from production
+  - Container names prefixed with resume-screener- for consistency
+- **Resource Allocation**
+  - PostgreSQL: 6GB RAM with tuned parameters for 48GB server
+  - Ollama: 8GB RAM with optimized parallel processing
+  - Backend: 6GB RAM with 6 workers for concurrent processing
+  - Nginx: 256MB RAM for lightweight reverse proxy
+  - LiveKit: 1GB RAM for WebRTC SFU and SIP handling
+  - Speech Service: 4GB RAM for CPU-only STT/TTS/VAD processing
+  - Voice Agent: 2GB RAM for conversation orchestration
+- **Deployment Automation**
+  - Watchtower configured for rolling restarts with 60-second intervals
+  - Certbot integration for automatic SSL certificate renewal
+  - Environment-specific image tagging (latest for production)
+- **Monitoring and Health Checks**
+  - Comprehensive health check endpoints for all services
+  - Service-specific monitoring with Docker Compose healthchecks
+  - Production-specific deep health validation
+
+**Updated** Enhanced production deployment with aria-production naming convention, dedicated resource allocation for voice services, and improved CI/CD integration with branch-based image tagging.
+
+**Section sources**
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+
+## Staging Environment Configuration
+The staging environment provides a separate deployment environment with dedicated resources and naming conventions:
+
+- **Stack Isolation**
+  - Separate stack from production with aria-staging naming
+  - Dedicated container names with staging- prefix
+  - Isolated volumes and networks to prevent collisions
+- **Resource Allocation**
+  - PostgreSQL: 2GB RAM with tuned parameters for staging workload
+  - Ollama: 6GB RAM with optimized parallel processing for staging
+  - Backend: 3GB RAM with 3 workers for reduced production load
+  - LiveKit: 1GB RAM for WebRTC SFU and SIP handling
+  - Speech Service: 3GB RAM for CPU-only STT/TTS/VAD processing
+  - Voice Agent: 1GB RAM for conversation orchestration
+- **Deployment Management**
+  - Watchtower configured for staging containers only
+  - Environment-specific image tagging (staging for staging)
+  - Selective service deployment with targeted restarts
+- **Operational Benefits**
+  - Safe testing of new features before production deployment
+  - Independent resource allocation for staging workloads
+  - Separate monitoring and health checking for staging services
+
+**Updated** Comprehensive staging environment with dedicated docker-compose.staging.yml featuring separate container naming, volume isolation, network separation, and environment-specific resource allocation for voice services.
+
+**Section sources**
+- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+
+## Portainer Integration
+The platform includes comprehensive Portainer integration for production deployment management:
+
+- **Stack Configuration**
+  - Production stack named "aria-production" for Portainer identification
+  - Mirrored production compose with simplified service selection
+  - Network isolation with aria_production_network for container communication
+- **Service Management**
+  - Selective service deployment through Portainer interface
+  - Volume management for persistent data storage
+  - Environment variable configuration through Portainer UI
+- **Operational Benefits**
+  - Web-based deployment management without command-line access
+  - Visual monitoring of container health and resource usage
+  - Simplified rollback and update procedures through Portainer UI
+- **Integration Features**
+  - Docker socket integration for container management
+  - SSL certificate management through Portainer volumes
+  - Health check monitoring and alerting through Portainer interface
+
+**Section sources**
+- [docker-compose.portainer.yml:1-215](file://docker-compose.portainer.yml#L1-L215)
 
 ## Dependency Analysis
 - **Internal dependencies**
@@ -706,7 +867,7 @@ VoiceAgent --> Backend
 ```
 
 **Diagram sources**
-- [docker-compose.prod.yml:1-311](file://docker-compose.prod.yml#L1-L311)
+- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
 
 **Section sources**
 - [docker-compose.yml:110-175](file://docker-compose.yml#L110-L175)
@@ -719,8 +880,8 @@ VoiceAgent --> Backend
   - Graceful shutdown timeout of 30 seconds allows background tasks to complete
 - **Voice Service optimization**
   - LiveKit: 1GB RAM allocation for WebRTC SFU and SIP handling
-  - Speech Service: 4GB RAM allocation for CPU-only STT/TTS/VAD processing
-  - Voice Agent: 2GB RAM allocation for conversation orchestration
+  - Speech Service: 3-4GB RAM allocation for CPU-only STT/TTS/VAD processing
+  - Voice Agent: 1-2GB RAM allocation for conversation orchestration
   - Model warmup ensures immediate response for voice processing
 - **Queue system optimization**
   - Configurable max concurrent jobs (default: 3) with adjustable poll intervals
@@ -741,11 +902,13 @@ VoiceAgent --> Backend
   - Deep health check provides comprehensive dependency validation
   - Voice service health checks validate model readiness
 
+**Updated** Enhanced performance considerations with dedicated resource allocation for voice services in staging and production environments, including specific memory allocations for LiveKit (1G), Speech Service (3-4G), and Voice Agent (1-2G) based on environment-specific requirements.
+
 **Section sources**
 - [docker-compose.prod.yml:82-84](file://docker-compose.prod.yml#L82-L84)
-- [docker-compose.prod.yml:248-252](file://docker-compose.prod.yml#L248-L252)
-- [docker-compose.prod.yml:266-270](file://docker-compose.prod.yml#L266-L270)
-- [docker-compose.prod.yml:296-298](file://docker-compose.prod.yml#L296-L298)
+- [docker-compose.staging.yml:196-200](file://docker-compose.staging.yml#L196-L200)
+- [docker-compose.staging.yml:212-216](file://docker-compose.staging.yml#L212-L216)
+- [docker-compose.staging.yml:238-242](file://docker-compose.staging.yml#L238-L242)
 - [docker-compose.prod.yml:46-51](file://docker-compose.prod.yml#L46-L51)
 - [docker-compose.prod.yml:151-184](file://docker-compose.prod.yml#L151-L184)
 - [app/nginx/nginx.prod.conf:73-102](file://app/nginx/nginx.prod.conf#L73-L102)
@@ -792,6 +955,16 @@ VoiceAgent --> Backend
   - Use `/health` for shallow checks, `/api/health/deep` for comprehensive validation
   - Monitor cloud-native health indicators
   - Check voice service health endpoints specifically
+- **Environment-specific issues**
+  - Verify correct environment variables for staging vs production
+  - Check stack naming conventions (aria-staging vs aria-production)
+  - Ensure proper resource allocation for target environment
+- **CI/CD pipeline issues**
+  - Verify branch-based image tagging is working correctly
+  - Check Docker Hub credentials and image permissions
+  - Monitor CI/CD workflow execution and artifact publishing
+
+**Updated** Enhanced troubleshooting guide with environment-specific issues including CI/CD pipeline troubleshooting for branch-based image tagging and deployment to different environments.
 
 **Section sources**
 - [README.md:339-355](file://README.md#L339-L355)
@@ -800,17 +973,20 @@ VoiceAgent --> Backend
 ## Conclusion
 This guide outlines a robust, cloud-first deployment process for Resume AI by ThetaLogics with enhanced voice screening capabilities and comprehensive microservices architecture. It leverages Docker Compose for development with cloud-native defaults, GitHub Actions for CI/CD with automated Docker builds for all four services, and production-grade orchestration with Watchtower and Certbot. The system emphasizes enhanced health checks, zero-downtime rolling restarts, streaming readiness, comprehensive queue processing, SSL security, migration management, voice service integration, and operational simplicity for maintenance and scaling in cloud environments.
 
-**Updated** Enhanced emphasis on cloud-native deployment patterns with Ollama Cloud as the default configuration, comprehensive voice screening microservices architecture, LiveKit WebRTC SFU integration, speech processing capabilities, and automated CI/CD builds for all core services.
+**Updated** Enhanced emphasis on cloud-native deployment patterns with Ollama Cloud as the default configuration, comprehensive voice screening microservices architecture, LiveKit WebRTC SFU integration, speech processing capabilities, automated CI/CD builds for all core services with branch-based image tagging, dedicated staging environment configuration, and improved production deployment with aria-production naming convention.
 
 ## Appendices
 
 ### CI/CD Pipeline with GitHub Actions
 - **CI workflow**
-  - Runs backend and frontend tests on PRs and pushes
+  - Runs backend and frontend tests on PRs and pushes to main, staging, and production branches
   - Publishes coverage artifacts with cloud-native testing
 - **CD workflow**
   - Builds and pushes backend, frontend, Nginx, LiveKit, speech-service, and voice-agent images to Docker Hub
   - Provides manual trigger and cloud deployment steps
+  - Supports environment-specific image tagging (staging vs production) based on branch selection
+
+**Updated** Enhanced CI/CD pipeline with branch-based image tagging supporting both staging (staging tag) and production (latest tag) environments, enabling automated deployment to different environments based on branch selection.
 
 ```mermaid
 sequenceDiagram
@@ -820,22 +996,37 @@ participant CI as "CI Workflow"
 participant CD as "CD Workflow"
 participant Hub as "Docker Hub (Cloud)"
 participant Cloud as "Cloud Provider"
-Dev->>GH : "Push code"
+Dev->>GH : "Push code to branch"
 GH->>CI : "Run tests"
 CI-->>GH : "Test results"
 GH->>CD : "Build & push images"
 CD->>Hub : "Publish cloud images"
+alt Production Branch
+CD->>Hub : "Build backend : latest"
+CD->>Hub : "Build frontend : latest"
+CD->>Hub : "Build nginx : latest"
+CD->>Hub : "Build livekit : latest"
+CD->>Hub : "Build speech-service : latest"
+CD->>Hub : "Build voice-agent : latest"
+else Staging Branch
+CD->>Hub : "Build backend : staging"
+CD->>Hub : "Build frontend : staging"
+CD->>Hub : "Build nginx : staging"
+CD->>Hub : "Build livekit : staging"
+CD->>Hub : "Build speech-service : staging"
+CD->>Hub : "Build voice-agent : staging"
+end
 Dev->>GH : "Manual deploy trigger"
 GH->>Cloud : "Deploy to cloud infrastructure"
 ```
 
 **Diagram sources**
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
 
 **Section sources**
 - [.github/workflows/ci.yml:1-63](file://.github/workflows/ci.yml#L1-L63)
-- [.github/workflows/cd.yml:1-134](file://.github/workflows/cd.yml#L1-L134)
+- [.github/workflows/cd.yml:1-185](file://.github/workflows/cd.yml#L1-L185)
 
 ### Environment Variables and Secrets
 - **Backend environment variables**
@@ -858,14 +1049,22 @@ GH->>Cloud : "Deploy to cloud infrastructure"
 - **Production secrets**
   - Store sensitive values in repository secrets and pass them via Compose
   - Cloud-native secret management for API keys and credentials
+- **Environment-specific variables**
+  - STAGING_* variables for staging environment isolation
+  - Production variables with aria-production naming convention
+  - Portainer-specific environment management
 - **Example variables**
   - Database credentials, JWT secret, Ollama Cloud API key, timeouts, and environment mode
+
+**Updated** Enhanced environment variables with staging-specific variables (STAGING_* prefix) and production-specific variables with aria-production naming convention, supporting the new staging environment configuration.
 
 **Section sources**
 - [docker-compose.yml:60-82](file://docker-compose.yml#L60-L82)
 - [docker-compose.yml:122-175](file://docker-compose.yml#L122-L175)
+- [docker-compose.staging.yml:72-81](file://docker-compose.staging.yml#L72-L81)
+- [docker-compose.staging.yml:222-229](file://docker-compose.staging.yml#L222-L229)
 - [docker-compose.prod.yml:85-103](file://docker-compose.prod.yml#L85-L103)
-- [docker-compose.prod.yml:241-299](file://docker-compose.prod.yml#L241-L299)
+- [docker-compose.prod.yml:281-289](file://docker-compose.prod.yml#L281-L289)
 - [README.md:147-178](file://README.md#L147-L178)
 
 ### Monitoring and Logging
@@ -884,14 +1083,21 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Speech Service health endpoint validation
   - LiveKit connection status and SIP trunk health
   - Voice Agent conversation state tracking
+- **Environment-specific monitoring**
+  - Staging environment health checks with aria-staging naming
+  - Production environment monitoring with aria-production naming
+  - Portainer-managed monitoring through web interface
 - **Cloud-native observability**
   - Use container logs and health endpoints for basic monitoring
   - Extend with external tools for metrics and alerting in cloud environments
   - Prometheus metrics collection for cloud monitoring
 
+**Updated** Enhanced monitoring with environment-specific health checks for staging (aria-staging) and production (aria-production) environments, including dedicated monitoring for voice services across all environments.
+
 **Section sources**
 - [app/backend/main.py:354-460](file://app/backend/main.py#L354-L460)
 - [docker-compose.yml:18-22](file://docker-compose.yml#L18-L22)
+- [docker-compose.staging.yml:127-132](file://docker-compose.staging.yml#L127-L132)
 - [docker-compose.prod.yml:115-121](file://docker-compose.prod.yml#L115-L121)
 - [docker-compose.prod.yml:149-156](file://docker-compose.prod.yml#L149-L156)
 - [app/backend/services/queue_manager.py:573-583](file://app/backend/services/queue_manager.py#L573-L583)
@@ -907,6 +1113,10 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Pull previous image tags and redeploy using Compose
   - Use graceful shutdown timeouts to minimize disruption
   - Rollback voice services individually if needed
+- **Environment-specific rollback**
+  - Staging environment rollback with aria-staging stack
+  - Production environment rollback with aria-production stack
+  - Portainer-managed rollback through web interface
 - **Cloud-native rollback**
   - Leverage cloud provider rollback capabilities
   - Use image versioning for controlled rollbacks
@@ -918,8 +1128,11 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Rollback LiveKit, Speech Service, and Voice Agent together
   - Ensure consistent model versions across voice services
 
+**Updated** Enhanced rollback procedures with environment-specific considerations for staging (aria-staging) and production (aria-production) environments, including selective service deployment through Portainer.
+
 **Section sources**
 - [docker-compose.prod.yml:205-211](file://docker-compose.prod.yml#L205-L211)
+- [docker-compose.staging.yml:156-180](file://docker-compose.staging.yml#L156-L180)
 - [deploy_queue_migration.sh:64-67](file://deploy_queue_migration.sh#L64-L67)
 
 ### Scaling Considerations
@@ -932,6 +1145,10 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Adjust CPU/memory limits per service in production Compose
   - Cloud-native autoscaling for managed services
   - Allocate additional resources for voice services during peak hours
+- **Environment-specific scaling**
+  - Staging environment with reduced resource allocation for cost optimization
+  - Production environment with enhanced resource allocation for performance
+  - Portainer-managed scaling through web interface
 - **Streaming scaling**
   - Ensure Nginx streaming configuration remains unchanged for SSE
   - Cloud CDN optimization for static assets
@@ -946,12 +1163,14 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Scale Speech Service based on audio processing demands
   - Monitor voice agent resource utilization during scaling
 
+**Updated** Enhanced scaling considerations with environment-specific resource allocation for voice services, including dedicated memory allocations for staging (LiveKit: 1G, Speech Service: 3G, Voice Agent: 1G) and production (LiveKit: 1G, Speech Service: 4G, Voice Agent: 2G) environments.
+
 **Section sources**
 - [docker-compose.prod.yml:82-84](file://docker-compose.prod.yml#L82-L84)
+- [docker-compose.staging.yml:196-200](file://docker-compose.staging.yml#L196-L200)
+- [docker-compose.staging.yml:212-216](file://docker-compose.staging.yml#L212-L216)
+- [docker-compose.staging.yml:238-242](file://docker-compose.staging.yml#L238-L242)
 - [docker-compose.prod.yml:58-64](file://docker-compose.prod.yml#L58-L64)
-- [docker-compose.prod.yml:248-252](file://docker-compose.prod.yml#L248-L252)
-- [docker-compose.prod.yml:266-270](file://docker-compose.prod.yml#L266-L270)
-- [docker-compose.prod.yml:296-298](file://docker-compose.prod.yml#L296-L298)
 - [app/nginx/nginx.prod.conf:73-102](file://app/nginx/nginx.prod.conf#L73-L102)
 - [app/backend/services/queue_manager.py:201-204](file://app/backend/services/queue_manager.py#L201-L204)
 
@@ -960,10 +1179,12 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Use repository secrets for Docker Hub credentials and cloud access
   - Implement cloud-native secret management for API keys
   - Secure voice service credentials separately from main application
+  - Environment-specific secret management for staging vs production
 - **Network exposure**
   - Limit published ports; rely on internal networking within Compose
   - Use cloud-native security groups and network policies
   - Isolate voice services on separate networks if needed
+  - Stack isolation with aria-staging and aria-production naming
 - **SSL/TLS**
   - Use Certbot for automatic certificate management and renewal
   - Cloud-native SSL termination and certificate management
@@ -984,10 +1205,13 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Protect LiveKit SIP credentials and Twilio integration
   - Monitor voice agent conversations for security compliance
 
+**Updated** Enhanced security hardening with environment-specific considerations for staging and production deployments, including dedicated network isolation and resource allocation for voice services.
+
 **Section sources**
 - [.github/workflows/cd.yml:60-64](file://.github/workflows/cd.yml#L60-L64)
 - [README.md:147-178](file://README.md#L147-L178)
 - [docker-compose.prod.yml:213-220](file://docker-compose.prod.yml#L213-L220)
+- [docker-compose.staging.yml:156-180](file://docker-compose.staging.yml#L156-L180)
 
 ### Backup and Disaster Recovery
 - **Data persistence**
@@ -1003,6 +1227,10 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Automate where possible with cloud-native DR tools
   - Include queue system state and job persistence in recovery procedures
   - Include voice service configurations and SIP trunk settings
+- **Environment-specific backup**
+  - Staging environment backup with aria-staging naming convention
+  - Production environment backup with aria-production naming convention
+  - Portainer-managed backup through web interface
 - **Rolling restart backup**
   - Watchtower provides automatic rollback capability
   - Graceful shutdown ensures clean state preservation
@@ -1014,9 +1242,11 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Backup Speech Service model configurations
   - Ensure voice agent state can be recovered during disaster scenarios
 
+**Updated** Enhanced backup and disaster recovery with environment-specific considerations for staging and production deployments, including dedicated resource allocation and network isolation for voice services.
+
 **Section sources**
 - [docker-compose.yml:99-101](file://docker-compose.yml#L99-L101)
-- [docker-compose.prod.yml:26-27](file://docker-compose.prod.yml#L26-L27)
+- [docker-compose.staging.yml:245-247](file://docker-compose.staging.yml#L245-L247)
 - [docker-compose.prod.yml:222-241](file://docker-compose.prod.yml#L222-L241)
 - [deploy_queue_migration.sh:18-23](file://deploy_queue_migration.sh#L18-L23)
 
@@ -1027,6 +1257,10 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Stop grace period of 60 seconds for backend service
   - 30-second stop grace period for Nginx service
   - Graceful shutdown for voice services during container updates
+- **Environment-specific deployment**
+  - Staging environment with aria-staging naming for safe testing
+  - Production environment with aria-production naming for clear identification
+  - Portainer-managed deployment through web interface
 - **Health check strategy**
   - Shallow `/health` endpoint for container monitoring (<10ms)
   - Deep `/api/health/deep` endpoint for comprehensive dependency validation
@@ -1046,8 +1280,11 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - LiveKit connection cleanup and reconnection
   - Speech Service model warmup verification after updates
 
+**Updated** Enhanced zero-downtime deployment strategy with environment-specific considerations for staging and production deployments, including dedicated resource allocation and CI/CD integration with branch-based image tagging.
+
 **Section sources**
 - [docker-compose.prod.yml:205-211](file://docker-compose.prod.yml#L205-L211)
+- [docker-compose.staging.yml:156-180](file://docker-compose.staging.yml#L156-L180)
 - [docker-compose.prod.yml:82-84](file://docker-compose.prod.yml#L82-L84)
 - [docker-compose.prod.yml:138-139](file://docker-compose.prod.yml#L138-L139)
 - [app/backend/main.py:238-282](file://app/backend/main.py#L238-L282)
@@ -1093,6 +1330,10 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Monitor queue depth and processing rates
   - Track job completion times and error rates
   - Manage job priorities and retry policies
+- **Environment-specific administration**
+  - Staging environment administration with aria-staging naming
+  - Production environment administration with aria-production naming
+  - Portainer-managed administration through web interface
 - **Worker Monitoring**
   - Track worker statistics and job processing metrics
   - Monitor worker health and heartbeat patterns
@@ -1102,6 +1343,8 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Optimize poll intervals for job processing throughput
   - Configure retry delays for optimal fault tolerance
   - Tune voice service resource allocation based on call volume
+
+**Updated** Enhanced voice system administration with environment-specific considerations for staging and production deployments, including dedicated resource allocation and monitoring for voice services across all environments.
 
 **Section sources**
 - [app/backend/routes/voice.py:211-282](file://app/backend/routes/voice.py#L211-L282)

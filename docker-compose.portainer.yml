@@ -2,10 +2,9 @@ version: '3.8'
 
 # ─── Portainer-managed production compose ───────────────────────────────────
 # This is the compose file used by Portainer on the VPS.
-# It mirrors docker-compose.prod.yml but may omit certain services (like
-# watchtower or certbot) that are managed outside Portainer.
+# Project name MUST stay "aria" to preserve existing volumes.
 # ─────────────────────────────────────────────────────────────────────────────
-name: aria-production
+name: aria
 
 services:
   postgres:
@@ -26,7 +25,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-aria_db}
     volumes:
-      - prod_postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aria} -d ${POSTGRES_DB:-aria_db}"]
@@ -46,7 +45,7 @@ services:
       - OLLAMA_KV_CACHE_TYPE=q8_0
       - OLLAMA_KEEP_ALIVE=-1
     volumes:
-      - prod_ollama_data:/root/.ollama
+      - ollama_data:/root/.ollama
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ollama", "list"]
@@ -149,8 +148,8 @@ services:
     image: certbot/certbot
     container_name: resume-screener-certbot
     volumes:
-      - prod_certbot_certs:/etc/letsencrypt
-      - prod_certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h; done'"
     restart: unless-stopped
 
@@ -203,12 +202,12 @@ services:
     restart: unless-stopped
 
 volumes:
-  prod_ollama_data:
-  prod_postgres_data:
-  prod_certbot_certs:
-  prod_certbot_www:
+  ollama_data:
+  postgres_data:
+  certbot_certs:
+  certbot_www:
 
 networks:
   default:
-    name: aria_production_network
+    name: aria_network
     driver: bridge
