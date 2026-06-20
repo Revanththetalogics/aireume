@@ -1,24 +1,23 @@
 # Implement class-based Dark Mode with Tailwind CSS
 
-_Source: coding plans from commit period 8626ec6 → dc66c1a — records intent at planning time; the implementation may lag or differ._
+_Source: coding plans from commit period cccda7d → 08fc91f — records intent at planning time; the implementation may lag or differ._
 
 **Status:** accepted
 
 ## Context
-The application lacked dark mode support. To meet modern UX expectations and reduce eye strain, a comprehensive dark theme was needed that could coexist with the existing light theme and persist user preferences.
+The application currently lacks dark mode support. To meet modern UX standards and reduce eye strain, a comprehensive dark theme is required that inverts surfaces, text, and borders while maintaining brand identity.
 
 ## Decision drivers
-- User preference persistence
-- System preference detection
-- Tailwind ecosystem integration
-- No runtime JS theme switching overhead
+- User preference accommodation (prefers-color-scheme)
+- Tailwind built-in support for maintainability
+- No runtime overhead for theme switching
 
 ## Considered options
-- **Tailwind 'class' strategy with CSS variables** — pros: Leverages Tailwind's built-in dark: variant, allows smooth CSS transitions, respects localStorage and system preferences via ThemeContext; cons: Requires auditing and updating all 99 components to add dark: variants
-- **Separate dark stylesheet** _(rejected)_ — pros: Clean separation of concerns; cons: Harder to maintain alongside utility classes, loses Tailwind's component-level scoping, harder to toggle dynamically without FOUC
+- **Tailwind 'class' strategy with CSS variables** — pros: Leverages Tailwind's dark: variant for compile-time efficiency, allows smooth CSS transitions, persists preference in localStorage via ThemeContext.; cons: Requires auditing and updating ~99 components to add dark: variants.
+- **Separate dark theme stylesheet** _(rejected)_ — pros: Complete separation of concerns.; cons: Harder to maintain alongside Tailwind utility classes, no automatic component-level toggling.
 
 ## Decision
-Enable darkMode: 'class' in tailwind.config.js, define semantic color tokens in index.css for both :root and .dark scopes, and create a ThemeContext to manage toggling and persistence. All components will be updated with dark: utility classes.
+Enable darkMode: 'class' in tailwind.config.js and define a dark color palette in index.css using CSS variables. Implement a ThemeContext to manage state and persistence, and update all components to use dark: utility classes for backgrounds, text, and borders.
 
 ## Consequences
-Full dark mode support across the application. Requires a one-time significant effort to audit and update all UI components. Future components must include dark mode variants by default.
+Every component in the application (~99 files) must be updated to support dark mode variants. A new ThemeContext is introduced. Chart libraries (Recharts) require specific color updates for dark compatibility. The UI will support seamless toggling between light and dark themes.

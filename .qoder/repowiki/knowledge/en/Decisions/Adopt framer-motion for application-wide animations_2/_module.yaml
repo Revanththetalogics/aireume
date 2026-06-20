@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: decisions/14c321e72285_22816b71831f
+title: Adopt framer-motion for application-wide animations
+scope: []
+source_files: []
+depends_on: []
+related_to:
+    - path: decisions/14c321e72285_bf197a0cc7cd

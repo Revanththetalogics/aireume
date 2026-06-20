@@ -12,15 +12,20 @@
 - [VoiceScreeningPage.jsx](file://app/frontend/src/pages/VoiceScreeningPage.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [VoiceScheduleModal.jsx](file://app/frontend/src/components/VoiceScheduleModal.jsx)
+- [livekit.yaml](file://app/voice_agent/livekit.yaml)
+- [docker-compose.yml](file://docker-compose.yml)
+- [test_voice_screening.py](file://app/backend/tests/test_voice_screening.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced rescheduling capabilities with new RescheduleVoiceCallRequest model supporting job description ID tracking
-- Improved error handling for rescheduling operations with comprehensive validation and status checking
-- Updated API endpoints documentation to reflect enhanced rescheduling functionality
-- Added job description ID tracking capability for improved session management
-- Enhanced frontend integration for rescheduling operations
+- Updated system architecture to reflect current Phase 1.4 implementation with comprehensive LiveKit integration
+- Enhanced voice agent implementation with dual-component design (HTTP dispatch API + LiveKit Agent Worker)
+- Added comprehensive LiveKit WebRTC integration with SIP trunking configuration
+- Updated speech service integration with STT/TTS/VAD capabilities
+- Enhanced error handling and troubleshooting procedures
+- Added support for job description ID tracking in rescheduling operations
+- Updated frontend integration with improved rescheduling capabilities
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -34,15 +39,16 @@
 9. [Conversation Flow](#conversation-flow)
 10. [Testing Framework](#testing-framework)
 11. [Deployment Architecture](#deployment-architecture)
-12. [Conclusion](#conclusion)
+12. [Troubleshooting Procedures](#troubleshooting-procedures)
+13. [Conclusion](#conclusion)
 
 ## Introduction
 
 The Voice Agent Conversation System is an AI-powered phone screening solution designed to automate initial candidate interviews through intelligent voice conversations. Built as part of the Resume AI platform by ThetaLogics, this system combines advanced natural language processing, real-time audio processing, and sophisticated conversation management to deliver scalable recruitment screening capabilities.
 
-The system operates through a comprehensive dual-component architecture featuring a FastAPI HTTP dispatch server and LiveKit Agent Worker, coordinated with integrated speech processing services and Twilio SIP trunking. The platform supports both outbound calling and inbound callback scenarios, with configurable business hours, retry mechanisms, and compliance features.
+**Current Implementation Status**: Phase 1.4 - The system now implements a comprehensive voice agent with dual-component design (HTTP dispatch API + LiveKit Agent Worker), sophisticated state machine management, LiveKit telephony coordination, and integrated speech processing services. The system maintains full telephony integration readiness with comprehensive audio processing and conversation management capabilities.
 
-**Updated** The system now implements a comprehensive voice agent with dual-component design (HTTP dispatch API + LiveKit Agent Worker), sophisticated state machine management, LiveKit telephony coordination, and integrated speech processing services as part of Phase 1.4 development. Enhanced rescheduling capabilities now support job description ID tracking and improved error handling for rescheduling operations.
+The system operates through a comprehensive dual-component architecture featuring a FastAPI HTTP dispatch server and LiveKit Agent Worker, coordinated with integrated speech processing services and Twilio SIP trunking. The platform supports both outbound calling and inbound callback scenarios, with configurable business hours, retry mechanisms, and compliance features.
 
 ## System Architecture
 
@@ -88,16 +94,18 @@ API --> SCHED
 - [agent.py:535-602](file://app/voice_agent/agent.py#L535-L602)
 - [agent.py:606-771](file://app/voice_agent/agent.py#L606-L771)
 - [voice_call_scheduler.py:34](file://app/backend/services/voice_call_scheduler.py#L34)
+- [docker-compose.yml:110-175](file://docker-compose.yml#L110-L175)
 
-**Updated** The architecture now includes FastAPI HTTP dispatch server for initiating voice calls, LiveKit Agent Worker for real-time conversation management, Twilio SIP trunking for telephony coordination, and comprehensive speech processing services for audio handling.
+**Updated** The architecture now includes FastAPI HTTP dispatch server for initiating voice calls, LiveKit Agent Worker for real-time conversation management, Twilio SIP trunking for telephony coordination, and comprehensive speech processing services for audio handling. The LiveKit Server provides WebRTC SFU functionality with SIP trunking configuration support.
 
-The architecture consists of five main layers:
+The architecture consists of six main layers:
 
 1. **Presentation Layer**: React-based frontend with voice screening management interface
 2. **API Layer**: FastAPI backend providing RESTful endpoints for voice screening operations
 3. **Dispatch Layer**: HTTP dispatch API that triggers call initiation and room creation
 4. **Agent Layer**: LiveKit Agent Worker that manages real-time voice conversations with audio processing
-5. **Data Layer**: PostgreSQL database with specialized voice screening models and scheduling
+5. **Telephony Layer**: LiveKit Server with Twilio SIP trunking for PSTN connectivity
+6. **Data Layer**: PostgreSQL database with specialized voice screening models and scheduling
 
 ## Core Components
 
@@ -265,7 +273,7 @@ API-->>Client : VoiceScreeningSessionOut with transcript
 - [voice_call_scheduler.py](file://app/backend/services/voice_call_scheduler.py)
 
 **Section sources**
-- [voice.py:1-364](file://app/backend/routes/voice.py#L1-L364)
+- [voice.py:1-385](file://app/backend/routes/voice.py#L1-L385)
 
 ## Voice Agent Implementation
 
@@ -290,7 +298,7 @@ CALL_END --> [*]
 - [agent.py:802-852](file://app/voice_agent/agent.py#L802-L852)
 - [agent.py:618-754](file://app/voice_agent/agent.py#L618-L754)
 
-**Updated** The dual-component architecture now includes comprehensive HTTP dispatch API for call initiation and LiveKit Agent Worker for real-time conversation management, with sophisticated state machine handling and error recovery.
+**Updated** The dual-component architecture now includes comprehensive HTTP dispatch API for call initiation and LiveKit Agent Worker for real-time conversation management, with sophisticated state machine handling and error recovery. The system maintains full telephony integration readiness with comprehensive audio processing and conversation management capabilities.
 
 ### LiveKit Telephony Coordination
 
@@ -533,7 +541,7 @@ PHONE_VALIDATION --> JD_ASSOCIATION
 **Updated** Enhanced frontend integration now includes improved rescheduling capabilities with job description ID tracking, allowing recruiters to easily reschedule calls with proper job association.
 
 **Section sources**
-- [VoiceScreeningPage.jsx:1-696](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L1-L696)
+- [VoiceScreeningPage.jsx:1-786](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L1-L786)
 
 ## API Endpoints
 
@@ -560,7 +568,7 @@ The backend exposes a comprehensive set of RESTful endpoints for voice screening
 **Updated** Enhanced rescheduling endpoint now supports job description ID tracking and improved error handling for rescheduling operations.
 
 **Section sources**
-- [voice.py:47-364](file://app/backend/routes/voice.py#L47-L364)
+- [voice.py:47-385](file://app/backend/routes/voice.py#L47-L385)
 
 ## Conversation Flow
 
@@ -623,7 +631,7 @@ The voice screening system includes comprehensive testing coverage through unit 
 **Updated** Testing framework now includes comprehensive validation for enhanced rescheduling capabilities with job description ID tracking and improved error handling.
 
 **Section sources**
-- [test_voice_screening.py:43-870](file://app/backend/tests/test_voice_screening.py#L43-L870)
+- [test_voice_screening.py:1-871](file://app/backend/tests/test_voice_screening.py#L1-L871)
 
 ## Deployment Architecture
 
@@ -663,11 +671,46 @@ BACKEND --> TWILIO
 
 The deployment architecture supports horizontal scaling, service discovery, and resilient communication patterns essential for production voice screening operations.
 
+## Troubleshooting Procedures
+
+### Common Issues and Solutions
+
+#### LiveKit Connection Problems
+- **Issue**: Voice agent cannot connect to LiveKit server
+- **Solution**: Verify LiveKit server health check and SIP trunk configuration
+- **Diagnostic**: Check LiveKit logs and SIP trunk credentials
+
+#### Speech Service Failures
+- **Issue**: STT/TTS/VAD endpoints failing
+- **Solution**: Restart speech service and verify model loading
+- **Diagnostic**: Check speech service health endpoint and model availability
+
+#### Call Scheduling Issues
+- **Issue**: Calls not being scheduled or executed
+- **Solution**: Verify APScheduler configuration and business hours settings
+- **Diagnostic**: Check scheduler logs and retry mechanisms
+
+#### Rescheduling Problems
+- **Issue**: Rescheduling operations failing or not updating job descriptions
+- **Solution**: Verify job description ID tracking and rescheduling endpoint configuration
+- **Diagnostic**: Check rescheduling logs and database updates
+
+### Monitoring and Logging
+
+The system provides comprehensive monitoring through:
+- **Health Checks**: Individual service health endpoints
+- **Error Logs**: Detailed error logging with stack traces
+- **Performance Metrics**: Audio processing and LLM response times
+- **Session Tracking**: Real-time session status monitoring
+
+**Section sources**
+- [livekit.yaml:27-44](file://app/voice_agent/livekit.yaml#L27-L44)
+
 ## Conclusion
 
 The Voice Agent Conversation System represents a comprehensive solution for automated phone screening in recruitment processes. By combining advanced AI capabilities with robust infrastructure, the system delivers scalable, compliant, and efficient candidate screening experiences.
 
-**Updated** The system now implements a comprehensive voice agent with dual-component design (HTTP dispatch API + LiveKit Agent Worker), sophisticated state machine management, LiveKit telephony coordination, and integrated speech processing services as part of Phase 1.4 development. The current implementation maintains full telephony integration readiness while ensuring system stability and performance.
+**Current Implementation Status**: Phase 1.4 - The system now implements a comprehensive voice agent with dual-component design (HTTP dispatch API + LiveKit Agent Worker), sophisticated state machine management, LiveKit telephony coordination, and integrated speech processing services. The current implementation maintains full telephony integration readiness while ensuring system stability and performance.
 
 Enhanced rescheduling capabilities with job description ID tracking provide improved flexibility for managing voice screening operations. The system now includes comprehensive error handling for rescheduling operations and sophisticated job description association for better session management.
 

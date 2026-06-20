@@ -1,0 +1,3 @@
+- Services expose module-level singleton instances or stateless functions rather than requiring manual class instantiation by callers.
+- Database sessions are created and closed within each service function using a try/finally pattern to ensure connection safety.
+- External AI/LLM calls are protected by a shared asyncio semaphore to prevent thread/resource exhaustion across concurrent tasks.

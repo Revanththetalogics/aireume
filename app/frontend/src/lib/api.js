@@ -1622,6 +1622,33 @@ export async function cancelVoiceSession(sessionId) {
   return res.data
 }
 
+export async function getVoiceAnalytics() {
+  const res = await api.get('/voice/sessions/analytics')
+  return res.data
+}
+
+export async function bulkCancelVoiceSessions(sessionIds) {
+  const res = await api.post('/voice/sessions/bulk-cancel', { session_ids: sessionIds })
+  return res.data
+}
+
+export async function exportVoiceSessions(params = {}) {
+  const res = await api.get('/voice/sessions/export', { params, responseType: 'blob' })
+  const url = window.URL.createObjectURL(new Blob([res.data]))
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', `voice_sessions_${new Date().toISOString().slice(0, 10)}.csv`)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+export async function getNextAvailableSlot() {
+  const res = await api.get('/voice/next-slot')
+  return res.data
+}
+
 export async function getOutcomePatterns(params) {
   const res = await api.get('/candidates/analytics/outcome-patterns', { params })
   return res.data

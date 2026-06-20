@@ -1,4 +1,0 @@
-- Use of deterministic Python rules for objective metrics (years, skill matching) before delegating subjective reasoning to LLMs
-- Implementation of fallback mechanisms (circuit breakers, regex parsers) for every LLM-dependent node to guarantee system availability
-- Centralized PII redaction applied to all user-generated content before processing to enforce bias mitigation and compliance
-- Singleton pattern for LLM clients and PII services to reduce connection overhead and maintain consistent configuration across requests

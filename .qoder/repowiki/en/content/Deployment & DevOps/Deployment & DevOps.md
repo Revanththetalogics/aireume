@@ -9,6 +9,7 @@
 - [app/backend/Dockerfile](file://app/backend/Dockerfile)
 - [app/frontend/Dockerfile](file://app/frontend/Dockerfile)
 - [nginx/Dockerfile](file://nginx/Dockerfile)
+- [app/frontend/default.conf](file://app/frontend/default.conf)
 - [app/nginx/nginx.conf](file://app/nginx/nginx.conf)
 - [app/nginx/nginx.prod.conf](file://app/nginx/nginx.prod.conf)
 - [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
@@ -37,11 +38,11 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive staging environment with dedicated docker-compose.staging.yml (252 lines) featuring separate container naming, volume isolation, and network separation
-- Enhanced CI/CD pipeline with branch-based image tagging supporting both staging (staging tag) and production (latest tag) environments
-- Improved production deployment configuration with aria-production naming convention and enhanced resource allocation
-- Expanded voice screening microservices integration across all environments with dedicated resource allocation
-- Added Portainer-managed production setup with selective service deployment capabilities
+- Updated staging deployment configuration by removing healthcheck configurations from all services to facilitate stack deployment during debugging phases
+- Added pull_policy: always to all container images for fresh deployments
+- Increased backend healthcheck start_period to accommodate slower startup times
+- Enhanced CI/CD pipeline with environment-specific image tagging (staging vs production)
+- Improved staging environment isolation with dedicated network naming (aria_staging_network)
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -63,16 +64,18 @@
 17. [Production Deployment Strategy](#production-deployment-strategy)
 18. [Staging Environment Configuration](#staging-environment-configuration)
 19. [Portainer Integration](#portainer-integration)
-20. [Dependency Analysis](#dependency-analysis)
-21. [Performance Considerations](#performance-considerations)
-22. [Troubleshooting Guide](#troubleshooting-guide)
-23. [Conclusion](#conclusion)
-24. [Appendices](#appendices)
+20. [Volume Preservation Measures](#volume-preservation-measures)
+21. [Standardized Naming Conventions](#standardized-naming-conventions)
+22. [Dependency Analysis](#dependency-analysis)
+23. [Performance Considerations](#performance-considerations)
+24. [Troubleshooting Guide](#troubleshooting-guide)
+25. [Conclusion](#conclusion)
+26. [Appendices](#appendices)
 
 ## Introduction
 This document provides comprehensive deployment and DevOps guidance for Resume AI by ThetaLogics with enhanced cloud-first approach and integrated voice screening capabilities. The platform now features a robust voice screening microservices architecture with LiveKit WebRTC SFU, speech processing services, and intelligent conversation orchestration. It covers Docker configuration for development, staging, and production environments, multi-container orchestration, voice service integration, SSL termination, environment variables and secrets management, monitoring and logging, health checks, maintenance, troubleshooting, rollback procedures, scaling, security hardening, backups, and disaster recovery.
 
-**Updated** Enhanced with comprehensive voice screening microservices integration, LiveKit WebRTC SFU, speech processing capabilities, automated CI/CD builds for all four core services, dedicated staging environment configuration with branch-based image tagging, and improved production deployment with aria-production naming convention.
+**Updated** Enhanced with comprehensive voice screening microservices integration, LiveKit WebRTC SFU, speech processing capabilities, automated CI/CD builds for all four core services, dedicated staging environment configuration with branch-based image tagging, improved production deployment with aria-production naming convention, enhanced port conflict prevention strategies, and standardized volume preservation measures across all environments.
 
 ## Cloud-First Architecture
 The Resume AI platform is designed with a cloud-first approach featuring a comprehensive voice screening microservices architecture. The architecture emphasizes:
@@ -86,7 +89,10 @@ The Resume AI platform is designed with a cloud-first approach featuring a compr
 - **Automated CI/CD**: Four-service pipeline with Docker Hub integration for backend, frontend, speech-service, and voice-agent
 - **Migration Management**: Automated database schema updates with rollback support
 - **DNS Resolution**: Embedded DNS configuration for reliable container networking
+- **Port Conflict Prevention**: Strategic port assignments to avoid conflicts in development and testing environments
 - **Portainer Integration**: Production deployment management with dedicated stack naming
+- **Volume Preservation**: Standardized naming conventions ensuring data persistence across environment switches
+- **Network Isolation**: Dedicated network names for staging and production environments
 
 ```mermaid
 graph TB
@@ -132,16 +138,16 @@ VoiceAgent --> QueueWorker
 ## Project Structure
 The repository organizes the stack into six primary services plus supporting configurations, optimized for cloud deployment with comprehensive voice screening integration across multiple environments:
 
-- **Development Environment** (docker-compose.yml): Local development with integrated voice services
-- **Staging Environment** (docker-compose.staging.yml): Separate staging stack with aria-staging naming and dedicated resources
+- **Development Environment** (docker-compose.yml): Local development with integrated voice services and port mapping 3000:8080 for frontend
+- **Staging Environment** (docker-compose.staging.yml): Separate staging stack with aria-staging naming, dedicated resources, strategic port assignment 8081:80 for Nginx, and isolated network (aria_staging_network)
 - **Production Environment** (docker-compose.prod.yml): Production deployment with aria-production naming and enhanced resource allocation
 - **Portainer Management** (docker-compose.portainer.yml): Production compose for Portainer orchestration
 - **Backend service (FastAPI)** with enhanced cloud-native health checks, queue worker integration, and Ollama Cloud authentication
-- **Frontend service (React)** built into Nginx static assets for optimal CDN delivery
-- **Nginx reverse proxy** with cloud-optimized SSL termination, rate limiting, and streaming configuration
+- **Frontend service (React)** built into Nginx static assets for optimal CDN delivery with port 8080 internally
+- **Nginx reverse proxy** with cloud-optimized SSL termination, rate limiting, and streaming configuration, running on port 80 internally
 - **LiveKit WebRTC SFU** with SIP trunking for PSTN call handling and real-time communication
 - **Speech Service** with STT, TTS, and VAD capabilities for voice processing
-- **Voice Agent** with conversation orchestration, state management, and LLM integration
+- **Voice Agent** with conversation orcheststration, state management, and LLM integration
 - **Queue system** with priority-based job scheduling, automatic retry, and worker monitoring
 - **CI/CD workflows** for automated testing and cloud image publishing across all services
 
@@ -171,6 +177,7 @@ Staging --> SpeechServiceStaging["Speech Service (STT/TTS/VAD)"]
 Staging --> VoiceAgentStaging["Voice Agent (Conversations)"]
 Staging --> WatchtowerStaging["Watchtower (Cloud Updates)"]
 Staging --> QueueWorkerStaging["Queue Worker (Background)"]
+Staging --> NetworkStaging["aria_staging_network"]
 end
 subgraph "Production Cloud"
 Prod["docker-compose.prod.yml"]
@@ -185,6 +192,7 @@ Prod --> VoiceAgentProd["Voice Agent (Conversations)"]
 Prod --> WatchtowerProd["Watchtower (Cloud Updates)"]
 Prod --> Certbot["Certbot (Cloud SSL)"]
 Prod --> QueueWorkerProd["Queue Worker (Background)"]
+Prod --> NetworkProd["aria_network"]
 end
 ```
 
@@ -212,10 +220,12 @@ end
 - **Frontend service**
   - React app built into static assets served by Nginx for CDN optimization
   - Multi-stage Dockerfile for efficient cloud production images
+  - Internal port 8080 for container networking, mapped to host port 3000 in development
 - **Nginx reverse proxy**
   - Cloud-optimized configuration with SSL termination, rate limiting, and streaming for SSE
   - Advanced security headers and performance optimizations
   - Health check passthrough to backend with cloud-native routing
+  - Internal port 80 for container networking, mapped to host port 8081 in staging
 - **LiveKit WebRTC SFU**
   - Real-time communication infrastructure with SIP trunking for PSTN call handling
   - TURN server support for NAT traversal
@@ -242,7 +252,7 @@ end
   - Production compose optimized for cloud infrastructure with aria-production naming
   - Portainer-managed production setup with selective service deployment
 
-**Updated** Enhanced backend service with integrated queue worker, voice screening API, and improved cloud-native Ollama Cloud integration. Added comprehensive voice screening microservices architecture with dedicated staging and production environments.
+**Updated** Enhanced backend service with integrated queue worker, voice screening API, and improved cloud-native Ollama Cloud integration. Added comprehensive voice screening microservices architecture with dedicated staging and production environments. Implemented strategic port conflict prevention with staging Nginx on port 8081 and development frontend on port 3000. Enhanced volume preservation measures with standardized naming conventions across all environments.
 
 **Section sources**
 - [app/backend/main.py:354-460](file://app/backend/main.py#L354-L460)
@@ -353,6 +363,7 @@ Uvicorn->>VoiceAPI : "Initialize voice screening endpoints"
 - **Containerization**
   - Multi-stage build: Node builder produces dist assets, Nginx serves them
   - Default Nginx config copied into image; overridden by bind mount in production
+  - Internal port 8080 for container networking
 
 **Section sources**
 - [app/frontend/Dockerfile:1-35](file://app/frontend/Dockerfile#L1-L35)
@@ -361,12 +372,15 @@ Uvicorn->>VoiceAPI : "Initialize voice screening endpoints"
 ### Nginx Reverse Proxy
 - **Development**
   - Proxies frontend dev server and backend dev server on localhost
+  - Frontend service mapped to host port 3000 for development access
 - **Production**
   - Cloud-optimized SSL termination with Let's Encrypt and advanced security headers
   - Rate limiting for API endpoints with configurable zones and burst protection
   - Streaming-specific configuration for SSE to avoid buffering with proxy_buffering off
   - Health check passthrough to backend with cloud routing
   - Embedded DNS resolution for reliable container networking
+
+**Updated** Enhanced Nginx configuration with strategic port assignments to prevent conflicts. Development environment uses port 3000:8080 mapping, while staging environment uses 8081:80 mapping to avoid conflicts with other services.
 
 ```mermaid
 flowchart TD
@@ -393,7 +407,7 @@ SSL --> Resolver["Embedded DNS Resolution"]
 - **Local development**
   - Compose defines services with explicit healthchecks and interdependencies
   - Cloud-first defaults with Ollama Cloud as default configuration
-  - Ports exposed for local access
+  - Frontend service mapped to host port 3000 for local access
   - Voice screening services included (LiveKit, speech-service, voice-agent)
 - **Staging environment**
   - Separate stack from production with aria-staging naming convention
@@ -402,7 +416,11 @@ SSL --> Resolver["Embedded DNS Resolution"]
   - Watchtower auto-updates containers with zero-downtime rolling restarts
   - Enhanced health checks for all services with cloud-native monitoring
   - Queue worker service for background job processing
+  - Nginx service mapped to host port 8081 to avoid conflicts with development
   - Dedicated resource allocation for voice services (LiveKit: 1G, Speech Service: 3G, Voice Agent: 1G)
+  - Isolated network (aria_staging_network) for environment separation
+  - **Updated**: Healthchecks removed to facilitate stack deployment during debugging phases
+  - **Updated**: Added pull_policy: always to all container images for fresh deployments
 - **Production**
   - Cloud-optimized resource limits and deploy constraints for CPU/memory
   - Watchtower auto-updates containers with zero-downtime rolling restarts
@@ -411,6 +429,9 @@ SSL --> Resolver["Embedded DNS Resolution"]
   - Queue worker service for background job processing
   - Dedicated resource allocation for voice services (LiveKit: 1G, Speech Service: 4G, Voice Agent: 2G)
   - Portainer-managed production setup with selective service deployment
+  - Isolated network (aria_network) for production environment
+
+**Updated** Enhanced orchestration with strategic port assignments to prevent conflicts. Development environment uses port 3000 for frontend access, while staging environment uses port 8081 for Nginx to avoid collisions with development services. Implemented standardized naming conventions with resume-screener- prefix for all containers and aria_network for production isolation. **Updated** Staging environment now removes healthcheck configurations from all services to facilitate stack deployment during debugging phases and adds pull_policy: always to all container images for fresh deployments.
 
 ```mermaid
 graph LR
@@ -627,8 +648,9 @@ The CI/CD pipeline has been updated to support automated Docker builds for all f
 - **CD Workflow**
   - Builds and pushes backend, frontend, Nginx, LiveKit, speech-service, and voice-agent images to Docker Hub
   - Provides manual trigger and cloud deployment steps
-  - Supports environment-specific image tagging (staging vs production) based on branch
+  - Supports environment-specific image tagging (staging vs production) based on branch selection
   - Enhanced deployment with dedicated resource allocation for voice services
+  - **Updated**: Environment-specific image tagging with staging (staging tag) and production (latest tag) support
 
 **Updated** Enhanced CI/CD pipeline with branch-based image tagging supporting both staging (staging tag) and production (latest tag) environments, enabling automated deployment to different environments based on branch selection.
 
@@ -717,26 +739,33 @@ The platform supports multiple deployment environments with distinct configurati
 
 - **Development Environment** (docker-compose.yml)
   - Local development with integrated voice services
+  - Frontend service mapped to host port 3000 for local access
   - Default container naming without prefixes
   - Local Ollama integration for self-hosted inference
   - Standard resource allocation for development
 - **Staging Environment** (docker-compose.staging.yml)
   - Separate staging stack with aria-staging naming convention
-  - Dedicated container names, volumes, and networks to avoid collisions
+  - Dedicated container names with staging- prefix
+  - Isolated volumes with staging_ prefix for data preservation
+  - Dedicated network (aria_staging_network) for environment separation
+  - Nginx service mapped to host port 8081 to prevent conflicts with development
   - Cloud-optimized resource limits and deploy constraints
   - Watchtower auto-updates with selective service targeting
   - Enhanced health checks for all services
+  - **Updated**: Healthchecks removed to facilitate stack deployment during debugging phases
+  - **Updated**: Added pull_policy: always to all container images for fresh deployments
 - **Production Environment** (docker-compose.prod.yml)
   - Production deployment with aria-production naming convention
   - Enhanced resource allocation for production workloads
   - Certbot integration for SSL certificate management
   - Production-specific health checks and monitoring
+  - Isolated network (aria_network) for production environment
 - **Portainer Management** (docker-compose.portainer.yml)
   - Production compose for Portainer orchestration
   - Mirrors production configuration with selective service deployment
   - Simplified environment variable management
 
-**Updated** Enhanced environment management with dedicated staging environment featuring separate container naming (staging- prefix), isolated volumes and networks, and environment-specific resource allocation for voice services.
+**Updated** Enhanced environment management with dedicated staging environment featuring separate container naming (staging- prefix), isolated volumes and networks, environment-specific resource allocation for voice services, strategic port assignment to prevent conflicts, and standardized naming conventions for volume preservation.
 
 **Section sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
@@ -767,8 +796,11 @@ The production deployment follows a structured approach with enhanced naming con
   - Comprehensive health check endpoints for all services
   - Service-specific monitoring with Docker Compose healthchecks
   - Production-specific deep health validation
+- **Network Isolation**
+  - Production network named "aria_network" for environment separation
+  - Volume preservation through standardized naming conventions
 
-**Updated** Enhanced production deployment with aria-production naming convention, dedicated resource allocation for voice services, and improved CI/CD integration with branch-based image tagging.
+**Updated** Enhanced production deployment with aria-production naming convention, dedicated resource allocation for voice services, improved CI/CD integration with branch-based image tagging, and standardized volume preservation measures with resume-screener- prefix for all containers.
 
 **Section sources**
 - [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
@@ -779,7 +811,8 @@ The staging environment provides a separate deployment environment with dedicate
 - **Stack Isolation**
   - Separate stack from production with aria-staging naming
   - Dedicated container names with staging- prefix
-  - Isolated volumes and networks to prevent collisions
+  - Isolated volumes with staging_ prefix for data preservation
+  - Isolated network (aria_staging_network) to prevent collisions
 - **Resource Allocation**
   - PostgreSQL: 2GB RAM with tuned parameters for staging workload
   - Ollama: 6GB RAM with optimized parallel processing for staging
@@ -791,12 +824,17 @@ The staging environment provides a separate deployment environment with dedicate
   - Watchtower configured for staging containers only
   - Environment-specific image tagging (staging for staging)
   - Selective service deployment with targeted restarts
+  - Nginx service mapped to host port 8081 to avoid conflicts
 - **Operational Benefits**
   - Safe testing of new features before production deployment
   - Independent resource allocation for staging workloads
   - Separate monitoring and health checking for staging services
+  - Volume preservation through standardized naming conventions
+- **Debugging Enhancements**
+  - **Updated**: Healthchecks removed from all services to facilitate stack deployment during debugging phases
+  - **Updated**: Added pull_policy: always to all container images for fresh deployments
 
-**Updated** Comprehensive staging environment with dedicated docker-compose.staging.yml featuring separate container naming, volume isolation, network separation, and environment-specific resource allocation for voice services.
+**Updated** Comprehensive staging environment with dedicated docker-compose.staging.yml featuring separate container naming, volume isolation, network separation, environment-specific resource allocation for voice services, strategic port assignment 8081:80 to prevent conflicts with development services, standardized naming conventions for volume preservation, and enhanced debugging capabilities through healthcheck removal and fresh image deployment policies.
 
 **Section sources**
 - [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
@@ -807,10 +845,10 @@ The platform includes comprehensive Portainer integration for production deploym
 - **Stack Configuration**
   - Production stack named "aria-production" for Portainer identification
   - Mirrored production compose with simplified service selection
-  - Network isolation with aria_production_network for container communication
+  - Network isolation with aria_network for container communication
 - **Service Management**
   - Selective service deployment through Portainer interface
-  - Volume management for persistent data storage
+  - Volume management for persistent data storage with resume-screener- prefix
   - Environment variable configuration through Portainer UI
 - **Operational Benefits**
   - Web-based deployment management without command-line access
@@ -823,6 +861,126 @@ The platform includes comprehensive Portainer integration for production deploym
 
 **Section sources**
 - [docker-compose.portainer.yml:1-215](file://docker-compose.portainer.yml#L1-L215)
+
+## Volume Preservation Measures
+
+### Standardized Naming Conventions
+The platform implements comprehensive volume preservation measures through standardized naming conventions:
+
+- **Production Environment Volumes**
+  - `postgres_data`: PostgreSQL data volume for production
+  - `ollama_data`: Ollama model data volume for production
+  - `certbot_certs`: SSL certificate storage for production
+  - `certbot_www`: SSL certificate web root for production
+- **Staging Environment Volumes**
+  - `staging_postgres_data`: PostgreSQL data volume for staging
+  - `staging_ollama_data`: Ollama model data volume for staging
+- **Development Environment Volumes**
+  - `postgres_data`: PostgreSQL data volume for development
+  - `ollama_data`: Ollama model data volume for development
+
+### Volume Isolation Strategy
+- **Environment-Specific Volumes**: Each environment maintains separate volume namespaces to prevent data collisions
+- **Container Name Prefixes**: All containers use resume-screener- prefix for consistent identification
+- **Network Separation**: Staging uses aria_staging_network while production uses aria_network
+- **Port Isolation**: Strategic port assignments prevent service conflicts (development: 3000, staging: 8081, production: 80)
+
+### Data Persistence Guarantees
+- **Volume Mounting**: All persistent data is mounted to named volumes for container recreation safety
+- **Model Caching**: Ollama models are cached in named volumes to eliminate cold-start delays
+- **Certificate Storage**: SSL certificates are persisted across container restarts
+- **Database Integrity**: PostgreSQL data is preserved through volume mounting for disaster recovery
+
+**Updated** Enhanced volume preservation measures with standardized naming conventions across all Docker Compose files. Implemented resume-screener- prefix for all container names and aria_network for production isolation. Added staging-specific volume naming (staging_ prefix) and network isolation (aria_staging_network) to ensure complete environment separation and data persistence.
+
+**Section sources**
+- [docker-compose.yml:177-180](file://docker-compose.yml#L177-L180)
+- [docker-compose.staging.yml:245-247](file://docker-compose.staging.yml#L245-L247)
+- [docker-compose.prod.yml:305-309](file://docker-compose.prod.yml#L305-L309)
+- [docker-compose.portainer.yml:204-208](file://docker-compose.portainer.yml#L204-L208)
+
+## Standardized Naming Conventions
+
+### Container Naming Standards
+The platform enforces standardized container naming conventions for consistent environment management:
+
+- **Production Containers**: All containers prefixed with `resume-screener-`
+  - `resume-screener-postgres`: PostgreSQL database
+  - `resume-screener-ollama`: Ollama inference service
+  - `resume-screener-backend`: Main application backend
+  - `resume-screener-frontend`: Static frontend service
+  - `resume-screener-nginx`: Reverse proxy service
+  - `resume-screener-speech-service`: Speech processing service
+  - `resume-screener-voice-agent`: Voice screening agent
+  - `resume-screener-livekit`: WebRTC SFU service
+  - `resume-screener-watchtower`: Auto-update service
+  - `resume-screener-certbot`: SSL certificate management
+  - `resume-screener-ollama-warmup`: Model warmup service
+- **Staging Containers**: All containers prefixed with `staging-`
+  - `staging-postgres`: Staging PostgreSQL database
+  - `staging-ollama`: Staging Ollama service
+  - `staging-backend`: Staging backend service
+  - `staging-frontend`: Staging frontend service
+  - `staging-nginx`: Staging reverse proxy
+  - `staging-speech-service`: Staging speech service
+  - `staging-voice-agent`: Staging voice agent
+  - `staging-livekit`: Staging LiveKit service
+  - `staging-watchtower`: Staging auto-update service
+
+### Network Naming Standards
+- **Production Network**: `aria_network` for complete environment isolation
+- **Staging Network**: `aria_staging_network` for staging environment separation
+- **Default Bridge**: Both environments use bridge driver for container networking
+
+### Volume Naming Standards
+- **Production Volumes**: Direct naming without prefixes (`postgres_data`, `ollama_data`)
+- **Staging Volumes**: Prefixed with `staging_` (`staging_postgres_data`, `staging_ollama_data`)
+- **Portainer Volumes**: Mirrors production naming for consistency
+
+### Port Assignment Standards
+- **Development Environment**: 
+  - Frontend: 3000:8080 (host:container)
+  - Backend: 8000:8000
+  - Nginx: 80:80, 443:443
+- **Staging Environment**:
+  - Frontend: 3000:8080
+  - Backend: 8000:8000
+  - Nginx: 8081:80 (host:container to prevent conflicts)
+- **Production Environment**:
+  - Frontend: 3000:8080
+  - Backend: 8000:8000
+  - Nginx: 80:80, 443:443
+
+**Updated** Implemented comprehensive standardized naming conventions across all Docker Compose files. All containers now use resume-screener- prefix for production and staging- prefix for staging environments. Network isolation achieved through aria_network and aria_staging_network naming. Volume preservation ensured through standardized naming conventions with staging_ prefix for staging environment data.
+
+**Section sources**
+- [docker-compose.yml:7-8](file://docker-compose.yml#L7-L8)
+- [docker-compose.yml:25-26](file://docker-compose.yml#L25-L26)
+- [docker-compose.yml:56-57](file://docker-compose.yml#L56-L57)
+- [docker-compose.yml:85-86](file://docker-compose.yml#L85-L86)
+- [docker-compose.yml:95-96](file://docker-compose.yml#L95-L96)
+- [docker-compose.yml:118-119](file://docker-compose.yml#L118-L119)
+- [docker-compose.yml:142-143](file://docker-compose.yml#L142-L143)
+- [docker-compose.yml:152-153](file://docker-compose.yml#L152-L153)
+- [docker-compose.yml:119](file://docker-compose.yml#L119)
+- [docker-compose.yml:143](file://docker-compose.yml#L143)
+- [docker-compose.yml:153](file://docker-compose.yml#L153)
+- [docker-compose.staging.yml:14-15](file://docker-compose.staging.yml#L14-L15)
+- [docker-compose.staging.yml:43-44](file://docker-compose.staging.yml#L43-L44)
+- [docker-compose.staging.yml:68-69](file://docker-compose.staging.yml#L68-L69)
+- [docker-compose.staging.yml:100-101](file://docker-compose.staging.yml#L100-L101)
+- [docker-compose.staging.yml:113-114](file://docker-compose.staging.yml#L113-L114)
+- [docker-compose.staging.yml:184-185](file://docker-compose.staging.yml#L184-L185)
+- [docker-compose.staging.yml:209-210](file://docker-compose.staging.yml#L209-L210)
+- [docker-compose.staging.yml:219-220](file://docker-compose.staging.yml#L219-L220)
+- [docker-compose.prod.yml:13-14](file://docker-compose.prod.yml#L13-L14)
+- [docker-compose.prod.yml:45-46](file://docker-compose.prod.yml#L45-L46)
+- [docker-compose.prod.yml:81-82](file://docker-compose.prod.yml#L81-L82)
+- [docker-compose.prod.yml:124-125](file://docker-compose.prod.yml#L124-L125)
+- [docker-compose.prod.yml:136-137](file://docker-compose.prod.yml#L136-L137)
+- [docker-compose.prod.yml:240-241](file://docker-compose.prod.yml#L240-L241)
+- [docker-compose.prod.yml:267-268](file://docker-compose.prod.yml#L267-L268)
+- [docker-compose.prod.yml:279-280](file://docker-compose.prod.yml#L279-L280)
 
 ## Dependency Analysis
 - **Internal dependencies**
@@ -901,8 +1059,21 @@ VoiceAgent --> Backend
   - Shallow health check (<10ms) for container health monitoring
   - Deep health check provides comprehensive dependency validation
   - Voice service health checks validate model readiness
+  - LiveKit health checks for WebRTC service availability
+- **Port conflict prevention**
+  - Development frontend mapped to port 3000:8080
+  - Staging Nginx mapped to port 8081:80
+  - Production Nginx mapped to port 80:80
+- **Volume preservation optimization**
+  - Standardized naming conventions ensure data persistence across environment switches
+  - Environment-specific volumes prevent data collisions
+  - Network isolation prevents service conflicts
+- **Staging environment optimization**
+  - **Updated**: Healthchecks removed to facilitate stack deployment during debugging phases
+  - **Updated**: Added pull_policy: always to all container images for fresh deployments
+  - **Updated**: Increased backend healthcheck start_period to accommodate slower startup times
 
-**Updated** Enhanced performance considerations with dedicated resource allocation for voice services in staging and production environments, including specific memory allocations for LiveKit (1G), Speech Service (3-4G), and Voice Agent (1-2G) based on environment-specific requirements.
+**Updated** Enhanced performance considerations with dedicated resource allocation for voice services in staging and production environments, including specific memory allocations for LiveKit (1G), Speech Service (3-4G), and Voice Agent (1-2G) based on environment-specific requirements, strategic port assignments to prevent conflicts, and standardized naming conventions for volume preservation.
 
 **Section sources**
 - [docker-compose.prod.yml:82-84](file://docker-compose.prod.yml#L82-L84)
@@ -959,12 +1130,29 @@ VoiceAgent --> Backend
   - Verify correct environment variables for staging vs production
   - Check stack naming conventions (aria-staging vs aria-production)
   - Ensure proper resource allocation for target environment
+  - Verify port assignments to prevent conflicts (3000:8080 for dev, 8081:80 for staging)
+  - Check volume naming conventions for data preservation
+  - Verify network isolation (aria_network vs aria_staging_network)
 - **CI/CD pipeline issues**
   - Verify branch-based image tagging is working correctly
   - Check Docker Hub credentials and image permissions
   - Monitor CI/CD workflow execution and artifact publishing
+  - **Updated**: Verify environment-specific image tagging (staging vs production)
+- **Port conflict issues**
+  - Development: Ensure port 3000 is available on host machine
+  - Staging: Ensure port 8081 is available on host machine
+  - Production: Ensure ports 80 and 443 are available on host machine
+- **Volume preservation issues**
+  - Verify volume naming conventions match environment (staging_ prefix for staging)
+  - Check container names use resume-screener- prefix for production
+  - Ensure network isolation prevents cross-environment data access
+  - Verify proper volume mounting for persistent data
+- **Staging environment debugging issues**
+  - **Updated**: Healthchecks removed to facilitate stack deployment during debugging phases
+  - **Updated**: Use pull_policy: always to ensure fresh container images
+  - **Updated**: Monitor increased backend healthcheck start_period for slower startups
 
-**Updated** Enhanced troubleshooting guide with environment-specific issues including CI/CD pipeline troubleshooting for branch-based image tagging and deployment to different environments.
+**Updated** Enhanced troubleshooting guide with environment-specific issues including CI/CD pipeline troubleshooting for branch-based image tagging, deployment to different environments, port conflict resolution strategies for development (3000:8080), staging (8081:80), and production (80:80) environments, and volume preservation troubleshooting for standardized naming conventions.
 
 **Section sources**
 - [README.md:339-355](file://README.md#L339-L355)
@@ -973,7 +1161,7 @@ VoiceAgent --> Backend
 ## Conclusion
 This guide outlines a robust, cloud-first deployment process for Resume AI by ThetaLogics with enhanced voice screening capabilities and comprehensive microservices architecture. It leverages Docker Compose for development with cloud-native defaults, GitHub Actions for CI/CD with automated Docker builds for all four services, and production-grade orchestration with Watchtower and Certbot. The system emphasizes enhanced health checks, zero-downtime rolling restarts, streaming readiness, comprehensive queue processing, SSL security, migration management, voice service integration, and operational simplicity for maintenance and scaling in cloud environments.
 
-**Updated** Enhanced emphasis on cloud-native deployment patterns with Ollama Cloud as the default configuration, comprehensive voice screening microservices architecture, LiveKit WebRTC SFU integration, speech processing capabilities, automated CI/CD builds for all core services with branch-based image tagging, dedicated staging environment configuration, and improved production deployment with aria-production naming convention.
+**Updated** Enhanced emphasis on cloud-native deployment patterns with Ollama Cloud as the default configuration, comprehensive voice screening microservices architecture, LiveKit WebRTC SFU integration, speech processing capabilities, automated CI/CD builds for all core services with branch-based image tagging, dedicated staging environment configuration with strategic port conflict prevention, improved production deployment with aria-production naming convention, standardized volume preservation measures, and comprehensive naming conventions across all environments.
 
 ## Appendices
 
@@ -1056,7 +1244,7 @@ GH->>Cloud : "Deploy to cloud infrastructure"
 - **Example variables**
   - Database credentials, JWT secret, Ollama Cloud API key, timeouts, and environment mode
 
-**Updated** Enhanced environment variables with staging-specific variables (STAGING_* prefix) and production-specific variables with aria-production naming convention, supporting the new staging environment configuration.
+**Updated** Enhanced environment variables with staging-specific variables (STAGING_* prefix) and production-specific variables with aria-production naming convention, supporting the new staging environment configuration with strategic port assignments and standardized naming conventions.
 
 **Section sources**
 - [docker-compose.yml:60-82](file://docker-compose.yml#L60-L82)
@@ -1086,13 +1274,15 @@ GH->>Cloud : "Deploy to cloud infrastructure"
 - **Environment-specific monitoring**
   - Staging environment health checks with aria-staging naming
   - Production environment monitoring with aria-production naming
+  - Port conflict monitoring for staging (8081:80) vs development (3000:8080)
   - Portainer-managed monitoring through web interface
+  - Volume preservation monitoring through standardized naming conventions
 - **Cloud-native observability**
   - Use container logs and health endpoints for basic monitoring
   - Extend with external tools for metrics and alerting in cloud environments
   - Prometheus metrics collection for cloud monitoring
 
-**Updated** Enhanced monitoring with environment-specific health checks for staging (aria-staging) and production (aria-production) environments, including dedicated monitoring for voice services across all environments.
+**Updated** Enhanced monitoring with environment-specific health checks for staging (aria-staging) and production (aria-production) environments, including dedicated monitoring for voice services across all environments, port conflict prevention strategies, and volume preservation monitoring through standardized naming conventions.
 
 **Section sources**
 - [app/backend/main.py:354-460](file://app/backend/main.py#L354-L460)
@@ -1127,8 +1317,17 @@ GH->>Cloud : "Deploy to cloud infrastructure"
 - **Voice service rollback**
   - Rollback LiveKit, Speech Service, and Voice Agent together
   - Ensure consistent model versions across voice services
+- **Port conflict rollback**
+  - Verify port assignments are correct (3000:8080 for dev, 8081:80 for staging)
+  - Check for port conflicts before redeploying
+  - Use different host ports if conflicts persist
+- **Volume preservation rollback**
+  - Verify volume naming conventions match environment
+  - Check container names use appropriate prefixes
+  - Ensure network isolation prevents data corruption
+  - Validate proper volume mounting for data persistence
 
-**Updated** Enhanced rollback procedures with environment-specific considerations for staging (aria-staging) and production (aria-production) environments, including selective service deployment through Portainer.
+**Updated** Enhanced rollback procedures with environment-specific considerations for staging (aria-staging) and production (aria-production) environments, including selective service deployment through Portainer, port conflict resolution strategies, and volume preservation through standardized naming conventions.
 
 **Section sources**
 - [docker-compose.prod.yml:205-211](file://docker-compose.prod.yml#L205-L211)
@@ -1162,8 +1361,16 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Scale LiveKit horizontally for multiple concurrent calls
   - Scale Speech Service based on audio processing demands
   - Monitor voice agent resource utilization during scaling
+- **Port conflict prevention**
+  - Development: Use port 3000 for frontend access
+  - Staging: Use port 8081 for Nginx access
+  - Production: Use ports 80 and 443 for standard web access
+- **Volume preservation scaling**
+  - Standardized naming conventions ensure data persistence during scaling
+  - Environment-specific volumes prevent data collisions during expansion
+  - Network isolation maintains service separation during scaling operations
 
-**Updated** Enhanced scaling considerations with environment-specific resource allocation for voice services, including dedicated memory allocations for staging (LiveKit: 1G, Speech Service: 3G, Voice Agent: 1G) and production (LiveKit: 1G, Speech Service: 4G, Voice Agent: 2G) environments.
+**Updated** Enhanced scaling considerations with environment-specific resource allocation for voice services, including dedicated memory allocations for staging (LiveKit: 1G, Speech Service: 3G, Voice Agent: 1G) and production (LiveKit: 1G, Speech Service: 4G, Voice Agent: 2G) environments, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and network isolation for environment separation.
 
 **Section sources**
 - [docker-compose.prod.yml:82-84](file://docker-compose.prod.yml#L82-L84)
@@ -1185,6 +1392,8 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Use cloud-native security groups and network policies
   - Isolate voice services on separate networks if needed
   - Stack isolation with aria-staging and aria-production naming
+  - Port conflict prevention through strategic port assignments
+  - Network isolation through aria_network and aria_staging_network
 - **SSL/TLS**
   - Use Certbot for automatic certificate management and renewal
   - Cloud-native SSL termination and certificate management
@@ -1204,8 +1413,17 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Secure Speech Service endpoints with proper authentication
   - Protect LiveKit SIP credentials and Twilio integration
   - Monitor voice agent conversations for security compliance
+- **Port security**
+  - Development: Port 3000 for internal development access only
+  - Staging: Port 8081 for staging access only
+  - Production: Ports 80/443 for public web access
+  - Firewall rules should restrict access to appropriate ports
+- **Volume security**
+  - Standardized naming conventions prevent cross-environment data access
+  - Environment-specific volumes ensure data isolation
+  - Network isolation prevents unauthorized service communication
 
-**Updated** Enhanced security hardening with environment-specific considerations for staging and production deployments, including dedicated network isolation and resource allocation for voice services.
+**Updated** Enhanced security hardening with environment-specific considerations for staging and production deployments, including dedicated network isolation (aria_network and aria_staging_network), resource allocation for voice services, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and secure access control for different environments.
 
 **Section sources**
 - [.github/workflows/cd.yml:60-64](file://.github/workflows/cd.yml#L60-L64)
@@ -1241,8 +1459,17 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Backup LiveKit configuration and SIP trunk settings
   - Backup Speech Service model configurations
   - Ensure voice agent state can be recovered during disaster scenarios
+- **Port conflict backup**
+  - Document port assignments for each environment
+  - Verify port availability before disaster recovery
+  - Plan for port conflicts during recovery procedures
+- **Volume preservation backup**
+  - Verify volume naming conventions match environment
+  - Check container names use appropriate prefixes
+  - Ensure network isolation prevents data corruption during recovery
+  - Validate proper volume mounting for data persistence
 
-**Updated** Enhanced backup and disaster recovery with environment-specific considerations for staging and production deployments, including dedicated resource allocation and network isolation for voice services.
+**Updated** Enhanced backup and disaster recovery with environment-specific considerations for staging and production deployments, including dedicated resource allocation and network isolation for voice services, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and comprehensive backup procedures for all environment-specific configurations.
 
 **Section sources**
 - [docker-compose.yml:99-101](file://docker-compose.yml#L99-L101)
@@ -1279,8 +1506,17 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Graceful shutdown of voice services during updates
   - LiveKit connection cleanup and reconnection
   - Speech Service model warmup verification after updates
+- **Port conflict prevention**
+  - Development: Use port 3000 for frontend access
+  - Staging: Use port 8081 for Nginx access
+  - Production: Use ports 80 and 443 for standard web access
+  - Verify port availability before deployment
+- **Volume preservation deployment**
+  - Standardized naming conventions ensure data persistence during updates
+  - Environment-specific volumes prevent data collisions during deployment
+  - Network isolation maintains service separation during zero-downtime updates
 
-**Updated** Enhanced zero-downtime deployment strategy with environment-specific considerations for staging and production deployments, including dedicated resource allocation and CI/CD integration with branch-based image tagging.
+**Updated** Enhanced zero-downtime deployment strategy with environment-specific considerations for staging and production deployments, including dedicated resource allocation, CI/CD integration with branch-based image tagging, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and comprehensive deployment procedures for all environment-specific configurations.
 
 **Section sources**
 - [docker-compose.prod.yml:205-211](file://docker-compose.prod.yml#L205-L211)
@@ -1343,8 +1579,17 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Optimize poll intervals for job processing throughput
   - Configure retry delays for optimal fault tolerance
   - Tune voice service resource allocation based on call volume
+- **Port conflict administration**
+  - Monitor port assignments for each environment
+  - Verify port availability before service startup
+  - Resolve port conflicts through configuration changes
+- **Volume preservation administration**
+  - Monitor volume naming conventions for data integrity
+  - Verify environment-specific volume isolation
+  - Ensure proper container naming for service identification
+  - Validate network isolation for environment separation
 
-**Updated** Enhanced voice system administration with environment-specific considerations for staging and production deployments, including dedicated resource allocation and monitoring for voice services across all environments.
+**Updated** Enhanced voice system administration with environment-specific considerations for staging and production deployments, including dedicated resource allocation and monitoring for voice services across all environments, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and comprehensive administration procedures for all environment-specific configurations.
 
 **Section sources**
 - [app/backend/routes/voice.py:211-282](file://app/backend/routes/voice.py#L211-L282)

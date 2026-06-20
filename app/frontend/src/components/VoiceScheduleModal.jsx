@@ -4,7 +4,7 @@ import {
   AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { scheduleVoiceCall, rescheduleVoiceCall } from '../lib/api'
+import { scheduleVoiceCall, rescheduleVoiceCall, getNextAvailableSlot } from '../lib/api'
 import { getCandidates } from '../lib/api'
 
 const springTransition = { type: 'spring', stiffness: 300, damping: 28 }
@@ -28,9 +28,23 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
+  const [suggestedSlot, setSuggestedSlot] = useState(null)
 
   const isPreselected = !!preselectedCandidate
   const isEditing = !!editSession
+
+  // Auto-suggest next available slot for new schedules
+  useEffect(() => {
+    if (isEditing) return
+    getNextAvailableSlot().then(data => {
+      if (data?.suggested_at && !scheduledAt) {
+        setSuggestedSlot(data.suggested_at)
+        const d = new Date(data.suggested_at)
+        const offset = d.getTimezoneOffset()
+        setScheduledAt(new Date(d.getTime() - offset * 60000).toISOString().slice(0, 16))
+      }
+    }).catch(() => {})
+  }, [isEditing])
 
   useEffect(() => {
     if (isPreselected || isEditing) return
@@ -249,6 +263,9 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
               className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 text-sm outline-none"
             />
             <p className="text-xs text-slate-400 mt-1">
+              {suggestedSlot && !isEditing ? (
+                <span className="text-brand-600 font-medium">Suggested: {new Date(suggestedSlot).toLocaleString()} — </span>
+              ) : null}
               Leave empty to schedule immediately. Calls are adjusted to business hours.
             </p>
           </div>

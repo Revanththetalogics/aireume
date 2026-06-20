@@ -716,6 +716,8 @@ class VoiceScreeningSessionOut(BaseModel):
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
     jd_title: Optional[str] = None
+    call_count: Optional[int] = None
+    match_score: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -733,6 +735,11 @@ class RescheduleVoiceCallRequest(BaseModel):
     phone_number: Optional[str] = None  # E.164; None = keep existing
     scheduled_at: Optional[datetime] = None  # UTC; None = schedule immediately
     jd_id: Optional[int] = None
+
+
+class BulkCancelRequest(BaseModel):
+    """Body for POST /api/voice/sessions/bulk-cancel."""
+    session_ids: List[int]
 
 
 class ScheduleVoiceCallResponse(BaseModel):

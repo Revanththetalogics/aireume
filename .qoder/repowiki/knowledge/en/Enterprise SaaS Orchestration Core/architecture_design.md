@@ -1,0 +1,4 @@
+- Centralized Governance: Shared service layer (`audit_service`, `security_event_service`, `erasure_service`) enforces cross-cutting compliance (GDPR, SOC2) and security logging across all tenant operations.
+- Dynamic Provider Wiring: `billing.factory` and `feature_flag_service` use database-driven configurations to dynamically instantiate payment providers and toggle features per tenant without code changes.
+- Unified Notification & Alerting: `usage_alert_service` and `voice_screening_service` integrate with a common notification backbone (email/webhook) to ensure consistent user communication for quota limits and screening events.
+- Shared AI Infrastructure: `llm_service` provides a centralized semaphore and health sentinel for Ollama, preventing resource contention across voice, resume, and transcript analysis modules.

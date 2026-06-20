@@ -7,18 +7,28 @@ Endpoints:
   POST   /api/voice/schedule          — Schedule a voice screening call
   GET    /api/voice/sessions          — List voice sessions for tenant
   GET    /api/voice/sessions/{id}     — Get session detail with transcript
+  GET    /api/voice/sessions/analytics — Session analytics summary
+  POST   /api/voice/sessions/bulk-cancel — Cancel multiple sessions
+  GET    /api/voice/sessions/export   — Export sessions as CSV
+  GET    /api/voice/next-slot         — Next available call slot
 """
+import csv
+import io
 import json
 import logging
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import (
     User, VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry, Candidate, RoleTemplate,
+    ScreeningResult,
 )
 from app.backend.models.schemas import (
     VoiceTenantConfigUpdate,
@@ -28,6 +38,7 @@ from app.backend.models.schemas import (
     ScheduleVoiceCallRequest,
     ScheduleVoiceCallResponse,
     RescheduleVoiceCallRequest,
+    BulkCancelRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,6 +162,8 @@ def schedule_voice_call(
 def list_voice_sessions(
     candidate_id: int = None,
     status: str = None,
+    search: str = None,
+    jd_id: int = None,
     limit: int = 50,
     offset: int = 0,
     user: User = Depends(get_current_user),
@@ -170,9 +183,59 @@ def list_voice_sessions(
         query = query.where(VoiceScreeningSession.candidate_id == candidate_id)
     if status is not None:
         query = query.where(VoiceScreeningSession.status == status)
+    if jd_id is not None:
+        query = query.where(VoiceScreeningSession.jd_id == jd_id)
+    if search and len(search) >= 2:
+        search_term = f"%{search}%"
+        query = query.join(Candidate, VoiceScreeningSession.candidate_id == Candidate.id).where(
+            or_(
+                Candidate.name.ilike(search_term),
+                Candidate.email.ilike(search_term),
+                VoiceScreeningSession.phone_number.ilike(search_term),
+            )
+        )
 
     query = query.order_by(VoiceScreeningSession.created_at.desc()).limit(limit).offset(offset)
     sessions = db.execute(query).scalars().all()
+
+    # Compute call_count per candidate in batch
+    candidate_ids = list({s.candidate_id for s in sessions})
+    call_counts = {}
+    if candidate_ids:
+        count_rows = db.execute(
+            select(
+                VoiceScreeningSession.candidate_id,
+                func.count(VoiceScreeningSession.id).label("cnt"),
+            )
+            .where(
+                VoiceScreeningSession.tenant_id == user.tenant_id,
+                VoiceScreeningSession.candidate_id.in_(candidate_ids),
+            )
+            .group_by(VoiceScreeningSession.candidate_id)
+        ).all()
+        call_counts = {r.candidate_id: r.cnt for r in count_rows}
+
+    # Compute match_score per (candidate, jd) in batch
+    match_scores = {}
+    jd_pairs = list({(s.candidate_id, s.jd_id) for s in sessions if s.jd_id})
+    if jd_pairs:
+        cand_ids_for_score = list({p[0] for p in jd_pairs})
+        jd_ids_for_score = list({p[1] for p in jd_pairs})
+        score_rows = db.execute(
+            select(
+                ScreeningResult.candidate_id,
+                ScreeningResult.role_template_id,
+                ScreeningResult.deterministic_score,
+            )
+            .where(
+                ScreeningResult.tenant_id == user.tenant_id,
+                ScreeningResult.candidate_id.in_(cand_ids_for_score),
+                ScreeningResult.role_template_id.in_(jd_ids_for_score),
+                ScreeningResult.is_active == True,
+            )
+        ).all()
+        for r in score_rows:
+            match_scores[(r.candidate_id, r.role_template_id)] = r.deterministic_score
 
     results = []
     for s in sessions:
@@ -180,6 +243,8 @@ def list_voice_sessions(
         out.candidate_name = s.candidate.name if s.candidate else None
         out.candidate_email = s.candidate.email if s.candidate else None
         out.jd_title = s.jd.name if s.jd else None
+        out.call_count = call_counts.get(s.candidate_id, 0)
+        out.match_score = match_scores.get((s.candidate_id, s.jd_id)) if s.jd_id else None
         results.append(out)
     return results
 
@@ -223,6 +288,196 @@ def get_voice_session(
     result_dict["transcript"] = [VoiceTranscriptEntryOut.model_validate(e) for e in entries]
 
     return result_dict
+
+
+# ─── Session Analytics ────────────────────────────────────────────────────────
+
+@router.get("/sessions/analytics")
+def get_session_analytics(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return aggregate analytics for voice screening sessions."""
+    tenant_id = user.tenant_id
+
+    rows = db.execute(
+        select(
+            func.count(VoiceScreeningSession.id).label("total"),
+            func.count(VoiceScreeningSession.id).filter(
+                VoiceScreeningSession.status == "completed"
+            ).label("completed"),
+            func.avg(VoiceScreeningSession.duration_seconds).filter(
+                VoiceScreeningSession.duration_seconds.isnot(None)
+            ).label("avg_duration"),
+        ).where(VoiceScreeningSession.tenant_id == tenant_id)
+    ).one()
+
+    total = rows.total or 0
+    completed = rows.completed or 0
+    connection_rate = round((completed / total * 100) if total > 0 else 0, 1)
+    avg_duration = int(rows.avg_duration) if rows.avg_duration else 0
+
+    # Status breakdown
+    status_rows = db.execute(
+        select(
+            VoiceScreeningSession.status,
+            func.count(VoiceScreeningSession.id).label("cnt"),
+        )
+        .where(VoiceScreeningSession.tenant_id == tenant_id)
+        .group_by(VoiceScreeningSession.status)
+    ).all()
+    status_breakdown = {r.status: r.cnt for r in status_rows}
+
+    # Today's count
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_count = db.execute(
+        select(func.count(VoiceScreeningSession.id))
+        .where(
+            VoiceScreeningSession.tenant_id == tenant_id,
+            VoiceScreeningSession.created_at >= today_start,
+        )
+    ).scalar() or 0
+
+    return {
+        "total": total,
+        "completed": completed,
+        "connection_rate": connection_rate,
+        "avg_duration_seconds": avg_duration,
+        "status_breakdown": status_breakdown,
+        "today_count": today_count,
+    }
+
+
+# ─── Bulk Cancel ──────────────────────────────────────────────────────────────
+
+@router.post("/sessions/bulk-cancel")
+def bulk_cancel_sessions(
+    body: BulkCancelRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cancel multiple voice screening sessions at once."""
+    sessions = db.execute(
+        select(VoiceScreeningSession).where(
+            VoiceScreeningSession.id.in_(body.session_ids),
+            VoiceScreeningSession.tenant_id == user.tenant_id,
+        )
+    ).scalars().all()
+
+    cancelled = 0
+    skipped = 0
+    for session in sessions:
+        if session.status in ("completed", "cancelled", "ended"):
+            skipped += 1
+            continue
+        from app.backend.services.voice_call_scheduler import cancel_pending_retries
+        cancel_pending_retries(session.id)
+        session.status = "cancelled"
+        cancelled += 1
+
+    db.commit()
+    return {"cancelled": cancelled, "skipped": skipped}
+
+
+# ─── CSV Export ───────────────────────────────────────────────────────────────
+
+@router.get("/sessions/export")
+def export_sessions_csv(
+    status: str = None,
+    search: str = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Export voice screening sessions as a CSV file."""
+    query = (
+        select(VoiceScreeningSession)
+        .where(VoiceScreeningSession.tenant_id == user.tenant_id)
+        .options(
+            selectinload(VoiceScreeningSession.candidate),
+            selectinload(VoiceScreeningSession.jd),
+        )
+        .order_by(VoiceScreeningSession.created_at.desc())
+    )
+
+    if status:
+        query = query.where(VoiceScreeningSession.status == status)
+    if search and len(search) >= 2:
+        search_term = f"%{search}%"
+        query = query.join(Candidate, VoiceScreeningSession.candidate_id == Candidate.id).where(
+            or_(
+                Candidate.name.ilike(search_term),
+                Candidate.email.ilike(search_term),
+            )
+        )
+
+    sessions = db.execute(query).scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Candidate", "Phone", "Status", "Direction", "Job", "Scheduled", "Duration (s)", "Retries", "Created"])
+    for s in sessions:
+        writer.writerow([
+            s.candidate.name if s.candidate else "",
+            s.phone_number,
+            s.status,
+            s.direction,
+            s.jd.name if s.jd else "",
+            str(s.scheduled_at) if s.scheduled_at else "",
+            s.duration_seconds or "",
+            s.retry_count,
+            str(s.created_at) if s.created_at else "",
+        ])
+
+    output.seek(0)
+    filename = f"voice_sessions_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ─── Next Available Slot ─────────────────────────────────────────────────────
+
+@router.get("/next-slot")
+def get_next_available_slot(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the next available call slot based on business hours config."""
+    config = db.execute(
+        select(VoiceTenantConfig).where(VoiceTenantConfig.tenant_id == user.tenant_id)
+    ).scalar_one_or_none()
+
+    if config is None:
+        # Default: next hour on the hour
+        now = datetime.now(timezone.utc)
+        suggested = now + timedelta(hours=1)
+        return {"suggested_at": suggested.isoformat()}
+
+    try:
+        start_h, start_m = map(int, config.business_hours_start.split(":"))
+        end_h, end_m = map(int, config.business_hours_end.split(":"))
+        allowed_days = config.allowed_days or [1, 2, 3, 4, 5]
+    except (ValueError, AttributeError):
+        now = datetime.now(timezone.utc)
+        suggested = now + timedelta(hours=1)
+        return {"suggested_at": suggested.isoformat()}
+
+    # Start from tomorrow at business hours start
+    now = datetime.now(timezone.utc)
+    candidate = now + timedelta(days=1)
+    candidate = candidate.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+
+    # Find next allowed day
+    for _ in range(14):
+        day_of_week = candidate.isoweekday()  # Mon=1 .. Sun=7
+        if day_of_week in allowed_days:
+            return {"suggested_at": candidate.isoformat()}
+        candidate += timedelta(days=1)
+
+    # Fallback
+    return {"suggested_at": (now + timedelta(days=1)).isoformat()}
 
 
 # ─── Internal Endpoints (service-to-service, no auth) ─────────────────────────

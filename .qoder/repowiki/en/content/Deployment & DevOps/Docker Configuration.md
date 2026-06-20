@@ -4,6 +4,8 @@
 **Referenced Files in This Document**
 - [docker-compose.yml](file://docker-compose.yml)
 - [docker-compose.prod.yml](file://docker-compose.prod.yml)
+- [docker-compose.staging.yml](file://docker-compose.staging.yml)
+- [docker-compose.portainer.yml](file://docker-compose.portainer.yml)
 - [app/backend/Dockerfile](file://app/backend/Dockerfile)
 - [app/frontend/Dockerfile](file://app/frontend/Dockerfile)
 - [nginx/Dockerfile](file://nginx/Dockerfile)
@@ -28,16 +30,20 @@
 - [ollama/setup-recruiter-model.sh](file://ollama/setup-recruiter-model.sh)
 - [app/backend/services/hybrid_pipeline.py](file://app/backend/services/hybrid_pipeline.py)
 - [app/backend/services/llm_service.py](file://app/backend/services/llm_service.py)
+- [app/backend/db/database.py](file://app/backend/db/database.py)
+- [app/backend/models/db_models.py](file://app/backend/models/db_models.py)
+- [alembic/env.py](file://alembic/env.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated LiveKit server configuration approach from volume-mounted to image-baked configuration
-- Added new Dockerfile.livekit that copies livekit.yaml directly into the container during build process
-- Production compose file now uses custom image revanth2245/resume-livekit:latest instead of official livekit/livekit-server:latest
-- Development compose file uses build directive referencing the new Dockerfile.livekit while maintaining custom image tag
-- Enhanced LiveKit configuration management with embedded YAML file approach
-- Updated container networking and inter-service communication patterns for voice services
+- Enhanced Docker Compose configuration with port standardization for staging environment
+- Improved networking connectivity for production environment through extra_hosts configuration
+- Added seamless inter-environment communication support via host.docker.internal mapping
+- Updated staging environment to use standardized LiveKit port mappings (7890:7880, 7891:7881, 7892:7882/udp)
+- Enhanced production environment networking with host-gateway resolution for container communication
+- **Updated** Added host.docker.internal routing support for improved container-host communication
+- **Updated** Enhanced staging environment isolation with separate network configuration
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -56,6 +62,8 @@
 This document explains the Docker configuration for Resume AI by ThetaLogics, covering:
 - Development environment setup with docker-compose.yml
 - Production deployment with docker-compose.prod.yml, including multi-stage builds, resource limits, and security settings
+- **Updated** Enhanced networking connectivity with extra_hosts configuration for seamless inter-environment communication
+- **Updated** Port standardization for staging environment with standardized LiveKit port mappings
 - Container networking, volumes, and inter-service communication
 - Dockerfile configurations for backend and frontend, including build optimization and runtime behavior
 - **Updated** Voice screening infrastructure with speech-service, voice-agent, and LiveKit integration
@@ -100,6 +108,18 @@ ProdRedis["redis (optional)"]
 ProdWarmup["ollama-warmup"]
 ProdWatchtower["watchtower"]
 ProdCertbot["certbot"]
+ProdExtraHosts["extra_hosts: host.docker.internal:host-gateway"]
+end
+subgraph "Staging"
+StagingNginx["nginx (staging)"]
+StagingFrontend["frontend (staging)"]
+StagingBackend["backend (staging)"]
+StagingPostgres["postgres"]
+StagingOllama["ollama"]
+StagingSpeech["speech-service (staging)"]
+StagingVoiceAgent["voice-agent (staging)"]
+StagingLiveKit["livekit (standardized ports)"]
+StagingNetwork["aria_staging_network"]
 end
 DevNginx --> DevFrontend
 DevNginx --> DevBackend
@@ -126,27 +146,41 @@ ProdWatchtower --> ProdSpeech
 ProdWatchtower --> ProdVoiceAgent
 ProdWatchtower --> ProdLiveKit
 ProdCertbot --> ProdNginx
+ProdExtraHosts --> ProdNginx
+StagingNginx --> StagingFrontend
+StagingNginx --> StagingBackend
+StagingBackend --> StagingPostgres
+StagingBackend --> StagingOllama
+StagingSpeech --> StagingLiveKit
+StagingVoiceAgent --> StagingLiveKit
+StagingVoiceAgent --> StagingSpeech
+StagingVoiceAgent --> StagingBackend
+StagingLiveKit --> StagingNetwork
 ```
 
 **Diagram sources**
 - [docker-compose.yml:5-180](file://docker-compose.yml#L5-L180)
-- [docker-compose.prod.yml:7-320](file://docker-compose.prod.yml#L7-L320)
+- [docker-compose.prod.yml:7-318](file://docker-compose.prod.yml#L7-L318)
+- [docker-compose.staging.yml:1-224](file://docker-compose.staging.yml#L1-L224)
 
 **Section sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.prod.yml:1-320](file://docker-compose.prod.yml#L1-L320)
+- [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
+- [docker-compose.staging.yml:1-224](file://docker-compose.staging.yml#L1-L224)
 
 ## Core Components
 - Backend service
   - Uses a Python slim base image, installs system dependencies, copies requirements and application code, and sets environment variables for database and Ollama Cloud connectivity.
-  - Entrypoint runs Alembic migrations for PostgreSQL and waits for Ollama readiness before launching Uvicorn.
+  - **Updated** Entrypoint now includes explicit model import before Base.metadata.create_all() execution to ensure proper table creation.
+  - **Updated** Alembic migrations run after model registration for PostgreSQL databases.
   - Exposes port 8000 and supports single-worker default; production overrides to multiple workers.
 - Frontend service
   - Multi-stage build: Node builder produces static assets, then copied into an Nginx runtime image.
   - Serves compiled SPA on port 8080; development compose binds host port 3000 to container port 80.
 - Nginx service
   - Development: proxies to host-based dev servers for frontend and backend.
-  - Production: reverse proxy with health checks, streaming support, CORS handling, and dynamic DNS resolution for container IPs.
+  - **Updated** Production: reverse proxy with health checks, streaming support, CORS handling, and dynamic DNS resolution for container IPs including extra_hosts configuration for seamless inter-environment communication.
+  - **Updated** Staging: uses standardized port mappings for LiveKit services (7890:7880, 7891:7881, 7892:7882/udp) to avoid port conflicts with production.
 - Database and LLM
   - Postgres with persistent volumes and health checks.
   - Ollama with enhanced memory allocation settings for parallelism, caching, and model loading; production includes a dedicated warmup job with optimized resource limits.
@@ -164,6 +198,7 @@ ProdCertbot --> ProdNginx
   - Provides WebSocket (7880), RTC (7881), and TURN (7882/udp) interfaces.
   - **Updated** Configuration via embedded livekit.yaml file instead of volume mounting for improved reliability and deployment consistency.
   - **Enhanced** Redis integration support for multi-node deployment scenarios.
+  - **Updated** Staging environment uses standardized port mappings (7890:7880, 7891:7881, 7892:7882/udp) to prevent conflicts with production LiveKit services.
 - Optional production services
   - Watchtower for automated updates of tagged images including new voice services.
   - Certbot for Let's Encrypt certificate lifecycle management.
@@ -175,34 +210,43 @@ ProdCertbot --> ProdNginx
 - [app/speech_service/Dockerfile:1-32](file://app/speech_service/Dockerfile#L1-L32)
 - [app/voice_agent/Dockerfile:1-31](file://app/voice_agent/Dockerfile#L1-L31)
 - [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
-- [app/backend/scripts/docker-entrypoint.sh:1-20](file://app/backend/scripts/docker-entrypoint.sh#L1-L20)
+- [app/backend/scripts/docker-entrypoint.sh:1-22](file://app/backend/scripts/docker-entrypoint.sh#L1-L22)
 - [app/backend/scripts/wait_for_ollama.py:1-108](file://app/backend/scripts/wait_for_ollama.py#L1-L108)
 - [docker-compose.yml:53-180](file://docker-compose.yml#L53-L180)
-- [docker-compose.prod.yml:7-320](file://docker-compose.prod.yml#L7-L320)
+- [docker-compose.prod.yml:7-318](file://docker-compose.prod.yml#L7-L318)
+- [docker-compose.staging.yml:160-179](file://docker-compose.staging.yml#L160-L179)
 
 ## Architecture Overview
-The system comprises seven primary runtime services plus optional production-only services. Inter-service communication relies on Docker Compose networking with service names as hostnames. The backend coordinates with Postgres and Ollama Cloud; Nginx fronts both frontend and backend traffic. **New** voice services integrate through LiveKit for WebRTC communication and speech processing services for audio analysis.
+The system comprises seven primary runtime services plus optional production-only services. Inter-service communication relies on Docker Compose networking with service names as hostnames. The backend coordinates with Postgres and Ollama Cloud; Nginx fronts both frontend and backend traffic. **New** voice services integrate through LiveKit for WebRTC communication and speech processing services for audio analysis. **Updated** Production environment includes enhanced networking with extra_hosts configuration for seamless inter-environment communication via host.docker.internal mapping.
 
 ```mermaid
 graph TB
 Browser["Browser"]
 NginxDev["nginx (dev)"]
 NginxProd["nginx (prod)"]
+NginxStaging["nginx (staging)"]
 FrontendDev["frontend (dev)"]
 FrontendProd["frontend (image)"]
+FrontendStaging["frontend (staging)"]
 Backend["backend"]
 Postgres["postgres"]
 Ollama["ollama"]
 SpeechService["speech-service"]
 VoiceAgent["voice-agent"]
 LiveKit["livekit (custom image)"]
+LiveKitStaging["livekit (standardized ports)"]
 Redis["redis (optional)"]
+ExtraHosts["extra_hosts: host.docker.internal:host-gateway"]
+StagingNetwork["aria_staging_network"]
 Browser --> NginxDev
 Browser --> NginxProd
+Browser --> NginxStaging
 NginxDev --> FrontendDev
 NginxDev --> Backend
 NginxProd --> FrontendProd
 NginxProd --> Backend
+NginxStaging --> FrontendStaging
+NginxStaging --> Backend
 Backend --> Postgres
 Backend --> Ollama
 SpeechService --> LiveKit
@@ -210,11 +254,14 @@ VoiceAgent --> LiveKit
 VoiceAgent --> SpeechService
 VoiceAgent --> Backend
 LiveKit --> Redis
+LiveKitStaging --> StagingNetwork
+ExtraHosts --> NginxProd
 ```
 
 **Diagram sources**
 - [docker-compose.yml:5-180](file://docker-compose.yml#L5-L180)
-- [docker-compose.prod.yml:7-320](file://docker-compose.prod.yml#L7-L320)
+- [docker-compose.prod.yml:7-318](file://docker-compose.prod.yml#L7-L318)
+- [docker-compose.staging.yml:1-224](file://docker-compose.staging.yml#L1-L224)
 - [app/nginx/nginx.conf:9-36](file://app/nginx/nginx.conf#L9-L36)
 - [nginx/nginx.prod.conf:19-87](file://nginx/nginx.prod.conf#L19-L87)
 
@@ -225,7 +272,8 @@ LiveKit --> Redis
   - Python 3.11 slim with GCC and curl for system-level dependencies.
   - Copies requirements, application code, Alembic configuration, and helper scripts.
   - Sets environment variables for Python path, default database URL, and Ollama Cloud base URL.
-- Entrypoint behavior
+- **Updated** Entrypoint behavior
+  - **Fixed** Explicit import of db_models before Base.metadata.create_all() to ensure all models are registered.
   - Applies Alembic migrations when the database URL indicates PostgreSQL.
   - Waits for Ollama readiness and model warm-up before starting the application process.
 - Runtime
@@ -233,7 +281,8 @@ LiveKit --> Redis
 
 ```mermaid
 flowchart TD
-Start(["Container start"]) --> CheckDB["Check DATABASE_URL scheme"]
+Start(["Container start"]) --> ImportModels["Import db_models module"]
+ImportModels --> CheckDB["Check DATABASE_URL scheme"]
 CheckDB --> IsPG{"PostgreSQL?"}
 IsPG --> |Yes| RunMigrations["Run Alembic migrations"]
 IsPG --> |No| SkipMigrations["Skip migrations"]
@@ -249,13 +298,13 @@ LaunchUvicorn --> End(["Ready"])
 
 **Diagram sources**
 - [app/backend/Dockerfile:1-55](file://app/backend/Dockerfile#L1-L55)
-- [app/backend/scripts/docker-entrypoint.sh:4-14](file://app/backend/scripts/docker-entrypoint.sh#L4-L14)
+- [app/backend/scripts/docker-entrypoint.sh:8](file://app/backend/scripts/docker-entrypoint.sh#L8)
 - [app/backend/scripts/wait_for_ollama.py:34-91](file://app/backend/scripts/wait_for_ollama.py#L34-L91)
 - [app/backend/middleware/auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
 
 **Section sources**
 - [app/backend/Dockerfile:1-55](file://app/backend/Dockerfile#L1-L55)
-- [app/backend/scripts/docker-entrypoint.sh:1-20](file://app/backend/scripts/docker-entrypoint.sh#L1-L20)
+- [app/backend/scripts/docker-entrypoint.sh:1-22](file://app/backend/scripts/docker-entrypoint.sh#L1-L22)
 - [app/backend/scripts/wait_for_ollama.py:1-108](file://app/backend/scripts/wait_for_ollama.py#L1-L108)
 - [app/backend/middleware/auth.py:1-23](file://app/backend/middleware/auth.py#L1-L23)
 
@@ -284,13 +333,19 @@ RuntimeStage --> Serve["Serve SPA on port 8080"]
 - Development
   - Proxies frontend dev server and backend API to host ports for local iteration.
   - Frontend listens on port 80, backend listens on port 8000.
-- Production
+  - **Updated** Uses host.docker.internal routing for development and staging environments.
+- **Updated** Production
   - Reverse proxy with:
     - Dynamic DNS resolution to handle container IP changes.
     - Health check route pointing to backend.
     - Streaming support for SSE endpoints.
     - CORS handling for preflight OPTIONS.
     - Upstream routing for API and SPA.
+    - **New** extra_hosts configuration with `"host.docker.internal:host-gateway"` for seamless inter-environment communication.
+- **Updated** Staging
+  - Reverse proxy with standardized port mappings for LiveKit services to avoid conflicts with production.
+  - LiveKit ports mapped as 7890:7880, 7891:7881, 7892:7882/udp for consistent staging environment.
+  - **New** Separate network configuration (aria_staging_network) for environment isolation.
 
 ```mermaid
 sequenceDiagram
@@ -314,7 +369,10 @@ NG-->>C : "Final response"
 
 **Section sources**
 - [app/nginx/nginx.conf:9-36](file://app/nginx/nginx.conf#L9-L36)
-- [nginx/nginx.prod.conf:1-89](file://nginx/nginx.prod.conf#L1-L89)
+- [nginx/nginx.prod.conf:1-120](file://nginx/nginx.prod.conf#L1-L120)
+- [docker-compose.prod.yml:144-146](file://docker-compose.prod.yml#L144-L146)
+- [docker-compose.staging.yml:170-173](file://docker-compose.staging.yml#L170-L173)
+- [docker-compose.staging.yml:220-224](file://docker-compose.staging.yml#L220-L224)
 
 ### Database and LLM
 - Postgres
@@ -333,11 +391,11 @@ Ready --> Backend["Backend requests"]
 
 **Diagram sources**
 - [docker-compose.yml:24-52](file://docker-compose.yml#L24-L52)
-- [docker-compose.prod.yml:41-190](file://docker-compose.prod.yml#L41-L190)
+- [docker-compose.prod.yml:45-78](file://docker-compose.prod.yml#L45-L78)
 
 **Section sources**
 - [docker-compose.yml:6-52](file://docker-compose.yml#L6-L52)
-- [docker-compose.prod.yml:41-190](file://docker-compose.prod.yml#L41-L190)
+- [docker-compose.prod.yml:45-78](file://docker-compose.prod.yml#L45-L78)
 
 ### LiveKit Server
 - **Updated** WebRTC SFU + SIP trunking server with 1GB RAM allocation and embedded configuration approach
@@ -349,6 +407,7 @@ Ready --> Backend["Backend requests"]
 - **Updated** Port range configuration for media streams (50000-60000)
 - **Updated** External IP and TCP port configuration for public accessibility
 - **Enhanced** Redis integration support for multi-node deployment scenarios
+- **Updated** Staging environment uses standardized port mappings (7890:7880, 7891:7881, 7892:7882/udp) to prevent conflicts with production LiveKit services.
 
 ```mermaid
 flowchart TD
@@ -370,7 +429,8 @@ Ready --> HealthCheck["Health Check Endpoint"]
 - [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
 - [app/voice_agent/livekit.yaml:1-42](file://app/voice_agent/livekit.yaml#L1-L42)
 - [docker-compose.yml:114-136](file://docker-compose.yml#L114-L136)
-- [docker-compose.prod.yml:236-260](file://docker-compose.prod.yml#L236-L260)
+- [docker-compose.prod.yml:243-267](file://docker-compose.prod.yml#L243-L267)
+- [docker-compose.staging.yml:161-179](file://docker-compose.staging.yml#L161-L179)
 
 ### Optional Production Services
 - Watchtower
@@ -390,10 +450,10 @@ Certbot["Certbot"] --> Nginx
 ```
 
 **Diagram sources**
-- [docker-compose.prod.yml:192-235](file://docker-compose.prod.yml#L192-L235)
+- [docker-compose.prod.yml:199-229](file://docker-compose.prod.yml#L199-L229)
 
 **Section sources**
-- [docker-compose.prod.yml:186-235](file://docker-compose.prod.yml#L186-L235)
+- [docker-compose.prod.yml:199-229](file://docker-compose.prod.yml#L199-L229)
 
 ## Voice Screening Infrastructure
 
@@ -539,7 +599,10 @@ CI --> LiveKitImg
   - **New** Voice Agent uses asynchronous processing for concurrent conversation handling.
 - Network resilience
   - Production Nginx uses dynamic DNS resolution to mitigate stale IPs after container recreation.
+  - **New** Production environment includes extra_hosts configuration with `"host.docker.internal:host-gateway"` for seamless inter-environment communication.
+  - **New** Staging environment uses standardized port mappings to avoid conflicts with production LiveKit services.
   - **New** Voice services use service discovery for inter-container communication.
+  - **New** Development and staging environments use host.docker.internal routing for improved container-host communication.
 - Build optimization
   - Frontend multi-stage build minimizes runtime image size and improves cold start times.
   - Backend copies requirements first to leverage Docker layer caching.
@@ -572,11 +635,12 @@ The production environment includes several memory-efficient configurations:
 - **Redis Integration**: Optional Redis instance for LiveKit clustering and session persistence
 
 **Section sources**
-- [docker-compose.prod.yml:60-73](file://docker-compose.prod.yml#L60-L73)
-- [docker-compose.prod.yml:44-57](file://docker-compose.prod.yml#L44-L57)
-- [docker-compose.prod.yml:279-308](file://docker-compose.prod.yml#L279-L308)
-- [docker-compose.prod.yml:235-260](file://docker-compose.prod.yml#L235-L260)
-- [docker-compose.prod.yml:251-262](file://docker-compose.prod.yml#L251-L262)
+- [docker-compose.prod.yml:64-71](file://docker-compose.prod.yml#L64-L71)
+- [docker-compose.prod.yml:48-55](file://docker-compose.prod.yml#L48-L55)
+- [docker-compose.prod.yml:273-278](file://docker-compose.prod.yml#L273-L278)
+- [docker-compose.prod.yml:245-250](file://docker-compose.prod.yml#L245-L250)
+- [docker-compose.prod.yml:255-260](file://docker-compose.prod.yml#L255-L260)
+- [docker-compose.staging.yml:170-173](file://docker-compose.staging.yml#L170-L173)
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -590,6 +654,11 @@ Common issues and resolutions:
   - **Updated** Check Ollama memory allocation - ensure 8GB RAM limit is available for the service.
 - Database locked errors
   - SQLite does not support concurrent writes; restart the backend container if encountering "database is locked."
+- **Updated** Database initialization failures
+  - **Symptom**: Tables not created or Alembic migrations failing
+  - **Cause**: Missing model imports in entrypoint script
+  - **Solution**: Ensure db_models import occurs before Base.metadata.create_all() execution
+  - **Verification**: Check container logs for successful model registration and table creation
 - SSL certificate issues
   - Renew certificates manually on the VPS and restart Nginx.
 - Deploy failures
@@ -634,6 +703,22 @@ Common issues and resolutions:
   - **Verification**: Monitor LLM request duration and adjust timeout based on model loading patterns
   - **Enhanced** Speech Service health check timeout = 120 seconds for model loading
   - **Enhanced** Voice Agent LLM client timeout = 120 seconds for Ollama Cloud requests
+  - **Enhanced** Redis connection pooling for LiveKit multi-node scenarios.
+- **New** Networking connectivity issues
+  - **Symptom**: Containers cannot communicate with host.docker.internal or other environments
+  - **Cause**: Missing extra_hosts configuration in production environment
+  - **Solution**: Ensure nginx service includes extra_hosts with `"host.docker.internal:host-gateway"` mapping
+  - **Verification**: Check container networking and DNS resolution for host.docker.internal
+- **New** Port conflict issues in staging environment
+  - **Symptom**: LiveKit services fail to start due to port conflicts with production
+  - **Cause**: Standard LiveKit ports (7880, 7881, 7882) conflicting with production services
+  - **Solution**: Use standardized staging port mappings (7890:7880, 7891:7881, 7892:7882/udp) to avoid conflicts
+  - **Verification**: Check port availability and container logs for successful service startup
+- **New** Development and staging host communication issues
+  - **Symptom**: Development servers cannot connect to host-based services
+  - **Cause**: Missing host.docker.internal routing configuration
+  - **Solution**: Ensure Nginx development configuration uses host.docker.internal:5173 for frontend and :8000 for backend
+  - **Verification**: Test connectivity to host services from container using host.docker.internal hostname
 
 Health checks:
 - Postgres: health check queries the database using pg_isready.
@@ -676,29 +761,29 @@ RS-->>HC : "Cluster Status"
 
 **Diagram sources**
 - [docker-compose.yml:18-22](file://docker-compose.yml#L18-L22)
-- [docker-compose.prod.yml:34-39](file://docker-compose.prod.yml#L34-L39)
-- [docker-compose.prod.yml:66-71](file://docker-compose.prod.yml#L66-L71)
-- [docker-compose.prod.yml:107-112](file://docker-compose.prod.yml#L107-L112)
-- [docker-compose.prod.yml:140-144](file://docker-compose.prod.yml#L140-L144)
+- [docker-compose.prod.yml:38-43](file://docker-compose.prod.yml#L38-L43)
+- [docker-compose.prod.yml:72-77](file://docker-compose.prod.yml#L72-L77)
+- [docker-compose.prod.yml:117-122](file://docker-compose.prod.yml#L117-L122)
+- [docker-compose.prod.yml:155-160](file://docker-compose.prod.yml#L155-L160)
 - [app/speech_service/Dockerfile:27-29](file://app/speech_service/Dockerfile#L27-L29)
 - [app/voice_agent/Dockerfile:27-28](file://app/voice_agent/Dockerfile#L27-L28)
-- [docker-compose.prod.yml:255-260](file://docker-compose.prod.yml#L255-L260)
-- [docker-compose.prod.yml:257-262](file://docker-compose.prod.yml#L257-L262)
+- [docker-compose.prod.yml:261-266](file://docker-compose.prod.yml#L261-L266)
+- [docker-compose.prod.yml:255-262](file://docker-compose.prod.yml#L255-L262)
 
 **Section sources**
 - [README.md:337-362](file://README.md#L337-L362)
 - [docker-compose.yml:18-22](file://docker-compose.yml#L18-L22)
-- [docker-compose.prod.yml:34-39](file://docker-compose.prod.yml#L34-L39)
-- [docker-compose.prod.yml:66-71](file://docker-compose.prod.yml#L66-L71)
-- [docker-compose.prod.yml:107-112](file://docker-compose.prod.yml#L107-L112)
-- [docker-compose.prod.yml:140-144](file://docker-compose.prod.yml#L140-L144)
+- [docker-compose.prod.yml:38-43](file://docker-compose.prod.yml#L38-L43)
+- [docker-compose.prod.yml:72-77](file://docker-compose.prod.yml#L72-L77)
+- [docker-compose.prod.yml:117-122](file://docker-compose.prod.yml#L117-L122)
+- [docker-compose.prod.yml:155-160](file://docker-compose.prod.yml#L155-L160)
 - [app/speech_service/Dockerfile:27-29](file://app/speech_service/Dockerfile#L27-L29)
 - [app/voice_agent/Dockerfile:27-28](file://app/voice_agent/Dockerfile#L27-L28)
-- [docker-compose.prod.yml:255-260](file://docker-compose.prod.yml#L255-L260)
-- [docker-compose.prod.yml:257-262](file://docker-compose.prod.yml#L257-L262)
+- [docker-compose.prod.yml:261-266](file://docker-compose.prod.yml#L261-L266)
+- [docker-compose.prod.yml:255-262](file://docker-compose.prod.yml#L255-L262)
 
 ## Conclusion
-The Docker configuration provides a robust development and production environment for Resume AI with comprehensive voice screening capabilities. It emphasizes predictable service orchestration, optimized LLM performance through enhanced memory allocation settings, secure reverse proxying, and automated deployments. **Updated** The recent additions of speech-service, voice-agent, and LiveKit integration create a complete voice-enabled recruitment platform with CPU-optimized speech processing, intelligent conversation orchestration, and WebRTC-based communication infrastructure. The enhanced memory allocation settings (8GB for Ollama, 4GB for Speech Service, 2GB for Voice Agent, 1GB for LiveKit) ensure stable operation of all services with sufficient headroom for concurrent requests and system overhead. **Enhanced** Redis integration support enables multi-node LiveKit deployments for scalability. **Updated** The LiveKit server now uses an embedded configuration approach with Dockerfile.livekit that copies livekit.yaml directly into the container during build process, improving reliability and deployment consistency. Following the documented setup ensures reliable local development and scalable production deployments with a cloud-first approach and comprehensive voice screening capabilities.
+The Docker configuration provides a robust development and production environment for Resume AI with comprehensive voice screening capabilities. It emphasizes predictable service orchestration, optimized LLM performance through enhanced memory allocation settings, secure reverse proxying, and automated deployments. **Updated** The recent enhancements include improved networking connectivity with extra_hosts configuration for seamless inter-environment communication, port standardization for staging environment to prevent conflicts with production services, and enhanced LiveKit service management with standardized port mappings. **Updated** The production environment now includes `"host.docker.internal:host-gateway"` mapping in extra_hosts configuration, enabling reliable communication between containers and the host system. **Updated** The staging environment uses standardized LiveKit port mappings (7890:7880, 7891:7881, 7892:7882/udp) to avoid conflicts with production services while maintaining consistent functionality. **Updated** The backend entrypoint script now includes proper model import handling to ensure Base.metadata.create_all() executes correctly with all database models registered. **Updated** Development and staging environments now support host.docker.internal routing for improved container-host communication. Following the documented setup ensures reliable local development and scalable production deployments with a cloud-first approach and comprehensive voice screening capabilities.
 
 ## Appendices
 
@@ -710,6 +795,7 @@ The Docker configuration provides a robust development and production environmen
   - **Updated** LLM_NARRATIVE_TIMEOUT=500 seconds for development environment to match cloud-first approach with improved performance.
   - **New** Voice service environment variables for Speech Service, Voice Agent, and LiveKit configuration.
   - **Enhanced** LiveKit environment variables including SIP trunk configuration and Redis settings.
+  - **New** host.docker.internal routing support for development and staging environments.
 - Production compose
   - Uses environment variables for database credentials, JWT secret, and model selection.
   - JWT_SECRET_KEY is required and validated at startup.
@@ -719,25 +805,34 @@ The Docker configuration provides a robust development and production environmen
   - **New** Voice service resource allocation with explicit CPU and memory limits.
   - **New** LiveKit configuration with API keys, port specifications, and Redis integration using custom image approach.
   - **Enhanced** Redis configuration for multi-node LiveKit deployment.
+  - **New** extra_hosts configuration with `"host.docker.internal:host-gateway"` for seamless inter-environment communication.
 - Configuration inheritance
   - Production Dockerfiles bake in production Nginx configuration; development compose mounts local configs.
   - **New** Voice services use separate Dockerfiles with optimized build processes.
   - **Updated** LiveKit uses embedded configuration approach with Dockerfile.livekit for improved reliability.
   - **Enhanced** LiveKit configuration supports both development and production deployment scenarios.
+- **Updated** Staging environment
+  - Uses standardized port mappings for LiveKit services to avoid conflicts with production.
+  - LiveKit ports mapped as 7890:7880, 7891:7881, 7892:7882/udp for consistent staging environment.
+  - Separate network configuration (aria_staging_network) to isolate staging from production.
+  - **New** host.docker.internal routing support for staging environment with separate network isolation.
 
 **Updated** JWT_SECRET_KEY is now required in production environments and will cause a RuntimeError if not set.
 
 **Section sources**
 - [docker-compose.yml:59-180](file://docker-compose.yml#L59-L180)
 - [docker-compose.yml:33-42](file://docker-compose.yml#L33-L42)
-- [docker-compose.prod.yml:81-113](file://docker-compose.prod.yml#L81-L113)
-- [docker-compose.prod.yml:44-55](file://docker-compose.prod.yml#L44-L55)
+- [docker-compose.prod.yml:89-122](file://docker-compose.prod.yml#L89-L122)
+- [docker-compose.prod.yml:48-55](file://docker-compose.prod.yml#L48-L55)
 - [docker-compose.prod.yml:285-294](file://docker-compose.prod.yml#L285-L294)
 - [docker-compose.prod.yml:242-244](file://docker-compose.prod.yml#L242-L244)
 - [docker-compose.prod.yml:244-246](file://docker-compose.prod.yml#L244-L246)
+- [docker-compose.prod.yml:144-146](file://docker-compose.prod.yml#L144-L146)
 - [nginx/nginx.prod.conf:1-11](file://nginx/nginx.prod.conf#L1-L11)
 - [app/nginx/nginx.conf:1-11](file://app/nginx/nginx.conf#L1-L11)
 - [app/backend/middleware/auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
+- [docker-compose.staging.yml:170-173](file://docker-compose.staging.yml#L170-L173)
+- [docker-compose.staging.yml:220-224](file://docker-compose.staging.yml#L220-L224)
 
 ### CI/CD and Image Builds
 - CI workflows run backend and frontend tests on pull requests and pushes.
@@ -760,6 +855,7 @@ The Docker configuration provides a robust development and production environmen
   - **New** Speech Service: container port 8001 (internal communication)
   - **New** Voice Agent: container port 8002 (internal communication)
   - **New** LiveKit Server: ports 7880 (WebSocket), 7881 (RTC), 7882/udp (TURN) with embedded configuration
+  - **New** host.docker.internal routing: http://host.docker.internal:5173 (frontend dev), http://host.docker.internal:8000 (backend dev)
 - Production environment:
   - Nginx: host port 80 → container port 80
   - Frontend: container port 8080 (exposed)
@@ -768,19 +864,36 @@ The Docker configuration provides a robust development and production environmen
   - **New** Voice Agent: container port 8002 (internal communication)
   - **New** LiveKit Server: ports 7880 (WebSocket), 7881 (RTC), 7882/udp (TURN) with embedded configuration
   - **Enhanced** Redis: container port 6379 (when configured)
+  - **New** extra_hosts: `"host.docker.internal:host-gateway"` for seamless inter-environment communication
+  - **New** host.docker.internal routing support for production environment
+- **New** Staging environment:
+  - Nginx: host port 80 → container port 80
+  - Frontend: container port 8080 (exposed)
+  - Backend: container port 8000
+  - **New** Speech Service: container port 8001 (internal communication)
+  - **New** Voice Agent: container port 8002 (internal communication)
+  - **New** LiveKit Server: ports 7890:7880 (WebSocket), 7891:7881 (RTC), 7892:7882/udp (TURN) with embedded configuration
+  - **Enhanced** Redis: container port 6379 (when configured)
+  - **New** Separate network: aria_staging_network for environment isolation
+  - **New** host.docker.internal routing support for staging environment
 - **New** Service Communication:
   - Voice Agent → Speech Service: http://speech-service:8001
-  - Voice Agent → LiveKit: ws://livekit:7880
+  - Voice Agent → LiveKit: ws://livekit:7880 (production) or ws://livekit:7890 (staging)
   - Voice Agent → Backend: http://backend:8000
   - LiveKit → Redis: redis://redis:6379 (when configured)
+  - **New** Host communication: http://host.docker.internal:8080 (for development and staging)
+  - **New** Development host communication: http://host.docker.internal:5173 (frontend dev), http://host.docker.internal:8000 (backend dev)
 
 **Section sources**
 - [docker-compose.yml:87-180](file://docker-compose.yml#L87-L180)
-- [docker-compose.prod.yml:128-147](file://docker-compose.prod.yml#L128-L147)
-- [docker-compose.prod.yml:269-275](file://docker-compose.prod.yml#L269-L275)
-- [docker-compose.prod.yml:284-308](file://docker-compose.prod.yml#L284-L308)
-- [docker-compose.prod.yml:245-249](file://docker-compose.prod.yml#L245-L249)
+- [docker-compose.prod.yml:139-160](file://docker-compose.prod.yml#L139-L160)
+- [docker-compose.prod.yml:269-278](file://docker-compose.prod.yml#L269-L278)
+- [docker-compose.prod.yml:283-306](file://docker-compose.prod.yml#L283-L306)
 - [docker-compose.prod.yml:251-256](file://docker-compose.prod.yml#L251-L256)
+- [docker-compose.prod.yml:245-249](file://docker-compose.prod.yml#L245-L249)
+- [docker-compose.prod.yml:144-146](file://docker-compose.prod.yml#L144-L146)
+- [docker-compose.staging.yml:169-173](file://docker-compose.staging.yml#L169-L173)
+- [docker-compose.staging.yml:192-214](file://docker-compose.staging.yml#L192-L214)
 - [app/frontend/Dockerfile:32](file://app/frontend/Dockerfile#L32)
 - [app/frontend/default.conf:2](file://app/frontend/default.conf#L2)
 - [app/nginx/nginx.conf:11](file://app/nginx/nginx.conf#L11)
@@ -822,8 +935,8 @@ The system supports both standard and custom model configurations:
   - Balances performance with stability requirements
 
 **Section sources**
-- [docker-compose.prod.yml:94-95](file://docker-compose.prod.yml#L94-L95)
-- [docker-compose.yml:64-65](file://docker-compose.yml#L64-L65)
+- [docker-compose.prod.yml:99-101](file://docker-compose.prod.yml#L99-L101)
+- [docker-compose.yml:68-69](file://docker-compose.yml#L68-69)
 - [app/backend/services/hybrid_pipeline.py:86-103](file://app/backend/services/hybrid_pipeline.py#L86-L103)
 - [app/backend/services/llm_service.py:52-55](file://app/backend/services/llm_service.py#L52-L55)
 - [app/voice_agent/agent.py:166](file://app/voice_agent/agent.py#L166)
@@ -839,6 +952,8 @@ The system supports both standard and custom model configurations:
 - **New** Voice services support both cloud and local deployment modes
 - **New** LiveKit configuration supports development and production deployment scenarios with embedded configuration approach
 - **Enhanced** Redis integration enables horizontal scaling for voice services
+- **New** Seamless inter-environment communication via extra_hosts configuration with host.docker.internal mapping
+- **New** Development and staging environments support host.docker.internal routing for improved container-host communication
 
 **Section sources**
 - [docker-compose.yml:61-70](file://docker-compose.yml#L61-L70)
@@ -846,6 +961,7 @@ The system supports both standard and custom model configurations:
 - [README.md:392-416](file://README.md#L392-L416)
 - [app/voice_agent/livekit.yaml:18-19](file://app/voice_agent/livekit.yaml#L18-L19)
 - [app/voice_agent/livekit.yaml:24-26](file://app/voice_agent/livekit.yaml#L24-L26)
+- [docker-compose.prod.yml:144-146](file://docker-compose.prod.yml#L144-L146)
 
 ### Voice Service Configuration
 **New** Comprehensive voice service configuration and deployment guidance:
@@ -867,12 +983,15 @@ The system supports both standard and custom model configurations:
   - WebSocket signaling for call control
   - **Enhanced** Redis clustering for multi-node deployment
   - **Updated** Embedded configuration approach for improved reliability and deployment consistency
+  - **Updated** Staging environment uses standardized port mappings (7890:7880, 7891:7881, 7892:7882/udp) to prevent conflicts
 - **Deployment Considerations**:
   - Resource allocation: 4GB RAM for Speech Service, 2GB for Voice Agent, 1GB for LiveKit
   - Network configuration: Internal ports for service communication, external ports for client access
   - Health monitoring: Individual service health checks and graceful shutdown handling
   - **Enhanced** Redis configuration for session persistence and clustering
   - **Updated** LiveKit uses custom image with embedded configuration for faster startup
+  - **New** Production environment includes extra_hosts configuration for seamless inter-environment communication
+  - **New** Development and staging environments support host.docker.internal routing for improved container-host communication
 
 **Section sources**
 - [app/speech_service/main.py:1-387](file://app/speech_service/main.py#L1-L387)
@@ -880,6 +999,8 @@ The system supports both standard and custom model configurations:
 - [app/voice_agent/livekit.yaml:1-42](file://app/voice_agent/livekit.yaml#L1-L42)
 - [docker-compose.prod.yml:264-308](file://docker-compose.prod.yml#L264-L308)
 - [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
+- [docker-compose.staging.yml:160-179](file://docker-compose.staging.yml#L160-L179)
+- [docker-compose.prod.yml:144-146](file://docker-compose.prod.yml#L144-L146)
 
 ### LiveKit Configuration Approach
 **Updated** LiveKit server configuration now uses an embedded approach for improved reliability and deployment consistency:
@@ -902,12 +1023,42 @@ The system supports both standard and custom model configurations:
   - Configuration changes require rebuilding the LiveKit image
   - Better version control and deployment tracking
   - Consistent configuration across all environments
+- **Port Standardization**:
+  - **Production**: LiveKit ports 7880 (WebSocket), 7881 (RTC), 7882/udp (TURN)
+  - **Staging**: LiveKit ports 7890:7880, 7891:7881, 7892:7882/udp to avoid conflicts
+  - **New** Staging environment uses separate network (aria_staging_network) for isolation
 
 **Section sources**
 - [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
 - [app/voice_agent/livekit.yaml:1-42](file://app/voice_agent/livekit.yaml#L1-L42)
 - [docker-compose.yml:114-136](file://docker-compose.yml#L114-L136)
-- [docker-compose.prod.yml:236-260](file://docker-compose.prod.yml#L236-L260)
+- [docker-compose.prod.yml:243-267](file://docker-compose.prod.yml#L243-L267)
+- [docker-compose.staging.yml:161-179](file://docker-compose.staging.yml#L161-L179)
+
+### Database Initialization and Model Registration
+**Updated** The backend database initialization process now includes proper model registration:
+
+- **Model Import Fix**:
+  - The entrypoint script now explicitly imports `app.backend.models.db_models` before executing `Base.metadata.create_all()`
+  - This ensures all SQLAlchemy models are registered with the declarative base before table creation
+  - Prevents missing table creation issues that could occur with unregistered models
+- **Alembic Migration Integration**:
+  - Models are imported for both table creation and Alembic migration execution
+  - Alembic environment configuration also imports `db_models` for migration target metadata
+- **Production Startup Sequence**:
+  - Database URL detection determines PostgreSQL vs SQLite behavior
+  - PostgreSQL: Execute model registration, table creation, and Alembic migrations
+  - SQLite: Skip migrations and rely on Alembic for schema management
+- **Main Application Integration**:
+  - FastAPI lifespan manager also creates tables using the same Base.metadata approach
+  - Provides redundancy for database initialization across different startup paths
+
+**Section sources**
+- [app/backend/scripts/docker-entrypoint.sh:8](file://app/backend/scripts/docker-entrypoint.sh#L8)
+- [app/backend/db/database.py:41](file://app/backend/db/database.py#L41)
+- [app/backend/models/db_models.py:1-10](file://app/backend/models/db_models.py#L1-L10)
+- [alembic/env.py:12](file://alembic/env.py#L12)
+- [app/backend/main.py:259](file://app/backend/main.py#L259)
 
 ### Redis Integration for LiveKit
 **Enhanced** Redis integration enables advanced LiveKit deployment scenarios:
@@ -925,3 +1076,32 @@ The system supports both standard and custom model configurations:
 **Section sources**
 - [app/voice_agent/livekit.yaml:24-26](file://app/voice_agent/livekit.yaml#L24-L26)
 - [docker-compose.prod.yml:251-256](file://docker-compose.prod.yml#L251-L256)
+
+### Networking and Inter-Environment Communication
+**New** Enhanced networking configuration for seamless inter-environment communication:
+
+- **Production Environment**:
+  - **extra_hosts**: `"host.docker.internal:host-gateway"` enables containers to resolve host.docker.internal to the host gateway IP
+  - **Dynamic DNS Resolution**: Nginx uses resolver 127.0.0.11 with 5s validity for quick container IP changes
+  - **Host Communication**: Enables communication between containers and host system for development and staging
+- **Development Environment**:
+  - **Direct Host Mapping**: Nginx configuration proxies to host.docker.internal:5173 (frontend) and :8000 (backend)
+  - **Local Development**: Simplifies development workflow by connecting to host-based dev servers
+  - **host.docker.internal Routing**: http://host.docker.internal:5173 for frontend dev server, http://host.docker.internal:8000 for backend API
+- **Staging Environment**:
+  - **Port Standardization**: LiveKit services use 7890:7880, 7891:7881, 7892:7882/udp to avoid conflicts with production
+  - **Network Isolation**: Separate network (aria_staging_network) prevents interference with production services
+  - **Consistent Functionality**: Maintains LiveKit functionality while avoiding port conflicts
+  - **host.docker.internal Routing**: http://host.docker.internal:8080 for staging frontend access
+- **Inter-Environment Communication**:
+  - **Production to Staging**: Use host.docker.internal mapping for seamless communication
+  - **Staging Isolation**: Separate network prevents cross-environment interference
+  - **Port Management**: Standardized staging ports prevent conflicts with production services
+
+**Section sources**
+- [docker-compose.prod.yml:144-146](file://docker-compose.prod.yml#L144-L146)
+- [nginx/nginx.prod.conf:12-20](file://nginx/nginx.prod.conf#L12-L20)
+- [app/nginx/nginx.conf:14-15](file://app/nginx/nginx.conf#L14-L15)
+- [app/nginx/nginx.conf:32-33](file://app/nginx/nginx.conf#L32-L33)
+- [docker-compose.staging.yml:170-173](file://docker-compose.staging.yml#L170-L173)
+- [docker-compose.staging.yml:220-224](file://docker-compose.staging.yml#L220-L224)

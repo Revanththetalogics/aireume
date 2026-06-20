@@ -2,11 +2,11 @@
 schema_version: 1
 locale: en-US
 branch: main
-exported_at: "2026-06-19T21:30:17Z"
+exported_at: "2026-06-20T09:31:15Z"
 modules:
     "":
-        dir_name: AI Resume Intelligence Platform
-        title: AI Resume Intelligence Platform
+        dir_name: Enterprise SaaS Orchestration Core
+        title: Enterprise SaaS Orchestration Core
         scope: []
         source_files: []
         children: []
@@ -27,26 +27,108 @@ modules:
         scope: []
         source_files: []
         children:
+            - decisions/08fc91fca754_e7648dbb2a87
+            - decisions/cccda7dd18cc_4fd15836ebeb
+            - decisions/14c321e72285_22816b71831f
+            - decisions/bdb09a8e2b01_a2ea6332bcce
+            - decisions/08fc91fca754_a741a6f3ebba
+            - decisions/cccda7dd18cc_cb9d9128fb9e
+            - decisions/14c321e72285_bf197a0cc7cd
             - decisions/dc66c1a34c1c_0129d8e93481
             - decisions/dc66c1a34c1c_314491a85d06
+            - decisions/bdb09a8e2b01_d33a42fe2061
         depends_on: []
         related_to: []
-    decisions/dc66c1a34c1c_0129d8e93481:
+    decisions/08fc91fca754_a741a6f3ebba:
         dir_name: Implement class-based Dark Mode with Tailwind CSS
         title: Implement class-based Dark Mode with Tailwind CSS
         scope: []
         source_files: []
         children: []
         depends_on: []
-        related_to: []
-    decisions/dc66c1a34c1c_314491a85d06:
+        related_to:
+            - path: decisions/08fc91fca754_e7648dbb2a87
+            - path: e2e_tests
+    decisions/08fc91fca754_e7648dbb2a87:
         dir_name: Adopt framer-motion for application-wide motion and interactions
         title: Adopt framer-motion for application-wide motion and interactions
         scope: []
         source_files: []
         children: []
         depends_on: []
+        related_to:
+            - path: decisions/08fc91fca754_a741a6f3ebba
+            - path: e2e_tests
+    decisions/14c321e72285_22816b71831f:
+        dir_name: Adopt framer-motion for application-wide animations_2
+        title: Adopt framer-motion for application-wide animations
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: decisions/14c321e72285_bf197a0cc7cd
+    decisions/14c321e72285_bf197a0cc7cd:
+        dir_name: Implement class-based Dark Mode via TailwindCSS
+        title: Implement class-based Dark Mode via TailwindCSS
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: decisions/14c321e72285_22816b71831f
+    decisions/bdb09a8e2b01_a2ea6332bcce:
+        dir_name: Adopt framer-motion for application-wide animations_3
+        title: Adopt framer-motion for application-wide animations
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
         related_to: []
+    decisions/bdb09a8e2b01_d33a42fe2061:
+        dir_name: Implement class-based dark mode via Tailwind CSS
+        title: Implement class-based dark mode via Tailwind CSS
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    decisions/cccda7dd18cc_4fd15836ebeb:
+        dir_name: Adopt framer-motion for application-wide animations
+        title: Adopt framer-motion for application-wide animations
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: decisions/cccda7dd18cc_cb9d9128fb9e
+    decisions/cccda7dd18cc_cb9d9128fb9e:
+        dir_name: Implement class-based Dark Mode with Tailwind CSS_2
+        title: Implement class-based Dark Mode with Tailwind CSS
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: decisions/cccda7dd18cc_4fd15836ebeb
+    decisions/dc66c1a34c1c_0129d8e93481:
+        dir_name: Implement class-based Dark Mode with Tailwind CSS_3
+        title: Implement class-based Dark Mode with Tailwind CSS
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: decisions/dc66c1a34c1c_314491a85d06
+    decisions/dc66c1a34c1c_314491a85d06:
+        dir_name: Adopt framer-motion for application-wide motion and interactions_2
+        title: Adopt framer-motion for application-wide motion and interactions
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: decisions/dc66c1a34c1c_0129d8e93481
     e2e_tests:
         dir_name: End-to-End UI Validation
         title: End-to-End UI Validation
@@ -55,4 +137,6 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: decisions/08fc91fca754_a741a6f3ebba
+            - path: decisions/08fc91fca754_e7648dbb2a87

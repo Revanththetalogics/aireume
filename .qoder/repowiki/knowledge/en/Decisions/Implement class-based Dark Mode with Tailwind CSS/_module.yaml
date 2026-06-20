@@ -1,7 +1,9 @@
 schema_version: 1
-module_path: decisions/dc66c1a34c1c_0129d8e93481
+module_path: decisions/08fc91fca754_a741a6f3ebba
 title: Implement class-based Dark Mode with Tailwind CSS
 scope: []
 source_files: []
 depends_on: []
-related_to: []
+related_to:
+    - path: decisions/08fc91fca754_e7648dbb2a87
+    - path: e2e_tests

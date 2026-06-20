@@ -1,24 +1,23 @@
 # Adopt framer-motion for application-wide motion and interactions
 
-_Source: coding plans from commit period 8626ec6 → dc66c1a — records intent at planning time; the implementation may lag or differ._
+_Source: coding plans from commit period cccda7d → 08fc91f — records intent at planning time; the implementation may lag or differ._
 
 **Status:** accepted
 
 ## Context
-The application had framer-motion installed but unused, relying on basic CSS animations. To achieve an 'Apple-quality' UX with tactile micro-interactions, spring physics, and smooth page transitions, a dedicated motion library was required to replace manual CSS patterns.
+The application currently relies on basic CSS animations (fadeInUp, shimmer) and has framer-motion installed but unused. To achieve an 'Apple-quality' UX with tactile micro-interactions, spring physics, and smooth page transitions, a dedicated motion library is required.
 
 ## Decision drivers
-- Spring physics for natural feel
-- Shared element transitions (layoutId)
-- Complex orchestration (stagger, AnimatePresence)
-- Existing dependency availability
+- High-fidelity spring physics for tactile feel
+- Shared element transitions via layoutId
+- Declarative animation composition (AnimatePresence, Stagger)
 
 ## Considered options
-- **framer-motion** — pros: Already installed, supports spring physics, layout animations, and complex exit/enter orchestration via AnimatePresence; cons: Adds runtime JS overhead compared to pure CSS
-- **Pure CSS animations** _(rejected)_ — pros: Zero JS overhead, native browser support; cons: Lacks spring physics, difficult to orchestrate complex staggered lists or shared element transitions, limited dynamic control
+- **framer-motion** — pros: Already installed in package.json (no new dependency risk), provides spring physics, layout animations, and AnimatePresence for route transitions.; cons: Adds runtime JavaScript weight compared to pure CSS.
+- **Pure CSS/Tailwind animations** _(rejected)_ — pros: Zero runtime overhead, simple implementation.; cons: Lacks complex spring physics, shared element transitions, and staggered list capabilities required for the target UX.
 
 ## Decision
-Activate framer-motion across the app by creating reusable primitives (PageTransition, MotionCard, StaggerContainer) and replacing existing CSS animations in modals, lists, and navigation with spring-based motion components.
+Activate framer-motion across the app by creating reusable motion primitives (PageTransition, MotionCard, StaggerContainer) and replacing existing CSS animations with spring-based framer-motion variants for modals, lists, and interactive elements.
 
 ## Consequences
-Significant improvement in perceived UI quality and responsiveness. Requires wrapping route changes in AnimatePresence and refactoring existing modal/list components to use motion primitives. Introduces a dependency on framer-motion for all interactive elements.
+All major UI interactions (modals, page routes, list entries) will use framer-motion. New wrapper components in src/components/motion/ will be introduced. Existing CSS animations like animate-fade-up will be deprecated in favor of spring physics (stiffness: 300, damping: 30).

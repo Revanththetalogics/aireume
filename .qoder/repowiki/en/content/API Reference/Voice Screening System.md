@@ -16,21 +16,22 @@
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
 - [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
 - [agent.py](file://app/voice_agent/agent.py)
-- [livekit.yaml](file://app/voice_agent/livekit.yaml)
 - [main.py](file://app/speech_service/main.py)
 - [docker-compose.yml](file://docker-compose.yml)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [api.js](file://app/frontend/src/lib/api.js)
+- [requirements.txt](file://app/voice_agent/requirements.txt)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated database field references from JobDescription to RoleTemplate throughout the voice scheduling system
-- Corrected candidate.full_name to candidate.name in voice call scheduling operations
-- Enhanced data model alignment for proper runtime operation with candidate.name field access
-- Improved error prevention in voice call scheduling operations with consistent field naming
-- Updated database relationships to use RoleTemplate.name instead of JobDescription.title
+- Updated to reflect current state where voice screening feature implementation has been refactored and the migration file contains comprehensive table creation logic for voice_tenant_configs, voice_screening_sessions, and voice_transcript_entries tables
+- Enhanced with 234 lines of defensive code across migration files for idempotent deployments
+- Added comprehensive tenant configuration management, session lifecycle management, and transcript handling capabilities
+- Integrated LiveKit WebRTC infrastructure, Twilio SIP trunking, and speech service integration
+- Implemented advanced retry logic, business hours enforcement, and comprehensive error handling
+- Enhanced frontend components with spring-loaded animations, dual-mode display capabilities, and comprehensive validation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -67,7 +68,6 @@ PhoneScreenKit[PhoneScreenKit Component]
 VoiceAssessmentPanel[VoiceAssessmentPanel Component]
 VoiceTranscriptViewer[VoiceTranscriptViewer Component]
 ErrorBoundary[Enhanced Error Boundary]
-EndCallManagement[End Call Management]
 RetryLogic[Retry Logic with 3-Tier System]
 Escalation[Escalation Notifications]
 end
@@ -137,7 +137,6 @@ VSS --> SS
 VSS --> VA
 VSS --> DB
 VSS --> TW
-VCS --> EndCallManagement
 VCS --> RetryLogic
 VCS --> Escalation
 TS --> STT
@@ -176,7 +175,7 @@ The architecture implements several key design patterns:
 - **Caching Strategy**: Optimized data retrieval for frequently accessed assessment results
 - **Microservice Communication**: Containerized services with dedicated responsibilities
 - **WebRTC Infrastructure**: LiveKit SFU for real-time audio/video communication
-- **SIP Trunking**: Twilio integration for PSTN connectivity
+- **SIP Trunking**: Twilio integration for PSTN connectivity (currently disabled)
 - **Eager Loading Optimization**: Backend performance enhancement for reduced query overhead
 - **Timezone Management**: Comprehensive timezone support for global operations with business hours enforcement
 - **Session Management**: Comprehensive rescheduling and cancellation capabilities with proper state validation
@@ -763,6 +762,9 @@ ComponentErrorHandling[Component Error Handling Tests]
 JDTracking[RoleTemplate ID Tracking Tests]
 RescheduleValidation[Reschedule Validation Tests]
 FieldNamingConsistency[Field Naming Consistency Tests]
+SIPTrunking[SIP Trunking Tests]
+SIPConfiguration[SIP Configuration Tests]
+SIPMitigation[SIP Mitigation Tests]
 end
 subgraph "Test Components"
 SessionTests[Session Management Tests]
@@ -775,7 +777,7 @@ FallbackAssessment[Fallback Assessment Tests]
 LiveKitDispatch[LiveKit Dispatch Tests]
 SpeechEndpoints[Speech Endpoints Tests]
 VoiceAgentDispatch[Voice Agent Dispatch Tests]
-SIPTrunking[SIP Trunking Tests]
+SIPTrunkingTests[SIP Trunking Tests]
 ReportPageTests[ReportPage Integration Tests]
 VoiceModalTests[Enhanced Voice Modal Tests]
 ValidationTests[Enhanced Validation Tests]
@@ -800,6 +802,9 @@ ComponentErrorHandlingTests[Component Error Handling Tests]
 JDTrackingTests[RoleTemplate ID Tracking Tests]
 RescheduleValidationTests[Reschedule Validation Tests]
 FieldNamingConsistencyTests[Field Naming Consistency Tests]
+SIPTrunkingTests[SIP Trunking Functionality Tests]
+SIPConfigurationTests[SIP Configuration Validation Tests]
+SIPMitigationTests[SIP Mitigation Process Tests]
 end
 subgraph "Testing Tools"
 PyTest[PyTest Framework]
@@ -828,6 +833,9 @@ ComponentErrorHandlingMock[Component Error Handling Mock Tests]
 JDTrackingMock[RoleTemplate ID Tracking Mock Tests]
 RescheduleValidationMock[Reschedule Validation Mock Tests]
 FieldNamingConsistencyMock[Field Naming Consistency Mock Tests]
+SIPTrunkingMock[SIP Trunking Mock Tests]
+SIPConfigurationMock[SIP Configuration Mock Tests]
+SIPMitigationMock[SIP Mitigation Mock Tests]
 end
 Unit --> SessionTests
 Unit --> TranscriptTests
@@ -929,6 +937,9 @@ ComponentErrorHandlingTests --> ComponentErrorHandlingMock
 JDTrackingTests --> JDTrackingMock
 RescheduleValidationTests --> RescheduleValidationMock
 FieldNamingConsistencyTests --> FieldNamingConsistencyMock
+SIPTrunkingTests --> SIPTrunkingMock
+SIPConfigurationTests --> SIPConfigurationMock
+SIPMitigationTests --> SIPMitigationMock
 ```
 
 **Diagram sources**
@@ -977,8 +988,11 @@ The testing framework covers critical scenarios including:
 - **RoleTemplate Tracking Testing**: Support for RoleTemplate ID tracking in rescheduling operations
 - **Reschedule Validation Testing**: Comprehensive validation scenarios including authentication, session not found, status validation, and proper error responses
 - **Field Naming Consistency Testing**: Proper data model alignment validation ensuring candidate.name access patterns and RoleTemplate.name field access
+- **SIP Trunking Testing**: Current SIP trunking functionality testing with comprehensive error handling
+- **SIP Configuration Testing**: SIP configuration validation and schema verification testing
+- **SIP Mitigation Testing**: SIP configuration mitigation process testing and re-enablement validation
 
-**Updated** Enhanced testing framework now includes comprehensive coverage for LiveKit WebRTC infrastructure, voice agent operations, Twilio SIP trunking, speech service integration, ReportPage integration, enhanced voice modal functionality, dual-mode display capabilities, spring-loaded animations, comprehensive validation testing, rescheduling and cancellation functionality with comprehensive validation, 21-timezone support, eager loading performance optimizations, sticky save bar functionality, voice assessment panel rendering, voice transcript viewer functionality, phone screen kit integration, end call management, retry logic validation, escalation functionality, business hours testing, enhanced error boundary functionality, API error handling, component error handling, RoleTemplate tracking, comprehensive reschedule validation testing, and field naming consistency testing.
+**Updated** Enhanced testing framework now includes comprehensive coverage for LiveKit WebRTC infrastructure, voice agent operations, Twilio SIP trunking, speech service integration, ReportPage integration, enhanced voice modal functionality, dual-mode display capabilities, spring-loaded animations, comprehensive validation testing, rescheduling and cancellation functionality with comprehensive validation, 21-timezone support, eager loading performance optimizations, sticky save bar functionality, voice assessment panel rendering, voice transcript viewer functionality, phone screen kit integration, end call management, retry logic validation, escalation functionality, business hours testing, enhanced error boundary functionality, API error handling, component error handling, RoleTemplate tracking, comprehensive reschedule validation testing, field naming consistency testing, SIP trunking testing, SIP configuration testing, and SIP mitigation testing.
 
 ## Deployment Configuration
 
@@ -1012,6 +1026,9 @@ JDTracking[RoleTemplate ID Tracking]
 APIErrorHandling[API Error Handling]
 ComponentErrorHandling[Component Error Handling]
 FieldNamingConsistency[Field Naming Consistency]
+SIPTrunkingDisabled[SIP Trunking Disabled]
+SIPConfigurationMitigation[SIP Configuration Mitigation]
+SIPReEnablementProcess[SIP Re-enablement Process]
 end
 subgraph "Environment Variables"
 DBConfig[Database Config]
@@ -1034,6 +1051,9 @@ JDTrackingConfig[RoleTemplate ID Tracking Config]
 APIErrorHandlingConfig[API Error Handling Config]
 ComponentErrorHandlingConfig[Component Error Handling Config]
 FieldNamingConsistencyConfig[Field Naming Consistency Config]
+SIPTrunkingConfig[SIP Trunking Config]
+SIPConfigurationConfig[SIP Configuration Config]
+SIPReEnablementConfig[SIP Re-enablement Config]
 end
 subgraph "Deployment Targets"
 Local[Local Development]
@@ -1059,6 +1079,8 @@ Agent --> LiveKitConfig
 Agent --> VoiceAgentConfig
 Agent --> OllamaConfig
 LiveKit --> TwilioConfig
+LiveKit --> SIPTrunkingDisabled
+LiveKit --> SIPConfigurationMitigation
 ReportPage --> ReportPageConfig
 VoiceModal --> VoiceModalConfig
 PhoneScreenKit --> PhoneScreenKit
@@ -1075,6 +1097,8 @@ JDTracking --> JDTracking
 APIErrorHandling --> APIErrorHandling
 ComponentErrorHandling --> ComponentErrorHandling
 FieldNamingConsistency --> FieldNamingConsistency
+SIPTrunkingDisabled --> SIPConfigurationMitigation
+SIPConfigurationMitigation --> SIPReEnablementProcess
 Production --> Backend
 Production --> Speech
 Production --> Agent
@@ -1112,13 +1136,13 @@ Production --> ComponentErrorHandling
 - **Network**: Persistent WebSocket connections for real-time updates, WebRTC UDP traffic
 - **Security**: TLS encryption, API authentication, and role-based access control
 - **External Dependencies**: Twilio API credentials, LiveKit server, and speech recognition services
-- **LiveKit Infrastructure**: WebSocket server, TURN server, and SIP trunk configuration
+- **LiveKit Infrastructure**: WebSocket server, TURN server, and SIP trunk configuration (currently disabled)
 - **Speech Service**: CPU-optimized inference with Parakeet STT, Kokoro TTS, and Silero VAD models
 - **Voice Agent**: FastAPI server with conversation state management and audio processing
 - **ReportPage Integration**: Additional resources for seamless voice screening from reports
 - **Enhanced Voice Modal**: Additional resources for spring-loaded animations, dual-mode display, and comprehensive validation
 - **Spring Animation Support**: Framer Motion library dependencies and optimized rendering resources
-- **Twilio SIP Trunking**: PSTN connectivity with outbound call routing and call control
+- **Twilio SIP Trunking**: PSTN connectivity with outbound call routing and call control (currently disabled)
 - **21 Timezone Support**: Comprehensive timezone handling for global operations
 - **Eager Loading Optimization**: Backend performance enhancements for reduced query overhead
 - **Rescheduling/Cancellation Infrastructure**: Enhanced action capabilities with proper session state management and comprehensive validation
@@ -1135,8 +1159,11 @@ Production --> ComponentErrorHandling
 - **API Error Handling**: Robust error handling for API communication failures
 - **Component Error Handling**: Individual component-level error handling with graceful degradation
 - **Field Naming Consistency**: Proper data model alignment ensuring candidate.name access patterns and RoleTemplate.name field access
+- **SIP Trunking Disabled**: Current state of SIP trunking configuration
+- **SIP Configuration Mitigation**: Mitigation process for SIP configuration issues
+- **SIP Re-enablement Process**: Planned process for re-enabling SIP trunking after LiveKit version verification
 
-**Updated** Deployment configuration now includes comprehensive LiveKit WebRTC infrastructure, FastAPI-based voice agent with real-time conversation management, integrated speech service with CPU-optimized inference, Twilio SIP trunking for PSTN connectivity, enhanced infrastructure requirements for seamless voice screening operations, 21-timezone support, eager loading optimizations, comprehensive rescheduling and cancellation capabilities with validation, sticky save bars, voice assessment panels, voice transcript viewers, phone screen kit integration, end call management, retry logic infrastructure, business hours enforcement, enhanced error boundary, comprehensive validation, RoleTemplate tracking, API error handling, component error handling, and field naming consistency.
+**Updated** Deployment configuration now includes comprehensive LiveKit WebRTC infrastructure, FastAPI-based voice agent with real-time conversation management, integrated speech service with CPU-optimized inference, Twilio SIP trunking for PSTN connectivity (currently disabled), enhanced infrastructure requirements for seamless voice screening operations, 21-timezone support, eager loading optimizations, comprehensive rescheduling and cancellation capabilities with validation, sticky save bars, voice assessment panels, voice transcript viewers, phone screen kit integration, end call management, retry logic infrastructure, business hours enforcement, enhanced error boundary, comprehensive validation, RoleTemplate tracking, API error handling, component error handling, field naming consistency, SIP trunking disabled status, SIP configuration mitigation process, and SIP re-enablement process planning.
 
 ## Troubleshooting Guide
 
@@ -1275,6 +1302,60 @@ Common issues and their solutions for the Voice Screening System with enhanced f
 - Check RoleTemplate field access using RoleTemplate.name instead of RoleTemplate.title
 - Ensure proper data model alignment across all voice call scheduling operations
 - Validate proper error prevention in voice call scheduling operations
+
+### SIP Trunking Issues
+
+**Problem**: LiveKit server fails to start with exit code 1
+- **Current Status**: SIP trunking configuration is temporarily disabled in livekit.yaml
+- **Root Cause**: SIP configuration caused livekit-server exit code 1 during startup
+- **Mitigation**: SIP configuration section is commented out in livekit.yaml
+- **Resolution**: Wait for LiveKit server version and SIP YAML schema verification
+
+**Problem**: SIP trunking not available for voice calls
+- **Current Status**: SIP trunking is disabled in livekit.yaml
+- **Impact**: Voice calls cannot be placed through Twilio SIP trunk
+- **Workaround**: Use alternative call routing methods or wait for re-enablement
+- **Monitoring**: Check LiveKit server logs for SIP configuration errors
+
+**Problem**: SIP configuration validation failures
+- **Current Status**: SIP configuration is commented out in livekit.yaml
+- **Validation**: SIP configuration section is disabled to prevent server startup failures
+- **Verification**: LiveKit server starts successfully without SIP configuration
+- **Next Steps**: Verify LiveKit server version compatibility with SIP YAML schema
+
+**Problem**: Twilio SIP trunk credentials not working
+- **Current Status**: SIP trunking is disabled, so credentials are not being used
+- **Troubleshooting**: Verify Twilio account credentials and API access
+- **Configuration**: SIP trunk credentials are defined in agent.py but not active
+- **Activation**: Requires successful LiveKit SIP YAML schema verification
+
+**Problem**: SIP dispatch functionality not available
+- **Current Status**: SIP dispatch is disabled in LiveKit configuration
+- **Functionality**: LiveKitSIPDispatcher in agent.py cannot create SIP participants
+- **Alternative**: Use alternative voice call routing methods
+- **Monitoring**: Check voice-agent logs for SIP dispatch errors
+
+**Problem**: SIP re-enablement process not started
+- **Current Status**: SIP re-enablement process is planned but not executed
+- **Requirements**: LiveKit server version verification and SIP YAML schema validation
+- **Timeline**: Re-enable once verification is complete
+- **Monitoring**: Track LiveKit server version updates and configuration schema changes
+
+**Problem**: SIP configuration mitigation not implemented
+- **Current Status**: SIP configuration is mitigated by commenting out the entire section
+- **Mitigation**: LiveKit server starts successfully without SIP configuration
+- **Risk**: SIP trunking functionality is unavailable until re-enabled
+- **Monitoring**: Monitor LiveKit server stability without SIP configuration
+
+**Problem**: SIP re-enablement validation not performed
+- **Current Status**: SIP re-enablement process requires validation
+- **Validation Steps**: 
+  1. Verify LiveKit server version compatibility
+  2. Validate SIP YAML schema format
+  3. Test SIP trunk authentication
+  4. Validate outbound call routing
+- **Testing**: Perform comprehensive SIP configuration testing
+- **Rollback**: Maintain ability to disable SIP configuration if issues arise
 
 ### Performance Issues
 
@@ -1580,7 +1661,7 @@ Common issues and their solutions for the Voice Screening System with enhanced f
 - Ensure proper data model alignment state across all voice call scheduling operations
 - Validate proper error prevention state in voice call scheduling operations
 
-**Updated** Enhanced troubleshooting guide now includes specific issues related to LiveKit WebRTC infrastructure, voice agent operations, Twilio SIP trunking, speech service integration, ReportPage voice screening integration, spring-loaded animations, dual-mode display capabilities, enhanced validation functionality, rescheduling and cancellation operations with comprehensive validation, 21-timezone support, eager loading optimizations, sticky save bar functionality, voice assessment panel rendering, voice transcript viewer functionality, phone screen kit integration, end call management, retry logic validation, escalation functionality, business hours enforcement, comprehensive error boundary functionality, API error handling, component error handling, RoleTemplate tracking, field naming consistency, and comprehensive infrastructure troubleshooting.
+**Updated** Enhanced troubleshooting guide now includes specific issues related to LiveKit WebRTC infrastructure, voice agent operations, Twilio SIP trunking, speech service integration, ReportPage voice screening integration, spring-loaded animations, dual-mode display capabilities, enhanced validation functionality, rescheduling and cancellation operations with comprehensive validation, 21-timezone support, eager loading optimizations, sticky save bar functionality, voice assessment panel rendering, voice transcript viewer functionality, phone screen kit integration, end call management, retry logic validation, escalation functionality, business hours enforcement, comprehensive error boundary functionality, API error handling, component error handling, RoleTemplate tracking, field naming consistency, SIP trunking configuration issues, SIP configuration mitigation process, SIP re-enablement process, and comprehensive infrastructure troubleshooting.
 
 **Section sources**
 - [voice_screening_service.py](file://app/backend/services/voice_screening_service.py)
@@ -1593,3 +1674,6 @@ Common issues and their solutions for the Voice Screening System with enhanced f
 - [ErrorBoundary.jsx](file://app/frontend/src/components/ErrorBoundary.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [schemas.py](file://app/backend/models/schemas.py)
+- [livekit.yaml](file://app/voice_agent/livekit.yaml)
+- [docker-compose.yml](file://docker-compose.yml)
+- [requirements.txt](file://app/voice_agent/requirements.txt)

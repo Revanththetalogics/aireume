@@ -1,1 +1,1 @@
-Alembic for migration orchestration, SQLAlchemy Core for schema inspection and DDL operations, PostgreSQL as the target database dialect.
+Alembic for database migrations, SQLAlchemy for ORM and inspection APIs.
