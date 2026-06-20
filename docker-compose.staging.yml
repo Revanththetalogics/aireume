@@ -199,12 +199,6 @@ services:
           cpus: '1'
           memory: 1G
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:7880"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
 
   speech-service:
     image: revanth2245/resume-speech-service:staging
@@ -230,7 +224,7 @@ services:
       - ARIA_BACKEND_URL=http://backend:8000
     depends_on:
       livekit:
-        condition: service_healthy
+        condition: service_started
       speech-service:
         condition: service_started
       backend:
