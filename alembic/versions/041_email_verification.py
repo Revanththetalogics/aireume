@@ -7,15 +7,21 @@ depends_on = None
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 def upgrade():
-    op.add_column('users', sa.Column('email_verified', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('users', sa.Column('email_verification_token', sa.String(255), nullable=True))
-    op.add_column('users', sa.Column('email_verification_sent_at', sa.DateTime(timezone=True), nullable=True))
+    insp = inspect(op.get_bind())
+    cols = {c["name"] for c in insp.get_columns("users")}
+    if "email_verified" not in cols:
+        op.add_column('users', sa.Column('email_verified', sa.Boolean(), nullable=False, server_default='false'))
+    if "email_verification_token" not in cols:
+        op.add_column('users', sa.Column('email_verification_token', sa.String(255), nullable=True))
+    if "email_verification_sent_at" not in cols:
+        op.add_column('users', sa.Column('email_verification_sent_at', sa.DateTime(timezone=True), nullable=True))
 
     # Mark all existing users as verified so they are not locked out
-    op.execute("UPDATE users SET email_verified = true")
+    op.execute("UPDATE users SET email_verified = true WHERE email_verified = false")
 
 
 def downgrade():

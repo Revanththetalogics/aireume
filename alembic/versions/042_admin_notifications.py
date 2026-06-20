@@ -7,9 +7,13 @@ depends_on = None
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 def upgrade():
+    insp = inspect(op.get_bind())
+    if 'admin_notifications' in {t for t in insp.get_table_names()}:
+        return
     op.create_table(
         'admin_notifications',
         sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),

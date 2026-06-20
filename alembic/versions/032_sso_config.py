@@ -2,6 +2,7 @@
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 revision = "032_sso_config"
@@ -11,6 +12,9 @@ depends_on = None
 
 
 def upgrade():
+    insp = inspect(op.get_bind())
+    if 'sso_configs' in {t for t in insp.get_table_names()}:
+        return
     op.create_table(
         'sso_configs',
         sa.Column('id', sa.Integer(), primary_key=True, index=True),

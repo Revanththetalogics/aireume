@@ -2,6 +2,7 @@
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 revision = "026_audit_log_system"
@@ -11,6 +12,10 @@ depends_on = None
 
 
 def upgrade():
+    insp = inspect(op.get_bind())
+    tables = {t for t in insp.get_table_names()}
+    if 'field_audit_logs' in tables:
+        return
     op.create_table(
         'field_audit_logs',
         sa.Column('id', sa.Integer, primary_key=True),

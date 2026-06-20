@@ -2,6 +2,7 @@
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 revision = "030_usage_alerts"
@@ -11,6 +12,9 @@ depends_on = None
 
 
 def upgrade():
+    insp = inspect(op.get_bind())
+    if 'usage_alerts' in {t for t in insp.get_table_names()}:
+        return
     op.create_table(
         'usage_alerts',
         sa.Column('id', sa.String(36), primary_key=True),
