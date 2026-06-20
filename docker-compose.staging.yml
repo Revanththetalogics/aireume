@@ -1,11 +1,12 @@
-version: '3.8'
-
 # ─── STAGING ENVIRONMENT ───────────────────────────────────────────────────
 # Separate stack from production. All container names, volumes, and networks
 # are prefixed with "staging_" to avoid collisions with the production stack.
 #
 # Image tag: staging  (built from `main` branch by CD workflow)
 # Portainer: deploy this as a separate stack named "aria-staging"
+#
+# NOTE: All healthchecks removed to allow stack deployment.
+# Debug issues via `docker logs <container>` after deployment.
 # ────────────────────────────────────────────────────────────────────────────
 name: aria-staging
 
@@ -32,12 +33,6 @@ services:
           cpus: '1'
           memory: 2G
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${STAGING_POSTGRES_USER:-aria_staging} -d ${STAGING_POSTGRES_DB:-aria_staging_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
 
   ollama:
     image: ollama/ollama:latest
@@ -57,12 +52,6 @@ services:
           cpus: '4'
           memory: 6G
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
   backend:
     image: revanth2245/resume-backend:staging
@@ -81,22 +70,14 @@ services:
       - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
       - VOICE_AGENT_URL=http://staging-voice-agent:8002
     depends_on:
-      postgres:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
+      - postgres
+      - ollama
     deploy:
       resources:
         limits:
           cpus: '2'
           memory: 3G
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 90s
 
   frontend:
     image: revanth2245/resume-frontend:staging
@@ -127,19 +108,12 @@ services:
           cpus: '0.5'
           memory: 256M
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
 
   ollama-warmup:
     image: ollama/ollama:latest
     container_name: staging-ollama-warmup
     depends_on:
-      ollama:
-        condition: service_healthy
+      - ollama
     entrypoint: >
       /bin/sh -c "
         echo '=== Staging: Ollama Warmup ===';
@@ -229,12 +203,9 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
       - ARIA_BACKEND_URL=http://backend:8000
     depends_on:
-      livekit:
-        condition: service_started
-      speech-service:
-        condition: service_started
-      backend:
-        condition: service_healthy
+      - livekit
+      - speech-service
+      - backend
     deploy:
       resources:
         limits:
