@@ -25,17 +25,19 @@ redis:
   address: ""
 
 # ─── SIP Trunking (Twilio ARIA) ──────────────────────────────────────────────
+# Temporarily disabled — SIP config caused livekit-server exit code 1.
 # Trunk SID: TK397e2367e4982256c307612388375bf3
 # Phone: +1 (872) 278-9563
-sip:
-  trunks:
-    - name: "twilio-aria"
-      outbound_address: "sip.pstn.twilio.com"
-      outbound_number: "+18722789563"
-      auth_username: "aria-livekit"
-      auth_password: "Itslogical1."
-  dispatch_rules:
-    - trunk_ids: []
-      rule:
-        rule_dispatch_direct: {}
-      name: "default-dispatch"
+# Re-enable once livekit-server version and SIP YAML schema are verified.
+# sip:
+#   trunks:
+#     - name: "twilio-aria"
+#       outbound_address: "sip.pstn.twilio.com"
+#       outbound_number: "+18722789563"
+#       auth_username: "aria-livekit"
+#       auth_password: "Itslogical1."
+#   dispatch_rules:
+#     - trunk_ids: []
+#       rule:
+#         rule_dispatch_direct: {}
+#       name: "default-dispatch"
