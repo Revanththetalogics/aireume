@@ -158,6 +158,17 @@ services:
 
   # ─── Voice Screening Services (Staging) ──────────────────────────────────
 
+  livekit-redis:
+    image: redis:7-alpine
+    container_name: staging-livekit-redis
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+    restart: unless-stopped
+
   livekit:
     image: revanth2245/resume-livekit:staging
     pull_policy: always
@@ -175,6 +186,8 @@ services:
       - "5060:5060"
       - "5060:5060/udp"
       - "50000-50200:50000-50200/udp"
+    depends_on:
+      - livekit-redis
     deploy:
       resources:
         limits:

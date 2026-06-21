@@ -24,7 +24,7 @@ logging:
   level: info
 
 redis:
-  address: ""
+  address: livekit-redis:6379
 
 # SIP is configured programmatically via the LiveKit API (agent.py).
 # Do NOT add sip: section to this YAML — the server version does not
