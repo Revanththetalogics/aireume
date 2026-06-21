@@ -16,6 +16,7 @@ turn:
   external_tls: false
 
 keys:
+  staging_devkey: staging_devsecret
   devkey: devsecret
 
 logging:
@@ -24,20 +25,23 @@ logging:
 redis:
   address: ""
 
-# ─── SIP Trunking (Twilio ARIA) ──────────────────────────────────────────────
-# Temporarily disabled — SIP config caused livekit-server exit code 1.
-# Trunk SID: TK397e2367e4982256c307612388375bf3
-# Phone: +1 (872) 278-9563
-# Re-enable once livekit-server version and SIP YAML schema are verified.
-# sip:
-#   trunks:
-#     - name: "twilio-aria"
-#       outbound_address: "sip.pstn.twilio.com"
-#       outbound_number: "+18722789563"
-#       auth_username: "aria-livekit"
-#       auth_password: "Itslogical1."
-#   dispatch_rules:
-#     - trunk_ids: []
-#       rule:
-#         rule_dispatch_direct: {}
-#       name: "default-dispatch"
+# ─── SIP Trunking (Twilio Elastic SIP Trunk) ─────────────────────────────────
+# Outbound PSTN calls via Twilio. The voice-agent creates SIP participants
+# referencing trunk name "twilio-aria" which must match the trunk configured
+# below (or created programmatically via LiveKit API on agent startup).
+#
+# If livekit-server fails to start with this config (exit code 1), comment
+# out the sip: section and create the trunk via LiveKit API instead.
+sip:
+  trunks:
+    - name: "twilio-aria"
+      outbound_address: "sip.pstn.twilio.com"
+      outbound_number: "+18722789563"
+      auth_username: "aria-livekit"
+      auth_password: "Itslogical1."
+      allowed_addresses: []
+  dispatch_rules:
+    - name: "default-outbound"
+      trunk_ids: []
+      rule:
+        rule_dispatch_direct: {}

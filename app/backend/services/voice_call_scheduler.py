@@ -37,6 +37,11 @@ voice_scheduler = BackgroundScheduler(timezone="UTC")
 # Voice Agent dispatch URL
 VOICE_AGENT_URL = os.environ.get("VOICE_AGENT_URL", "http://voice-agent:8002")
 
+# Advisory lock state — ensures only ONE uvicorn worker runs the scheduler
+# across all workers in a multi-process deployment (e.g., --workers 3).
+_scheduler_lock_session = None
+_scheduler_lock_acquired = False
+
 
 # ─── Business Hours Enforcement ───────────────────────────────────────────────
 
@@ -511,9 +516,44 @@ def recover_pending_calls():
 
 
 def start_voice_scheduler():
-    """Start the voice call scheduler with periodic retry processing."""
+    """Start the voice call scheduler with periodic retry processing.
+
+    Uses a PostgreSQL advisory lock to ensure only ONE uvicorn worker runs
+    the APScheduler across all workers in a multi-process deployment.
+    Without this, --workers 3 would create 3 independent schedulers causing
+    lost jobs and duplicate call firings.
+    """
+    global _scheduler_lock_session, _scheduler_lock_acquired
+
     if voice_scheduler.running:
         return
+
+    # Try to acquire advisory lock (non-blocking)
+    try:
+        _scheduler_lock_session = SessionLocal()
+        result = _scheduler_lock_session.execute(
+            __import__("sqlalchemy").text("SELECT pg_try_advisory_lock(987654)")
+        ).scalar()
+        if result:
+            _scheduler_lock_acquired = True
+            logger.info("Advisory lock acquired — this worker is the scheduler leader")
+        else:
+            _scheduler_lock_acquired = False
+            _scheduler_lock_session.close()
+            _scheduler_lock_session = None
+            logger.info(
+                "Advisory lock held by another worker — skipping scheduler startup"
+            )
+            return
+    except Exception as e:
+        # SQLite or other DB without pg_try_advisory_lock — proceed without lock
+        logger.warning(
+            "Could not acquire advisory lock (%s) — proceeding without lock", e
+        )
+        _scheduler_lock_acquired = True  # Allow scheduler to start
+        if _scheduler_lock_session:
+            _scheduler_lock_session.close()
+            _scheduler_lock_session = None
 
     # Process retries every 15 minutes
     voice_scheduler.add_job(
@@ -543,7 +583,21 @@ def start_voice_scheduler():
 
 
 def stop_voice_scheduler():
-    """Gracefully stop the voice call scheduler."""
+    """Gracefully stop the voice call scheduler and release advisory lock."""
+    global _scheduler_lock_session, _scheduler_lock_acquired
+
     if voice_scheduler.running:
         voice_scheduler.shutdown(wait=False)
         logger.info("Voice call scheduler stopped")
+
+    if _scheduler_lock_acquired and _scheduler_lock_session:
+        try:
+            _scheduler_lock_session.execute(
+                __import__("sqlalchemy").text("SELECT pg_advisory_unlock(987654)")
+            )
+            _scheduler_lock_session.close()
+            logger.info("Advisory lock released")
+        except Exception:
+            pass
+        _scheduler_lock_session = None
+        _scheduler_lock_acquired = False
