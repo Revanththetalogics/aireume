@@ -416,6 +416,87 @@ def schedule_voice_call(session_id: int, scheduled_at: Optional[datetime] = None
 
 # ─── Scheduler Lifecycle ──────────────────────────────────────────────────────
 
+def recover_pending_calls():
+    """
+    Re-register any scheduled voice calls that were lost due to container restart.
+
+    APScheduler uses in-memory job storage, so all jobs are lost when the backend
+    restarts. This function scans the DB for sessions in 'scheduled' status with a
+    future scheduled_at and re-adds them to APScheduler.
+    """
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        pending = db.execute(
+            select(VoiceScreeningSession).where(
+                VoiceScreeningSession.status == "scheduled",
+                VoiceScreeningSession.scheduled_at.isnot(None),
+                VoiceScreeningSession.direction == "outbound",
+            )
+        ).scalars().all()
+
+        recovered = 0
+        expired = 0
+
+        for session in pending:
+            scheduled_at = session.scheduled_at
+            # Ensure timezone-aware
+            if scheduled_at.tzinfo is None:
+                scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+
+            job_id = f"voice_call_{session.id}"
+
+            if scheduled_at > now:
+                # Future job — re-register with APScheduler
+                voice_scheduler.add_job(
+                    execute_scheduled_call,
+                    trigger="date",
+                    run_date=scheduled_at,
+                    args=[session.id],
+                    id=job_id,
+                    replace_existing=True,
+                )
+                recovered += 1
+            else:
+                # Past-due job — fire immediately (within grace period)
+                grace = timedelta(minutes=10)
+                if (now - scheduled_at) <= grace:
+                    voice_scheduler.add_job(
+                        execute_scheduled_call,
+                        trigger="date",
+                        run_date=now + timedelta(seconds=10),
+                        args=[session.id],
+                        id=job_id,
+                        replace_existing=True,
+                    )
+                    recovered += 1
+                    logger.info(
+                        "Session %d: past-due by %s, firing immediately",
+                        session.id, now - scheduled_at,
+                    )
+                else:
+                    # Too old — mark as failed
+                    session.status = "failed"
+                    session.error_log = "Scheduled call missed due to server restart"
+                    expired += 1
+
+        if expired:
+            db.commit()
+
+        if recovered or expired:
+            logger.info(
+                "Voice call recovery: %d re-scheduled, %d expired (total pending: %d)",
+                recovered, expired, len(pending),
+            )
+        else:
+            logger.info("Voice call recovery: no pending calls found")
+
+    except Exception as e:
+        logger.error("Failed to recover pending voice calls: %s", e, exc_info=True)
+    finally:
+        db.close()
+
+
 def start_voice_scheduler():
     """Start the voice call scheduler with periodic retry processing."""
     if voice_scheduler.running:
@@ -440,6 +521,9 @@ def start_voice_scheduler():
 
     voice_scheduler.start()
     logger.info("Voice call scheduler started (retry check: every 15 min)")
+
+    # Recover any pending calls lost due to container restart
+    recover_pending_calls()
 
 
 def stop_voice_scheduler():
