@@ -27,8 +27,12 @@ from app.backend.models.db_models import (
 
 logger = logging.getLogger(__name__)
 
+# Enable APScheduler internal logging so misfired jobs are visible
+logging.getLogger("apscheduler").setLevel(logging.INFO)
+
 # Shared scheduler instance (started by main.py lifespan)
-voice_scheduler = BackgroundScheduler()
+# Explicitly use UTC so all run_date comparisons are consistent
+voice_scheduler = BackgroundScheduler(timezone="UTC")
 
 # Voice Agent dispatch URL
 VOICE_AGENT_URL = os.environ.get("VOICE_AGENT_URL", "http://voice-agent:8002")
@@ -388,12 +392,16 @@ def schedule_voice_call(session_id: int, scheduled_at: Optional[datetime] = None
             if config:
                 call_time = adjust_to_business_hours(call_time, config)
 
+        # Ensure call_time is timezone-aware (APScheduler needs aware datetimes)
+        if call_time.tzinfo is None:
+            call_time = call_time.replace(tzinfo=timezone.utc)
+
         # Update session
         session.scheduled_at = call_time
         session.status = "scheduled"
         db.commit()
 
-        # Schedule via APScheduler
+        # Schedule via APScheduler (misfire_grace_time=300s prevents silent drops)
         voice_scheduler.add_job(
             execute_scheduled_call,
             trigger="date",
@@ -401,11 +409,14 @@ def schedule_voice_call(session_id: int, scheduled_at: Optional[datetime] = None
             args=[session_id],
             id=f"voice_call_{session_id}",
             replace_existing=True,
+            misfire_grace_time=300,
         )
 
         logger.info(
-            "Voice call scheduled: session=%d time=%s phone=%s",
-            session_id, call_time.isoformat(), session.phone_number,
+            "Voice call scheduled: session=%d time=%s (utc=%s) phone=%s",
+            session_id, call_time.isoformat(),
+            call_time.astimezone(timezone.utc).isoformat(),
+            session.phone_number,
         )
 
     except Exception as e:
@@ -455,6 +466,7 @@ def recover_pending_calls():
                     args=[session.id],
                     id=job_id,
                     replace_existing=True,
+                    misfire_grace_time=300,
                 )
                 recovered += 1
             else:
@@ -468,6 +480,7 @@ def recover_pending_calls():
                         args=[session.id],
                         id=job_id,
                         replace_existing=True,
+                        misfire_grace_time=300,
                     )
                     recovered += 1
                     logger.info(
@@ -520,7 +533,10 @@ def start_voice_scheduler():
     )
 
     voice_scheduler.start()
-    logger.info("Voice call scheduler started (retry check: every 15 min)")
+    logger.info(
+        "Voice call scheduler started (tz=%s, retry check: every 15 min, voice-agent: %s)",
+        voice_scheduler.timezone, VOICE_AGENT_URL,
+    )
 
     # Recover any pending calls lost due to container restart
     recover_pending_calls()
