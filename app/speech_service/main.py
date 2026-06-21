@@ -2,8 +2,8 @@
 Speech Service — CPU-optimized inference for STT, TTS, and VAD.
 
 Endpoints:
-  POST /stt/transcribe       — Audio bytes → text (Parakeet TDT 1.1B)
-  POST /tts/synthesize       — Text → audio bytes (Kokoro 82M)
+  POST /stt/transcribe       — Audio bytes → text (OpenAI Whisper base)
+  POST /tts/synthesize       — Text → audio bytes (Microsoft Edge TTS)
   POST /vad/detect           — Audio bytes → speech/silence segments (Silero VAD v5)
   GET  /health               — Model readiness probe
 """
@@ -22,74 +22,33 @@ logger = logging.getLogger("speech_service")
 
 # ─── Global model holders ─────────────────────────────────────────────────────
 
-stt_model = None
-stt_processor = None
-tts_model = None
-tts_pipeline = None
+whisper_model = None
 vad_model = None
 vad_utils = None
 
 SAMPLE_RATE = 16000  # All models use 16 kHz
 
+# Edge TTS voice mapping
+EDGE_TTS_VOICES = {
+    "female": "en-US-JennyNeural",
+    "male": "en-US-GuyNeural",
+}
+
 
 # ─── Model loading ────────────────────────────────────────────────────────────
 
 def load_stt():
-    """Load Parakeet TDT 1.1B — fastest open-source streaming STT."""
-    global stt_model, stt_processor
+    """Load OpenAI Whisper base model — fast and reliable on CPU."""
+    global whisper_model
     try:
-        from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-        model_id = "nvidia/parakeet-tdt-1.1b"
-        logger.info("Loading STT model: %s", model_id)
-
-        stt_processor = AutoProcessor.from_pretrained(model_id)
-        stt_model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            model_id,
-            torch_dtype=torch.float32,  # CPU-only
-            low_cpu_mem_usage=True,
-        )
-        stt_model.to("cpu")
-
-        stt_pipeline = pipeline(
-            "automatic-speech-recognition",
-            model=stt_model,
-            tokenizer=stt_processor.tokenizer,
-            feature_extractor=stt_processor.feature_extractor,
-            chunk_length_s=30,
-            return_timestamps=True,
-        )
-        # Store pipeline for easy access
-        stt_model._pipeline = stt_pipeline
-        logger.info("STT model loaded successfully")
+        import whisper
+        model_name = "base"  # 74M params, ~2-5s inference for 3s audio on CPU
+        logger.info("Loading Whisper model: %s", model_name)
+        whisper_model = whisper.load_model(model_name, device="cpu")
+        logger.info("Whisper model loaded successfully")
         return True
     except Exception as e:
-        logger.error("Failed to load STT model: %s", e)
-        return False
-
-
-def load_tts():
-    """Load Kokoro 82M — fast, lightweight TTS for CPU."""
-    global tts_model, tts_pipeline
-    try:
-        # Kokoro uses a custom pipeline — load via transformers
-        from transformers import AutoModel, AutoTokenizer
-        model_id = "hexgrad/Kokoro-82M"
-        logger.info("Loading TTS model: %s", model_id)
-
-        tts_model = AutoModel.from_pretrained(
-            model_id,
-            torch_dtype=torch.float32,
-            low_cpu_mem_usage=True,
-        )
-        tts_model.to("cpu")
-        tts_tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-        # Store tokenizer alongside model
-        tts_model._tokenizer = tts_tokenizer
-        logger.info("TTS model loaded successfully")
-        return True
-    except Exception as e:
-        logger.error("Failed to load TTS model: %s", e)
+        logger.error("Failed to load Whisper model: %s", e)
         return False
 
 
@@ -114,7 +73,7 @@ def load_vad():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load all models on startup."""
+    """Load models on startup. TTS uses edge-tts (cloud, no local model)."""
     logger.info("════════════════════════════════════════════")
     logger.info("  Speech Service — Starting model warmup")
     logger.info("════════════════════════════════════════════")
@@ -123,7 +82,7 @@ async def lifespan(app: FastAPI):
     results = {}
 
     results["stt"] = load_stt()
-    results["tts"] = load_tts()
+    results["tts"] = True  # edge-tts is cloud-based, no model to load
     results["vad"] = load_vad()
 
     elapsed = time.time() - start
@@ -161,8 +120,8 @@ def health():
     return {
         "status": "healthy",
         "models": {
-            "stt": stt_model is not None,
-            "tts": tts_model is not None,
+            "stt": whisper_model is not None,
+            "tts": True,  # edge-tts is always ready (cloud)
             "vad": vad_model is not None,
         },
     }
@@ -173,11 +132,10 @@ def health():
 @app.post("/stt/transcribe")
 async def transcribe_audio(request: Request):
     """
-    Transcribe audio bytes to text.
-    Accepts: raw PCM (16kHz, 16-bit, mono) or WAV/MP3/OGG bytes.
-    Content-Type header should match the audio format.
+    Transcribe audio bytes to text using OpenAI Whisper.
+    Accepts: raw PCM (16kHz, 16-bit, mono) or WAV bytes.
     """
-    if stt_model is None or not hasattr(stt_model, "_pipeline"):
+    if whisper_model is None:
         raise HTTPException(status_code=503, detail="STT model not loaded")
 
     body = await request.body()
@@ -187,35 +145,32 @@ async def transcribe_audio(request: Request):
     content_type = request.headers.get("content-type", "audio/wav")
 
     try:
-        # Load audio via torchaudio
-        audio_buffer = io.BytesIO(body)
-
+        # Convert audio to the format Whisper expects
         if "raw" in content_type or "pcm" in content_type:
-            # Raw PCM: 16kHz, 16-bit, mono
+            # Raw PCM: 16kHz, 16-bit, mono → float32 numpy array
             audio_np = np.frombuffer(body, dtype=np.int16).astype(np.float32) / 32768.0
-            audio_tensor = torch.from_numpy(audio_np).unsqueeze(0)
-            sample_rate = SAMPLE_RATE
         else:
-            # WAV/MP3/OGG — let torchaudio handle it
+            # WAV — load via torchaudio and convert to float32 numpy
+            audio_buffer = io.BytesIO(body)
             waveform, sample_rate = torchaudio.load(audio_buffer)
-            # Resample to 16kHz if needed
             if sample_rate != SAMPLE_RATE:
                 resampler = torchaudio.transforms.Resample(sample_rate, SAMPLE_RATE)
                 waveform = resampler(waveform)
-            # Convert stereo to mono
             if waveform.shape[0] > 1:
                 waveform = waveform.mean(dim=0, keepdim=True)
-            audio_tensor = waveform
+            audio_np = waveform.squeeze().numpy()
 
-        audio_np = audio_tensor.squeeze().numpy()
-
-        # Run inference
+        # Whisper expects float32 numpy array at 16kHz
         start = time.time()
-        result = stt_model._pipeline(audio_np)
+        result = whisper_model.transcribe(
+            audio_np,
+            language="en",
+            fp16=False,  # CPU — use float32
+        )
         elapsed = time.time() - start
 
         text = result.get("text", "").strip()
-        chunks = result.get("chunks", [])
+        segments = result.get("segments", [])
 
         logger.info("STT: %d chars in %.2fs", len(text), elapsed)
 
@@ -224,9 +179,9 @@ async def transcribe_audio(request: Request):
             "duration_audio": len(audio_np) / SAMPLE_RATE,
             "duration_inference": round(elapsed, 3),
             "chunks": [
-                {"text": c.get("text", ""), "timestamp": c.get("timestamp", None)}
-                for c in chunks
-            ] if chunks else [],
+                {"text": s.get("text", "").strip(), "timestamp": (s.get("start"), s.get("end"))}
+                for s in segments
+            ] if segments else [],
         }
 
     except HTTPException:
@@ -241,59 +196,66 @@ async def transcribe_audio(request: Request):
 @app.post("/tts/synthesize")
 async def synthesize_speech(request: Request):
     """
-    Synthesize text to audio.
+    Synthesize text to audio using Microsoft Edge TTS (neural voices).
     Body JSON: {"text": "...", "voice": "female"|"male", "speed": 1.0}
     Returns: WAV audio bytes.
     """
-    if tts_model is None:
-        raise HTTPException(status_code=503, detail="TTS model not loaded")
+    import edge_tts
 
     body = await request.json()
     text = body.get("text", "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
 
-    voice = body.get("voice", "female")
+    voice_key = body.get("voice", "female")
     speed = body.get("speed", 1.0)
+    voice_name = EDGE_TTS_VOICES.get(voice_key, EDGE_TTS_VOICES["female"])
+
+    # Convert speed to rate percentage for edge-tts (e.g., 1.0 → "+0%", 0.8 → "+20%")
+    # edge-tts uses rate like "+20%" for faster, "-20%" for slower
+    rate_pct = int((1.0 / max(speed, 0.5) - 1.0) * 100)
+    rate_str = f"+{rate_pct}%" if rate_pct > 0 else f"{rate_pct}%"
 
     try:
         start = time.time()
 
-        # Kokoro TTS inference
-        # Generate audio from text using the loaded model
-        tokenizer = tts_model._tokenizer
-        inputs = tokenizer(text, return_tensors="pt", padding=True)
+        # Use edge-tts to generate audio
+        communicate = edge_tts.Communicate(text, voice_name, rate=rate_str)
+        audio_chunks = []
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_chunks.append(chunk["data"])
 
-        with torch.no_grad():
-            outputs = tts_model.generate(
-                **inputs,
-                max_length=4096,
-                do_sample=True,
-                temperature=speed,
-            )
+        if not audio_chunks:
+            raise HTTPException(status_code=500, detail="No audio generated")
 
-        # Decode audio tokens to waveform
-        audio_tensor = outputs.squeeze(0).float()
+        # edge-tts returns MP3 — convert to WAV at 16kHz mono
+        mp3_bytes = b"".join(audio_chunks)
+        mp3_buffer = io.BytesIO(mp3_bytes)
+        waveform, sample_rate = torchaudio.load(mp3_buffer, format="mp3")
 
-        # Convert to WAV bytes
-        audio_buffer = io.BytesIO()
-        torchaudio.save(
-            audio_buffer,
-            audio_tensor.unsqueeze(0) if audio_tensor.dim() == 1 else audio_tensor,
-            SAMPLE_RATE,
-            format="wav",
-        )
-        audio_buffer.seek(0)
+        # Resample to 16kHz mono
+        if sample_rate != SAMPLE_RATE:
+            resampler = torchaudio.transforms.Resample(sample_rate, SAMPLE_RATE)
+            waveform = resampler(waveform)
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+
+        # Save as WAV
+        wav_buffer = io.BytesIO()
+        torchaudio.save(wav_buffer, waveform, SAMPLE_RATE, format="wav")
+        wav_buffer.seek(0)
 
         elapsed = time.time() - start
-        logger.info("TTS: %d chars → %.1fs audio in %.2fs", len(text), len(audio_tensor) / SAMPLE_RATE, elapsed)
+        audio_duration = waveform.shape[1] / SAMPLE_RATE
+        logger.info("TTS: %d chars → %.1fs audio in %.2fs", len(text), audio_duration, elapsed)
 
         return StreamingResponse(
-            audio_buffer,
+            wav_buffer,
             media_type="audio/wav",
             headers={
                 "X-Inference-Time": f"{elapsed:.3f}",
-                "X-Audio-Duration": f"{len(audio_tensor) / SAMPLE_RATE:.2f}",
+                "X-Audio-Duration": f"{audio_duration:.2f}",
             },
         )
 

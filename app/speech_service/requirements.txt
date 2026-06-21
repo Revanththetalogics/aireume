@@ -6,8 +6,13 @@ uvicorn[standard]==0.32.1
 torch>=2.1.0
 torchaudio>=2.1.0
 transformers>=4.40.0
-accelerate>=0.30.0
 numpy>=1.24.0
+
+# TTS — Microsoft Edge neural voices (async, no GPU required)
+edge-tts>=6.1.0
+
+# STT — OpenAI Whisper (reliable on CPU)
+openai-whisper>=20231117
 
 # Silero VAD
 # Installed via torch.hub at runtime (no pip package needed)
