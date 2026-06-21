@@ -166,7 +166,7 @@ services:
       --config /etc/livekit.yaml
     environment:
       - LIVEKIT_API_KEY=${STAGING_LIVEKIT_API_KEY:-staging_devkey}
-      - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET:-staging_devsecret}
+      - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET:-staging_devsecret_min32chars_long_xyz}
       - LIVEKIT_NODE_IP=${STAGING_LIVEKIT_NODE_IP:?STAGING_LIVEKIT_NODE_IP must be set to VPS public IP}
     ports:
       - "7890:7880"
@@ -199,7 +199,7 @@ services:
       - SPEECH_SERVICE_URL=http://speech-service:8001
       - LIVEKIT_URL=ws://livekit:7880
       - LIVEKIT_API_KEY=${STAGING_LIVEKIT_API_KEY:-staging_devkey}
-      - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET:-staging_devsecret}
+      - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET:-staging_devsecret_min32chars_long_xyz}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}

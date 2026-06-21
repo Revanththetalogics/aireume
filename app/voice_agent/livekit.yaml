@@ -17,8 +17,8 @@ turn:
   external_tls: false
 
 keys:
-  staging_devkey: staging_devsecret
-  devkey: devsecret
+  staging_devkey: staging_devsecret_min32chars_long_xyz
+  devkey: devsecret_minimum_32_characters_long_abcdef
 
 logging:
   level: info
