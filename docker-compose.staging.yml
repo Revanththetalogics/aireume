@@ -57,7 +57,7 @@ services:
     image: revanth2245/resume-backend:staging
     pull_policy: always
     container_name: staging-backend
-    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 3 --timeout-graceful-shutdown 30
+    command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-graceful-shutdown 30
     stop_grace_period: 30s
     environment:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}

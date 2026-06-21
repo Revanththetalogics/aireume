@@ -564,6 +564,9 @@ export default function VoiceScreeningPage() {
                               {session.candidate_name || session.candidate_email || `Candidate #${session.candidate_id}`}
                             </span>
                           )}
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">
+                            #{session.id}
+                          </span>
                           {session.match_score != null && (
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                               session.match_score >= 70 ? 'bg-emerald-100 text-emerald-700' :
@@ -915,6 +918,10 @@ export default function VoiceScreeningPage() {
                   <>
                     {/* Session Info */}
                     <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-slate-50 rounded-xl">
+                        <p className="text-xs text-slate-400 mb-1">Session ID</p>
+                        <p className="text-sm font-mono font-semibold text-brand-600">#{sessionDetail.id}</p>
+                      </div>
                       <div className="p-3 bg-slate-50 rounded-xl">
                         <p className="text-xs text-slate-400 mb-1">Phone</p>
                         <p className="text-sm font-semibold text-slate-700">{sessionDetail.phone_number}</p>

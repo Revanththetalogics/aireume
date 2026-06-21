@@ -539,6 +539,44 @@ class LiveKitSIPDispatcher:
         self.lk_url = LIVEKIT_URL.replace("ws://", "http://").replace("wss://", "https://")
         self.api_key = LIVEKIT_API_KEY
         self.api_secret = LIVEKIT_API_SECRET
+        self._resolved_trunk_id: Optional[str] = None
+
+    async def resolve_sip_trunk_id(self, api) -> str:
+        """
+        Resolve the actual LiveKit SIP trunk ID.
+
+        YAML-defined trunks get auto-generated IDs (e.g. ST_abc123), NOT the
+        trunk name. This method lists all trunks and finds the one matching
+        our Twilio outbound address, caching the result for subsequent calls.
+        """
+        if self._resolved_trunk_id:
+            return self._resolved_trunk_id
+
+        try:
+            trunks = await api.sip.list_sip_trunk()
+            logger.info("LiveKit SIP trunks found: %d", len(trunks))
+            for trunk in trunks:
+                trunk_id = getattr(trunk, 'sip_trunk_id', '') or getattr(trunk, 'id', '')
+                outbound_addr = getattr(trunk, 'outbound_address', '')
+                trunk_name = getattr(trunk, 'name', '')
+                logger.info(
+                    "  trunk: id=%s name=%s outbound=%s",
+                    trunk_id, trunk_name, outbound_addr,
+                )
+                # Match by Twilio outbound address or by configured name/id
+                if ('twilio' in outbound_addr.lower() or
+                        trunk_name == SIP_TRUNK_ID or
+                        trunk_id == SIP_TRUNK_ID):
+                    self._resolved_trunk_id = trunk_id
+                    logger.info("Resolved SIP trunk ID: %s (name=%s)", trunk_id, trunk_name)
+                    return trunk_id
+        except Exception as e:
+            logger.warning("Failed to list SIP trunks: %s — falling back to env var", e)
+
+        # Fallback: use the configured value (may not work but best we can do)
+        logger.warning("Using SIP_TRUNK_ID from env: %s (may not match LiveKit internal ID)", SIP_TRUNK_ID)
+        self._resolved_trunk_id = SIP_TRUNK_ID
+        return SIP_TRUNK_ID
 
     def _create_agent_token(self, room_name: str, identity: str = "aria-agent") -> str:
         """Generate a LiveKit access token for the agent participant."""
@@ -570,13 +608,16 @@ class LiveKitSIPDispatcher:
         api = LiveKitAPI(self.lk_url, self.api_key, self.api_secret)
 
         try:
-            # 1. Create room
+            # 1. Resolve actual SIP trunk ID from LiveKit
+            trunk_id = await self.resolve_sip_trunk_id(api)
+
+            # 2. Create room
             await api.room.create_room(name=room_name, empty_timeout=120, max_participants=2)
             logger.info("Room created: %s", room_name)
 
-            # 2. Create SIP participant (triggers outbound PSTN call)
+            # 3. Create SIP participant (triggers outbound PSTN call)
             sip_req = CreateSIPParticipantRequest(
-                sip_trunk_id=SIP_TRUNK_ID,
+                sip_trunk_id=trunk_id,
                 sip_call_to=phone_number,
                 room_name=room_name,
                 participant_identity=participant_identity,
@@ -586,7 +627,7 @@ class LiveKitSIPDispatcher:
             await api.sip.create_sip_participant(sip_req)
             logger.info(
                 "SIP participant created: room=%s phone=%s trunk=%s",
-                room_name, phone_number, SIP_TRUNK_ID,
+                room_name, phone_number, trunk_id,
             )
 
             # 3. Generate agent token for the voice agent worker to join
@@ -599,6 +640,55 @@ class LiveKitSIPDispatcher:
             }
         finally:
             await api.aclose()
+
+
+# ─── Audio Publishing ──────────────────────────────────────────────────────────
+
+def _strip_wav_header(data: bytes) -> bytes:
+    """Strip WAV file header to get raw PCM samples.
+
+    Speech service returns complete WAV files. LiveKit AudioFrame needs raw PCM.
+    Standard WAV header is 44 bytes (RIFF + fmt + data chunk header).
+    """
+    if data[:4] == b'RIFF' and data[8:12] == b'WAVE':
+        # Find the 'data' sub-chunk
+        offset = 12
+        while offset < len(data) - 8:
+            chunk_id = data[offset:offset + 4]
+            chunk_size = int.from_bytes(data[offset + 4:offset + 8], 'little')
+            if chunk_id == b'data':
+                return data[offset + 8:offset + 8 + chunk_size]
+            offset += 8 + chunk_size
+    return data  # Already raw PCM
+
+
+async def _publish_audio(room, audio_source, pcm_data: bytes, sample_rate: int):
+    """Publish raw PCM audio to the LiveKit room via the agent's audio track.
+
+    Handles WAV→PCM conversion, frame splitting, and track publishing.
+    """
+    from livekit import rtc
+
+    pcm = _strip_wav_header(pcm_data)
+    if not pcm:
+        logger.warning("Empty audio data — skipping publish")
+        return
+
+    samples_per_channel = len(pcm) // 2  # 16-bit = 2 bytes per sample
+    if samples_per_channel == 0:
+        return
+
+    frame = rtc.AudioFrame(
+        data=pcm,
+        sample_rate=sample_rate,
+        num_channels=1,
+        samples_per_channel=samples_per_channel,
+    )
+
+    try:
+        await audio_source.capture_frame(frame)
+    except Exception as e:
+        logger.warning("capture_frame failed: %s", e)
 
 
 # ─── LiveKit Agent Worker ─────────────────────────────────────────────────────
@@ -630,6 +720,9 @@ class VoiceAgentWorker:
         SAMPLE_RATE = 16000
         CHUNK_DURATION_SEC = 3.0
         CHUNK_SIZE = int(SAMPLE_RATE * 2 * CHUNK_DURATION_SEC)  # 16-bit samples
+
+        # Persistent audio source for agent → candidate playback
+        audio_source = rtc.AudioSource(SAMPLE_RATE, 1)
 
         async def on_track_subscribed(track, publication, participant):
             """Called when a participant's audio track is subscribed."""
@@ -668,18 +761,10 @@ class VoiceAgentWorker:
                                 })
                                 logger.info("Bot responds: %s", bot_text)
 
-                                # Synthesize speech
+                                # Synthesize speech and publish to room
                                 audio_out = await speech.synthesize(bot_text)
                                 if audio_out:
-                                    # Publish audio back to room
-                                    source = rtc.AudioSource(SAMPLE_RATE, 1)
-                                    audio_frame = rtc.AudioFrame(
-                                        data=audio_out,
-                                        sample_rate=SAMPLE_RATE,
-                                        num_channels=1,
-                                        samples_per_channel=len(audio_out) // 2,
-                                    )
-                                    await source.capture_frame(audio_frame)
+                                    await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
 
                             # Advance conversation state
                             engine.advance_state()
@@ -701,6 +786,17 @@ class VoiceAgentWorker:
             await room.connect(LIVEKIT_URL, agent_token)
             logger.info("Agent joined room: %s (session=%d)", room_name, session_ctx.session_id)
 
+            # Publish the audio source as a track so the candidate can hear the agent
+            try:
+                from livekit.rtc import TrackPublishOptions, AudioSource
+                await room.local_participant.publish_track(
+                    audio_source,
+                    TrackPublishOptions(source=AudioSource.SOURCE_MICROPHONE),
+                )
+                logger.info("Audio track published to room")
+            except Exception as pub_err:
+                logger.error("Failed to publish audio track: %s", pub_err, exc_info=True)
+
             # Update backend
             await backend.update_session(session_ctx.session_id, {"status": "in_progress"})
 
@@ -720,7 +816,8 @@ class VoiceAgentWorker:
             session_ctx.transcript.append({"role": "bot", "text": greeting, "timestamp": time.time()})
             audio_out = await speech.synthesize(greeting)
             if audio_out:
-                logger.info("Playing greeting for session %d", session_ctx.session_id)
+                await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+                logger.info("Greeting published for session %d", session_ctx.session_id)
 
             # Keep the call alive until ended or max duration
             while session_ctx.state != CallState.ENDED and engine.check_time_budget():
