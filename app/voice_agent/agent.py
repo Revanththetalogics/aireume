@@ -735,7 +735,7 @@ class VoiceAgentWorker:
 
             await backend.update_session(session_ctx.session_id, {
                 "status": "completed",
-                "transcript": json.dumps(session_ctx.transcript),
+                "transcript_json": json.dumps(session_ctx.transcript),
                 "duration_seconds": int(time.time() - session_ctx.call_start_time),
             })
 
@@ -814,7 +814,11 @@ async def dispatch_call(req: DispatchRequest):
             candidate_name=req.candidate_name,
         )
 
-        # 2. Build screening context
+        # 2. Fetch tenant config to personalize the call
+        backend = BackendClient()
+        tenant_config = await backend.get_tenant_config(req.tenant_id)
+
+        # 3. Build screening context with tenant overrides
         ctx = ScreeningContext(
             session_id=req.session_id,
             tenant_id=req.tenant_id,
@@ -823,9 +827,13 @@ async def dispatch_call(req: DispatchRequest):
             phone_number=req.phone_number,
             jd_title=req.jd_title,
             jd_must_have_skills=req.jd_must_have_skills or [],
+            bot_name=tenant_config.get("bot_name", DEFAULT_BOT_NAME),
+            greeting_style=tenant_config.get("greeting_style", DEFAULT_GREETING_STYLE),
+            call_duration_max=int(tenant_config.get("call_duration_max", 7)) * 60,
+            consent_script=tenant_config.get("consent_script"),
         )
 
-        # 3. Launch agent worker in the room (non-blocking)
+        # 4. Launch agent worker in the room (non-blocking)
         await worker.dispatch_and_run(ctx, room_info)
 
         return DispatchResponse(
