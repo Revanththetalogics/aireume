@@ -445,6 +445,8 @@ def get_next_available_slot(
     db: Session = Depends(get_db),
 ):
     """Return the next available call slot based on business hours config."""
+    import zoneinfo
+
     config = db.execute(
         select(VoiceTenantConfig).where(VoiceTenantConfig.tenant_id == user.tenant_id)
     ).scalar_one_or_none()
@@ -455,29 +457,41 @@ def get_next_available_slot(
         suggested = now + timedelta(hours=1)
         return {"suggested_at": suggested.isoformat()}
 
+    # Resolve tenant timezone
+    tz_name = config.timezone or "UTC"
+    try:
+        tz = zoneinfo.ZoneInfo(tz_name)
+    except (zoneinfo.ZoneInfoNotFoundError, Exception):
+        tz = timezone.utc
+
     try:
         start_h, start_m = map(int, config.business_hours_start.split(":"))
-        end_h, end_m = map(int, config.business_hours_end.split(":"))
         allowed_days = config.allowed_days or [1, 2, 3, 4, 5]
+        if isinstance(allowed_days, str):
+            try:
+                allowed_days = json.loads(allowed_days)
+            except (json.JSONDecodeError, TypeError):
+                allowed_days = [1, 2, 3, 4, 5]
     except (ValueError, AttributeError):
         now = datetime.now(timezone.utc)
         suggested = now + timedelta(hours=1)
         return {"suggested_at": suggested.isoformat()}
 
-    # Start from tomorrow at business hours start
-    now = datetime.now(timezone.utc)
-    candidate = now + timedelta(days=1)
-    candidate = candidate.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+    # Calculate "tomorrow" in the TENANT's timezone to avoid day-boundary mismatch
+    now_local = datetime.now(tz)
+    tomorrow_local = (now_local + timedelta(days=1)).replace(
+        hour=start_h, minute=start_m, second=0, microsecond=0,
+    )
 
-    # Find next allowed day
+    # Find next allowed day (check day-of-week in tenant's timezone)
+    candidate = tomorrow_local
     for _ in range(14):
-        day_of_week = candidate.isoweekday()  # Mon=1 .. Sun=7
-        if day_of_week in allowed_days:
-            return {"suggested_at": candidate.isoformat()}
+        if candidate.isoweekday() in allowed_days:
+            return {"suggested_at": candidate.astimezone(timezone.utc).isoformat()}
         candidate += timedelta(days=1)
 
     # Fallback
-    return {"suggested_at": (now + timedelta(days=1)).isoformat()}
+    return {"suggested_at": tomorrow_local.astimezone(timezone.utc).isoformat()}
 
 
 # ─── Internal Endpoints (service-to-service, no auth) ─────────────────────────
