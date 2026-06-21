@@ -360,7 +360,9 @@ def schedule_voice_call(session_id: int, scheduled_at: Optional[datetime] = None
     Schedule a voice screening call.
 
     If scheduled_at is None, schedules for now (immediate).
-    Adjusts to business hours if needed.
+    When a recruiter explicitly provides scheduled_at, the time is respected
+    as-is — business hours adjustment only applies to auto/immediate scheduling
+    and retries, never to a deliberate user choice.
     """
     db = SessionLocal()
     try:
@@ -377,11 +379,14 @@ def schedule_voice_call(session_id: int, scheduled_at: Optional[datetime] = None
         ).scalar_one_or_none()
 
         # Determine call time
-        call_time = scheduled_at or datetime.now(timezone.utc)
-
-        # Adjust to business hours if config exists
-        if config:
-            call_time = adjust_to_business_hours(call_time, config)
+        if scheduled_at:
+            # Recruiter explicitly chose a time — respect it without adjustment
+            call_time = scheduled_at
+        else:
+            # Immediate / auto — apply business hours guard rail
+            call_time = datetime.now(timezone.utc)
+            if config:
+                call_time = adjust_to_business_hours(call_time, config)
 
         # Update session
         session.scheduled_at = call_time
