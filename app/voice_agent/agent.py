@@ -543,40 +543,107 @@ class LiveKitSIPDispatcher:
 
     async def resolve_sip_trunk_id(self, api) -> str:
         """
-        Resolve the actual LiveKit SIP trunk ID.
+        Resolve or create the LiveKit SIP trunk for Twilio outbound calls.
 
-        YAML-defined trunks get auto-generated IDs (e.g. ST_abc123), NOT the
-        trunk name. This method lists all trunks and finds the one matching
-        our Twilio outbound address, caching the result for subsequent calls.
+        This server version does not support SIP config in YAML, so trunks
+        must be created programmatically via the LiveKit API. This method:
+        1. Lists existing trunks and looks for a Twilio match
+        2. If none found, creates a new SIP outbound trunk
+        3. Caches the result for subsequent calls
         """
         if self._resolved_trunk_id:
             return self._resolved_trunk_id
 
+        # Step 1: List existing trunks
         try:
             trunks = await api.sip.list_sip_trunk()
             logger.info("LiveKit SIP trunks found: %d", len(trunks))
             for trunk in trunks:
                 trunk_id = getattr(trunk, 'sip_trunk_id', '') or getattr(trunk, 'id', '')
-                outbound_addr = getattr(trunk, 'outbound_address', '')
-                trunk_name = getattr(trunk, 'name', '')
+                outbound_addr = getattr(trunk, 'outbound_address', '') or ''
+                outbound_addrs = getattr(trunk, 'outbound_addresses', []) or []
+                trunk_name = getattr(trunk, 'name', '') or ''
                 logger.info(
-                    "  trunk: id=%s name=%s outbound=%s",
-                    trunk_id, trunk_name, outbound_addr,
+                    "  trunk: id=%s name=%s outbound=%s addrs=%s",
+                    trunk_id, trunk_name, outbound_addr, outbound_addrs,
                 )
-                # Match by Twilio outbound address or by configured name/id
-                if ('twilio' in outbound_addr.lower() or
-                        trunk_name == SIP_TRUNK_ID or
-                        trunk_id == SIP_TRUNK_ID):
+                all_addrs = [outbound_addr] + list(outbound_addrs)
+                if any('twilio' in a.lower() for a in all_addrs if a):
                     self._resolved_trunk_id = trunk_id
-                    logger.info("Resolved SIP trunk ID: %s (name=%s)", trunk_id, trunk_name)
+                    logger.info("Resolved existing SIP trunk: %s (name=%s)", trunk_id, trunk_name)
+                    return trunk_id
+                if trunk_name == SIP_TRUNK_ID or trunk_id == SIP_TRUNK_ID:
+                    self._resolved_trunk_id = trunk_id
+                    logger.info("Resolved SIP trunk by name: %s", trunk_id)
                     return trunk_id
         except Exception as e:
-            logger.warning("Failed to list SIP trunks: %s — falling back to env var", e)
+            logger.warning("Failed to list SIP trunks: %s", e)
 
-        # Fallback: use the configured value (may not work but best we can do)
-        logger.warning("Using SIP_TRUNK_ID from env: %s (may not match LiveKit internal ID)", SIP_TRUNK_ID)
+        # Step 2: No matching trunk — create one via API
+        logger.info("No Twilio SIP trunk found — creating via LiveKit API...")
+        trunk_id = await self._create_sip_trunk(api)
+        if trunk_id:
+            self._resolved_trunk_id = trunk_id
+            return trunk_id
+
+        # Step 3: Last resort fallback
+        logger.error("Could not create SIP trunk — using env var as fallback: %s", SIP_TRUNK_ID)
         self._resolved_trunk_id = SIP_TRUNK_ID
         return SIP_TRUNK_ID
+
+    async def _create_sip_trunk(self, api) -> Optional[str]:
+        """Create a SIP outbound trunk via the LiveKit API."""
+        try:
+            # Try newer API: SIPOutboundTrunk (livekit-protocol >= 1.18)
+            from livekit.api import (
+                CreateSIPOutboundTrunkRequest,
+                SIPOutboundTrunk,
+                SIPOutboundConfig,
+            )
+            req = CreateSIPOutboundTrunkRequest(
+                trunk=SIPOutboundTrunk(
+                    name="twilio-aria",
+                    address="sip.pstn.twilio.com",
+                    numbers=[SIP_OUTBOUND_NUMBER],
+                    auth_username="aria-livekit",
+                    auth_password="Itslogical1.",
+                )
+            )
+            result = await api.sip.create_sip_outbound_trunk(req)
+            trunk_id = getattr(result, 'sip_trunk_id', '') or getattr(result, 'id', '')
+            logger.info("Created SIP outbound trunk: id=%s name=%s", trunk_id, result.name)
+            return trunk_id
+        except ImportError:
+            logger.info("SIPOutboundTrunk not available — trying legacy SIPTrunk API")
+        except Exception as e:
+            logger.warning("SIPOutboundTrunk creation failed: %s — trying legacy API", e)
+
+        try:
+            # Try legacy API: SIPTrunk (older livekit-api versions)
+            from livekit.api import (
+                CreateSIPTrunkRequest,
+                SIPTrunk,
+                SIPTrunkConfig,
+            )
+            req = CreateSIPTrunkRequest(
+                trunk=SIPTrunk(
+                    name="twilio-aria",
+                    outbound_address="sip.pstn.twilio.com",
+                    outbound_number=SIP_OUTBOUND_NUMBER,
+                    auth_username="aria-livekit",
+                    auth_password="Itslogical1.",
+                )
+            )
+            result = await api.sip.create_sip_trunk(req)
+            trunk_id = getattr(result, 'sip_trunk_id', '') or getattr(result, 'id', '')
+            logger.info("Created legacy SIP trunk: id=%s name=%s", trunk_id, result.name)
+            return trunk_id
+        except ImportError:
+            logger.error("Neither SIPOutboundTrunk nor SIPTrunk available in livekit.api")
+        except Exception as e:
+            logger.error("Legacy SIP trunk creation also failed: %s", e)
+
+        return None
 
     def _create_agent_token(self, room_name: str, identity: str = "aria-agent") -> str:
         """Generate a LiveKit access token for the agent participant."""
