@@ -545,36 +545,36 @@ class LiveKitSIPDispatcher:
         """
         Resolve or create the LiveKit SIP trunk for Twilio outbound calls.
 
-        This server version does not support SIP config in YAML, so trunks
-        must be created programmatically via the LiveKit API. This method:
-        1. Lists existing trunks and looks for a Twilio match
-        2. If none found, creates a new SIP outbound trunk
-        3. Caches the result for subsequent calls
+        Trunks must be created programmatically via the LiveKit API because
+        the server YAML config does not support SIP trunk definitions.
         """
         if self._resolved_trunk_id:
             return self._resolved_trunk_id
 
-        # Step 1: List existing trunks
+        # Step 1: List existing outbound trunks
         try:
-            trunks = await api.sip.list_sip_trunk()
-            logger.info("LiveKit SIP trunks found: %d", len(trunks))
+            from livekit.protocol.sip import (
+                ListSIPOutboundTrunkRequest,
+                CreateSIPOutboundTrunkRequest,
+                SIPOutboundTrunkInfo,
+            )
+            resp = await api.sip.list_outbound_trunk(ListSIPOutboundTrunkRequest())
+            trunks = list(resp.items) if resp and resp.items else []
+            logger.info("LiveKit SIP outbound trunks found: %d", len(trunks))
             for trunk in trunks:
-                trunk_id = getattr(trunk, 'sip_trunk_id', '') or getattr(trunk, 'id', '')
-                outbound_addr = getattr(trunk, 'outbound_address', '') or ''
-                outbound_addrs = getattr(trunk, 'outbound_addresses', []) or []
-                trunk_name = getattr(trunk, 'name', '') or ''
+                trunk_id = trunk.sip_trunk_id or ''
+                trunk_name = trunk.name or ''
+                trunk_addr = trunk.address or ''
                 logger.info(
-                    "  trunk: id=%s name=%s outbound=%s addrs=%s",
-                    trunk_id, trunk_name, outbound_addr, outbound_addrs,
+                    "  trunk: id=%s name=%s address=%s numbers=%s",
+                    trunk_id, trunk_name, trunk_addr, list(trunk.numbers),
                 )
-                all_addrs = [outbound_addr] + list(outbound_addrs)
-                if any('twilio' in a.lower() for a in all_addrs if a):
+                # Match by Twilio address or by configured name
+                if ('twilio' in trunk_addr.lower() or
+                        trunk_name == SIP_TRUNK_ID or
+                        trunk_id == SIP_TRUNK_ID):
                     self._resolved_trunk_id = trunk_id
                     logger.info("Resolved existing SIP trunk: %s (name=%s)", trunk_id, trunk_name)
-                    return trunk_id
-                if trunk_name == SIP_TRUNK_ID or trunk_id == SIP_TRUNK_ID:
-                    self._resolved_trunk_id = trunk_id
-                    logger.info("Resolved SIP trunk by name: %s", trunk_id)
                     return trunk_id
         except Exception as e:
             logger.warning("Failed to list SIP trunks: %s", e)
@@ -594,14 +594,12 @@ class LiveKitSIPDispatcher:
     async def _create_sip_trunk(self, api) -> Optional[str]:
         """Create a SIP outbound trunk via the LiveKit API."""
         try:
-            # Try newer API: SIPOutboundTrunk (livekit-protocol >= 1.18)
-            from livekit.api import (
+            from livekit.protocol.sip import (
                 CreateSIPOutboundTrunkRequest,
-                SIPOutboundTrunk,
-                SIPOutboundConfig,
+                SIPOutboundTrunkInfo,
             )
             req = CreateSIPOutboundTrunkRequest(
-                trunk=SIPOutboundTrunk(
+                trunk=SIPOutboundTrunkInfo(
                     name="twilio-aria",
                     address="sip.pstn.twilio.com",
                     numbers=[SIP_OUTBOUND_NUMBER],
@@ -609,39 +607,14 @@ class LiveKitSIPDispatcher:
                     auth_password="Itslogical1.",
                 )
             )
-            result = await api.sip.create_sip_outbound_trunk(req)
-            trunk_id = getattr(result, 'sip_trunk_id', '') or getattr(result, 'id', '')
+            result = await api.sip.create_outbound_trunk(req)
+            trunk_id = result.sip_trunk_id
             logger.info("Created SIP outbound trunk: id=%s name=%s", trunk_id, result.name)
             return trunk_id
-        except ImportError:
-            logger.info("SIPOutboundTrunk not available — trying legacy SIPTrunk API")
+        except ImportError as e:
+            logger.error("SIPOutboundTrunkInfo not available in livekit.protocol.sip: %s", e)
         except Exception as e:
-            logger.warning("SIPOutboundTrunk creation failed: %s — trying legacy API", e)
-
-        try:
-            # Try legacy API: SIPTrunk (older livekit-api versions)
-            from livekit.api import (
-                CreateSIPTrunkRequest,
-                SIPTrunk,
-                SIPTrunkConfig,
-            )
-            req = CreateSIPTrunkRequest(
-                trunk=SIPTrunk(
-                    name="twilio-aria",
-                    outbound_address="sip.pstn.twilio.com",
-                    outbound_number=SIP_OUTBOUND_NUMBER,
-                    auth_username="aria-livekit",
-                    auth_password="Itslogical1.",
-                )
-            )
-            result = await api.sip.create_sip_trunk(req)
-            trunk_id = getattr(result, 'sip_trunk_id', '') or getattr(result, 'id', '')
-            logger.info("Created legacy SIP trunk: id=%s name=%s", trunk_id, result.name)
-            return trunk_id
-        except ImportError:
-            logger.error("Neither SIPOutboundTrunk nor SIPTrunk available in livekit.api")
-        except Exception as e:
-            logger.error("Legacy SIP trunk creation also failed: %s", e)
+            logger.error("SIP outbound trunk creation failed: %s", e)
 
         return None
 
@@ -678,8 +651,13 @@ class LiveKitSIPDispatcher:
             # 1. Resolve actual SIP trunk ID from LiveKit
             trunk_id = await self.resolve_sip_trunk_id(api)
 
-            # 2. Create room
-            await api.room.create_room(name=room_name, empty_timeout=120, max_participants=2)
+            # 2. Create room (SDK requires CreateRoomRequest protobuf object)
+            from livekit.protocol.room import CreateRoomRequest
+            await api.room.create_room(CreateRoomRequest(
+                name=room_name,
+                empty_timeout=120,
+                max_participants=2,
+            ))
             logger.info("Room created: %s", room_name)
 
             # 3. Create SIP participant (triggers outbound PSTN call)

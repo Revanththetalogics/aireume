@@ -26,8 +26,6 @@ logging:
 redis:
   address: ""
 
-# SIP trunking is configured programmatically via the LiveKit API
-# in the voice-agent (see resolve_sip_trunk_id in agent.py).
-# The livekit-server version does not support SIP trunk config in YAML.
-sip:
-  port: 5060
+# SIP is configured programmatically via the LiveKit API (agent.py).
+# Do NOT add sip: section to this YAML — the server version does not
+# support sip.port or sip.trunks fields, causing a parse-error crash-loop.
