@@ -183,8 +183,6 @@ services:
       - "7890:7880"
       - "7891:7881"
       - "7892:7882/udp"
-      - "5060:5060"
-      - "5060:5060/udp"
       - "50000-50200:50000-50200/udp"
     depends_on:
       - livekit-redis
@@ -193,6 +191,36 @@ services:
         limits:
           cpus: '1'
           memory: 1G
+    restart: unless-stopped
+
+  livekit-sip:
+    image: livekit/sip:latest
+    container_name: staging-livekit-sip
+    environment:
+      SIP_CONFIG_BODY: |
+        api_key: ${STAGING_LIVEKIT_API_KEY:-staging_devkey}
+        api_secret: ${STAGING_LIVEKIT_API_SECRET:-staging_devsecret_min32chars_long_xyz}
+        ws_url: ws://livekit:7880
+        redis:
+          address: livekit-redis:6379
+        sip_port: 5060
+        rtp_port: 10000-20000
+        use_external_ip: false
+        node_ip: ${STAGING_LIVEKIT_NODE_IP:?STAGING_LIVEKIT_NODE_IP must be set to VPS public IP}
+        logging:
+          level: info
+    ports:
+      - "5060:5060"
+      - "5060:5060/udp"
+      - "10000-20000:10000-20000/udp"
+    depends_on:
+      - livekit
+      - livekit-redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     restart: unless-stopped
 
   speech-service:
