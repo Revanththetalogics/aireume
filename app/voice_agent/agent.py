@@ -786,8 +786,8 @@ class VoiceAgentWorker:
                         chunk = bytes(audio_buffer[:CHUNK_SIZE])
                         audio_buffer.clear()
 
-                        # Transcribe
-                        text = await speech.transcribe(chunk, "audio/wav")
+                        # Transcribe (LiveKit delivers raw PCM 16kHz 16-bit mono)
+                        text = await speech.transcribe(chunk, "audio/pcm")
                         if text.strip():
                             session_ctx.transcript.append({
                                 "role": "candidate",
@@ -833,11 +833,11 @@ class VoiceAgentWorker:
 
             # Publish the audio source as a track so the candidate can hear the agent
             try:
-                from livekit.rtc import TrackPublishOptions, AudioSource
-                await room.local_participant.publish_track(
-                    audio_source,
-                    TrackPublishOptions(source=AudioSource.SOURCE_MICROPHONE),
-                )
+                from livekit import rtc
+                track = rtc.LocalAudioTrack.create_audio_track("aria-agent", audio_source)
+                options = rtc.TrackPublishOptions()
+                options.source = rtc.TrackSource.SOURCE_MICROPHONE
+                await room.local_participant.publish_track(track, options)
                 logger.info("Audio track published to room")
             except Exception as pub_err:
                 logger.error("Failed to publish audio track: %s", pub_err, exc_info=True)

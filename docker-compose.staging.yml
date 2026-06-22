@@ -146,6 +146,7 @@ services:
       staging-speech-service
       staging-voice-agent
       staging-livekit
+      staging-livekit-sip
     environment:
       - WATCHTOWER_INCLUDE_STOPPED=false
       - WATCHTOWER_NO_PULL=false
