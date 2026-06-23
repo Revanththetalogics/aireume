@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -660,9 +661,11 @@ class LiveKitSIPDispatcher:
             logger.info("Room created: %s", room_name)
 
             # 3. Create SIP participant (triggers outbound PSTN call)
+            # Normalize phone to E.164: strip spaces/dashes, keep only + and digits
+            sip_phone = re.sub(r'[^\d+]', '', phone_number)
             sip_req = CreateSIPParticipantRequest(
                 sip_trunk_id=trunk_id,
-                sip_call_to=phone_number,
+                sip_call_to=sip_phone,
                 room_name=room_name,
                 participant_identity=participant_identity,
                 participant_name=candidate_name,
@@ -670,8 +673,8 @@ class LiveKitSIPDispatcher:
             )
             await api.sip.create_sip_participant(sip_req)
             logger.info(
-                "SIP participant created: room=%s phone=%s trunk=%s",
-                room_name, phone_number, trunk_id,
+                "SIP participant created: room=%s phone=%s (raw=%s) trunk=%s",
+                room_name, sip_phone, phone_number, trunk_id,
             )
 
             # 3. Generate agent token for the voice agent worker to join
