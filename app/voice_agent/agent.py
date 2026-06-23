@@ -772,8 +772,8 @@ class VoiceAgentWorker:
         # Persistent audio source for agent → candidate playback
         audio_source = rtc.AudioSource(SAMPLE_RATE, 1)
 
-        async def on_track_subscribed(track, publication, participant):
-            """Called when a participant's audio track is subscribed."""
+        async def _process_track(track, publication, participant):
+            """Async body for processing a subscribed audio track."""
             if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
                 logger.info(
                     "Audio track subscribed: participant=%s session=%d",
@@ -823,6 +823,10 @@ class VoiceAgentWorker:
                                 session_ctx.state = CallState.ENDED
                             if "reschedule" in text.lower() or "not a good time" in text.lower():
                                 session_ctx.state = CallState.ENDED
+
+        def on_track_subscribed(track, publication, participant):
+            """Sync wrapper — LiveKit .on() does not support async callbacks."""
+            asyncio.create_task(_process_track(track, publication, participant))
 
         room.on("track_subscribed", on_track_subscribed)
 
