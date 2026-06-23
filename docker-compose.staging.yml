@@ -250,6 +250,7 @@ services:
       - ARIA_BACKEND_URL=http://backend:8000
       - SIP_TRUNK_ID=twilio-aria
       - SIP_OUTBOUND_NUMBER=+18722789563
+      - SIP_TERMINATION_ADDRESS=aria-staging.pstn.twilio.com
     depends_on:
       - livekit
       - speech-service

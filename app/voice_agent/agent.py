@@ -39,6 +39,7 @@ LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "")
 SIP_TRUNK_ID = os.getenv("SIP_TRUNK_ID", "twilio-aria")
 SIP_OUTBOUND_NUMBER = os.getenv("SIP_OUTBOUND_NUMBER", "+18722789563")
+SIP_TERMINATION_ADDRESS = os.getenv("SIP_TERMINATION_ADDRESS", "aria-staging.pstn.twilio.com")
 AGENT_PORT = int(os.getenv("AGENT_PORT", "8002"))
 
 # Conversation settings (defaults, overridden per-call by tenant config)
@@ -570,8 +571,8 @@ class LiveKitSIPDispatcher:
                     "  trunk: id=%s name=%s address=%s numbers=%s",
                     trunk_id, trunk_name, trunk_addr, list(trunk.numbers),
                 )
-                # Match by Twilio address or by configured name
-                if ('twilio' in trunk_addr.lower() or
+                # Match by exact termination address or configured name
+                if (trunk_addr == SIP_TERMINATION_ADDRESS or
                         trunk_name == SIP_TRUNK_ID or
                         trunk_id == SIP_TRUNK_ID):
                     self._resolved_trunk_id = trunk_id
@@ -602,7 +603,7 @@ class LiveKitSIPDispatcher:
             req = CreateSIPOutboundTrunkRequest(
                 trunk=SIPOutboundTrunkInfo(
                     name="twilio-aria",
-                    address="sip.pstn.twilio.com",
+                    address=SIP_TERMINATION_ADDRESS,
                     numbers=[SIP_OUTBOUND_NUMBER],
                     auth_username="aria-livekit",
                     auth_password="Itslogical1.",
@@ -1016,7 +1017,7 @@ async def main():
     logger.info("  Speech Service: %s", SPEECH_SERVICE_URL)
     logger.info("  LiveKit: %s", LIVEKIT_URL)
     logger.info("  Ollama: %s (model: %s)", OLLAMA_BASE_URL, OLLAMA_MODEL)
-    logger.info("  SIP Trunk: %s (outbound: %s)", SIP_TRUNK_ID, SIP_OUTBOUND_NUMBER)
+    logger.info("  SIP Trunk: %s (outbound: %s, termination: %s)", SIP_TRUNK_ID, SIP_OUTBOUND_NUMBER, SIP_TERMINATION_ADDRESS)
     logger.info("  Dispatch API: http://0.0.0.0:%d", AGENT_PORT)
     logger.info("════════════════════════════════════════════")
 
