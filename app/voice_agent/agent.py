@@ -620,17 +620,16 @@ class LiveKitSIPDispatcher:
 
     def _create_agent_token(self, room_name: str, identity: str = "aria-agent") -> str:
         """Generate a LiveKit access token for the agent participant."""
-        from livekit.api import AccessToken, VideoGrant
+        from livekit.api import AccessToken, VideoGrants
         token = AccessToken(self.api_key, self.api_secret)
         token.with_identity(identity)
         token.with_name("ARIA Assistant")
-        grant = VideoGrant(
-            room=room_name,
+        token.with_grants(VideoGrants(
             room_join=True,
+            room=room_name,
             can_publish=True,
             can_subscribe=True,
-        )
-        token.with_grants(grant)
+        ))
         return token.to_jwt()
 
     async def dispatch_call(
