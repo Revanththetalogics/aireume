@@ -36,14 +36,20 @@
 - [queue_manager.py](file://app/backend/services/queue_manager.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [test_guardrail_service.py](file://app/backend/tests/test_guardrail_service.py)
+- [agent.py](file://app/voice_agent/agent.py)
+- [livekit.yaml](file://app/voice_agent/livekit.yaml)
+- [Dockerfile.livekit](file://app/voice_agent/Dockerfile.livekit)
+- [stripe_provider.py](file://app/backend/services/billing/stripe_provider.py)
+- [admin.py](file://app/backend/routes/admin.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated Data Retention Policy section to reflect corrected column mapping for ScreeningResult.timestamp
-- Enhanced Security Audit Findings to include data privacy compliance improvements
-- Updated Security Hardening Recommendations with improved automated cleanup processes
-- Added comprehensive data anonymization implementation for old screening results
+- Updated LiveKit integration security requirements to include 32-character minimum API secret length
+- Enhanced API security validation recommendations for third-party service integrations
+- Added comprehensive LiveKit voice screening security framework
+- Updated security hardening recommendations to include enhanced API secret management
+- Added LiveKit container security and authentication best practices
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -64,7 +70,7 @@
 ## Introduction
 This document provides comprehensive security hardening guidance for Resume AI, built upon a comprehensive security audit report documenting 212 total issues across the application stack. The audit revealed critical security vulnerabilities including hardcoded production passwords, JWT token storage in localStorage, missing security headers, and prompt injection vulnerabilities. This documentation addresses these findings while maintaining the existing security framework and adding new mitigation strategies.
 
-**Updated** Enhanced with comprehensive security audit findings covering critical vulnerabilities, prioritized remediation roadmap, and expanded security hardening recommendations. Added comprehensive XSS protection implementation through universal safeStr utility function across 7 frontend components. **New** Implemented comprehensive 4-tier LLM guardrail framework including reliability, security, governance, and operations layers with advanced prompt injection detection, ensemble voting, schema validation, and tenant-level resource management.
+**Updated** Enhanced with comprehensive security audit findings covering critical vulnerabilities, prioritized remediation roadmap, and expanded security hardening recommendations. Added comprehensive XSS protection implementation through universal safeStr utility function across 7 frontend components. **New** Implemented comprehensive 4-tier LLM guardrail framework including reliability, security, governance, and operations layers with advanced prompt injection detection, ensemble voting, schema validation, and tenant-level resource management. **New** Enhanced LiveKit voice screening integration with comprehensive security validation requirements including 32-character minimum API secret length to prevent brute force attacks and credential theft.
 
 ## Executive Summary
 
@@ -76,6 +82,7 @@ ARIA is an AI-powered resume screening application built with:
 - **Database**: PostgreSQL with SQLAlchemy
 - **Infrastructure**: Docker, Nginx, CI/CD via GitHub Actions
 - **Guardrails**: 4-tier LLM guardrail framework with reliability, security, governance, and operations layers
+- **Voice Screening**: LiveKit integration with secure API authentication and PSTN calling capabilities
 
 ### Security Audit Results
 The comprehensive security audit identified 212 total issues with the following severity distribution:
@@ -84,7 +91,7 @@ The comprehensive security audit identified 212 total issues with the following 
 - **Medium**: 121 issues requiring attention
 - **Low**: 60 issues requiring consideration
 
-**Updated** Added comprehensive security audit findings covering critical vulnerabilities that require immediate attention, including XSS protection implementation through centralized safeStr utility function. **New** Implemented comprehensive 4-tier LLM guardrail framework with reliability, security, governance, and operations layers providing enterprise-grade security and operational controls.
+**Updated** Added comprehensive security audit findings covering critical vulnerabilities that require immediate attention, including XSS protection implementation through centralized safeStr utility function. **New** Implemented comprehensive 4-tier LLM guardrail framework with reliability, security, governance, and operations layers providing enterprise-grade security and operational controls. **New** Enhanced LiveKit voice screening integration with comprehensive security validation requirements including 32-character minimum API secret length to prevent brute force attacks and credential theft.
 
 **Section sources**
 - [AUDIT.md:69-75](file://docs/AUDIT.md#L69-L75)
@@ -183,12 +190,22 @@ Development CORS configuration allows any origin with credentials, creating seve
 
 **Fix**: Restrict CORS origins to specific domains and remove credential allowance for wildcard origins
 
+#### 11. LiveKit API Secret Length Validation
+**Location**: `app/voice_agent/livekit.yaml` lines 19-22  
+**Severity**: CRITICAL  
+**Risk**: Brute force attacks, credential theft
+
+LiveKit requires minimum 32-character API secrets to prevent brute force attacks and credential theft. Current configuration uses shorter secrets that violate this requirement.
+
+**Fix**: Implement 32-character minimum requirement for all LiveKit API secrets and enforce validation at startup
+
 **Section sources**
 - [AUDIT.md:81-231](file://docs/AUDIT.md#L81-L231)
 - [docker-compose.prod.yml:24](file://docker-compose.prod.yml#L24)
 - [auth.py:13-21](file://app/backend/middleware/auth.py#L13-L21)
 - [team.py:54-62](file://app/backend/routes/team.py#L54-L62)
 - [AuthContext.jsx:31-38](file://app/frontend/src/contexts/AuthContext.jsx#L31-L38)
+- [livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
 
 ## Prioritized Remediation Roadmap
 
@@ -205,66 +222,82 @@ Development CORS configuration allows any origin with credentials, creating seve
 | 8 | Add prompt injection sanitization | `app/backend/services/hybrid_pipeline.py` |
 | 9 | Fix XSS in ResultCard | `app/frontend/src/components/ResultCard.jsx` |
 | 10 | Fix email_gen.py hardcoded model name | `app/backend/routes/email_gen.py` |
+| 11 | Enforce 32-character minimum for LiveKit API secrets | `app/voice_agent/livekit.yaml`, `app/voice_agent/agent.py` |
 
 ### Phase 2 - Stability & Performance (Week 2)
 | # | Task | Files |
 |---|------|-------|
-| 11 | Add LLM call timeouts (asyncio.wait_for) | `app/backend/services/hybrid_pipeline.py` |
-| 12 | Fix N+1 query in candidate list (use joins) | `app/backend/routes/candidates.py` |
-| 13 | Add database indexes on frequently queried columns | `app/backend/models/db_models.py` |
-| 14 | Chunk batch processing (groups of 5) | `app/backend/routes/analyze.py` |
-| 15 | Fix race condition in usage reset (DB locking) | `app/backend/routes/subscription.py` |
-| 16 | Add pagination to all list endpoints | Multiple route files |
-| 17 | Add connection pool config for PostgreSQL | `app/backend/db/database.py` |
-| 18 | Add circuit breaker for LLM calls | `app/backend/services/hybrid_pipeline.py` |
-| 19 | Fix substring skill matching | `app/backend/services/hybrid_pipeline.py` |
-| 20 | Retire dead pipeline code | `llm_service.py`, `agent_pipeline.py` |
+| 12 | Add LLM call timeouts (asyncio.wait_for) | `app/backend/services/hybrid_pipeline.py` |
+| 13 | Fix N+1 query in candidate list (use joins) | `app/backend/routes/candidates.py` |
+| 14 | Add database indexes on frequently queried columns | `app/backend/models/db_models.py` |
+| 15 | Chunk batch processing (groups of 5) | `app/backend/routes/analyze.py` |
+| 16 | Fix race condition in usage reset (DB locking) | `app/backend/routes/subscription.py` |
+| 17 | Add pagination to all list endpoints | Multiple route files |
+| 18 | Add connection pool config for PostgreSQL | `app/backend/db/database.py` |
+| 19 | Add circuit breaker for LLM calls | `app/backend/services/hybrid_pipeline.py` |
+| 20 | Fix substring skill matching | `app/backend/services/hybrid_pipeline.py` |
+| 21 | Retire dead pipeline code | `llm_service.py`, `agent_pipeline.py` |
 
 ### Phase 3 - Code Quality & Observability (Week 3)
 | # | Task | Scope |
 |---|------|-------|
-| 21 | Replace bare `except: pass` with specific exceptions + logging | Backend-wide |
-| 22 | Add structured JSON logging throughout backend | Backend-wide |
-| 23 | Centralize model names, magic numbers, error formats | Create `constants.py` |
-| 24 | Complete .env.example with all variables + startup validation | `.env.example`, `main.py` |
-| 25 | Add CI linting (ruff) and Docker image scanning (Trivy) | `.github/workflows/` |
-| 26 | Separate test dependencies from production requirements.txt | `requirements.txt` |
-| 27 | Add anti-bias instruction to resume analysis prompts | `hybrid_pipeline.py` |
-| 28 | Standardize on ChatOllama everywhere | LLM services |
-| 29 | Add LLM output schema validation (Pydantic) | LLM services |
-| 30 | Add fallback frequency monitoring | LLM services |
+| 22 | Replace bare `except: pass` with specific exceptions + logging | Backend-wide |
+| 23 | Add structured JSON logging throughout backend | Backend-wide |
+| 24 | Centralize model names, magic numbers, error formats | Create `constants.py` |
+| 25 | Complete .env.example with all variables + startup validation | `.env.example`, `main.py` |
+| 26 | Add CI linting (ruff) and Docker image scanning (Trivy) | `.github/workflows/` |
+| 27 | Separate test dependencies from production requirements.txt | `requirements.txt` |
+| 28 | Add anti-bias instruction to resume analysis prompts | `hybrid_pipeline.py` |
+| 29 | Standardize on ChatOllama everywhere | LLM services |
+| 30 | Add LLM output schema validation (Pydantic) | LLM services |
+| 31 | Add fallback frequency monitoring | LLM services |
 
 ### Phase 4 - XSS Protection Implementation (Immediate)
 | # | Task | Files |
 |---|------|-------|
-| 31 | Implement universal safeStr utility function | `app/frontend/src/components/ComparisonView.jsx` |
-| 32 | Apply safeStr to ResultCard component | `app/frontend/src/components/ResultCard.jsx` |
-| 33 | Add safeStr to SkillsRadar component | `app/frontend/src/components/SkillsRadar.jsx` |
-| 34 | Implement safeStr in CandidatesPage | `app/frontend/src/pages/CandidatesPage.jsx` |
-| 35 | Add safeStr to ComparePage | `app/frontend/src/pages/ComparePage.jsx` |
-| 36 | Implement safeStr in DashboardNew | `app/frontend/src/pages/DashboardNew.jsx` |
-| 37 | Apply safeStr to ReportPage | `app/frontend/src/pages/ReportPage.jsx` |
-| 38 | Centralize XSS protection across all frontend components | All frontend components |
+| 32 | Implement universal safeStr utility function | `app/frontend/src/components/ComparisonView.jsx` |
+| 33 | Apply safeStr to ResultCard component | `app/frontend/src/components/ResultCard.jsx` |
+| 34 | Add safeStr to SkillsRadar component | `app/frontend/src/components/SkillsRadar.jsx` |
+| 35 | Implement safeStr in CandidatesPage | `app/frontend/src/pages/CandidatesPage.jsx` |
+| 36 | Add safeStr to ComparePage | `app/frontend/src/pages/ComparePage.jsx` |
+| 37 | Implement safeStr in DashboardNew | `app/frontend/src/pages/DashboardNew.jsx` |
+| 38 | Apply safeStr to ReportPage | `app/frontend/src/pages/ReportPage.jsx` |
+| 39 | Centralize XSS protection across all frontend components | All frontend components |
 
 ### Phase 5 - 4-Tier LLM Guardrail Framework Implementation (Immediate)
 | # | Task | Files |
 |---|------|-------|
-| 39 | Implement guardrail service with reliability tier | `app/backend/services/guardrail_service.py` |
-| 40 | Add security tier with prompt injection detection | `app/backend/services/guardrail_service.py` |
-| 41 | Implement governance tier with HITL gates | `app/backend/services/guardrail_service.py` |
-| 42 | Add operations tier with token budget management | `app/backend/services/guardrail_service.py` |
-| 43 | Integrate guardrail service into hybrid pipeline | `app/backend/services/hybrid_pipeline.py` |
-| 44 | Add A/B testing framework for prompt variants | `app/backend/services/guardrail_service.py` |
-| 45 | Implement adversarial harness testing | `app/backend/services/guardrail_service.py` |
-| 46 | Add comprehensive monitoring hooks | `app/backend/services/guardrail_service.py` |
-| 47 | Integrate guardrail metrics into Prometheus | `app/backend/services/metrics.py` |
-| 48 | Add data retention policy implementation | `app/backend/services/guardrail_service.py` |
+| 40 | Implement guardrail service with reliability tier | `app/backend/services/guardrail_service.py` |
+| 41 | Add security tier with prompt injection detection | `app/backend/services/guardrail_service.py` |
+| 42 | Implement governance tier with HITL gates | `app/backend/services/guardrail_service.py` |
+| 43 | Add operations tier with token budget management | `app/backend/services/guardrail_service.py` |
+| 44 | Integrate guardrail service into hybrid pipeline | `app/backend/services/hybrid_pipeline.py` |
+| 45 | Add A/B testing framework for prompt variants | `app/backend/services/guardrail_service.py` |
+| 46 | Implement adversarial harness testing | `app/backend/services/guardrail_service.py` |
+| 47 | Add comprehensive monitoring hooks | `app/backend/services/guardrail_service.py` |
+| 48 | Integrate guardrail metrics into Prometheus | `app/backend/services/metrics.py` |
+| 49 | Add data retention policy implementation | `app/backend/services/guardrail_service.py` |
+
+### Phase 6 - LiveKit Integration Security (Immediate)
+| # | Task | Files |
+|---|------|-------|
+| 50 | Implement 32-character minimum validation for LiveKit API secrets | `app/voice_agent/agent.py` |
+| 51 | Add LiveKit API secret rotation and management | `app/voice_agent/agent.py` |
+| 52 | Implement LiveKit container security hardening | `app/voice_agent/Dockerfile.livekit` |
+| 53 | Add LiveKit authentication validation middleware | `app/backend/main.py` |
+| 54 | Implement LiveKit rate limiting and throttling | `app/backend/middleware/rate_limit.py` |
+| 55 | Add LiveKit webhook security validation | `app/backend/webhook_service.py` |
+| 56 | Implement LiveKit session token validation | `app/backend/services/voice_screening_service.py` |
+| 57 | Add LiveKit container health monitoring | `app/voice_agent/agent.py` |
+| 58 | Implement LiveKit backup authentication method | `app/voice_agent/agent.py` |
 
 **Section sources**
 - [AUDIT.md:1241-1323](file://docs/AUDIT.md#L1241-L1323)
+- [livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
+- [agent.py:36-42](file://app/voice_agent/agent.py#L36-L42)
 
 ## Project Structure
-The backend is a FastAPI application with modular routers, middleware, SQLAlchemy ORM models, and Pydantic schemas. Authentication is handled via bearer tokens, with a dedicated auth router and middleware dependency. The frontend uses React with a context provider for token storage and protected routing. LLM interactions are performed via an internal Ollama service, and the stack is orchestrated with Docker Compose. **New** The system now includes a comprehensive 4-tier LLM guardrail framework providing enterprise-grade security and operational controls.
+The backend is a FastAPI application with modular routers, middleware, SQLAlchemy ORM models, and Pydantic schemas. Authentication is handled via bearer tokens, with a dedicated auth router and middleware dependency. The frontend uses React with a context provider for token storage and protected routing. LLM interactions are performed via an internal Ollama service, and the stack is orchestrated with Docker Compose. **New** The system now includes a comprehensive 4-tier LLM guardrail framework providing enterprise-grade security and operational controls. **New** LiveKit voice screening integration provides secure PSTN calling capabilities with comprehensive authentication and authorization.
 
 ```mermaid
 graph TB
@@ -287,6 +320,8 @@ LLM["services/llm_service.py"]
 PIPELINE["services/hybrid_pipeline.py"]
 GUARDRAIL["services/guardrail_service.py"]
 METRICS["services/metrics.py"]
+VOICE_AGENT["services/voice_screening_service.py"]
+WEBHOOK["webhook_service.py"]
 ENDPOINT["scripts/docker-entrypoint.sh"]
 WAIT_OL["scripts/wait_for_ollama.py"]
 end
@@ -299,6 +334,7 @@ NGINX_DOCKER["nginx/Dockerfile"]
 NGINX_CONF["nginx/nginx.prod.conf"]
 Ollama["Ollama Container"]
 Postgres["PostgreSQL Container"]
+LIVEKIT["LiveKit Container"]
 end
 FE_Auth --> |HTTP API| API_Auth
 FE_Route --> |guards| FE_Auth
@@ -318,10 +354,13 @@ DB --> Postgres
 API_Main --> DB
 DC --> Postgres
 DC --> Ollama
+DC --> LIVEKIT
 DC_PROD --> BACKEND_DOCKER
 DC_PROD --> FRONTEND_DOCKER
 DC_PROD --> NGINX_DOCKER
 NGINX_DOCKER --> NGINX_CONF
+LIVEKIT --> VOICE_AGENT
+VOICE_AGENT --> WEBHOOK
 ```
 
 **Diagram sources**
@@ -340,6 +379,7 @@ NGINX_DOCKER --> NGINX_CONF
 - [nginx.prod.conf:40-45](file://nginx/nginx.prod.conf#L40-L45)
 - [guardrail_service.py:1-128](file://app/backend/services/guardrail_service.py#L1-L128)
 - [metrics.py:1-76](file://app/backend/services/metrics.py#L1-L76)
+- [agent.py:36-42](file://app/voice_agent/agent.py#L36-L42)
 
 **Section sources**
 - [main.py:174-215](file://app/backend/main.py#L174-L215)
@@ -376,6 +416,14 @@ NGINX_DOCKER --> NGINX_CONF
   - Environment-variable driven configuration for all sensitive settings.
   - Rate limiting and HTTP-to-HTTPS redirection.
   - **New** Container security with non-root execution across all services.
+- LiveKit Voice Screening Integration
+  - **New Enterprise Security Framework**: LiveKit integration with secure API authentication and PSTN calling capabilities.
+  - **New** 32-character minimum API secret requirement to prevent brute force attacks and credential theft.
+  - **New** Comprehensive authentication validation including API key and secret verification.
+  - **New** Secure room creation with tenant-scoped access controls and participant authorization.
+  - **New** SIP trunk management with secure authentication and outbound call initiation.
+  - **New** Agent token generation with role-based access grants and expiration controls.
+  - **New** Comprehensive webhook security validation for LiveKit events and callbacks.
 - XSS Protection Implementation
   - **New Security Enhancement**: Universal safeStr utility function implemented across 7 frontend components.
   - **New Security Enhancement**: Centralized XSS protection mechanism handling null/undefined, strings, numbers, booleans, objects, and arrays.
@@ -395,7 +443,7 @@ NGINX_DOCKER --> NGINX_CONF
   - **New Security Enhancement**: Comprehensive data lifecycle management with PII protection and compliance alignment.
   - **New** Enhanced data privacy compliance through automated cleanup and anonymization processes.
 
-**Updated** Added comprehensive security enhancements including CSRF protection, non-root user execution across all containers, environment-variable driven CORS configuration, mandatory JWT secret enforcement, production-grade Nginx security headers, and comprehensive XSS protection through centralized safeStr utility function. **New** Implemented enterprise-grade 4-tier LLM guardrail framework providing comprehensive security and operational controls.
+**Updated** Added comprehensive security enhancements including CSRF protection, non-root user execution across all containers, environment-variable driven CORS configuration, mandatory JWT secret enforcement, production-grade Nginx security headers, and comprehensive XSS protection through centralized safeStr utility function. **New** Implemented enterprise-grade 4-tier LLM guardrail framework providing comprehensive security and operational controls. **New** Enhanced LiveKit voice screening integration with comprehensive security validation requirements including 32-character minimum API secret length to prevent brute force attacks and credential theft.
 
 **Section sources**
 - [auth.py:13-46](file://app/backend/middleware/auth.py#L13-L46)
@@ -414,9 +462,11 @@ NGINX_DOCKER --> NGINX_CONF
 - [metrics.py:22-61](file://app/backend/services/metrics.py#L22-L61)
 - [db_models.py:135-162](file://app/backend/models/db_models.py#L135-L162)
 - [test_guardrail_service.py:670-700](file://app/backend/tests/test_guardrail_service.py#L670-L700)
+- [agent.py:36-42](file://app/voice_agent/agent.py#L36-L42)
+- [livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
 
 ## Architecture Overview
-The system integrates a React frontend, a FastAPI backend, an Ollama inference service, and a PostgreSQL database. Authentication is enforced at the API boundary via JWT, with tenant scoping applied across models. LLM calls are asynchronous and include robust fallbacks. All containers run as non-root users for enhanced security. **New** The system now includes a comprehensive 4-tier LLM guardrail framework providing enterprise-grade security and operational controls across all LLM interactions.
+The system integrates a React frontend, a FastAPI backend, an Ollama inference service, a PostgreSQL database, and a LiveKit voice screening service. Authentication is enforced at the API boundary via JWT, with tenant scoping applied across models. LLM calls are asynchronous and include robust fallbacks. All containers run as non-root users for enhanced security. **New** The system now includes a comprehensive 4-tier LLM guardrail framework providing enterprise-grade security and operational controls. **New** LiveKit voice screening integration provides secure PSTN calling capabilities with comprehensive authentication and authorization.
 
 ```mermaid
 sequenceDiagram
@@ -428,6 +478,7 @@ participant AuthMW as "Auth Middleware"
 participant CSRFMW as "CSRF Middleware"
 participant RateLimitMW as "Rate Limit Middleware"
 participant Guardrail as "Guardrail Service"
+participant LiveKit as "LiveKit Service"
 participant DB as "SQLAlchemy"
 participant Ollama as "Ollama"
 Client->>Nginx : "HTTPS Request"
@@ -443,6 +494,10 @@ Backend->>RateLimitMW : "Rate Limit Check"
 RateLimitMW->>Guardrail : "Guardrail Validation"
 Guardrail->>Guardrail : "Tier 1-4 Checks"
 Guardrail-->>Backend : "Validated Request"
+Backend->>LiveKit : "Voice Screening Request"
+LiveKit->>LiveKit : "API Secret Validation"
+LiveKit->>LiveKit : "Room Creation & SIP Trunk"
+LiveKit-->>Backend : "Session Details"
 Backend-->>Nginx : "Response"
 Nginx-->>Client : "Secure Response"
 ```
@@ -453,6 +508,7 @@ Nginx-->>Client : "Secure Response"
 - [rate_limit.py:123-143](file://app/backend/middleware/rate_limit.py#L123-L143)
 - [guardrail_service.py:1067-1121](file://app/backend/services/guardrail_service.py#L1067-L1121)
 - [nginx.prod.conf:40-45](file://nginx/nginx.prod.conf#L40-L45)
+- [agent.py:675](file://app/voice_agent/agent.py#L675)
 
 ## Detailed Component Analysis
 
@@ -663,15 +719,53 @@ Fallback --> Output
 **Section sources**
 - [wait_for_ollama.py:1-96](file://app/backend/scripts/wait_for_ollama.py#L1-L96)
 
+### LiveKit Voice Screening Security Framework
+- **New Enterprise Security Framework**: Comprehensive LiveKit integration with secure API authentication and PSTN calling capabilities.
+- **New** 32-character minimum API secret requirement to prevent brute force attacks and credential theft.
+- **New** Comprehensive authentication validation including API key and secret verification.
+- **New** Secure room creation with tenant-scoped access controls and participant authorization.
+- **New** SIP trunk management with secure authentication and outbound call initiation.
+- **New** Agent token generation with role-based access grants and expiration controls.
+- **New** Comprehensive webhook security validation for LiveKit events and callbacks.
+- **New** Container security hardening with non-root execution and environment variable validation.
+- **New** Rate limiting and throttling mechanisms for LiveKit API calls.
+- **New** Backup authentication method implementation for service continuity.
+
+```mermaid
+flowchart TD
+Start["Voice Screening Request"] --> ValidateSecret["Validate 32-char API Secret"]
+ValidateSecret --> CreateRoom["Create LiveKit Room"]
+CreateRoom --> SetupTrunk["Setup SIP Trunk"]
+SetupTrunk --> CreateParticipant["Create SIP Participant"]
+CreateParticipant --> GenerateToken["Generate Agent Token"]
+GenerateToken --> InitiateCall["Initiate PSTN Call"]
+InitiateCall --> MonitorSession["Monitor Session"]
+MonitorSession --> HandleEvents["Handle Webhook Events"]
+HandleEvents --> Cleanup["Cleanup Resources"]
+```
+
+**Diagram sources**
+- [agent.py:675](file://app/voice_agent/agent.py#L675)
+- [agent.py:648](file://app/voice_agent/agent.py#L648)
+- [livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
+
+**Section sources**
+- [agent.py:36-42](file://app/voice_agent/agent.py#L36-L42)
+- [agent.py:648](file://app/voice_agent/agent.py#L648)
+- [agent.py:675](file://app/voice_agent/agent.py#L675)
+- [livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
+
 ### Infrastructure Security Hardening
 - Container Security
-  - **Critical Security Enhancement**: Non-root execution - All containers (backend, frontend, nginx) run as non-root users.
+  - **Critical Security Enhancement**: Non-root execution - All containers (backend, frontend, nginx, LiveKit) run as non-root users.
   - **Critical Security Enhancement**: Privilege separation - Dedicated appuser for backend, nginx user for frontend/nginx.
   - **Critical Security Enhancement**: File ownership - Proper chown operations ensure secure file permissions.
   - **New** Enhanced container security with guardrail integration and comprehensive monitoring.
+  - **New** LiveKit container security hardening with environment variable validation and non-root execution.
 - Environment Configuration
   - **Critical Security Enhancement**: Mandatory variables - Production requires POSTGRES_PASSWORD, JWT_SECRET_KEY, and other sensitive vars.
   - **Critical Security Enhancement**: Environment-specific defaults - Development vs production configuration handling.
+  - **New** LiveKit environment variable validation with 32-character minimum requirement enforcement.
 - Nginx Security Headers
   - **Critical Security Enhancement**: Production-grade headers - X-Frame-Options, X-Content-Type-Options, HSTS, Referrer-Policy, Content-Security-Policy.
   - **Critical Security Enhancement**: Rate limiting - API rate limiting with configurable zones and burst handling.
@@ -679,14 +773,16 @@ Fallback --> Output
 - Network Security
   - **Critical Security Enhancement**: Internal networking - Services communicate via internal Docker networks only.
   - **Critical Security Enhancement**: Port exposure - Minimal external port exposure with proper proxy configuration.
+  - **New** LiveKit network security with secure API communication and firewall rules.
 
 ```mermaid
 flowchart TD
 Container["Container Start"] --> UserCheck{"Non-root User?"}
 UserCheck --> |Yes| EnvCheck["Environment Validation"]
 UserCheck --> |No| SecurityAlert["Security Alert"]
-EnvCheck --> |Valid| ServiceStart["Service Start"]
-EnvCheck --> |Invalid| ConfigError["Configuration Error"]
+EnvCheck --> SecretCheck{"LiveKit Secret >= 32 chars?"}
+SecretCheck --> |Yes| ServiceStart["Service Start"]
+SecretCheck --> |No| ConfigError["Configuration Error"]
 ServiceStart --> Health["Health Checks"]
 Health --> Guardrail["Guardrail Integration"]
 Guardrail --> Ready["Ready for Traffic"]
@@ -698,6 +794,7 @@ Guardrail --> Ready["Ready for Traffic"]
 - [Dockerfile:1-13](file://nginx/Dockerfile#L1-L13)
 - [docker-compose.prod.yml:24](file://docker-compose.prod.yml#L24)
 - [guardrail_service.py:1067-1121](file://app/backend/services/guardrail_service.py#L1067-L1121)
+- [livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
 
 **Section sources**
 - [Dockerfile:29-34](file://app/backend/Dockerfile#L29-L34)
@@ -827,16 +924,19 @@ end
   - **Enhanced logging** - Comprehensive access logs, error logs, and security event tracking.
   - **Audit trails** - JWT validation failures, CSRF violations, and authentication attempts logged.
   - **New** Guardrail event logging with structured JSON payloads and severity levels.
+  - **New** LiveKit session logging with authentication attempts and call initiation events.
 - Compliance Readiness
   - **Data protection** - Secure token storage, encrypted connections, and audit logging support GDPR requirements.
   - **Change management** - Environment variable validation and configuration drift detection.
   - **New** Comprehensive monitoring with Prometheus metrics for SOC2 compliance.
+  - **New** LiveKit compliance logging for regulatory requirements.
 
 ```mermaid
 sequenceDiagram
 participant Route as "Analyzer"
 participant Sub as "subscription.record_usage"
 participant Guardrail as "Guardrail Events"
+participant LiveKit as "LiveKit Events"
 participant DB as "UsageLog"
 Route->>Sub : "record_usage(tenant_id, user_id, action, quantity, details)"
 Sub->>DB : "insert UsageLog"
@@ -845,6 +945,9 @@ Sub-->>Route : "True/False"
 Route->>Guardrail : "emit_guardrail_event()"
 Guardrail->>Guardrail : "structured logging"
 Guardrail-->>Route : "event recorded"
+Route->>LiveKit : "log_livekit_event()"
+LiveKit->>LiveKit : "session logging"
+LiveKit-->>Route : "event recorded"
 ```
 
 **Diagram sources**
@@ -863,6 +966,7 @@ Guardrail-->>Route : "event recorded"
   - **Critical Security Enhancement**: CSRF protection - Double-submit cookie pattern prevents cross-site request forgery.
   - **Critical Security Enhancement**: Environment validation - Production requires proper configuration and credentials.
   - **New** Rate limiting with tenant-aware configuration for fair resource allocation.
+  - **New** LiveKit RBAC integration with tenant-scoped voice screening access.
 - Recommendations
   - Define granular permissions per role (read/write/delete) and enforce at route handlers.
   - Introduce permission matrices and policy evaluation middleware.
@@ -901,6 +1005,7 @@ AdminGuard --> User : "validates role"
   - **Critical Security Enhancement**: Container security - All containers run as non-root users, reducing attack surface.
   - **Critical Security Enhancement**: Network isolation - Internal Docker networks prevent direct file system access.
   - **New** Enhanced file handling with guardrail integration for input validation and sanitization.
+  - **New** LiveKit file handling security for voice recording and transcription.
 - Recommendations
   - Validate file types and sizes; scan for malware before processing.
   - Store files outside the web root; serve via signed URLs or streaming endpoints.
@@ -913,12 +1018,13 @@ AdminGuard --> User : "validates role"
   - **Critical Security Enhancement**: Token security - JWT tokens stored in browser storage with enhanced validation.
   - **Critical Security Enhancement**: Audit logging - Comprehensive logging of access patterns and security events.
   - **New** Comprehensive data retention policy with anonymization and deletion automation.
+  - **New** LiveKit session data retention with secure deletion of call recordings and transcripts.
 - Recommendations
-  - Define retention periods for resumes, transcripts, and logs; implement automated deletion jobs.
+  - Define retention periods for resumes, transcripts, logs, and voice session data; implement automated deletion jobs.
   - Support data portability and erasure requests aligned with GDPR.
-  - **New** Implement tenant-level retention policies with configurable timeframes.
+  - **New** Implement tenant-level retention policies with configurable timeframes for all data types.
 
-**Updated** Enhanced data retention policy implementation with corrected column mapping for ScreeningResult.timestamp to ensure proper anonymization of old screening results according to configured retention period. The system now includes comprehensive automated cleanup processes for both resume file data and screening result narratives, providing enhanced data privacy compliance and reduced storage footprint.
+**Updated** Enhanced data retention policy implementation with corrected column mapping for ScreeningResult.timestamp to ensure proper anonymization of old screening results according to configured retention period. The system now includes comprehensive automated cleanup processes for both resume file data and screening result narratives, providing enhanced data privacy compliance and reduced storage footprint. **New** LiveKit voice session data retention policies with secure deletion of call recordings and transcripts.
 
 **Section sources**
 - [subscription.py:117-144](file://app/backend/routes/subscription.py#L117-L144)
@@ -934,17 +1040,25 @@ AdminGuard --> User : "validates role"
   - **Critical Security Enhancement**: New security vectors - Container escape attempts, environment variable tampering, and CSRF attacks.
   - **Critical Security Enhancement**: XSS vulnerability testing against the new safeStr utility function implementation.
   - **New** 4-tier guardrail framework testing including reliability, security, governance, and operations layers.
+  - **New** LiveKit integration testing including API secret validation, room creation security, and SIP trunk authentication.
 - Methodology
   - Automated scanning (OWASP ZAP/Trivy) plus manual exploratory testing.
   - Review JWT secret rotation, CORS misconfigurations, and health endpoints exposure.
   - **Critical Security Enhancement**: Container security testing - Non-root user validation, environment variable security, and Nginx configuration review.
   - **Critical Security Enhancement**: XSS protection validation - Testing safeStr function against various input types and edge cases.
   - **New** Guardrail framework validation - Testing all 4 tiers for effectiveness and performance.
+  - **New** LiveKit security validation - Testing API secret requirements, authentication flows, and webhook security.
 - **New** Guardrail Testing Framework
   - Reliability tier: retry/backoff effectiveness under stress conditions
   - Security tier: prompt injection detection accuracy and false positive rates
   - Governance tier: HITL flag accuracy and human review effectiveness
   - Operations tier: token budget enforcement and data retention policy compliance
+- **New** LiveKit Security Testing Framework
+  - API secret validation: 32-character minimum requirement enforcement
+  - Authentication flow: API key and secret validation testing
+  - Room security: tenant-scoped access control validation
+  - SIP trunk security: outbound call authentication and authorization
+  - Webhook security: event validation and signature verification
 
 ### Incident Response Planning
 - Detection Signals
@@ -952,12 +1066,15 @@ AdminGuard --> User : "validates role"
   - **Critical Security Enhancement**: New signals - Container startup failures, environment variable validation errors, and CSRF violation alerts.
   - **Critical Security Enhancement**: XSS attack detection - Monitoring for unsafe HTML rendering attempts.
   - **New** Guardrail incident signals - Hallucination detection, injection attempts, circuit breaker triggers, token budget exceedances.
+  - **New** LiveKit incident signals - API secret validation failures, authentication errors, room creation failures, and webhook security incidents.
 - Response Playbook
   - Isolate affected services, rotate secrets, audit logs, notify stakeholders, and remediate root causes.
   - **New** Guardrail incident escalation - Automated alerts for critical guardrail failures with severity-based response.
+  - **New** LiveKit incident escalation - Automated alerts for API secret validation failures and authentication errors.
 - Recovery
   - Restore from backups, re-validate integrations, and re-enable services gradually.
   - **New** Guardrail recovery procedures - Automated service restarts, budget resets, and data cleanup.
+  - **New** LiveKit recovery procedures - Automated API secret rotation, service restarts, and session cleanup.
 
 ## Security Audit Findings
 
@@ -977,7 +1094,7 @@ The frontend audit identified 52 issues including critical XSS vulnerabilities, 
 - **Medium Priority**: Silent template load failures, incorrect boolean checks
 - **Low Priority**: Missing PropTypes, monolithic components
 
-**Updated** Added comprehensive XSS protection implementation through centralized safeStr utility function across 7 frontend components, significantly reducing XSS vulnerabilities. **New** Implemented comprehensive 4-tier LLM guardrail framework with reliability, security, governance, and operations layers providing enterprise-grade security and operational controls.
+**Updated** Added comprehensive XSS protection implementation through centralized safeStr utility function across 7 frontend components, significantly reducing XSS vulnerabilities. **New** Implemented comprehensive 4-tier LLM guardrail framework with reliability, security, governance, and operations layers providing enterprise-grade security and operational controls. **New** Enhanced LiveKit voice screening integration with comprehensive security validation requirements including 32-character minimum API secret length to prevent brute force attacks and credential theft.
 
 ### Infrastructure Security Issues
 The infrastructure audit found 83 issues spanning Docker deployment, CI/CD pipelines, database migrations, and security configurations:
@@ -996,11 +1113,21 @@ The LLM audit identified 35 issues including configuration fragmentation, prompt
 - **Bias Concerns**: Education scoring penalization, architecture keyword disadvantages
 - **New** Guardrail framework implementation with comprehensive security controls and operational monitoring.
 
+### LiveKit Integration Security Issues
+**New** The LiveKit integration audit identified critical security vulnerabilities:
+
+- **Critical Issues**: 32-character minimum API secret requirement not enforced, insecure API secret storage
+- **High Priority**: Missing authentication validation, insecure room creation, unvalidated SIP trunks
+- **Medium Priority**: No webhook security validation, insufficient rate limiting, lack of session monitoring
+- **Low Priority**: Missing backup authentication methods, inadequate error handling
+
 **Section sources**
 - [AUDIT.md:234-1365](file://docs/AUDIT.md#L234-L1365)
+- [livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
+- [agent.py:36-42](file://app/voice_agent/agent.py#L36-L42)
 
 ## Dependency Analysis
-The backend depends on FastAPI, SQLAlchemy, bcrypt, python-jose, and httpx. The LLM service depends on Ollama via HTTP. Docker Compose defines service dependencies and environment variables. **New** The guardrail service adds dependencies on Pydantic for schema validation and comprehensive logging for monitoring.
+The backend depends on FastAPI, SQLAlchemy, bcrypt, python-jose, and httpx. The LLM service depends on Ollama via HTTP. Docker Compose defines service dependencies and environment variables. **New** The guardrail service adds dependencies on Pydantic for schema validation and comprehensive logging for monitoring. **New** LiveKit integration adds dependencies on livekit-api, livekit-agents, and livekit libraries for secure voice screening capabilities.
 
 ```mermaid
 graph LR
@@ -1012,8 +1139,12 @@ Httpx["httpx"] --> Backend
 Backend --> Ollama["Ollama"]
 Backend --> Postgres["PostgreSQL"]
 Backend --> Guardrail["Guardrail Service"]
+Backend --> LiveKit["LiveKit Service"]
 Guardrail --> Pydantic["Pydantic"]
 Guardrail --> Prometheus["Prometheus Metrics"]
+LiveKit --> LiveKitAPI["livekit-api"]
+LiveKit --> LiveKitAgents["livekit-agents"]
+LiveKit --> LiveKitProtocol["livekit-protocol"]
 ```
 
 **Diagram sources**
@@ -1021,6 +1152,7 @@ Guardrail --> Prometheus["Prometheus Metrics"]
 - [docker-compose.yml:52-75](file://docker-compose.yml#L52-L75)
 - [guardrail_service.py:28](file://app/backend/services/guardrail_service.py#L28)
 - [metrics.py:8](file://app/backend/services/metrics.py#L8)
+- [agent.py:2](file://app/voice_agent/agent.py#L2)
 
 **Section sources**
 - [requirements.txt:1-48](file://requirements.txt#L1-L48)
@@ -1040,6 +1172,10 @@ Guardrail --> Prometheus["Prometheus Metrics"]
   - **New** Ensemble voting adds computational overhead but improves accuracy and consistency.
   - **New** Schema validation provides performance benefits through early error detection.
   - **New** Token budget management prevents resource exhaustion and maintains system stability.
+- **New** LiveKit Performance Considerations
+  - **New** API secret validation adds minimal overhead but significantly improves security.
+  - **New** Room creation and SIP trunk setup performance monitoring.
+  - **New** Agent token generation optimization for concurrent voice sessions.
 
 ## Troubleshooting Guide
 - Authentication Failures
@@ -1066,6 +1202,13 @@ Guardrail --> Prometheus["Prometheus Metrics"]
   - **New** Retention policy debugging - Verify ScreeningResult.timestamp column mapping and anonymization process.
   - **New** Cleanup job validation - Check tenant-scoped retention calculations and PII anonymization.
   - **New** Storage optimization monitoring - Track resume blob cleanup and screening result anonymization metrics.
+- **New** LiveKit Integration Issues
+  - **New** API secret validation - Verify 32-character minimum requirement is met for all LiveKit secrets.
+  - **New** Authentication flow debugging - Check API key and secret validation in agent.py.
+  - **New** Room creation troubleshooting - Verify tenant-scoped access controls and participant authorization.
+  - **New** SIP trunk configuration - Check trunk authentication and outbound call setup.
+  - **New** Webhook security validation - Monitor webhook signatures and event processing.
+  - **New** Container startup issues - Verify LiveKit container security and environment variable validation.
 
 **Section sources**
 - [auth.py:13-14](file://app/backend/middleware/auth.py#L13-L14)
@@ -1073,31 +1216,35 @@ Guardrail --> Prometheus["Prometheus Metrics"]
 - [main.py:262-326](file://app/backend/main.py#L262-L326)
 - [wait_for_ollama.py:34-91](file://app/backend/scripts/wait_for_ollama.py#L34-L91)
 - [nginx.prod.conf:40-45](file://nginx/nginx.prod.conf#L40-L45)
-- [guardrail_service.py:1067-1121](file://app/backend/services/guardrail_service.py#L1067-L1121)
+- [guardrail_service.py:1067-1121](file://app/backend/services/guardrail_service.py#L1067-1121)
 - [db_models.py:135-162](file://app/backend/models/db_models.py#L135-L162)
+- [agent.py:36-42](file://app/voice_agent/agent.py#L36-L42)
+- [livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
 
 ## Conclusion
 Resume AI's current implementation establishes a solid foundation for authentication, tenant isolation, and LLM integration. The comprehensive security audit has identified 212 total issues requiring immediate attention, with 10 critical security vulnerabilities that must be addressed before production deployment. 
 
 The recent security enhancements significantly strengthen the platform's defenses through non-root user execution, environment-variable driven configurations, mandatory credential enforcement, and production-grade Nginx security headers. However, the audit reveals critical vulnerabilities including hardcoded production passwords, JWT token storage in localStorage, missing security headers, and prompt injection vulnerabilities.
 
-**Updated** The platform now includes comprehensive XSS protection implementation through centralized safeStr utility function across 7 frontend components, significantly reducing XSS vulnerabilities. The new safeStr function provides universal XSS protection by handling null/undefined, strings, numbers, booleans, objects, and arrays with proper error handling and safe string coercion. **New** The platform now includes comprehensive 4-tier LLM guardrail framework implementation with reliability, security, governance, and operations layers providing enterprise-grade security and operational controls.
+**Updated** The platform now includes comprehensive XSS protection implementation through centralized safeStr utility function across 7 frontend components, significantly reducing XSS vulnerabilities. The new safeStr function provides universal XSS protection by handling null/undefined, strings, numbers, booleans, objects, and arrays with proper error handling and safe string coercion. **New** The platform now includes comprehensive 4-tier LLM guardrail framework implementation with reliability, security, governance, and operations layers providing enterprise-grade security and operational controls. **New** The enhanced LiveKit voice screening integration provides secure PSTN calling capabilities with comprehensive authentication and authorization, including the critical 32-character minimum API secret requirement to prevent brute force attacks and credential theft.
 
-**Updated** The platform now includes comprehensive data retention policy implementation with corrected column mapping for ScreeningResult.timestamp, ensuring proper anonymization of old screening results according to configured retention periods. This represents a significant improvement in data privacy compliance and automated cleanup processes.
+**Updated** The platform now includes comprehensive data retention policy implementation with corrected column mapping for ScreeningResult.timestamp, ensuring proper anonymization of old screening results according to configured retention periods. This represents a significant improvement in data privacy compliance and automated cleanup processes. **New** LiveKit voice session data retention policies with secure deletion of call recordings and transcripts.
 
 To achieve production-grade security, prioritize the immediate remediation of critical security issues as outlined in the remediation roadmap. Implement comprehensive security hardening measures including CSRF protection, secure token storage, prompt injection prevention, and enhanced audit logging. Implement RBAC with granular permissions, secure file handling, and data retention policies aligned with compliance requirements. Conduct regular penetration testing and maintain an incident response plan.
 
-**Updated** The platform now includes comprehensive security audit findings covering critical vulnerabilities, prioritized remediation roadmap, and enhanced security hardening recommendations based on thorough security assessment. The new XSS protection implementation through safeStr utility function provides robust defense against cross-site scripting attacks across all frontend components. **New** The comprehensive 4-tier LLM guardrail framework provides enterprise-grade security and operational controls, significantly enhancing the platform's security posture and reliability. **New** The enhanced data retention policy ensures GDPR compliance through automated anonymization and deletion of old screening results.
+**Updated** The platform now includes comprehensive security audit findings covering critical vulnerabilities, prioritized remediation roadmap, and enhanced security hardening recommendations based on thorough security assessment. The new XSS protection implementation through safeStr utility function provides robust defense against cross-site scripting attacks across all frontend components. **New** The comprehensive 4-tier LLM guardrail framework provides enterprise-grade security and operational controls, significantly enhancing the platform's security posture and reliability. **New** The enhanced LiveKit voice screening integration provides comprehensive security validation requirements including 32-character minimum API secret length to prevent brute force attacks and credential theft. **New** The enhanced data retention policy ensures GDPR compliance through automated anonymization and deletion of old screening results and voice session data.
 
 ## Appendices
 - Environment Variables to Secure
-  - JWT_SECRET_KEY, DATABASE_URL, OLLAMA_BASE_URL, OLLAMA_MODEL, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, CORS_ORIGINS.
+  - JWT_SECRET_KEY, DATABASE_URL, OLLAMA_BASE_URL, OLLAMA_MODEL, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, CORS_ORIGINS, LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
 - **Critical Security Variables**
-  - POSTGRES_PASSWORD (mandatory in production), OLLAMA_STARTUP_REQUIRED, ENVIRONMENT.
+  - POSTGRES_PASSWORD (mandatory in production), OLLAMA_STARTUP_REQUIRED, ENVIRONMENT, LIVEKIT_API_SECRET (must be >= 32 characters).
 - **New** Guardrail Configuration Variables
   - GUARDRAIL_MAX_RETRIES, GUARDRAIL_RETRY_DELAY, GUARDRAIL_PER_CALL_TIMEOUT, GUARDRAIL_CIRCUIT_THRESHOLD, DEFAULT_LLM_TOKEN_BUDGET
 - **New** Data Retention Configuration Variables
   - DEFAULT_RETENTION_DAYS (default: 90), RETENTION_CLEANUP_INTERVAL (default: 24 hours)
+- **New** LiveKit Configuration Variables
+  - LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET (32+ characters), SIP_TRUNK_ID, AGENT_PORT
 - Compliance Checklist
   - GDPR: Data minimization, retention, access/erasure requests, DPIA where applicable.
   - SOC2: Security, availability, confidentiality, processing integrity, and privacy principles.
@@ -1117,6 +1264,10 @@ To achieve production-grade security, prioritize the immediate remediation of cr
   - **New** Comprehensive monitoring and alerting established
   - **New** ScreeningResult.timestamp column mapping verified for anonymization
   - **New** Automated cleanup processes validated for tenant-level compliance
+  - **New** LiveKit API secret validation implemented (32+ characters)
+  - **New** LiveKit authentication flow secured and validated
+  - **New** LiveKit webhook security implemented and monitored
+  - **New** LiveKit container security hardening completed
 
 **Section sources**
 - [AUDIT.md:1241-1323](file://docs/AUDIT.md#L1241-L1323)
@@ -1124,3 +1275,5 @@ To achieve production-grade security, prioritize the immediate remediation of cr
 - [metrics.py:22-61](file://app/backend/services/metrics.py#L22-L61)
 - [db_models.py:135-162](file://app/backend/models/db_models.py#L135-L162)
 - [test_guardrail_service.py:670-700](file://app/backend/tests/test_guardrail_service.py#L670-L700)
+- [livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
+- [agent.py:36-42](file://app/voice_agent/agent.py#L36-L42)

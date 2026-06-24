@@ -1,1 +1,0 @@
-Adopt framer-motion for application-wide animations — Activate framer-motion by creating reusable motion primitives (PageTransition, MotionCard, StaggerContainer) and wrapping key interactive elements (modals, lists, navigation) with motion components using spring physics.

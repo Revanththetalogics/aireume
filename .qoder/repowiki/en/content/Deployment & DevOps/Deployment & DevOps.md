@@ -38,11 +38,11 @@
 
 ## Update Summary
 **Changes Made**
-- Updated staging deployment configuration by removing healthcheck configurations from all services to facilitate stack deployment during debugging phases
-- Added pull_policy: always to all container images for fresh deployments
-- Increased backend healthcheck start_period to accommodate slower startup times
-- Enhanced CI/CD pipeline with environment-specific image tagging (staging vs production)
-- Improved staging environment isolation with dedicated network naming (aria_staging_network)
+- Updated Watchtower auto-update configuration to include staging-livekit-sip service for improved deployment consistency
+- Enhanced staging environment configuration with dedicated LiveKit SIP service container
+- Added comprehensive LiveKit SIP trunking capabilities with Twilio integration
+- Updated environment variable configuration for staging LiveKit API secrets with minimum 32-character requirements
+- Enhanced voice screening microservices architecture with dedicated SIP service management
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -75,14 +75,14 @@
 ## Introduction
 This document provides comprehensive deployment and DevOps guidance for Resume AI by ThetaLogics with enhanced cloud-first approach and integrated voice screening capabilities. The platform now features a robust voice screening microservices architecture with LiveKit WebRTC SFU, speech processing services, and intelligent conversation orchestration. It covers Docker configuration for development, staging, and production environments, multi-container orchestration, voice service integration, SSL termination, environment variables and secrets management, monitoring and logging, health checks, maintenance, troubleshooting, rollback procedures, scaling, security hardening, backups, and disaster recovery.
 
-**Updated** Enhanced with comprehensive voice screening microservices integration, LiveKit WebRTC SFU, speech processing capabilities, automated CI/CD builds for all four core services, dedicated staging environment configuration with branch-based image tagging, improved production deployment with aria-production naming convention, enhanced port conflict prevention strategies, and standardized volume preservation measures across all environments.
+**Updated** Enhanced with comprehensive voice screening microservices integration, LiveKit WebRTC SFU with 32-character API secret requirements, speech processing capabilities, automated CI/CD builds for all four core services, dedicated staging environment configuration with branch-based image tagging, improved production deployment with aria-production naming convention, enhanced port conflict prevention strategies, standardized volume preservation measures across all environments, **Updated** added staging-livekit-sip service to Watchtower auto-update configuration for improved deployment consistency, and comprehensive LiveKit SIP trunking capabilities with Twilio integration.
 
 ## Cloud-First Architecture
 The Resume AI platform is designed with a cloud-first approach featuring a comprehensive voice screening microservices architecture. The architecture emphasizes:
 
 - **Multi-Environment Deployment**: Separate staging and production environments with distinct naming conventions (aria-staging vs aria-production)
 - **Microservices Architecture**: Separate services for backend processing, frontend delivery, voice screening, and speech processing
-- **LiveKit WebRTC SFU**: Real-time communication infrastructure with SIP trunking for PSTN call handling
+- **LiveKit WebRTC SFU**: Real-time communication infrastructure with SIP trunking for PSTN call handling and enhanced API security
 - **Speech Processing Services**: Dedicated STT, TTS, and VAD capabilities for voice screening automation
 - **Voice Agent Orchestration**: Intelligent conversation management with state tracking and LLM integration
 - **Advanced Nginx Configuration**: SSL termination, rate limiting, and streaming optimizations
@@ -93,6 +93,9 @@ The Resume AI platform is designed with a cloud-first approach featuring a compr
 - **Portainer Integration**: Production deployment management with dedicated stack naming
 - **Volume Preservation**: Standardized naming conventions ensuring data persistence across environment switches
 - **Network Isolation**: Dedicated network names for staging and production environments
+- **SIP Trunking Integration**: Dedicated staging environment with Twilio SIP trunk configuration for PSTN call handling
+- **Enhanced API Security**: Minimum 32-character LiveKit API secrets for all environments
+- **Watchtower Auto-Update**: Comprehensive service monitoring with staging-livekit-sip included for deployment consistency
 
 ```mermaid
 graph TB
@@ -103,7 +106,7 @@ Nginx --> BE["Backend (FastAPI)"]
 BE --> Queue["Queue System (Priority + Retry)"]
 BE --> VoiceAPI["Voice Screening API"]
 VoiceAPI --> VoiceAgent["Voice Agent"]
-VoiceAgent --> LiveKit["LiveKit SFU + SIP"]
+VoiceAgent --> LiveKit["LiveKit SFU + SIP (32-char Secrets)"]
 LiveKit --> PSTN["PSTN Calls"]
 VoiceAgent --> SpeechService["Speech Service"]
 SpeechService --> STT["STT (Parakeet)"]
@@ -117,11 +120,13 @@ subgraph "Cloud Infrastructure"
 Watchtower["Watchtower (Auto Updates)"]
 Certbot["Certbot (SSL Management)"]
 QueueWorker["Queue Worker (Background)"]
+LiveKitSIP["LiveKit SIP Service (Staging Only)"]
 end
 Nginx --> Certbot
 BE --> Watchtower
 QueueWorker --> DB
 VoiceAgent --> QueueWorker
+LiveKit --> LiveKitSIP
 ```
 
 **Diagram sources**
@@ -129,6 +134,7 @@ VoiceAgent --> QueueWorker
 - [docker-compose.prod.yml:232-299](file://docker-compose.prod.yml#L232-L299)
 - [app/backend/main.py:463-554](file://app/backend/main.py#L463-L554)
 - [app/backend/services/queue_manager.py:189-215](file://app/backend/services/queue_manager.py#L189-L215)
+- [docker-compose.staging.yml:197-225](file://docker-compose.staging.yml#L197-L225)
 
 **Section sources**
 - [README.md:208-224](file://README.md#L208-L224)
@@ -139,17 +145,18 @@ VoiceAgent --> QueueWorker
 The repository organizes the stack into six primary services plus supporting configurations, optimized for cloud deployment with comprehensive voice screening integration across multiple environments:
 
 - **Development Environment** (docker-compose.yml): Local development with integrated voice services and port mapping 3000:8080 for frontend
-- **Staging Environment** (docker-compose.staging.yml): Separate staging stack with aria-staging naming, dedicated resources, strategic port assignment 8081:80 for Nginx, and isolated network (aria_staging_network)
+- **Staging Environment** (docker-compose.staging.yml): Separate staging stack with aria-staging naming, dedicated resources, strategic port assignment 8081:80 for Nginx, isolated network (aria_staging_network), and **Updated** dedicated SIP trunk configuration with 32-character LiveKit API secrets for proper authentication, **Updated** added staging-livekit-sip service with comprehensive SIP trunking capabilities
 - **Production Environment** (docker-compose.prod.yml): Production deployment with aria-production naming and enhanced resource allocation
 - **Portainer Management** (docker-compose.portainer.yml): Production compose for Portainer orchestration
 - **Backend service (FastAPI)** with enhanced cloud-native health checks, queue worker integration, and Ollama Cloud authentication
 - **Frontend service (React)** built into Nginx static assets for optimal CDN delivery with port 8080 internally
 - **Nginx reverse proxy** with cloud-optimized SSL termination, rate limiting, and streaming configuration, running on port 80 internally
-- **LiveKit WebRTC SFU** with SIP trunking for PSTN call handling and real-time communication
+- **LiveKit WebRTC SFU** with SIP trunking for PSTN call handling and real-time communication, now requiring 32-character API secrets
 - **Speech Service** with STT, TTS, and VAD capabilities for voice processing
-- **Voice Agent** with conversation orcheststration, state management, and LLM integration
+- **Voice Agent** with conversation orchestration, state management, and LLM integration
 - **Queue system** with priority-based job scheduling, automatic retry, and worker monitoring
 - **CI/CD workflows** for automated testing and cloud image publishing across all services
+- **LiveKit SIP Service** with comprehensive SIP trunking capabilities for PSTN call handling in staging environment
 
 ```mermaid
 graph TB
@@ -173,11 +180,14 @@ Staging --> BackendStaging["Backend (FastAPI + Queue)"]
 Staging --> FrontendStaging["Frontend (Nginx static)"]
 Staging --> NginxStaging["Nginx (Cloud Config)"]
 Staging --> LiveKitStaging["LiveKit (WebRTC + SIP)"]
+Staging --> LiveKitSIPStaging["LiveKit SIP Service (PSTN Trunking)"]
 Staging --> SpeechServiceStaging["Speech Service (STT/TTS/VAD)"]
 Staging --> VoiceAgentStaging["Voice Agent (Conversations)"]
 Staging --> WatchtowerStaging["Watchtower (Cloud Updates)"]
 Staging --> QueueWorkerStaging["Queue Worker (Background)"]
 Staging --> NetworkStaging["aria_staging_network"]
+Staging --> SIPTrunk["SIP Trunk Configuration"]
+Staging --> SecretValidation["32-char Secret Validation"]
 end
 subgraph "Production Cloud"
 Prod["docker-compose.prod.yml"]
@@ -198,16 +208,16 @@ end
 
 **Diagram sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
-- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.staging.yml:1-272](file://docker-compose.staging.yml#L1-L272)
+- [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
 - [app/nginx/nginx.conf:1-45](file://app/nginx/nginx.conf#L1-L45)
 - [app/nginx/nginx.prod.conf:1-110](file://app/nginx/nginx.prod.conf#L1-L110)
 
 **Section sources**
 - [README.md:231-251](file://README.md#L231-L251)
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
-- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.staging.yml:1-272](file://docker-compose.staging.yml#L1-L272)
+- [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
 
 ## Core Components
 - **Backend service**
@@ -231,6 +241,13 @@ end
   - TURN server support for NAT traversal
   - WebSocket and TCP/UDP transport protocols
   - Twilio SIP trunk integration for outbound PSTN calls
+  - **Updated**: Enhanced API security with minimum 32-character secret requirements for all environments
+- **LiveKit SIP Service**
+  - **Updated**: Dedicated SIP service container for comprehensive PSTN call handling
+  - SIP trunk management with Twilio integration
+  - RTP port allocation for audio streaming
+  - Redis-backed state management for SIP sessions
+  - **Updated**: Included in Watchtower auto-update configuration for deployment consistency
 - **Speech Service**
   - CPU-optimized STT (Parakeet TDT 1.1B), TTS (Kokoro 82M), and VAD (Silero VAD v5)
   - FastAPI application with model warmup on startup
@@ -241,7 +258,7 @@ end
   - State machine for screening conversations (greeting → consent → screening → wrap-up)
   - Integration with Speech Service (STT/TTS/VAD) and Ollama Cloud (LLM)
   - HTTP dispatch API for backend integration
-  - SIP outbound call initiation via Twilio
+  - SIP outbound call initiation via Twilio with **Updated** staging-specific SIP configuration
 - **Queue system**
   - Priority-based job scheduling with automatic retry and exponential backoff
   - Worker health monitoring and stale job recovery mechanisms
@@ -252,7 +269,7 @@ end
   - Production compose optimized for cloud infrastructure with aria-production naming
   - Portainer-managed production setup with selective service deployment
 
-**Updated** Enhanced backend service with integrated queue worker, voice screening API, and improved cloud-native Ollama Cloud integration. Added comprehensive voice screening microservices architecture with dedicated staging and production environments. Implemented strategic port conflict prevention with staging Nginx on port 8081 and development frontend on port 3000. Enhanced volume preservation measures with standardized naming conventions across all environments.
+**Updated** Enhanced backend service with integrated queue worker, voice screening API, and improved cloud-native Ollama Cloud integration. Added comprehensive voice screening microservices architecture with dedicated staging and production environments. Implemented strategic port conflict prevention with staging Nginx on port 8081 and development frontend on port 3000. Enhanced volume preservation measures with standardized naming conventions across all environments. **Updated** Added staging-livekit-sip service to Watchtower auto-update configuration for improved deployment consistency and comprehensive LiveKit SIP trunking capabilities with Twilio integration.
 
 **Section sources**
 - [app/backend/main.py:354-460](file://app/backend/main.py#L354-L460)
@@ -267,6 +284,7 @@ end
 - [app/speech_service/main.py:1-387](file://app/speech_service/main.py#L1-L387)
 - [app/voice_agent/Dockerfile:1-31](file://app/voice_agent/Dockerfile#L1-L31)
 - [app/voice_agent/agent.py:1-800](file://app/voice_agent/agent.py#L1-L800)
+- [docker-compose.staging.yml:197-225](file://docker-compose.staging.yml#L197-L225)
 
 ## Architecture Overview
 The system uses a cloud-optimized reverse proxy (Nginx) with advanced SSL configuration to route traffic to the React frontend and FastAPI backend. The backend now includes integrated queue processing and voice screening APIs for scalable job management. PostgreSQL is managed as a cloud service, and Ollama Cloud provides scalable LLM inference. In production, Watchtower monitors images and auto-updates containers with zero-downtime rolling restarts, while Certbot manages SSL certificates for cloud domains. The voice screening architecture includes LiveKit WebRTC SFU for real-time communication, Speech Service for audio processing, and Voice Agent for conversation orchestration. The queue worker operates as a background service for asynchronous job processing.
@@ -282,7 +300,7 @@ BE --> OllamaCloud["Ollama Cloud (Default)"]
 BE --> OllamaLocal["Ollama Local (Optional)"]
 BE --> VoiceAPI["Voice Screening API"]
 VoiceAPI --> VoiceAgent["Voice Agent"]
-VoiceAgent --> LiveKit["LiveKit SFU + SIP"]
+VoiceAgent --> LiveKit["LiveKit SFU + SIP (32-char Secrets)"]
 LiveKit --> PSTN["PSTN Calls"]
 VoiceAgent --> SpeechService["Speech Service"]
 SpeechService --> STT["STT"]
@@ -292,17 +310,21 @@ BE --> QueueWorker["Queue Worker"]
 subgraph "Cloud Orchestration"
 Watchtower["Watchtower (Cloud Updates)"]
 Certbot["Certbot (Cloud SSL)"]
+LiveKitSIP["LiveKit SIP Service"]
 end
 Watchtower -.-> Containers["Cloud Containers"]
+Watchtower -.-> LiveKitSIP
 Certbot -.-> Nginx
 QueueWorker -.-> DB
 VoiceAgent -.-> LiveKit
 VoiceAgent -.-> SpeechService
+LiveKit -.-> LiveKitSIP
 ```
 
 **Diagram sources**
 - [app/nginx/nginx.prod.conf:1-110](file://app/nginx/nginx.prod.conf#L1-L110)
-- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
+- [docker-compose.staging.yml:197-225](file://docker-compose.staging.yml#L197-L225)
 
 ## Detailed Component Analysis
 
@@ -413,7 +435,7 @@ SSL --> Resolver["Embedded DNS Resolution"]
   - Separate stack from production with aria-staging naming convention
   - Dedicated container names, volumes, and networks to avoid collisions
   - Cloud-optimized resource limits and deploy constraints for CPU/memory
-  - Watchtower auto-updates containers with zero-downtime rolling restarts
+  - Watchtower auto-updates containers with zero-downtime rolling restarts, **Updated** including staging-livekit-sip service for comprehensive deployment consistency
   - Enhanced health checks for all services with cloud-native monitoring
   - Queue worker service for background job processing
   - Nginx service mapped to host port 8081 to avoid conflicts with development
@@ -421,6 +443,9 @@ SSL --> Resolver["Embedded DNS Resolution"]
   - Isolated network (aria_staging_network) for environment separation
   - **Updated**: Healthchecks removed to facilitate stack deployment during debugging phases
   - **Updated**: Added pull_policy: always to all container images for fresh deployments
+  - **Updated**: Added SIP_TRUNK_ID and SIP_OUTBOUND_NUMBER environment variables for Twilio SIP trunk integration
+  - **Updated**: LiveKit API secrets now require minimum 32-character length for proper authentication
+  - **Updated**: Added staging-livekit-sip service with comprehensive SIP trunking capabilities
 - **Production**
   - Cloud-optimized resource limits and deploy constraints for CPU/memory
   - Watchtower auto-updates containers with zero-downtime rolling restarts
@@ -431,7 +456,7 @@ SSL --> Resolver["Embedded DNS Resolution"]
   - Portainer-managed production setup with selective service deployment
   - Isolated network (aria_network) for production environment
 
-**Updated** Enhanced orchestration with strategic port assignments to prevent conflicts. Development environment uses port 3000 for frontend access, while staging environment uses port 8081 for Nginx to avoid collisions with development services. Implemented standardized naming conventions with resume-screener- prefix for all containers and aria_network for production isolation. **Updated** Staging environment now removes healthcheck configurations from all services to facilitate stack deployment during debugging phases and adds pull_policy: always to all container images for fresh deployments.
+**Updated** Enhanced orchestration with strategic port assignments to prevent conflicts. Development environment uses port 3000 for frontend access, while staging environment uses port 8081 for Nginx to avoid collisions with development services. Implemented standardized naming conventions with resume-screener- prefix for all containers and aria_network for production isolation. **Updated** Staging environment now removes healthcheck configurations from all services to facilitate stack deployment during debugging phases and adds pull_policy: always to all container images for fresh deployments. **Updated** Added staging-livekit-sip service to Watchtower auto-update configuration for improved deployment consistency and comprehensive LiveKit SIP trunking capabilities. **Updated** LiveKit API security now requires minimum 32-character secrets for all environments, with staging environment using 32-character secrets for proper authentication.
 
 ```mermaid
 graph LR
@@ -442,24 +467,26 @@ Frontend["Frontend"] --> Nginx
 Nginx --> Certbot["Certbot (SSL)"]
 Backend --> Watchtower["Watchtower (Updates)"]
 Backend --> QueueWorker["Queue Worker"]
-LiveKit["LiveKit (1G RAM)"] --> Backend
+LiveKit["LiveKit (1G RAM, 32-char Secrets)"] --> Backend
+LiveKitSIP["LiveKit SIP Service (Staging Only)"] --> LiveKit
 SpeechService["Speech Service (3-4G RAM)"] --> Backend
 VoiceAgent["Voice Agent (1-2G RAM)"] --> Backend
 QueueWorker --> Postgres
 LiveKit --> PSTN["PSTN Calls"]
 VoiceAgent --> SpeechService
 VoiceAgent --> LiveKit
+LiveKit --> LiveKitSIP
 ```
 
 **Diagram sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
-- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.staging.yml:1-272](file://docker-compose.staging.yml#L1-L272)
+- [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
 
 **Section sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
-- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.staging.yml:1-272](file://docker-compose.staging.yml#L1-L272)
+- [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
 
 ## Voice Screening Microservices
 
@@ -472,17 +499,21 @@ The LiveKit service provides real-time communication infrastructure with SIP tru
 - **Transport Protocols**: WebSocket, TCP, and UDP for comprehensive connectivity
 - **Configuration**: YAML-based configuration with port ranges and TURN settings
 - **Health Monitoring**: Built-in health check endpoint for service validation
+- **Enhanced Security**: **Updated**: Minimum 32-character API secrets required for all environments
 
 ```mermaid
 sequenceDiagram
 participant Backend as "Backend API"
 participant VoiceAgent as "Voice Agent"
 participant LiveKit as "LiveKit SFU"
+participant LiveKitSIP as "LiveKit SIP Service"
 participant Twilio as "Twilio SIP"
 participant PSTN as "PSTN Network"
 Backend->>VoiceAgent : "POST /dispatch"
 VoiceAgent->>LiveKit : "Create Room"
 LiveKit-->>VoiceAgent : "Room Created"
+VoiceAgent->>LiveKitSIP : "Resolve SIP Trunk"
+LiveKitSIP-->>VoiceAgent : "Trunk ID"
 VoiceAgent->>LiveKit : "Create SIP Participant"
 LiveKit->>Twilio : "Initiate PSTN Call"
 Twilio-->>PSTN : "Connect to Phone"
@@ -493,11 +524,57 @@ VoiceAgent-->>Backend : "Room Info"
 **Diagram sources**
 - [app/voice_agent/agent.py:558-602](file://app/voice_agent/agent.py#L558-L602)
 - [app/backend/services/voice_call_scheduler.py:180-211](file://app/backend/services/voice_call_scheduler.py#L180-L211)
+- [docker-compose.staging.yml:197-225](file://docker-compose.staging.yml#L197-L225)
 
 **Section sources**
 - [app/voice_agent/Dockerfile.livekit:1-3](file://app/voice_agent/Dockerfile.livekit#L1-L3)
 - [app/voice_agent/livekit.yaml:1-42](file://app/voice_agent/livekit.yaml#L1-L42)
 - [app/voice_agent/agent.py:535-602](file://app/voice_agent/agent.py#L535-L602)
+- [docker-compose.staging.yml:197-225](file://docker-compose.staging.yml#L197-L225)
+
+### LiveKit SIP Service
+**Updated**: The LiveKit SIP service provides comprehensive SIP trunking capabilities for PSTN call handling:
+
+- **SIP Trunk Management**: Programmatic SIP trunk creation and management via LiveKit API
+- **Twilio Integration**: Seamless integration with Twilio SIP trunk for outbound PSTN calls
+- **RTP Port Allocation**: Dynamic RTP port range allocation (10000-20000) for audio streaming
+- **Redis State Management**: Redis-backed session state management for SIP connections
+- **WebSocket Communication**: LiveKit WebSocket integration for SIP service coordination
+- **Node IP Configuration**: Flexible node IP configuration for VPS deployment scenarios
+- **Logging and Debugging**: Configurable logging levels for troubleshooting and monitoring
+- **Health Monitoring**: Built-in health check endpoint for service validation
+- **Resource Optimization**: Lightweight resource allocation (0.5 CPUs, 512MB RAM) for efficient operation
+
+```mermaid
+sequenceDiagram
+participant VoiceAgent as "Voice Agent"
+participant LiveKitSIP as "LiveKit SIP Service"
+participant Twilio as "Twilio SIP"
+participant PSTN as "PSTN Network"
+VoiceAgent->>LiveKitSIP : "Resolve SIP Trunk"
+LiveKitSIP->>LiveKitSIP : "List Existing Trunks"
+LiveKitSIP->>Twilio : "Check Trunk Availability"
+Twilio-->>LiveKitSIP : "Trunk Status"
+alt Trunk Exists
+LiveKitSIP-->>VoiceAgent : "Existing Trunk ID"
+else Create New Trunk
+LiveKitSIP->>Twilio : "Create SIP Trunk"
+Twilio-->>LiveKitSIP : "New Trunk Created"
+LiveKitSIP-->>VoiceAgent : "New Trunk ID"
+end
+VoiceAgent->>LiveKitSIP : "Initiate PSTN Call"
+LiveKitSIP->>Twilio : "Place Call"
+Twilio-->>PSTN : "Connect to Phone"
+LiveKitSIP-->>VoiceAgent : "Call Status"
+```
+
+**Diagram sources**
+- [app/voice_agent/agent.py:547-668](file://app/voice_agent/agent.py#L547-L668)
+- [docker-compose.staging.yml:197-225](file://docker-compose.staging.yml#L197-L225)
+
+**Section sources**
+- [docker-compose.staging.yml:197-225](file://docker-compose.staging.yml#L197-L225)
+- [app/voice_agent/agent.py:547-668](file://app/voice_agent/agent.py#L547-L668)
 
 ### Speech Service Capabilities
 The Speech Service provides comprehensive audio processing capabilities:
@@ -538,9 +615,10 @@ The Voice Agent manages end-to-end conversation orchestration:
 - **Conversation State Machine**: Greeting → Consent → Introduction → Screening → Follow-up → Wrap-up → Analysis → Ended
 - **LLM Integration**: Ollama Cloud for conversational intelligence
 - **Audio Processing**: Seamless integration with Speech Service for STT/TTS/VAD
-- **SIP Management**: LiveKit SIP integration for PSTN call handling
+- **SIP Management**: LiveKit SIP integration for PSTN call handling with **Updated** staging-specific SIP configuration
 - **Session Tracking**: Comprehensive transcript and assessment recording
 - **Retry Logic**: Automatic retry mechanisms for failed calls
+- **API Security**: **Updated**: LiveKit API authentication with 32-character secret validation
 
 ```mermaid
 stateDiagram-v2
@@ -549,7 +627,6 @@ Greeting --> Consent
 Consent --> Introduction
 Introduction --> Screening
 Screening --> Follow_up
-Follow_up --> Screening
 Follow_up --> Wrap_up
 Wrap_up --> Analysis
 Analysis --> Ended
@@ -743,6 +820,7 @@ The platform supports multiple deployment environments with distinct configurati
   - Default container naming without prefixes
   - Local Ollama integration for self-hosted inference
   - Standard resource allocation for development
+  - **Updated**: LiveKit API secret requires minimum 11 characters (currently "devsecret")
 - **Staging Environment** (docker-compose.staging.yml)
   - Separate staging stack with aria-staging naming convention
   - Dedicated container names with staging- prefix
@@ -750,28 +828,33 @@ The platform supports multiple deployment environments with distinct configurati
   - Dedicated network (aria_staging_network) for environment separation
   - Nginx service mapped to host port 8081 to prevent conflicts with development
   - Cloud-optimized resource limits and deploy constraints
-  - Watchtower auto-updates with selective service targeting
+  - Watchtower auto-updates with selective service targeting, **Updated** including staging-livekit-sip service for comprehensive deployment consistency
   - Enhanced health checks for all services
   - **Updated**: Healthchecks removed to facilitate stack deployment during debugging phases
   - **Updated**: Added pull_policy: always to all container images for fresh deployments
+  - **Updated**: Added SIP_TRUNK_ID and SIP_OUTBOUND_NUMBER environment variables for Twilio SIP trunk integration
+  - **Updated**: LiveKit API secret now requires minimum 32 characters ("staging_devsecret_min32chars_long_xyz")
+  - **Updated**: Added staging-livekit-sip service with comprehensive SIP trunking capabilities
 - **Production Environment** (docker-compose.prod.yml)
   - Production deployment with aria-production naming convention
   - Enhanced resource allocation for production workloads
   - Certbot integration for SSL certificate management
   - Production-specific health checks and monitoring
   - Isolated network (aria_network) for production environment
+  - **Updated**: LiveKit API secret requires minimum 11 characters (currently "devsecret")
 - **Portainer Management** (docker-compose.portainer.yml)
   - Production compose for Portainer orchestration
   - Mirrors production configuration with selective service deployment
   - Simplified environment variable management
+  - **Updated**: LiveKit API secret requires minimum 11 characters (currently "devsecret")
 
-**Updated** Enhanced environment management with dedicated staging environment featuring separate container naming (staging- prefix), isolated volumes and networks, environment-specific resource allocation for voice services, strategic port assignment to prevent conflicts, and standardized naming conventions for volume preservation.
+**Updated** Enhanced environment management with dedicated staging environment featuring separate container naming (staging- prefix), isolated volumes and networks, environment-specific resource allocation for voice services, strategic port assignment to prevent conflicts, and standardized naming conventions for volume preservation. **Updated** Added staging-livekit-sip service to Watchtower auto-update configuration for improved deployment consistency and comprehensive LiveKit SIP trunking capabilities. **Updated** LiveKit API security now requires minimum 32-character secrets for staging environment and enhanced security validation across all environments.
 
 **Section sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
-- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
-- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
-- [docker-compose.portainer.yml:1-215](file://docker-compose.portainer.yml#L1-L215)
+- [docker-compose.staging.yml:1-272](file://docker-compose.staging.yml#L1-L272)
+- [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
+- [docker-compose.portainer.yml:1-214](file://docker-compose.portainer.yml#L1-L214)
 
 ## Production Deployment Strategy
 The production deployment follows a structured approach with enhanced naming conventions and resource allocation:
@@ -799,11 +882,15 @@ The production deployment follows a structured approach with enhanced naming con
 - **Network Isolation**
   - Production network named "aria_network" for environment separation
   - Volume preservation through standardized naming conventions
+- **Enhanced API Security**
+  - **Updated**: LiveKit API secrets validated for minimum 11-character length
+  - Production environment uses secure secret management
+  - API authentication with enhanced security validation
 
-**Updated** Enhanced production deployment with aria-production naming convention, dedicated resource allocation for voice services, improved CI/CD integration with branch-based image tagging, and standardized volume preservation measures with resume-screener- prefix for all containers.
+**Updated** Enhanced production deployment with aria-production naming convention, dedicated resource allocation for voice services, improved CI/CD integration with branch-based image tagging, and standardized volume preservation measures with resume-screener- prefix for all containers. **Updated** LiveKit API security now includes minimum character length validation across all environments.
 
 **Section sources**
-- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
 
 ## Staging Environment Configuration
 The staging environment provides a separate deployment environment with dedicated resources and naming conventions:
@@ -818,10 +905,11 @@ The staging environment provides a separate deployment environment with dedicate
   - Ollama: 6GB RAM with optimized parallel processing for staging
   - Backend: 3GB RAM with 3 workers for reduced production load
   - LiveKit: 1GB RAM for WebRTC SFU and SIP handling
+  - **Updated**: LiveKit SIP Service: 512MB RAM for comprehensive SIP trunking
   - Speech Service: 3GB RAM for CPU-only STT/TTS/VAD processing
   - Voice Agent: 1GB RAM for conversation orchestration
 - **Deployment Management**
-  - Watchtower configured for staging containers only
+  - Watchtower configured for staging containers only, **Updated** including staging-livekit-sip service for comprehensive deployment consistency
   - Environment-specific image tagging (staging for staging)
   - Selective service deployment with targeted restarts
   - Nginx service mapped to host port 8081 to avoid conflicts
@@ -833,11 +921,23 @@ The staging environment provides a separate deployment environment with dedicate
 - **Debugging Enhancements**
   - **Updated**: Healthchecks removed from all services to facilitate stack deployment during debugging phases
   - **Updated**: Added pull_policy: always to all container images for fresh deployments
+  - **Updated**: Added SIP_TRUNK_ID and SIP_OUTBOUND_NUMBER environment variables for Twilio SIP trunk integration
+- **SIP Trunk Configuration**
+  - **Updated**: SIP_TRUNK_ID environment variable set to "twilio-aria" for staging
+  - **Updated**: SIP_OUTBOUND_NUMBER environment variable set to "+18722789563" for staging
+  - **Updated**: LiveKit configuration includes Twilio SIP trunk with matching trunk name
+  - **Updated**: Voice Agent uses staging-specific SIP configuration for PSTN call handling
+  - **Updated**: LiveKit SIP Service provides comprehensive SIP trunking capabilities
+- **Enhanced API Security**
+  - **Updated**: LiveKit API secret now requires minimum 32 characters for proper authentication
+  - **Updated**: STAGING_LIVEKIT_API_SECRET uses "staging_devsecret_min32chars_long_xyz" (32 characters)
+  - **Updated**: STAGING_LIVEKIT_API_KEY uses "staging_devkey" for proper key association
+  - **Updated**: LiveKit YAML configuration includes 32-character secrets for development and staging
 
-**Updated** Comprehensive staging environment with dedicated docker-compose.staging.yml featuring separate container naming, volume isolation, network separation, environment-specific resource allocation for voice services, strategic port assignment 8081:80 to prevent conflicts with development services, standardized naming conventions for volume preservation, and enhanced debugging capabilities through healthcheck removal and fresh image deployment policies.
+**Updated** Comprehensive staging environment with dedicated docker-compose.staging.yml featuring separate container naming, volume isolation, network separation, environment-specific resource allocation for voice services, strategic port assignment 8081:80 to prevent conflicts with development services, standardized naming conventions for volume preservation, enhanced debugging capabilities through healthcheck removal and fresh image deployment policies, **Updated** added staging-livekit-sip service to Watchtower auto-update configuration for improved deployment consistency, and **Updated** dedicated SIP trunk configuration with Twilio integration for PSTN call handling. **Updated** LiveKit API security now requires minimum 32-character secrets for proper authentication.
 
 **Section sources**
-- [docker-compose.staging.yml:1-253](file://docker-compose.staging.yml#L1-L253)
+- [docker-compose.staging.yml:1-272](file://docker-compose.staging.yml#L1-L272)
 
 ## Portainer Integration
 The platform includes comprehensive Portainer integration for production deployment management:
@@ -858,9 +958,12 @@ The platform includes comprehensive Portainer integration for production deploym
   - Docker socket integration for container management
   - SSL certificate management through Portainer volumes
   - Health check monitoring and alerting through Portainer interface
+- **Enhanced API Security**
+  - **Updated**: LiveKit API secrets validated for minimum 11-character length
+  - **Updated**: Production environment uses secure secret management through Portainer
 
 **Section sources**
-- [docker-compose.portainer.yml:1-215](file://docker-compose.portainer.yml#L1-L215)
+- [docker-compose.portainer.yml:1-214](file://docker-compose.portainer.yml#L1-L214)
 
 ## Volume Preservation Measures
 
@@ -891,13 +994,13 @@ The platform implements comprehensive volume preservation measures through stand
 - **Certificate Storage**: SSL certificates are persisted across container restarts
 - **Database Integrity**: PostgreSQL data is preserved through volume mounting for disaster recovery
 
-**Updated** Enhanced volume preservation measures with standardized naming conventions across all Docker Compose files. Implemented resume-screener- prefix for all container names and aria_network for production isolation. Added staging-specific volume naming (staging_ prefix) and network isolation (aria_staging_network) to ensure complete environment separation and data persistence.
+**Updated** Enhanced volume preservation measures with standardized naming conventions across all Docker Compose files. Implemented resume-screener- prefix for all container names and aria_network for production isolation. Added staging-specific volume naming (staging_ prefix) and network isolation (aria_staging_network) to ensure complete environment separation and data persistence. **Updated** LiveKit API security now includes minimum character length validation for all environment-specific secrets.
 
 **Section sources**
 - [docker-compose.yml:177-180](file://docker-compose.yml#L177-L180)
-- [docker-compose.staging.yml:245-247](file://docker-compose.staging.yml#L245-L247)
-- [docker-compose.prod.yml:305-309](file://docker-compose.prod.yml#L305-L309)
-- [docker-compose.portainer.yml:204-208](file://docker-compose.portainer.yml#L204-L208)
+- [docker-compose.staging.yml:264-267](file://docker-compose.staging.yml#L264-L267)
+- [docker-compose.prod.yml:308-313](file://docker-compose.prod.yml#L308-L313)
+- [docker-compose.portainer.yml:204-209](file://docker-compose.portainer.yml#L204-L209)
 
 ## Standardized Naming Conventions
 
@@ -925,6 +1028,7 @@ The platform enforces standardized container naming conventions for consistent e
   - `staging-speech-service`: Staging speech service
   - `staging-voice-agent`: Staging voice agent
   - `staging-livekit`: Staging LiveKit service
+  - `staging-livekit-sip`: Staging LiveKit SIP service
   - `staging-watchtower`: Staging auto-update service
 
 ### Network Naming Standards
@@ -951,7 +1055,7 @@ The platform enforces standardized container naming conventions for consistent e
   - Backend: 8000:8000
   - Nginx: 80:80, 443:443
 
-**Updated** Implemented comprehensive standardized naming conventions across all Docker Compose files. All containers now use resume-screener- prefix for production and staging- prefix for staging environments. Network isolation achieved through aria_network and aria_staging_network naming. Volume preservation ensured through standardized naming conventions with staging_ prefix for staging environment data.
+**Updated** Implemented comprehensive standardized naming conventions across all Docker Compose files. All containers now use resume-screener- prefix for production and staging- prefix for staging environments. Network isolation achieved through aria_network and aria_staging_network naming. Volume preservation ensured through standardized naming conventions with staging_ prefix for staging environment data. **Updated** Added staging-livekit-sip service to the naming convention standards and included in Watchtower auto-update configuration for improved deployment consistency. **Updated** LiveKit API security now includes minimum character length validation for all environment-specific secrets.
 
 **Section sources**
 - [docker-compose.yml:7-8](file://docker-compose.yml#L7-L8)
@@ -990,7 +1094,9 @@ The platform enforces standardized container naming conventions for consistent e
   - Voice Agent depends on LiveKit, Speech Service, and Backend
   - LiveKit depends on Twilio SIP configuration
   - Speech Service depends on model availability
+  - **Updated**: LiveKit SIP Service depends on LiveKit and Redis for SIP trunk management
   - Cloud-native dependencies optimized for managed services
+  - **Updated**: LiveKit API security depends on proper secret validation
 - **External dependencies**
   - Docker images for Python, Node, Nginx, PostgreSQL (managed), Ollama Cloud, Certbot, Watchtower
   - GitHub Actions for CI/CD and Docker Hub for cloud image storage
@@ -1001,6 +1107,8 @@ The platform enforces standardized container naming conventions for consistent e
   - Background tasks require proper shutdown handling for cloud environments
   - Queue worker requires database connectivity for job processing
   - Voice services require proper model warmup and health validation
+  - **Updated**: LiveKit SIP Service requires Redis for state management
+  - **Updated**: LiveKit API authentication requires minimum 32-character secret validation
 
 ```mermaid
 graph TD
@@ -1013,19 +1121,24 @@ Watchtower["Watchtower (Cloud Updates)"] --> Backend
 Watchtower --> Frontend
 Watchtower --> Nginx
 Watchtower --> LiveKit
+Watchtower --> LiveKitSIP
 Watchtower --> SpeechService
 Watchtower --> VoiceAgent
 Certbot["Certbot (Cloud SSL)"] --> Nginx
 QueueWorker["Queue Worker"] --> DB
 LiveKit["LiveKit (WebRTC + SIP)"] --> Backend
+LiveKitSIP["LiveKit SIP Service"] --> LiveKit
 SpeechService["Speech Service (STT/TTS/VAD)"] --> Backend
 VoiceAgent["Voice Agent"] --> LiveKit
 VoiceAgent --> SpeechService
 VoiceAgent --> Backend
+LiveKit --> SecretValidation["32-char Secret Validation"]
+LiveKitSIP --> Redis["LiveKit Redis"]
 ```
 
 **Diagram sources**
-- [docker-compose.prod.yml:1-314](file://docker-compose.prod.yml#L1-L314)
+- [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
+- [docker-compose.staging.yml:197-225](file://docker-compose.staging.yml#L197-L225)
 
 **Section sources**
 - [docker-compose.yml:110-175](file://docker-compose.yml#L110-L175)
@@ -1038,6 +1151,7 @@ VoiceAgent --> Backend
   - Graceful shutdown timeout of 30 seconds allows background tasks to complete
 - **Voice Service optimization**
   - LiveKit: 1GB RAM allocation for WebRTC SFU and SIP handling
+  - **Updated**: LiveKit SIP Service: 512MB RAM allocation for comprehensive SIP trunking
   - Speech Service: 3-4GB RAM allocation for CPU-only STT/TTS/VAD processing
   - Voice Agent: 1-2GB RAM allocation for conversation orchestration
   - Model warmup ensures immediate response for voice processing
@@ -1060,10 +1174,13 @@ VoiceAgent --> Backend
   - Deep health check provides comprehensive dependency validation
   - Voice service health checks validate model readiness
   - LiveKit health checks for WebRTC service availability
+  - **Updated**: LiveKit SIP Service health checks for SIP trunk management
+  - **Updated**: Staging environment healthchecks removed for debugging purposes
+  - **Updated**: LiveKit API secret validation for minimum 32-character length
 - **Port conflict prevention**
   - Development frontend mapped to port 3000:8080
   - Staging Nginx mapped to port 8081:80
-  - Production Nginx mapped to port 80:80
+  - Production Nginx mapped to port 80:80, 443:443
 - **Volume preservation optimization**
   - Standardized naming conventions ensure data persistence across environment switches
   - Environment-specific volumes prevent data collisions
@@ -1072,8 +1189,11 @@ VoiceAgent --> Backend
   - **Updated**: Healthchecks removed to facilitate stack deployment during debugging phases
   - **Updated**: Added pull_policy: always to all container images for fresh deployments
   - **Updated**: Increased backend healthcheck start_period to accommodate slower startup times
+  - **Updated**: Added SIP_TRUNK_ID and SIP_OUTBOUND_NUMBER environment variables for Twilio integration
+  - **Updated**: LiveKit API secrets now require minimum 32-character length for proper authentication
+  - **Updated**: Added staging-livekit-sip service to Watchtower auto-update configuration for improved deployment consistency
 
-**Updated** Enhanced performance considerations with dedicated resource allocation for voice services in staging and production environments, including specific memory allocations for LiveKit (1G), Speech Service (3-4G), and Voice Agent (1-2G) based on environment-specific requirements, strategic port assignments to prevent conflicts, and standardized naming conventions for volume preservation.
+**Updated** Enhanced performance considerations with dedicated resource allocation for voice services in staging and production environments, including specific memory allocations for LiveKit (1G), LiveKit SIP Service (512MB), Speech Service (3-4G), and Voice Agent (1-2G) based on environment-specific requirements, strategic port assignments to prevent conflicts, and standardized naming conventions for volume preservation. **Updated** Added staging-livekit-sip service to Watchtower auto-update configuration for improved deployment consistency and comprehensive LiveKit SIP trunking capabilities. **Updated** LiveKit API security now includes minimum character length validation for all environment-specific secrets, with staging environment using 32-character secrets for proper authentication.
 
 **Section sources**
 - [docker-compose.prod.yml:82-84](file://docker-compose.prod.yml#L82-L84)
@@ -1108,6 +1228,12 @@ VoiceAgent --> Backend
   - Verify SIP trunk configuration and Twilio credentials
   - Check TURN server accessibility for NAT traversal
   - Monitor WebSocket and TCP/UDP port availability
+  - **Updated**: Verify LiveKit API secret meets minimum 32-character requirement
+- **LiveKit SIP Service issues**
+  - **Updated**: Verify LiveKit SIP service health endpoint is accessible
+  - **Updated**: Check Redis connectivity for SIP state management
+  - **Updated**: Verify SIP trunk creation and management via LiveKit API
+  - **Updated**: Monitor RTP port allocation and availability
 - **Voice Agent communication issues**
   - Verify Voice Agent can reach LiveKit and Speech Service
   - Check environment variable configuration for service URLs
@@ -1122,10 +1248,14 @@ VoiceAgent --> Backend
 - **Rolling restart issues**
   - Check Watchtower logs for restart conflicts
   - Verify graceful shutdown timeout settings
+  - **Updated**: Verify staging-livekit-sip service is included in Watchtower configuration
 - **Health check failures**
   - Use `/health` for shallow checks, `/api/health/deep` for comprehensive validation
   - Monitor cloud-native health indicators
   - Check voice service health endpoints specifically
+  - **Updated**: Check LiveKit SIP Service health endpoint for SIP trunk management
+  - **Updated**: Staging environment healthchecks removed for debugging purposes
+  - **Updated**: LiveKit API secret validation for minimum 32-character length
 - **Environment-specific issues**
   - Verify correct environment variables for staging vs production
   - Check stack naming conventions (aria-staging vs aria-production)
@@ -1133,6 +1263,8 @@ VoiceAgent --> Backend
   - Verify port assignments to prevent conflicts (3000:8080 for dev, 8081:80 for staging)
   - Check volume naming conventions for data preservation
   - Verify network isolation (aria_network vs aria_staging_network)
+  - **Updated**: Verify LiveKit API secret meets minimum 32-character requirement for staging
+  - **Updated**: Check environment-specific secret lengths for all environments
 - **CI/CD pipeline issues**
   - Verify branch-based image tagging is working correctly
   - Check Docker Hub credentials and image permissions
@@ -1151,8 +1283,21 @@ VoiceAgent --> Backend
   - **Updated**: Healthchecks removed to facilitate stack deployment during debugging phases
   - **Updated**: Use pull_policy: always to ensure fresh container images
   - **Updated**: Monitor increased backend healthcheck start_period for slower startups
+  - **Updated**: Verify SIP_TRUNK_ID and SIP_OUTBOUND_NUMBER environment variables are properly configured
+  - **Updated**: Check LiveKit SIP trunk configuration matches voice agent environment variables
+  - **Updated**: Verify LiveKit API secret meets minimum 32-character requirement for staging
+  - **Updated**: Verify staging-livekit-sip service is properly included in Watchtower configuration
+- **LiveKit API security issues**
+  - **Updated**: Verify LIVEKIT_API_SECRET meets minimum 32-character requirement
+  - **Updated**: Check environment-specific secret lengths (staging: 32 chars, others: minimum 11 chars)
+  - **Updated**: Validate secret format and length in all environment variables
+  - **Updated**: Ensure proper secret rotation and management across environments
+- **Watchtower deployment issues**
+  - **Updated**: Verify staging-livekit-sip service is included in Watchtower command list
+  - **Updated**: Check Watchtower logs for staging-livekit-sip deployment status
+  - **Updated**: Ensure staging-livekit-sip service is properly configured for auto-updates
 
-**Updated** Enhanced troubleshooting guide with environment-specific issues including CI/CD pipeline troubleshooting for branch-based image tagging, deployment to different environments, port conflict resolution strategies for development (3000:8080), staging (8081:80), and production (80:80) environments, and volume preservation troubleshooting for standardized naming conventions.
+**Updated** Enhanced troubleshooting guide with environment-specific issues including CI/CD pipeline troubleshooting for branch-based image tagging, deployment to different environments, port conflict resolution strategies for development (3000:8080), staging (8081:80), and production (80:80) environments, and volume preservation troubleshooting for standardized naming conventions. **Updated** Added troubleshooting guidance for LiveKit API security issues including minimum character length validation, environment-specific secret requirements, and proper secret management across all environments. **Updated** Added comprehensive troubleshooting for staging environment SIP trunk configuration issues, debugging procedures for healthcheck removal, and Watchtower deployment issues including staging-livekit-sip service configuration. **Updated** Added LiveKit SIP Service troubleshooting with Redis connectivity, SIP trunk management, and RTP port allocation validation.
 
 **Section sources**
 - [README.md:339-355](file://README.md#L339-L355)
@@ -1161,7 +1306,7 @@ VoiceAgent --> Backend
 ## Conclusion
 This guide outlines a robust, cloud-first deployment process for Resume AI by ThetaLogics with enhanced voice screening capabilities and comprehensive microservices architecture. It leverages Docker Compose for development with cloud-native defaults, GitHub Actions for CI/CD with automated Docker builds for all four services, and production-grade orchestration with Watchtower and Certbot. The system emphasizes enhanced health checks, zero-downtime rolling restarts, streaming readiness, comprehensive queue processing, SSL security, migration management, voice service integration, and operational simplicity for maintenance and scaling in cloud environments.
 
-**Updated** Enhanced emphasis on cloud-native deployment patterns with Ollama Cloud as the default configuration, comprehensive voice screening microservices architecture, LiveKit WebRTC SFU integration, speech processing capabilities, automated CI/CD builds for all core services with branch-based image tagging, dedicated staging environment configuration with strategic port conflict prevention, improved production deployment with aria-production naming convention, standardized volume preservation measures, and comprehensive naming conventions across all environments.
+**Updated** Enhanced emphasis on cloud-native deployment patterns with Ollama Cloud as the default configuration, comprehensive voice screening microservices architecture, LiveKit WebRTC SFU integration with enhanced API security, speech processing capabilities, automated CI/CD builds for all core services with branch-based image tagging, dedicated staging environment configuration with strategic port conflict prevention, improved production deployment with aria-production naming convention, standardized volume preservation measures, comprehensive naming conventions across all environments, **Updated** added staging-livekit-sip service to Watchtower auto-update configuration for improved deployment consistency, and comprehensive LiveKit SIP trunking capabilities with Twilio integration.
 
 ## Appendices
 
@@ -1228,23 +1373,36 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Model configuration and processing parameters
 - **LiveKit environment variables**
   - LIVEKIT_API_KEY and LIVEKIT_API_SECRET for authentication
+  - **Updated**: LIVEKIT_API_SECRET now requires minimum 32-character length for all environments
   - SIP trunk configuration for Twilio integration
   - Port configuration for WebSocket, TCP, and UDP protocols
+- **LiveKit SIP Service environment variables**
+  - **Updated**: SIP_CONFIG_BODY for comprehensive SIP trunk configuration
+  - API key and secret for LiveKit integration
+  - WebSocket URL for LiveKit communication
+  - Redis connection configuration for state management
+  - SIP and RTP port configurations for audio streaming
+  - Node IP configuration for VPS deployment
+  - Logging level configuration for troubleshooting
 - **Voice Agent environment variables**
   - SPEECH_SERVICE_URL, LIVEKIT_URL, and backend URL configuration
   - Ollama Cloud integration settings
-  - SIP trunk ID and outbound number configuration
+  - **Updated**: SIP_TRUNK_ID and SIP_OUTBOUND_NUMBER configuration for Twilio integration
 - **Production secrets**
   - Store sensitive values in repository secrets and pass them via Compose
   - Cloud-native secret management for API keys and credentials
+  - **Updated**: Ensure LIVEKIT_API_SECRET meets minimum 32-character requirement
 - **Environment-specific variables**
   - STAGING_* variables for staging environment isolation
   - Production variables with aria-production naming convention
   - Portainer-specific environment management
+  - **Updated**: STAGING_LIVEKIT_API_SECRET requires 32-character minimum length
 - **Example variables**
   - Database credentials, JWT secret, Ollama Cloud API key, timeouts, and environment mode
+  - **Updated**: LiveKit API secrets with proper character length validation
+  - **Updated**: LiveKit SIP Service configuration with comprehensive settings
 
-**Updated** Enhanced environment variables with staging-specific variables (STAGING_* prefix) and production-specific variables with aria-production naming convention, supporting the new staging environment configuration with strategic port assignments and standardized naming conventions.
+**Updated** Enhanced environment variables with staging-specific variables (STAGING_* prefix) and production-specific variables with aria-production naming convention, supporting the new staging environment configuration with strategic port assignments and standardized naming conventions. **Updated** Added SIP_TRUNK_ID and SIP_OUTBOUND_NUMBER environment variables for proper Twilio SIP trunk configuration in staging environment. **Updated** Added comprehensive LiveKit SIP Service environment variables including SIP_CONFIG_BODY, API integration settings, Redis configuration, and logging parameters. **Updated** LiveKit API security now requires minimum 32-character secrets for all environments, with staging environment using 32-character secrets for proper authentication.
 
 **Section sources**
 - [docker-compose.yml:60-82](file://docker-compose.yml#L60-L82)
@@ -1263,6 +1421,9 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Compose healthchecks for cloud-managed PostgreSQL and Ollama Cloud
   - Voice service health checks for model readiness validation
   - LiveKit health checks for WebRTC service availability
+  - **Updated**: LiveKit SIP Service health checks for SIP trunk management
+  - **Updated**: Staging environment healthchecks removed for debugging purposes
+  - **Updated**: LiveKit API secret validation for minimum 32-character length
 - **Queue monitoring**
   - Worker statistics and job processing metrics
   - Queue depth and performance tracking
@@ -1277,12 +1438,14 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Port conflict monitoring for staging (8081:80) vs development (3000:8080)
   - Portainer-managed monitoring through web interface
   - Volume preservation monitoring through standardized naming conventions
+  - **Updated**: SIP trunk monitoring for staging environment with Twilio integration
+  - **Updated**: LiveKit API security monitoring across all environments
 - **Cloud-native observability**
   - Use container logs and health endpoints for basic monitoring
   - Extend with external tools for metrics and alerting in cloud environments
   - Prometheus metrics collection for cloud monitoring
 
-**Updated** Enhanced monitoring with environment-specific health checks for staging (aria-staging) and production (aria-production) environments, including dedicated monitoring for voice services across all environments, port conflict prevention strategies, and volume preservation monitoring through standardized naming conventions.
+**Updated** Enhanced monitoring with environment-specific health checks for staging (aria-staging) and production (aria-production) environments, including dedicated monitoring for voice services across all environments, port conflict prevention strategies, volume preservation monitoring through standardized naming conventions, **Updated** LiveKit SIP Service monitoring for comprehensive SIP trunk management, and **Updated** LiveKit API security monitoring with minimum character length validation across all environments.
 
 **Section sources**
 - [app/backend/main.py:354-460](file://app/backend/main.py#L354-L460)
@@ -1299,6 +1462,7 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Watchtower auto-updates containers with zero-downtime rolling restarts
   - Disable or pin images to control rollouts
   - Monitor Watchtower logs for deployment status
+  - **Updated**: Verify staging-livekit-sip service is included in Watchtower configuration
 - **Manual rollback**
   - Pull previous image tags and redeploy using Compose
   - Use graceful shutdown timeouts to minimize disruption
@@ -1315,7 +1479,7 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Use Alembic downgrade commands for database schema changes
   - Restore from backup files created during migration
 - **Voice service rollback**
-  - Rollback LiveKit, Speech Service, and Voice Agent together
+  - Rollback LiveKit, LiveKit SIP Service, Speech Service, and Voice Agent together
   - Ensure consistent model versions across voice services
 - **Port conflict rollback**
   - Verify port assignments are correct (3000:8080 for dev, 8081:80 for staging)
@@ -1326,8 +1490,15 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Check container names use appropriate prefixes
   - Ensure network isolation prevents data corruption
   - Validate proper volume mounting for data persistence
+- **LiveKit API security rollback**
+  - **Updated**: Verify LIVEKIT_API_SECRET meets minimum 32-character requirement
+  - **Updated**: Check environment-specific secret lengths during rollback
+  - **Updated**: Ensure proper secret validation across restored environments
+- **Watchtower deployment rollback**
+  - **Updated**: Verify staging-livekit-sip service configuration during rollback
+  - **Updated**: Check Watchtower logs for deployment status during rollback procedures
 
-**Updated** Enhanced rollback procedures with environment-specific considerations for staging (aria-staging) and production (aria-production) environments, including selective service deployment through Portainer, port conflict resolution strategies, and volume preservation through standardized naming conventions.
+**Updated** Enhanced rollback procedures with environment-specific considerations for staging (aria-staging) and production (aria-production) environments, including selective service deployment through Portainer, port conflict resolution strategies, and volume preservation through standardized naming conventions. **Updated** Added LiveKit API security rollback procedures with minimum character length validation and environment-specific secret management. **Updated** Added comprehensive rollback procedures for staging-livekit-sip service and Watchtower deployment rollback procedures.
 
 **Section sources**
 - [docker-compose.prod.yml:205-211](file://docker-compose.prod.yml#L205-L211)
@@ -1340,10 +1511,12 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Graceful shutdown timeout should accommodate increased worker count
   - Scale queue workers based on job volume and processing requirements
   - Scale voice services based on call volume and processing demands
+  - **Updated**: Scale LiveKit SIP Service based on SIP trunk demand
 - **Vertical scaling**
   - Adjust CPU/memory limits per service in production Compose
   - Cloud-native autoscaling for managed services
   - Allocate additional resources for voice services during peak hours
+  - **Updated**: Scale LiveKit SIP Service resources based on SIP trunk capacity
 - **Environment-specific scaling**
   - Staging environment with reduced resource allocation for cost optimization
   - Production environment with enhanced resource allocation for performance
@@ -1361,6 +1534,7 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Scale LiveKit horizontally for multiple concurrent calls
   - Scale Speech Service based on audio processing demands
   - Monitor voice agent resource utilization during scaling
+  - **Updated**: Scale LiveKit SIP Service for increased SIP trunk capacity
 - **Port conflict prevention**
   - Development: Use port 3000 for frontend access
   - Staging: Use port 8081 for Nginx access
@@ -1369,8 +1543,15 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Standardized naming conventions ensure data persistence during scaling
   - Environment-specific volumes prevent data collisions during expansion
   - Network isolation maintains service separation during scaling operations
+- **LiveKit API security scaling**
+  - **Updated**: Ensure minimum 32-character secrets for scaled environments
+  - **Updated**: Validate secret length during horizontal scaling operations
+  - **Updated**: Monitor API security across scaled LiveKit instances
+- **Watchtower scaling considerations**
+  - **Updated**: Ensure staging-livekit-sip service is included in scaled Watchtower configuration
+  - **Updated**: Monitor deployment status for scaled LiveKit SIP Service
 
-**Updated** Enhanced scaling considerations with environment-specific resource allocation for voice services, including dedicated memory allocations for staging (LiveKit: 1G, Speech Service: 3G, Voice Agent: 1G) and production (LiveKit: 1G, Speech Service: 4G, Voice Agent: 2G) environments, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and network isolation for environment separation.
+**Updated** Enhanced scaling considerations with environment-specific resource allocation for voice services, including dedicated memory allocations for staging (LiveKit: 1G, LiveKit SIP Service: 512MB, Speech Service: 3G, Voice Agent: 1G) and production (LiveKit: 1G, LiveKit SIP Service: 512MB, Speech Service: 4G, Voice Agent: 2G) environments, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and network isolation for environment separation. **Updated** Added LiveKit SIP Service scaling considerations and Watchtower configuration for scaled environments with minimum character length validation.
 
 **Section sources**
 - [docker-compose.prod.yml:82-84](file://docker-compose.prod.yml#L82-L84)
@@ -1387,6 +1568,7 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Implement cloud-native secret management for API keys
   - Secure voice service credentials separately from main application
   - Environment-specific secret management for staging vs production
+  - **Updated**: Ensure LIVEKIT_API_SECRET meets minimum 32-character requirement
 - **Network exposure**
   - Limit published ports; rely on internal networking within Compose
   - Use cloud-native security groups and network policies
@@ -1406,12 +1588,13 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - `/health` endpoint provides minimal information for container monitoring
   - `/api/health/deep` requires authentication and provides comprehensive validation
   - Voice service health checks should not expose internal model details
+  - **Updated**: Staging environment healthchecks removed for debugging purposes
 - **Queue security**
   - Job deduplication prevents unauthorized duplicate processing
   - Worker isolation protects against cross-job interference
 - **Voice service security**
   - Secure Speech Service endpoints with proper authentication
-  - Protect LiveKit SIP credentials and Twilio integration
+  - Protect LiveKit SIP Service configuration and credentials
   - Monitor voice agent conversations for security compliance
 - **Port security**
   - Development: Port 3000 for internal development access only
@@ -1422,8 +1605,16 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Standardized naming conventions prevent cross-environment data access
   - Environment-specific volumes ensure data isolation
   - Network isolation prevents unauthorized service communication
+- **LiveKit API security**
+  - **Updated**: Minimum 32-character secrets required for all environments
+  - **Updated**: Validate secret length during deployment and runtime
+  - **Updated**: Implement secret rotation and management procedures
+  - **Updated**: Monitor API security across all environment-specific secrets
+- **Watchtower security**
+  - **Updated**: Ensure staging-livekit-sip service is properly secured in Watchtower configuration
+  - **Updated**: Monitor Watchtower deployment security for SIP service updates
 
-**Updated** Enhanced security hardening with environment-specific considerations for staging and production deployments, including dedicated network isolation (aria_network and aria_staging_network), resource allocation for voice services, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and secure access control for different environments.
+**Updated** Enhanced security hardening with environment-specific considerations for staging and production deployments, including dedicated network isolation (aria_network and aria_staging_network), resource allocation for voice services, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and secure access control for different environments. **Updated** Added comprehensive LiveKit API security with minimum character length validation and environment-specific secret management. **Updated** Added Watchtower security considerations for staging-livekit-sip service configuration and deployment security.
 
 **Section sources**
 - [.github/workflows/cd.yml:60-64](file://.github/workflows/cd.yml#L60-L64)
@@ -1445,6 +1636,8 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Automate where possible with cloud-native DR tools
   - Include queue system state and job persistence in recovery procedures
   - Include voice service configurations and SIP trunk settings
+  - **Updated**: Include LiveKit API secret management in disaster recovery
+  - **Updated**: Include staging-livekit-sip service configuration in disaster recovery
 - **Environment-specific backup**
   - Staging environment backup with aria-staging naming convention
   - Production environment backup with aria-production naming convention
@@ -1457,6 +1650,7 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Verified restoration procedures for rollback scenarios
 - **Voice service backup**
   - Backup LiveKit configuration and SIP trunk settings
+  - Backup LiveKit SIP Service configuration and state
   - Backup Speech Service model configurations
   - Ensure voice agent state can be recovered during disaster scenarios
 - **Port conflict backup**
@@ -1468,12 +1662,19 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Check container names use appropriate prefixes
   - Ensure network isolation prevents data corruption during recovery
   - Validate proper volume mounting for data persistence
+- **LiveKit API security backup**
+  - **Updated**: Backup environment-specific API secrets with proper character length
+  - **Updated**: Include secret rotation procedures in disaster recovery plan
+  - **Updated**: Validate secret requirements during backup restoration
+- **Watchtower backup considerations**
+  - **Updated**: Include staging-livekit-sip service backup in disaster recovery procedures
+  - **Updated**: Ensure Watchtower configuration is backed up and recoverable
 
-**Updated** Enhanced backup and disaster recovery with environment-specific considerations for staging and production deployments, including dedicated resource allocation and network isolation for voice services, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and comprehensive backup procedures for all environment-specific configurations.
+**Updated** Enhanced backup and disaster recovery with environment-specific considerations for staging and production deployments, including dedicated resource allocation and network isolation for voice services, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and comprehensive backup procedures for all environment-specific configurations. **Updated** Added LiveKit API security backup procedures with minimum character length validation and environment-specific secret management. **Updated** Added comprehensive backup procedures for staging-livekit-sip service and Watchtower configuration backup.
 
 **Section sources**
 - [docker-compose.yml:99-101](file://docker-compose.yml#L99-L101)
-- [docker-compose.staging.yml:245-247](file://docker-compose.staging.yml#L245-L247)
+- [docker-compose.staging.yml:264-267](file://docker-compose.staging.yml#L264-L267)
 - [docker-compose.prod.yml:222-241](file://docker-compose.prod.yml#L222-L241)
 - [deploy_queue_migration.sh:18-23](file://deploy_queue_migration.sh#L18-L23)
 
@@ -1484,6 +1685,7 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Stop grace period of 60 seconds for backend service
   - 30-second stop grace period for Nginx service
   - Graceful shutdown for voice services during container updates
+  - **Updated**: Graceful shutdown for LiveKit SIP Service during container updates
 - **Environment-specific deployment**
   - Staging environment with aria-staging naming for safe testing
   - Production environment with aria-production naming for clear identification
@@ -1493,6 +1695,8 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Deep `/api/health/deep` endpoint for comprehensive dependency validation
   - Service health checks integrated with Docker Compose
   - Voice service health checks ensure model readiness
+  - **Updated**: LiveKit SIP Service health checks ensure SIP trunk management
+  - **Updated**: Staging environment healthchecks removed for debugging purposes
 - **Background task management**
   - Proper cleanup of background tasks during shutdown
   - Sentinel shutdown handling for Ollama Cloud integration
@@ -1506,6 +1710,7 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Graceful shutdown of voice services during updates
   - LiveKit connection cleanup and reconnection
   - Speech Service model warmup verification after updates
+  - **Updated**: Graceful shutdown of LiveKit SIP Service during updates
 - **Port conflict prevention**
   - Development: Use port 3000 for frontend access
   - Staging: Use port 8081 for Nginx access
@@ -1515,8 +1720,16 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Standardized naming conventions ensure data persistence during updates
   - Environment-specific volumes prevent data collisions during deployment
   - Network isolation maintains service separation during zero-downtime updates
+- **LiveKit API security deployment**
+  - **Updated**: Validate minimum 32-character secrets during deployment
+  - **Updated**: Ensure environment-specific secret requirements are met
+  - **Updated**: Monitor API security during rolling restarts
+- **Watchtower deployment strategy**
+  - **Updated**: Ensure staging-livekit-sip service is included in Watchtower configuration
+  - **Updated**: Monitor deployment status for staging-livekit-sip service updates
+  - **Updated**: Verify rolling restart includes LiveKit SIP Service updates
 
-**Updated** Enhanced zero-downtime deployment strategy with environment-specific considerations for staging and production deployments, including dedicated resource allocation, CI/CD integration with branch-based image tagging, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and comprehensive deployment procedures for all environment-specific configurations.
+**Updated** Enhanced zero-downtime deployment strategy with environment-specific considerations for staging and production deployments, including dedicated resource allocation, CI/CD integration with branch-based image tagging, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and comprehensive deployment procedures for all environment-specific configurations. **Updated** Added LiveKit SIP Service deployment considerations and Watchtower configuration for zero-downtime updates. **Updated** Added LiveKit API security validation during zero-downtime deployments with minimum character length requirements.
 
 **Section sources**
 - [docker-compose.prod.yml:205-211](file://docker-compose.prod.yml#L205-L211)
@@ -1558,6 +1771,12 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Monitor LiveKit connection status and SIP trunk health
   - Track concurrent call capacity and performance
   - Manage TURN server configuration and NAT traversal
+  - **Updated**: Monitor LiveKit API secret validation for minimum 32-character length
+- **LiveKit SIP Service Administration**
+  - **Updated**: Monitor LiveKit SIP Service health endpoint for SIP trunk management
+  - **Updated**: Track SIP trunk creation and management via LiveKit API
+  - **Updated**: Monitor Redis connectivity for SIP state management
+  - **Updated**: Verify RTP port allocation and availability for audio streaming
 - **Voice Agent Monitoring**
   - Track conversation state transitions and completion rates
   - Monitor voice agent performance and error rates
@@ -1579,6 +1798,7 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Optimize poll intervals for job processing throughput
   - Configure retry delays for optimal fault tolerance
   - Tune voice service resource allocation based on call volume
+  - **Updated**: Optimize LiveKit SIP Service resource allocation based on SIP trunk capacity
 - **Port conflict administration**
   - Monitor port assignments for each environment
   - Verify port availability before service startup
@@ -1588,8 +1808,20 @@ GH->>Cloud : "Deploy to cloud infrastructure"
   - Verify environment-specific volume isolation
   - Ensure proper container naming for service identification
   - Validate network isolation for environment separation
+- **SIP Trunk Administration**
+  - **Updated**: Monitor SIP_TRUNK_ID and SIP_OUTBOUND_NUMBER environment variables in staging
+  - **Updated**: Verify LiveKit SIP trunk configuration matches voice agent settings
+  - **Updated**: Test Twilio SIP trunk connectivity for PSTN call handling
+- **LiveKit API Security Administration**
+  - **Updated**: Monitor minimum 32-character secret requirements across all environments
+  - **Updated**: Validate environment-specific secret lengths during administration
+  - **Updated**: Implement secret rotation procedures for security compliance
+- **Watchtower Administration**
+  - **Updated**: Monitor staging-livekit-sip service deployment through Watchtower
+  - **Updated**: Verify Watchtower configuration includes LiveKit SIP Service updates
+  - **Updated**: Monitor deployment status for staging-livekit-sip service rolling restarts
 
-**Updated** Enhanced voice system administration with environment-specific considerations for staging and production deployments, including dedicated resource allocation and monitoring for voice services across all environments, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and comprehensive administration procedures for all environment-specific configurations.
+**Updated** Enhanced voice system administration with environment-specific considerations for staging and production deployments, including dedicated resource allocation and monitoring for voice services across all environments, strategic port assignments to prevent conflicts, standardized naming conventions for volume preservation, and comprehensive administration procedures for all environment-specific configurations. **Updated** Added SIP trunk administration procedures for staging environment with Twilio integration, comprehensive LiveKit API security administration with minimum character length validation, and **Updated** added LiveKit SIP Service administration procedures including Redis connectivity, SIP trunk management, and RTP port allocation monitoring. **Updated** Added Watchtower administration procedures for staging-livekit-sip service deployment and monitoring.
 
 **Section sources**
 - [app/backend/routes/voice.py:211-282](file://app/backend/routes/voice.py#L211-L282)

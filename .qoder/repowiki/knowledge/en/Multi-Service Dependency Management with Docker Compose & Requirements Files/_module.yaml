@@ -1,0 +1,17 @@
+schema_version: 1
+module_path: dependency_management
+title: Multi-Service Dependency Management with Docker Compose & Requirements Files
+scope: []
+source_files:
+    - requirements.txt
+    - app/backend/requirements.txt
+    - app/frontend/package.json
+    - app/frontend/package-lock.json
+    - app/speech_service/requirements.txt
+    - app/voice_agent/requirements.txt
+    - docker-compose.yml
+    - app/backend/Dockerfile
+    - app/frontend/Dockerfile
+    - .github/workflows/ci.yml
+depends_on: []
+related_to: []

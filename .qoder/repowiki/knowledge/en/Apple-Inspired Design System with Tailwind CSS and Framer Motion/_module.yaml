@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: frontend_style
+title: Apple-Inspired Design System with Tailwind CSS and Framer Motion
+scope: []
+source_files:
+    - app/frontend/tailwind.config.js
+    - app/frontend/src/index.css
+    - app/frontend/src/contexts/ThemeContext.jsx
+    - app/frontend/src/components/ui/Button.jsx
+    - app/frontend/src/components/motion/MotionCard.jsx
+    - app/frontend/package.json
+depends_on: []
+related_to: []

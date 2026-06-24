@@ -1,0 +1,1 @@
+FastAPI, React, PostgreSQL, Ollama, LiveKit, Nginx, Docker Compose

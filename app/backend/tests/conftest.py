@@ -4,6 +4,7 @@ Pytest fixtures shared across all backend test modules.
 import sys
 import os
 import json
+import uuid
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -845,3 +846,269 @@ def auth_client_at_usage_limit(client, db, seed_subscription_plans):
     token = login_resp.json()["access_token"]
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
+
+
+# ─── AI Recruiter Fixtures ────────────────────────────────────────────────────
+
+@pytest.fixture(scope="function")
+def db_session(db):
+    """Alias for the `db` fixture used by recruiter tests."""
+    yield db
+
+
+@pytest.fixture(scope="function")
+def sample_user(client, db):
+    """Create a test user + tenant for recruiter tests (role: recruiter)."""
+    register_payload = {
+        "company_name": "RecruiterTests",
+        "email": "sampleuser@recruitertests.com",
+        "password": "TestPass123!",
+        "full_name": "Sample User",
+    }
+    reg_resp = client.post("/api/auth/register", json=register_payload)
+    assert reg_resp.status_code in (200, 201), f"Register failed: {reg_resp.text}"
+
+    _verify_user_via_api("sampleuser@recruitertests.com")
+
+    from app.backend.models.db_models import User
+    user = db.query(User).filter(User.email == "sampleuser@recruitertests.com").first()
+    assert user is not None
+    # Registration creates the first user as admin; downgrade to recruiter so
+    # admin-only endpoints can be tested separately.
+    user.role = "recruiter"
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture(scope="function")
+def sample_candidate(db, sample_user):
+    """Create a test candidate for recruiter tests."""
+    from app.backend.models.db_models import Candidate
+
+    candidate = Candidate(
+        tenant_id=sample_user.tenant_id,
+        name="Sample Candidate",
+        email="candidate@example.com",
+        phone="+14155551234",
+        parsed_skills='["python", "java"]',
+        parsed_work_exp='[{"title":"Software Engineer","company":"OldCo","start_date":"2020-01","end_date":"present"}]',
+        gap_analysis_json='{}',
+    )
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    return candidate
+
+
+@pytest.fixture(scope="function")
+def sample_jd(db, sample_user):
+    """Create a test job description for recruiter tests."""
+    from app.backend.models.db_models import RoleTemplate
+
+    jd = RoleTemplate(
+        tenant_id=sample_user.tenant_id,
+        name="Sample Role",
+        jd_text="We need Python, Kubernetes, and AWS experience.",
+        required_skills_override='["python", "kubernetes", "aws"]',
+    )
+    db.add(jd)
+    db.commit()
+    db.refresh(jd)
+    return jd
+
+
+@pytest.fixture(scope="function")
+def sample_screening_result(db, sample_user, sample_candidate, sample_jd):
+    """Create a test screening result for recruiter tests."""
+    from app.backend.models.db_models import ScreeningResult
+
+    screening = ScreeningResult(
+        tenant_id=sample_user.tenant_id,
+        candidate_id=sample_candidate.id,
+        role_template_id=sample_jd.id,
+        resume_text="Sample resume text.",
+        jd_text=sample_jd.jd_text,
+        parsed_data='{}',
+        analysis_result=json.dumps({
+            "fit_score": 65,
+            "risk_signals": [],
+            "matched_skills": ["python"],
+            "gap_skills": ["kubernetes", "aws"],
+        }),
+        deterministic_score=65,
+        core_skill_score=70.0,
+        status="shortlisted",
+    )
+    db.add(screening)
+    db.commit()
+    db.refresh(screening)
+    return screening
+
+
+@pytest.fixture(scope="function")
+def auth_headers(client, sample_user):
+    """Return authorization headers for the sample user."""
+    login_resp = client.post("/api/auth/login", json={
+        "email": sample_user.email,
+        "password": "TestPass123!",
+    })
+    assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
+    token = login_resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(scope="function")
+def admin_auth_headers(client, db, sample_user):
+    """Return authorization headers for an admin user in the sample tenant."""
+    from app.backend.models.db_models import User
+
+    register_payload = {
+        "company_name": "RecruiterAdminTests",
+        "email": "adminuser@recruitertests.com",
+        "password": "AdminPass123!",
+        "full_name": "Admin User",
+    }
+    reg_resp = client.post("/api/auth/register", json=register_payload)
+    assert reg_resp.status_code in (200, 201), f"Admin register failed: {reg_resp.text}"
+
+    _verify_user_via_api("adminuser@recruitertests.com")
+
+    admin_user = db.query(User).filter(User.email == "adminuser@recruitertests.com").first()
+    assert admin_user is not None
+    admin_user.tenant_id = sample_user.tenant_id
+    admin_user.role = "admin"
+    db.commit()
+
+    login_resp = client.post("/api/auth/login", json={
+        "email": "adminuser@recruitertests.com",
+        "password": "AdminPass123!",
+    })
+    assert login_resp.status_code == 200, f"Admin login failed: {login_resp.text}"
+    token = login_resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(scope="function")
+def recruiter_session(db_session, sample_user, sample_candidate, sample_jd):
+    """Create a test recruiter interview session."""
+    from app.backend.models.db_models import RecruiterInterviewSession
+
+    session = RecruiterInterviewSession(
+        id=str(uuid.uuid4()),
+        tenant_id=sample_user.tenant_id,
+        candidate_id=sample_candidate.id,
+        jd_id=sample_jd.id,
+        trigger_type="manual",
+        status="pending_strategy",
+        created_by=sample_user.id,
+    )
+    db_session.add(session)
+    db_session.commit()
+    db_session.refresh(session)
+    return session
+
+
+@pytest.fixture(scope="function")
+def recruiter_session_with_questions(db_session, recruiter_session):
+    """Create a recruiter session with a sample question."""
+    from app.backend.models.db_models import RecruiterInterviewQuestion
+
+    question = RecruiterInterviewQuestion(
+        id=str(uuid.uuid4()),
+        session_id=recruiter_session.id,
+        sequence_number=1,
+        category="technical",
+        question_text="Describe a recent Python project.",
+        question_context="Assess depth of Python experience.",
+    )
+    db_session.add(question)
+    db_session.commit()
+    return recruiter_session
+
+
+@pytest.fixture(scope="function")
+def recruiter_session_with_scorecard(db_session, recruiter_session):
+    """Create a session with a completed scorecard."""
+    from app.backend.models.db_models import RecruiterScorecard
+
+    scorecard = RecruiterScorecard(
+        id=str(uuid.uuid4()),
+        session_id=recruiter_session.id,
+        tenant_id=recruiter_session.tenant_id,
+        candidate_id=recruiter_session.candidate_id,
+        technical_score=75,
+        behavioral_score=80,
+        communication_score=85,
+        cultural_fit_score=70,
+        motivation_score=90,
+        overall_score=80,
+        confidence_level="high",
+        recommendation="hire",
+        recommendation_reasoning="Strong candidate",
+        executive_summary="Recommended for hire.",
+        original_fit_score=65,
+        adjusted_fit_score=78,
+        adjustment_reasoning="Interview validated technical skills above resume indication.",
+    )
+    recruiter_session.status = "completed"
+    db_session.add(scorecard)
+    db_session.commit()
+    db_session.refresh(recruiter_session)
+    return recruiter_session
+
+
+@pytest.fixture(scope="function")
+def completed_recruiter_session(recruiter_session, db_session):
+    """Create a completed recruiter interview session."""
+    recruiter_session.status = "completed"
+    db_session.commit()
+    db_session.refresh(recruiter_session)
+    return recruiter_session
+
+
+@pytest.fixture(scope="function")
+def other_tenant_session(db_session):
+    """Create a recruiter session under a different tenant."""
+    from app.backend.models.db_models import (
+        Candidate,
+        RecruiterInterviewSession,
+        RoleTemplate,
+        Tenant,
+    )
+
+    tenant = Tenant(name="Other Tenant", slug="othertenant")
+    db_session.add(tenant)
+    db_session.commit()
+    db_session.refresh(tenant)
+
+    candidate = Candidate(
+        tenant_id=tenant.id,
+        name="Other Candidate",
+        email="othercandidate@example.com",
+        phone="+14155559999",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+    db_session.refresh(candidate)
+
+    jd = RoleTemplate(
+        tenant_id=tenant.id,
+        name="Other Role",
+        jd_text="Other JD",
+    )
+    db_session.add(jd)
+    db_session.commit()
+    db_session.refresh(jd)
+
+    session = RecruiterInterviewSession(
+        id=str(uuid.uuid4()),
+        tenant_id=tenant.id,
+        candidate_id=candidate.id,
+        jd_id=jd.id,
+        trigger_type="manual",
+        status="pending_strategy",
+    )
+    db_session.add(session)
+    db_session.commit()
+    return session

@@ -39,6 +39,8 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
 const AnalyticsPage  = lazy(() => import('./pages/AnalyticsPage'))
 const VoiceScreeningPage = lazy(() => import('./pages/VoiceScreeningPage'))
+const RecruiterInterviewPage = lazy(() => import('./pages/RecruiterInterviewPage'))
+const RecruiterSessionDetailPage = lazy(() => import('./pages/RecruiterSessionDetailPage'))
 
 // Admin layout + pages
 const AdminLayout        = lazy(() => import('./layouts/AdminLayout'))
@@ -141,6 +143,8 @@ function App() {
               <Route path="/video"      element={<Shell><OnboardingGate><VideoPage /></OnboardingGate></Shell>} />
               <Route path="/analytics"  element={<Shell><OnboardingGate><AnalyticsPage /></OnboardingGate></Shell>} />
               <Route path="/voice-screening" element={<Shell><OnboardingGate><VoiceScreeningPage /></OnboardingGate></Shell>} />
+              <Route path="/recruiter-interviews" element={<Shell><OnboardingGate><RecruiterInterviewPage /></OnboardingGate></Shell>} />
+              <Route path="/recruiter-interviews/:id" element={<Shell><OnboardingGate><RecruiterSessionDetailPage /></OnboardingGate></Shell>} />
               <Route path="/settings"   element={<Shell><OnboardingGate><SettingsPage /></OnboardingGate></Shell>} />
               {/* Admin portal - standalone layout (no recruiter nav) */}
               <Route path="/admin" element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}>

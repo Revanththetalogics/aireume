@@ -13,17 +13,18 @@ import json
 import logging
 from datetime import datetime, date, timezone
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
-from app.backend.db.database import get_db
+from app.backend.db.database import get_db, SessionLocal
 from app.backend.middleware.auth import get_current_user, require_active_subscription
 from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate, HiringOutcome, FieldAuditLog
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest, CandidateSkillCompareRequest
 from app.backend.services.audit_service import log_field_change
+from app.backend.services.recruiter.auto_trigger import RecruiterAutoTrigger
 from app.backend.services.outcome_service import (
     record_outcome, record_feedback, get_outcome_for_result, get_outcomes_for_jd, compute_skill_patterns
 )
@@ -37,6 +38,28 @@ jd_router = APIRouter(prefix="/api/jd", tags=["jd-candidates"])
 
 # Allowed statuses for bulk shortlist updates
 _VALID_STATUSES = {"pending", "shortlisted", "rejected", "in-review", "hired"}
+
+
+async def _schedule_auto_trigger(
+    tenant_id: int,
+    candidate_id: int,
+    screening_result_id: int,
+    new_status: str,
+) -> None:
+    """Fire-and-forget auto-trigger evaluation using a fresh DB session."""
+    db = SessionLocal()
+    try:
+        trigger = RecruiterAutoTrigger(db)
+        await trigger.evaluate_trigger(
+            tenant_id=tenant_id,
+            candidate_id=candidate_id,
+            screening_result_id=screening_result_id,
+            new_status=new_status,
+        )
+    except Exception as e:
+        logger.warning("Auto-trigger evaluation failed: %s", e)
+    finally:
+        db.close()
 
 
 def _json_default(obj):
@@ -1698,6 +1721,7 @@ def get_jd_candidates(
 def bulk_update_status(
     jd_id: int,
     body: dict,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1742,6 +1766,27 @@ def bulk_update_status(
         .update({ScreeningResult.status: new_status}, synchronize_session="fetch")
     )
     db.commit()
+
+    # Fire-and-forget auto-trigger evaluation for each updated screening result.
+    # Uses a fresh session because the request-scoped DB may close after response.
+    results = (
+        db.query(ScreeningResult)
+        .filter(
+            ScreeningResult.id.in_(result_ids),
+            ScreeningResult.tenant_id == current_user.tenant_id,
+            ScreeningResult.role_template_id == jd_id,
+        )
+        .all()
+    )
+    for result in results:
+        if result.candidate_id:
+            background_tasks.add_task(
+                _schedule_auto_trigger,
+                current_user.tenant_id,
+                result.candidate_id,
+                result.id,
+                new_status,
+            )
 
     return {"updated": updated}
 

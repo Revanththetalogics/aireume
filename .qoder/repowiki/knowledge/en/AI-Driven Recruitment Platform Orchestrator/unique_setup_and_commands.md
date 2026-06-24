@@ -1,0 +1,2 @@
+- **Unified Startup**: `docker-compose up` boots the entire platform, including database migrations, LLM model pulling, and voice service initialization.
+- **Health Checks**: The backend performs comprehensive startup checks for database connectivity, Ollama reachability, and model availability before accepting traffic, ensuring system readiness.

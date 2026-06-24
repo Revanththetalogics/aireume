@@ -1,0 +1,1 @@
+Orchestrates a multi-tenant, AI-driven recruitment workflow by integrating a FastAPI backend, React frontend, and specialized voice screening microservices through a unified Docker Compose environment and Nginx reverse proxy.

@@ -1,1 +1,0 @@
-Adopt framer-motion for application-wide motion and interactions — Activate framer-motion across the app by creating reusable primitives (PageTransition, MotionCard, StaggerContainer) and replacing existing CSS animations in modals, lists, and navigation with spring-based motion components.

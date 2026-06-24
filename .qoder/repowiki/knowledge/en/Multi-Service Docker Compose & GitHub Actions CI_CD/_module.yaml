@@ -1,0 +1,18 @@
+schema_version: 1
+module_path: build_system
+title: Multi-Service Docker Compose & GitHub Actions CI/CD
+scope: []
+source_files:
+    - .github/workflows/ci.yml
+    - .github/workflows/cd.yml
+    - docker-compose.yml
+    - docker-compose.prod.yml
+    - docker-compose.staging.yml
+    - app/backend/Dockerfile
+    - app/frontend/Dockerfile
+    - app/backend/scripts/docker-entrypoint.sh
+    - nginx/Dockerfile
+    - app/speech_service/Dockerfile
+    - app/voice_agent/Dockerfile
+depends_on: []
+related_to: []

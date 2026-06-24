@@ -16,9 +16,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
 import httpx
+
+from recruiter_conversation import RecruiterConversation, RecruiterContext, RecruiterState
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -188,6 +190,26 @@ class LLMClient:
             resp.raise_for_status()
             data = resp.json()
             return data.get("message", {}).get("content", "")
+
+    async def generate(self, prompt: str) -> str:
+        """Generate a short text completion via Ollama (used for follow-ups)."""
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                        "num_predict": 128,
+                    },
+                },
+                headers={"Authorization": f"Bearer {self.api_key}"} if self.api_key else {},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("response", "")
 
     async def generate_screening_questions(self, jd_title: str, skills: list) -> list:
         """Generate 3-5 screening questions from JD must-have skills."""
@@ -710,6 +732,21 @@ def _strip_wav_header(data: bytes) -> bytes:
     return data  # Already raw PCM
 
 
+async def _notify_backend_complete(session_id: str, result: dict):
+    """Notify backend that recruiter interview has completed."""
+    backend_url = os.getenv("BACKEND_URL", ARIA_BACKEND_URL)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{backend_url}/api/internal/recruiter/complete",
+                json={"session_id": session_id, "result": result},
+            )
+            resp.raise_for_status()
+            logger.info("Notified backend of recruiter completion: session=%s status=%d", session_id, resp.status_code)
+    except Exception as e:
+        logger.error("Failed to notify backend of recruiter completion: session=%s error=%s", session_id, e)
+
+
 async def _publish_audio(room, audio_source, pcm_data: bytes, sample_rate: int):
     """Publish raw PCM audio to the LiveKit room via the agent's audio track.
 
@@ -901,15 +938,150 @@ class VoiceAgentWorker:
             except Exception:
                 pass
 
-    async def dispatch_and_run(self, session_ctx: ScreeningContext, room_info: dict):
+    async def handle_recruiter_room(self, room_name: str, agent_token: str, session_ctx: RecruiterContext):
+        """Join a LiveKit room and run the AI Recruiter interview conversation."""
+        from livekit import rtc
+
+        room = rtc.Room()
+        speech = SpeechClient()
+        llm = LLMClient()
+        backend = BackendClient()
+        conversation = RecruiterConversation(session_ctx, speech, llm)
+
+        # Audio buffer for STT (accumulate ~3s of audio per chunk)
+        audio_buffer = bytearray()
+        SAMPLE_RATE = 16000
+        CHUNK_DURATION_SEC = 3.0
+        CHUNK_SIZE = int(SAMPLE_RATE * 2 * CHUNK_DURATION_SEC)  # 16-bit samples
+
+        # Persistent audio source for agent → candidate playback
+        audio_source = rtc.AudioSource(SAMPLE_RATE, 1)
+
+        async def _process_track(track, publication, participant):
+            """Async body for processing a subscribed audio track."""
+            if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
+                logger.info(
+                    "Audio track subscribed: participant=%s session=%s",
+                    participant.identity, session_ctx.session_id,
+                )
+                stream = rtc.AudioStream(track)
+
+                async for event in stream:
+                    frame = event.frame
+                    audio_buffer.extend(frame.data)
+
+                    if len(audio_buffer) >= CHUNK_SIZE:
+                        chunk = bytes(audio_buffer[:CHUNK_SIZE])
+                        audio_buffer.clear()
+
+                        # Transcribe (LiveKit delivers raw PCM 16kHz 16-bit mono)
+                        text = await speech.transcribe(chunk, "audio/pcm")
+                        if text.strip():
+                            logger.info("Candidate said: %s", text)
+
+                            # Get bot response
+                            bot_text = await conversation.handle_candidate_speech(text)
+                            if bot_text:
+                                logger.info("Bot responds: %s", bot_text)
+
+                                # Synthesize speech and publish to room
+                                audio_out = await speech.synthesize(bot_text)
+                                if audio_out:
+                                    await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+
+                            # Check for call end conditions
+                            if conversation.is_complete():
+                                logger.info("Recruiter conversation complete, ending call")
+                                break
+
+                            elapsed = time.time() - session_ctx.start_time
+                            if elapsed > session_ctx.target_duration_seconds:
+                                logger.info("Recruiter time budget exceeded, ending call")
+                                break
+
+        def on_track_subscribed(track, publication, participant):
+            """Sync wrapper — LiveKit .on() does not support async callbacks."""
+            asyncio.create_task(_process_track(track, publication, participant))
+
+        room.on("track_subscribed", on_track_subscribed)
+
+        try:
+            await speech.start()
+
+            # Connect to the room
+            await room.connect(LIVEKIT_URL, agent_token)
+            logger.info("Agent joined room: %s (session=%s)", room_name, session_ctx.session_id)
+
+            # Publish the audio source as a track so the candidate can hear the agent
+            try:
+                track = rtc.LocalAudioTrack.create_audio_track("aria-agent", audio_source)
+                options = rtc.TrackPublishOptions()
+                options.source = rtc.TrackSource.SOURCE_MICROPHONE
+                await room.local_participant.publish_track(track, options)
+                logger.info("Audio track published to room")
+            except Exception as pub_err:
+                logger.error("Failed to publish audio track: %s", pub_err, exc_info=True)
+
+            # Update backend
+            await backend.update_session(int(session_ctx.session_id), {"status": "in_progress"})
+
+            # Start the interview and deliver greeting
+            greeting = await conversation.start()
+            if greeting:
+                audio_out = await speech.synthesize(greeting)
+                if audio_out:
+                    await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+                    logger.info("Recruiter greeting published for session %s", session_ctx.session_id)
+
+            # Keep the call alive until complete or max duration
+            while not conversation.is_complete():
+                elapsed = time.time() - session_ctx.start_time
+                if elapsed > session_ctx.target_duration_seconds:
+                    logger.info("Recruiter max duration reached")
+                    break
+                await asyncio.sleep(1)
+
+            # Call ended — finalize and notify backend
+            duration = int(time.time() - session_ctx.start_time)
+            logger.info(
+                "Recruiter call ended: session=%s state=%s duration=%ds",
+                session_ctx.session_id, session_ctx.current_state.value, duration,
+            )
+
+            result = await conversation.end_call()
+            await _notify_backend_complete(session_ctx.session_id, result)
+
+        except Exception as e:
+            logger.error("Recruiter session %s failed: %s", session_ctx.session_id, e, exc_info=True)
+            try:
+                await backend.update_session(int(session_ctx.session_id), {
+                    "status": "failed",
+                    "error_log": str(e),
+                })
+            except Exception:
+                pass
+        finally:
+            await speech.stop()
+            try:
+                await room.disconnect()
+            except Exception:
+                pass
+
+    async def dispatch_and_run(self, session_ctx: Union[ScreeningContext, RecruiterContext], room_info: dict, mode: str = "screening"):
         """Dispatch a call and run the agent in the room."""
-        task = asyncio.create_task(
-            self.handle_room(
+        if mode == "recruiter":
+            handler = self.handle_recruiter_room(
                 room_info["room_name"],
                 room_info["agent_token"],
                 session_ctx,
             )
-        )
+        else:
+            handler = self.handle_room(
+                room_info["room_name"],
+                room_info["agent_token"],
+                session_ctx,
+            )
+        task = asyncio.create_task(handler)
         self._active_sessions[session_ctx.session_id] = task
         task.add_done_callback(
             lambda t: self._active_sessions.pop(session_ctx.session_id, None)
@@ -935,6 +1107,9 @@ class DispatchRequest(BaseModel):
     candidate_id: int
     jd_title: Optional[str] = None
     jd_must_have_skills: Optional[list] = None
+    mode: str = "screening"  # "screening" or "recruiter"
+    interview_strategy: Optional[dict] = None  # Only for recruiter mode
+    interview_config: Optional[dict] = None    # Only for recruiter mode
 
 
 class DispatchResponse(BaseModel):
@@ -967,23 +1142,36 @@ async def dispatch_call(req: DispatchRequest):
         backend = BackendClient()
         tenant_config = await backend.get_tenant_config(req.tenant_id)
 
-        # 3. Build screening context with tenant overrides
-        ctx = ScreeningContext(
-            session_id=req.session_id,
-            tenant_id=req.tenant_id,
-            candidate_id=req.candidate_id,
-            candidate_name=req.candidate_name,
-            phone_number=req.phone_number,
-            jd_title=req.jd_title,
-            jd_must_have_skills=req.jd_must_have_skills or [],
-            bot_name=tenant_config.get("bot_name", DEFAULT_BOT_NAME),
-            greeting_style=tenant_config.get("greeting_style", DEFAULT_GREETING_STYLE),
-            call_duration_max=int(tenant_config.get("call_duration_max", 7)) * 60,
-            consent_script=tenant_config.get("consent_script"),
-        )
+        # 3. Build context based on mode
+        if req.mode == "recruiter":
+            ctx = RecruiterContext(
+                session_id=str(req.session_id),
+                tenant_id=req.tenant_id,
+                candidate_id=req.candidate_id,
+                candidate_name=req.candidate_name,
+                phone_number=req.phone_number,
+                jd_title=req.jd_title or "",
+                interview_strategy=req.interview_strategy or {},
+                interview_config=req.interview_config or {},
+                target_duration_seconds=int((req.interview_config or {}).get("duration_minutes", 15)) * 60,
+            )
+        else:
+            ctx = ScreeningContext(
+                session_id=req.session_id,
+                tenant_id=req.tenant_id,
+                candidate_id=req.candidate_id,
+                candidate_name=req.candidate_name,
+                phone_number=req.phone_number,
+                jd_title=req.jd_title,
+                jd_must_have_skills=req.jd_must_have_skills or [],
+                bot_name=tenant_config.get("bot_name", DEFAULT_BOT_NAME),
+                greeting_style=tenant_config.get("greeting_style", DEFAULT_GREETING_STYLE),
+                call_duration_max=int(tenant_config.get("call_duration_max", 7)) * 60,
+                consent_script=tenant_config.get("consent_script"),
+            )
 
         # 4. Launch agent worker in the room (non-blocking)
-        await worker.dispatch_and_run(ctx, room_info)
+        await worker.dispatch_and_run(ctx, room_info, mode=req.mode)
 
         return DispatchResponse(
             success=True,

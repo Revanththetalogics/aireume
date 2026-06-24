@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: configuration_system
+title: 'Configuration System: Environment-Driven Multi-Tenant Setup'
+scope: []
+source_files:
+    - .env.example
+    - .env.production
+    - docker-compose.yml
+    - app/backend/main.py
+    - app/backend/db/database.py
+    - app/backend/services/feature_flag_service.py
+    - app/frontend/vite.config.js
+    - app/voice_agent/livekit.yaml
+    - alembic.ini
+depends_on: []
+related_to: []

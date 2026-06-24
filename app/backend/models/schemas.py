@@ -748,3 +748,167 @@ class ScheduleVoiceCallResponse(BaseModel):
     status: str
     scheduled_at: Optional[datetime] = None
     phone_number: str
+
+
+# ─── AI Recruiter ───────────────────────────────────────────────────────────
+
+class RecruiterSessionCreate(BaseModel):
+    """Body for POST /api/recruiter/sessions — initiate an AI recruiter interview."""
+    candidate_id: int
+    jd_id: int
+    screening_result_id: Optional[int] = None
+    voice_session_id: Optional[int] = None
+    trigger_type: Optional[str] = "manual"
+    interview_config_json: Optional[Dict[str, Any]] = None
+
+    @field_validator('trigger_type')
+    @classmethod
+    def validate_trigger_type(cls, v):
+        allowed = {'manual', 'auto_pipeline', 're_interview'}
+        if v not in allowed:
+            raise ValueError(f'trigger_type must be one of {allowed}')
+        return v
+
+
+class RecruiterSessionOut(BaseModel):
+    """Summary response for an AI recruiter interview session."""
+    id: str
+    tenant_id: int
+    candidate_id: int
+    jd_id: int
+    screening_result_id: Optional[int] = None
+    voice_session_id: Optional[int] = None
+    trigger_type: str
+    status: str
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    duration_seconds: Optional[int] = None
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class RecruiterSessionDetail(RecruiterSessionOut):
+    """Full session detail including strategy and configuration JSON."""
+    interview_strategy_json: Optional[Dict[str, Any]] = None
+    interview_config_json: Optional[Dict[str, Any]] = None
+
+
+class RecruiterQuestionOut(BaseModel):
+    """A single AI recruiter interview question with optional response/evaluation."""
+    id: str
+    session_id: str
+    sequence_number: int
+    category: str
+    question_text: str
+    question_context: Optional[str] = None
+    candidate_response: Optional[str] = None
+    response_duration_seconds: Optional[float] = None
+    evaluation_json: Optional[Dict[str, Any]] = None
+    is_follow_up: bool
+    parent_question_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+    @field_validator('category')
+    @classmethod
+    def validate_category(cls, v):
+        allowed = {'technical', 'behavioral', 'communication', 'cultural_fit', 'risk_validation', 'gap_probe', 'motivation'}
+        if v not in allowed:
+            raise ValueError(f'category must be one of {allowed}')
+        return v
+
+
+class RecruiterScorecardOut(BaseModel):
+    """Full structured scorecard for an AI recruiter interview."""
+    id: str
+    session_id: str
+    tenant_id: int
+    candidate_id: int
+
+    technical_score: Optional[int] = None
+    technical_evidence: Optional[Dict[str, Any]] = None
+    behavioral_score: Optional[int] = None
+    behavioral_evidence: Optional[Dict[str, Any]] = None
+    communication_score: Optional[int] = None
+    communication_evidence: Optional[Dict[str, Any]] = None
+    cultural_fit_score: Optional[int] = None
+    cultural_fit_evidence: Optional[Dict[str, Any]] = None
+    motivation_score: Optional[int] = None
+    motivation_evidence: Optional[Dict[str, Any]] = None
+
+    risk_signals_validated: Optional[Dict[str, Any]] = None
+    gaps_explained: Optional[Dict[str, Any]] = None
+
+    original_fit_score: Optional[int] = None
+    adjusted_fit_score: Optional[int] = None
+    adjustment_reasoning: Optional[str] = None
+
+    overall_score: Optional[int] = None
+    confidence_level: Optional[str] = None
+    recommendation: Optional[str] = None
+    recommendation_reasoning: Optional[str] = None
+    executive_summary: Optional[str] = None
+
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class RecruiterAutoTriggerConfigOut(BaseModel):
+    """Per-tenant auto-trigger configuration response."""
+    id: str
+    tenant_id: int
+    enabled: bool
+    trigger_pipeline_stage: str
+    min_fit_score_threshold: int
+    max_fit_score_threshold: int
+    auto_schedule_delay_minutes: int
+    interview_duration_target: int
+    focus_areas: Optional[List[str]] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class RecruiterAutoTriggerConfigUpdate(BaseModel):
+    """Partial update body for /api/recruiter/auto-trigger-config."""
+    enabled: Optional[bool] = None
+    trigger_pipeline_stage: Optional[str] = None
+    min_fit_score_threshold: Optional[int] = None
+    max_fit_score_threshold: Optional[int] = None
+    auto_schedule_delay_minutes: Optional[int] = None
+    interview_duration_target: Optional[int] = None
+    focus_areas: Optional[List[str]] = None
+
+    @field_validator('trigger_pipeline_stage')
+    @classmethod
+    def validate_stage(cls, v):
+        if v is None:
+            return v
+        allowed = {'shortlisted', 'in_review'}
+        if v not in allowed:
+            raise ValueError(f'trigger_pipeline_stage must be one of {allowed}')
+        return v
+
+
+class RecruiterAnalyticsOut(BaseModel):
+    """Aggregated AI recruiter analytics for a tenant."""
+    tenant_id: int
+    total_sessions: int
+    completed_sessions: int
+    failed_sessions: int
+    cancelled_sessions: int
+    average_duration_seconds: Optional[float] = None
+    average_overall_score: Optional[float] = None
+    recommendation_distribution: Optional[Dict[str, int]] = None
+    sessions_by_status: Optional[Dict[str, int]] = None
+    score_distribution: Optional[Dict[str, int]] = None
+    sessions_this_month: int = 0
+
+    model_config = {"from_attributes": True}

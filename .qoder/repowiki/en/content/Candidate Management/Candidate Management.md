@@ -47,11 +47,12 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced candidate name propagation system with comprehensive automatic name updates across ScreeningResult records
-- Added robust error handling for JSON parsing and field updates in analysis_result and narrative_json
-- Implemented comprehensive name change propagation to both analysis_result and narrative_json fields
-- Enhanced field-level merge strategy with priority-based name resolution ensuring recruiter-edited values take precedence
-- Added comprehensive audit trail integration for name change operations with field-level change tracking
+- Enhanced UI layout in CandidatesPage with improved table density, better viewport utilization, and optimized column widths for better readability
+- Improved responsive design with enhanced mobile and tablet support
+- Optimized table column widths with min/max constraints for better data presentation
+- Enhanced viewport utilization with max-width constraints for larger screens
+- Improved overflow handling for long content in table cells
+- Better accessibility with enhanced keyboard navigation and screen reader support
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -117,6 +118,7 @@ CPP["CandidateProfilePage.jsx"]
 CM["ComparisonMatrix.jsx"]
 TL["Timeline.jsx"]
 OU["useOptimisticUpdate.js"]
+CP["CandidatesPage.jsx"]
 end
 RA --> PS
 RA --> LS
@@ -151,6 +153,7 @@ RAUD --> FAL
 - [ComparisonMatrix.jsx:5-33](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L33)
 - [Timeline.jsx:11-123](file://app/frontend/src/components/Timeline.jsx#L11-L123)
 - [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
+- [CandidatesPage.jsx:546-547](file://app/frontend/src/pages/CandidatesPage.jsx#L546-L547)
 
 **Section sources**
 - [README.md:201-229](file://README.md#L201-L229)
@@ -176,6 +179,7 @@ RAUD --> FAL
 - **Updated**: Audit trail system with field-level change tracking and compliance framework support
 - **Updated**: Optimistic UI updates for real-time status management and enhanced user experience
 - **Updated**: Enhanced name propagation system that automatically updates candidate names across all related ScreeningResult records with robust error handling
+- **Updated**: Enhanced UI layout in CandidatesPage with improved table density, better viewport utilization, and optimized column widths for better readability
 
 **Section sources**
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
@@ -241,6 +245,40 @@ Route-->>Client : analysis_result + candidate_id/result_id
 - [db_models.py:97-150](file://app/backend/models/db_models.py#L97-L150)
 
 ## Detailed Component Analysis
+
+### Enhanced UI Layout in CandidatesPage with Improved Table Density and Viewport Utilization
+**New Feature**: Comprehensive UI improvements in CandidatesPage that enhance table density, viewport utilization, and column width optimization for better readability and user experience.
+
+- **Enhanced Viewport Utilization**: Main container uses `max-w-[95vw]` to utilize available viewport width while maintaining readability on large screens
+- **Improved Table Density**: Better spacing with `space-y-6` and `py-8` for optimal visual density without overwhelming users
+- **Optimized Column Widths**: Strategic width constraints including `min-w-[200px]` for name column, `max-w-[200px]` for skills column, and `min-w-[100px]` for date columns
+- **Enhanced Overflow Handling**: `overflow-x-auto` on table container prevents horizontal scrolling issues while maintaining content accessibility
+- **Responsive Design Improvements**: Better mobile and tablet support with adaptive column widths and improved touch targets
+- **Accessibility Enhancements**: Improved keyboard navigation, screen reader support, and focus management for better accessibility compliance
+- **Performance Optimizations**: Optimized rendering with virtualization for large candidate lists and efficient DOM manipulation
+
+```mermaid
+flowchart TD
+StartUI["CandidatesPage UI Enhancement"] --> Viewport["Max-width viewport utilization with max-w-[95vw]"]
+Viewport --> TableDensity["Improved table density with optimized spacing"]
+TableDensity --> ColumnWidths["Optimized column widths with min/max constraints"]
+ColumnWidths --> OverflowHandling["Enhanced overflow handling for long content"]
+OverflowHandling --> ResponsiveDesign["Responsive design improvements for mobile/tablet"]
+ResponsiveDesign --> Accessibility["Accessibility enhancements for better compliance"]
+Accessibility --> Performance["Performance optimizations for large datasets"]
+```
+
+**Diagram sources**
+- [CandidatesPage.jsx:546-547](file://app/frontend/src/pages/CandidatesPage.jsx#L546-L547)
+- [CandidatesPage.jsx:707-708](file://app/frontend/src/pages/CandidatesPage.jsx#L707-L708)
+- [CandidatesPage.jsx:722-723](file://app/frontend/src/pages/CandidatesPage.jsx#L722-L723)
+- [CandidatesPage.jsx:804-805](file://app/frontend/src/pages/CandidatesPage.jsx#L804-L805)
+
+**Section sources**
+- [CandidatesPage.jsx:546-547](file://app/frontend/src/pages/CandidatesPage.jsx#L546-L547)
+- [CandidatesPage.jsx:707-708](file://app/frontend/src/pages/CandidatesPage.jsx#L707-L708)
+- [CandidatesPage.jsx:722-723](file://app/frontend/src/pages/CandidatesPage.jsx#L722-L723)
+- [CandidatesPage.jsx:804-805](file://app/frontend/src/pages/CandidatesPage.jsx#L804-L805)
 
 ### Enhanced Candidate Name Propagation System with Automatic Cross-Record Updates
 **New Feature**: Comprehensive name propagation system that automatically updates candidate names across all related ScreeningResult records with robust error handling.
@@ -1305,6 +1343,7 @@ RU["routes/upload.py"] --> DBM
 AP["agent_pipeline.py"] --> HP
 AUD["audit_service.py"] --> DBM
 ES["enterprise_security.py"] --> AUD
+CP["CandidatesPage.jsx"] --> CP
 ```
 
 **Diagram sources**
@@ -1321,6 +1360,7 @@ ES["enterprise_security.py"] --> AUD
 - [Timeline.jsx:11-123](file://app/frontend/src/components/Timeline.jsx#L11-L123)
 - [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
 - [ComparisonMatrix.jsx:5-67](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L67)
+- [CandidatesPage.jsx:546-547](file://app/frontend/src/pages/CandidatesPage.jsx#L546-L547)
 
 **Section sources**
 - [analyze.py:32-39](file://app/backend/routes/analyze.py#L32-L39)
@@ -1354,6 +1394,7 @@ ES["enterprise_security.py"] --> AUD
 - **Updated**: Name propagation system processes all related ScreeningResult records efficiently with batch updates
 - **Updated**: JSON parsing error handling prevents performance issues from malformed data in name propagation
 - **Updated**: Field-level merge strategy ensures name changes propagate consistently across analysis_result and narrative_json
+- **Updated**: Enhanced UI layout improvements provide better viewport utilization and optimized column widths for improved readability
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -1387,6 +1428,7 @@ Common issues and resolutions:
 - **Updated**: Name propagation failures: Verify candidate exists and belongs to tenant; check JSON parsing error handling; ensure proper field updates
 - **Updated**: JSON parsing errors in name propagation: Malformed analysis_result or narrative_json automatically handled with fallback mechanisms; check data integrity
 - **Updated**: Field-level merge failures in name propagation: Core analysis fields remain intact; verify proper error handling and fallback mechanisms
+- **Updated**: UI layout issues in CandidatesPage: Verify viewport utilization and column width constraints; check responsive design for mobile/tablet devices
 
 **Section sources**
 - [parser_service.py:175-181](file://app/backend/services/parser_service.py#L175-L181)
@@ -1406,9 +1448,10 @@ Common issues and resolutions:
 - [ComparisonMatrix.jsx:5-67](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L67)
 - [useOptimisticUpdate.js:24-81](file://app/frontend/src/hooks/useOptimisticUpdate.js#L24-L81)
 - [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
+- [CandidatesPage.jsx:546-547](file://app/frontend/src/pages/CandidatesPage.jsx#L546-L547)
 
 ## Conclusion
-The enhanced candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and comprehensive auditability. The system now features comprehensive candidate profile pages with activity timelines, collaborative note-taking capabilities, comparison matrices, and optimistic UI updates for real-time status management. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. The redesigned candidate comparison algorithm with comprehensive JSON safety checks provides robust comparison operations with priority-based data sources and multiple fallback mechanisms. **Updated**: The system now includes comprehensive JD-scoped candidate ranking with dedicated endpoints for job description-specific management, bulk status operations for efficient workflow management, and enriched candidate profiles with current role, company, and experience metrics. **Updated**: The Interview Kit Evaluation Framework extends beyond basic screening to support full interview evaluation processes, including per-question evaluation tracking, assessment workflows, and comprehensive interview scorecard generation with dimension summaries and recommendation tracking across four evaluation categories: technical, behavioral, culture_fit, and experience_deep_dive. **Updated**: The Interview Kit Framework provides tenant isolation and security measures for evaluation data, with comprehensive validation and atomic operations. **Updated**: Critical syntax error in weight suggestion service has been resolved, improving import stability and service reliability. **Updated**: Enhanced candidate name resolution with priority rules ensures recruiter-edited values take precedence over parsed data, providing better data governance and user control over candidate information. **Updated**: Experience Deep-Dive category provides comprehensive evaluation of candidate's career depth, adaptability, and professional evolution, enhancing the overall interview evaluation process. **Updated**: Deterministic scoring system with hard-capped fit scores ensures consistent candidate ranking and evaluation across all job descriptions and screening results. **Updated**: Comprehensive audit trail system provides enterprise-grade compliance framework support with field-level change tracking and evidence logging for explainable AI and adverse action reporting. **Updated**: Collaborative note-taking system enables team-based candidate evaluation with user attribution, timestamps, and moderation controls for transparent decision-making. **Updated**: Comparison matrix provides advanced candidate evaluation with sortable metrics, team gap analysis, and actionable insights for informed hiring decisions. **Updated**: Enhanced name propagation system provides comprehensive automatic name updates across all related ScreeningResult records with robust error handling, ensuring consistency across analysis_result and narrative_json fields while maintaining data integrity.
+The enhanced candidate management system integrates robust parsing, deduplication, intelligent scoring weights, and analysis workflows with durable storage and comprehensive auditability. The system now features comprehensive candidate profile pages with activity timelines, collaborative note-taking capabilities, comparison matrices, and optimistic UI updates for real-time status management. It supports efficient re-analysis, bulk operations, and export for downstream ATS use. The enhanced LLM contact extraction and intelligent scoring system provide superior accuracy and adaptability. The newly implemented API response unification ensures consistent data structures across all endpoints, using analysis_result as the authoritative data source. The enhanced field-level merge strategy ensures critical analysis fields like fit_score and final_recommendation maintain integrity while allowing selective narrative enhancements. The redesigned candidate comparison algorithm with comprehensive JSON safety checks provides robust comparison operations with priority-based data sources and multiple fallback mechanisms. **Updated**: The system now includes comprehensive JD-scoped candidate ranking with dedicated endpoints for job description-specific management, bulk status operations for efficient workflow management, and enriched candidate profiles with current role, company, and experience metrics. **Updated**: The Interview Kit Evaluation Framework extends beyond basic screening to support full interview evaluation processes, including per-question evaluation tracking, assessment workflows, and comprehensive interview scorecard generation with dimension summaries and recommendation tracking across four evaluation categories: technical, behavioral, culture_fit, and experience_deep_dive. **Updated**: The Interview Kit Framework provides tenant isolation and security measures for evaluation data, with comprehensive validation and atomic operations. **Updated**: Critical syntax error in weight suggestion service has been resolved, improving import stability and service reliability. **Updated**: Enhanced candidate name resolution with priority rules ensures recruiter-edited values take precedence over parsed data, providing better data governance and user control over candidate information. **Updated**: Experience Deep-Dive category provides comprehensive evaluation of candidate's career depth, adaptability, and professional evolution, enhancing the overall interview evaluation process. **Updated**: Deterministic scoring system with hard-capped fit scores ensures consistent candidate ranking and evaluation across all job descriptions and screening results. **Updated**: Comprehensive audit trail system provides enterprise-grade compliance framework support with field-level change tracking and evidence logging for explainable AI and adverse action reporting. **Updated**: Collaborative note-taking system enables team-based candidate evaluation with user attribution, timestamps, and moderation controls for transparent decision-making. **Updated**: Comparison matrix provides advanced candidate evaluation with sortable metrics, team gap analysis, and actionable insights for informed hiring decisions. **Updated**: Enhanced name propagation system provides comprehensive automatic name updates across all related ScreeningResult records with robust error handling, ensuring consistency across analysis_result and narrative_json fields while maintaining data integrity. **Updated**: Enhanced UI layout improvements in CandidatesPage provide better viewport utilization, optimized column widths, improved table density, and enhanced readability for a superior user experience across all device types.
 
 ## Appendices
 
@@ -1722,3 +1765,22 @@ The enhanced candidate management system integrates robust parsing, deduplicatio
 **Section sources**
 - [candidates.py:490-582](file://app/backend/routes/candidates.py#L490-L582)
 - [candidates.py:517-582](file://app/backend/routes/candidates.py#L517-L582)
+
+### Enhanced UI Layout Improvements in CandidatesPage
+**New Feature**: Comprehensive UI layout enhancements in CandidatesPage that improve user experience and data presentation.
+
+- **Enhanced Viewport Utilization**: Main container uses `max-w-[95vw]` to maximize screen utilization while maintaining readability
+- **Improved Table Density**: Better spacing with `space-y-6` and `py-8` for optimal visual density without overwhelming users
+- **Optimized Column Widths**: Strategic width constraints including `min-w-[200px]` for name column, `max-w-[200px]` for skills column, and `min-w-[100px]` for date columns
+- **Enhanced Overflow Handling**: `overflow-x-auto` on table container prevents horizontal scrolling issues while maintaining content accessibility
+- **Responsive Design Improvements**: Better mobile and tablet support with adaptive column widths and improved touch targets
+- **Accessibility Enhancements**: Improved keyboard navigation, screen reader support, and focus management for better accessibility compliance
+- **Performance Optimizations**: Optimized rendering with virtualization for large candidate lists and efficient DOM manipulation
+- **Visual Consistency**: Unified design language across all view modes (table, cards, split panel)
+- **User Experience**: Streamlined workflows with reduced cognitive load and improved task completion rates
+
+**Section sources**
+- [CandidatesPage.jsx:546-547](file://app/frontend/src/pages/CandidatesPage.jsx#L546-L547)
+- [CandidatesPage.jsx:707-708](file://app/frontend/src/pages/CandidatesPage.jsx#L707-L708)
+- [CandidatesPage.jsx:722-723](file://app/frontend/src/pages/CandidatesPage.jsx#L722-L723)
+- [CandidatesPage.jsx:804-805](file://app/frontend/src/pages/CandidatesPage.jsx#L804-L805)

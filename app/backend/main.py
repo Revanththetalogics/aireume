@@ -82,6 +82,7 @@ from app.backend.routes import onboarding
 from app.backend.routes import sso
 from app.backend.routes import webhook_docs
 from app.backend.routes import voice
+from app.backend.routes import recruiter
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -441,6 +442,7 @@ app.include_router(onboarding.router)
 app.include_router(sso.sso_router)
 app.include_router(webhook_docs.router)
 app.include_router(voice.router)
+app.include_router(recruiter.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

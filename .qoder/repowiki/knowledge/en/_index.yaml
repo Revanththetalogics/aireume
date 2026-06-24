@@ -2,13 +2,52 @@
 schema_version: 1
 locale: en-US
 branch: main
-exported_at: "2026-06-20T09:31:15Z"
+nodes_managed: true
+exported_at: "2026-06-24T18:56:20Z"
 modules:
     "":
-        dir_name: Enterprise SaaS Orchestration Core
-        title: Enterprise SaaS Orchestration Core
+        dir_name: AI-Driven Recruitment Platform Orchestrator
+        title: AI-Driven Recruitment Platform Orchestrator
         scope: []
         source_files: []
+        children:
+            - database_migrations
+            - e2e_tests
+        depends_on: []
+        related_to: []
+    build_system:
+        dir_name: Multi-Service Docker Compose & GitHub Actions CI_CD
+        title: Multi-Service Docker Compose & GitHub Actions CI/CD
+        scope: []
+        source_files:
+            - .github/workflows/ci.yml
+            - .github/workflows/cd.yml
+            - docker-compose.yml
+            - docker-compose.prod.yml
+            - docker-compose.staging.yml
+            - app/backend/Dockerfile
+            - app/frontend/Dockerfile
+            - app/backend/scripts/docker-entrypoint.sh
+            - nginx/Dockerfile
+            - app/speech_service/Dockerfile
+            - app/voice_agent/Dockerfile
+        children: []
+        depends_on: []
+        related_to: []
+    configuration_system:
+        dir_name: Configuration System Environment-Driven Multi-Tenant Setup
+        title: 'Configuration System: Environment-Driven Multi-Tenant Setup'
+        scope: []
+        source_files:
+            - .env.example
+            - .env.production
+            - docker-compose.yml
+            - app/backend/main.py
+            - app/backend/db/database.py
+            - app/backend/services/feature_flag_service.py
+            - app/frontend/vite.config.js
+            - app/voice_agent/livekit.yaml
+            - alembic.ini
         children: []
         depends_on: []
         related_to: []
@@ -21,114 +60,24 @@ modules:
         children: []
         depends_on: []
         related_to: []
-    decisions:
-        dir_name: Decisions
-        title: Decisions
+    dependency_management:
+        dir_name: Multi-Service Dependency Management with Docker Compose & Requirements Files
+        title: Multi-Service Dependency Management with Docker Compose & Requirements Files
         scope: []
-        source_files: []
-        children:
-            - decisions/08fc91fca754_e7648dbb2a87
-            - decisions/cccda7dd18cc_4fd15836ebeb
-            - decisions/14c321e72285_22816b71831f
-            - decisions/bdb09a8e2b01_a2ea6332bcce
-            - decisions/08fc91fca754_a741a6f3ebba
-            - decisions/cccda7dd18cc_cb9d9128fb9e
-            - decisions/14c321e72285_bf197a0cc7cd
-            - decisions/dc66c1a34c1c_0129d8e93481
-            - decisions/dc66c1a34c1c_314491a85d06
-            - decisions/bdb09a8e2b01_d33a42fe2061
-        depends_on: []
-        related_to: []
-    decisions/08fc91fca754_a741a6f3ebba:
-        dir_name: Implement class-based Dark Mode with Tailwind CSS
-        title: Implement class-based Dark Mode with Tailwind CSS
-        scope: []
-        source_files: []
-        children: []
-        depends_on: []
-        related_to:
-            - path: decisions/08fc91fca754_e7648dbb2a87
-            - path: e2e_tests
-    decisions/08fc91fca754_e7648dbb2a87:
-        dir_name: Adopt framer-motion for application-wide motion and interactions
-        title: Adopt framer-motion for application-wide motion and interactions
-        scope: []
-        source_files: []
-        children: []
-        depends_on: []
-        related_to:
-            - path: decisions/08fc91fca754_a741a6f3ebba
-            - path: e2e_tests
-    decisions/14c321e72285_22816b71831f:
-        dir_name: Adopt framer-motion for application-wide animations_2
-        title: Adopt framer-motion for application-wide animations
-        scope: []
-        source_files: []
-        children: []
-        depends_on: []
-        related_to:
-            - path: decisions/14c321e72285_bf197a0cc7cd
-    decisions/14c321e72285_bf197a0cc7cd:
-        dir_name: Implement class-based Dark Mode via TailwindCSS
-        title: Implement class-based Dark Mode via TailwindCSS
-        scope: []
-        source_files: []
-        children: []
-        depends_on: []
-        related_to:
-            - path: decisions/14c321e72285_22816b71831f
-    decisions/bdb09a8e2b01_a2ea6332bcce:
-        dir_name: Adopt framer-motion for application-wide animations_3
-        title: Adopt framer-motion for application-wide animations
-        scope: []
-        source_files: []
+        source_files:
+            - requirements.txt
+            - app/backend/requirements.txt
+            - app/frontend/package.json
+            - app/frontend/package-lock.json
+            - app/speech_service/requirements.txt
+            - app/voice_agent/requirements.txt
+            - docker-compose.yml
+            - app/backend/Dockerfile
+            - app/frontend/Dockerfile
+            - .github/workflows/ci.yml
         children: []
         depends_on: []
         related_to: []
-    decisions/bdb09a8e2b01_d33a42fe2061:
-        dir_name: Implement class-based dark mode via Tailwind CSS
-        title: Implement class-based dark mode via Tailwind CSS
-        scope: []
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    decisions/cccda7dd18cc_4fd15836ebeb:
-        dir_name: Adopt framer-motion for application-wide animations
-        title: Adopt framer-motion for application-wide animations
-        scope: []
-        source_files: []
-        children: []
-        depends_on: []
-        related_to:
-            - path: decisions/cccda7dd18cc_cb9d9128fb9e
-    decisions/cccda7dd18cc_cb9d9128fb9e:
-        dir_name: Implement class-based Dark Mode with Tailwind CSS_2
-        title: Implement class-based Dark Mode with Tailwind CSS
-        scope: []
-        source_files: []
-        children: []
-        depends_on: []
-        related_to:
-            - path: decisions/cccda7dd18cc_4fd15836ebeb
-    decisions/dc66c1a34c1c_0129d8e93481:
-        dir_name: Implement class-based Dark Mode with Tailwind CSS_3
-        title: Implement class-based Dark Mode with Tailwind CSS
-        scope: []
-        source_files: []
-        children: []
-        depends_on: []
-        related_to:
-            - path: decisions/dc66c1a34c1c_314491a85d06
-    decisions/dc66c1a34c1c_314491a85d06:
-        dir_name: Adopt framer-motion for application-wide motion and interactions_2
-        title: Adopt framer-motion for application-wide motion and interactions
-        scope: []
-        source_files: []
-        children: []
-        depends_on: []
-        related_to:
-            - path: decisions/dc66c1a34c1c_0129d8e93481
     e2e_tests:
         dir_name: End-to-End UI Validation
         title: End-to-End UI Validation
@@ -137,6 +86,48 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: decisions/08fc91fca754_a741a6f3ebba
-            - path: decisions/08fc91fca754_e7648dbb2a87
+        related_to: []
+    error_handling:
+        dir_name: Error Handling and Resilience Strategy
+        title: Error Handling and Resilience Strategy
+        scope: []
+        source_files:
+            - app/backend/main.py
+            - app/backend/middleware/auth.py
+            - app/backend/middleware/rate_limit.py
+            - app/backend/routes/auth.py
+            - app/backend/services/llm_service.py
+            - app/backend/services/queue_manager.py
+            - app/frontend/src/components/ErrorBoundary.jsx
+            - app/frontend/src/lib/api.js
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_style:
+        dir_name: Apple-Inspired Design System with Tailwind CSS and Framer Motion
+        title: Apple-Inspired Design System with Tailwind CSS and Framer Motion
+        scope: []
+        source_files:
+            - app/frontend/tailwind.config.js
+            - app/frontend/src/index.css
+            - app/frontend/src/contexts/ThemeContext.jsx
+            - app/frontend/src/components/ui/Button.jsx
+            - app/frontend/src/components/motion/MotionCard.jsx
+            - app/frontend/package.json
+        children: []
+        depends_on: []
+        related_to: []
+    logging_system:
+        dir_name: Logging System — Standard Library with Environment-Aware JSON Formatting
+        title: Logging System — Standard Library with Environment-Aware JSON Formatting
+        scope: []
+        source_files:
+            - app/backend/main.py
+            - app/backend/services/queue_manager.py
+            - app/backend/routes/analyze.py
+            - app/backend/services/llm_service.py
+            - app/backend/services/metrics.py
+            - app/backend/services/audit_service.py
+        children: []
+        depends_on: []
+        related_to: []

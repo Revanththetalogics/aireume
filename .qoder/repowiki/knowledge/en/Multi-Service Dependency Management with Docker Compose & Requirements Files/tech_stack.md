@@ -1,0 +1,3 @@
+- **Scheduling**: `apscheduler` with PostgreSQL advisory locks (`pg_try_advisory_lock`) to ensure single-leader execution in multi-worker deployments.
+- **Real-time Comms**: LiveKit SFU for WebRTC/SIP trunking, integrated via a dedicated `voice-agent` microservice.
+- **Speech Processing**: Parakeet TDT (STT) and Kokoro 82M (TTS) hosted in an isolated `speech-service` container.

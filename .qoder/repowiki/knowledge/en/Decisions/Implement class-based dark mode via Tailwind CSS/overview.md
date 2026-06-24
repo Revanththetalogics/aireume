@@ -1,1 +1,0 @@
-Implement class-based dark mode via Tailwind CSS — Enable Tailwind's darkMode: 'class' strategy, create a ThemeContext to manage state and persistence, and define semantic CSS variables for surfaces/text that map to light/dark palettes.

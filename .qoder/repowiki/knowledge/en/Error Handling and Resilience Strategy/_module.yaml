@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: error_handling
+title: Error Handling and Resilience Strategy
+scope: []
+source_files:
+    - app/backend/main.py
+    - app/backend/middleware/auth.py
+    - app/backend/middleware/rate_limit.py
+    - app/backend/routes/auth.py
+    - app/backend/services/llm_service.py
+    - app/backend/services/queue_manager.py
+    - app/frontend/src/components/ErrorBoundary.jsx
+    - app/frontend/src/lib/api.js
+depends_on: []
+related_to: []

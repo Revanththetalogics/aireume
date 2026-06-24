@@ -23,7 +23,7 @@ from datetime import datetime, date, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import update, func
@@ -54,6 +54,7 @@ from app.backend.services.hybrid_pipeline import (
     _background_llm_narrative,
     register_background_task,
 )
+from app.backend.services.recruiter.auto_trigger import RecruiterAutoTrigger
 from app.backend.services.fit_scorer import compute_fit_score
 from app.backend.services.weight_mapper import convert_to_new_schema
 from app.backend.services.skill_matcher import JD_CACHE_VERSION
@@ -65,6 +66,29 @@ from app.backend.services.skill_trend_service import get_skill_trends
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 log    = logging.getLogger("aria.analysis")
+
+
+async def _schedule_auto_trigger(
+    tenant_id: int,
+    candidate_id: int,
+    screening_result_id: int,
+    new_status: str,
+) -> None:
+    """Fire-and-forget auto-trigger evaluation using a fresh DB session."""
+    db = SessionLocal()
+    try:
+        trigger = RecruiterAutoTrigger(db)
+        await trigger.evaluate_trigger(
+            tenant_id=tenant_id,
+            candidate_id=candidate_id,
+            screening_result_id=screening_result_id,
+            new_status=new_status,
+        )
+    except Exception as e:
+        log.warning("Auto-trigger evaluation failed: %s", e)
+    finally:
+        db.close()
+
 
 ALLOWED_EXTENSIONS = ('.pdf', '.docx', '.doc', '.txt', '.rtf', '.odt')
 
@@ -3001,6 +3025,7 @@ def get_analysis_history(
 def update_status(
     result_id: int,
     body: dict,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
@@ -3019,6 +3044,17 @@ def update_status(
     result.status = new_status
     result.status_updated_at = datetime.utcnow()
     db.commit()
+
+    # Fire-and-forget auto-trigger evaluation using a fresh DB session.
+    if result.candidate_id:
+        background_tasks.add_task(
+            _schedule_auto_trigger,
+            current_user.tenant_id,
+            result.candidate_id,
+            result.id,
+            new_status,
+        )
+
     return {"id": result_id, "status": new_status}
 
 

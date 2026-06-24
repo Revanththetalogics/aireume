@@ -1,1 +1,0 @@
-Implement class-based Dark Mode via TailwindCSS — Enable darkMode: 'class' in tailwind.

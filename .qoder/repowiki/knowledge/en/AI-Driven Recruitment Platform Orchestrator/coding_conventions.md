@@ -1,0 +1,2 @@
+- Cross-module JWT authentication using httpOnly cookies and CSRF tokens, enforced by backend middleware and frontend Axios interceptors.
+- Consistent use of Server-Sent Events (SSE) for long-running AI analysis tasks, implemented in both backend routes and frontend API clients.

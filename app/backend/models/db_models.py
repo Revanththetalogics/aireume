@@ -3,6 +3,7 @@ from sqlalchemy import (
     ForeignKey, Float, func, BigInteger, UniqueConstraint, Index, JSON
 )
 from datetime import datetime, timezone
+import uuid
 from sqlalchemy.orm import relationship
 from app.backend.db.database import Base
 
@@ -957,4 +958,132 @@ class VoiceTranscriptEntry(Base):
     __table_args__ = (
         Index("ix_voice_transcript_session_ts", "session_id", "timestamp"),
     )
+
+
+# ─── AI Recruiter ────────────────────────────────────────────────────────────
+
+class RecruiterInterviewSession(Base):
+    """A single AI recruiter interview session and its lifecycle state."""
+    __tablename__ = "recruiter_interview_sessions"
+
+    id                    = Column(String(36), primary_key=True, default=uuid.uuid4)
+    tenant_id             = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    candidate_id          = Column(Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True)
+    jd_id                 = Column(Integer, ForeignKey("role_templates.id", ondelete="CASCADE"), nullable=False)
+    screening_result_id   = Column(Integer, ForeignKey("screening_results.id", ondelete="SET NULL"), nullable=True)
+    voice_session_id      = Column(Integer, ForeignKey("voice_screening_sessions.id", ondelete="SET NULL"), nullable=True)
+    trigger_type          = Column(String(20), nullable=False, default="manual", server_default="manual")
+    status                = Column(String(30), nullable=False, default="pending_strategy", server_default="pending_strategy")
+    interview_strategy_json = Column(Text, nullable=True)  # JSON: generated interview plan
+    interview_config_json   = Column(Text, nullable=True)  # JSON: runtime interview config
+    started_at            = Column(DateTime(timezone=True), nullable=True)
+    ended_at              = Column(DateTime(timezone=True), nullable=True)
+    duration_seconds      = Column(Integer, nullable=True)
+    created_by            = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at            = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at            = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    tenant            = relationship("Tenant", backref="recruiter_interview_sessions")
+    candidate         = relationship("Candidate", backref="recruiter_interview_sessions")
+    jd                = relationship("RoleTemplate", backref="recruiter_interview_sessions")
+    screening_result  = relationship("ScreeningResult", backref="recruiter_interview_sessions")
+    voice_session     = relationship("VoiceScreeningSession", backref="recruiter_interview_sessions")
+    creator           = relationship("User", foreign_keys=[created_by])
+    questions         = relationship("RecruiterInterviewQuestion", back_populates="session", cascade="all, delete-orphan")
+    scorecard         = relationship("RecruiterScorecard", back_populates="session", uselist=False, cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_recruiter_sessions_tenant_status", "tenant_id", "status"),
+        Index("ix_recruiter_sessions_tenant_candidate", "tenant_id", "candidate_id"),
+        Index("ix_recruiter_sessions_candidate_jd", "candidate_id", "jd_id"),
+    )
+
+
+class RecruiterInterviewQuestion(Base):
+    """A single question (or follow-up) asked during an AI recruiter interview."""
+    __tablename__ = "recruiter_interview_questions"
+
+    id                        = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id                = Column(String(36), ForeignKey("recruiter_interview_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence_number           = Column(Integer, nullable=False)
+    category                  = Column(String(30), nullable=False)  # technical / behavioral / communication / cultural_fit / risk_validation / gap_probe / motivation
+    question_text             = Column(Text, nullable=False)
+    question_context          = Column(Text, nullable=True)
+    candidate_response        = Column(Text, nullable=True)
+    response_duration_seconds = Column(Float, nullable=True)
+    evaluation_json           = Column(Text, nullable=True)  # JSON: LLM evaluation of response
+    is_follow_up              = Column(Boolean, nullable=False, default=False, server_default="false")
+    parent_question_id        = Column(String(36), ForeignKey("recruiter_interview_questions.id", ondelete="SET NULL"), nullable=True)
+    created_at                = Column(DateTime(timezone=True), server_default=func.now())
+
+    session         = relationship("RecruiterInterviewSession", back_populates="questions")
+    parent_question = relationship("RecruiterInterviewQuestion", remote_side=[id], foreign_keys=[parent_question_id], backref="follow_ups")
+
+    __table_args__ = (
+        Index("ix_recruiter_questions_session_seq", "session_id", "sequence_number"),
+    )
+
+
+class RecruiterScorecard(Base):
+    """Final structured scorecard produced for an AI recruiter interview session."""
+    __tablename__ = "recruiter_scorecards"
+
+    id                       = Column(String(36), primary_key=True, default=uuid.uuid4)
+    session_id               = Column(String(36), ForeignKey("recruiter_interview_sessions.id", ondelete="CASCADE"), nullable=False, unique=True)
+    tenant_id                = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    candidate_id             = Column(Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    technical_score          = Column(Integer, nullable=True)
+    technical_evidence       = Column(Text, nullable=True)  # JSON
+    behavioral_score         = Column(Integer, nullable=True)
+    behavioral_evidence      = Column(Text, nullable=True)  # JSON
+    communication_score      = Column(Integer, nullable=True)
+    communication_evidence   = Column(Text, nullable=True)  # JSON
+    cultural_fit_score       = Column(Integer, nullable=True)
+    cultural_fit_evidence    = Column(Text, nullable=True)  # JSON
+    motivation_score         = Column(Integer, nullable=True)
+    motivation_evidence      = Column(Text, nullable=True)  # JSON
+
+    risk_signals_validated   = Column(Text, nullable=True)  # JSON
+    gaps_explained           = Column(Text, nullable=True)  # JSON
+
+    original_fit_score       = Column(Integer, nullable=True)
+    adjusted_fit_score       = Column(Integer, nullable=True)
+    adjustment_reasoning     = Column(Text, nullable=True)
+
+    overall_score            = Column(Integer, nullable=True)
+    confidence_level         = Column(String(10), nullable=True)  # high / medium / low
+    recommendation           = Column(String(20), nullable=True)  # strong_hire / hire / maybe / no_hire / strong_no_hire
+    recommendation_reasoning = Column(Text, nullable=True)
+    executive_summary        = Column(Text, nullable=True)
+
+    created_at               = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at               = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    session   = relationship("RecruiterInterviewSession", back_populates="scorecard")
+    tenant    = relationship("Tenant", backref="recruiter_scorecards")
+    candidate = relationship("Candidate", backref="recruiter_scorecards")
+
+    __table_args__ = (
+        Index("ix_recruiter_scorecards_tenant_candidate", "tenant_id", "candidate_id"),
+    )
+
+
+class RecruiterAutoTriggerConfig(Base):
+    """Per-tenant configuration for automatically triggering AI recruiter interviews."""
+    __tablename__ = "recruiter_auto_trigger_configs"
+
+    id                          = Column(String(36), primary_key=True, default=uuid.uuid4)
+    tenant_id                   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    enabled                     = Column(Boolean, nullable=False, default=False, server_default="false")
+    trigger_pipeline_stage      = Column(String(20), nullable=False, default="in_review", server_default="in_review")
+    min_fit_score_threshold     = Column(Integer, nullable=False, default=40, server_default="40")
+    max_fit_score_threshold     = Column(Integer, nullable=False, default=85, server_default="85")
+    auto_schedule_delay_minutes = Column(Integer, nullable=False, default=60, server_default="60")
+    interview_duration_target   = Column(Integer, nullable=False, default=15, server_default="15")
+    focus_areas                 = Column(Text, nullable=True)  # JSON array of focus area strings
+    created_at                  = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at                  = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    tenant = relationship("Tenant", backref="recruiter_auto_trigger_config", uselist=False)
 

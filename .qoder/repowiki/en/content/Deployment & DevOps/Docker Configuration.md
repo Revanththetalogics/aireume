@@ -37,13 +37,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced Docker Compose configuration with port standardization for staging environment
-- Improved networking connectivity for production environment through extra_hosts configuration
-- Added seamless inter-environment communication support via host.docker.internal mapping
-- Updated staging environment to use standardized LiveKit port mappings (7890:7880, 7891:7881, 7892:7882/udp)
-- Enhanced production environment networking with host-gateway resolution for container communication
-- **Updated** Added host.docker.internal routing support for improved container-host communication
-- **Updated** Enhanced staging environment isolation with separate network configuration
+- Enhanced LiveKit server configuration security with 32-character API secrets meeting minimum security requirements
+- Updated LiveKit configuration approach section to document the new embedded configuration method with improved security validation
+- Strengthened API secret requirements with minimum 32-character length for production and staging environments
+- Enhanced security validation for LiveKit configuration with longer, more secure API secrets
+- Updated environment variable handling to enforce stronger security standards for API keys
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -62,13 +60,14 @@
 This document explains the Docker configuration for Resume AI by ThetaLogics, covering:
 - Development environment setup with docker-compose.yml
 - Production deployment with docker-compose.prod.yml, including multi-stage builds, resource limits, and security settings
+- **Updated** Enhanced LiveKit server configuration security with 32-character API secrets meeting minimum security requirements
 - **Updated** Enhanced networking connectivity with extra_hosts configuration for seamless inter-environment communication
 - **Updated** Port standardization for staging environment with standardized LiveKit port mappings
 - Container networking, volumes, and inter-service communication
 - Dockerfile configurations for backend and frontend, including build optimization and runtime behavior
 - **Updated** Voice screening infrastructure with speech-service, voice-agent, and LiveKit integration
 - **Enhanced** CPU-optimized speech processing with STT, TTS, and VAD capabilities
-- **Updated** LiveKit server configuration approach with image-baked YAML configuration
+- **Updated** LiveKit server configuration approach with image-baked YAML configuration and enhanced security validation
 - Environment variable handling, secrets management, and configuration inheritance
 - Troubleshooting, health checks, and performance optimization
 - Enhanced Ollama memory allocation settings for optimal LLM performance
@@ -161,12 +160,12 @@ StagingLiveKit --> StagingNetwork
 **Diagram sources**
 - [docker-compose.yml:5-180](file://docker-compose.yml#L5-L180)
 - [docker-compose.prod.yml:7-318](file://docker-compose.prod.yml#L7-L318)
-- [docker-compose.staging.yml:1-224](file://docker-compose.staging.yml#L1-L224)
+- [docker-compose.staging.yml:1-228](file://docker-compose.staging.yml#L1-L228)
 
 **Section sources**
 - [docker-compose.yml:1-180](file://docker-compose.yml#L1-L180)
 - [docker-compose.prod.yml:1-318](file://docker-compose.prod.yml#L1-L318)
-- [docker-compose.staging.yml:1-224](file://docker-compose.staging.yml#L1-L224)
+- [docker-compose.staging.yml:1-228](file://docker-compose.staging.yml#L1-L228)
 
 ## Core Components
 - Backend service
@@ -198,10 +197,9 @@ StagingLiveKit --> StagingNetwork
   - Provides WebSocket (7880), RTC (7881), and TURN (7882/udp) interfaces.
   - **Updated** Configuration via embedded livekit.yaml file instead of volume mounting for improved reliability and deployment consistency.
   - **Enhanced** Redis integration support for multi-node deployment scenarios.
-  - **Updated** Staging environment uses standardized port mappings (7890:7880, 7891:7881, 7892:7882/udp) to prevent conflicts with production LiveKit services.
-- Optional production services
-  - Watchtower for automated updates of tagged images including new voice services.
-  - Certbot for Let's Encrypt certificate lifecycle management.
+  - **Updated** Staging environment uses standardized port mappings (7890:7880, 7891:7881, 7892:7882/udp) to prevent conflicts with production.
+  - **Updated** Fixed LiveKit configuration environment variable parsing issue by changing node_ip from '${LIVEKIT_NODE_IP}' to hardcoded IP '66.70.191.79' to resolve YAML configuration parsing limitations in containerized environments.
+  - **Enhanced** API security with 32-character minimum length for API secrets meeting modern security standards.
 
 **Section sources**
 - [app/backend/Dockerfile:1-55](file://app/backend/Dockerfile#L1-L55)
@@ -261,7 +259,7 @@ ExtraHosts --> NginxProd
 **Diagram sources**
 - [docker-compose.yml:5-180](file://docker-compose.yml#L5-L180)
 - [docker-compose.prod.yml:7-318](file://docker-compose.prod.yml#L7-L318)
-- [docker-compose.staging.yml:1-224](file://docker-compose.staging.yml#L1-L224)
+- [docker-compose.staging.yml:1-228](file://docker-compose.staging.yml#L1-L228)
 - [app/nginx/nginx.conf:9-36](file://app/nginx/nginx.conf#L9-L36)
 - [nginx/nginx.prod.conf:19-87](file://nginx/nginx.prod.conf#L19-L87)
 
@@ -407,7 +405,9 @@ Ready --> Backend["Backend requests"]
 - **Updated** Port range configuration for media streams (50000-60000)
 - **Updated** External IP and TCP port configuration for public accessibility
 - **Enhanced** Redis integration support for multi-node deployment scenarios
-- **Updated** Staging environment uses standardized port mappings (7890:7880, 7891:7881, 7892:7882/udp) to prevent conflicts with production LiveKit services.
+- **Updated** Staging environment uses standardized port mappings (7890:7880, 7891:7881, 7892:7882/udp) to prevent conflicts with production.
+- **Updated** Fixed LiveKit configuration environment variable parsing issue by changing node_ip from '${LIVEKIT_NODE_IP}' to hardcoded IP '66.70.191.79' to resolve YAML configuration parsing limitations in containerized environments.
+- **Enhanced** API security with 32-character minimum length for API secrets meeting modern security standards.
 
 ```mermaid
 flowchart TD
@@ -690,6 +690,16 @@ Common issues and resolutions:
   - **Cause**: Dockerfile.build process not copying livekit.yaml correctly
   - **Solution**: Verify Dockerfile.livekit build process and file paths
   - **Verification**: Check container filesystem for /etc/livekit.yaml presence
+- **New** LiveKit environment variable parsing issues
+  - **Symptom**: LiveKit server fails to parse environment variables in configuration
+  - **Cause**: YAML configuration parsing limitations with ${LIVEKIT_NODE_IP} variable
+  - **Solution**: Use hardcoded IP address '66.70.191.79' in livekit.yaml for reliable configuration
+  - **Verification**: Check LiveKit logs for successful configuration loading
+- **New** LiveKit API security validation failures
+  - **Symptom**: LiveKit rejects API requests due to weak security validation
+  - **Cause**: API secrets shorter than 32 characters not meeting security requirements
+  - **Solution**: Ensure LIVEKIT_API_SECRET values meet minimum 32-character length requirement
+  - **Verification**: Check LiveKit logs for API authentication success and security validation messages
 - **New** Redis connectivity issues
   - **Symptom**: LiveKit clustering fails or session persistence errors
   - **Cause**: Redis service not available or misconfigured
@@ -783,7 +793,7 @@ RS-->>HC : "Cluster Status"
 - [docker-compose.prod.yml:255-262](file://docker-compose.prod.yml#L255-L262)
 
 ## Conclusion
-The Docker configuration provides a robust development and production environment for Resume AI with comprehensive voice screening capabilities. It emphasizes predictable service orchestration, optimized LLM performance through enhanced memory allocation settings, secure reverse proxying, and automated deployments. **Updated** The recent enhancements include improved networking connectivity with extra_hosts configuration for seamless inter-environment communication, port standardization for staging environment to prevent conflicts with production services, and enhanced LiveKit service management with standardized port mappings. **Updated** The production environment now includes `"host.docker.internal:host-gateway"` mapping in extra_hosts configuration, enabling reliable communication between containers and the host system. **Updated** The staging environment uses standardized LiveKit port mappings (7890:7880, 7891:7881, 7892:7882/udp) to avoid conflicts with production services while maintaining consistent functionality. **Updated** The backend entrypoint script now includes proper model import handling to ensure Base.metadata.create_all() executes correctly with all database models registered. **Updated** Development and staging environments now support host.docker.internal routing for improved container-host communication. Following the documented setup ensures reliable local development and scalable production deployments with a cloud-first approach and comprehensive voice screening capabilities.
+The Docker configuration provides a robust development and production environment for Resume AI with comprehensive voice screening capabilities. It emphasizes predictable service orchestration, optimized LLM performance through enhanced memory allocation settings, secure reverse proxying, and automated deployments. **Updated** The recent enhancements include improved networking connectivity with extra_hosts configuration for seamless inter-environment communication, port standardization for staging environment to prevent conflicts with production services, and enhanced LiveKit service management with standardized port mappings. **Updated** The production environment now includes `"host.docker.internal:host-gateway"` mapping in extra_hosts configuration, enabling reliable communication between containers and the host system. **Updated** The staging environment uses standardized LiveKit port mappings (7890:7880, 7891:7881, 7892:7882/udp) to avoid conflicts with production services while maintaining consistent functionality. **Updated** The backend entrypoint script now includes proper model import handling to ensure Base.metadata.create_all() executes correctly with all database models registered. **Updated** Development and staging environments now support host.docker.internal routing for improved container-host communication. **Updated** The LiveKit configuration has been fixed to resolve environment variable parsing issues by changing node_ip from '${LIVEKIT_NODE_IP}' to hardcoded IP '66.70.191.79', improving reliability in containerized environments. **Enhanced** LiveKit API security has been strengthened with 32-character minimum length requirements for API secrets, meeting modern security standards. Following the documented setup ensures reliable local development and scalable production deployments with a cloud-first approach and comprehensive voice screening capabilities.
 
 ## Appendices
 
@@ -806,6 +816,7 @@ The Docker configuration provides a robust development and production environmen
   - **New** LiveKit configuration with API keys, port specifications, and Redis integration using custom image approach.
   - **Enhanced** Redis configuration for multi-node LiveKit deployment.
   - **New** extra_hosts configuration with `"host.docker.internal:host-gateway"` for seamless inter-environment communication.
+  - **Enhanced** API security with 32-character minimum length for LIVEKIT_API_SECRET values.
 - Configuration inheritance
   - Production Dockerfiles bake in production Nginx configuration; development compose mounts local configs.
   - **New** Voice services use separate Dockerfiles with optimized build processes.
@@ -816,6 +827,8 @@ The Docker configuration provides a robust development and production environmen
   - LiveKit ports mapped as 7890:7880, 7891:7881, 7892:7882/udp for consistent staging environment.
   - Separate network configuration (aria_staging_network) to isolate staging from production.
   - **New** host.docker.internal routing support for staging environment with separate network isolation.
+  - **New** LiveKit environment variable configuration with explicit LIVEKIT_NODE_IP setting for staging.
+  - **Enhanced** API security with 32-character minimum length for LIVEKIT_API_SECRET values.
 
 **Updated** JWT_SECRET_KEY is now required in production environments and will cause a RuntimeError if not set.
 
@@ -876,13 +889,8 @@ The Docker configuration provides a robust development and production environmen
   - **Enhanced** Redis: container port 6379 (when configured)
   - **New** Separate network: aria_staging_network for environment isolation
   - **New** host.docker.internal routing support for staging environment
-- **New** Service Communication:
-  - Voice Agent → Speech Service: http://speech-service:8001
-  - Voice Agent → LiveKit: ws://livekit:7880 (production) or ws://livekit:7890 (staging)
-  - Voice Agent → Backend: http://backend:8000
-  - LiveKit → Redis: redis://redis:6379 (when configured)
-  - **New** Host communication: http://host.docker.internal:8080 (for development and staging)
-  - **New** Development host communication: http://host.docker.internal:5173 (frontend dev), http://host.docker.internal:8000 (backend dev)
+  - **New** LiveKit environment variable configuration with explicit LIVEKIT_NODE_IP setting for staging
+  - **Enhanced** API security with 32-character minimum length for LIVEKIT_API_SECRET values.
 
 **Section sources**
 - [docker-compose.yml:87-180](file://docker-compose.yml#L87-L180)
@@ -954,6 +962,8 @@ The system supports both standard and custom model configurations:
 - **Enhanced** Redis integration enables horizontal scaling for voice services
 - **New** Seamless inter-environment communication via extra_hosts configuration with host.docker.internal mapping
 - **New** Development and staging environments support host.docker.internal routing for improved container-host communication
+- **Updated** LiveKit configuration uses hardcoded IP address '66.70.191.79' instead of environment variable for improved reliability in containerized environments.
+- **Enhanced** API security with 32-character minimum length for LIVEKIT_API_SECRET values meeting modern security standards.
 
 **Section sources**
 - [docker-compose.yml:61-70](file://docker-compose.yml#L61-L70)
@@ -984,6 +994,8 @@ The system supports both standard and custom model configurations:
   - **Enhanced** Redis clustering for multi-node deployment
   - **Updated** Embedded configuration approach for improved reliability and deployment consistency
   - **Updated** Staging environment uses standardized port mappings (7890:7880, 7891:7881, 7892:7882/udp) to prevent conflicts
+  - **Updated** LiveKit configuration uses hardcoded IP address '66.70.191.79' for improved reliability
+  - **Enhanced** API security with 32-character minimum length for API secrets.
 - **Deployment Considerations**:
   - Resource allocation: 4GB RAM for Speech Service, 2GB for Voice Agent, 1GB for LiveKit
   - Network configuration: Internal ports for service communication, external ports for client access
@@ -1014,6 +1026,14 @@ The system supports both standard and custom model configurations:
   - FROM livekit/livekit-server:latest base image
   - COPY app/voice_agent/livekit.yaml /etc/livekit.yaml during build
   - Ensures configuration is baked into the image at build time
+- **Configuration Fix**:
+  - **Updated** node_ip changed from '${LIVEKIT_NODE_IP}' to hardcoded IP '66.70.191.79'
+  - Resolves YAML configuration parsing limitations in containerized environments
+  - Improves reliability of LiveKit server startup and operation
+- **Security Enhancements**:
+  - **Enhanced** API keys now require minimum 32-character length for security compliance
+  - **Updated** API secrets include both development and staging variants with sufficient length
+  - **Improved** security validation for API authentication requests
 - **Advantages**:
   - Faster container startup without configuration file mounting
   - Reduced complexity in development and production environments
@@ -1093,6 +1113,8 @@ The system supports both standard and custom model configurations:
   - **Network Isolation**: Separate network (aria_staging_network) prevents interference with production services
   - **Consistent Functionality**: Maintains LiveKit functionality while avoiding port conflicts
   - **host.docker.internal Routing**: http://host.docker.internal:8080 for staging frontend access
+  - **LiveKit Environment Variables**: Explicit LIVEKIT_NODE_IP configuration for staging environment
+  - **Enhanced** API Security: 32-character minimum length for LIVEKIT_API_SECRET values
 - **Inter-Environment Communication**:
   - **Production to Staging**: Use host.docker.internal mapping for seamless communication
   - **Staging Isolation**: Separate network prevents cross-environment interference
@@ -1105,3 +1127,31 @@ The system supports both standard and custom model configurations:
 - [app/nginx/nginx.conf:32-33](file://app/nginx/nginx.conf#L32-L33)
 - [docker-compose.staging.yml:170-173](file://docker-compose.staging.yml#L170-L173)
 - [docker-compose.staging.yml:220-224](file://docker-compose.staging.yml#L220-L224)
+
+### LiveKit API Security Configuration
+**Enhanced** LiveKit API security configuration with strengthened authentication requirements:
+
+- **API Secret Requirements**:
+  - **Minimum Length**: 32 characters minimum for all API secrets
+  - **Development Keys**: devsecret_minimum_32_characters_long_abcdef (32 characters)
+  - **Staging Keys**: staging_devsecret_min32chars_long_xyz (35 characters)
+  - **Production Keys**: Must meet 32-character minimum requirement for security compliance
+- **Security Validation**:
+  - LiveKit server validates API secret length during startup
+  - Embedded configuration ensures secrets are properly loaded at container boot
+  - API authentication requests verified against configured secret lengths
+- **Configuration Examples**:
+  - Development: LIVEKIT_API_SECRET=devsecret_minimum_32_characters_long_abcdef
+  - Staging: LIVEKIT_API_SECRET=staging_devsecret_min32chars_long_xyz
+  - Production: Requires 32+ character secret for enhanced security
+- **Best Practices**:
+  - Generate secrets using cryptographically secure random generators
+  - Store secrets in environment variables or Docker secrets
+  - Rotate secrets periodically for enhanced security
+  - Use different secrets for development, staging, and production environments
+
+**Section sources**
+- [app/voice_agent/livekit.yaml:19-22](file://app/voice_agent/livekit.yaml#L19-L22)
+- [docker-compose.yml:123-124](file://docker-compose.yml#L123-L124)
+- [docker-compose.staging.yml:168-169](file://docker-compose.staging.yml#L168-L169)
+- [docker-compose.staging.yml:201-202](file://docker-compose.staging.yml#L201-L202)

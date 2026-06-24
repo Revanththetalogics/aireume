@@ -1,1 +1,0 @@
-APScheduler for distributed background task management (voice retries, health probes); Ollama (self-hosted/cloud) as the unified LLM inference engine with shared concurrency control.
