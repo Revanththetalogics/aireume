@@ -214,7 +214,7 @@ async def synthesize_speech(request: Request):
     # Convert speed to rate percentage for edge-tts (e.g., 1.0 → "+0%", 0.8 → "+20%")
     # edge-tts uses rate like "+20%" for faster, "-20%" for slower
     rate_pct = int((1.0 / max(speed, 0.5) - 1.0) * 100)
-    rate_str = f"+{rate_pct}%" if rate_pct > 0 else f"{rate_pct}%"
+    rate_str = f"+{rate_pct}%" if rate_pct >= 0 else f"{rate_pct}%"
 
     try:
         start = time.time()
