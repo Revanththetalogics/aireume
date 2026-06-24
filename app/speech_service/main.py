@@ -229,25 +229,21 @@ async def synthesize_speech(request: Request):
         if not audio_chunks:
             raise HTTPException(status_code=500, detail="No audio generated")
 
-        # edge-tts returns MP3 — convert to WAV at 16kHz mono
+        # edge-tts returns MP3 — convert to WAV at 16kHz mono using pydub
         mp3_bytes = b"".join(audio_chunks)
         mp3_buffer = io.BytesIO(mp3_bytes)
-        waveform, sample_rate = torchaudio.load(mp3_buffer, format="mp3")
 
-        # Resample to 16kHz mono
-        if sample_rate != SAMPLE_RATE:
-            resampler = torchaudio.transforms.Resample(sample_rate, SAMPLE_RATE)
-            waveform = resampler(waveform)
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
+        from pydub import AudioSegment
+        audio_seg = AudioSegment.from_mp3(mp3_buffer)
+        audio_seg = audio_seg.set_frame_rate(SAMPLE_RATE).set_channels(1).set_sample_width(2)
 
-        # Save as WAV
+        # Export as WAV
         wav_buffer = io.BytesIO()
-        torchaudio.save(wav_buffer, waveform, SAMPLE_RATE, format="wav")
+        audio_seg.export(wav_buffer, format="wav")
         wav_buffer.seek(0)
 
         elapsed = time.time() - start
-        audio_duration = waveform.shape[1] / SAMPLE_RATE
+        audio_duration = len(audio_seg) / 1000.0  # pydub uses milliseconds
         logger.info("TTS: %d chars → %.1fs audio in %.2fs", len(text), audio_duration, elapsed)
 
         return StreamingResponse(
