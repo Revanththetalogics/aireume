@@ -1,4 +1,5 @@
-"""Add interview_depth to voice_screening_sessions for unified interview tracking"""
+"""Add interview_depth to voice_screening_sessions for unified interview tracking."""
+# Migration 046: Unified AI Interview depth column
 
 revision = "046_unified_interview"
 down_revision = "045_ai_recruiter"
