@@ -1,2 +1,0 @@
-- **Infrastructure**: Requires `docker-compose up` to start `livekit`, `speech-service`, and `voice-agent` alongside the main backend.
-- **Environment**: Needs `LIVEKIT_API_KEY`, `SIP_TRUNK_ID`, and `VOICE_AGENT_URL` configured in `.env` for outbound PSTN calling.

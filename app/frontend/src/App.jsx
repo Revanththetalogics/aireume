@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { NotificationProvider } from './contexts/NotificationContext'
@@ -41,6 +41,8 @@ const AnalyticsPage  = lazy(() => import('./pages/AnalyticsPage'))
 const VoiceScreeningPage = lazy(() => import('./pages/VoiceScreeningPage'))
 const RecruiterInterviewPage = lazy(() => import('./pages/RecruiterInterviewPage'))
 const RecruiterSessionDetailPage = lazy(() => import('./pages/RecruiterSessionDetailPage'))
+const InterviewPage = lazy(() => import('./pages/InterviewPage'))
+const InterviewDetailPage = lazy(() => import('./pages/InterviewDetailPage'))
 
 // Admin layout + pages
 const AdminLayout        = lazy(() => import('./layouts/AdminLayout'))
@@ -145,6 +147,8 @@ function App() {
               <Route path="/voice-screening" element={<Shell><OnboardingGate><VoiceScreeningPage /></OnboardingGate></Shell>} />
               <Route path="/recruiter-interviews" element={<Shell><OnboardingGate><RecruiterInterviewPage /></OnboardingGate></Shell>} />
               <Route path="/recruiter-interviews/:id" element={<Shell><OnboardingGate><RecruiterSessionDetailPage /></OnboardingGate></Shell>} />
+              <Route path="/ai-interviews" element={<Shell><OnboardingGate><InterviewPage /></OnboardingGate></Shell>} />
+              <Route path="/ai-interviews/:id" element={<Shell><OnboardingGate><InterviewDetailPage /></OnboardingGate></Shell>} />
               <Route path="/settings"   element={<Shell><OnboardingGate><SettingsPage /></OnboardingGate></Shell>} />
               {/* Admin portal - standalone layout (no recruiter nav) */}
               <Route path="/admin" element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}>
@@ -169,7 +173,7 @@ function App() {
                 <Route path="impersonation" element={<ImpersonationPage />} />
               </Route>
 
-              {/* Backward compatibility redirects */}
+              {/* Legacy redirects for unified AI Interview */}
               <Route path="/batch"      element={<Navigate to="/analyze" replace />} />
               <Route path="/templates"  element={<Navigate to="/jd-library" replace />} />
               

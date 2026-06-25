@@ -5,12 +5,13 @@ import {
   ChevronDown, ChevronRight, ChevronUp, CheckCircle2, CheckCircle, AlertTriangle,
   AlertCircle, Info, ShieldAlert, ClipboardCheck, XCircle, Sparkles,
   GraduationCap, Award, Globe, FileText, Activity, User, X,
-  MessageSquare, Trash2
+  MessageSquare, Trash2, Mic
 } from 'lucide-react'
 import {
   getCandidate, getCandidateTimeline, updateResultStatus,
   downloadCandidateResume, viewCandidateResume,
-  getCandidateNotes, addCandidateNote, deleteCandidateNote
+  getCandidateNotes, addCandidateNote, deleteCandidateNote,
+  getInterviewSessions
 } from '../lib/api'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
@@ -287,6 +288,8 @@ export default function CandidateProfilePage() {
   const [notes, setNotes] = useState([])
   const [notesLoading, setNotesLoading] = useState(false)
   const [newNoteText, setNewNoteText] = useState('')
+  const [interviewSessions, setInterviewSessions] = useState([])
+  const [interviewsLoading, setInterviewsLoading] = useState(false)
 
   const loadNotes = async (candidateId) => {
     setNotesLoading(true)
@@ -323,6 +326,22 @@ export default function CandidateProfilePage() {
       }
     }
     fetchData()
+  }, [id])
+
+  // Fetch AI interview sessions for this candidate
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    setInterviewsLoading(true)
+    getInterviewSessions({ candidate_id: id })
+      .then(data => {
+        if (cancelled) return
+        const list = Array.isArray(data) ? data : (data?.sessions || [])
+        setInterviewSessions(list)
+      })
+      .catch(() => { if (!cancelled) setInterviewSessions([]) })
+      .finally(() => { if (!cancelled) setInterviewsLoading(false) })
+    return () => { cancelled = true }
   }, [id])
 
   const handleStatusChange = async (resultId, newStatus) => {
@@ -878,6 +897,79 @@ export default function CandidateProfilePage() {
                 <p className="text-xs text-slate-400 mt-1">Analyze this candidate against a job description to see results here.</p>
               </Card>
             )}
+
+            {/* AI Interviews Section */}
+            <Card>
+              <CardTitle icon={Mic} badge={interviewSessions.length > 0 ? interviewSessions.length : undefined}>
+                AI Interviews
+              </CardTitle>
+              {interviewsLoading ? (
+                <div className="space-y-2">
+                  {[1, 2].map(i => <SkeletonBlock key={i} className="h-14 w-full rounded" />)}
+                </div>
+              ) : interviewSessions.length > 0 ? (
+                <div className="space-y-2">
+                  {interviewSessions.map(session => {
+                    const depth = session.interview_depth || 'quick'
+                    const depthColor = depth === 'quick' ? 'bg-blue-50 text-blue-700 ring-blue-200' :
+                      depth === 'deep' ? 'bg-purple-50 text-purple-700 ring-purple-200' :
+                      'bg-indigo-50 text-indigo-700 ring-indigo-200'
+                    const iconBg = depth === 'quick' ? 'bg-blue-50 text-blue-600' :
+                      depth === 'deep' ? 'bg-purple-50 text-purple-600' :
+                      'bg-indigo-50 text-indigo-600'
+                    const statusColor = session.status === 'completed' ? 'bg-green-50 text-green-700 ring-green-200' :
+                      session.status === 'failed' || session.status === 'cancelled' ? 'bg-red-50 text-red-700 ring-red-200' :
+                      'bg-amber-50 text-amber-700 ring-amber-200'
+                    const statusLabel = session.status === 'in_progress' ? 'In Progress' :
+                      session.status === 'completed' ? 'Completed' :
+                      (session.status || 'Unknown').charAt(0).toUpperCase() + (session.status || 'Unknown').slice(1)
+                    return (
+                      <button
+                        key={session.id}
+                        onClick={() => navigate(`/ai-interviews/${session.id}`)}
+                        className="w-full flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors text-left group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
+                            <Mic className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 truncate">
+                              {safeStr(session.jd_title) || 'Interview Session'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {session.created_at ? new Date(session.created_at).toLocaleDateString() : ''}
+                              {session.duration_seconds ? ` \u00b7 ${Math.round(session.duration_seconds / 60)} min` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ring-1 ${depthColor}`}>
+                            {depth.charAt(0).toUpperCase() + depth.slice(1)}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ring-1 ${statusColor}`}>
+                            {statusLabel}
+                          </span>
+                          <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center py-4 text-center">
+                  <Mic className="w-8 h-8 text-gray-200 mb-2" />
+                  <p className="text-sm text-slate-400 italic">No interviews yet</p>
+                  <button
+                    onClick={() => navigate('/ai-interviews')}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    Start Interview
+                  </button>
+                </div>
+              )}
+            </Card>
 
             {/* Task 49B: Work Experience Timeline — Enhanced */}
             <Card>

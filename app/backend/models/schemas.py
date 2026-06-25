@@ -750,6 +750,24 @@ class ScheduleVoiceCallResponse(BaseModel):
     phone_number: str
 
 
+class InterviewCreateRequest(BaseModel):
+    """Body for POST /api/interviews/sessions — create a unified interview."""
+    candidate_id: int
+    jd_id: int
+    depth: str = "quick"
+    phone_number: str
+    scheduled_at: Optional[str] = None
+    focus_areas: Optional[List[str]] = None
+
+    @field_validator('depth')
+    @classmethod
+    def validate_depth(cls, v):
+        allowed = {'quick', 'standard', 'deep'}
+        if v not in allowed:
+            raise ValueError(f'depth must be one of {allowed}')
+        return v
+
+
 # ─── AI Recruiter ───────────────────────────────────────────────────────────
 
 class RecruiterSessionCreate(BaseModel):

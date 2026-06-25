@@ -917,6 +917,7 @@ class VoiceScreeningSession(Base):
     direction         = Column(String(10), nullable=False, server_default="outbound")  # outbound / inbound
     callback_of_id    = Column(Integer, ForeignKey("voice_screening_sessions.id", ondelete="SET NULL"), nullable=True)  # links callback to original
     status            = Column(String(20), nullable=False, server_default="scheduled", index=True)  # scheduled/ringing/in_progress/completed/failed/no_answer/voicemail
+    interview_depth   = Column(String(10), default="quick", server_default="quick", nullable=False)  # quick / deep
     scheduled_at      = Column(DateTime(timezone=True), nullable=True)
     started_at        = Column(DateTime(timezone=True), nullable=True)
     ended_at          = Column(DateTime(timezone=True), nullable=True)

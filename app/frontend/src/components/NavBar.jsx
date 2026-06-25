@@ -2,7 +2,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Briefcase, Users, BarChart3, Columns,
   Users2, Video, Settings, Shield, LogOut, Sparkles,
-  MoreHorizontal, Phone, Moon, Sun, Brain,
+  MoreHorizontal, Phone, Moon, Sun, Brain, Mic,
 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -25,8 +25,7 @@ const USER_MENU_LINKS = [
   { label: 'Team', path: '/team', icon: Users2 },
   { label: 'Team Skills', path: '/team-skills', icon: Users },
   { label: 'Interviews', path: '/video', icon: Video },
-  { label: 'Voice Screening', path: '/voice-screening', icon: Phone },
-  { label: 'AI Recruiter', path: '/recruiter-interviews', icon: Brain },
+  { label: 'AI Interview', path: '/ai-interviews', icon: Mic },
   { label: 'Settings', path: '/settings', icon: Settings },
 ]
 

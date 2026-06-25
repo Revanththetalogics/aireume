@@ -54,6 +54,9 @@ from app.backend.services.hybrid_pipeline import (
     _background_llm_narrative,
     register_background_task,
 )
+# RecruiterAutoTrigger feeds into the unified interview system (/api/interviews/*).
+# It creates deep interview sessions via the recruiter orchestrator, which is
+# also used by the unified routes/interviews.py. No functional change needed.
 from app.backend.services.recruiter.auto_trigger import RecruiterAutoTrigger
 from app.backend.services.fit_scorer import compute_fit_score
 from app.backend.services.weight_mapper import convert_to_new_schema

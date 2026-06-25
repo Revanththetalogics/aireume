@@ -21,10 +21,10 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -40,6 +40,8 @@ from app.backend.models.db_models import (
     RoleTemplate,
     ScreeningResult,
     User,
+    VoiceScreeningSession,
+    VoiceTranscriptEntry,
 )
 from app.backend.models.schemas import (
     RecruiterAnalyticsOut,
@@ -54,6 +56,10 @@ from app.backend.models.schemas import (
 from app.backend.services.recruiter.orchestrator import RecruiterOrchestrator
 
 logger = logging.getLogger("aria.recruiter")
+
+# NOTE: This module is maintained for backward compatibility.
+# The unified interview API is at /api/interviews/* (see routes/interviews.py).
+# New features should be added to interviews.py, not here.
 
 router = APIRouter(prefix="/api/recruiter", tags=["recruiter"])
 
@@ -701,3 +707,195 @@ def export_recruiter_sessions(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ─── Internal Callback (Voice Agent → Backend) ──────────────────────────────
+
+async def _generate_scorecard_background(session_id: str) -> None:
+    """Background task to generate scorecard after interview completes.
+
+    Runs after the HTTP response is sent so the voice agent gets an immediate 200.
+    Creates its own DB session to avoid leaking the request-scoped session.
+    """
+    from app.backend.db.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        orchestrator = RecruiterOrchestrator(db)
+        await orchestrator.on_interview_completed(session_id)
+    except Exception as e:
+        logger.error(
+            "Scorecard generation failed for session %s: %s",
+            session_id, e, exc_info=True,
+        )
+        # Roll back any partial changes from the orchestrator
+        db.rollback()
+        # Keep session as completed — scorecard can be retried via the
+        # retry endpoint or a future re-trigger.
+        session = db.execute(
+            select(RecruiterInterviewSession).where(
+                RecruiterInterviewSession.id == session_id
+            )
+        ).scalar_one_or_none()
+        if session and session.status != "completed":
+            session.status = "completed"
+            db.commit()
+    finally:
+        db.close()
+
+
+@router.post("/internal/complete")
+async def on_recruiter_interview_complete(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """
+    Internal callback from voice agent when recruiter interview finishes.
+
+    NOT authenticated via user JWT — uses internal service-to-service trust
+    (both containers on same Docker network).
+
+    Payload from voice agent::
+
+        {
+            "session_id": str,      # recruiter session UUID or voice session ID
+            "result": {
+                "duration_seconds": int,
+                "questions_asked": int,
+                "consent_recorded": bool,
+                "transcript": [...],           # speaker turns
+                "questions_responses": [...],  # structured Q&A
+                "completion_reason": str
+            }
+        }
+    """
+    body = await request.json()
+    session_id = body.get("session_id")
+    result = body.get("result", {})
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+
+    # ── Resolve session ────────────────────────────────────────────────────
+    # The voice agent may send either the RecruiterInterviewSession UUID or
+    # the VoiceScreeningSession integer ID (depending on dispatch path).
+    # Try UUID first, then fall back to voice_session_id lookup.
+    session = db.execute(
+        select(RecruiterInterviewSession).where(
+            RecruiterInterviewSession.id == session_id
+        )
+    ).scalar_one_or_none()
+
+    if session is None:
+        try:
+            voice_sid = int(session_id)
+            session = db.execute(
+                select(RecruiterInterviewSession).where(
+                    RecruiterInterviewSession.voice_session_id == voice_sid
+                )
+            ).scalar_one_or_none()
+        except (ValueError, TypeError):
+            pass
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Idempotent: already completed with a scorecard → return early
+    if session.status == "completed" and session.scorecard is not None:
+        return {"status": "ok", "session_id": session.id, "message": "Already completed"}
+
+    # ── Update session with call data ───────────────────────────────────────
+    session.status = "completed"
+    session.ended_at = datetime.now(timezone.utc)
+    duration = result.get("duration_seconds")
+    if duration is not None:
+        session.duration_seconds = duration
+        if not session.started_at:
+            session.started_at = session.ended_at - timedelta(seconds=duration)
+
+    db.commit()
+
+    # ── Store / update questions with candidate responses ───────────────────
+    questions_responses = result.get("questions_responses", [])
+    if questions_responses:
+        existing_questions = {
+            q.question_text: q
+            for q in db.execute(
+                select(RecruiterInterviewQuestion).where(
+                    RecruiterInterviewQuestion.session_id == session.id
+                )
+            ).scalars().all()
+        }
+
+        for idx, qr in enumerate(questions_responses):
+            if not isinstance(qr, dict):
+                continue
+            question_text = qr.get("question", "")
+            existing = existing_questions.get(question_text)
+
+            if existing:
+                # Update the strategy question with the actual response
+                existing.candidate_response = qr.get("response", "")
+                existing.response_duration_seconds = qr.get("response_duration")
+                if qr.get("is_follow_up", False):
+                    existing.is_follow_up = True
+            else:
+                # New record for follow-up / warmup questions not in strategy
+                db.add(RecruiterInterviewQuestion(
+                    id=str(uuid.uuid4()),
+                    session_id=session.id,
+                    sequence_number=idx + 1,
+                    category=qr.get("category", "technical"),
+                    question_text=question_text,
+                    question_context=qr.get("context", ""),
+                    candidate_response=qr.get("response", ""),
+                    response_duration_seconds=qr.get("response_duration"),
+                    is_follow_up=qr.get("is_follow_up", False),
+                ))
+
+    # ── Store transcript as VoiceTranscriptEntry records ────────────────────
+    # The orchestrator's CommunicationEvaluator reads from this table.
+    transcript = result.get("transcript", [])
+    if transcript and session.voice_session_id:
+        existing_count = db.execute(
+            select(func.count()).select_from(
+                select(VoiceTranscriptEntry).where(
+                    VoiceTranscriptEntry.session_id == session.voice_session_id
+                ).subquery()
+            )
+        ).scalar() or 0
+
+        if existing_count == 0:
+            started_at = session.started_at or session.ended_at
+            for entry in transcript:
+                if not isinstance(entry, dict):
+                    continue
+                ts = entry.get("timestamp")
+                if ts is None:
+                    abs_ts = started_at
+                elif isinstance(ts, (int, float)):
+                    # Heuristic: large numbers are Unix timestamps (seconds)
+                    if ts > 1e10:
+                        abs_ts = datetime.fromtimestamp(ts, tz=timezone.utc)
+                    else:
+                        abs_ts = started_at + timedelta(seconds=ts)
+                else:
+                    abs_ts = started_at
+
+                db.add(VoiceTranscriptEntry(
+                    session_id=session.voice_session_id,
+                    speaker=entry.get("speaker", "candidate"),
+                    text=entry.get("text", ""),
+                    timestamp=abs_ts,
+                ))
+
+    db.commit()
+
+    # ── Trigger scorecard generation as background task ─────────────────────
+    background_tasks.add_task(
+        _generate_scorecard_background,
+        session_id=session.id,
+    )
+
+    return {"status": "ok", "session_id": session.id}

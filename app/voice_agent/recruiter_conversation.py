@@ -1,4 +1,7 @@
 """
+DEPRECATED: This module is superseded by conversation.py (UnifiedConversation).
+Kept for reference during transition period. Will be removed in next release.
+
 AI Recruiter Conversation Module
 
 Advanced interview state machine that conducts multi-dimensional 

@@ -1,3 +1,4 @@
-- Migrations use runtime schema inspection (`sa.inspect(op.get_bind())`) to check for existing tables or columns before applying alterations, ensuring idempotency.
-- Each migration script defines both `upgrade` and `downgrade` functions to support reversible schema changes.
-- Revision chains are maintained via explicit `down_revision` identifiers, creating a linear history of schema changes.
+- Migrations use inline schema inspection (via `sa.inspect` or raw SQL queries) to check for existing tables or columns before applying changes, ensuring idempotency.
+- Migration files include detailed docstrings describing the specific schema changes, revision IDs, and dependencies for traceability.
+- Complex migrations often define local helper functions (e.g., `_table_exists`, `_column_names`) to encapsulate inspection logic and improve readability.
+- Downgrade operations strictly reverse the changes made in upgrade, including dropping indexes before tables and removing columns in batch operations where necessary.

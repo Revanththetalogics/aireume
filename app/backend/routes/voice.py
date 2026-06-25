@@ -43,6 +43,10 @@ from app.backend.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
+# NOTE: This module is maintained for backward compatibility.
+# The unified interview API is at /api/interviews/* (see routes/interviews.py).
+# New features should be added to interviews.py, not here.
+
 router = APIRouter(prefix="/api/voice", tags=["voice-screening"])
 
 # ─── Default consent script ───────────────────────────────────────────────────

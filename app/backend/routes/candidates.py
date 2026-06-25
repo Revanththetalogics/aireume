@@ -24,6 +24,9 @@ from app.backend.middleware.auth import get_current_user, require_active_subscri
 from app.backend.models.db_models import Candidate, ScreeningResult, CandidateNote, User, RoleTemplate, HiringOutcome, FieldAuditLog
 from app.backend.models.schemas import CandidateNameUpdate, AnalyzeJdRequest, CandidateSkillCompareRequest
 from app.backend.services.audit_service import log_field_change
+# RecruiterAutoTrigger feeds into the unified interview system (/api/interviews/*).
+# It creates deep interview sessions via the recruiter orchestrator, which is
+# also used by the unified routes/interviews.py. No functional change needed.
 from app.backend.services.recruiter.auto_trigger import RecruiterAutoTrigger
 from app.backend.services.outcome_service import (
     record_outcome, record_feedback, get_outcome_for_result, get_outcomes_for_jd, compute_skill_patterns

@@ -1,4 +1,0 @@
-- **API Layer**: `app/backend/routes/voice.py` exposes REST endpoints for session management, tenant configuration, and internal service-to-service communication.
-- **Service Layer**: `app/backend/services/voice_screening_service.py` handles LLM-based question generation and assessment; `voice_call_scheduler.py` manages APScheduler jobs for call execution and retries with PostgreSQL advisory locking.
-- **Microservice Integration**: Orchestrates external `speech-service` (STT/TTS) and `voice-agent` (LiveKit/SIP) containers via HTTP dispatch.
-- **Frontend**: `app/frontend/src/pages/VoiceScreeningPage.jsx` provides a split-view UI for session tracking, analytics, and bot configuration.

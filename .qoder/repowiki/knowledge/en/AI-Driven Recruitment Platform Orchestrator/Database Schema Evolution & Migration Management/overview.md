@@ -1,1 +1,1 @@
-Manages incremental, idempotent database schema changes using Alembic to support application feature growth and data integrity.
+Manages versioned database schema changes using Alembic, ensuring idempotent and reversible migrations for a multi-tenant SaaS application.

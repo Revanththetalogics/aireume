@@ -21,6 +21,7 @@ from typing import Optional, Union
 import httpx
 
 from recruiter_conversation import RecruiterConversation, RecruiterContext, RecruiterState
+from conversation import UnifiedConversation, InterviewContext, InterviewDepth
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -733,18 +734,18 @@ def _strip_wav_header(data: bytes) -> bytes:
 
 
 async def _notify_backend_complete(session_id: str, result: dict):
-    """Notify backend that recruiter interview has completed."""
+    """Notify backend that interview has completed (unified endpoint)."""
     backend_url = os.getenv("BACKEND_URL", ARIA_BACKEND_URL)
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"{backend_url}/api/internal/recruiter/complete",
+                f"{backend_url}/api/interviews/internal/complete",
                 json={"session_id": session_id, "result": result},
             )
             resp.raise_for_status()
-            logger.info("Notified backend of recruiter completion: session=%s status=%d", session_id, resp.status_code)
+            logger.info("Notified backend of interview completion: session=%s status=%d", session_id, resp.status_code)
     except Exception as e:
-        logger.error("Failed to notify backend of recruiter completion: session=%s error=%s", session_id, e)
+        logger.error("Failed to notify backend of interview completion: session=%s error=%s", session_id, e)
 
 
 async def _publish_audio(room, audio_source, pcm_data: bytes, sample_rate: int):
@@ -938,6 +939,141 @@ class VoiceAgentWorker:
             except Exception:
                 pass
 
+    async def handle_unified_room(self, room_name: str, agent_token: str, interview_ctx: InterviewContext):
+        """
+        Join a LiveKit room and run the unified conversation engine.
+        Handles all depth modes (quick / standard / deep) via UnifiedConversation.
+        """
+        from livekit import rtc
+
+        room = rtc.Room()
+        speech = SpeechClient()
+        llm = LLMClient()
+        backend = BackendClient()
+        conversation = UnifiedConversation(interview_ctx, llm, speech)
+
+        # Audio buffer for STT (accumulate ~3s of audio per chunk)
+        audio_buffer = bytearray()
+        SAMPLE_RATE = 16000
+        CHUNK_DURATION_SEC = 3.0
+        CHUNK_SIZE = int(SAMPLE_RATE * 2 * CHUNK_DURATION_SEC)  # 16-bit samples
+
+        # Persistent audio source for agent → candidate playback
+        audio_source = rtc.AudioSource(SAMPLE_RATE, 1)
+
+        async def _process_track(track, publication, participant):
+            """Async body for processing a subscribed audio track."""
+            if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
+                logger.info(
+                    "Audio track subscribed: participant=%s session=%s",
+                    participant.identity, interview_ctx.session_id,
+                )
+                stream = rtc.AudioStream(track)
+
+                async for event in stream:
+                    frame = event.frame
+                    audio_buffer.extend(frame.data)
+
+                    if len(audio_buffer) >= CHUNK_SIZE:
+                        chunk = bytes(audio_buffer[:CHUNK_SIZE])
+                        audio_buffer.clear()
+
+                        # Transcribe (LiveKit delivers raw PCM 16kHz 16-bit mono)
+                        text = await speech.transcribe(chunk, "audio/pcm")
+                        if text.strip():
+                            logger.info("Candidate said: %s", text)
+
+                            # Get bot response via unified engine
+                            bot_text = await conversation.handle_response(text)
+                            if bot_text:
+                                logger.info("Bot responds: %s", bot_text)
+
+                                # Synthesize speech and publish to room
+                                audio_out = await speech.synthesize(bot_text)
+                                if audio_out:
+                                    await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+
+                            # Check for call end conditions
+                            if conversation.is_complete():
+                                logger.info("Unified conversation complete, ending call")
+                                break
+
+                            if interview_ctx.started_at and interview_ctx.elapsed > interview_ctx.time_budget:
+                                logger.info("Time budget exceeded, ending call")
+                                break
+
+        def on_track_subscribed(track, publication, participant):
+            """Sync wrapper — LiveKit .on() does not support async callbacks."""
+            asyncio.create_task(_process_track(track, publication, participant))
+
+        room.on("track_subscribed", on_track_subscribed)
+
+        try:
+            await speech.start()
+            interview_ctx.started_at = time.time()
+
+            # Connect to the room
+            await room.connect(LIVEKIT_URL, agent_token)
+            logger.info("Agent joined room: %s (session=%s depth=%s)", room_name, interview_ctx.session_id, interview_ctx.depth.value)
+
+            # Publish the audio source as a track so the candidate can hear the agent
+            try:
+                track = rtc.LocalAudioTrack.create_audio_track("aria-agent", audio_source)
+                options = rtc.TrackPublishOptions()
+                options.source = rtc.TrackSource.SOURCE_MICROPHONE
+                await room.local_participant.publish_track(track, options)
+                logger.info("Audio track published to room")
+            except Exception as pub_err:
+                logger.error("Failed to publish audio track: %s", pub_err, exc_info=True)
+
+            # Update backend
+            try:
+                await backend.update_session(int(interview_ctx.session_id), {"status": "in_progress"})
+            except Exception:
+                pass
+
+            # Deliver initial greeting via TTS
+            greeting = await conversation.get_greeting()
+            interview_ctx.transcript.append({"speaker": "bot", "text": greeting, "timestamp": 0.0, "state": "greeting"})
+            audio_out = await speech.synthesize(greeting)
+            if audio_out:
+                await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+                logger.info("Greeting published for session %s", interview_ctx.session_id)
+
+            # Keep the call alive until ended or max duration
+            while not conversation.is_complete():
+                if interview_ctx.started_at and interview_ctx.elapsed > interview_ctx.time_budget:
+                    logger.info("Max duration reached for session %s", interview_ctx.session_id)
+                    break
+                await asyncio.sleep(1)
+
+            # Call ended — finalize and notify backend
+            duration = int(interview_ctx.elapsed)
+            logger.info(
+                "Call ended: session=%s state=%s depth=%s duration=%ds",
+                interview_ctx.session_id, interview_ctx.current_state.value,
+                interview_ctx.depth.value, duration,
+            )
+
+            result = conversation.get_result()
+            await _notify_backend_complete(interview_ctx.session_id, result)
+
+        except Exception as e:
+            logger.error("Unified session %s failed: %s", interview_ctx.session_id, e, exc_info=True)
+            try:
+                await backend.update_session(int(interview_ctx.session_id), {
+                    "status": "failed",
+                    "error_log": str(e),
+                })
+            except Exception:
+                pass
+        finally:
+            await speech.stop()
+            try:
+                await room.disconnect()
+            except Exception:
+                pass
+
     async def handle_recruiter_room(self, room_name: str, agent_token: str, session_ctx: RecruiterContext):
         """Join a LiveKit room and run the AI Recruiter interview conversation."""
         from livekit import rtc
@@ -1067,24 +1203,26 @@ class VoiceAgentWorker:
             except Exception:
                 pass
 
-    async def dispatch_and_run(self, session_ctx: Union[ScreeningContext, RecruiterContext], room_info: dict, mode: str = "screening"):
-        """Dispatch a call and run the agent in the room."""
-        if mode == "recruiter":
-            handler = self.handle_recruiter_room(
+    async def dispatch_and_run(self, session_ctx, room_info: dict, depth: str = "quick"):
+        """Dispatch a call and run the unified agent in the room."""
+        if isinstance(session_ctx, InterviewContext):
+            handler = self.handle_unified_room(
                 room_info["room_name"],
                 room_info["agent_token"],
                 session_ctx,
             )
         else:
-            handler = self.handle_room(
+            # Legacy fallback for ScreeningContext / RecruiterContext
+            handler = self.handle_unified_room(
                 room_info["room_name"],
                 room_info["agent_token"],
                 session_ctx,
             )
+        sid = str(getattr(session_ctx, 'session_id', 'unknown'))
         task = asyncio.create_task(handler)
-        self._active_sessions[session_ctx.session_id] = task
+        self._active_sessions[sid] = task
         task.add_done_callback(
-            lambda t: self._active_sessions.pop(session_ctx.session_id, None)
+            lambda t: self._active_sessions.pop(sid, None)
         )
 
 
@@ -1099,6 +1237,13 @@ app = FastAPI(title="ARIA Voice Agent", version="1.0.0")
 sip_dispatcher = LiveKitSIPDispatcher()
 
 
+# Backward-compat mapping: legacy mode → new depth
+_MODE_TO_DEPTH = {
+    "screening": "quick",
+    "recruiter": "deep",
+}
+
+
 class DispatchRequest(BaseModel):
     session_id: int
     phone_number: str
@@ -1107,9 +1252,17 @@ class DispatchRequest(BaseModel):
     candidate_id: int
     jd_title: Optional[str] = None
     jd_must_have_skills: Optional[list] = None
-    mode: str = "screening"  # "screening" or "recruiter"
-    interview_strategy: Optional[dict] = None  # Only for recruiter mode
-    interview_config: Optional[dict] = None    # Only for recruiter mode
+    depth: str = "quick"     # "quick" | "standard" | "deep"
+    mode: Optional[str] = None  # DEPRECATED — maps to depth for backward compat
+    interview_strategy: Optional[dict] = None
+    interview_config: Optional[dict] = None
+
+    @property
+    def effective_depth(self) -> str:
+        """Resolve depth, falling back to legacy mode field."""
+        if self.mode and self.mode in _MODE_TO_DEPTH:
+            return _MODE_TO_DEPTH[self.mode]
+        return self.depth
 
 
 class DispatchResponse(BaseModel):
@@ -1142,36 +1295,27 @@ async def dispatch_call(req: DispatchRequest):
         backend = BackendClient()
         tenant_config = await backend.get_tenant_config(req.tenant_id)
 
-        # 3. Build context based on mode
-        if req.mode == "recruiter":
-            ctx = RecruiterContext(
-                session_id=str(req.session_id),
-                tenant_id=req.tenant_id,
-                candidate_id=req.candidate_id,
-                candidate_name=req.candidate_name,
-                phone_number=req.phone_number,
-                jd_title=req.jd_title or "",
-                interview_strategy=req.interview_strategy or {},
-                interview_config=req.interview_config or {},
-                target_duration_seconds=int((req.interview_config or {}).get("duration_minutes", 15)) * 60,
-            )
-        else:
-            ctx = ScreeningContext(
-                session_id=req.session_id,
-                tenant_id=req.tenant_id,
-                candidate_id=req.candidate_id,
-                candidate_name=req.candidate_name,
-                phone_number=req.phone_number,
-                jd_title=req.jd_title,
-                jd_must_have_skills=req.jd_must_have_skills or [],
-                bot_name=tenant_config.get("bot_name", DEFAULT_BOT_NAME),
-                greeting_style=tenant_config.get("greeting_style", DEFAULT_GREETING_STYLE),
-                call_duration_max=int(tenant_config.get("call_duration_max", 7)) * 60,
-                consent_script=tenant_config.get("consent_script"),
-            )
+        # 3. Build unified interview context
+        depth = req.effective_depth
+        ctx = InterviewContext(
+            session_id=str(req.session_id),
+            depth=InterviewDepth(depth),
+            candidate_name=req.candidate_name or "there",
+            company_name=tenant_config.get("company_name", "the company"),
+            jd_title=req.jd_title or "",
+            jd_must_have_skills=req.jd_must_have_skills or [],
+            strategy=req.interview_strategy,
+            interview_config=req.interview_config,
+            tenant_id=req.tenant_id,
+            candidate_id=req.candidate_id,
+            phone_number=req.phone_number,
+            bot_name=tenant_config.get("bot_name", DEFAULT_BOT_NAME),
+            greeting_style=tenant_config.get("greeting_style", DEFAULT_GREETING_STYLE),
+            consent_script=tenant_config.get("consent_script"),
+        )
 
         # 4. Launch agent worker in the room (non-blocking)
-        await worker.dispatch_and_run(ctx, room_info, mode=req.mode)
+        await worker.dispatch_and_run(ctx, room_info, depth=depth)
 
         return DispatchResponse(
             success=True,

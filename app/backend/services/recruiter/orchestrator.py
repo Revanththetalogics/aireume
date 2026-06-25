@@ -183,11 +183,36 @@ class RecruiterOrchestrator:
                 for e in entries
             ]
 
-        # Build question-response pairs from strategy + transcript (best-effort)
-        strategy = self._load_json(interview_session.interview_strategy_json, {})
-        questions_responses = self._pair_questions_responses(
-            strategy.get("questions", []), transcript
-        )
+        # ── Build question-response pairs ─────────────────────────────────────
+        # Prefer responses stored by the internal callback endpoint (which
+        # captures actual candidate answers). Fall back to deriving from
+        # strategy + transcript when the callback hasn't stored responses.
+        stored_questions = self.db.execute(
+            select(RecruiterInterviewQuestion)
+            .where(RecruiterInterviewQuestion.session_id == session_id)
+            .order_by(RecruiterInterviewQuestion.sequence_number.asc())
+        ).scalars().all()
+
+        if any(q.candidate_response for q in stored_questions):
+            # Use stored responses from the callback
+            questions_responses = [
+                {
+                    "sequence_number": q.sequence_number,
+                    "category": q.category,
+                    "question": q.question_text,
+                    "question_context": q.question_context or "",
+                    "response": q.candidate_response or "",
+                    "response_duration": q.response_duration_seconds,
+                    "is_follow_up": q.is_follow_up,
+                }
+                for q in stored_questions
+            ]
+        else:
+            # Fall back to deriving from strategy + transcript
+            strategy = self._load_json(interview_session.interview_strategy_json, {})
+            questions_responses = self._pair_questions_responses(
+                strategy.get("questions", []), transcript
+            )
 
         # Rebuild context
         context = self.context_engine.build_context(

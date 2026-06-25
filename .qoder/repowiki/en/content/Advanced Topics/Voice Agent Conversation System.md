@@ -3,13 +3,23 @@
 <cite>
 **Referenced Files in This Document**
 - [agent.py](file://app/voice_agent/agent.py)
+- [recruiter_conversation.py](file://app/voice_agent/recruiter_conversation.py)
 - [main.py](file://app/speech_service/main.py)
 - [voice.py](file://app/backend/routes/voice.py)
+- [recruiter.py](file://app/backend/routes/recruiter.py)
 - [voice_call_scheduler.py](file://app/backend/services/voice_call_scheduler.py)
 - [voice_screening_service.py](file://app/backend/services/voice_screening_service.py)
+- [orchestrator.py](file://app/backend/services/recruiter/orchestrator.py)
+- [context_engine.py](file://app/backend/services/recruiter/context_engine.py)
+- [strategy_agent.py](file://app/backend/services/recruiter/strategy_agent.py)
+- [evaluation_agents.py](file://app/backend/services/recruiter/evaluation_agents.py)
+- [recommendation_agent.py](file://app/backend/services/recruiter/recommendation_agent.py)
+- [auto_trigger.py](file://app/backend/services/recruiter/auto_trigger.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [VoiceScreeningPage.jsx](file://app/frontend/src/pages/VoiceScreeningPage.jsx)
+- [RecruiterInterviewPage.jsx](file://app/frontend/src/pages/RecruiterInterviewPage.jsx)
+- [InterviewInitiateModal.jsx](file://app/frontend/src/components/InterviewInitiateModal.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [VoiceScheduleModal.jsx](file://app/frontend/src/components/VoiceScheduleModal.jsx)
 - [livekit.yaml](file://app/voice_agent/livekit.yaml)
@@ -21,34 +31,36 @@
 
 ## Update Summary
 **Changes Made**
-- Fixed LiveKit callback compatibility issue by restructuring track subscription handling mechanism
-- Added synchronous wrapper function to bridge LiveKit's event system limitations while maintaining asynchronous audio processing capabilities
-- Enhanced track subscription event handling with proper async callback bridging
-- Improved audio processing pipeline reliability through better event system integration
-- Updated conversation flow to accommodate the new track subscription handling mechanism
+- Enhanced voice agent system with AI Recruiter integration for advanced structured interviews
+- Added sophisticated conversation state management with multi-dimensional assessment capabilities
+- Implemented automated interview initiation through AI Recruiter orchestration
+- Integrated advanced evaluation agents for technical, behavioral, and cultural assessments
+- Added comprehensive auto-trigger functionality for pipeline-driven interview scheduling
+- Enhanced frontend interfaces for AI Recruiter session management and configuration
 
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [System Architecture](#system-architecture)
 3. [Core Components](#core-components)
 4. [Voice Agent Implementation](#voice-agent-implementation)
-5. [Backend Services](#backend-services)
-6. [Database Schema](#database-schema)
-7. [Frontend Integration](#frontend-integration)
-8. [API Endpoints](#api-endpoints)
-9. [Conversation Flow](#conversation-flow)
-10. [Testing Framework](#testing-framework)
-11. [Deployment Architecture](#deployment-architecture)
-12. [Troubleshooting Procedures](#troubleshooting-procedures)
-13. [Conclusion](#conclusion)
+5. [AI Recruiter Integration](#ai-recruiter-integration)
+6. [Backend Services](#backend-services)
+7. [Database Schema](#database-schema)
+8. [Frontend Integration](#frontend-integration)
+9. [API Endpoints](#api-endpoints)
+10. [Conversation Flow](#conversation-flow)
+11. [Testing Framework](#testing-framework)
+12. [Deployment Architecture](#deployment-architecture)
+13. [Troubleshooting Procedures](#troubleshooting-procedures)
+14. [Conclusion](#conclusion)
 
 ## Introduction
 
 The Voice Agent Conversation System is an AI-powered phone screening solution designed to automate initial candidate interviews through intelligent voice conversations. Built as part of the Resume AI platform by ThetaLogics, this system combines advanced natural language processing, real-time audio processing, and sophisticated conversation management to deliver scalable recruitment screening capabilities.
 
-**Current Implementation Status**: Phase 1.4 - The system now implements a comprehensive voice agent with dual-component design (HTTP dispatch API + LiveKit Agent Worker), sophisticated state machine management, LiveKit telephony coordination, and integrated speech processing services. The system maintains full telephony integration readiness with comprehensive audio processing and conversation management capabilities.
+**Current Implementation Status**: Phase 2.0 - The system now implements a comprehensive AI Recruiter integration with advanced conversation state management, automated interview initiation capabilities, and sophisticated multi-dimensional assessment systems. The system maintains full telephony integration readiness with comprehensive audio processing, conversation management, and AI-powered evaluation capabilities.
 
-The system operates through a comprehensive dual-component architecture featuring a FastAPI HTTP dispatch server and LiveKit Agent Worker, coordinated with integrated speech processing services and Twilio SIP trunking. The platform supports both outbound calling and inbound callback scenarios, with configurable business hours, retry mechanisms, and compliance features.
+The system operates through a comprehensive dual-component architecture featuring a FastAPI HTTP dispatch server and LiveKit Agent Worker, coordinated with integrated speech processing services, Twilio SIP trunking, and AI Recruiter orchestration. The platform supports both outbound calling and inbound callback scenarios, with configurable business hours, retry mechanisms, compliance features, and advanced AI-powered interview capabilities.
 
 ## System Architecture
 
@@ -59,6 +71,7 @@ graph TB
 subgraph "Frontend Layer"
 FE[React Frontend]
 UI[Voice Screening UI]
+RI[AI Recruiter Interface]
 end
 subgraph "API Gateway"
 API[FastAPI Backend]
@@ -73,6 +86,14 @@ SC[Speech Service]
 BK[Backend API]
 LLM[Ollama Cloud LLM]
 end
+subgraph "AI Recruiter Services"
+ORCHESTRATOR[Recruiter Orchestrator]
+CONTEXT[Context Engine]
+STRATEGY[Strategy Agent]
+EVALUATORS[Evaluation Agents]
+RECOMMENDER[Recommendation Agent]
+AUTOTRIGGER[Auto Trigger]
+end
 subgraph "Infrastructure"
 DB[(PostgreSQL Database)]
 SCHED[APScheduler]
@@ -80,6 +101,7 @@ LOCK[PostgreSQL Advisory Lock]
 end
 FE --> API
 UI --> API
+RI --> API
 API --> DISPATCH
 DISPATCH --> WORKER
 WORKER --> LK
@@ -87,6 +109,12 @@ WORKER --> TWILIO
 WORKER --> SC
 WORKER --> BK
 WORKER --> LLM
+API --> ORCHESTRATOR
+ORCHESTRATOR --> CONTEXT
+ORCHESTRATOR --> STRATEGY
+ORCHESTRATOR --> EVALUATORS
+ORCHESTRATOR --> RECOMMENDER
+ORCHESTRATOR --> AUTOTRIGGER
 API --> DB
 API --> SCHED
 SCHED --> LOCK
@@ -95,20 +123,22 @@ SCHED --> LOCK
 **Diagram sources**
 - [agent.py:535-602](file://app/voice_agent/agent.py#L535-L602)
 - [agent.py:606-771](file://app/voice_agent/agent.py#L606-L771)
+- [orchestrator.py:35-155](file://app/backend/services/recruiter/orchestrator.py#L35-L155)
 - [voice_call_scheduler.py:34](file://app/backend/services/voice_call_scheduler.py#L34)
 - [voice_call_scheduler.py:518-603](file://app/backend/services/voice_call_scheduler.py#L518-L603)
 - [docker-compose.yml:110-175](file://docker-compose.yml#L110-L175)
 
-**Updated** The architecture now includes FastAPI HTTP dispatch server for initiating voice calls, LiveKit Agent Worker for real-time conversation management, Twilio SIP trunking for telephony coordination, and comprehensive speech processing services for audio handling. The LiveKit Server provides WebRTC SFU functionality with SIP trunking configuration support and enhanced network security through reduced port ranges. A PostgreSQL advisory lock mechanism ensures single-instance scheduler execution in multi-worker deployments.
+**Updated** The architecture now includes FastAPI HTTP dispatch server for initiating voice calls, LiveKit Agent Worker for real-time conversation management, Twilio SIP trunking for telephony coordination, comprehensive speech processing services for audio handling, and AI Recruiter orchestration services for advanced interview management. The AI Recruiter system includes specialized services for context building, strategy generation, evaluation, and recommendation. The LiveKit Server provides WebRTC SFU functionality with SIP trunking configuration support and enhanced network security through reduced port ranges. A PostgreSQL advisory lock mechanism ensures single-instance scheduler execution in multi-worker deployments.
 
-The architecture consists of six main layers:
+The architecture consists of seven main layers:
 
-1. **Presentation Layer**: React-based frontend with voice screening management interface
-2. **API Layer**: FastAPI backend providing RESTful endpoints for voice screening operations
+1. **Presentation Layer**: React-based frontend with voice screening management interface and AI Recruiter session management
+2. **API Layer**: FastAPI backend providing RESTful endpoints for voice screening and AI Recruiter operations
 3. **Dispatch Layer**: HTTP dispatch API that triggers call initiation and room creation
 4. **Agent Layer**: LiveKit Agent Worker that manages real-time voice conversations with audio processing
-5. **Telephony Layer**: LiveKit Server with Twilio SIP trunking for PSTN connectivity
-6. **Data Layer**: PostgreSQL database with specialized voice screening models and scheduling
+5. **AI Recruiter Layer**: Specialized services for advanced interview orchestration and evaluation
+6. **Telephony Layer**: LiveKit Server with Twilio SIP trunking for PSTN connectivity
+7. **Data Layer**: PostgreSQL database with specialized voice screening models, AI Recruiter sessions, and evaluation data
 
 ## Core Components
 
@@ -249,7 +279,7 @@ SpeechService --> VADClient
 
 ### Backend API Layer
 
-The backend API provides comprehensive voice screening functionality through RESTful endpoints. It handles tenant configuration, session management, scheduling, and integration with external services.
+The backend API provides comprehensive voice screening and AI Recruiter functionality through RESTful endpoints. It handles tenant configuration, session management, scheduling, and integration with external services.
 
 ```mermaid
 sequenceDiagram
@@ -306,325 +336,133 @@ Wait --> AcquireLock
 **Section sources**
 - [voice_call_scheduler.py:518-603](file://app/backend/services/voice_call_scheduler.py#L518-L603)
 
-## Voice Agent Implementation
+## AI Recruiter Integration
 
-### Dual-Component Architecture
+### Advanced Interview Orchestration
 
-The voice agent system implements a sophisticated dual-component design that separates call initiation from real-time conversation management.
+The AI Recruiter system provides sophisticated interview orchestration with multi-dimensional assessment capabilities and automated interview initiation.
+
+```mermaid
+classDiagram
+class RecruiterOrchestrator {
++initiate_interview(tenant_id, candidate_id, jd_id, config) str
++on_interview_completed(session_id) void
++get_session_status(session_id) dict
++cancel_interview(session_id) void
++retry_interview(session_id) str
+}
+class InterviewContextEngine {
++build_context(db, candidate_id, screening_result_id, jd_id) dict
++identify_probe_areas(context) list
+}
+class InterviewStrategyAgent {
++generate_strategy(context, config) dict
++_build_strategy_prompt(context, config) str
++_build_fallback_strategy(context, config) dict
+}
+class TechnicalEvaluator {
++evaluate(questions_responses, jd_context) dict
++_deterministic_fallback(questions_responses, required_skills) dict
+}
+class BehavioralEvaluator {
++evaluate(questions_responses, role_context) dict
++_deterministic_fallback(questions_responses) dict
+}
+class CommunicationEvaluator {
++evaluate(transcript, response_patterns) dict
+}
+class CulturalFitEvaluator {
++evaluate(questions_responses, company_context) dict
++_deterministic_fallback(questions_responses) dict
+}
+class RecommendationAgent {
++recommend(scorecard, adjusted_fitment, context) dict
+}
+class RecruiterAutoTrigger {
++evaluate_trigger(tenant_id, candidate_id, screening_result_id, new_status) bool
+}
+RecruiterOrchestrator --> InterviewContextEngine
+RecruiterOrchestrator --> InterviewStrategyAgent
+RecruiterOrchestrator --> TechnicalEvaluator
+RecruiterOrchestrator --> BehavioralEvaluator
+RecruiterOrchestrator --> CommunicationEvaluator
+RecruiterOrchestrator --> CulturalFitEvaluator
+RecruiterOrchestrator --> RecommendationAgent
+RecruiterOrchestrator --> RecruiterAutoTrigger
+```
+
+**Diagram sources**
+- [orchestrator.py:35-155](file://app/backend/services/recruiter/orchestrator.py#L35-L155)
+- [context_engine.py:19-106](file://app/backend/services/recruiter/context_engine.py#L19-L106)
+- [strategy_agent.py:18-67](file://app/backend/services/recruiter/strategy_agent.py#L18-L67)
+- [evaluation_agents.py:85-158](file://app/backend/services/recruiter/evaluation_agents.py#L85-158)
+- [recommendation_agent.py:9-88](file://app/backend/services/recruiter/recommendation_agent.py#L9-L88)
+- [auto_trigger.py:23-131](file://app/backend/services/recruiter/auto_trigger.py#L23-L131)
+
+**Updated** The AI Recruiter system now includes comprehensive interview orchestration with advanced context building, strategy generation, multi-dimensional evaluation, and recommendation synthesis. The system supports automated interview initiation based on pipeline triggers and provides sophisticated conversation state management for structured interviews.
+
+### AI Recruiter Conversation System
+
+The AI Recruiter conversation system implements advanced state management for multi-dimensional interviews with dynamic question adaptation and real-time evaluation.
 
 ```mermaid
 stateDiagram-v2
-[*] --> HTTP_DISPATCH
-HTTP_DISPATCH --> ROOM_CREATION
-ROOM_CREATION --> SIP_OUTBOUND
-SIP_OUTBOUND --> AGENT_WORKER_JOIN
-AGENT_WORKER_JOIN --> CONVERSATION_LOOP
-CONVERSATION_LOOP --> STATE_TRANSITION
-STATE_TRANSITION --> CONVERSATION_LOOP
-CONVERSATION_LOOP --> CALL_END
-CALL_END --> [*]
+[*] --> GREETING
+GREETING --> CONSENT
+CONSENT --> WARMUP
+WARMUP --> TECHNICAL
+TECHNICAL --> BEHAVIORAL
+BEHAVIORAL --> CULTURAL
+CULTURAL --> WRAP_UP
+WRAP_UP --> ANALYSIS
+ANALYSIS --> [*]
 ```
 
 **Diagram sources**
-- [agent.py:802-852](file://app/voice_agent/agent.py#L802-L852)
-- [agent.py:618-754](file://app/voice_agent/agent.py#L618-L754)
+- [recruiter_conversation.py:18-27](file://app/voice_agent/recruiter_conversation.py#L18-L27)
+- [recruiter_conversation.py:110-128](file://app/voice_agent/recruiter_conversation.py#L110-L128)
 
-**Updated** The dual-component architecture now includes comprehensive HTTP dispatch API for call initiation and LiveKit Agent Worker for real-time conversation management, with sophisticated state machine handling and error recovery. The system maintains full telephony integration readiness with comprehensive audio processing and conversation management capabilities.
+**Updated** The AI Recruiter conversation system now includes sophisticated state management with greeting, consent, warmup, technical assessment, behavioral evaluation, cultural fit assessment, wrap-up, and analysis phases. The system supports dynamic question flow, follow-up question generation, time management, and real-time answer quality detection with multi-dimensional assessment capabilities.
 
-### Enhanced LiveKit SIP Integration with Protobuf Methods
+**Section sources**
+- [recruiter_conversation.py:1-365](file://app/voice_agent/recruiter_conversation.py#L1-L365)
 
-The voice agent service integrates with LiveKit for comprehensive telephony coordination, providing SIP trunk registration and real-time audio processing capabilities through Twilio integration. The system now uses protobuf-based API methods for enhanced reliability and compatibility.
+### Automated Interview Initiation
 
-**Current Implementation Status**: Phase 1.4 - LiveKit integration is fully implemented with Twilio SIP trunking support. The system maintains conversation engine readiness with comprehensive audio processing and state management.
+The system now supports automated interview initiation through AI Recruiter orchestration with configurable trigger conditions and pipeline integration.
 
-**Updated** The LiveKit SIP dispatcher now implements a comprehensive three-tier approach for SIP trunk management using protobuf-based API methods:
-
-1. **Trunk Discovery**: Automatically lists existing SIP trunks and searches for Twilio matches using `ListSIPOutboundTrunkRequest`
-2. **API-Based Creation**: Creates new SIP outbound trunks via LiveKit API using `CreateSIPOutboundTrunkRequest` and `SIPOutboundTrunkInfo`
-3. **Environment Variable Fallback**: Uses SIP_TRUNK_ID as final fallback option
+**Automated Trigger Configuration**:
+- **Pipeline Stage**: Trigger based on candidate pipeline stage (e.g., "in_review")
+- **Fit Score Thresholds**: Minimum and maximum fit score ranges for auto-trigger
+- **Phone Number Validation**: Automatic phone number verification for call readiness
+- **JD Association**: Automatic job description assignment based on screening results
+- **Delay Scheduling**: Configurable delay before interview initiation
 
 ```mermaid
 flowchart TD
-Start([resolve_sip_trunk_id]) --> CheckCache{"Trunk ID Cached?"}
-CheckCache --> |Yes| ReturnCached["Return Cached Trunk ID"]
-CheckCache --> |No| ListTrunks["List Existing SIP Trunks"]
-ListTrunks --> FindMatch{"Find Twilio Match?"}
-FindMatch --> |Found| CacheAndReturn["Cache & Return Trunk ID"]
-FindMatch --> |Not Found| CreateTrunk["Create SIP Trunk via API"]
-CreateTrunk --> CreateSuccess{"Creation Success?"}
-CreateSuccess --> |Yes| CacheAndReturn
-CreateSuccess --> |No| EnvFallback["Use SIP_TRUNK_ID Fallback"]
-EnvFallback --> CacheAndReturn
-ReturnCached --> End([Complete])
-CacheAndReturn --> End
+AutoTrigger[Auto Trigger Evaluation] --> CheckEnabled{"Auto-trigger Enabled?"}
+CheckEnabled --> |No| ManualTrigger[Manual Trigger]
+CheckEnabled --> |Yes| CheckStage{"Matches Pipeline Stage?"}
+CheckStage --> |No| ManualTrigger
+CheckStage --> |Yes| CheckScore{"Fit Score in Range?"}
+CheckScore --> |No| ManualTrigger
+CheckScore --> |Yes| CheckPhone{"Candidate Has Phone?"}
+CheckPhone --> |No| ManualTrigger
+CheckPhone --> |Yes| CheckJD{"Has Job Description?"}
+CheckJD --> |No| ManualTrigger
+CheckJD --> |Yes| InitiateInterview[Initiate AI Interview]
+InitiateInterview --> ScheduleCall[Schedule Voice Call]
+ScheduleCall --> CreateSession[Create Interview Session]
+CreateSession --> StartConversation[Start AI Recruiter Conversation]
 ```
 
 **Diagram sources**
-- [agent.py:544-592](file://app/voice_agent/agent.py#L544-L592)
+- [auto_trigger.py:29-131](file://app/backend/services/recruiter/auto_trigger.py#L29-L131)
 
-**Updated** Enhanced LiveKit SIP dispatcher now includes automatic trunk ID resolution, eliminating the need for manual trunk ID configuration. The system automatically discovers and matches the correct SIP trunk based on Twilio outbound address or configured name/id. The three-tier approach ensures robust SIP trunk management with comprehensive error handling and fallback mechanisms.
-
-**Section sources**
-- [agent.py:544-592](file://app/voice_agent/agent.py#L544-L592)
-
-### SIP Signaling Configuration
-
-The system now implements comprehensive SIP signaling configuration for telephony integration with external providers like Twilio. The LiveKit Server configuration includes proper SIP port exposure and programmatic trunk management capabilities.
-
-**SIP Configuration Details**:
-- **Port Exposure**: LiveKit Server exposes port 5060 for SIP signaling
-- **Programmatic Management**: SIP trunks are managed via LiveKit API rather than YAML configuration
-- **External Provider Support**: Twilio PSTN connectivity through SIP trunking
-- **Fallback Mechanisms**: Environment variable-based trunk ID resolution
-
-```mermaid
-flowchart TD
-SIPConfig[SIP Configuration] --> Port5060["Port 5060 Exposure"]
-SIPConfig --> Programmatic["Programmatic Trunk Management"]
-SIPConfig --> ExternalProviders["External Provider Integration"]
-Port5060 --> Twilio["Twilio PSTN Connectivity"]
-Programmatic --> AutoDiscovery["Automatic Trunk Discovery"]
-Programmatic --> APICreation["API-Based Trunk Creation"]
-ExternalProviders --> PSTN["PSTN Connectivity"]
-AutoDiscovery --> TwilioMatch["Twilio Trunk Matching"]
-APICreation --> TwilioTrunk["Twilio Trunk Creation"]
-TwilioMatch --> SIPParticipant["SIP Participant Creation"]
-TwilioTrunk --> SIPParticipant
-```
-
-**Diagram sources**
-- [livekit.yaml:29-34](file://app/voice_agent/livekit.yaml#L29-L34)
-- [agent.py:594-646](file://app/voice_agent/agent.py#L594-L646)
+**Updated** The automated interview initiation system now includes comprehensive trigger evaluation with pipeline stage matching, fit score threshold validation, phone number verification, and job description association. The system supports configurable delay scheduling and provides robust error handling for failed auto-trigger attempts.
 
 **Section sources**
-- [livekit.yaml:29-34](file://app/voice_agent/livekit.yaml#L29-L34)
-- [agent.py:594-646](file://app/voice_agent/agent.py#L594-L646)
-
-### Enhanced Phone Number Normalization
-
-The system now implements robust phone number normalization for proper Twilio E.164 integration, ensuring compatibility with external telephony providers.
-
-**Phone Number Processing**:
-- **E.164 Compliance**: Converts international phone numbers to standardized format
-- **Character Filtering**: Removes spaces, dashes, parentheses, and other non-numeric characters
-- **Validation**: Ensures only digits and plus signs remain for Twilio compatibility
-- **Error Handling**: Graceful degradation when normalization fails
-
-```mermaid
-flowchart TD
-PhoneNumberInput["Raw Phone Number Input"] --> FilterCharacters["Filter Non-Numeric Characters"]
-FilterCharacters --> KeepPlus["+ Sign Preservation"]
-KeepPlus --> ValidateFormat["Validate E.164 Format"]
-ValidateFormat --> TwilioReady["Twilio-Compatible E.164 Number"]
-TwilioReady --> SIPParticipant["Create SIP Participant Request"]
-```
-
-**Diagram sources**
-- [agent.py:664-667](file://app/voice_agent/agent.py#L664-L667)
-
-**Updated** Enhanced phone number normalization now uses sophisticated regex filtering to convert any international phone number format to proper E.164 format. The system strips all non-numeric characters except the plus sign, ensuring compatibility with Twilio's requirements. This enhancement resolves previous integration issues with external telephony providers.
-
-**Section sources**
-- [agent.py:664-667](file://app/voice_agent/agent.py#L664-L667)
-
-### LLM Integration with Ollama Cloud
-
-The voice agent integrates with Ollama Cloud for advanced language model processing, providing intelligent conversation responses and screening analysis.
-
-**LLM Configuration**:
-- Base URL: https://ollama.com
-- Model: gemma4:31b-cloud
-- API Key: Environment variable support
-- Integration Points: Response generation, screening question creation, assessment analysis
-
-```mermaid
-classDiagram
-class LLMClient {
-+string base_url
-+string api_key
-+string model
-+chat(system_prompt, user_message, history) string
-+generate_screening_questions(jd_title, skills) list
-+process_assessment(transcript, questions) dict
-}
-class OllamaIntegration {
-+initialize_client() void
-+validate_connection() bool
-+process_query(prompt) string
-+handle_rate_limit() void
-}
-LLMClient --> OllamaIntegration
-```
-
-**Diagram sources**
-- [agent.py:157-215](file://app/voice_agent/agent.py#L157-L215)
-
-**Section sources**
-- [agent.py:157-215](file://app/voice_agent/agent.py#L157-L215)
-
-### Enhanced Tenant Configuration Integration
-
-The voice agent now integrates with comprehensive tenant configuration management, providing flexible customization options for voice screening operations.
-
-**Enhanced Configuration Parameters**:
-- `bot_name`: Customizable voice agent name (default: "ARIA Assistant")
-- `greeting_style`: Professional, casual, or friendly greeting styles
-- `call_duration_max`: Maximum call duration in seconds (default: 420 seconds)
-- `consent_script`: Custom consent recording script for compliance
-- `call_duration_min`: Minimum call duration for compliance requirements
-
-```mermaid
-classDiagram
-class VoiceTenantConfig {
-+int id
-+int tenant_id
-+string bot_name
-+string greeting_style
-+int call_duration_min
-+int call_duration_max
-+string consent_script
-+string assessment_detail_level
-+boolean auto_update_status
-}
-class ConfigurationManager {
-+get_tenant_config(tenant_id) VoiceTenantConfig
-+update_config(config_updates) VoiceTenantConfig
-+validate_business_hours(start, end) bool
-+apply_timezone_adjustments() void
-}
-VoiceTenantConfig --> ConfigurationManager
-```
-
-**Diagram sources**
-- [db_models.py:875-901](file://app/backend/models/db_models.py#L875-L901)
-- [voice_screening_service.py:284-347](file://app/backend/services/voice_screening_service.py#L284-L347)
-
-**Section sources**
-- [db_models.py:875-901](file://app/backend/models/db_models.py#L875-L901)
-- [voice_screening_service.py:284-347](file://app/backend/services/voice_screening_service.py#L284-L347)
-
-### Enhanced Transcript Management
-
-The system now implements unified transcript management through the `transcript_json` field, providing comprehensive JSON storage for all conversation data.
-
-**Transcript Data Structure**:
-- Unified JSON array containing all conversation entries
-- Automatic timestamp tracking for each transcript segment
-- Audio URL storage for individual speaker turns
-- Seamless integration with assessment generation
-
-```mermaid
-classDiagram
-class VoiceScreeningSession {
-+int id
-+int tenant_id
-+int candidate_id
-+string transcript_json
-+string assessment_json
-+int duration_seconds
-+boolean consent_recorded
-}
-class TranscriptEntry {
-+int id
-+int session_id
-+string speaker
-+string text
-+datetime timestamp
-+string audio_url
-}
-VoiceScreeningSession --> TranscriptEntry
-```
-
-**Diagram sources**
-- [db_models.py:907-960](file://app/backend/models/db_models.py#L907-L960)
-- [voice_screening_service.py:352-408](file://app/backend/services/voice_screening_service.py#L352-L408)
-
-**Section sources**
-- [db_models.py:907-960](file://app/backend/models/db_models.py#L907-L960)
-- [voice_screening_service.py:352-408](file://app/backend/services/voice_screening_service.py#L352-L408)
-
-### Edge Case Handling
-
-The system includes robust edge case detection and handling mechanisms to manage various conversation scenarios gracefully:
-
-- **Silence Detection**: Identifies periods of silence and prompts for response
-- **Unclear Responses**: Handles brief or ambiguous answers with follow-up questions
-- **Rescheduling Requests**: Manages candidate requests to reschedule calls
-- **Compensation Questions**: Redirects salary/benefits inquiries to appropriate channels
-- **AI Detection**: Responds appropriately when candidates question if they're speaking to AI
-- **Call End Conditions**: Graceful termination based on time budget and user requests
-
-**Updated** Enhanced edge case handling now includes sophisticated rescheduling request detection during conversation flow, allowing candidates to request rescheduling through natural language prompts.
-
-**Section sources**
-- [agent.py:375-412](file://app/voice_agent/agent.py#L375-L412)
-
-### Enhanced Audio Processing Pipeline
-
-The system implements sophisticated audio processing with enhanced WAV header stripping and proper PCM frame creation for LiveKit integration using protobuf-based audio frame creation.
-
-**Audio Processing Pipeline**:
-- Enhanced WAV header stripping to extract raw PCM samples
-- Proper AudioFrame creation with correct sample rates and channel counts using protobuf
-- Sophisticated error handling for audio capture operations
-- Graceful degradation when audio processing fails
-
-```mermaid
-flowchart TD
-AudioInput["Audio Bytes from Speech Service"] --> StripHeader["Enhanced WAV Header Stripping"]
-StripHeader --> CheckPCM{"Is PCM Data?"}
-CheckPCM --> |Yes| CreateFrame["Create AudioFrame with Protobuf"]
-CheckPCM --> |No| ExtractPCM["Extract PCM from WAV"]
-ExtractPCM --> CreateFrame
-CreateFrame --> ValidateFrame["Validate Frame Data"]
-ValidateFrame --> PublishAudio["Publish to LiveKit"]
-PublishAudio --> CaptureFrame["Capture Frame to Audio Source"]
-CaptureFrame --> ErrorHandling{"Error Occurred?"}
-ErrorHandling --> |Yes| LogWarning["Log Warning & Continue"]
-ErrorHandling --> |No| Success["Audio Published Successfully"]
-LogWarning --> Continue["Continue Conversation"]
-Success --> Continue
-```
-
-**Diagram sources**
-- [agent.py:647-692](file://app/voice_agent/agent.py#L647-L692)
-
-**Updated** The audio processing system now includes comprehensive WAV header stripping and proper PCM frame creation. The `_strip_wav_header()` function extracts raw PCM samples from WAV files, while `_publish_audio()` creates proper AudioFrame objects with correct sample rates and channel configurations using protobuf-based methods. Sophisticated error handling ensures graceful degradation when audio capture operations fail.
-
-**Section sources**
-- [agent.py:647-692](file://app/voice_agent/agent.py#L647-L692)
-
-### LiveKit Track Subscription Event Handling
-
-**Updated** The voice agent system now implements a robust track subscription handling mechanism that bridges LiveKit's event system limitations with asynchronous audio processing capabilities.
-
-**LiveKit Callback Compatibility Fix**:
-- **Problem**: LiveKit's `.on()` method does not support async callbacks, causing audio processing to fail
-- **Solution**: Implemented synchronous wrapper function using `asyncio.create_task()` to bridge the event system gap
-- **Mechanism**: `on_track_subscribed()` function wraps async `_process_track()` in a task for proper event handling
-- **Maintains**: Full asynchronous audio processing capabilities while ensuring event system compatibility
-
-```mermaid
-flowchart TD
-LiveKitEvent[LiveKit track_subscribed Event] --> SyncWrapper[on_track_subscribed Sync Wrapper]
-SyncWrapper --> AsyncTask[asyncio.create_task]
-AsyncTask --> ProcessTrack[_process_track Async Function]
-ProcessTrack --> AudioStream[rtc.AudioStream]
-AudioStream --> AsyncLoop[Async Event Loop]
-AsyncLoop --> AudioProcessing[Audio Processing Pipeline]
-AudioProcessing --> Transcription[Speech Transcription]
-Transcription --> ResponseGeneration[Response Generation]
-ResponseGeneration --> AudioSynthesis[Audio Synthesis]
-AudioSynthesis --> AudioPlayback[Audio Playback]
-```
-
-**Diagram sources**
-- [agent.py:775-831](file://app/voice_agent/agent.py#L775-L831)
-
-**Updated** The track subscription handling mechanism now includes a sophisticated synchronous wrapper that addresses LiveKit's event system limitations. The `on_track_subscribed()` function serves as a bridge between LiveKit's synchronous event system and the agent's asynchronous audio processing pipeline. This ensures reliable audio track subscription handling while maintaining the full benefits of asynchronous processing for speech recognition and synthesis operations.
-
-**Section sources**
-- [agent.py:775-831](file://app/voice_agent/agent.py#L775-L831)
+- [auto_trigger.py:1-156](file://app/backend/services/recruiter/auto_trigger.py#L1-L156)
 
 ## Backend Services
 
@@ -684,6 +522,48 @@ The voice screening service provides core business logic for conversation contex
 
 **Section sources**
 - [voice_screening_service.py](file://app/backend/services/voice_screening_service.py)
+
+### AI Recruiter Orchestrator
+
+The AI Recruiter orchestrator provides comprehensive interview management with advanced context building, strategy generation, evaluation, and recommendation capabilities.
+
+**Enhanced Interview Management**:
+- Multi-tenancy support with tenant-scoped access control
+- Dynamic interview strategy generation with LLM integration
+- Comprehensive evaluation pipeline with multi-dimensional scoring
+- Automated interview initiation with pipeline integration
+- Structured scorecard generation with evidence tracking
+- Real-time session status monitoring and management
+
+```mermaid
+sequenceDiagram
+participant Client as "Recruiter Client"
+participant Orchestrator as "Recruiter Orchestrator"
+participant Context as "Context Engine"
+participant Strategy as "Strategy Agent"
+participant LLM as "LLM Service"
+participant Voice as "Voice Infrastructure"
+Client->>Orchestrator : Initiate Interview
+Orchestrator->>Context : Build Interview Context
+Context->>Context : Load Candidate & JD Data
+Context->>Strategy : Generate Strategy
+Strategy->>LLM : Generate Interview Plan
+LLM-->>Strategy : Return Strategy JSON
+Strategy-->>Orchestrator : Strategy Object
+Orchestrator->>Voice : Schedule Voice Call
+Voice-->>Orchestrator : Voice Session Created
+Orchestrator->>Orchestrator : Store Interview Session
+Client->>Orchestrator : Get Session Status
+Orchestrator-->>Client : Session Details
+```
+
+**Diagram sources**
+- [orchestrator.py:43-155](file://app/backend/services/recruiter/orchestrator.py#L43-L155)
+
+**Updated** The AI Recruiter orchestrator now includes comprehensive interview management with advanced context building, strategy generation, evaluation pipeline, and automated interview initiation. The system supports multi-tenancy, dynamic strategy generation, structured evaluation, and real-time session monitoring.
+
+**Section sources**
+- [orchestrator.py:1-429](file://app/backend/services/recruiter/orchestrator.py#L1-L429)
 
 ## Database Schema
 
@@ -746,20 +626,96 @@ timestamp timestamp
 string audio_url
 timestamp created_at
 }
+RECRUITER_INTERVIEW_SESSIONS {
+string id PK
+int tenant_id FK
+int candidate_id FK
+int jd_id FK
+string voice_session_id FK
+string trigger_type
+string status
+timestamp started_at
+timestamp ended_at
+int duration_seconds
+string interview_strategy_json
+string interview_config_json
+int created_by FK
+timestamp created_at
+timestamp updated_at
+}
+RECRUITER_INTERVIEW_QUESTIONS {
+string id PK
+string session_id FK
+int sequence_number
+string category
+text question_text
+text question_context
+text candidate_response
+float response_duration_seconds
+text evaluation_json
+boolean is_follow_up
+string parent_question_id FK
+timestamp created_at
+}
+RECRUITER_SCORECARDS {
+string id PK
+string session_id FK
+int tenant_id FK
+int candidate_id FK
+int technical_score
+text technical_evidence
+int behavioral_score
+text behavioral_evidence
+int communication_score
+text communication_evidence
+int cultural_fit_score
+text cultural_fit_evidence
+text risk_signals_validated
+text gaps_explained
+int original_fit_score
+int adjusted_fit_score
+text adjustment_reasoning
+int overall_score
+string confidence_level
+string recommendation
+text recommendation_reasoning
+text executive_summary
+timestamp created_at
+timestamp updated_at
+}
+RECRUITER_AUTO_TRIGGER_CONFIGS {
+string id PK
+int tenant_id FK
+boolean enabled
+string trigger_pipeline_stage
+int min_fit_score_threshold
+int max_fit_score_threshold
+int auto_schedule_delay_minutes
+int interview_duration_target
+text focus_areas
+timestamp created_at
+timestamp updated_at
+}
 TENANTS ||--o{ VOICE_TENANT_CONFIGS : has
 CANDIDATES ||--o{ VOICE_SCREENING_SESSIONS : screens
 ROLE_TEMPLATES ||--o{ VOICE_SCREENING_SESSIONS : targets
 VOICE_SCREENING_SESSIONS ||--o{ VOICE_TRANSCRIPT_ENTRIES : contains
 VOICE_SCREENING_SESSIONS }o--|| VOICE_SCREENING_SESSIONS : callback_of
+TENANTS ||--o{ RECRUITER_INTERVIEW_SESSIONS : has
+CANDIDATES ||--o{ RECRUITER_INTERVIEW_SESSIONS : participates
+ROLE_TEMPLATES ||--o{ RECRUITER_INTERVIEW_SESSIONS : targets
+RECRUITER_INTERVIEW_SESSIONS ||--o{ RECRUITER_INTERVIEW_QUESTIONS : contains
+RECRUITER_INTERVIEW_SESSIONS ||--|| RECRUITER_SCORECARDS : produces
+TENANTS ||--o{ RECRUITER_AUTO_TRIGGER_CONFIGS : has
 ```
 
 **Diagram sources**
-- [db_models.py:875-961](file://app/backend/models/db_models.py#L875-L961)
+- [db_models.py:875-1090](file://app/backend/models/db_models.py#L875-L1090)
 
-**Updated** The database schema now includes enhanced job description ID tracking capabilities, allowing for improved session management and reporting features. The unified `transcript_json` field provides comprehensive storage for all conversation data.
+**Updated** The database schema now includes comprehensive AI Recruiter support with dedicated tables for interview sessions, questions, scorecards, and auto-trigger configurations. The unified `transcript_json` field provides comprehensive storage for all conversation data, while the new AI Recruiter tables support structured interview management, evaluation tracking, and automated scheduling capabilities.
 
 **Section sources**
-- [db_models.py:875-961](file://app/backend/models/db_models.py#L875-L961)
+- [db_models.py:875-1090](file://app/backend/models/db_models.py#L875-L1090)
 
 ## Frontend Integration
 
@@ -775,6 +731,12 @@ SESSION_LIST[Session List]
 SETTINGS[Configuration Settings]
 ASSESSMENT[Assessment Viewer]
 end
+subgraph "AI Recruiter Interface"
+INITIATE[Interview Initiate Modal]
+SESSION_MANAGEMENT[Session Management]
+ANALYTICS[Analytics Dashboard]
+CONFIGURATION[Auto-Trigger Config]
+end
 subgraph "Real-time Features"
 LIVE_STATUS[Live Status Updates]
 AUTO_REFRESH[Auto-refresh]
@@ -787,6 +749,9 @@ JD_ASSOCIATION[JD Association]
 end
 SCHED --> SESSION_LIST
 SESSION_LIST --> ASSESSMENT
+INITIATE --> SESSION_MANAGEMENT
+SESSION_MANAGEMENT --> ANALYTICS
+CONFIGURATION --> SESSION_MANAGEMENT
 SETTINGS --> LIVE_STATUS
 LIVE_STATUS --> AUTO_REFRESH
 AUTO_REFRESH --> NOTIFICATIONS
@@ -796,15 +761,53 @@ PHONE_VALIDATION --> JD_ASSOCIATION
 
 **Diagram sources**
 - [VoiceScreeningPage.jsx:147-696](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L147-L696)
+- [RecruiterInterviewPage.jsx:92-565](file://app/frontend/src/pages/RecruiterInterviewPage.jsx#L92-L565)
 
-**Updated** Enhanced frontend integration now includes improved rescheduling capabilities with job description ID tracking, allowing recruiters to easily reschedule calls with proper job association. The configuration interface now supports comprehensive tenant customization options.
+**Updated** Enhanced frontend integration now includes comprehensive AI Recruiter session management with interview initiation modal, session tracking, analytics dashboard, and auto-trigger configuration. The interface supports both traditional voice screening and advanced AI Recruiter interview capabilities with unified session management and real-time status monitoring.
 
 **Section sources**
 - [VoiceScreeningPage.jsx:1-786](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L1-L786)
+- [RecruiterInterviewPage.jsx:1-565](file://app/frontend/src/pages/RecruiterInterviewPage.jsx#L1-L565)
+
+### Interview Initiate Modal
+
+The AI Recruiter interview initiation modal provides a streamlined interface for starting new structured interviews with candidate and job description selection.
+
+**Enhanced Interview Initiation Features**:
+- Candidate selection with comprehensive candidate listing
+- Job description template selection
+- Duration configuration (10-60 minutes)
+- Focus area specification for interview customization
+- Real-time validation and error handling
+- Loading states and user feedback
+
+```mermaid
+flowchart TD
+InitiateModal[Interview Initiate Modal] --> LoadData["Load Candidates & Templates"]
+LoadData --> CandidateSelect["Select Candidate"]
+CandidateSelect --> JDSelect["Select Job Description"]
+JDSelect --> DurationConfig["Configure Duration"]
+DurationConfig --> FocusAreas["Set Focus Areas"]
+FocusAreas --> ValidateData["Validate Selections"]
+ValidateData --> Valid{"Valid Selections?"}
+Valid --> |Yes| SubmitInterview["Submit Interview Request"]
+Valid --> |No| ShowErrors["Show Validation Errors"]
+ShowErrors --> CandidateSelect
+SubmitInterview --> Success["Show Success Message"]
+Success --> CloseModal["Close Modal & Refresh"]
+```
+
+**Diagram sources**
+- [InterviewInitiateModal.jsx:17-54](file://app/frontend/src/components/InterviewInitiateModal.jsx#L17-L54)
+
+**Updated** The interview initiation modal now includes comprehensive AI Recruiter support with candidate selection, job description template selection, duration configuration, and focus area specification. The interface provides real-time validation, error handling, and user feedback for a seamless interview initiation experience.
+
+**Section sources**
+- [InterviewInitiateModal.jsx:1-178](file://app/frontend/src/components/InterviewInitiateModal.jsx#L1-L178)
 
 ## API Endpoints
 
-The backend exposes a comprehensive set of RESTful endpoints for voice screening operations:
+The backend exposes a comprehensive set of RESTful endpoints for voice screening and AI Recruiter operations:
 
 ### Voice Settings Management
 - `GET /api/voice/settings` - Retrieve tenant voice screening configuration
@@ -820,14 +823,28 @@ The backend exposes a comprehensive set of RESTful endpoints for voice screening
 - `POST /api/voice/sessions/{id}/reschedule` - **Enhanced** Reschedule a call with job description ID tracking
 - `POST /api/voice/sessions/{id}/cancel` - Cancel a scheduled call
 
+### AI Recruiter Management
+- `POST /api/recruiter/sessions` - **New** Initiate AI Recruiter interview session
+- `GET /api/recruiter/sessions` - **New** List AI Recruiter sessions
+- `GET /api/recruiter/sessions/{session_id}` - **New** Get AI Recruiter session details
+- `GET /api/recruiter/sessions/{session_id}/transcript` - **New** Get AI Recruiter session transcript
+- `GET /api/recruiter/sessions/{session_id}/scorecard` - **New** Get AI Recruiter session scorecard
+- `POST /api/recruiter/sessions/{session_id}/cancel` - **New** Cancel AI Recruiter session
+- `POST /api/recruiter/sessions/{session_id}/retry` - **New** Retry failed AI Recruiter session
+- `GET /api/recruiter/config` - **New** Get auto-trigger configuration
+- `PUT /api/recruiter/config` - **New** Update auto-trigger configuration
+- `GET /api/recruiter/analytics` - **New** Get AI Recruiter analytics
+- `POST /api/recruiter/sessions/export` - **New** Export AI Recruiter sessions
+
 ### Internal Service Endpoints
 - `GET /api/voice/internal/config/{tenant_id}` - Internal tenant config access
 - `GET /api/voice/internal/candidate/{tenant_id}/{candidate_id}` - Internal candidate info access
 
-**Updated** Enhanced rescheduling endpoint now supports job description ID tracking and improved error handling for rescheduling operations. The internal configuration endpoint now includes comprehensive tenant settings including bot name, greeting style, and consent script.
+**Updated** Enhanced rescheduling endpoint now supports job description ID tracking and improved error handling for rescheduling operations. The AI Recruiter endpoints provide comprehensive interview management capabilities including session initiation, monitoring, evaluation, and analytics. The internal configuration endpoint now includes comprehensive tenant settings including bot name, greeting style, and consent script. New auto-trigger configuration endpoints support pipeline-driven interview scheduling with configurable thresholds and delays.
 
 **Section sources**
 - [voice.py:47-385](file://app/backend/routes/voice.py#L47-L385)
+- [recruiter.py:1-704](file://app/backend/routes/recruiter.py#L1-L704)
 
 ## Conversation Flow
 
@@ -862,10 +879,47 @@ VoiceAgent->>Backend : Update session status
 **Diagram sources**
 - [agent.py:431-485](file://app/voice_agent/agent.py#L431-L485)
 
-**Updated** The conversation flow now includes enhanced rescheduling request detection and processing, allowing candidates to request rescheduling through natural language prompts with proper job description ID tracking. The system now enforces configurable call duration limits and applies customized consent scripts.
+**Updated** The conversation flow now includes enhanced rescheduling capabilities with job description ID tracking and improved error handling for rescheduling operations. The system enforces configurable call duration limits and applies customized consent scripts. The AI Recruiter conversation flow includes sophisticated state management with greeting, consent, warmup, technical assessment, behavioral evaluation, cultural fit assessment, wrap-up, and analysis phases with dynamic question adaptation and multi-dimensional evaluation.
 
 **Section sources**
 - [agent.py:431-485](file://app/voice_agent/agent.py#L431-L485)
+
+### AI Recruiter Conversation Flow
+
+The AI Recruiter conversation flow implements advanced state management for structured multi-dimensional interviews.
+
+```mermaid
+sequenceDiagram
+participant Candidate as "Candidate"
+participant RecruiterAgent as "AI Recruiter Agent"
+participant Strategy as "Interview Strategy"
+participant LLM as "Evaluation LLM"
+participant Backend as "Backend API"
+Candidate->>RecruiterAgent : Call connects
+RecruiterAgent->>Strategy : Load Interview Strategy
+RecruiterAgent->>Candidate : Greeting & Consent
+loop Assessment Phases
+Candidate->>RecruiterAgent : Answer Question
+RecruiterAgent->>LLM : Evaluate Response Quality
+LLM->>RecruiterAgent : Response Quality Score
+RecruiterAgent->>Strategy : Determine Next Question
+Strategy->>RecruiterAgent : Next Question Text
+RecruiterAgent->>Candidate : Ask Next Question
+end
+RecruiterAgent->>Backend : Generate Scorecard
+Backend->>LLM : Synthesize Recommendation
+LLM->>Backend : Final Recommendation
+Backend->>Candidate : Wrap-up Message
+Backend->>Backend : Update Session Status
+```
+
+**Diagram sources**
+- [recruiter_conversation.py:86-365](file://app/voice_agent/recruiter_conversation.py#L86-L365)
+
+**Updated** The AI Recruiter conversation flow includes sophisticated state management with greeting, consent, warmup, technical assessment, behavioral evaluation, cultural fit assessment, wrap-up, and analysis phases. The system supports dynamic question flow based on candidate responses, multi-dimensional evaluation with real-time quality assessment, and automated interview completion with structured scorecard generation.
+
+**Section sources**
+- [recruiter_conversation.py:86-365](file://app/voice_agent/recruiter_conversation.py#L86-L365)
 
 ## Testing Framework
 
@@ -884,6 +938,10 @@ The voice screening system includes comprehensive testing coverage through unit 
 - **SIP Trunk Management**: Programmatic SIP trunk resolution and creation with protobuf methods
 - **Phone Number Normalization**: E.164 compliance and Twilio integration testing
 - **LiveKit Event Handling**: Track subscription event handling with async callback bridging
+- **AI Recruiter Integration**: Interview orchestration, strategy generation, and evaluation testing
+- **Auto-Trigger Functionality**: Pipeline-driven interview initiation and configuration testing
+- **Multi-Dimensional Assessment**: Technical, behavioral, communication, and cultural fit evaluation testing
+- **Recommendation System**: Overall score calculation and recommendation synthesis testing
 
 ### Test Scenarios
 - Configuration validation and defaults
@@ -892,14 +950,15 @@ The voice screening system includes comprehensive testing coverage through unit 
 - Business hour adjustments
 - Assessment structure validation
 - **Enhanced** Rescheduling operation validation with job description ID tracking
-- **New** Tenant configuration integration testing
-- **New** Advisory lock mechanism validation
-- **New** Enhanced audio processing error handling testing
-- **New** SIP trunk management with protobuf-based API methods testing
-- **New** Phone number normalization and E.164 compliance validation
-- **New** LiveKit track subscription event handling validation with async callback bridging
+- **New** AI Recruiter session initiation and management testing
+- **New** Interview strategy generation with LLM integration testing
+- **New** Multi-dimensional evaluation pipeline testing
+- **New** Auto-trigger configuration and pipeline integration testing
+- **New** Scorecard generation and recommendation synthesis testing
+- **New** Conversation state management and dynamic question flow testing
+- **New** Follow-up question generation and response quality assessment testing
 
-**Updated** Testing framework now includes comprehensive validation for enhanced rescheduling capabilities with job description ID tracking and improved error handling. New test coverage includes tenant configuration integration with bot name, greeting style, and consent script validation. Additional tests cover advisory lock mechanism functionality, enhanced audio processing error handling, and SIP trunk management with programmatic creation and discovery using protobuf methods. Phone number normalization testing ensures proper E.164 compliance for Twilio integration. LiveKit event handling testing validates the synchronous wrapper function that bridges event system limitations with asynchronous audio processing capabilities.
+**Updated** Testing framework now includes comprehensive validation for AI Recruiter integration with interview orchestration, strategy generation, multi-dimensional evaluation, and recommendation synthesis. New test coverage includes auto-trigger functionality with pipeline integration, conversation state management with dynamic question adaptation, and sophisticated evaluation agents for technical, behavioral, communication, and cultural fit assessment. Enhanced testing covers AI-powered interview initiation, structured scorecard generation, and automated interview scheduling capabilities.
 
 **Section sources**
 - [test_voice_screening.py:1-871](file://app/backend/tests/test_voice_screening.py#L1-L871)
@@ -913,11 +972,15 @@ graph TB
 subgraph "Docker Compose Services"
 BACKEND[Backend Service]
 VOICE_AGENT[Voice Agent Service]
+AI_RECRUITER[AI Recruiter Service]
 SPEECH_SERVICE[Speech Service]
 DATABASE[(PostgreSQL Database)]
 REDIS[(Redis Cache)]
 SCHEDULER[APScheduler]
 LOCK[PostgreSQL Advisory Lock]
+LLM[Ollama Cloud LLM]
+LIVESERVER[LiveKit Server]
+TWILIO[Twilio SIP Trunk]
 end
 subgraph "External Dependencies"
 LLM[Ollama Cloud LLM]
@@ -933,6 +996,9 @@ VOICE_AGENT --> SPEECH_SERVICE
 VOICE_AGENT --> LLM
 VOICE_AGENT --> LIVESERVER
 VOICE_AGENT --> TWILIO
+AI_RECRUITER --> BACKEND
+AI_RECRUITER --> LLM
+AI_RECRUITER --> VOICE_AGENT
 BACKEND --> LIVESERVER
 BACKEND --> TWILIO
 ```
@@ -940,9 +1006,9 @@ BACKEND --> TWILIO
 **Diagram sources**
 - [docker-compose.yml](file://docker-compose.yml)
 
-**Updated** The deployment architecture now reflects the current Phase 1.4 implementation status with comprehensive LiveKit Server integration, Twilio SIP trunking, speech processing services, and Ollama Cloud LLM dependencies. Enhanced rescheduling capabilities are fully integrated into the deployment architecture. The LiveKit configuration now includes reduced port ranges (50000-50200) and node IP configuration for improved network security. The advisory lock mechanism ensures single-instance scheduler execution across multiple workers.
+**Updated** The deployment architecture now reflects the current Phase 2.0 implementation status with comprehensive AI Recruiter integration, advanced conversation state management, and automated interview initiation capabilities. The system includes specialized AI Recruiter services for interview orchestration, context building, strategy generation, evaluation, and recommendation. Enhanced rescheduling capabilities are fully integrated into the deployment architecture. The LiveKit configuration now includes reduced port ranges (50000-50200) and node IP configuration for improved network security. The advisory lock mechanism ensures single-instance scheduler execution across multiple workers.
 
-The deployment architecture supports horizontal scaling, service discovery, and resilient communication patterns essential for production voice screening operations.
+The deployment architecture supports horizontal scaling, service discovery, and resilient communication patterns essential for production voice screening and AI Recruiter operations.
 
 **Updated** The LiveKit Server configuration has been updated to reflect programmatic SIP trunk management. The livekit.yaml file now explicitly states that SIP trunking is configured programmatically via the LiveKit API in the voice-agent, as the livekit-server version does not support SIP config in YAML. The LiveKit Server now exposes port 5060 for SIP signaling to support external telephony provider integration. The track subscription event handling mechanism is now fully integrated into the deployment architecture, ensuring reliable audio processing through the synchronous wrapper function.
 
@@ -1014,6 +1080,21 @@ The deployment architecture supports horizontal scaling, service discovery, and 
 - **Solution**: Verify synchronous wrapper function implementation and async callback bridging
 - **Diagnostic**: Check track subscription event logs and async task execution status
 
+#### AI Recruiter Integration Issues
+- **Issue**: Interview strategy generation or evaluation failures
+- **Solution**: Verify LLM service connectivity and model availability
+- **Diagnostic**: Check AI Recruiter logs and LLM API responses
+
+#### Auto-Trigger Configuration Issues
+- **Issue**: Auto-trigger not activating or incorrect interview initiation
+- **Solution**: Verify pipeline stage configuration and fit score thresholds
+- **Diagnostic**: Check auto-trigger logs and configuration validation
+
+#### Conversation State Management Issues
+- **Issue**: Interview flow interruptions or state inconsistencies
+- **Solution**: Verify state transition logic and conversation context persistence
+- **Diagnostic**: Check conversation state logs and context validation
+
 ### Monitoring and Logging
 
 The system provides comprehensive monitoring through:
@@ -1028,21 +1109,34 @@ The system provides comprehensive monitoring through:
 - **Protobuf API Monitoring**: SIP trunk management and audio processing pipeline status
 - **Phone Number Monitoring**: E.164 compliance validation and normalization logs
 - **LiveKit Event Monitoring**: Track subscription event handling and async callback bridging status
+- **AI Recruiter Monitoring**: Interview orchestration, strategy generation, and evaluation pipeline status
+- **Auto-Trigger Monitoring**: Pipeline integration and interview initiation validation
+- **Conversation State Monitoring**: Interview flow and state management validation
 
-**Updated** Enhanced troubleshooting now includes comprehensive monitoring for SIP trunk management, covering trunk discovery attempts, API creation failures, and environment variable fallback scenarios. Network diagnostics now include SIP port accessibility checks and external provider connectivity verification. New monitoring capabilities include protobuf API compatibility checking and enhanced audio processing pipeline validation. Phone number normalization monitoring ensures proper E.164 compliance for Twilio integration. LiveKit event handling monitoring validates the synchronous wrapper function that bridges event system limitations with asynchronous audio processing capabilities, ensuring reliable track subscription event handling and proper async callback execution.
+**Updated** Enhanced troubleshooting now includes comprehensive monitoring for AI Recruiter integration, covering interview orchestration, strategy generation, evaluation pipeline, and recommendation synthesis. Auto-trigger functionality monitoring includes pipeline stage validation, fit score threshold checking, and interview initiation tracking. Conversation state management monitoring validates interview flow, state transitions, and dynamic question adaptation. The system now includes specialized monitoring for AI-powered interview capabilities, structured evaluation pipelines, and automated scheduling systems.
 
 **Section sources**
 - [livekit.yaml:27-44](file://app/voice_agent/livekit.yaml#L27-L44)
 
 ## Conclusion
 
-The Voice Agent Conversation System represents a comprehensive solution for automated phone screening in recruitment processes. By combining advanced AI capabilities with robust infrastructure, the system delivers scalable, compliant, and efficient candidate screening experiences.
+The Voice Agent Conversation System represents a comprehensive solution for automated phone screening and AI-powered interview management in recruitment processes. By combining advanced AI capabilities with robust infrastructure, the system delivers scalable, compliant, and efficient candidate screening experiences.
 
-**Current Implementation Status**: Phase 1.4 - The system now implements a comprehensive voice agent with dual-component design (HTTP dispatch API + LiveKit Agent Worker), sophisticated state machine management, LiveKit telephony coordination, and integrated speech processing services. The current implementation maintains full telephony integration readiness while ensuring system stability and performance.
+**Current Implementation Status**: Phase 2.0 - The system now implements a comprehensive AI Recruiter integration with advanced conversation state management, automated interview initiation capabilities, and sophisticated multi-dimensional assessment systems. The current implementation maintains full telephony integration readiness while ensuring system stability and performance.
 
-Enhanced rescheduling capabilities with job description ID tracking provide improved flexibility for managing voice screening operations. The system now includes comprehensive error handling for rescheduling operations and sophisticated job description association for better session management. The unified transcript management through `transcript_json` field provides seamless integration with assessment generation and compliance reporting.
+Enhanced AI Recruiter capabilities with advanced conversation state management provide sophisticated multi-dimensional assessment including technical depth, behavioral evaluation, communication quality, and cultural fit assessment. The system now includes comprehensive auto-trigger functionality for pipeline-driven interview scheduling, automated interview initiation based on fit scores and pipeline stages, and intelligent conversation flow with dynamic question adaptation.
+
+The unified transcript management through `transcript_json` field provides seamless integration with assessment generation and compliance reporting. Advanced evaluation agents provide structured scoring across multiple dimensions with evidence-based recommendations and confidence levels.
 
 **Key Enhancements**:
+- **AI Recruiter Integration**: Comprehensive structured interview system with multi-dimensional assessment
+- **Advanced Conversation State Management**: Sophisticated state machine with dynamic question flow and real-time evaluation
+- **Automated Interview Initiation**: Pipeline-driven interview scheduling with configurable thresholds and delays
+- **Multi-Dimensional Evaluation**: Technical, behavioral, communication, and cultural fit assessment with structured scoring
+- **Intelligent Strategy Generation**: LLM-powered interview planning with dynamic adaptation based on candidate responses
+- **Structured Recommendation System**: Evidence-based recommendations with confidence levels and human validation requirements
+- **Enhanced Auto-Trigger Functionality**: Pipeline integration for automated interview scheduling based on fit scores and pipeline stages
+- **Comprehensive Monitoring**: Advanced troubleshooting and diagnostic capabilities for AI Recruiter and voice agent systems
 - **PostgreSQL Advisory Lock**: Single-instance scheduler execution protection across multi-worker deployments
 - **Programmatic SIP Trunk Management**: Three-tier approach (discovery, creation, fallback) eliminates YAML dependency
 - **Enhanced Audio Processing**: WAV header stripping and proper PCM frame creation for LiveKit integration
@@ -1056,8 +1150,7 @@ Enhanced rescheduling capabilities with job description ID tracking provide impr
 - **Protobuf API Integration**: Enhanced LiveKit protocol compatibility with protobuf-based API methods
 - **Phone Number Normalization**: Robust E.164 compliance for proper Twilio integration
 - **LiveKit Event System Bridge**: Synchronous wrapper function that addresses event system limitations while maintaining asynchronous audio processing capabilities
-- **Comprehensive Troubleshooting**: Enhanced monitoring and diagnostic capabilities for SDK compatibility issues
 
-The system provides a solid foundation for organizations seeking to enhance their recruitment processes through intelligent automation while maintaining human oversight and compliance standards. The current Phase 1.4 implementation ensures full telephony integration readiness with comprehensive audio processing and conversation management capabilities, including enhanced rescheduling functionality with job description ID tracking, comprehensive tenant configuration options, robust advisory lock protection for production deployments, and reliable LiveKit event handling through the synchronous wrapper mechanism.
+The system provides a solid foundation for organizations seeking to enhance their recruitment processes through intelligent automation while maintaining human oversight and compliance standards. The current Phase 2.0 implementation ensures full telephony integration readiness with comprehensive audio processing, conversation management, AI-powered evaluation, and automated interview scheduling capabilities.
 
-**Updated** The migration to programmatic SIP trunk management with protobuf-based API methods represents a significant architectural improvement, eliminating the dependency on YAML-based configuration and providing robust automatic trunk discovery, creation, and fallback mechanisms. This change enhances system reliability and reduces operational overhead while maintaining full telephony integration capabilities. The addition of SIP signaling configuration with port 5060 exposure enables proper integration with external telephony providers like Twilio, expanding the system's connectivity options and PSTN integration capabilities. The enhanced audio processing pipeline with improved WAV header stripping and PCM frame creation ensures optimal audio quality and LiveKit compatibility. The comprehensive troubleshooting procedures now include protobuf API compatibility checking and enhanced monitoring for SDK-related issues, providing developers with better tools for diagnosing and resolving integration problems. The robust phone number normalization system ensures proper E.164 compliance for Twilio integration, resolving previous compatibility issues with external telephony providers. The LiveKit track subscription event handling mechanism now includes a sophisticated synchronous wrapper that bridges event system limitations with asynchronous audio processing capabilities, ensuring reliable audio processing while maintaining full async processing benefits. This enhancement resolves critical callback compatibility issues and improves overall system stability and performance.
+**Updated** The migration to AI Recruiter integration with advanced conversation state management and automated interview initiation represents a significant architectural enhancement, providing sophisticated multi-dimensional assessment capabilities and intelligent interview orchestration. The system now supports pipeline-driven interview scheduling, structured evaluation with evidence-based recommendations, and comprehensive monitoring for AI-powered recruitment processes. The addition of AI Recruiter services with specialized orchestration, context building, strategy generation, evaluation, and recommendation capabilities significantly expands the system's interview management capabilities beyond traditional voice screening. The enhanced troubleshooting procedures now include comprehensive monitoring for AI Recruiter integration, conversation state management, and automated scheduling systems, providing developers with better tools for diagnosing and resolving complex interview orchestration issues.

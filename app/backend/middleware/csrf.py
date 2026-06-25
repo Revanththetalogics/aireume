@@ -35,6 +35,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/api/billing/webhook",
         "/api/sso/callback",
         "/api/webhooks/",
+        "/api/recruiter/internal/",
+        "/api/interviews/internal/",
         "/health",
         "/api/health",
         "/api/health/deep",

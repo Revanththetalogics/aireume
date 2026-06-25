@@ -77,6 +77,16 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 - **Interview Analysis** — Evaluate against job descriptions
 - **Structured Insights** — Communication patterns and content analysis
 
+### AI Recruiter (Intelligent Interview Agent)
+- **Voice-based AI interviews** extending existing LiveKit/Twilio voice infrastructure
+- **Multi-dimensional evaluation**: Technical, Behavioral, Communication, Cultural Fit, Motivation
+- **Dynamic question adaptation** based on candidate responses and answer quality
+- **Fitment score verification & adjustment** against existing screening analysis
+- **Auto-trigger**: Configurable to automatically interview candidates at specific pipeline stages
+- **Independent scorecard** with hiring recommendation (strong_hire → strong_no_hire)
+- **Full transcript viewer** with per-question evaluation annotations
+- Access via: `/recruiter-interviews` or Navigation → "AI Recruiter"
+
 ### Team Collaboration
 - **Multi-User Tenants** — Role-based access control (admin/recruiter/viewer)
 - **Member Invitations** — Email-based team onboarding

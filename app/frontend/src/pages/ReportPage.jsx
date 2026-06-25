@@ -1,16 +1,16 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { useEffect, useState, useRef } from 'react'
 import {
   ArrowLeft, Share2, Download, CheckCircle, Check,
   ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon, Upload, Eye, FileText, Clock,
-  PhoneCall,
+  PhoneCall, Mic, ExternalLink, Sparkles, Calendar, BarChart2,
 } from 'lucide-react'
 import html2pdf from 'html2pdf.js'
 import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
 import InterviewScorecard from '../components/InterviewScorecard'
 import Timeline from '../components/Timeline'
-import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandidateAuditLog, getNarrative, viewCandidateResume, downloadCandidateResume, downloadPdfReport, getScreeningResult } from '../lib/api'
+import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandidateAuditLog, getNarrative, viewCandidateResume, downloadCandidateResume, downloadPdfReport, getScreeningResult, getInterviewSessions, getInterviewScorecard } from '../lib/api'
 import AnimatedScore from '../components/AnimatedScore'
 import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
@@ -217,6 +217,192 @@ function InlineNameEditor({ initialName, candidateId, onSaved }) {
   )
 }
 
+// ─── AI Interview Results Section (inline component) ──────────────────────
+function RecruiterScorecardSection({ candidateId, sessions, scorecard, loading }) {
+  if (loading) {
+    return (
+      <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <Mic className="w-5 h-5 text-neutral-400" />
+          <h3 className="text-lg font-bold text-neutral-900">AI Interview Results</h3>
+        </div>
+        <div className="flex items-center justify-center py-6">
+          <Loader2 className="w-5 h-5 text-brand-500 animate-spin" />
+          <span className="ml-2 text-sm text-neutral-500">Loading interview data...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // No sessions — show CTA
+  if (!sessions || sessions.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-6 text-center">
+        <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-3">
+          <Sparkles className="w-6 h-6 text-brand-600" />
+        </div>
+        <h4 className="text-sm font-bold text-neutral-900 mb-1">Start AI Interview</h4>
+        <p className="text-xs text-neutral-500 mb-4 max-w-sm mx-auto">
+          Schedule an AI-powered interview to get a comprehensive assessment with dimension scores and recommendations.
+        </p>
+        <Link
+          to="/ai-interviews"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 transition-all duration-200 shadow-sm"
+        >
+          <Mic className="w-4 h-4" />
+          Start AI Interview
+        </Link>
+      </div>
+    )
+  }
+
+  // Has sessions — show scorecard summary
+  const mostRecent = sessions[0]
+  const isQuick = (mostRecent.interview_depth || 'quick') === 'quick'
+
+  // Quick depth: scorecard is { session_id, depth: "quick", assessment: {...} }
+  // Standard/Deep: scorecard is full RecruiterScorecardOut with dimension_scores
+  const dimensionScores = isQuick
+    ? (scorecard?.assessment?.dimensions || {})
+    : (scorecard?.dimension_scores || scorecard?.dimensions || {})
+  const recommendation = isQuick
+    ? (scorecard?.assessment?.recommendation || '')
+    : (scorecard?.recommendation || scorecard?.overall_recommendation || '')
+  const overallScore = isQuick
+    ? (scorecard?.assessment?.overall_score ?? null)
+    : (scorecard?.overall_score ?? null)
+
+  const statusColors = {
+    completed: 'bg-green-50 text-green-700 ring-green-200',
+    done: 'bg-green-50 text-green-700 ring-green-200',
+    in_progress: 'bg-blue-50 text-blue-700 ring-blue-200',
+    pending: 'bg-amber-50 text-amber-700 ring-amber-200',
+    failed: 'bg-red-50 text-red-700 ring-red-200',
+    cancelled: 'bg-red-50 text-red-700 ring-red-200',
+  }
+
+  const depthColors = {
+    quick: 'bg-blue-50 text-blue-700 ring-blue-200',
+    standard: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
+    deep: 'bg-purple-50 text-purple-700 ring-purple-200',
+  }
+  const depthLabel = mostRecent.interview_depth || 'quick'
+
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-2">
+          <Mic className="w-5 h-5 text-brand-600" />
+          <h3 className="text-lg font-bold text-neutral-900">AI Interview Results</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ring-1 ${depthColors[depthLabel] || depthColors.quick}`}>
+            {depthLabel.charAt(0).toUpperCase() + depthLabel.slice(1)}
+          </span>
+          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ring-1 ${statusColors[mostRecent.status] || 'bg-neutral-50 text-neutral-600 ring-neutral-200'}`}>
+            {mostRecent.status === 'in_progress' ? 'In Progress' :
+             mostRecent.status === 'completed' || mostRecent.status === 'done' ? 'Completed' :
+             mostRecent.status || 'Unknown'}
+          </span>
+        </div>
+      </div>
+
+      {/* Session meta */}
+      <div className="flex items-center gap-4 text-xs text-neutral-500 mb-5">
+        {mostRecent.created_at && (
+          <span className="flex items-center gap-1">
+            <Calendar className="w-3.5 h-3.5" />
+            {new Date(mostRecent.created_at).toLocaleDateString()}
+          </span>
+        )}
+        {mostRecent.duration_seconds && (
+          <span className="flex items-center gap-1">
+            <Clock className="w-3.5 h-3.5" />
+            {Math.round(mostRecent.duration_seconds / 60)} min
+          </span>
+        )}
+        {overallScore != null && (
+          <span className="flex items-center gap-1">
+            <BarChart2 className="w-3.5 h-3.5" />
+            Score: {Math.round(overallScore)}/100
+          </span>
+        )}
+      </div>
+
+      {/* Quick depth: show assessment summary; Standard/Deep: show dimension scores */}
+      {isQuick && scorecard?.assessment ? (
+        <div className="space-y-3 mb-5">
+          {scorecard.assessment.summary && (
+            <div className="rounded-xl bg-neutral-50 p-3">
+              <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">Assessment Summary</p>
+              <p className="text-sm text-neutral-800 leading-relaxed">{safeStr(scorecard.assessment.summary)}</p>
+            </div>
+          )}
+          {Object.keys(dimensionScores).length > 0 && (
+            <div className="space-y-3">
+              {Object.entries(dimensionScores).slice(0, 5).map(([dim, score]) => {
+                const pct = typeof score === 'number' ? score : (score?.score ?? 0)
+                const barColor = pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-500' : pct >= 30 ? 'bg-orange-400' : 'bg-red-400'
+                return (
+                  <div key={dim}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-neutral-700 capitalize">{dim.replace(/_/g, ' ')}</span>
+                      <span className="text-xs font-bold text-neutral-900">{Math.round(pct)}</span>
+                    </div>
+                    <div className="w-full h-2 bg-neutral-100 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Dimension scores — 5 mini bars */}
+          {Object.keys(dimensionScores).length > 0 && (
+            <div className="space-y-3 mb-5">
+              {Object.entries(dimensionScores).slice(0, 5).map(([dim, score]) => {
+                const pct = typeof score === 'number' ? score : (score?.score ?? 0)
+                const barColor = pct >= 70 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-500' : pct >= 30 ? 'bg-orange-400' : 'bg-red-400'
+                return (
+                  <div key={dim}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-neutral-700 capitalize">{dim.replace(/_/g, ' ')}</span>
+                      <span className="text-xs font-bold text-neutral-900">{Math.round(pct)}</span>
+                    </div>
+                    <div className="w-full h-2 bg-neutral-100 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Recommendation */}
+      {recommendation && (
+        <div className="rounded-xl bg-neutral-50 p-3 mb-5">
+          <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">Recommendation</p>
+          <p className="text-sm text-neutral-800 leading-relaxed">{recommendation}</p>
+        </div>
+      )}
+
+      {/* Link to full interview */}
+      <Link
+        to={`/ai-interviews/${mostRecent.id}`}
+        className="inline-flex items-center gap-2 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors"
+      >
+        <ExternalLink className="w-4 h-4" />
+        View Full Interview
+      </Link>
+    </div>
+  )
+}
+
 export default function ReportPage() {
   const location = useLocation()
   const navigate  = useNavigate()
@@ -236,6 +422,11 @@ export default function ReportPage() {
 
   // ── Voice Screening modal state ──────────────────────────────────────────
   const [voiceScheduleOpen, setVoiceScheduleOpen] = useState(false)
+
+  // ── AI Recruiter sessions state ─────────────────────────────────────────
+  const [recruiterSessions, setRecruiterSessions] = useState([])
+  const [recruiterScorecard, setRecruiterScorecard] = useState(null)
+  const [recruiterLoading, setRecruiterLoading] = useState(false)
 
   // ── Phone Screen split-view state ─────────────────────────────────────────
   const [screenMode, setScreenMode] = useState(false)
@@ -327,6 +518,28 @@ export default function ReportPage() {
     getCandidateAuditLog(cid)
       .then(setAuditLogs)
       .catch(() => setAuditLogs([]))
+  }, [result?.candidate_id])
+
+  // Fetch AI Interview sessions for this candidate (unified API)
+  useEffect(() => {
+    const cid = result?.candidate_id
+    if (!cid) return
+    setRecruiterLoading(true)
+    getInterviewSessions({ candidate_id: cid })
+      .then(async (data) => {
+        const list = Array.isArray(data) ? data : (data?.sessions || [])
+        setRecruiterSessions(list)
+        // Find most recent completed session and load its scorecard
+        const completed = list.find(s => s.status === 'completed' || s.status === 'done')
+        if (completed?.id) {
+          try {
+            const sc = await getInterviewScorecard(completed.id)
+            setRecruiterScorecard(sc)
+          } catch { setRecruiterScorecard(null) }
+        }
+      })
+      .catch(() => { setRecruiterSessions([]); setRecruiterScorecard(null) })
+      .finally(() => setRecruiterLoading(false))
   }, [result?.candidate_id])
 
   // Poll for narrative completion if status is pending or processing
@@ -1141,7 +1354,17 @@ export default function ReportPage() {
           {/* Evaluation Checklist */}
           {hasDeterministicData && <EvaluationChecklist result={result} />}
 
-          {/* Phone Screen CTA — inline banner above Recruiter Scorecard */}
+          {/* AI Recruiter Scorecard Section */}
+          {result?.candidate_id && (
+            <RecruiterScorecardSection
+              candidateId={result.candidate_id}
+              sessions={recruiterSessions}
+              scorecard={recruiterScorecard}
+              loading={recruiterLoading}
+            />
+          )}
+
+          {/* Phone Screen CTA — inline banner */}
           {interviewQs && (
             <div className="rounded-2xl ring-1 ring-brand-200 bg-gradient-to-r from-brand-50 to-indigo-50 p-5 flex items-center justify-between gap-4">
               <div>
@@ -1158,7 +1381,7 @@ export default function ReportPage() {
             </div>
           )}
 
-          {/* Recruiter Scorecard Section */}
+          {/* Manual Interview Scorecard */}
           {result?.interview_questions && result.result_id && (
             <div className="mt-6">
               <InterviewScorecard key={scorecardKey} resultId={result.result_id} showHeading />

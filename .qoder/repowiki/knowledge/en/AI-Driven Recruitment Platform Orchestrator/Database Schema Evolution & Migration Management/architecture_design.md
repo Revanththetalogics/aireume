@@ -1,4 +1,4 @@
-- Entry point: `alembic/env.py` configures the migration environment by importing the application's SQLAlchemy `Base` metadata and `DATABASE_URL`, bridging the ORM models with the migration engine.
-- Version control: Sequential migration scripts in `alembic/versions/` (e.g., `001_...` to `044_...`) define atomic `upgrade` and `downgrade` operations for schema evolution.
-- Idempotency pattern: Migrations actively inspect the current database state (using `sa.inspect`) before applying changes, ensuring safe re-runs and resilience against out-of-sync states.
-- Template standardization: `script.py.mako` enforces a consistent structure for new migration files, including revision identifiers and upgrade/downgrade stubs.
+- **Framework**: Uses Alembic for migration management, configured via `alembic/env.py` which integrates with the application's SQLAlchemy `Base` metadata.
+- **Structure**: Migrations are stored sequentially in `alembic/versions/` with numeric prefixes (e.g., `001_...`, `045_...`) to enforce execution order.
+- **Integration**: The `env.py` script dynamically imports application models (`app.backend.models.db_models`) to drive auto-generation and comparison, while setting the database URL from the app's configuration.
+- **Lifecycle**: Each migration file implements `upgrade()` and `downgrade()` functions, supporting both online and offline migration modes as defined in `env.py`.

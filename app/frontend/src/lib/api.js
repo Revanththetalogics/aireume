@@ -1718,4 +1718,84 @@ export async function exportRecruiterSessions(params = {}) {
   return data;
 }
 
+// ============ Unified AI Interview API ============
+// These functions call the unified /api/interviews/* backend routes.
+// They replace the legacy voice.py and recruiter.py endpoints.
+
+export async function createInterviewSession(payload) {
+  const { data } = await api.post('/interviews/sessions', payload)
+  return data
+}
+
+export async function getInterviewSessions(params = {}) {
+  const { data } = await api.get('/interviews/sessions', { params })
+  return data
+}
+
+export async function getInterviewSession(sessionId) {
+  const { data } = await api.get(`/interviews/sessions/${sessionId}`)
+  return data
+}
+
+export async function getInterviewTranscript(sessionId) {
+  const { data } = await api.get(`/interviews/sessions/${sessionId}/transcript`)
+  return data
+}
+
+export async function getInterviewScorecard(sessionId) {
+  const { data } = await api.get(`/interviews/sessions/${sessionId}/scorecard`)
+  return data
+}
+
+export async function cancelInterviewSession(sessionId) {
+  const { data } = await api.post(`/interviews/sessions/${sessionId}/cancel`)
+  return data
+}
+
+export async function retryInterviewSession(sessionId) {
+  const { data } = await api.post(`/interviews/sessions/${sessionId}/retry`)
+  return data
+}
+
+export async function getInterviewConfigUnified() {
+  const { data } = await api.get('/interviews/config')
+  return data
+}
+
+export async function updateInterviewConfigUnified(payload) {
+  const { data } = await api.put('/interviews/config', payload)
+  return data
+}
+
+export async function getInterviewAnalytics() {
+  const { data } = await api.get('/interviews/analytics')
+  return data
+}
+
+export async function exportInterviewSessions(params = {}) {
+  const { data } = await api.post('/interviews/sessions/export', null, {
+    params,
+    responseType: 'blob',
+  })
+  return data
+}
+
+// Legacy helpers retained for backward compatibility.
+// Prefer the unified functions above for new code.
+
+export async function getInterviewConfig() {
+  const [voiceSettings, recruiterConfig] = await Promise.all([
+    getVoiceSettings().catch(() => null),
+    getRecruiterConfig().catch(() => null),
+  ])
+  return { voice: voiceSettings, recruiter: recruiterConfig }
+}
+
+export async function updateInterviewConfig({ voice, recruiter }) {
+  const results = {}
+  if (voice) results.voice = await updateVoiceSettings(voice)
+  if (recruiter) results.recruiter = await updateRecruiterConfig(recruiter)
+  return results
+}
+
 export default api

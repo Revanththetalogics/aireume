@@ -116,6 +116,37 @@ alembic downgrade -1
 docker-compose -f docker-compose.prod.yml restart backend
 ```
 
+## AI Recruiter Feature
+
+### Prerequisites
+- No new services required — uses existing voice-agent, speech-service, and LiveKit infrastructure
+- Requires migration 045 (auto-applied on backend startup via Alembic)
+
+### Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RECRUITER_INTERVIEW_ENABLED` | `true` | Feature flag to enable/disable AI Recruiter |
+
+### Enabling/Disabling
+Set `RECRUITER_INTERVIEW_ENABLED=false` in your environment to disable the feature entirely (all recruiter endpoints will return 404).
+
+### Auto-Trigger Setup
+Configure via the UI at `/recruiter-interviews` → Configuration tab, or via API:
+```
+PUT /api/recruiter/config
+{
+  "enabled": true,
+  "trigger_pipeline_stage": "in_review",
+  "min_fit_score_threshold": 40,
+  "max_fit_score_threshold": 85
+}
+```
+
+### Troubleshooting
+- If interviews stay in "pending_strategy": Check Ollama connectivity (LLM generates strategy)
+- If interviews never complete: Check voice-agent logs and backend `/api/internal/recruiter/complete` endpoint
+- If scorecard not generated: Check backend logs for "aria.recruiter" logger entries
+
 ## Support
 
 For issues, check:
