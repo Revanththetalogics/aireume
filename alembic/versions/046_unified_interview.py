@@ -1,6 +1,6 @@
 """Add interview_depth to voice_screening_sessions for unified interview tracking"""
 
-revision = "046a1b2c3d4e"
+revision = "046_unified_interview"
 down_revision = "045_ai_recruiter"
 branch_labels = None
 depends_on = None
