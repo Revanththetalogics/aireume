@@ -718,6 +718,7 @@ class VoiceScreeningSessionOut(BaseModel):
     jd_title: Optional[str] = None
     call_count: Optional[int] = None
     match_score: Optional[int] = None
+    interview_depth: Optional[str] = "quick"
 
     model_config = {"from_attributes": True}
 
