@@ -1657,62 +1657,62 @@ export async function getOutcomePatterns(params) {
 // ============ AI Recruiter ============
 
 export async function getRecruiterSessions(params = {}) {
-  const { data } = await api.get('/api/recruiter/sessions', { params });
+  const { data } = await api.get('/recruiter/sessions', { params });
   return data;
 }
 
 export async function getRecruiterSession(sessionId) {
-  const { data } = await api.get(`/api/recruiter/sessions/${sessionId}`);
+  const { data } = await api.get(`/recruiter/sessions/${sessionId}`);
   return data;
 }
 
 export async function initiateRecruiterInterview(payload) {
-  const { data } = await api.post('/api/recruiter/sessions', payload);
+  const { data } = await api.post('/recruiter/sessions', payload);
   return data;
 }
 
 export async function getRecruiterTranscript(sessionId) {
-  const { data } = await api.get(`/api/recruiter/sessions/${sessionId}/transcript`);
+  const { data } = await api.get(`/recruiter/sessions/${sessionId}/transcript`);
   return data;
 }
 
 export async function getRecruiterScorecard(sessionId) {
-  const { data } = await api.get(`/api/recruiter/sessions/${sessionId}/scorecard`);
+  const { data } = await api.get(`/recruiter/sessions/${sessionId}/scorecard`);
   return data;
 }
 
 export async function cancelRecruiterSession(sessionId) {
-  const { data } = await api.post(`/api/recruiter/sessions/${sessionId}/cancel`);
+  const { data } = await api.post(`/recruiter/sessions/${sessionId}/cancel`);
   return data;
 }
 
 export async function retryRecruiterSession(sessionId) {
-  const { data } = await api.post(`/api/recruiter/sessions/${sessionId}/retry`);
+  const { data } = await api.post(`/recruiter/sessions/${sessionId}/retry`);
   return data;
 }
 
 export async function getRecruiterConfig() {
-  const { data } = await api.get('/api/recruiter/config');
+  const { data } = await api.get('/recruiter/config');
   return data;
 }
 
 export async function updateRecruiterConfig(payload) {
-  const { data } = await api.put('/api/recruiter/config', payload);
+  const { data } = await api.put('/recruiter/config', payload);
   return data;
 }
 
 export async function getCandidateRecruiterSessions(candidateId) {
-  const { data } = await api.get(`/api/recruiter/candidates/${candidateId}/sessions`);
+  const { data } = await api.get(`/recruiter/candidates/${candidateId}/sessions`);
   return data;
 }
 
 export async function getRecruiterAnalytics() {
-  const { data } = await api.get('/api/recruiter/analytics');
+  const { data } = await api.get('/recruiter/analytics');
   return data;
 }
 
 export async function exportRecruiterSessions(params = {}) {
-  const { data } = await api.post('/api/recruiter/sessions/export', null, { 
+  const { data } = await api.post('/recruiter/sessions/export', null, { 
     params, responseType: 'blob' 
   });
   return data;
