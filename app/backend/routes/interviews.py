@@ -859,7 +859,137 @@ def export_interview_sessions(
     )
 
 
+# ─── Candidate Comparison ─────────────────────────────────────────────────────
+
+@router.get("/compare")
+def compare_interview_scorecards(
+    jd_id: int = Query(...),
+    candidate_ids: str = Query(...),  # comma-separated: "1,2,3"
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Compare completed recruiter scorecards for 1-5 candidates on the same JD."""
+    candidate_id_list = []
+    for raw in candidate_ids.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            candidate_id_list.append(int(raw))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid candidate_id: {raw}",
+            )
+
+    if len(candidate_id_list) < 1 or len(candidate_id_list) > 5:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="You must provide between 1 and 5 candidate IDs",
+        )
+
+    scorecards = db.execute(
+        select(RecruiterScorecard)
+        .join(
+            RecruiterInterviewSession,
+            RecruiterScorecard.session_id == RecruiterInterviewSession.id,
+        )
+        .where(
+            RecruiterScorecard.tenant_id == current_user.tenant_id,
+            RecruiterScorecard.candidate_id.in_(candidate_id_list),
+            RecruiterInterviewSession.jd_id == jd_id,
+            RecruiterInterviewSession.status == "completed",
+        )
+        .options(
+            selectinload(RecruiterScorecard.candidate),
+            selectinload(RecruiterScorecard.session),
+        )
+    ).scalars().all()
+
+    results = []
+    for sc in scorecards:
+        results.append(
+            {
+                "candidate_id": sc.candidate_id,
+                "candidate_name": sc.candidate.name if sc.candidate else None,
+                "candidate_email": sc.candidate.email if sc.candidate else None,
+                "recommendation": sc.recommendation,
+                "overall_score": sc.overall_score,
+                "confidence_level": sc.confidence_level,
+                "technical_score": sc.technical_score,
+                "behavioral_score": sc.behavioral_score,
+                "communication_score": sc.communication_score,
+                "cultural_fit_score": sc.cultural_fit_score,
+                "motivation_score": sc.motivation_score,
+                "executive_summary": sc.executive_summary,
+            }
+        )
+
+    return {"scorecards": results}
+
+
 # ─── Internal Callback (Voice Agent → Backend) ────────────────────────────────
+
+
+def _handle_quick_screen_escalation(session: VoiceScreeningSession, db: Session) -> None:
+    """Auto-escalate quick screen to standard interview if score exceeds threshold."""
+    # Get tenant config
+    config = db.execute(
+        select(VoiceTenantConfig).where(VoiceTenantConfig.tenant_id == session.tenant_id)
+    ).scalar_one_or_none()
+
+    if not config or not config.auto_escalation_enabled:
+        return
+
+    # Check assessment score
+    assessment = session.assessment_json
+    if isinstance(assessment, str):
+        try:
+            assessment = json.loads(assessment)
+        except (json.JSONDecodeError, TypeError):
+            return
+
+    if not assessment:
+        return
+
+    score = (
+        assessment.get('overall_score')
+        or assessment.get('score')
+        or assessment.get('match_score')
+    )
+    if score is None or score < config.auto_escalation_threshold:
+        return
+
+    # Auto-create standard interview
+    logger.info(
+        "Auto-escalating quick screen %s (score=%s) to standard interview",
+        session.id, score,
+    )
+
+    scheduled_time = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    new_session = VoiceScreeningSession(
+        tenant_id=session.tenant_id,
+        candidate_id=session.candidate_id,
+        jd_id=session.jd_id,
+        phone_number=session.phone_number,
+        direction="outbound",
+        status="scheduled",
+        interview_depth="deep",  # DB uses quick/deep; deep == standard
+        scheduled_at=scheduled_time,
+    )
+    db.add(new_session)
+    db.flush()
+
+    from app.backend.services.voice_call_scheduler import schedule_voice_call
+    schedule_voice_call(new_session.id, scheduled_time)
+
+    db.commit()
+    logger.info(
+        "Auto-escalation: created session %s scheduled at %s",
+        new_session.id, scheduled_time,
+    )
+
 
 async def _generate_scorecard_background(session_id: str) -> None:
     """Background task to generate recruiter scorecard after interview completes."""
@@ -963,6 +1093,13 @@ async def on_interview_complete(
     if voice_session.interview_depth == "quick":
         from app.backend.services.voice_screening_service import process_completed_call
         await process_completed_call(db, voice_session_id)
+
+        # Adaptive depth escalation: auto-schedule standard interview if score exceeds threshold
+        try:
+            _handle_quick_screen_escalation(voice_session, db)
+        except Exception as e:
+            logger.warning("Auto-escalation check failed: %s", e)
+
         return {"status": "ok", "session_id": voice_session_id, "depth": "quick"}
 
     # standard/deep — dispatch to recruiter orchestrator

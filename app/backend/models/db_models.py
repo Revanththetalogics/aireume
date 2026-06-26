@@ -898,6 +898,9 @@ class VoiceTenantConfig(Base):
     assessment_detail_level   = Column(String(10), nullable=False, server_default="full")  # brief / full
     auto_update_status        = Column(Boolean, nullable=False, server_default="true", default=True)
     follow_up_aggressiveness  = Column(String(10), nullable=False, server_default="medium")  # low / medium / high
+    # Adaptive depth escalation
+    auto_escalation_enabled   = Column(Boolean, nullable=False, server_default="false", default=False)
+    auto_escalation_threshold = Column(Integer, nullable=False, server_default="70", default=70)
     created_at                = Column(DateTime(timezone=True), server_default=func.now())
     updated_at                = Column(DateTime(timezone=True), onupdate=func.now())
 

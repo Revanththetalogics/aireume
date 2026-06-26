@@ -12,6 +12,7 @@ import {
   getVoiceAnalytics, cancelVoiceSession, exportVoiceSessions,
   getRecruiterSessions, getRecruiterAnalytics, getRecruiterConfig,
   updateRecruiterConfig, cancelRecruiterSession, exportRecruiterSessions,
+  getInterviewAnalytics, exportInterviewSessions,
 } from '../lib/api'
 import InterviewInitiateModal from '../components/InterviewInitiateModal'
 
@@ -33,7 +34,15 @@ const STATUS_CONFIG = {
   failed:           { label: 'Failed',      color: 'bg-red-100 text-red-700' },
   no_answer:        { label: 'No Answer',   color: 'bg-orange-100 text-orange-700' },
   cancelled:        { label: 'Cancelled',   color: 'bg-gray-100 text-gray-500' },
-  expired:          { label: 'Expired',     color: 'bg-orange-100 text-orange-600' },
+  expired:          { label: 'Expired',   color: 'bg-orange-100 text-orange-600' },
+}
+
+const RECOMMENDATION_CONFIG = {
+  strong_hire:    { label: 'Strong Hire',    color: 'bg-emerald-100 text-emerald-700' },
+  hire:           { label: 'Hire',           color: 'bg-green-100 text-green-700' },
+  maybe:          { label: 'Maybe',          color: 'bg-amber-100 text-amber-700' },
+  no_hire:        { label: 'No Hire',        color: 'bg-red-100 text-red-700' },
+  strong_no_hire: { label: 'Strong No Hire', color: 'bg-red-800 text-white' },
 }
 
 /* ── Reusable sub-components ─────────────────────────── */
@@ -109,6 +118,7 @@ function normalizeVoiceSession(s) {
     scheduled_at: s.scheduled_at,
     direction: s.direction,
     phone_number: s.phone_number,
+    error_log: s.error_log || null,
   }
 }
 
@@ -133,6 +143,7 @@ function normalizeRecruiterSession(s) {
     scheduled_at: null,
     direction: null,
     phone_number: null,
+    error_log: s.error_log || null,
   }
 }
 
@@ -147,6 +158,9 @@ export default function InterviewPage() {
   const [recruiterSessions, setRecruiterSessions] = useState([])
   const [voiceAnalytics, setVoiceAnalytics] = useState(null)
   const [recruiterAnalytics, setRecruiterAnalytics] = useState(null)
+  const [interviewAnalytics, setInterviewAnalytics] = useState(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [config, setConfig] = useState(null)
   const [configDraft, setConfigDraft] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -219,6 +233,24 @@ export default function InterviewPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
+  const fetchInterviewAnalytics = useCallback(async () => {
+    try {
+      setAnalyticsLoading(true)
+      const data = await getInterviewAnalytics()
+      setInterviewAnalytics(data)
+    } catch (err) {
+      setError(err.message || 'Failed to load analytics')
+    } finally {
+      setAnalyticsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'analytics' && !interviewAnalytics && !analyticsLoading) {
+      fetchInterviewAnalytics()
+    }
+  }, [activeTab, interviewAnalytics, analyticsLoading, fetchInterviewAnalytics])
+
   async function handleSaveConfig() {
     try {
       setSaving(true)
@@ -261,6 +293,28 @@ export default function InterviewPage() {
 
   function handleSessionClick(session) {
     navigate(`/ai-interviews/${session.rawId}?source=${session.source}&depth=${session.depth}`)
+  }
+
+  async function handleExportSessions() {
+    try {
+      setExporting(true)
+      const params = {}
+      if (depthFilter && depthFilter !== 'all') params.depth = depthFilter
+      if (statusFilter) params.status = statusFilter
+      const blob = await exportInterviewSessions(params)
+      const url = window.URL.createObjectURL(new Blob([blob], { type: 'text/csv' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `interview_sessions_${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err.message || 'Failed to export sessions')
+    } finally {
+      setExporting(false)
+    }
   }
 
   if (loading) {
@@ -420,6 +474,14 @@ export default function InterviewPage() {
                         </button>
                       ))}
                     </div>
+                    <button
+                      onClick={handleExportSessions}
+                      disabled={exporting}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all disabled:opacity-50"
+                    >
+                      {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                      Export
+                    </button>
                   </div>
                 </div>
 
@@ -457,7 +519,17 @@ export default function InterviewPage() {
                             {session.candidate_name}
                           </span>
                           <DepthBadge depth={session.depth} />
-                          <StatusBadge status={session.status} />
+                          <span className="relative inline-flex items-center gap-1 group">
+                            <StatusBadge status={session.status} />
+                            {session.status === 'failed' && session.error_log && (
+                              <>
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+                                <div className="hidden group-hover:block absolute z-10 top-full left-1/2 -translate-x-1/2 mt-2 w-64 p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 font-mono text-xs whitespace-pre-wrap pointer-events-none">
+                                  {session.error_log}
+                                </div>
+                              </>
+                            )}
+                          </span>
                           {session.recommendation && (
                             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                               session.recommendation === 'strong_hire' || session.recommendation === 'hire'
@@ -518,64 +590,113 @@ export default function InterviewPage() {
         {/* Analytics Tab */}
         {activeTab === 'analytics' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-            {/* Overview cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="Total Sessions" value={depthCounts.all} icon={Users} color="text-brand-600 bg-brand-50" />
-              <StatCard label="Completion Rate" value={
-                depthCounts.all > 0
-                  ? `${Math.round((allSessions.filter(s => s.status === 'completed').length / depthCounts.all) * 100)}%`
-                  : '—'
-              } icon={CheckCircle2} color="text-emerald-600 bg-emerald-50" />
-              <StatCard label="Avg Duration" value={(() => {
-                const completed = allSessions.filter(s => s.status === 'completed' && s.duration_seconds)
-                if (completed.length === 0) return '—'
-                const avg = completed.reduce((a, s) => a + s.duration_seconds, 0) / completed.length
-                return `${Math.floor(avg / 60)}m`
-              })()} icon={Clock} color="text-blue-600 bg-blue-50" />
-              <StatCard label="Avg Score" value={(() => {
-                const scored = allSessions.filter(s => s.score != null)
-                if (scored.length === 0) return '—'
-                return Math.round(scored.reduce((a, s) => a + s.score, 0) / scored.length)
-              })()} icon={Target} color="text-amber-600 bg-amber-50" />
-            </div>
+            {analyticsLoading && (
+              <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 text-brand-600 animate-spin" /></div>
+            )}
 
-            {/* Per-depth breakdown */}
-            <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-sm p-6">
-              <h3 className="font-bold text-brand-900 mb-4">Sessions by Depth</h3>
-              <div className="grid grid-cols-3 gap-4">
-                {['quick', 'standard', 'deep'].map(depth => {
-                  const count = depthCounts[depth]
-                  const pct = depthCounts.all > 0 ? Math.round((count / depthCounts.all) * 100) : 0
-                  const cfg = DEPTH_CONFIG[depth]
-                  return (
-                    <div key={depth} className="p-4 bg-slate-50 rounded-xl text-center">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold mb-2 ${cfg.color}`}>
-                        {cfg.label}
-                      </span>
-                      <p className="text-2xl font-bold text-slate-800">{count}</p>
-                      <p className="text-xs text-slate-400">{pct}%</p>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
+            {!analyticsLoading && interviewAnalytics && (
+              <>
+                {/* Overview cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <StatCard label="Total Sessions" value={(interviewAnalytics.voice?.total || 0) + (interviewAnalytics.recruiter?.total || 0)} icon={Users} color="text-brand-600 bg-brand-50" />
+                  <StatCard label="Completion Rate" value={(() => {
+                    const total = (interviewAnalytics.voice?.total || 0) + (interviewAnalytics.recruiter?.total || 0)
+                    const completed = (interviewAnalytics.voice?.completed || 0) + (interviewAnalytics.recruiter?.completed || 0)
+                    return total > 0 ? `${Math.round((completed / total) * 100)}%` : '—'
+                  })()} icon={CheckCircle2} color="text-emerald-600 bg-emerald-50" />
+                  <StatCard label="Avg Duration" value={
+                    interviewAnalytics.voice?.average_duration_seconds
+                      ? `${Math.floor(interviewAnalytics.voice.average_duration_seconds / 60)}m`
+                      : '—'
+                  } icon={Clock} color="text-blue-600 bg-blue-50" />
+                  <StatCard label="Avg Score" value={(() => {
+                    const scored = allSessions.filter(s => s.score != null)
+                    if (scored.length === 0) return '—'
+                    return Math.round(scored.reduce((a, s) => a + s.score, 0) / scored.length)
+                  })()} icon={Target} color="text-amber-600 bg-amber-50" />
+                </div>
 
-            {/* Status breakdown */}
-            <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-sm p-6">
-              <h3 className="font-bold text-brand-900 mb-4">Status Breakdown</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {Object.entries(STATUS_CONFIG).map(([status, cfg]) => {
-                  const count = allSessions.filter(s => s.status === status).length
-                  if (count === 0) return null
-                  return (
-                    <div key={status} className="p-3 bg-slate-50 rounded-xl text-center">
-                      <p className="text-xs text-slate-400 mb-1">{cfg.label}</p>
-                      <p className="text-xl font-bold text-slate-800">{count}</p>
-                    </div>
-                  )
-                })}
+                {/* Recommendation distribution */}
+                <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-sm p-6">
+                  <h3 className="font-bold text-brand-900 mb-4">Recommendation Distribution</h3>
+                  {(() => {
+                    const distribution = interviewAnalytics.recruiter?.recommendation_distribution || {}
+                    const total = Object.values(distribution).reduce((a, c) => a + c, 0)
+                    if (total === 0) {
+                      return <p className="text-sm text-slate-400">No recommendation data available yet.</p>
+                    }
+                    return (
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        {['strong_hire', 'hire', 'maybe', 'no_hire', 'strong_no_hire'].map(key => {
+                          const count = distribution[key] || 0
+                          const pct = Math.round((count / total) * 100)
+                          const cfg = RECOMMENDATION_CONFIG[key]
+                          return (
+                            <div key={key} className={`p-4 rounded-xl text-center ${cfg.color}`}>
+                              <p className="text-xs font-medium opacity-80 mb-1">{cfg.label}</p>
+                              <p className="text-2xl font-bold">{count}</p>
+                              <p className="text-xs opacity-80">{pct}%</p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
+                </div>
+
+                {/* Per-depth breakdown */}
+                <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-sm p-6">
+                  <h3 className="font-bold text-brand-900 mb-4">Sessions by Depth</h3>
+                  <div className="grid grid-cols-3 gap-4">
+                    {['quick', 'standard', 'deep'].map(depth => {
+                      const count = depthCounts[depth]
+                      const pct = depthCounts.all > 0 ? Math.round((count / depthCounts.all) * 100) : 0
+                      const cfg = DEPTH_CONFIG[depth]
+                      return (
+                        <div key={depth} className="p-4 bg-slate-50 rounded-xl text-center">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold mb-2 ${cfg.color}`}>
+                            {cfg.label}
+                          </span>
+                          <p className="text-2xl font-bold text-slate-800">{count}</p>
+                          <p className="text-xs text-slate-400">{pct}%</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Status breakdown */}
+                <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-sm p-6">
+                  <h3 className="font-bold text-brand-900 mb-4">Status Breakdown</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {Object.entries(STATUS_CONFIG).map(([status, cfg]) => {
+                      const count = interviewAnalytics.voice?.status_breakdown?.[status] || 0
+                      if (count === 0) return null
+                      return (
+                        <div key={status} className="p-3 bg-slate-50 rounded-xl text-center">
+                          <p className="text-xs text-slate-400 mb-1">{cfg.label}</p>
+                          <p className="text-xl font-bold text-slate-800">{count}</p>
+                        </div>
+                      )
+                    })}
+                    {(interviewAnalytics.recruiter?.failed || 0) > 0 && (
+                      <div className="p-3 bg-slate-50 rounded-xl text-center">
+                        <p className="text-xs text-slate-400 mb-1">Recruiter Failed</p>
+                        <p className="text-xl font-bold text-slate-800">{interviewAnalytics.recruiter.failed}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {!analyticsLoading && !interviewAnalytics && (
+              <div className="text-center py-16">
+                <BarChart3 className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-lg font-bold text-slate-500 mb-2">Analytics not available</h3>
+                <p className="text-sm text-slate-400">Switch to the Analytics tab to load data.</p>
               </div>
-            </div>
+            )}
           </motion.div>
         )}
 
@@ -601,6 +722,52 @@ export default function InterviewPage() {
                       onChange={e => setConfigDraft({ ...configDraft, voice: { ...configDraft.voice, caller_id_name: e.target.value } })}
                       className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 text-sm outline-none transition-all"
                     />
+                  </div>
+                </div>
+              </Section>
+            )}
+
+            {/* Adaptive Depth Escalation (from voice settings) */}
+            {configDraft.voice && (
+              <Section title="Adaptive Depth Escalation" icon={Zap} description="Automatically escalate high-scoring Quick Screens to Standard interviews">
+                <div className="space-y-5">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="auto_escalation_enabled"
+                      checked={configDraft.voice.auto_escalation_enabled ?? false}
+                      onChange={e => setConfigDraft({ ...configDraft, voice: { ...configDraft.voice, auto_escalation_enabled: e.target.checked } })}
+                      className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <label htmlFor="auto_escalation_enabled" className="text-sm font-medium text-slate-700">
+                      Enable auto-escalation for Quick Screens
+                    </label>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-semibold text-slate-700">Score Threshold</label>
+                      <span className="text-sm font-bold text-brand-600 tabular-nums">
+                        {configDraft.voice.auto_escalation_threshold ?? 70}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={40}
+                      max={100}
+                      step={5}
+                      value={configDraft.voice.auto_escalation_threshold ?? 70}
+                      onChange={e => setConfigDraft({ ...configDraft, voice: { ...configDraft.voice, auto_escalation_threshold: parseInt(e.target.value) } })}
+                      className="w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer accent-brand-600"
+                    />
+                    <div className="flex justify-between text-xs text-slate-400 mt-1">
+                      <span>40</span>
+                      <span>70</span>
+                      <span>100</span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">
+                      If a Quick Screen score exceeds this threshold, a Standard interview will be auto-scheduled.
+                    </p>
                   </div>
                 </div>
               </Section>

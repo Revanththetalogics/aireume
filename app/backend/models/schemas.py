@@ -648,6 +648,8 @@ class VoiceTenantConfigUpdate(BaseModel):
     assessment_detail_level: Optional[str] = None  # brief / full
     auto_update_status: Optional[bool] = None
     follow_up_aggressiveness: Optional[str] = None  # low / medium / high
+    auto_escalation_enabled: Optional[bool] = None
+    auto_escalation_threshold: Optional[int] = None
 
 
 class VoiceTenantConfigOut(BaseModel):
@@ -673,6 +675,8 @@ class VoiceTenantConfigOut(BaseModel):
     assessment_detail_level: str
     auto_update_status: bool
     follow_up_aggressiveness: str
+    auto_escalation_enabled: bool = False
+    auto_escalation_threshold: int = 70
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

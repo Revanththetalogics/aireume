@@ -1,48 +1,111 @@
-import { Brain, TrendingUp, ArrowRight, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+import { useState } from 'react'
+import {
+  Brain, Sparkles, ChevronDown, CheckCircle2, TrendingUp, ArrowRight,
+  Users, MessageSquare, Heart, XCircle, AlertCircle,
+} from 'lucide-react'
 
 const RECOMMENDATION_CONFIG = {
-  strong_hire: { label: 'Strong Hire', color: 'bg-emerald-100 text-emerald-800', icon: CheckCircle2 },
-  hire:        { label: 'Hire',        color: 'bg-green-100 text-green-700',     icon: CheckCircle2 },
-  maybe:       { label: 'Maybe',       color: 'bg-amber-100 text-amber-700',     icon: AlertCircle },
-  no_hire:     { label: 'No Hire',     color: 'bg-red-100 text-red-700',         icon: XCircle },
-  strong_no_hire: { label: 'Strong No Hire', color: 'bg-red-200 text-red-800',   icon: XCircle },
+  strong_hire:    { label: 'Strong Hire',     color: 'bg-emerald-100 text-emerald-800', icon: CheckCircle2 },
+  hire:           { label: 'Hire',            color: 'bg-green-100 text-green-700',     icon: CheckCircle2 },
+  maybe:          { label: 'Maybe',           color: 'bg-amber-100 text-amber-700',     icon: AlertCircle },
+  no_hire:        { label: 'No Hire',         color: 'bg-red-100 text-red-700',         icon: XCircle },
+  strong_no_hire: { label: 'Strong No Hire',  color: 'bg-red-200 text-red-800',         icon: XCircle },
 }
 
-const DIMENSION_LABELS = {
-  technical:      'Technical',
-  communication:  'Communication',
-  experience:     'Experience',
-  culture_fit:    'Culture Fit',
-  problem_solving:'Problem Solving',
+const CONFIDENCE_CONFIG = {
+  high:   { label: 'High Confidence',   color: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+  medium: { label: 'Medium Confidence', color: 'bg-amber-50 text-amber-700 ring-amber-200' },
+  low:    { label: 'Low Confidence',    color: 'bg-red-50 text-red-700 ring-red-200' },
 }
 
-function ScoreBar({ label, score, max = 100 }) {
-  const pct = Math.min(100, Math.max(0, (score / max) * 100))
-  const color =
-    pct >= 80 ? 'bg-emerald-500' :
-    pct >= 60 ? 'bg-green-500' :
-    pct >= 40 ? 'bg-amber-500' :
-    'bg-red-500'
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-semibold text-slate-600">{label}</span>
-        <span className="text-xs font-bold text-slate-700">{score}/{max}</span>
-      </div>
-      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  )
+// 5-dimension model. Each entry maps a dimension key to its label, score
+// field, evidence field, and a representative icon. New dimensions (motivation)
+// are rendered only when the backend supplies a score, preserving backwards
+// compatibility with scorecards that only carry 4 dimensions.
+const DIMENSIONS = [
+  { key: 'technical',     label: 'Technical Proficiency',  scoreField: 'technical_score',      evidenceField: 'technical_evidence',      icon: Brain },
+  { key: 'behavioral',    label: 'Behavioral Alignment',   scoreField: 'behavioral_score',     evidenceField: 'behavioral_evidence',     icon: Users },
+  { key: 'communication', label: 'Communication Skills',   scoreField: 'communication_score',  evidenceField: 'communication_evidence',  icon: MessageSquare },
+  { key: 'cultural_fit',  label: 'Cultural Fit',           scoreField: 'cultural_fit_score',   evidenceField: 'cultural_fit_evidence',   icon: Heart },
+  { key: 'motivation',    label: 'Motivation & Growth',    scoreField: 'motivation_score',     evidenceField: 'motivation_evidence',     icon: Sparkles },
+]
+
+const DIMENSION_LABELS = DIMENSIONS.reduce((acc, d) => {
+  acc[d.key] = d.label
+  return acc
+}, {})
+
+/**
+ * Safely coerce an evidence value into a plain object.
+ * The backend stores evidence as JSON text; the API layer usually parses it
+ * already, but defend against raw JSON strings or unexpected primitives.
+ */
+function parseEvidence(raw) {
+  if (raw == null) return null
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) return null
+    try {
+      return JSON.parse(trimmed)
+    } catch {
+      return null
+    }
+  }
+  return raw
+}
+
+/**
+ * Extract a flat list of evidence bullet points from a parsed evidence value.
+ * Supports multiple shapes produced by the evaluation agents:
+ *   - array of strings                     → ["obs 1", "obs 2"]
+ *   - { items: [...] }                     → {items: [...]}
+ *   - { evidence: [...], details: {...} }  → backend evaluator shape
+ *   - { strengths: [...], gaps: [...] }    → backend evaluator shape
+ */
+function extractEvidenceItems(parsed) {
+  if (!parsed) return []
+  if (Array.isArray(parsed)) return parsed.filter((x) => x != null && x !== '')
+  if (typeof parsed === 'object') {
+    if (Array.isArray(parsed.evidence)) return parsed.evidence.filter((x) => x != null && x !== '')
+    if (Array.isArray(parsed.items)) return parsed.items.filter((x) => x != null && x !== '')
+    if (Array.isArray(parsed.highlights)) return parsed.highlights.filter((x) => x != null && x !== '')
+    // Fallback: gather every array-typed value
+    const collected = []
+    for (const v of Object.values(parsed)) {
+      if (Array.isArray(v)) collected.push(...v)
+    }
+    return collected.filter((x) => x != null && x !== '')
+  }
+  return []
+}
+
+function extractLabeledItems(parsed, keys) {
+  const out = {}
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out
+  for (const k of keys) {
+    if (Array.isArray(parsed[k]) && parsed[k].length > 0) {
+      out[k] = parsed[k].filter((x) => x != null && x !== '')
+    }
+  }
+  return out
+}
+
+function scoreColor(pct) {
+  if (pct >= 80) return 'bg-emerald-500'
+  if (pct >= 60) return 'bg-green-500'
+  if (pct >= 40) return 'bg-amber-500'
+  return 'bg-red-500'
+}
+
+function scoreTextColor(pct) {
+  if (pct >= 80) return 'text-emerald-600'
+  if (pct >= 60) return 'text-green-600'
+  if (pct >= 40) return 'text-amber-600'
+  return 'text-red-600'
 }
 
 function ScoreGauge({ score, max = 100 }) {
   const pct = Math.min(100, Math.max(0, (score / max) * 100))
-  const color =
-    pct >= 80 ? 'text-emerald-600' :
-    pct >= 60 ? 'text-green-600' :
-    pct >= 40 ? 'text-amber-600' :
-    'text-red-600'
   const ringColor =
     pct >= 80 ? 'stroke-emerald-500' :
     pct >= 60 ? 'stroke-green-500' :
@@ -51,7 +114,7 @@ function ScoreGauge({ score, max = 100 }) {
   const circumference = 2 * Math.PI * 44
   const offset = circumference - (pct / 100) * circumference
   return (
-    <div className="relative w-28 h-28 mx-auto">
+    <div className="relative w-28 h-28 mx-auto shrink-0">
       <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
         <circle cx="50" cy="50" r="44" fill="none" strokeWidth="8" className="stroke-slate-100" />
         <circle
@@ -64,9 +127,147 @@ function ScoreGauge({ score, max = 100 }) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={`text-2xl font-bold ${color}`}>{score}</span>
+        <span className={`text-2xl font-bold ${scoreTextColor(pct)}`}>{score ?? '—'}</span>
         <span className="text-xs text-slate-400">/ {max}</span>
       </div>
+    </div>
+  )
+}
+
+function DimensionCard({ label, score, evidence, icon: Icon }) {
+  const [open, setOpen] = useState(false)
+  const pct = Math.min(100, Math.max(0, (score ?? 0)))
+  const parsed = parseEvidence(evidence)
+  const items = extractEvidenceItems(parsed)
+  const labeled = extractLabeledItems(parsed, ['strengths', 'gaps', 'patterns', 'observations', 'fit_indicators'])
+  const hasDetail = items.length > 0 || Object.keys(labeled).length > 0
+  const hasScore = score != null
+
+  return (
+    <div className="bg-white rounded-2xl ring-1 ring-slate-200 p-5 transition-shadow hover:shadow-sm">
+      <button
+        type="button"
+        onClick={() => hasDetail && setOpen((v) => !v)}
+        className={`flex items-center w-full gap-3 ${hasDetail ? 'cursor-pointer' : 'cursor-default'}`}
+        disabled={!hasDetail}
+      >
+        <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+          <Icon className="w-4 h-4 text-brand-600" />
+        </div>
+        <div className="flex-1 min-w-0 text-left">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-bold text-slate-800 truncate">{label}</span>
+            <span className={`text-sm font-bold ${hasScore ? scoreTextColor(pct) : 'text-slate-400'}`}>
+              {hasScore ? score : '—'}
+            </span>
+          </div>
+          <div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${hasScore ? scoreColor(pct) : 'bg-slate-200'}`}
+              style={{ width: `${hasScore ? pct : 0}%` }}
+            />
+          </div>
+        </div>
+        {hasDetail && (
+          <ChevronDown
+            className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${open ? 'rotate-180' : ''}`}
+          />
+        )}
+      </button>
+
+      {open && hasDetail && (
+        <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+          {items.length > 0 && (
+            <ul className="space-y-1.5">
+              {items.map((item, i) => (
+                <li key={i} className="text-xs text-slate-600 flex items-start gap-2">
+                  <span className="mt-1.5 w-1 h-1 rounded-full bg-brand-400 shrink-0" />
+                  <span>{typeof item === 'string' ? item : JSON.stringify(item)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {labeled.strengths && (
+            <EvidenceSubList title="Strengths" items={labeled.strengths} tone="emerald" />
+          )}
+          {labeled.gaps && (
+            <EvidenceSubList title="Gaps" items={labeled.gaps} tone="amber" />
+          )}
+          {labeled.patterns && (
+            <EvidenceSubList title="Patterns" items={labeled.patterns} tone="brand" />
+          )}
+          {labeled.observations && (
+            <EvidenceSubList title="Observations" items={labeled.observations} tone="brand" />
+          )}
+          {labeled.fit_indicators && (
+            <EvidenceSubList title="Fit Indicators" items={labeled.fit_indicators} tone="brand" />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const SUB_TONE = {
+  emerald: { dot: 'bg-emerald-400', label: 'text-emerald-700' },
+  amber:   { dot: 'bg-amber-400',   label: 'text-amber-700' },
+  brand:   { dot: 'bg-brand-400',   label: 'text-brand-700' },
+}
+
+function EvidenceSubList({ title, items, tone = 'brand' }) {
+  const t = SUB_TONE[tone] || SUB_TONE.brand
+  return (
+    <div>
+      <p className={`text-[11px] font-semibold uppercase tracking-wide mb-1.5 ${t.label}`}>{title}</p>
+      <ul className="space-y-1.5">
+        {items.map((item, i) => (
+          <li key={i} className="text-xs text-slate-600 flex items-start gap-2">
+            <span className={`mt-1.5 w-1 h-1 rounded-full shrink-0 ${t.dot}`} />
+            <span>{typeof item === 'string' ? item : JSON.stringify(item)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function FitScoreAdjustment({ original, adjusted, reasoning }) {
+  const hasData = original != null || adjusted != null
+  if (!hasData) return null
+
+  const diff = (adjusted ?? 0) - (original ?? 0)
+  const isUp = diff > 0
+  const isFlat = diff === 0
+  const valueColor = isUp ? 'text-emerald-600' : isFlat ? 'text-slate-600' : 'text-amber-600'
+
+  return (
+    <div className="bg-white rounded-2xl ring-1 ring-slate-200 p-6">
+      <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+        <TrendingUp className="w-4 h-4 text-brand-600" />
+        Fit Score Adjustment
+      </h3>
+      <div className="flex items-center justify-center gap-4 sm:gap-6">
+        <div className="text-center">
+          <p className="text-xs text-slate-400 mb-1">Original</p>
+          <p className="text-2xl font-bold text-slate-600">{original ?? '—'}</p>
+        </div>
+        <ArrowRight className="w-5 h-5 text-slate-300" />
+        <div className="text-center">
+          <p className="text-xs text-slate-400 mb-1">Adjusted</p>
+          <p className={`text-2xl font-bold ${valueColor}`}>{adjusted ?? '—'}</p>
+        </div>
+        {!isFlat && (
+          <div className="text-center">
+            <p className="text-xs text-slate-400 mb-1">Change</p>
+            <p className={`text-lg font-bold ${valueColor}`}>
+              {isUp ? '+' : ''}{diff}
+            </p>
+          </div>
+        )}
+      </div>
+      {reasoning && (
+        <p className="text-xs text-slate-500 mt-4 text-center italic leading-relaxed">{reasoning}</p>
+      )}
     </div>
   )
 }
@@ -74,111 +275,71 @@ function ScoreGauge({ score, max = 100 }) {
 export default function RecruiterScorecard({ scorecard }) {
   if (!scorecard) return null
 
-  const dimensions = scorecard.dimensions || {}
   const recommendation = scorecard.recommendation || null
   const recConfig = RECOMMENDATION_CONFIG[recommendation] || null
   const RecIcon = recConfig?.icon || null
+  const confidence = scorecard.confidence_level || null
+  const confConfig = confidence ? CONFIDENCE_CONFIG[confidence] : null
 
-  const fitment = scorecard.fitment_adjustment || null
+  const activeDimensions = DIMENSIONS.filter(
+    (d) => scorecard[d.scoreField] != null || scorecard[d.evidenceField] != null,
+  )
 
   return (
     <div className="space-y-6">
-      {/* Overall Score + Recommendation */}
+      {/* Overall Score + Recommendation + Confidence */}
       <div className="bg-white rounded-2xl ring-1 ring-slate-200 p-6">
         <div className="flex flex-col md:flex-row items-center gap-6">
-          <ScoreGauge score={scorecard.overall_score || 0} />
+          <ScoreGauge score={scorecard.overall_score ?? 0} />
           <div className="flex-1 text-center md:text-left">
             <h3 className="text-lg font-bold text-slate-900">Overall Score</h3>
-            {recConfig && (
-              <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold mt-2 ${recConfig.color}`}>
-                {RecIcon && <RecIcon className="w-4 h-4" />}
-                {recConfig.label}
-              </div>
-            )}
-            {scorecard.confidence != null && (
-              <p className="text-xs text-slate-400 mt-2">
-                Confidence: <span className="font-semibold text-slate-600">{Math.round(scorecard.confidence * 100)}%</span>
-              </p>
-            )}
+            <div className="flex flex-wrap items-center gap-2 mt-2 justify-center md:justify-start">
+              {recConfig && (
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${recConfig.color}`}>
+                  {RecIcon && <RecIcon className="w-4 h-4" />}
+                  {recConfig.label}
+                </span>
+              )}
+              {confConfig && (
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${confConfig.color}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
+                  {confConfig.label}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Dimension Bars */}
-      <div className="bg-white rounded-2xl ring-1 ring-slate-200 p-6">
-        <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-          <Brain className="w-4 h-4 text-brand-600" />
-          Dimension Scores
-        </h3>
-        <div className="space-y-4">
-          {Object.entries(DIMENSION_LABELS).map(([key, label]) => {
-            const val = dimensions[key]
-            if (val == null) return null
-            return <ScoreBar key={key} label={label} score={typeof val === 'object' ? val.score || 0 : val} />
-          })}
-        </div>
-      </div>
-
-      {/* Fitment Adjustment */}
-      {fitment && (
+      {/* Dimension Cards */}
+      {activeDimensions.length > 0 && (
         <div className="bg-white rounded-2xl ring-1 ring-slate-200 p-6">
           <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-brand-600" />
-            Fitment Adjustment
+            <Brain className="w-4 h-4 text-brand-600" />
+            Dimension Scores
           </h3>
-          <div className="flex items-center justify-center gap-4">
-            <div className="text-center">
-              <p className="text-xs text-slate-400 mb-1">Original</p>
-              <p className="text-2xl font-bold text-slate-600">{fitment.original_score ?? '—'}</p>
-            </div>
-            <ArrowRight className="w-5 h-5 text-slate-300" />
-            <div className="text-center">
-              <p className="text-xs text-slate-400 mb-1">Adjusted</p>
-              <p className={`text-2xl font-bold ${
-                (fitment.adjusted_score || 0) >= (fitment.original_score || 0)
-                  ? 'text-emerald-600' : 'text-amber-600'
-              }`}>{fitment.adjusted_score ?? '—'}</p>
-            </div>
-            {fitment.delta != null && (
-              <div className="text-center">
-                <p className="text-xs text-slate-400 mb-1">Delta</p>
-                <p className={`text-lg font-bold ${fitment.delta >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {fitment.delta > 0 ? '+' : ''}{fitment.delta}
-                </p>
-              </div>
-            )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {activeDimensions.map((d) => (
+              <DimensionCard
+                key={d.key}
+                label={d.label}
+                score={scorecard[d.scoreField]}
+                evidence={scorecard[d.evidenceField]}
+                icon={d.icon}
+              />
+            ))}
           </div>
-          {fitment.rationale && (
-            <p className="text-xs text-slate-500 mt-4 text-center italic">{fitment.rationale}</p>
-          )}
         </div>
       )}
 
-      {/* Dimension Detail Cards */}
-      {Object.entries(dimensions).length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {Object.entries(dimensions).map(([key, val]) => {
-            if (typeof val !== 'object') return null
-            const label = DIMENSION_LABELS[key] || key.replace(/_/g, ' ')
-            return (
-              <div key={key} className="bg-white rounded-2xl ring-1 ring-slate-200 p-5">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-sm font-bold text-slate-800">{label}</h4>
-                  <span className="text-sm font-bold text-brand-600">{val.score ?? '—'}</span>
-                </div>
-                {val.highlights && val.highlights.length > 0 && (
-                  <ul className="space-y-1 mt-2">
-                    {val.highlights.map((h, i) => (
-                      <li key={i} className="text-xs text-slate-500 pl-3 border-l-2 border-brand-100">{h}</li>
-                    ))}
-                  </ul>
-                )}
-                {val.notes && <p className="text-xs text-slate-500 mt-2">{val.notes}</p>}
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {/* Fit Score Adjustment */}
+      <FitScoreAdjustment
+        original={scorecard.original_fit_score}
+        adjusted={scorecard.adjusted_fit_score}
+        reasoning={scorecard.adjustment_reasoning}
+      />
     </div>
   )
 }
+
+export { DIMENSION_LABELS, RECOMMENDATION_CONFIG, CONFIDENCE_CONFIG }

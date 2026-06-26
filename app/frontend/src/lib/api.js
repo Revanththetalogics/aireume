@@ -1780,6 +1780,13 @@ export async function exportInterviewSessions(params = {}) {
   return data
 }
 
+export async function compareInterviewScores(jdId, candidateIds) {
+  const { data } = await api.get('/interviews/compare', {
+    params: { jd_id: jdId, candidate_ids: candidateIds.join(',') },
+  })
+  return data
+}
+
 // Legacy helpers retained for backward compatibility.
 // Prefer the unified functions above for new code.
 

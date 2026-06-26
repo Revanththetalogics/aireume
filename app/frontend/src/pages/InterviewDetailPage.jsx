@@ -5,6 +5,7 @@ import {
   Mic, Brain, ArrowLeft, Clock, FileText, Calendar, User, Loader2,
   XCircle, RefreshCw, CheckCircle2, AlertTriangle,
   MessageSquare, ClipboardList, Target, Phone, Zap,
+  Sparkles, TrendingUp, ShieldCheck,
 } from 'lucide-react'
 import {
   getRecruiterSession, getRecruiterTranscript, getRecruiterScorecard,
@@ -39,6 +40,98 @@ const RECOMMENDATION_COLORS = {
   maybe:          'bg-amber-100 text-amber-700',
   no_hire:        'bg-red-100 text-red-700',
   strong_no_hire: 'bg-red-200 text-red-800',
+}
+
+const RECOMMENDATION_LABELS = {
+  strong_hire:    'Strong Hire',
+  hire:           'Hire',
+  maybe:          'Maybe',
+  no_hire:        'No Hire',
+  strong_no_hire: 'Strong No Hire',
+}
+
+const CONFIDENCE_CONFIG = {
+  high:   { label: 'High Confidence',   color: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
+  medium: { label: 'Medium Confidence', color: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' },
+  low:    { label: 'Low Confidence',    color: 'bg-red-50 text-red-700 ring-1 ring-red-200' },
+}
+
+function ExecutiveSummary({ scorecard }) {
+  if (!scorecard) return null
+  const {
+    executive_summary,
+    recommendation,
+    confidence_level,
+    recommendation_reasoning,
+  } = scorecard
+
+  const hasAny =
+    executive_summary || recommendation || confidence_level || recommendation_reasoning
+  if (!hasAny) return null
+
+  const recColor = RECOMMENDATION_COLORS[recommendation]
+  const recLabel = RECOMMENDATION_LABELS[recommendation] || (recommendation ? recommendation.replace(/_/g, ' ') : null)
+  const conf = confidence_level ? CONFIDENCE_CONFIG[confidence_level] : null
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500 shadow-lg mb-6"
+    >
+      {/* Decorative accent */}
+      <div className="pointer-events-none absolute -right-10 -top-10 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
+      <div className="pointer-events-none absolute -right-6 bottom-0 w-24 h-24 rounded-full bg-white/10 blur-xl" />
+
+      <div className="relative p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-white" />
+          </div>
+          <h3 className="text-sm font-bold text-white tracking-wide uppercase">
+            Executive Summary
+          </h3>
+        </div>
+
+        {executive_summary && (
+          <p className="text-sm leading-relaxed text-white/95 mb-4">
+            {executive_summary}
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {recommendation && (
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+              recColor || 'bg-white/20 text-white'
+            }`}>
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {recLabel}
+            </span>
+          )}
+          {confidence_level && (
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+              conf ? conf.color : 'bg-white/20 text-white'
+            }`}>
+              <ShieldCheck className="w-3.5 h-3.5" />
+              {conf ? conf.label : confidence_level}
+            </span>
+          )}
+        </div>
+
+        {recommendation_reasoning && (
+          <div className="mt-4 pt-4 border-t border-white/20">
+            <p className="text-xs font-semibold text-white/70 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5" />
+              Recommendation Reasoning
+            </p>
+            <p className="text-xs leading-relaxed text-white/90">
+              {recommendation_reasoning}
+            </p>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
 }
 
 function StatusBadge({ status }) {
@@ -362,7 +455,10 @@ export default function InterviewDetailPage() {
         {!tabLoading && activeTab === 'scorecard' && source === 'recruiter' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             {scorecard ? (
-              <RecruiterScorecard scorecard={scorecard} />
+              <>
+                <ExecutiveSummary scorecard={scorecard} />
+                <RecruiterScorecard scorecard={scorecard} />
+              </>
             ) : (
               <div className="text-center py-16 text-slate-400">
                 <Target className="w-12 h-12 mx-auto mb-4 opacity-40" />

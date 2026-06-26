@@ -43,6 +43,7 @@ const RecruiterInterviewPage = lazy(() => import('./pages/RecruiterInterviewPage
 const RecruiterSessionDetailPage = lazy(() => import('./pages/RecruiterSessionDetailPage'))
 const InterviewPage = lazy(() => import('./pages/InterviewPage'))
 const InterviewDetailPage = lazy(() => import('./pages/InterviewDetailPage'))
+const InterviewComparisonPage = lazy(() => import('./pages/InterviewComparisonPage'))
 
 // Admin layout + pages
 const AdminLayout        = lazy(() => import('./layouts/AdminLayout'))
@@ -149,6 +150,7 @@ function App() {
               <Route path="/recruiter-interviews/:id" element={<Shell><OnboardingGate><RecruiterSessionDetailPage /></OnboardingGate></Shell>} />
               <Route path="/ai-interviews" element={<Shell><OnboardingGate><InterviewPage /></OnboardingGate></Shell>} />
               <Route path="/ai-interviews/:id" element={<Shell><OnboardingGate><InterviewDetailPage /></OnboardingGate></Shell>} />
+              <Route path="/interviews/comparison" element={<Shell><OnboardingGate><InterviewComparisonPage /></OnboardingGate></Shell>} />
               <Route path="/settings"   element={<Shell><OnboardingGate><SettingsPage /></OnboardingGate></Shell>} />
               {/* Admin portal - standalone layout (no recruiter nav) */}
               <Route path="/admin" element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}>

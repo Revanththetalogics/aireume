@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import {
   Brain, ArrowLeft, Clock, FileText, Calendar, User, Loader2,
   XCircle, RefreshCw, Download, CheckCircle2, AlertTriangle,
-  MessageSquare, ClipboardList, Target,
+  MessageSquare, Target,
 } from 'lucide-react'
 import {
   getRecruiterSession, getRecruiterTranscript, getRecruiterScorecard,
@@ -12,6 +12,7 @@ import {
 } from '../lib/api'
 import RecruiterScorecard from '../components/RecruiterScorecard'
 import RecruiterTranscript from '../components/RecruiterTranscript'
+import InterviewStrategyPreview from '../components/InterviewStrategyPreview'
 
 const STATUS_CONFIG = {
   pending_strategy: { label: 'Preparing',   color: 'bg-slate-100 text-slate-700' },
@@ -48,6 +49,23 @@ function InfoField({ label, value, className = '' }) {
       <p className="text-sm font-semibold text-slate-700">{value ?? '—'}</p>
     </div>
   )
+}
+
+// Normalize the interview strategy payload into a flat questions array.
+// Handles: null, JSON string, object with { questions: [] }, or the array itself.
+function parseStrategyQuestions(strategy) {
+  if (!strategy) return []
+  let parsed = strategy
+  if (typeof strategy === 'string') {
+    try {
+      parsed = JSON.parse(strategy)
+    } catch {
+      return []
+    }
+  }
+  if (Array.isArray(parsed)) return parsed
+  if (parsed && Array.isArray(parsed.questions)) return parsed.questions
+  return []
 }
 
 export default function RecruiterSessionDetailPage() {
@@ -245,7 +263,7 @@ export default function RecruiterSessionDetailPage() {
           {[
             { key: 'scorecard', label: 'Scorecard', icon: Target },
             { key: 'transcript', label: 'Transcript', icon: MessageSquare },
-            { key: 'strategy', label: 'Strategy', icon: ClipboardList },
+            { key: 'strategy', label: 'Strategy', icon: Brain },
           ].map(tab => (
             <button
               key={tab.key}
@@ -292,65 +310,7 @@ export default function RecruiterSessionDetailPage() {
         {/* Strategy Tab */}
         {!tabLoading && activeTab === 'strategy' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            {session.strategy ? (
-              <div className="bg-white rounded-2xl ring-1 ring-slate-200 p-6">
-                <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-                  <ClipboardList className="w-4 h-4 text-brand-600" />
-                  Interview Strategy
-                </h3>
-                <div className="prose prose-sm max-w-none">
-                  {typeof session.strategy === 'string' ? (
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{session.strategy}</div>
-                  ) : (
-                    <div className="space-y-4">
-                      {session.strategy.objective && (
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Objective</h4>
-                          <p className="text-sm text-slate-700">{session.strategy.objective}</p>
-                        </div>
-                      )}
-                      {session.strategy.focus_areas && (
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Focus Areas</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {session.strategy.focus_areas.map((area, i) => (
-                              <span key={i} className="px-2.5 py-1 bg-brand-50 text-brand-700 rounded-lg text-xs font-semibold">{area}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {session.strategy.planned_questions && (
-                        <div>
-                          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Planned Questions</h4>
-                          <div className="space-y-2">
-                            {session.strategy.planned_questions.map((q, i) => (
-                              <div key={i} className="flex items-start gap-2 p-3 bg-slate-50 rounded-xl">
-                                <span className="text-xs font-bold text-brand-600 mt-0.5">{i + 1}</span>
-                                <div>
-                                  <p className="text-sm text-slate-700">{q.question || q}</p>
-                                  {q.category && (
-                                    <span className="text-xs text-slate-400 mt-1">{q.category}</span>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-16 text-slate-400">
-                <ClipboardList className="w-12 h-12 mx-auto mb-4 opacity-40" />
-                <p className="text-sm">
-                  {['pending_strategy', 'strategy_ready'].includes(session.status)
-                    ? 'Strategy is being generated...'
-                    : 'No strategy available'}
-                </p>
-              </div>
-            )}
+            <InterviewStrategyPreview questions={parseStrategyQuestions(session.interview_strategy_json)} />
           </motion.div>
         )}
       </div>
