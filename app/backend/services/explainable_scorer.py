@@ -10,7 +10,7 @@ Enterprise-grade explainable scoring with:
 """
 
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class EvidenceChain:
@@ -53,7 +53,7 @@ class EvidenceChain:
             "confidence": round(confidence, 2),
             "score_impact": round(score_impact, 2),
             "mitigating_factors": mitigating_factors or [],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
     
     def get_evidence_for_component(self, component: str) -> List[Dict]:

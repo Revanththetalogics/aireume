@@ -1,7 +1,7 @@
 """Outcome tracking service for historical learning."""
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict
 from sqlalchemy.orm import Session
 
@@ -33,10 +33,10 @@ def record_outcome(db: Session, tenant_id: int, screening_result_id: int,
         # Update existing
         existing.decision = decision
         existing.decision_stage = stage
-        existing.decision_date = datetime.utcnow()
+        existing.decision_date = datetime.now(timezone.utc)
         existing.decision_by_user_id = user_id
         existing.feedback_notes = notes
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
         db.commit()
         return existing
 
@@ -48,11 +48,11 @@ def record_outcome(db: Session, tenant_id: int, screening_result_id: int,
         role_template_id=role_template_id,
         decision=decision,
         decision_stage=stage,
-        decision_date=datetime.utcnow(),
+        decision_date=datetime.now(timezone.utc),
         decision_by_user_id=user_id,
         feedback_notes=notes,
         source="manual",
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     db.add(outcome)
     db.commit()
@@ -76,7 +76,7 @@ def record_feedback(db: Session, outcome_id: int, tenant_id: int,
     outcome.feedback_rating = rating
     if notes:
         outcome.feedback_notes = notes
-    outcome.updated_at = datetime.utcnow()
+    outcome.updated_at = datetime.now(timezone.utc)
     db.commit()
     return outcome
 
@@ -190,8 +190,8 @@ def compute_skill_patterns(db: Session, tenant_id: int,
             present_in_hired_pct=round(hired_pct, 1),
             present_in_rejected_pct=round(rejected_pct, 1),
             sample_size=hired_count + rejected_count,
-            last_computed_at=datetime.utcnow(),
-            created_at=datetime.utcnow()
+            last_computed_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc)
         )
         patterns.append(pattern)
 

@@ -538,7 +538,7 @@ def update_candidate_name(
         user_id=current_user.id,
     )
     candidate.name = body.name
-    candidate.profile_updated_at = datetime.utcnow()
+    candidate.profile_updated_at = datetime.now(timezone.utc)
 
     # Propagate name change into screening_result analysis_result & narrative_json
     if old_name and old_name != body.name:

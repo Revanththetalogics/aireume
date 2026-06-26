@@ -9,7 +9,7 @@ Enterprise-grade continuous learning from hiring outcomes:
 """
 
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 
@@ -55,11 +55,11 @@ class OutcomeTracker:
         Returns:
             outcome_id: Unique identifier for this outcome
         """
-        outcome_id = f"{outcome['candidate_id']}_{outcome['jd_id']}_{datetime.utcnow().strftime('%Y%m%d')}"
+        outcome_id = f"{outcome['candidate_id']}_{outcome['jd_id']}_{datetime.now(timezone.utc).strftime('%Y%m%d')}"
         
         # Add metadata
         outcome["outcome_id"] = outcome_id
-        outcome["recorded_at"] = outcome.get("recorded_at", datetime.utcnow().isoformat())
+        outcome["recorded_at"] = outcome.get("recorded_at", datetime.now(timezone.utc).isoformat())
         
         # Save to file
         filepath = os.path.join(self.storage_path, f"{outcome_id}.json")
@@ -368,7 +368,7 @@ class ModelRetrainingPipeline:
     def should_retrain(self, last_retrained: datetime) -> bool:
         """Determine if model should be retrained."""
         # Check time-based trigger (monthly)
-        days_since_retrain = (datetime.utcnow() - last_retrained).days
+        days_since_retrain = (datetime.now(timezone.utc) - last_retrained).days
         if days_since_retrain >= 30:
             return True
         

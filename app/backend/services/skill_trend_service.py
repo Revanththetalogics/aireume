@@ -1,6 +1,6 @@
 """Skill trending service — computes and queries monthly skill frequency snapshots."""
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional, List, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -155,7 +155,7 @@ def compute_monthly_snapshot(db: Session, tenant_id: int,
             total_hired=hired_by_category.get(role_cat, 0),
             trend_direction=direction,
             growth_pct=round(growth, 1),
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         snapshots.append(snapshot)
 

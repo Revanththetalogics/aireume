@@ -14,7 +14,7 @@ import logging
 import json
 import asyncio
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 import statistics
 
@@ -211,7 +211,7 @@ class CalibrationService:
                     expected_recommendation=example.expected_recommendation,
                     actual_recommendation=actual_rec,
                     recommendation_match=rec_match,
-                    timestamp=datetime.utcnow()
+                    timestamp=datetime.now(timezone.utc)
                 )
                 
                 results.append(result)
@@ -231,7 +231,7 @@ class CalibrationService:
             return {
                 "status": "ERROR",
                 "error": "All calibration checks failed",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
         
         # Calculate aggregate metrics
@@ -264,7 +264,7 @@ class CalibrationService:
                 }
                 for r in results
             ],
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "drift_threshold": self.drift_threshold,
         }
         

@@ -43,7 +43,7 @@ from app.backend.services.constants import (
     JOB_FUNCTION_SKILL_TAXONOMY,
     RECOMMENDATION_THRESHOLDS,
 )
-from app.backend.services.parser_service import parse_resume, extract_jd_text
+from app.backend.services.parser_service import parse_resume, extract_jd_text, enrich_parsed_resume_async
 from app.backend.services.doc_converter import convert_to_pdf
 from app.backend.services.gap_detector import analyze_gaps
 from app.backend.services.hybrid_pipeline import (
@@ -246,7 +246,7 @@ def _upsert_screening_result(
         existing.analysis_result = analysis_result
         existing.is_active = True
         existing.version_number = (existing.version_number or 1) + 1
-        existing.status_updated_at = datetime.utcnow()
+        existing.status_updated_at = datetime.now(timezone.utc)
         if narrative_status is not None:
             existing.narrative_status = narrative_status
         db.commit()
@@ -1145,6 +1145,7 @@ async def _parse_resume_with_doc_conversion(content: bytes, filename: str) -> tu
                 asyncio.to_thread(parse_resume, pdf_bytes, "converted.pdf"),
                 timeout=PARSE_TIMEOUT_SECONDS,
             )
+            await enrich_parsed_resume_async(parsed_data, filename)
             return parsed_data, pdf_bytes
         log.warning("DOC-to-PDF conversion failed for %s, falling back to legacy parser", filename)
 
@@ -1158,6 +1159,7 @@ async def _parse_resume_with_doc_conversion(content: bytes, filename: str) -> tu
             status_code=400,
             detail="Resume parsing timed out — file may be too complex or contain too many pages",
         )
+    await enrich_parsed_resume_async(parsed_data, filename)
     return parsed_data, pdf_bytes
 
 
@@ -3045,7 +3047,7 @@ def update_status(
         raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {allowed_statuses}")
 
     result.status = new_status
-    result.status_updated_at = datetime.utcnow()
+    result.status_updated_at = datetime.now(timezone.utc)
     db.commit()
 
     # Fire-and-forget auto-trigger evaluation using a fresh DB session.

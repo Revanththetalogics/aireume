@@ -353,7 +353,7 @@ def refresh_token(request: Request, body: RefreshRequest = None, db: Session = D
         if jti:
             existing_revoked = db.query(RevokedToken).filter(RevokedToken.jti == jti).first()
             if not existing_revoked:
-                revoked_entry = RevokedToken(jti=jti, expires_at=datetime.utcnow() + timedelta(days=30))
+                revoked_entry = RevokedToken(jti=jti, expires_at=datetime.now(timezone.utc) + timedelta(days=30))
                 db.add(revoked_entry)
                 db.commit()
         raise HTTPException(status_code=401, detail="User account has been deactivated")
@@ -449,7 +449,7 @@ def forgot_password(request: Request, request_data: dict, db: Session = Depends(
     reset_token = PasswordResetToken(
         user_id=user.id,
         token=token,
-        expires_at=datetime.utcnow() + timedelta(hours=1)
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1)
     )
     db.add(reset_token)
     db.commit()
@@ -496,7 +496,7 @@ def reset_password(request_data: dict, db: Session = Depends(get_db)):
     # Find valid token
     reset_token = db.query(PasswordResetToken).filter(
         PasswordResetToken.token == token,
-        PasswordResetToken.expires_at > datetime.utcnow()
+        PasswordResetToken.expires_at > datetime.now(timezone.utc)
     ).first()
 
     if not reset_token:

@@ -361,3 +361,48 @@ def download_pdf_report(
             )
         },
     )
+
+
+# ─── Adverse Action Report ───────────────────────────────────────────────────
+
+@router.get("/export/{result_id}/adverse-action")
+def get_adverse_action_report(
+    result_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate an EEOC-compliant adverse action report for a screening result."""
+    from app.backend.services.adverse_action_service import get_adverse_action_service
+
+    result = (
+        db.query(ScreeningResult)
+        .filter(
+            ScreeningResult.id == result_id,
+            ScreeningResult.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    analysis = (
+        json.loads(result.analysis_result)
+        if isinstance(result.analysis_result, str)
+        else result.analysis_result
+    )
+
+    candidate_name = None
+    if result.candidate_id:
+        candidate = db.query(Candidate).filter(Candidate.id == result.candidate_id).first()
+        if candidate:
+            candidate_name = candidate.name
+
+    service = get_adverse_action_service()
+    report = service.generate_report(
+        analysis_result=analysis,
+        transcript_text=result.resume_text or "",
+        jd_text=result.jd_text or "",
+        candidate_id=result.candidate_id,
+        candidate_name=candidate_name,
+    )
+    return report

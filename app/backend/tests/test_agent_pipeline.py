@@ -13,7 +13,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from app.backend.services.agent_pipeline import (
+from app.backend.services.wip.agent_pipeline import (
     _parse_json,
     _normalize_weights,
     _compute_fallback_scores,
@@ -305,7 +305,7 @@ class TestJdParserNode:
     @pytest.fixture(autouse=True)
     def clear_jd_cache(self):
         """Reset the module-level JD cache before every test so cache hits don't mask fallbacks."""
-        import app.backend.services.agent_pipeline as _ap
+        import app.backend.services.wip.agent_pipeline as _ap
         _ap._jd_cache.clear()
         yield
         _ap._jd_cache.clear()
@@ -317,7 +317,7 @@ class TestJdParserNode:
             "seniority": "senior", "required_skills": ["Python", "FastAPI"],
             "required_years": 5, "nice_to_have_skills": [], "key_responsibilities": [],
         }
-        with patch("app.backend.services.agent_pipeline.get_fast_llm",
+        with patch("app.backend.services.wip.agent_pipeline.get_fast_llm",
                    return_value=_make_llm_mock(jd_output)):
             result = await jd_parser_node(base_state)
 
@@ -329,7 +329,7 @@ class TestJdParserNode:
     async def test_fallback_on_llm_exception(self, base_state):
         llm = AsyncMock()
         llm.ainvoke.side_effect = Exception("Ollama timeout")
-        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm):
+        with patch("app.backend.services.wip.agent_pipeline.get_fast_llm", return_value=llm):
             result = await jd_parser_node(base_state)
 
         assert "jd_analysis" in result
@@ -346,7 +346,7 @@ class TestJdParserNode:
             "nice_to_have_skills": [], "key_responsibilities": [],
         }
         llm = _make_llm_mock(jd_output)
-        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm):
+        with patch("app.backend.services.wip.agent_pipeline.get_fast_llm", return_value=llm):
             await jd_parser_node(base_state)
             await jd_parser_node(base_state)
 
@@ -373,7 +373,7 @@ class TestResumeAnalyserNode:
             "field_alignment": "aligned", "timeline_score": 88,
             "timeline_analysis": "Stable career.", "gap_interpretation": "No gaps.",
         }
-        with patch("app.backend.services.agent_pipeline.get_fast_llm",
+        with patch("app.backend.services.wip.agent_pipeline.get_fast_llm",
                    return_value=_make_llm_mock(combined_output)):
             result = await resume_analyser_node(state_with_jd)
 
@@ -400,7 +400,7 @@ class TestResumeAnalyserNode:
             "field_alignment": "partially_aligned", "timeline_score": 70,
             "timeline_analysis": "2 short stints.", "gap_interpretation": "1 gap.",
         }
-        with patch("app.backend.services.agent_pipeline.get_fast_llm",
+        with patch("app.backend.services.wip.agent_pipeline.get_fast_llm",
                    return_value=_make_llm_mock(combined_output)):
             result = await resume_analyser_node(state_with_jd)
 
@@ -413,7 +413,7 @@ class TestResumeAnalyserNode:
     async def test_fallback_on_llm_exception(self, state_with_jd):
         llm = AsyncMock()
         llm.ainvoke.side_effect = RuntimeError("Connection refused")
-        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm):
+        with patch("app.backend.services.wip.agent_pipeline.get_fast_llm", return_value=llm):
             result = await resume_analyser_node(state_with_jd)
 
         assert result["candidate_profile"]["name"] is None
@@ -429,7 +429,7 @@ class TestResumeAnalyserNode:
             "name": "Bob", "skills_identified": [],
             "total_effective_years": 2.0,
         }
-        with patch("app.backend.services.agent_pipeline.get_fast_llm",
+        with patch("app.backend.services.wip.agent_pipeline.get_fast_llm",
                    return_value=_make_llm_mock(partial_output)):
             result = await resume_analyser_node(state_with_jd)
 
@@ -469,7 +469,7 @@ class TestScorerNode:
                 "culture_fit_questions": ["What motivates you?"],
             },
         }
-        with patch("app.backend.services.agent_pipeline.get_reasoning_llm",
+        with patch("app.backend.services.wip.agent_pipeline.get_reasoning_llm",
                    return_value=_make_llm_mock(scorer_output)):
             result = await scorer_node(state_with_analysis)
 
@@ -490,7 +490,7 @@ class TestScorerNode:
             "score_breakdown": {}, "explainability": {},
             "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},
         }
-        with patch("app.backend.services.agent_pipeline.get_reasoning_llm",
+        with patch("app.backend.services.wip.agent_pipeline.get_reasoning_llm",
                    return_value=_make_llm_mock(scorer_output)):
             result = await scorer_node(state_with_analysis)
 
@@ -505,7 +505,7 @@ class TestScorerNode:
             "score_breakdown": {}, "explainability": {},
             "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},
         }
-        with patch("app.backend.services.agent_pipeline.get_reasoning_llm",
+        with patch("app.backend.services.wip.agent_pipeline.get_reasoning_llm",
                    return_value=_make_llm_mock(scorer_output)):
             result = await scorer_node(state_with_analysis)
 
@@ -522,7 +522,7 @@ class TestScorerNode:
             "explainability": {},
             "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},
         }
-        with patch("app.backend.services.agent_pipeline.get_reasoning_llm",
+        with patch("app.backend.services.wip.agent_pipeline.get_reasoning_llm",
                    return_value=_make_llm_mock(scorer_output)):
             result = await scorer_node(state_with_analysis)
 
@@ -534,7 +534,7 @@ class TestScorerNode:
     async def test_fallback_on_llm_exception(self, state_with_analysis):
         llm = AsyncMock()
         llm.ainvoke.side_effect = Exception("model not found")
-        with patch("app.backend.services.agent_pipeline.get_reasoning_llm", return_value=llm):
+        with patch("app.backend.services.wip.agent_pipeline.get_reasoning_llm", return_value=llm):
             result = await scorer_node(state_with_analysis)
 
         assert "final_scores" in result
@@ -549,7 +549,7 @@ class TestScorerNode:
         """Even on failure, interview_questions must contain non-empty question lists."""
         llm = AsyncMock()
         llm.ainvoke.side_effect = Exception("Ollama down")
-        with patch("app.backend.services.agent_pipeline.get_reasoning_llm", return_value=llm):
+        with patch("app.backend.services.wip.agent_pipeline.get_reasoning_llm", return_value=llm):
             result = await scorer_node(state_with_analysis)
 
         iq = result["interview_questions"]
@@ -579,7 +579,7 @@ class TestRunAgentPipeline:
         Run run_agent_pipeline with all 3 LLM calls mocked.
         Verifies the final assembled result has all expected keys.
         """
-        import app.backend.services.agent_pipeline as _ap
+        import app.backend.services.wip.agent_pipeline as _ap
         _ap._jd_cache.clear()
 
         jd_out = {
@@ -642,9 +642,9 @@ class TestRunAgentPipeline:
         fast_llm.ainvoke.side_effect   = fast_side_effect
         reasoning.ainvoke.side_effect  = reasoning_side_effect
 
-        with patch("app.backend.services.agent_pipeline.get_fast_llm",
+        with patch("app.backend.services.wip.agent_pipeline.get_fast_llm",
                    return_value=fast_llm), \
-             patch("app.backend.services.agent_pipeline.get_reasoning_llm",
+             patch("app.backend.services.wip.agent_pipeline.get_reasoning_llm",
                    return_value=reasoning):
             result = await run_agent_pipeline(
                 resume_text="Alice resume...",
@@ -672,14 +672,14 @@ class TestRunAgentPipeline:
     async def test_pipeline_returns_fallback_when_all_llm_calls_fail(self):
         """If every Ollama call fails, the pipeline must still return a valid result
         (no crash, typed-null defaults, graceful degradation)."""
-        import app.backend.services.agent_pipeline as _ap
+        import app.backend.services.wip.agent_pipeline as _ap
         _ap._jd_cache.clear()
 
         llm = AsyncMock()
         llm.ainvoke.side_effect = Exception("Ollama unavailable")
 
-        with patch("app.backend.services.agent_pipeline.get_fast_llm", return_value=llm), \
-             patch("app.backend.services.agent_pipeline.get_reasoning_llm", return_value=llm):
+        with patch("app.backend.services.wip.agent_pipeline.get_fast_llm", return_value=llm), \
+             patch("app.backend.services.wip.agent_pipeline.get_reasoning_llm", return_value=llm):
             result = await run_agent_pipeline(
                 resume_text="Some resume",
                 job_description="Some JD",

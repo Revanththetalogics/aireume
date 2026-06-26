@@ -14,7 +14,7 @@ Provides structured reports showing:
 import logging
 import json
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class AdverseActionService:
         decision_factors = self._extract_decision_factors(analysis_result)
         
         # Generate unique report ID
-        timestamp = int(datetime.utcnow().timestamp())
+        timestamp = int(datetime.now(timezone.utc).timestamp())
         report_id = f"AAR-{candidate_id or 'UNKNOWN'}-{timestamp}"
         
         report = {
@@ -74,7 +74,7 @@ class AdverseActionService:
             "candidate_name": candidate_name,
             "analysis_id": analysis_result.get("analysis_id"),
             "decision": analysis_result.get("recommendation", "hold"),
-            "decision_date": datetime.utcnow().isoformat(),
+            "decision_date": datetime.now(timezone.utc).isoformat(),
             
             # Decision factors (what led to decision)
             "decision_factors": [
@@ -102,7 +102,7 @@ class AdverseActionService:
             "audit_trail": {
                 "transcript_length": len(transcript_text),
                 "jd_length": len(jd_text),
-                "analysis_timestamp": datetime.utcnow().isoformat(),
+                "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
                 "fit_score": analysis_result.get("fit_score"),
                 "technical_depth": analysis_result.get("technical_depth"),
                 "communication_quality": analysis_result.get("communication_quality"),

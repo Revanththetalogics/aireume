@@ -15,8 +15,8 @@ import tempfile
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from datetime import datetime, timedelta
-from services.continuous_learning import (
+from datetime import datetime, timedelta, timezone
+from services.wip.continuous_learning import (
     OutcomeTracker,
     SkillWeightOptimizer,
     PredictiveAnalytics,
@@ -237,7 +237,7 @@ class TestModelRetrainingPipeline:
             pipeline = ModelRetrainingPipeline(tracker, optimizer)
             
             # Last retrained 31 days ago
-            last_retrained = datetime.utcnow() - timedelta(days=31)
+            last_retrained = datetime.now(timezone.utc) - timedelta(days=31)
             
             assert pipeline.should_retrain(last_retrained) is True
 
@@ -259,7 +259,7 @@ class TestModelRetrainingPipeline:
             pipeline = ModelRetrainingPipeline(tracker, optimizer)
             
             # Last retrained yesterday
-            last_retrained = datetime.utcnow() - timedelta(days=1)
+            last_retrained = datetime.now(timezone.utc) - timedelta(days=1)
             
             assert pipeline.should_retrain(last_retrained) is True
 
@@ -281,7 +281,7 @@ class TestModelRetrainingPipeline:
             pipeline = ModelRetrainingPipeline(tracker, optimizer)
             
             # Last retrained 15 days ago
-            last_retrained = datetime.utcnow() - timedelta(days=15)
+            last_retrained = datetime.now(timezone.utc) - timedelta(days=15)
             
             assert pipeline.should_retrain(last_retrained) is False
 
@@ -353,5 +353,5 @@ class TestIntegration:
             assert prediction["interview_pass_probability"] > 0
             
             # Check retraining
-            last_retrained = datetime.utcnow() - timedelta(days=45)
+            last_retrained = datetime.now(timezone.utc) - timedelta(days=45)
             assert pipeline.should_retrain(last_retrained) is True

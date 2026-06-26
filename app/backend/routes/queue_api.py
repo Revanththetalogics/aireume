@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.backend.db.database import get_db
 from app.backend.models.db_models import User, Tenant
 from app.backend.routes.auth import get_current_user
-from app.backend.middleware.auth import require_active_subscription
+from app.backend.middleware.auth import require_active_subscription, require_platform_admin
 from app.backend.services.queue_manager import (
     get_queue_manager,
     AnalysisJob,
@@ -285,7 +285,7 @@ async def get_queue_stats(
     queue_depth = status_dict.get('queued', 0) + status_dict.get('retrying', 0)
     
     # Jobs in last 24 hours
-    yesterday = datetime.utcnow() - timedelta(days=1)
+    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
     recent_jobs = db.query(func.count(AnalysisJob.id)).filter(
         AnalysisJob.tenant_id == tenant_id,
         AnalysisJob.created_at >= yesterday
@@ -298,7 +298,7 @@ async def get_queue_stats(
         "avg_processing_time_ms": int(avg_time) if avg_time else None,
         "success_rate_percent": round(success_rate, 2),
         "jobs_last_24h": recent_jobs,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -426,7 +426,7 @@ async def cancel_job(
         )
     
     job.status = 'cancelled'
-    job.completed_at = datetime.utcnow()
+    job.completed_at = datetime.now(timezone.utc)
     db.commit()
     
     return {
@@ -438,15 +438,13 @@ async def cancel_job(
 
 @router.get("/worker/stats")
 async def get_worker_stats(
-    current_user: User = Depends(get_current_user),
+    admin: User = Depends(require_platform_admin),
 ):
     """
     Get statistics about the queue worker.
     
-    Requires admin privileges.
+    Requires platform admin privileges.
     """
-    # TODO: Add admin check
-    
     queue_manager = get_queue_manager()
     return queue_manager.get_stats()
 
@@ -465,7 +463,7 @@ async def get_performance_metrics(
         - Success rate trends
         - Queue depth over time
     """
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     
     # Daily aggregates
     daily_stats = db.query(

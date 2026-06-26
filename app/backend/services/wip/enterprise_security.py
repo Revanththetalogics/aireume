@@ -9,7 +9,7 @@ Enterprise-grade security features:
 
 import re
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class PIIRedactor:
@@ -161,11 +161,11 @@ class ComplianceAuditLogger:
         Returns:
             audit_id: Unique audit log ID
         """
-        audit_id = f"audit_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{user_id}_{resource_id}"
+        audit_id = f"audit_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{user_id}_{resource_id}"
         
         log_entry = {
             "audit_id": audit_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": event_type,
             "user_id": user_id,
             "action": action,
@@ -237,7 +237,7 @@ class ComplianceAuditLogger:
         
         return {
             "framework": framework,
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "total_events": len(relevant_events),
             "events_by_type": self._count_by_field(relevant_events, "event_type"),
             "events_by_user": self._count_by_field(relevant_events, "user_id"),
@@ -303,13 +303,13 @@ class IntegrationHub:
         Returns:
             integration_id
         """
-        integration_id = f"{integration_type}_{datetime.utcnow().strftime('%Y%m%d')}"
+        integration_id = f"{integration_type}_{datetime.now(timezone.utc).strftime('%Y%m%d')}"
         
         self.integrations[integration_id] = {
             "type": integration_type,
             "config": config,
             "enabled": enabled,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "last_sync": None,
             "status": "active" if enabled else "disabled"
         }
@@ -336,7 +336,7 @@ class IntegrationHub:
         return {
             "status": "synced",
             "requisition_id": requisition_id,
-            "synced_at": datetime.utcnow().isoformat(),
+            "synced_at": datetime.now(timezone.utc).isoformat(),
             "data": {}  # Would contain actual job data
         }
     
@@ -359,7 +359,7 @@ class IntegrationHub:
         return {
             "status": "pushed",
             "candidate_id": candidate_data.get("id"),
-            "pushed_at": datetime.utcnow().isoformat()
+            "pushed_at": datetime.now(timezone.utc).isoformat()
         }
     
     def get_integration_status(self) -> Dict:

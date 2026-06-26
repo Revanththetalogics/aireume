@@ -611,7 +611,7 @@ class TestPipelineONETIntegration:
 
     def test_agent_pipeline_imports_onet(self):
         """Verify agent_pipeline imports match_skills_with_onet."""
-        from app.backend.services import agent_pipeline
+        from app.backend.services.wip import agent_pipeline
         import inspect
         source = inspect.getsource(agent_pipeline)
         assert "match_skills_with_onet" in source
@@ -625,7 +625,7 @@ class TestPipelineONETIntegration:
 
     def test_agent_pipeline_passes_job_title(self):
         """Verify agent_pipeline passes job_title to match_skills_with_onet."""
-        from app.backend.services import agent_pipeline
+        from app.backend.services.wip import agent_pipeline
         import inspect
         source = inspect.getsource(agent_pipeline)
         assert "job_title=" in source

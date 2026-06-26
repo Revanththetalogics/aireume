@@ -18,7 +18,7 @@ import os
 import signal
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 
@@ -26,7 +26,7 @@ from sqlalchemy import select, update, and_, or_, func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from app.backend.db.database import SessionLocal
+from app.backend.db.database import SessionLocal, Base
 from app.backend.models.db_models import Tenant, Candidate
 
 logger = logging.getLogger(__name__)
@@ -38,9 +38,6 @@ logger = logging.getLogger(__name__)
 
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Float, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.ext.declarative import declarative_base
-
-Base = declarative_base()
 
 
 class AnalysisJob(Base):
@@ -276,7 +273,7 @@ class QueueManager:
                 jd_hash=jd_hash,
                 jd_text=jd_text,
                 jd_size_bytes=len(jd_text.encode()),
-                expires_at=datetime.utcnow() + timedelta(days=30),  # Keep for 30 days
+                expires_at=datetime.now(timezone.utc) + timedelta(days=30),  # Keep for 30 days
             )
             db.add(artifact)
             db.flush()
@@ -322,7 +319,7 @@ class QueueManager:
                     AnalysisJob.status.in_(['queued', 'retrying']),
                     or_(
                         AnalysisJob.next_retry_at.is_(None),
-                        AnalysisJob.next_retry_at <= datetime.utcnow()
+                        AnalysisJob.next_retry_at <= datetime.now(timezone.utc)
                     )
                 )
             )
@@ -335,9 +332,9 @@ class QueueManager:
             # Claim the job and issue a 10-minute lease
             job.status = 'processing'
             job.worker_id = self.worker_id
-            job.started_at = datetime.utcnow()
-            job.worker_heartbeat = datetime.utcnow()
-            job.leased_until = datetime.utcnow() + timedelta(minutes=10)
+            job.started_at = datetime.now(timezone.utc)
+            job.worker_heartbeat = datetime.now(timezone.utc)
+            job.leased_until = datetime.now(timezone.utc) + timedelta(minutes=10)
             db.commit()
             
             logger.info(f"Claimed job: {job.id}, priority={job.priority}, retry_count={job.retry_count}")
@@ -349,7 +346,7 @@ class QueueManager:
         db.execute(
             update(AnalysisJob)
             .where(AnalysisJob.id == job_id)
-            .values(worker_heartbeat=datetime.utcnow())
+            .values(worker_heartbeat=datetime.now(timezone.utc))
         )
         db.commit()
     
@@ -428,7 +425,7 @@ class QueueManager:
             
             # Update job status
             job.status = 'completed'
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             job.result_id = analysis_result.id
             job.progress_percent = 100
             db.commit()
@@ -463,7 +460,7 @@ class QueueManager:
             if should_retry:
                 # Calculate next retry time with exponential backoff
                 retry_delay = self.retry_delays[min(job.retry_count, len(self.retry_delays) - 1)]
-                next_retry = datetime.utcnow() + timedelta(seconds=retry_delay)
+                next_retry = datetime.now(timezone.utc) + timedelta(seconds=retry_delay)
                 
                 job.status = 'retrying'
                 job.retry_count += 1
@@ -476,7 +473,7 @@ class QueueManager:
             else:
                 # Max retries exceeded
                 job.status = 'failed'
-                job.failed_at = datetime.utcnow()
+                job.failed_at = datetime.now(timezone.utc)
                 job.error_message = str(e)
                 job.error_type = type(e).__name__
                 
@@ -505,7 +502,7 @@ class QueueManager:
         """
         Recover jobs that have been processing for too long (worker died).
         """
-        stale_threshold = datetime.utcnow() - timedelta(seconds=self.stale_job_timeout_seconds)
+        stale_threshold = datetime.now(timezone.utc) - timedelta(seconds=self.stale_job_timeout_seconds)
         
         stale_jobs = db.query(AnalysisJob).filter(
             AnalysisJob.status == 'processing',
@@ -518,11 +515,11 @@ class QueueManager:
             if job.retry_count < job.max_retries:
                 job.status = 'retrying'
                 job.retry_count += 1
-                job.next_retry_at = datetime.utcnow() + timedelta(seconds=60)
+                job.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=60)
                 job.worker_id = None
             else:
                 job.status = 'failed'
-                job.failed_at = datetime.utcnow()
+                job.failed_at = datetime.now(timezone.utc)
                 job.error_message = "Worker timeout - job abandoned"
                 job.error_type = "WorkerTimeout"
         

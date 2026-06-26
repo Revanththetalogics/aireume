@@ -959,7 +959,7 @@ DO NOT generate generic questions like "Tell me about yourself", "What are your 
 
 async def scorer_node(state: PipelineState) -> dict:
     from app.backend.services.weight_mapper import convert_to_new_schema
-    from app.backend.services.resume_calibration_service import (
+    from app.backend.services.wip.resume_calibration_service import (
         get_role_calibration,
         get_similar_analyses,
         format_calibration_context,
