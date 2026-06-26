@@ -185,6 +185,9 @@ def list_recruiter_sessions(
     """List AI recruiter sessions for the current tenant."""
     base_query = select(RecruiterInterviewSession).where(
         RecruiterInterviewSession.tenant_id == current_user.tenant_id
+    ).options(
+        selectinload(RecruiterInterviewSession.candidate),
+        selectinload(RecruiterInterviewSession.jd),
     )
 
     if status:
@@ -203,8 +206,15 @@ def list_recruiter_sessions(
         .limit(page_size)
     ).scalars().all()
 
+    results = []
+    for s in sessions:
+        out = RecruiterSessionOut.model_validate(s)
+        out.candidate_name = s.candidate.name if s.candidate else None
+        out.jd_title = s.jd.name if s.jd else None
+        results.append(out)
+
     return {
-        "sessions": [RecruiterSessionOut.model_validate(s) for s in sessions],
+        "sessions": results,
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -223,6 +233,10 @@ def get_recruiter_session(
             RecruiterInterviewSession.id == session_id,
             RecruiterInterviewSession.tenant_id == current_user.tenant_id,
         )
+        .options(
+            selectinload(RecruiterInterviewSession.candidate),
+            selectinload(RecruiterInterviewSession.jd),
+        )
     ).scalar_one_or_none()
 
     if session is None:
@@ -239,6 +253,8 @@ def get_recruiter_session(
         "interview_config_json": _load_json(
             session.interview_config_json, default={}
         ),
+        "candidate_name": session.candidate.name if session.candidate else None,
+        "jd_title": session.jd.name if session.jd else None,
     }
     return RecruiterSessionDetail.model_validate(data)
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Mic, Brain, ArrowLeft, Clock, FileText, Calendar, User, Loader2,
+  Mic, Brain, ArrowLeft, Clock, FileText, Calendar, CalendarClock, User, Loader2,
   XCircle, RefreshCw, CheckCircle2, AlertTriangle,
   MessageSquare, ClipboardList, Target, Phone, Zap,
   Sparkles, TrendingUp, ShieldCheck,
@@ -10,7 +10,7 @@ import {
 import {
   getRecruiterSession, getRecruiterTranscript, getRecruiterScorecard,
   cancelRecruiterSession, retryRecruiterSession,
-  getVoiceSession, cancelVoiceSession,
+  getVoiceSession, cancelVoiceSession, rescheduleVoiceCall,
 } from '../lib/api'
 import RecruiterScorecard from '../components/RecruiterScorecard'
 import RecruiterTranscript from '../components/RecruiterTranscript'
@@ -209,6 +209,15 @@ export default function InterviewDetailPage() {
         setSource(detectedSource)
         setSession(sessionData)
 
+        // Smart default tab
+        if (sessionData.status === 'completed' && detectedSource === 'recruiter') {
+          setActiveTab('scorecard')
+        } else if (['scheduled', 'pending_strategy', 'strategy_ready'].includes(sessionData.status) && detectedSource === 'recruiter') {
+          setActiveTab('strategy')
+        } else {
+          setActiveTab('transcript')
+        }
+
         // Pre-load transcript and scorecard for completed sessions
         if (sessionData.status === 'completed') {
           if (detectedSource === 'recruiter') {
@@ -290,6 +299,21 @@ export default function InterviewDetailPage() {
       }
     } catch (err) {
       setError(err.message || 'Failed to retry')
+    }
+  }
+
+  async function handleReschedule() {
+    const defaultValue = session?.scheduled_at
+      ? new Date(session.scheduled_at).toISOString().slice(0, 16)
+      : ''
+    const newTime = window.prompt('Enter new scheduled time (YYYY-MM-DDTHH:mm)', defaultValue)
+    if (!newTime) return
+    try {
+      await rescheduleVoiceCall(id, { scheduled_at: new Date(newTime).toISOString() })
+      const updated = await getVoiceSession(id)
+      setSession(updated)
+    } catch (err) {
+      setError(err.message || 'Failed to reschedule')
     }
   }
 
@@ -375,9 +399,28 @@ export default function InterviewDetailPage() {
                     </span>
                   )}
                 </div>
+                {session.scheduled_at && ['scheduled', 'pending_strategy', 'strategy_ready'].includes(session.status) && (
+                  <div className="flex items-center gap-1.5 text-sm text-brand-600 mt-2">
+                    <Calendar className="w-4 h-4" />
+                    <span className="font-semibold">
+                      Scheduled: {new Date(session.scheduled_at).toLocaleString('en-US', {
+                        month: 'short', day: 'numeric', year: 'numeric',
+                        hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+                      })}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {session.status === 'scheduled' && source === 'voice' && (
+                <button
+                  onClick={handleReschedule}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
+                >
+                  <CalendarClock className="w-4 h-4" /> Reschedule
+                </button>
+              )}
               {['pending_strategy', 'strategy_ready', 'scheduled', 'failed', 'no_answer', 'ringing'].includes(session.status) && !['cancelled', 'completed'].includes(session.status) && (
                 <button
                   onClick={handleCancel}
@@ -400,22 +443,35 @@ export default function InterviewDetailPage() {
 
         {/* Info grid */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-          <InfoField label="Session ID" value={`#${session.id}`} />
-          <InfoField label="Duration" value={formatDuration(session.duration_seconds)} />
-          <InfoField label="Created" value={session.created_at ? new Date(session.created_at).toLocaleDateString('en-US') : '—'} />
-          {source === 'voice' ? (
-            <InfoField label="Phone" value={session.phone_number || '—'} />
-          ) : (
-            <InfoField label="Completed" value={session.completed_at ? new Date(session.completed_at).toLocaleDateString('en-US') : '—'} />
+          {session.scheduled_at && (
+            <InfoField
+              label="Scheduled At"
+              value={new Date(session.scheduled_at).toLocaleString('en-US', {
+                month: 'short', day: 'numeric', year: 'numeric',
+                hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+              })}
+            />
+          )}
+          {session.phone_number && (
+            <InfoField label="Phone" value={session.phone_number} />
+          )}
+          {session.jd_title && (
+            <InfoField label="JD / Role" value={session.jd_title} />
+          )}
+          {session.status === 'completed' && (
+            <InfoField label="Duration" value={formatDuration(session.duration_seconds)} />
+          )}
+          {source === 'recruiter' && session.completed_at && (
+            <InfoField label="Completed" value={new Date(session.completed_at).toLocaleDateString('en-US')} />
+          )}
+          {session.trigger_type && (
+            <InfoField label="Trigger" value={session.trigger_type.replace(/_/g, ' ')} />
           )}
           {session.overall_score != null && (
             <InfoField label="Overall Score" value={session.overall_score} />
           )}
           {session.match_score != null && (
             <InfoField label="Match Score" value={`${session.match_score}%`} />
-          )}
-          {session.trigger_type && (
-            <InfoField label="Trigger" value={session.trigger_type.replace(/_/g, ' ')} />
           )}
           {session.question_count != null && (
             <InfoField label="Questions" value={session.question_count} />

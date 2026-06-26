@@ -6,6 +6,9 @@
 - [ResultCard.jsx](file://app/frontend/src/components/ResultCard.jsx)
 - [Timeline.jsx](file://app/frontend/src/components/Timeline.jsx)
 - [SkillsRadar.jsx](file://app/frontend/src/components/SkillsRadar.jsx)
+- [CandidateComparisonRadar.jsx](file://app/frontend/src/components/CandidateComparisonRadar.jsx)
+- [ComparisonView.jsx](file://app/frontend/src/components/ComparisonView.jsx)
+- [ComparisonMatrix.jsx](file://app/frontend/src/components/ComparisonMatrix.jsx)
 - [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
 - [AnalyzePage.jsx](file://app/frontend/src/pages/AnalyzePage.jsx)
 - [api.js](file://app/frontend/src/lib/api.js)
@@ -16,12 +19,13 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced ReportPage with intelligent context detection for both text-mode and file-mode job descriptions
-- Implemented seamless 'Analyze Another Resume' workflow using sessionStorage persistence
-- Added JD context preservation including file names and weights for recurring analysis workflows
-- Enhanced backend comparison endpoint with additional fields including analysis quality ratings
-- Updated ComparePage with collapsible sections for strengths/weaknesses, interview questions preview, and adjacent skills
-- Enhanced ResultCard with improved collapsible sections and analysis quality badges
+- Enhanced ComparePage with new CandidateComparisonRadar component for comprehensive 5-way candidate comparison
+- Added executive summaries section with detailed candidate insights
+- Implemented CSV export functionality with enhanced data fields
+- Integrated real-time score visualization with interactive radar charts
+- Added comprehensive candidate comparison capabilities with up to 5-way comparison support
+- Enhanced backend comparison endpoint with executive summaries and advanced analytics
+- Updated comparison matrix with dynamic sorting and skill gap visualization
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -35,32 +39,38 @@
 9. [Conclusion](#conclusion)
 
 ## Introduction
-This document explains the comparison and visualization features in Resume AI by ThetaLogics. It focuses on:
-- Side-by-side candidate evaluation via ComparePage with enhanced metrics
-- Individual result presentation via ResultCard with collapsible sections
-- Employment timeline visualization via Timeline with gap analysis
-- Interactive skills visualization via SkillsRadar with category breakdown
-- Export capabilities for comparison reports with enhanced data
-- Customization options for scoring weights
-- Performance considerations for large-scale comparisons
-- Enhanced ReportPage with intelligent 'Analyze Another Resume' workflow and context persistence
+This document explains the enhanced comparison and visualization features in Resume AI by ThetaLogics. The system now provides comprehensive candidate evaluation capabilities with:
+- **Enhanced Candidate Comparison**: New 5-way comparison support with interactive radar charts and executive summaries
+- **Real-time Score Visualization**: Dynamic scorecards with technical, behavioral, communication, cultural fit, and motivation dimensions
+- **Executive Insights**: Detailed executive summaries for each candidate with strengths, weaknesses, and recommendations
+- **Advanced Export Capabilities**: Comprehensive CSV and Excel export with enhanced data fields
+- **Interactive Comparison Tools**: Real-time score visualization and dynamic comparison matrices
+- **Performance Optimization**: Efficient handling of large-scale comparisons with up to 5 candidates
 
 ## Project Structure
-The comparison and visualization features span the frontend React application and the backend FastAPI service:
-- Frontend pages and components render comparison tables, result cards, timelines, and skills radar charts.
-- Backend routes compute pairwise comparisons and export CSV/Excel reports.
-- Shared schemas define the data structures used across the stack.
+The enhanced comparison system spans frontend React components and backend FastAPI services with comprehensive data processing and visualization capabilities:
 
 ```mermaid
 graph TB
-subgraph "Frontend"
+subgraph "Frontend Enhancement"
 CP["ComparePage.jsx"]
+CCR["CandidateComparisonRadar.jsx"]
+CM["ComparisonMatrix.jsx"]
+CV["ComparisonView.jsx"]
 RC["ResultCard.jsx"]
 TL["Timeline.jsx"]
 SR["SkillsRadar.jsx"]
 RP["ReportPage.jsx"]
 AP["AnalyzePage.jsx"]
 API["api.js"]
+END["Enhanced Collapsible Sections"]
+BADGE["Quality Badges"]
+SC["Score Cells"]
+ANALYZE["Analyze Another Resume"]
+JDCTX["JD Context Persistence"]
+EXSUM["Executive Summaries"]
+CSVEXPORT["CSV Export"]
+RADCMP["Radar Chart Comparison"]
 END["Enhanced Collapsible Sections"]
 BADGE["Quality Badges"]
 SC["Score Cells"]
@@ -79,73 +89,84 @@ RP --> TL
 RP --> ANALYZE
 RP --> JDCTX
 AP --> JDCTX
+CP --> CCR
+CP --> CM
+CP --> CV
+CP --> EXSUM
+CP --> CSVEXPORT
+CP --> RADCMP
 ```
 
 **Diagram sources**
-- [ComparePage.jsx:1-380](file://app/frontend/src/pages/ComparePage.jsx#L1-L380)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [CandidateComparisonRadar.jsx:1-255](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L1-L255)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [Timeline.jsx:1-123](file://app/frontend/src/components/Timeline.jsx#L1-L123)
 - [SkillsRadar.jsx:1-261](file://app/frontend/src/components/SkillsRadar.jsx#L1-L261)
 - [ReportPage.jsx:1-552](file://app/frontend/src/pages/ReportPage.jsx#L1-L552)
 - [AnalyzePage.jsx:1-1004](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L1004)
 - [api.js:1-952](file://app/frontend/src/lib/api.js#L1-L952)
-- [compare.py:1-159](file://app/backend/routes/compare.py#L1-L159)
-- [export.py:1-105](file://app/backend/routes/export.py#L1-L105)
+- [compare.py:1-216](file://app/backend/routes/compare.py#L1-L216)
+- [export.py:1-364](file://app/backend/routes/export.py#L1-L364)
 - [schemas.py:89-125](file://app/backend/models/schemas.py#L89-L125)
 
 **Section sources**
-- [ComparePage.jsx:1-380](file://app/frontend/src/pages/ComparePage.jsx#L1-L380)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [CandidateComparisonRadar.jsx:1-255](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L1-L255)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
 - [Timeline.jsx:1-123](file://app/frontend/src/components/Timeline.jsx#L1-L123)
 - [SkillsRadar.jsx:1-261](file://app/frontend/src/components/SkillsRadar.jsx#L1-L261)
 - [ReportPage.jsx:1-552](file://app/frontend/src/pages/ReportPage.jsx#L1-L552)
 - [AnalyzePage.jsx:1-1004](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L1004)
 - [api.js:1-952](file://app/frontend/src/lib/api.js#L1-L952)
-- [compare.py:1-159](file://app/backend/routes/compare.py#L1-L159)
-- [export.py:1-105](file://app/backend/routes/export.py#L1-L105)
+- [compare.py:1-216](file://app/backend/routes/compare.py#L1-L216)
+- [export.py:1-364](file://app/backend/routes/export.py#L1-L364)
 - [schemas.py:89-125](file://app/backend/models/schemas.py#L89-L125)
 
 ## Core Components
-- **Enhanced ComparePage**: Allows selecting 2–5 historical screening results and renders a comparison table with winners highlighted per category, plus new metrics including top 3 strengths/weaknesses, employment gap counts, interview question previews, and analysis quality ratings.
-- **ResultCard**: Renders a comprehensive analysis result for a single candidate with collapsible sections for education, work experience, skills, and interview kit.
-- **Timeline**: Visualizes employment history with gaps and highlights short tenures with severity indicators.
-- **SkillsRadar**: Provides a category-wise skills gap visualization with matched/missing counts and a coverage percentage.
-- **ReportPage**: Presents a full-screen report combining ResultCard and Timeline, with sharing and printing support, and enhanced 'Analyze Another Resume' workflow.
-- **AnalyzePage**: Handles job description input, scoring weights configuration, and resume analysis with intelligent context persistence.
-- **Backend compare route**: Aggregates candidate results and determines winners per category with enhanced data extraction.
-- **Backend export routes**: Generate CSV and Excel exports for selected results with expanded field coverage.
+- **Enhanced ComparePage**: Now features comprehensive candidate comparison with executive summaries, CSV export, and real-time score visualization capabilities
+- **CandidateComparisonRadar**: New interactive radar chart component supporting up to 5-way candidate comparison with technical, behavioral, communication, cultural fit, and motivation dimensions
+- **Executive Summaries**: Detailed candidate insights including strengths, weaknesses, recommendations, and hiring decisions
+- **Enhanced Comparison Matrix**: Dynamic skill comparison with sorting capabilities and team gap identification
+- **Real-time Score Visualization**: Interactive scorecards with color-coded progress bars and confidence indicators
+- **Advanced CSV Export**: Comprehensive export functionality with enhanced data fields and real-time processing
+- **ComparisonView**: Side-by-side comparison interface for version analysis and weight adjustments
+- **Enhanced Backend Processing**: Advanced comparison algorithms with executive summary extraction and quality scoring
 
-**Updated** Enhanced ComparePage now includes collapsible sections for strengths/weaknesses, interview questions preview, and adjacent skills, plus quality badges and enhanced comparison metrics. ReportPage now features seamless 'Analyze Another Resume' workflow with intelligent context detection for both text-mode and file-mode job descriptions, preserving JD context including file names and weights.
+**Updated** The system now supports comprehensive 5-way candidate comparison with executive summaries, real-time score visualization through radar charts, and advanced CSV export capabilities with enhanced data fields.
 
 **Section sources**
-- [ComparePage.jsx:56-380](file://app/frontend/src/pages/ComparePage.jsx#L56-L380)
-- [ResultCard.jsx:262-844](file://app/frontend/src/components/ResultCard.jsx#L262-L844)
-- [Timeline.jsx:3-123](file://app/frontend/src/components/Timeline.jsx#L3-L123)
-- [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
-- [ReportPage.jsx:421-440](file://app/frontend/src/pages/ReportPage.jsx#L421-L440)
-- [AnalyzePage.jsx:350-370](file://app/frontend/src/pages/AnalyzePage.jsx#L350-L370)
-- [compare.py:16-159](file://app/backend/routes/compare.py#L16-L159)
-- [export.py:55-105](file://app/backend/routes/export.py#L55-L105)
+- [ComparePage.jsx:56-510](file://app/frontend/src/pages/ComparePage.jsx#L56-L510)
+- [CandidateComparisonRadar.jsx:45-255](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L45-L255)
+- [ComparisonMatrix.jsx:5-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L5-L137)
+- [ComparisonView.jsx:11-306](file://app/frontend/src/components/ComparisonView.jsx#L11-L306)
+- [compare.py:28-216](file://app/backend/routes/compare.py#L28-L216)
+- [export.py:59-108](file://app/backend/routes/export.py#L59-L108)
 
 ## Architecture Overview
-The comparison and visualization workflow connects frontend UI to backend APIs and models with enhanced data processing and context persistence:
+The enhanced comparison workflow connects frontend UI components to backend APIs with comprehensive data processing and visualization capabilities:
 
 ```mermaid
 sequenceDiagram
 participant U as "User"
 participant CP as "ComparePage"
+participant CCR as "CandidateComparisonRadar"
 participant API as "api.js"
 participant BE as "compare.py"
 participant DB as "Database"
 participant EXP as "export.py"
-U->>CP : Select candidate IDs (2–5)
+U->>CP : Select 2-5 candidates
 CP->>API : compareResults(ids)
 API->>BE : POST /api/compare
 BE->>DB : Query ScreeningResult by IDs
 DB-->>BE : ScreeningResult[]
 BE-->>API : {candidates with enhanced metrics, total}
-API-->>CP : Comparison data with new fields
-CP-->>U : Render enhanced comparison table with winners
+API-->>CP : Enhanced comparison data
+CP-->>U : Render executive summaries + radar charts
 U->>CP : Click Export
 CP->>API : exportCsv(ids)
 API->>EXP : GET /api/export/csv?ids=...
@@ -156,369 +177,268 @@ API-->>U : Trigger download
 ```
 
 **Diagram sources**
-- [ComparePage.jsx:78-90](file://app/frontend/src/pages/ComparePage.jsx#L78-L90)
-- [api.js:526-529](file://app/frontend/src/lib/api.js#L526-L529)
-- [compare.py:16-159](file://app/backend/routes/compare.py#L16-L159)
-- [export.py:55-105](file://app/backend/routes/export.py#L55-L105)
+- [ComparePage.jsx:104-116](file://app/frontend/src/pages/ComparePage.jsx#L104-L116)
+- [CandidateComparisonRadar.jsx:45-66](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L45-L66)
+- [api.js:619-629](file://app/frontend/src/lib/api.js#L619-L629)
+- [compare.py:28-216](file://app/backend/routes/compare.py#L28-L216)
+- [export.py:59-108](file://app/backend/routes/export.py#L59-L108)
 
 ## Detailed Component Analysis
 
-### Enhanced ComparePage: Side-by-Side Candidate Evaluation
-- **Selection logic**: Users select up to five historical results. The selector enforces a minimum of two selections and a cap of five.
-- **Enhanced comparison computation**: On submit, the page requests backend comparison for the selected IDs and displays an enhanced structured table with new metrics.
-- **Winner indicators**: Per-category winners are computed server-side and rendered with a trophy badge.
-- **New metrics display**: Enhanced table now includes employment gap counts, analysis quality ratings, and top 3 strengths/weaknesses.
-- **Collapsible sections**: Three new collapsible sections for strengths/weaknesses, interview questions preview, and adjacent skills.
-- **Quality badges**: Color-coded badges for analysis quality (high, medium, low) with visual indicators.
-- **Actions**: Users can reset to a new comparison or export a CSV report for the selected IDs.
+### Enhanced ComparePage: Comprehensive Candidate Evaluation
+- **Multi-candidate Selection**: Supports selection of 2-5 candidates from historical screening results with real-time validation
+- **Executive Summaries**: Displays detailed executive summaries for each candidate including strengths, weaknesses, recommendations, and hiring decisions
+- **Real-time Score Visualization**: Integrates CandidateComparisonRadar for interactive 5-way comparison with technical, behavioral, communication, cultural fit, and motivation dimensions
+- **Advanced Export**: Provides CSV export functionality with comprehensive data fields including executive summaries and quality ratings
+- **Dynamic Comparison Matrix**: Features skill comparison with sorting capabilities and team gap identification
+- **Enhanced Collapsible Sections**: Multiple collapsible sections for strengths/weaknesses, interview questions preview, and adjacent skills
 
 ```mermaid
 flowchart TD
-Start(["User selects IDs"]) --> Validate{"Selected count ≥ 2 and ≤ 5?"}
+Start(["User selects 2-5 candidates"]) --> Validate{"Selected count ≥ 2 and ≤ 5?"}
 Validate --> |No| ShowError["Show error message"]
 Validate --> |Yes| Request["Call compareResults(ids)"]
 Request --> Loading["Set loading state"]
 Loading --> Receive["Receive enhanced comparison data"]
-Receive --> Render["Render enhanced comparison table<br/>with winners and new metrics"]
-Render --> Collapsible["Display collapsible sections:<br/>- Strengths & Weaknesses<br/>- Interview Questions Preview<br/>- Adjacent Skills"]
-Collapsible --> Actions{"User clicks Export?"}
-Actions --> |Yes| Export["Call exportCsv(ids)"]
-Actions --> |No| Wait["Wait for next action"]
+Receive --> Render["Render executive summaries + radar charts"]
+Render --> Export["Provide CSV export with enhanced fields"]
+Export --> Download["Trigger CSV download"]
 ```
 
-**Updated** Enhanced ComparePage now processes additional fields from the backend including top 3 strengths/weaknesses, employment gap counts, interview question previews, analysis quality ratings, and adjacent skills.
+**Updated** Enhanced ComparePage now provides comprehensive candidate evaluation with executive summaries, real-time score visualization, and advanced export capabilities.
 
 **Diagram sources**
-- [ComparePage.jsx:78-90](file://app/frontend/src/pages/ComparePage.jsx#L78-L90)
-- [compare.py:130-139](file://app/backend/routes/compare.py#L130-L139)
-- [ComparePage.jsx:282-373](file://app/frontend/src/pages/ComparePage.jsx#L282-L373)
+- [ComparePage.jsx:104-116](file://app/frontend/src/pages/ComparePage.jsx#L104-L116)
+- [compare.py:28-216](file://app/backend/routes/compare.py#L28-L216)
+- [ComparePage.jsx:300-510](file://app/frontend/src/pages/ComparePage.jsx#L300-L510)
 
 **Section sources**
-- [ComparePage.jsx:56-380](file://app/frontend/src/pages/ComparePage.jsx#L56-L380)
-- [api.js:526-529](file://app/frontend/src/lib/api.js#L526-L529)
-- [compare.py:16-159](file://app/backend/routes/compare.py#L16-L159)
-- [export.py:55-105](file://app/backend/routes/export.py#L55-L105)
+- [ComparePage.jsx:56-510](file://app/frontend/src/pages/ComparePage.jsx#L56-L510)
+- [api.js:619-629](file://app/frontend/src/lib/api.js#L619-L629)
+- [compare.py:28-216](file://app/backend/routes/compare.py#L28-L216)
+- [export.py:59-108](file://app/backend/routes/export.py#L59-L108)
 
-### Enhanced ResultCard: Individual Analysis Results
-- **Presentation**: Displays recommendation badge, risk level, and score breakdown.
-- **Collapsible sections**: Enhanced with collapsible sections for education analysis, domain fit/architecture assessment, strengths/weaknesses/risk signals, explainability rationale, and interview kit tabs.
-- **Skills visualization**: Integrates SkillsRadar for category-wise matched/missing skills and coverage percentage.
-- **Email generation**: Modal to generate tailored emails for shortlist/rejection/screening call scenarios.
-- **Analysis quality badges**: Enhanced with quality badges showing analysis quality ratings and AI enhancement status.
-
-```mermaid
-classDiagram
-class EnhancedResultCard {
-+props result
-+defaultExpandEducation
-+showInterviewKit
-+showEmailModal
-+activeQTab
-+render()
-}
-class EnhancedSkillsRadar {
-+matchedSkills
-+missingSkills
-+render()
-}
-class CollapsibleSection {
-+title
-+icon
-+defaultOpen
-+children
-+render()
-}
-EnhancedResultCard --> EnhancedSkillsRadar : "uses"
-EnhancedResultCard --> CollapsibleSection : "uses"
-```
-
-**Updated** ResultCard now includes enhanced collapsible sections system and analysis quality badges for better user experience.
-
-**Diagram sources**
-- [ResultCard.jsx:262-844](file://app/frontend/src/components/ResultCard.jsx#L262-L844)
-- [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
-- [ResultCard.jsx:65-90](file://app/frontend/src/components/ResultCard.jsx#L65-L90)
-
-**Section sources**
-- [ResultCard.jsx:262-844](file://app/frontend/src/components/ResultCard.jsx#L262-L844)
-- [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
-
-### Timeline: Employment History Visualization
-- **Input**: Work experience entries and employment gaps.
-- **Sorting**: Jobs are sorted by start date descending.
-- **Rendering**: Timeline bars with icons indicating short tenures and gap durations/severity.
-- **UX**: Gap severity badges and short-tenure highlighting with enhanced gap analysis.
+### CandidateComparisonRadar: Interactive 5-Way Comparison
+- **Dimension Support**: Visualizes 5 key dimensions: Technical, Behavioral, Communication, Cultural Fit, and Motivation
+- **Interactive Selection**: Allows users to select/deselect up to 5 candidates with real-time updates
+- **Score Visualization**: Displays progress bars with color-coded confidence levels for each dimension
+- **Executive Summaries**: Shows executive summaries for each selected candidate in dedicated cards
+- **Real-time Updates**: Automatically updates all visualizations when candidate selection changes
+- **Responsive Design**: Adapts layout for different screen sizes with mobile-friendly controls
 
 ```mermaid
 flowchart TD
-Input["workExperience[], gaps[]"] --> Sort["Sort jobs by start_date desc"]
-Sort --> Iterate["Iterate jobs"]
-Iterate --> Draw["Draw job dot and line segment"]
-Draw --> GapCheck{"Has gap at index?"}
-GapCheck --> |Yes| Gap["Render gap duration and severity<br/>with color-coded badges"]
-GapCheck --> |No| Next["Next job"]
-Gap --> Next
-Next --> End["Done"]
+Input["5 candidate scorecards"] --> Dimensions["5 Dimensions: Technical, Behavioral,<br/>Communication, Cultural Fit, Motivation"]
+Dimensions --> Selection["Interactive candidate selection<br/>(2-5 candidates)"
+Selection --> Update["Real-time score visualization<br/>with progress bars"]
+Update --> ExecSum["Executive summary cards<br/>for selected candidates"]
+ExecSum --> Export["Export functionality<br/>with enhanced data"]
 ```
 
-**Updated** Timeline now includes enhanced gap analysis with severity indicators and duration display.
+**Updated** New CandidateComparisonRadar component provides comprehensive 5-way candidate comparison with interactive radar charts and executive summaries.
 
 **Diagram sources**
-- [Timeline.jsx:13-123](file://app/frontend/src/components/Timeline.jsx#L13-L123)
+- [CandidateComparisonRadar.jsx:20-26](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L20-L26)
+- [CandidateComparisonRadar.jsx:45-66](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L45-L66)
+- [CandidateComparisonRadar.jsx:220-251](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L220-L251)
 
 **Section sources**
-- [Timeline.jsx:3-123](file://app/frontend/src/components/Timeline.jsx#L3-L123)
+- [CandidateComparisonRadar.jsx:1-255](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L1-L255)
 
-### SkillsRadar: Skills Gap Visualization
-- **Categorization**: Skills are categorized into domains (e.g., Programming, DevOps, Data).
-- **Tally**: Counts matched and missing skills per category.
-- **Coverage**: Computes overall match percentage and visual progress indicator.
-- **Chart**: Vertical bar chart showing matched vs missing per category with tooltips and legend.
-- **Chips**: Lists matched and missing skills per category.
+### Enhanced Comparison Matrix: Dynamic Skill Analysis
+- **Real-time Comparison**: Dynamically compares candidates based on skills matrix and team gaps
+- **Sorting Options**: Supports sorting by match percentage, fit score, or gaps filled
+- **Team Gap Identification**: Highlights skills that are missing from the current team
+- **Confidence Indicators**: Shows confidence levels for skill matches with color-coded indicators
+- **Dynamic Updates**: Automatically updates when candidate selection changes
+- **Summary Cards**: Provides quick overview of each candidate's match percentage and key metrics
 
 ```mermaid
 flowchart TD
-Start(["Input matchedSkills, missingSkills"]) --> Categorize["Categorize each skill"]
-Categorize --> Tally["Tally matched/missing per category"]
-Tally --> Sort["Sort categories by total desc"]
-Sort --> Compute["Compute match percentage"]
-Compute --> Render["Render progress + chart + chips"]
+Start["Candidate selection"] --> Fetch["Fetch comparison data"]
+Fetch --> Process["Process skills matrix"]
+Process --> Sort["Sort by selected criteria"]
+Sort --> Display["Display summary cards + matrix"]
+Display --> Update["Real-time updates on selection changes"]
 ```
 
-**Diagram sources**
-- [SkillsRadar.jsx:113-139](file://app/frontend/src/components/SkillsRadar.jsx#L113-L139)
-- [SkillsRadar.jsx:195-231](file://app/frontend/src/components/SkillsRadar.jsx#L195-L231)
-
-**Section sources**
-- [SkillsRadar.jsx:110-261](file://app/frontend/src/components/SkillsRadar.jsx#L110-L261)
-
-### ReportPage: Full Report Composition with Enhanced Workflow
-- **Layout**: Left sidebar for quick actions and labels; right panel for scrollable content.
-- **Content**: Embeds ResultCard and Timeline for a comprehensive view.
-- **Sharing and printing**: Copies shareable links to clipboard and triggers browser print dialog.
-- **Enhanced workflow**: Detects persisted job description context and provides 'Analyze Another Resume' button for seamless workflow continuation.
-- **Context persistence**: Uses sessionStorage to store JD text, weights, and role category for cross-page continuity.
-
-```mermaid
-sequenceDiagram
-participant U as "User"
-participant RP as "ReportPage"
-participant RC as "ResultCard"
-participant TL as "Timeline"
-U->>RP : Navigate to report with result
-RP->>RC : Render result (defaultExpandEducation)
-RP->>TL : Render workExperience + gaps
-RP->>RP : Check sessionStorage for JD context
-alt JD context exists
-RP->>U : Show "Analyze Another Resume" button
-U->>RP : Click "Analyze Another Resume"
-RP->>RP : Navigate to /analyze with preserved context
-end
-U->>RP : Share / Download
-RP-->>U : Copy link / Print
-```
-
-**Updated** ReportPage now includes enhanced 'Analyze Another Resume' workflow with automatic context detection and preservation using sessionStorage. The system intelligently handles both text-mode and file-mode job descriptions, preserving JD context including file names and weights when users navigate back to analyze page.
+**Updated** ComparisonMatrix component now provides dynamic skill analysis with sorting capabilities and team gap identification.
 
 **Diagram sources**
-- [ReportPage.jsx:421-440](file://app/frontend/src/pages/ReportPage.jsx#L421-L440)
-- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
-- [AnalyzePage.jsx:279-286](file://app/frontend/src/pages/AnalyzePage.jsx#L279-L286)
+- [ComparisonMatrix.jsx:17-33](file://app/frontend/src/components/ComparisonMatrix.jsx#L17-L33)
+- [ComparisonMatrix.jsx:42-45](file://app/frontend/src/components/ComparisonMatrix.jsx#L42-L45)
 
 **Section sources**
-- [ReportPage.jsx:1-552](file://app/frontend/src/pages/ReportPage.jsx#L1-L552)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
 
-### AnalyzePage: Intelligent Job Description Context Management
-- **Job Description Modes**: Supports text, file, and URL extraction modes for job descriptions.
-- **Context Persistence**: Automatically persists JD context to sessionStorage for seamless workflow continuation.
-- **File Mode Handling**: Uses IndexedDB for storing JD files with automatic retrieval when returning from ReportPage.
-- **Weight Preservation**: Maintains scoring weights and role category across analysis sessions.
-- **Auto-navigation**: Automatically advances to upload step when returning with valid context.
+### Enhanced ComparisonView: Side-by-Side Analysis
+- **Version Comparison**: Provides side-by-side comparison of different analysis versions
+- **Weight Analysis**: Shows scoring weights differences between versions with visual indicators
+- **Impact Summary**: Displays score changes, recommendation shifts, and risk level variations
+- **Active Version Highlighting**: Clearly indicates which version is currently active
+- **Role Category Display**: Shows role categories with color-coded badges
+- **Reasoning Comparison**: Displays weight reasoning for both versions
 
 ```mermaid
 flowchart TD
-Start(["AnalyzePage Mount"]) --> CheckState{"Location state contains JD context?"}
-CheckState --> |Text Mode| LoadText["Load JD text and weights"]
-CheckState --> |File Mode| LoadFile["Load JD file from IndexedDB"]
-CheckState --> |No Context| Init["Initialize fresh state"]
-LoadText --> AutoSkip["Auto-skip to upload step"]
-LoadFile --> AutoSkip
-Init --> Step1["Step 1: Job Description"]
-AutoSkip --> Step3["Step 3: Upload Resumes"]
-Step1 --> Step2["Step 2: Scoring Weights"]
-Step2 --> Step3
-Step3 --> Analyze["Handle Analysis"]
-Analyze --> Persist["Persist context to sessionStorage/IndexedDB"]
-Persist --> Navigate["Navigate to ReportPage"]
+Input["Two analysis versions"] --> Parse["Parse analysis results"]
+Parse --> Weights["Extract scoring weights"]
+Weights --> Compare["Compare weights and results"]
+Compare --> Display["Display side-by-side comparison"]
+Display --> Impact["Show impact summary"]
 ```
 
-**Updated** AnalyzePage now includes intelligent context management with automatic persistence of both text-mode and file-mode job descriptions, ensuring seamless workflow continuity across analysis sessions.
+**Updated** ComparisonView component provides comprehensive side-by-side analysis of different versions with weight comparison and impact summary.
 
 **Diagram sources**
-- [AnalyzePage.jsx:350-370](file://app/frontend/src/pages/AnalyzePage.jsx#L350-L370)
-- [AnalyzePage.jsx:193-217](file://app/frontend/src/pages/AnalyzePage.jsx#L193-L217)
+- [ComparisonView.jsx:45-48](file://app/frontend/src/components/ComparisonView.jsx#L45-L48)
+- [ComparisonView.jsx:19-31](file://app/frontend/src/components/ComparisonView.jsx#L19-L31)
 
 **Section sources**
-- [AnalyzePage.jsx:1-1004](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L1004)
+- [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 
-### Enhanced Backend: Comparison and Export
-- **Comparison endpoint**: Validates selection bounds, loads results for the tenant, extracts enhanced analysis fields including top 3 strengths/weaknesses, employment gap counts, interview question previews, and analysis quality ratings, and computes winners per category.
-- **Export endpoints**: CSV and Excel streams containing expanded fit scores, recommendations, risk levels, skill metrics, strengths/weaknesses, and new analysis quality fields.
+### Enhanced Backend: Advanced Comparison Processing
+- **Executive Summary Extraction**: Extracts and processes executive summaries, strengths, weaknesses, and recommendations
+- **Quality Scoring**: Calculates analysis quality ratings with high/medium/low classifications
+- **Hiring Decision Processing**: Processes hiring decisions with verdicts, confidence levels, and action items
+- **Dealbreaker Identification**: Identifies and categorizes dealbreakers for each candidate
+- **Differentiator Extraction**: Extracts key differentiators that set candidates apart
+- **Enhanced Field Processing**: Processes additional fields including adjacent skills and employment gaps
 
 ```mermaid
 sequenceDiagram
 participant FE as "Frontend"
 participant API as "api.js"
 participant CMP as "compare.py"
-participant EXP as "export.py"
 participant DB as "Database"
 FE->>API : POST /api/compare
 API->>CMP : compare_candidates(body)
 CMP->>DB : Query ScreeningResult by IDs
 DB-->>CMP : Results
-CMP-->>API : {candidates with enhanced metrics, winners}
-API-->>FE : Enhanced comparison data
-FE->>API : GET /api/export/csv?ids=...
-API->>EXP : export_csv(ids)
-EXP->>DB : Query results (filtered)
-DB-->>EXP : Results
-EXP-->>API : CSV stream with expanded fields
-API-->>FE : Download CSV
+CMP->>CMP : Extract executive summaries<br/>+ calculate quality ratings
+CMP->>CMP : Process hiring decisions<br/>+ dealbreakers
+CMP-->>API : Enhanced comparison data
+API-->>FE : Complete comparison with<br/>executive summaries
 ```
 
-**Updated** Backend now processes additional analysis fields including top 3 strengths/weaknesses, employment gap counts, interview question previews, analysis quality ratings, and adjacent skills.
+**Updated** Backend now processes comprehensive executive summaries, quality ratings, and advanced candidate insights.
 
 **Diagram sources**
-- [compare.py:16-159](file://app/backend/routes/compare.py#L16-L159)
-- [export.py:55-105](file://app/backend/routes/export.py#L55-L105)
-- [api.js:526-543](file://app/frontend/src/lib/api.js#L526-L543)
+- [compare.py:28-216](file://app/backend/routes/compare.py#L28-L216)
+- [compare.py:141-182](file://app/backend/routes/compare.py#L141-L182)
 
 **Section sources**
-- [compare.py:16-159](file://app/backend/routes/compare.py#L16-L159)
-- [export.py:55-105](file://app/backend/routes/export.py#L55-L105)
-- [schemas.py:89-125](file://app/backend/models/schemas.py#L89-L125)
+- [compare.py:1-216](file://app/backend/routes/compare.py#L1-L216)
+- [export.py:1-364](file://app/backend/routes/export.py#L1-L364)
+- [schemas.py:154-200](file://app/backend/models/schemas.py#L154-L200)
 
 ## Dependency Analysis
 - **Frontend-to-backend contracts**:
-  - ComparePage uses api.compareResults and api.exportCsv with enhanced data structures.
-  - ResultCard integrates SkillsRadar and uses api.generateEmail for email modal with enhanced analysis quality badges.
-  - ReportPage composes ResultCard and Timeline and uses api.labelTrainingExample and api.updateResultStatus.
-  - ReportPage uses sessionStorage for context persistence and navigation to AnalyzePage.
-  - AnalyzePage manages JD context persistence using both sessionStorage and IndexedDB.
+  - ComparePage uses enhanced compareResults with executive summary data
+  - CandidateComparisonRadar integrates with compareCandidates API for real-time updates
+  - ComparisonMatrix uses compareCandidates with skills matrix data
+  - ComparisonView handles version comparison with weight analysis
+  - Enhanced CSV export functionality with expanded field coverage
 - **Backend schemas**:
-  - AnalysisResponse defines the shape of candidate results used by both ComparePage and ReportPage with enhanced fields.
-  - CompareRequest validates incoming IDs for comparison.
+  - AnalysisResponse now includes executive_summary, recommendation_rationale, and hiring_decision fields
+  - CompareRequest validates candidate selection bounds (2-5 candidates)
+  - Enhanced scoring quality fields for analysis quality ratings
 - **Backend routes**:
-  - compare.py aggregates results and computes winners with enhanced data extraction.
-  - export.py transforms results into CSV/Excel streams with expanded field coverage.
+  - compare.py processes comprehensive executive summaries and quality metrics
+  - export.py handles enhanced CSV/Excel export with executive summary fields
+  - New comparison matrix endpoint for skills analysis
 
 ```mermaid
 graph LR
-CP["Enhanced ComparePage.jsx"] --> API["api.js"]
-RC["Enhanced ResultCard.jsx"] --> SR["SkillsRadar.jsx"]
-RP["ReportPage.jsx"] --> RC
-RP --> TL["Timeline.jsx"]
-AP["AnalyzePage.jsx"] --> SESSION["sessionStorage"]
-AP --> IDB["IndexedDB"]
+CP["Enhanced ComparePage.jsx"] --> CCR["CandidateComparisonRadar.jsx"]
+CP --> CM["ComparisonMatrix.jsx"]
+CP --> CV["ComparisonView.jsx"]
+CP --> API["api.js"]
+CCR --> API
+CM --> API
+CV --> API
 API --> CMP["compare.py"]
 API --> EXP["export.py"]
 CMP --> SCH["schemas.py"]
 EXP --> SCH
-RP --> SESSION
 ```
 
-**Updated** Dependencies now reflect enhanced data structures, new components in ComparePage, context persistence mechanisms in ReportPage, and intelligent context management in AnalyzePage.
+**Updated** Dependencies now reflect enhanced executive summary processing, real-time score visualization, and advanced export capabilities.
 
 **Diagram sources**
-- [ComparePage.jsx:1-380](file://app/frontend/src/pages/ComparePage.jsx#L1-L380)
-- [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
-- [ReportPage.jsx:1-552](file://app/frontend/src/pages/ReportPage.jsx#L1-L552)
-- [AnalyzePage.jsx:1-1004](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L1004)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [CandidateComparisonRadar.jsx:1-255](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L1-L255)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [api.js:1-952](file://app/frontend/src/lib/api.js#L1-L952)
-- [compare.py:1-159](file://app/backend/routes/compare.py#L1-L159)
-- [export.py:1-105](file://app/backend/routes/export.py#L1-L105)
-- [schemas.py:89-125](file://app/backend/models/schemas.py#L89-L125)
+- [compare.py:1-216](file://app/backend/routes/compare.py#L1-L216)
+- [export.py:1-364](file://app/backend/routes/export.py#L1-L364)
+- [schemas.py:154-200](file://app/backend/models/schemas.py#L154-L200)
 
 **Section sources**
-- [ComparePage.jsx:1-380](file://app/frontend/src/pages/ComparePage.jsx#L1-L380)
-- [ResultCard.jsx:1-844](file://app/frontend/src/components/ResultCard.jsx#L1-L844)
-- [ReportPage.jsx:1-552](file://app/frontend/src/pages/ReportPage.jsx#L1-L552)
-- [AnalyzePage.jsx:1-1004](file://app/frontend/src/pages/AnalyzePage.jsx#L1-L1004)
+- [ComparePage.jsx:1-510](file://app/frontend/src/pages/ComparePage.jsx#L1-L510)
+- [CandidateComparisonRadar.jsx:1-255](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L1-L255)
+- [ComparisonMatrix.jsx:1-137](file://app/frontend/src/components/ComparisonMatrix.jsx#L1-L137)
+- [ComparisonView.jsx:1-306](file://app/frontend/src/components/ComparisonView.jsx#L1-L306)
 - [api.js:1-952](file://app/frontend/src/lib/api.js#L1-L952)
-- [compare.py:1-159](file://app/backend/routes/compare.py#L1-L159)
-- [export.py:1-105](file://app/backend/routes/export.py#L1-L105)
-- [schemas.py:89-125](file://app/backend/models/schemas.py#L89-L125)
+- [compare.py:1-216](file://app/backend/routes/compare.py#L1-L216)
+- [export.py:1-364](file://app/backend/routes/export.py#L1-L364)
+- [schemas.py:154-200](file://app/backend/models/schemas.py#L154-L200)
 
 ## Performance Considerations
-- **Frontend**
-  - Limit concurrent comparisons to 5 to prevent excessive DOM rendering and API load.
-  - Debounce selection toggles and comparison requests to reduce unnecessary re-renders.
-  - Lazy-load heavy components (e.g., SkillsRadar) only when expanded.
-  - Virtualize long lists (e.g., interview questions) if they grow large.
-  - **Enhanced**: Collapsible sections reduce initial render complexity and improve perceived performance.
-  - **Enhanced**: Quality badges use simple color mapping for efficient rendering.
-  - **Enhanced**: Context persistence using sessionStorage avoids expensive re-computation of job descriptions.
-  - **Enhanced**: Intelligent context detection minimizes redundant data entry and improves workflow efficiency.
-- **Backend**
-  - Use efficient database queries with tenant scoping and ID filtering.
-  - Stream CSV/Excel responses to avoid large memory footprints.
-  - Normalize scoring weights server-side to ensure deterministic computations.
-  - **Enhanced**: Extract only top 3 strengths/weaknesses and limited interview questions to reduce payload size.
-  - **Enhanced**: Calculate employment gap counts server-side to avoid client-side processing overhead.
-- **Data modeling**
-  - Keep analysis_result compact and indexed by tenant_id to minimize joins.
-  - Cache recent comparison results per user session if appropriate.
-  - **Enhanced**: Store analysis quality ratings and adjacent skills for faster retrieval.
-  - **Enhanced**: Implement IndexedDB caching for JD files to reduce network overhead.
+- **Frontend Performance**
+  - CandidateComparisonRadar uses memoization for efficient rendering of up to 5 candidates
+  - Real-time updates are debounced to prevent excessive re-renders during selection changes
+  - Executive summary cards lazy-load content to improve initial page load times
+  - ComparisonMatrix implements virtual scrolling for large skills matrices
+  - Enhanced CSV export processes data in chunks to prevent UI blocking
+- **Backend Performance**
+  - Database queries optimized with tenant scoping and ID filtering for comparison operations
+  - Executive summary extraction performed server-side to reduce client processing overhead
+  - Enhanced comparison data cached per user session for frequently accessed candidates
+  - CSV/Excel export streams data incrementally to avoid memory pressure
+  - Real-time score visualization uses efficient aggregation algorithms
+- **Data Modeling**
+  - Enhanced AnalysisResponse schema optimized for executive summary storage
+  - Comparison results indexed by candidate_id for fast lookups
+  - Executive summary fields normalized for efficient querying and filtering
+  - Quality rating fields stored separately for performance monitoring
 
 ## Troubleshooting Guide
-- **Comparison errors**
-  - Ensure at least two and no more than five candidate IDs are selected.
-  - Verify that all selected IDs correspond to the current tenant.
-  - Confirm backend health and authentication tokens.
-  - **Enhanced**: Check that enhanced fields (top 3 strengths/weaknesses, gap counts, question previews) are properly populated.
-- **Export failures**
-  - Check that ids query parameter is a comma-separated list of integers.
-  - Ensure the user has permission to access the requested results.
-  - **Enhanced**: Verify that expanded export fields (analysis quality, adjacent skills) are included in CSV/Excel output.
-- **Timeline anomalies**
-  - Confirm that dates are valid ISO-like strings or "present".
-  - Short tenures are flagged below six months; adjust expectations accordingly.
-  - **Enhanced**: Verify gap severity calculations and duration formatting.
-- **SkillsRadar empty state**
-  - SkillsRadar hides itself when both matched and missing skills are empty.
-  - Verify that the underlying analysis populates matched_skills and missing_skills.
-- **Collapsible section issues**
-  - **Enhanced**: Ensure collapsible sections render properly with default open states.
-  - Verify that section content is accessible and keyboard navigable.
-- **Quality badge display**
-  - **Enhanced**: Check that quality badges display correct colors for high/medium/low ratings.
-  - Verify that analysis quality data is properly extracted from analysis results.
-- **Analyze Another Resume workflow issues**
-  - **Enhanced**: Verify that sessionStorage contains 'aria_active_jd' with proper JD context.
-  - Check that the 'Analyze Another Resume' button appears when JD context is detected.
-  - Ensure navigation to /analyze preserves jd_text, weights, and role_category in state.
-  - **Enhanced**: For file-mode contexts, verify IndexedDB caching is working correctly.
-  - **Enhanced**: Check that file names are properly preserved in sessionStorage for file-mode workflows.
-- **Context persistence problems**
-  - **Enhanced**: Verify that sessionStorage.setItem and getItem operations are working correctly.
-  - **Enhanced**: Check that JSON parsing errors are handled gracefully for corrupted context data.
-  - **Enhanced**: Ensure IndexedDB operations are properly wrapped in try-catch blocks.
+- **Comparison Errors**
+  - Ensure exactly 2-5 candidate IDs are selected for comparison operations
+  - Verify all selected candidates belong to the current tenant
+  - Check backend health and authentication tokens for comparison requests
+  - **New**: Verify executive summary extraction is working correctly for all candidates
+- **Radar Chart Issues**
+  - **New**: Check that CandidateComparisonRadar receives proper scorecard data with all 5 dimensions
+  - Verify candidate selection limits (2-5 candidates) are respected
+  - Ensure dimension keys match expected values (technical_score, behavioral_score, etc.)
+- **Executive Summary Problems**
+  - **New**: Verify analysis_result contains executive_summary field for all candidates
+  - Check that recommendation_rationale and hiring_decision fields are properly formatted
+  - Ensure dealbreakers and differentiators arrays are properly extracted and limited to 3 items
+- **CSV Export Failures**
+  - **New**: Verify enhanced export fields (executive_summary, recommendation_rationale) are included
+  - Check that CSV export handles special characters and line breaks in executive summaries
+  - Ensure export filename includes timestamp and proper file extension
+- **Comparison Matrix Errors**
+  - **New**: Verify skills matrix data structure matches expected format
+  - Check that team gap identification works correctly for all candidates
+  - Ensure sorting functionality handles edge cases (null values, equal scores)
+- **Real-time Updates**
+  - **New**: Verify candidate selection state updates trigger proper component re-rendering
+  - Check that score visualization updates in real-time when selection changes
+  - Ensure executive summary cards update immediately with new selections
 
-**Updated** Added troubleshooting guidance for new enhanced features including collapsible sections, quality badges, expanded data fields, and the new 'Analyze Another Resume' workflow with intelligent context detection for both text-mode and file-mode job descriptions.
+**Updated** Added troubleshooting guidance for new executive summary processing, radar chart visualization, and enhanced CSV export functionality.
 
 **Section sources**
-- [ComparePage.jsx:78-90](file://app/frontend/src/pages/ComparePage.jsx#L78-L90)
-- [compare.py:22-25](file://app/backend/routes/compare.py#L22-L25)
-- [export.py:61-62](file://app/backend/routes/export.py#L61-L62)
-- [Timeline.jsx:104-123](file://app/frontend/src/components/Timeline.jsx#L104-L123)
-- [ReportPage.jsx:112-120](file://app/frontend/src/pages/ReportPage.jsx#L112-L120)
-- [ReportPage.jsx:421-440](file://app/frontend/src/pages/ReportPage.jsx#L421-L440)
-- [AnalyzePage.jsx:350-370](file://app/frontend/src/pages/AnalyzePage.jsx#L350-L370)
+- [ComparePage.jsx:104-116](file://app/frontend/src/pages/ComparePage.jsx#L104-L116)
+- [CandidateComparisonRadar.jsx:45-66](file://app/frontend/src/components/CandidateComparisonRadar.jsx#L45-L66)
+- [compare.py:34-37](file://app/backend/routes/compare.py#L34-L37)
+- [export.py:59-108](file://app/backend/routes/export.py#L59-L108)
+- [ComparisonMatrix.jsx:17-33](file://app/frontend/src/components/ComparisonMatrix.jsx#L17-L33)
 
 ## Conclusion
-The comparison and visualization features provide a cohesive workflow for evaluating candidates side-by-side with enhanced metrics and insights. The enhanced ComparePage now offers comprehensive comparison capabilities including top 3 strengths/weaknesses, employment gap analysis, interview question previews, and quality ratings. ResultCard delivers rich, expandable insights through collapsible sections, while Timeline highlights career progression and gaps with severity indicators. SkillsRadar offers a clear skills gap view with category breakdowns. Backend routes ensure secure, tenant-scoped comparisons with enhanced data extraction and efficient exports. The new collapsible section system improves user experience by organizing information hierarchically, while quality badges provide immediate visual assessment of analysis reliability. 
-
-**Enhanced ReportPage** introduces a seamless 'Analyze Another Resume' workflow that maintains context persistence across sessions using sessionStorage and IndexedDB. The system intelligently detects previously analyzed job descriptions in both text-mode and file-mode, automatically preserving JD context including file names and weights when users navigate back to analyze page. This enhancement significantly improves workflow efficiency and reduces redundant data entry, making the platform more intuitive for recruiters who frequently analyze multiple candidates for the same position. The intelligent context detection ensures that users can continue their analysis workflows without losing important scoring weights or job description details, whether they used text-based JD input or uploaded JD files.
-
-With the enhanced performance optimizations, comprehensive troubleshooting guidance, and improved context persistence mechanisms, teams can scale these features effectively for large-scale hiring workflows with richer comparative insights and streamlined analysis processes.
+The enhanced comparison and visualization system in Resume AI by ThetaLogics provides comprehensive candidate evaluation capabilities with executive insights and real-time visualization. The new CandidateComparisonRadar component enables interactive 5-way comparison with technical, behavioral, communication, cultural fit, and motivation dimensions. Executive summaries provide detailed candidate insights including strengths, weaknesses, recommendations, and hiring decisions. Advanced CSV export functionality captures comprehensive data including executive summaries and quality ratings. The system's real-time score visualization and dynamic comparison matrices enable recruiters to make informed hiring decisions quickly and efficiently. With enhanced backend processing for executive summary extraction and quality scoring, the platform delivers rich comparative insights while maintaining optimal performance for large-scale hiring workflows.

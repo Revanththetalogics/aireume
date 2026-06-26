@@ -4,24 +4,27 @@
 **Referenced Files in This Document**
 - [InterviewScorecard.jsx](file://app/frontend/src/components/InterviewScorecard.jsx)
 - [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
+- [conversation.py](file://app/voice_agent/conversation.py)
 - [interview_kit.py](file://app/backend/routes/interview_kit.py)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [db_models.py](file://app/backend/models/db_models.py)
+- [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
 - [TranscriptPage.jsx](file://app/frontend/src/pages/TranscriptPage.jsx)
 - [VideoPage.jsx](file://app/frontend/src/pages/VideoPage.jsx)
-- [ReportPage.jsx](file://app/frontend/src/pages/ReportPage.jsx)
+- [pdf_report_service.py](file://app/backend/services/pdf_report_service.py)
 - [llm_service.py](file://app/backend/services/llm_service.py)
 - [requirements.txt](file://requirements.txt)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced InterviewScorecard.jsx with conditional heading visibility control via showHeading prop
-- Added showHeading prop that allows controlling whether 'Recruiter Scorecard' heading appears
-- Improved component reusability across different contexts with flexible heading display
-- Updated ReportPage.jsx usage to demonstrate both showHeading and hideHeading scenarios
-- Enhanced component flexibility for embedding in various page layouts
+- Enhanced InterviewScorecard.jsx with unified interview depth system support
+- Added Experience Deep-Dive dimension to comprehensive scorecard visualization
+- Updated backend interview kit to support unified depth-aware scoring across all interview types
+- Enhanced phone screening workflow with integrated evaluation across quick, standard, and deep depths
+- Improved cross-depth comparison capabilities with unified dimension scoring
+- Added comprehensive scorecard visualization for unified interview architecture
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -29,20 +32,21 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Enhanced Debrief Display Capabilities](#enhanced-debrief-display-capabilities)
-7. [Recruiter Score Integration System](#recruiter-score-integration-system)
-8. [Phone Screening Workflow Enhancement](#phone-screening-workflow-enhancement)
-9. [Automatic Content Visibility Mechanism](#automatic-content-visibility-mechanism)
-10. [Conditional Heading Visibility Control](#conditional-heading-visibility-control)
-11. [Structured Debrief Content Management](#structured-debrief-content-management)
-12. [Recruiter Score Calculation Algorithm](#recruiter-score-calculation-algorithm)
-13. [Conversation Summary Validation](#conversation-summary-validation)
-14. [Fallback Mechanisms and Reliability](#fallback-mechanisms-and-reliability)
-15. [UI Integration and Display](#ui-integration-and-display)
-16. [Dependency Analysis](#dependency-analysis)
-17. [Performance Considerations](#performance-considerations)
-18. [Troubleshooting Guide](#troubleshooting-guide)
-19. [Conclusion](#conclusion)
+6. [Unified Interview Depth System](#unified-interview-depth-system)
+7. [Enhanced Debrief Display Capabilities](#enhanced-debrief-display-capabilities)
+8. [Recruiter Score Integration System](#recruiter-score-integration-system)
+9. [Phone Screening Workflow Enhancement](#phone-screening-workflow-enhancement)
+10. [Automatic Content Visibility Mechanism](#automatic-content-visibility-mechanism)
+11. [Conditional Heading Visibility Control](#conditional-heading-visibility-control)
+12. [Structured Debrief Content Management](#structured-debrief-content-management)
+13. [Recruiter Score Calculation Algorithm](#recruiter-score-calculatio-algorithm)
+14. [Conversation Summary Validation](#conversation-summary-validation)
+15. [Fallback Mechanisms and Reliability](#fallback-mechanisms-and-reliability)
+16. [UI Integration and Display](#ui-integration-and-display)
+17. [Dependency Analysis](#dependency-analysis)
+18. [Performance Considerations](#performance-considerations)
+19. [Troubleshooting Guide](#troubleshooting-guide)
+20. [Conclusion](#conclusion)
 
 ## Introduction
 
@@ -50,7 +54,7 @@ The Interview Scorecard Component is a comprehensive evaluation and reporting sy
 
 The system integrates seamlessly with the broader ARIA (AI Resume Intelligence) platform, offering multi-modal interview analysis capabilities including transcript evaluation, video interview analysis, and structured scoring systems. The Interview Scorecard serves as the central hub for interview assessment, combining quantitative metrics with qualitative insights to support informed hiring decisions.
 
-**Updated** Enhanced with comprehensive debrief display capabilities featuring LLM-generated recruiter debrief content, integrated recruiter score calculation system, streamlined phone screening workflow that generates structured recommendations based on evaluation ratings and sentiment analysis, and conditional heading visibility control for improved component reusability across different contexts.
+**Updated** Enhanced with comprehensive debrief display capabilities featuring LLM-generated recruiter debrief content, integrated recruiter score calculation system, streamlined phone screening workflow that generates structured recommendations based on evaluation ratings and sentiment analysis, and conditional heading visibility control for improved component reusability across different contexts. Now fully supports the unified interview depth system with depth-aware scoring, cross-depth comparison capabilities, and integrated evaluation across all interview types (quick, standard, deep).
 
 ## Project Structure
 
@@ -71,6 +75,7 @@ IK[interview_kit.py]
 SC[Schemas]
 DB[Database Models]
 LLM[LLM Service]
+VA[Voice Agent]
 end
 subgraph "Data Layer"
 IE[InterviewEvaluation]
@@ -78,6 +83,7 @@ OA[OverallAssessment]
 SR[ScreeningResult]
 DBJ[Debrief JSON]
 RS[Recruiter Score]
+ID[InterviewDepth]
 end
 IS --> API
 PSK --> API
@@ -88,11 +94,13 @@ API --> IK
 IK --> SC
 IK --> DB
 IK --> LLM
+IK --> VA
 DB --> IE
 DB --> OA
 DB --> SR
 DB --> DBJ
 DB --> RS
+DB --> ID
 ```
 
 **Diagram sources**
@@ -101,6 +109,7 @@ DB --> RS
 - [ReportPage.jsx:559](file://app/frontend/src/pages/ReportPage.jsx#L559)
 - [ReportPage.jsx:1010](file://app/frontend/src/pages/ReportPage.jsx#L1010)
 - [interview_kit.py:244-406](file://app/backend/routes/interview_kit.py#L244-L406)
+- [conversation.py:25-28](file://app/voice_agent/conversation.py#L25-L28)
 - [api.js:1237-1243](file://app/frontend/src/lib/api.js#L1237-L1243)
 
 **Section sources**
@@ -108,7 +117,7 @@ DB --> RS
 - [PhoneScreenKit.jsx:1-484](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L484)
 - [ReportPage.jsx:555-565](file://app/frontend/src/pages/ReportPage.jsx#L555-L565)
 - [ReportPage.jsx:1008-1013](file://app/frontend/src/pages/ReportPage.jsx#L1008-L1013)
-- [interview_kit.py:1-415](file://app/backend/routes/interview_kit.py#L1-L415)
+- [interview_kit.py:1-435](file://app/backend/routes/interview_kit.py#L1-L435)
 
 ## Core Components
 
@@ -118,7 +127,7 @@ The Interview Scorecard Component is implemented as a React functional component
 
 **Key Features:**
 - Real-time scorecard loading and rendering
-- Dimension-based evaluation summaries (Technical, Behavioral, Culture Fit, Experience)
+- Dimension-based evaluation summaries (Technical, Behavioral, Culture Fit, Experience Deep-Dive)
 - Interactive evaluation cards with strength indicators
 - Overall assessment editing with recommendation selection
 - PDF export functionality for sharing with hiring managers
@@ -128,6 +137,7 @@ The Interview Scorecard Component is implemented as a React functional component
 - **Enhanced** Recruiter score badge with color-coded recommendations
 - **Enhanced** Automatic content visibility mechanism that calculates evaluation counts and automatically hides empty scorecards when no assessments have been completed
 - **Enhanced** Conditional heading visibility control via showHeading prop for improved component reusability
+- **Enhanced** Unified interview depth system support with Experience Deep-Dive dimension
 
 **Data Flow Architecture:**
 ```mermaid
@@ -138,6 +148,7 @@ participant API as API Client
 participant BE as Backend Service
 participant DB as Database
 participant LLM as LLM Service
+participant VA as Voice Agent
 User->>IS : Load Scorecard
 IS->>API : getScorecard(resultId)
 API->>BE : GET /api/results/{result_id}/scorecard
@@ -178,10 +189,10 @@ The backend service provides comprehensive interview evaluation management throu
 - **Enhanced** `POST /api/results/{result_id}/generate-debrief` - Generate LLM-powered debrief with recruiter score
 
 **Data Processing Logic:**
-The backend service aggregates evaluation data from multiple sources, builds dimension summaries, and constructs a comprehensive scorecard report that combines AI-generated insights with human evaluator input. **Enhanced** with comprehensive team evaluation visibility through the EvaluatorInfo schema and integrated LLM debrief generation with improved Python 3.11 compatibility.
+The backend service aggregates evaluation data from multiple sources, builds dimension summaries, and constructs a comprehensive scorecard report that combines AI-generated insights with human evaluator input. **Enhanced** with comprehensive team evaluation visibility through the EvaluatorInfo schema and integrated LLM debrief generation with improved Python 3.11 compatibility. Now supports unified interview depth system with Experience Deep-Dive dimension scoring.
 
 **Section sources**
-- [interview_kit.py:23-415](file://app/backend/routes/interview_kit.py#L23-L415)
+- [interview_kit.py:23-435](file://app/backend/routes/interview_kit.py#L23-L435)
 - [schemas.py:440-608](file://app/backend/models/schemas.py#L440-L608)
 
 ## Architecture Overview
@@ -202,12 +213,14 @@ Auth[Authentication]
 Validation[Data Validation]
 Processing[Scorecard Processing]
 DebriefGen[Debrief Generation]
+UnifiedDepth[Unified Depth System]
 end
 subgraph "Service Layer"
 InterviewKit[Interview Kit Service]
 TranscriptAnalysis[Transcript Service]
 VideoAnalysis[Video Analysis Service]
 LLMService[LLM Service]
+VoiceAgent[Voice Agent]
 end
 subgraph "Data Layer"
 PostgreSQL[PostgreSQL Database]
@@ -220,6 +233,7 @@ Processing --> InterviewKit
 InterviewKit --> TranscriptAnalysis
 InterviewKit --> VideoAnalysis
 InterviewKit --> LLMService
+InterviewKit --> VoiceAgent
 InterviewKit --> PostgreSQL
 TranscriptAnalysis --> PostgreSQL
 VideoAnalysis --> PostgreSQL
@@ -227,6 +241,7 @@ LLMService --> PostgreSQL
 PDF --> Export
 Export --> UI
 RP --> UI
+UnifiedDepth --> InterviewKit
 ```
 
 **Diagram sources**
@@ -234,7 +249,8 @@ RP --> UI
 - [PhoneScreenKit.jsx:1-484](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L484)
 - [ReportPage.jsx:555-565](file://app/frontend/src/pages/ReportPage.jsx#L555-L565)
 - [ReportPage.jsx:1008-1013](file://app/frontend/src/pages/ReportPage.jsx#L1008-L1013)
-- [interview_kit.py:1-415](file://app/backend/routes/interview_kit.py#L1-L415)
+- [interview_kit.py:1-435](file://app/backend/routes/interview_kit.py#L1-L435)
+- [conversation.py:103-112](file://app/voice_agent/conversation.py#L103-L112)
 - [main.py:324-390](file://app/backend/main.py#L324-L390)
 
 The architecture ensures:
@@ -244,6 +260,7 @@ The architecture ensures:
 - **Maintainability**: Clear separation of concerns and modular design
 - **Reliability**: Fallback mechanisms for LLM debrief generation
 - **Enhanced** Python 3.11 compatibility with improved async/await patterns and type hints
+- **Enhanced** Unified interview depth system with consistent scoring across all interview types
 
 ## Detailed Component Analysis
 
@@ -288,11 +305,12 @@ InterviewScorecard --> DebriefSection : "renders"
 
 1. **Safe String Conversion**: The `safeStr` utility function handles various data types safely, preventing rendering errors from null or undefined values.
 
-2. **Dimension Summary Cards**: Each evaluation dimension (Technical, Behavioral, Culture Fit, Experience) is presented in a standardized card format with:
+2. **Dimension Summary Cards**: Each evaluation dimension (Technical, Behavioral, Culture Fit, Experience Deep-Dive) is presented in a standardized card format with:
    - Total question count and evaluated count
    - Color-coded strength indicators (Emerald for Strong, Amber for Adequate, Red for Weak)
    - Key notes aggregation
    - **Enhanced** Team evaluation visibility showing individual evaluator ratings and question indices
+   - **Enhanced** Unified depth system support with Experience Deep-Dive dimension
    - Responsive grid layout
 
 3. **Interactive Assessment Editor**: Recruiters can:
@@ -314,7 +332,7 @@ InterviewScorecard --> DebriefSection : "renders"
    - Recruiter Score badge with color-coded recommendations
 
 6. **Automatic Content Visibility Mechanism**: **New** The component implements an automatic content visibility mechanism that:
-   - Calculates evaluation counts across all dimensions
+   - Calculates evaluation counts across all dimensions including Experience Deep-Dive
    - Automatically hides empty scorecards when no assessments have been completed
    - Prevents users from seeing blank or incomplete scorecards
    - Improves user experience by only displaying relevant content
@@ -387,15 +405,16 @@ The backend service orchestrates complex data aggregation:
 1. **Result Verification**: Ensures tenant ownership and access permissions
 2. **Analysis Data Parsing**: Extracts structured data from JSON analysis results
 3. **Evaluation Aggregation**: Collects and processes individual question evaluations
-4. **Dimension Building**: Constructs summary statistics for each evaluation category
+4. **Dimension Building**: Constructs summary statistics for each evaluation category including Experience Deep-Dive
 5. **Evaluator Attribution**: **Enhanced** Integrates EvaluatorInfo schema for detailed team evaluation visibility
 6. **Strengths/Concerns Extraction**: Identifies notable evaluation patterns
 7. **Overall Assessment Integration**: Combines AI insights with human evaluator input
 8. **Debrief Generation**: **New** Processes conversation summary through LLM to generate structured debrief content
 9. **Recruiter Score Calculation**: **New** Computes weighted score combining evaluation ratings and sentiment analysis
+10. **Unified Depth Support**: **New** Supports Experience Deep-Dive dimension scoring across all interview depths
 
 **Section sources**
-- [interview_kit.py:28-415](file://app/backend/routes/interview_kit.py#L28-L415)
+- [interview_kit.py:28-435](file://app/backend/routes/interview_kit.py#L28-L435)
 - [db_models.py:218-417](file://app/backend/models/db_models.py#L218-L417)
 
 ### API Integration Patterns
@@ -407,7 +426,7 @@ The frontend API client provides comprehensive interview evaluation functionalit
 - `saveOverallAssessment(resultId, assessment)`: Persists recruiter assessment
 - `getEvaluations(resultId)`: Fetches individual question evaluations
 - `upsertEvaluation(resultId, evaluation)`: Creates or updates evaluations
-- **Enhanced** `generateDebrief(resultId, conversationSummary)`: Generates LLM-powered debrief with recruiter score
+- **Enhanced** `generateDebrief(resultId, conversationSummary, recommendation)`: Generates LLM-powered debrief with recruiter score
 
 **Integration Architecture:**
 ```mermaid
@@ -428,7 +447,7 @@ DB-->>SVC : Aggregated Results with Team Evaluations
 SVC-->>ROUTER : Scorecard Data with Evaluator Attribution
 ROUTER-->>API : JSON Response
 API-->>FC : Render Scorecard with Team Visibility
-FC->>API : generateDebrief(resultId, conversationSummary)
+FC->>API : generateDebrief(resultId, conversationSummary, recommendation)
 API->>AUTH : Apply CSRF Protection
 AUTH->>ROUTER : Route to /api/results/{result_id}/generate-debrief
 ROUTER->>SVC : Call generate_debrief()
@@ -448,7 +467,94 @@ API-->>FC : Update UI with Debrief
 
 **Section sources**
 - [api.js:1-1515](file://app/frontend/src/lib/api.js#L1-L1515)
-- [interview_kit.py:101-415](file://app/backend/routes/interview_kit.py#L101-L415)
+- [interview_kit.py:101-435](file://app/backend/routes/interview_kit.py#L101-L435)
+
+## Unified Interview Depth System
+
+The Interview Scorecard Component now supports a comprehensive unified interview depth system that provides depth-aware scoring, cross-depth comparison capabilities, and integrated evaluation across all interview types.
+
+### Interview Depth Architecture
+
+**Unified Conversation Engine:**
+```mermaid
+graph TB
+subgraph "Interview Depth System"
+Q[Quick Interview<br/>3-5 min, 5 questions]
+S[Standard Interview<br/>10-15 min, 12 questions]
+D[Deep Interview<br/>20-30 min, 20 questions]
+end
+subgraph "Unified Engine"
+UC[UnifiedConversation]
+IC[InterviewContext]
+end
+subgraph "Question Categories"
+T[Technical]
+B[Behavioral]
+C[Culture Fit]
+ED[Experience Deep-Dive]
+end
+UC --> IC
+IC --> Q
+IC --> S
+IC --> D
+Q --> T
+Q --> B
+Q --> C
+S --> T
+S --> B
+S --> C
+D --> T
+D --> B
+D --> C
+D --> ED
+```
+
+**Diagram sources**
+- [conversation.py:25-28](file://app/voice_agent/conversation.py#L25-L28)
+- [conversation.py:103-112](file://app/voice_agent/conversation.py#L103-L112)
+
+**Depth Configuration:**
+- **Quick**: 300-second time budget, 5 questions, no follow-ups, Experience Deep-Dive dimension
+- **Standard**: 900-second time budget, 12 questions, 1 follow-up per question, Experience Deep-Dive dimension  
+- **Deep**: 1800-second time budget, 20 questions, 2 follow-ups per question, Experience Deep-Dive dimension
+
+**Cross-Depth Comparison:**
+- **Unified Scoring**: All depths use consistent rating scales (Strong, Adequate, Weak)
+- **Dimension Integration**: Experience Deep-Dive dimension available across all interview types
+- **Budget Management**: Time-based question limits and follow-up constraints per depth
+- **Warmup Support**: Standard and Deep interviews include warmup phase for better engagement
+
+**Section sources**
+- [conversation.py:77-92](file://app/voice_agent/conversation.py#L77-L92)
+- [conversation.py:103-112](file://app/voice_agent/conversation.py#L103-L112)
+
+### Unified Scorecard Visualization
+
+**Enhanced Dimension Support:**
+The scorecard now comprehensively supports all interview dimensions across unified depth system:
+
+1. **Technical Dimension**: Core competency assessment across all depths
+2. **Behavioral Dimension**: Soft skills and cultural alignment evaluation
+3. **Culture Fit Dimension**: Organizational fit and values alignment
+4. **Experience Deep-Dive Dimension**: **New** Comprehensive experience assessment available in all interview depths
+
+**Cross-Depth Evaluation Integration:**
+```mermaid
+graph LR
+subgraph "Unified Evaluation System"
+A[Experience Deep-Dive<br/>Across All Depths] --> B[Consistent Scoring]
+B --> C[Unified Dimensions]
+C --> D[Cross-Depth Comparison]
+end
+```
+
+**Diagram sources**
+- [InterviewScorecard.jsx:198-203](file://app/frontend/src/components/InterviewScorecard.jsx#L198-L203)
+- [interview_kit.py:201-204](file://app/backend/routes/interview_kit.py#L201-L204)
+
+**Section sources**
+- [InterviewScorecard.jsx:198-203](file://app/frontend/src/components/InterviewScorecard.jsx#L198-L203)
+- [interview_kit.py:201-204](file://app/backend/routes/interview_kit.py#L201-L204)
 
 ## Enhanced Debrief Display Capabilities
 
@@ -556,7 +662,7 @@ The Interview Scorecard Component now features an automatic content visibility m
 
 The component implements a sophisticated evaluation count calculation system:
 
-**Evaluation Count Logic:**
+**Enhanced Evaluation Count Logic:**
 ```javascript
 const evaluatedCount =
   (scorecard.technical_summary?.evaluated_count || 0) +
@@ -573,7 +679,7 @@ if (evaluatedCount === 0 && !scorecard.debrief && !scorecard.overall_assessment)
 ```
 
 **Mechanism Features:**
-- **Comprehensive Counting**: Sums evaluated counts across all four evaluation dimensions
+- **Comprehensive Counting**: Sums evaluated counts across all four evaluation dimensions including Experience Deep-Dive
 - **Empty State Detection**: Checks for zero evaluations AND absence of debrief/assessment
 - **Conditional Rendering**: Returns null (empty) when no content should be displayed
 - **User Experience**: Prevents users from seeing blank or incomplete scorecards
@@ -661,7 +767,7 @@ The recruiter score calculation algorithm combines quantitative evaluation data 
 
 **Step-by-Step Process:**
 1. **Load Evaluation Data**: Extract all question evaluations for the screening result
-2. **Calculate Rating Distribution**: Count strong/adequate/weak ratings per category
+2. **Calculate Rating Distribution**: Count strong/adequate/weak ratings per category including Experience Deep-Dive
 3. **Compute Rating Score**: Convert ratings to weighted scores (Strong=100, Adequate=60, Weak=20)
 4. **Generate Sentiment Score**: Process conversation summary through LLM for sentiment analysis
 5. **Combine Scores**: Apply weighted formula: (Rating Score × 0.4) + (Sentiment Score × 0.6)
@@ -768,7 +874,7 @@ The enhanced UI provides intuitive integration of debrief content and recruiter 
 - **Visual Hierarchy**: Maintains focus on available evaluation data
 
 **Enhanced Automatic Content Visibility**: **New** The UI implements an automatic content visibility mechanism that:
-- Calculates evaluation counts across all dimensions
+- Calculates evaluation counts across all dimensions including Experience Deep-Dive
 - Automatically hides empty scorecards when no assessments have been completed
 - Provides clean, focused user experience
 - Prevents confusion from blank displays
@@ -778,6 +884,12 @@ The enhanced UI provides intuitive integration of debrief content and recruiter 
 - Improved integration with different page layouts
 - Better space utilization in embedded contexts
 - Consistent branding across all usage scenarios
+
+**Enhanced Unified Depth Visualization**: **New** The UI now supports comprehensive depth-aware visualization:
+- Experience Deep-Dive dimension prominently displayed
+- Consistent styling across all interview depth types
+- Unified scoring system across Quick, Standard, and Deep interviews
+- Cross-depth comparison capabilities
 
 **Section sources**
 - [InterviewScorecard.jsx:187-254](file://app/frontend/src/components/InterviewScorecard.jsx#L187-L254)
@@ -801,6 +913,7 @@ SC[Schemas]
 CM[Component Models]
 PSK[PhoneScreenKit]
 RP[ReportPage]
+VA[Voice Agent]
 end
 subgraph "UI Dependencies"
 RC[React]
@@ -813,6 +926,7 @@ InterviewScorecard --> LR
 InterviewScorecard --> API
 InterviewScorecard --> PSK
 InterviewScorecard --> RP
+InterviewScorecard --> VA
 API --> SC
 API --> CM
 PhoneScreenKit --> AX
@@ -830,6 +944,7 @@ InterviewScorecard --> CH
 - **Integration**: Minimal external dependencies for core functionality with robust fallbacks
 - **Security**: Built-in CSRF protection and authentication middleware
 - **LLM Integration**: Dedicated service layer for AI-powered features
+- **Voice Agent Integration**: Seamless integration with unified conversation engine
 
 **Potential Dependencies:**
 - Database connection pooling and transaction management
@@ -838,6 +953,7 @@ InterviewScorecard --> CH
 - Analytics tracking for evaluation workflows
 - **Enhanced** Ollama service for debrief generation with Python 3.11 compatibility
 - **Enhanced** ReportPage for conditional heading usage scenarios
+- **Enhanced** Voice Agent for unified interview depth system integration
 
 **Section sources**
 - [InterviewScorecard.jsx:1-5](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L5)
@@ -858,6 +974,7 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **Enhanced** Automatic Content Visibility**: Prevents rendering of empty scorecards, reducing DOM complexity
 - **Enhanced** Debief Caching**: Store debrief content to avoid repeated LLM calls
 - **Enhanced** Conditional Rendering**: showHeading prop reduces unnecessary DOM elements when not needed
+- **Enhanced** Unified Depth Optimization**: Experience Deep-Dive dimension efficiently integrated without performance impact
 
 **Backend Performance:**
 - **Database Indexing**: Strategic indexing on frequently queried fields
@@ -865,6 +982,7 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **Query Optimization**: Minimized N+1 query patterns through eager loading
 - **Caching Strategies**: Redis integration for frequently accessed data
 - **Enhanced** LLM Request Throttling**: Semaphore-based concurrency control with Python 3.11 compatibility
+- **Enhanced** Unified Depth Processing**: Efficient handling of Experience Deep-Dive dimension across all interview types
 
 **Scalability Features:**
 - **Horizontal Scaling**: Stateless components supporting load balancing
@@ -873,6 +991,7 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **CDN Integration**: Static asset optimization for global distribution
 - **Enhanced** Debief Generation**: Asynchronous LLM processing with progress tracking
 - **Enhanced** Conditional Prop Usage**: showHeading prop reduces rendering overhead in embedded contexts
+- **Enhanced** Unified Depth Scaling**: Experience Deep-Dive dimension scales consistently across all interview depths
 
 **Performance Monitoring:**
 - **Metrics Collection**: Built-in Prometheus metrics for system monitoring
@@ -882,6 +1001,7 @@ The Interview Scorecard Component is designed with several performance optimizat
 - **Enhanced** LLM Performance Metrics**: Track debrief generation latency and success rates
 - **Enhanced** Content Visibility Performance**: Monitor evaluation count calculations and rendering optimization
 - **Enhanced** Prop Optimization**: Track usage patterns of showHeading prop across different contexts
+- **Enhanced** Unified Depth Performance**: Monitor cross-depth comparison performance and dimension scoring efficiency
 
 **Python 3.11 Compatibility Enhancements:**
 - **Improved Type Hints**: Enhanced type annotations for better static analysis
@@ -900,6 +1020,12 @@ The Interview Scorecard Component is designed with several performance optimizat
 - Minimizing unnecessary conditional rendering logic
 - Improving component initialization speed in embedded contexts
 - Reducing bundle size through conditional import patterns
+
+**Enhanced Unified Depth Performance**: **New** The unified interview depth system optimization ensures:
+- Efficient Experience Deep-Dive dimension processing
+- Consistent performance across all interview depths
+- Optimized cross-depth comparison algorithms
+- Scalable dimension scoring without performance degradation
 
 **Section sources**
 - [InterviewScorecard.jsx:1-5](file://app/frontend/src/components/InterviewScorecard.jsx#L1-L5)
@@ -942,8 +1068,8 @@ The Interview Scorecard Component is designed with several performance optimizat
    - **Enhanced** Verify automatic content visibility mechanism is functioning correctly
 
 6. **Empty Scorecard Display Issues**
-   - **Enhanced** Check evaluation count calculation logic
-   - Verify that evaluatedCount is properly computed across all dimensions
+   - **Enhanced** Check evaluation count calculation across all dimensions including Experience Deep-Dive
+   - Verify that evaluatedCount is properly computed across all four dimensions
    - Ensure debrief and overall_assessment properties are correctly checked
    - **Enhanced** Confirm automatic content visibility mechanism prevents premature rendering
 
@@ -952,6 +1078,12 @@ The Interview Scorecard Component is designed with several performance optimizat
    - Check for typos in prop name (should be showHeading, not showHeading)
    - Ensure prop value is boolean (true/false) rather than string
    - **Enhanced** Test both showHeading and default behavior scenarios
+
+8. **Unified Depth System Issues**
+   - **Enhanced** Verify Experience Deep-Dive dimension is properly calculated
+   - Check interview depth configuration settings
+   - Ensure cross-depth comparison functionality is working correctly
+   - **Enhanced** Validate that all interview types (Quick, Standard, Deep) support Experience Deep-Dive
 
 **Backend Issues:**
 1. **Database Connection Problems**
@@ -981,13 +1113,19 @@ The Interview Scorecard Component is designed with several performance optimizat
    - **Enhanced** Verify Python 3.11 compatibility with async patterns
    - **Enhanced** Check automatic content visibility system for proper evaluation counting
 
+6. **Unified Depth System Issues**
+   - **Enhanced** Verify InterviewDepth enum values are correctly processed
+   - Check Experience Deep-Dive dimension scoring logic
+   - Ensure cross-depth comparison algorithms are functioning
+   - **Enhanced** Validate that all interview depths support unified dimension system
+
 **Diagnostic Tools:**
 - **Frontend**: React Developer Tools, browser network tab, console logging
 - **Backend**: PostgreSQL query logs, FastAPI debug mode, LLM service logs
 - **Infrastructure**: Docker container logs, system resource monitoring, LLM service health checks
 
 **Enhanced Troubleshooting for Automatic Content Visibility**: **New** When scorecards appear blank or not displaying as expected, check:
-- Verify evaluation count calculation across all four dimensions
+- Verify evaluation count calculation across all four dimensions including Experience Deep-Dive
 - Ensure debrief and overall_assessment properties are properly checked
 - Confirm that the conditional rendering logic prevents empty displays
 - Test with actual evaluation data to verify visibility mechanism works correctly
@@ -997,6 +1135,12 @@ The Interview Scorecard Component is designed with several performance optimizat
 - Check for proper prop destructuring in component signature
 - Ensure conditional rendering logic uses strict boolean comparison
 - Test component usage in both ReportPage contexts (with and without heading)
+
+**Enhanced Troubleshooting for Unified Depth System**: **New** When unified depth system issues occur, check:
+- Verify InterviewDepth enum values are correctly processed
+- Ensure Experience Deep-Dive dimension is properly calculated across all depths
+- Check cross-depth comparison functionality for consistency
+- Validate that all interview types (Quick, Standard, Deep) support unified dimension scoring
 
 **Section sources**
 - [InterviewScorecard.jsx:73-117](file://app/frontend/src/components/InterviewScorecard.jsx#L73-L117)
@@ -1022,6 +1166,8 @@ The Interview Scorecard Component represents a sophisticated integration of fron
 - **Enhanced** Python 3.11 Compatibility**: Improved async patterns, type hints, and performance optimizations
 - **Enhanced** Automatic Content Visibility**: Intelligent mechanism that calculates evaluation counts and automatically hides empty scorecards when no assessments have been completed
 - **Enhanced** Conditional Heading Control**: Flexible component reusability with showHeading prop for improved integration across different contexts
+- **Enhanced** Unified Interview Depth System**: Comprehensive depth-aware scoring, cross-depth comparison capabilities, and integrated evaluation across all interview types (Quick, Standard, Deep)
+- **Enhanced** Experience Deep-Dive Dimension**: Unified dimension support available across all interview depths for comprehensive experience assessment
 
 **Future Enhancement Opportunities:**
 - **Advanced Analytics**: Integration of evaluation trend analysis and competency mapping
@@ -1034,5 +1180,6 @@ The Interview Scorecard Component represents a sophisticated integration of fron
 - **Enhanced** Python 3.11 Migration**: Continued improvements to async patterns and memory efficiency
 - **Enhanced** Content Visibility Optimization**: Further optimization of evaluation count calculations and rendering performance
 - **Enhanced** Conditional Prop Optimization**: Performance improvements for showHeading prop usage patterns
+- **Enhanced** Unified Depth Performance**: Continued optimization of cross-depth comparison and dimension scoring systems
 
-The component serves as a cornerstone of the ARIA platform's interview analysis capabilities, providing a solid foundation for advanced recruitment technology solutions with enhanced team collaboration features, comprehensive evaluator attribution, and sophisticated AI-powered debrief generation for streamlined phone screening workflows. The recent enhancements ensure compatibility with modern Python versions while maintaining backward compatibility and improving overall system reliability, with the new automatic content visibility mechanism guaranteeing optimal user experience by intelligently controlling when scorecard content is displayed based on actual evaluation activity, and the new conditional heading control providing improved component flexibility for diverse usage scenarios across the application.
+The component serves as a cornerstone of the ARIA platform's interview analysis capabilities, providing a solid foundation for advanced recruitment technology solutions with enhanced team collaboration features, comprehensive evaluator attribution, and sophisticated AI-powered debrief generation for streamlined phone screening workflows. The recent enhancements ensure compatibility with modern Python versions while maintaining backward compatibility and improving overall system reliability, with the new automatic content visibility mechanism guaranteeing optimal user experience by intelligently controlling when scorecard content is displayed based on actual evaluation activity, the new conditional heading control providing improved component flexibility for diverse usage scenarios across the application, and the new unified interview depth system delivering comprehensive depth-aware scoring and cross-depth comparison capabilities for all interview types.

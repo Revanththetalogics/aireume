@@ -1,4 +1,4 @@
-- Migrations use inline schema inspection (via `sa.inspect` or raw SQL queries) to check for existing tables or columns before applying changes, ensuring idempotency.
-- Migration files include detailed docstrings describing the specific schema changes, revision IDs, and dependencies for traceability.
-- Complex migrations often define local helper functions (e.g., `_table_exists`, `_column_names`) to encapsulate inspection logic and improve readability.
-- Downgrade operations strictly reverse the changes made in upgrade, including dropping indexes before tables and removing columns in batch operations where necessary.
+- Migrations implement idempotency by inspecting the current database state (tables, columns, indexes) before executing DDL operations.
+- Complex migrations define local helper functions (e.g., `_table_exists`, `_column_names`) to encapsulate inspection logic and improve readability.
+- Downgrade operations strictly reverse upgrade changes, often using `batch_alter_table` for SQLite compatibility when dropping columns or indexes.
+- Migration files include detailed docstrings describing schema changes, revision IDs, and dependencies for traceability.

@@ -25,6 +25,9 @@
 - [transcript_service.py](file://app/backend/services/transcript_service.py)
 - [weight_mapper.py](file://app/backend/services/weight_mapper.py)
 - [weight_suggester.py](file://app/backend/services/weight_suggester.py)
+- [interviews.py](file://app/backend/routes/interviews.py)
+- [voice.py](file://app/backend/routes/voice.py)
+- [recruiter.py](file://app/backend/routes/recruiter.py)
 - [api.js](file://app/frontend/src/lib/api.js)
 - [PhoneScreenKit.jsx](file://app/frontend/src/components/PhoneScreenKit.jsx)
 - [webhook_docs.py](file://app/backend/routes/webhook_docs.py)
@@ -36,10 +39,13 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced admin metrics API documentation to include three new flat fields (active_users, total_analyses, mrr) in the /api/admin/metrics/overview endpoint response structure
-- Updated examples to show the expanded response format with both flat and nested data representations
-- Added comprehensive admin analytics endpoints for platform-wide metrics overview and usage trend analysis
-- Integrated frontend implementation showing how the new flat fields are utilized in the AdminOverviewPage
+- Added comprehensive unified Interview API documentation covering 12 dedicated endpoints under /api/interviews/*
+- Documented unified session management, configuration, analytics, and export functionality
+- Updated voice screening and recruiter endpoints to reflect backward compatibility status
+- Added unified interview depth support (quick, standard, deep) replacing separate endpoints
+- Updated frontend integration examples to show unified API usage
+- Enhanced interview evaluation system documentation with Experience Deep-Dive category support
+- Added new unified interview functions in api.js: createInterviewSession, getInterviewSessions, getInterviewSession, getInterviewTranscript, getInterviewScorecard, cancelInterviewSession, retryInterviewSession, getInterviewConfigUnified, updateInterviewConfigUnified, getInterviewAnalytics, and exportInterviewSessions
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -64,6 +70,11 @@ This document provides a comprehensive API reference for Resume AI by ThetaLogic
 - Subscription and usage tracking
 - Team collaboration and comments
 - Email generation, export, comparison, training, and diagnostics
+- **NEW** Unified Interview API with 12 dedicated endpoints under /api/interviews/* handling session management, configuration, analytics, and export functionality
+- **NEW** Voice screening and AI recruiter endpoints with backward compatibility support
+- **NEW** Enhanced interview depth system supporting quick, standard, and deep interview configurations
+- **NEW** Unified interview evaluation system with Experience Deep-Dive category support
+- **NEW** Comprehensive frontend integration examples for unified interview API
 - **NEW** Admin API endpoints for operational oversight and administrative functions including audit log exports, webhook event enumeration, invoice retrieval, dunning record management, and webhook event configuration
 - **NEW** Enhanced billing administration endpoints with administrative invoice management and dunning resolution capabilities
 - **NEW** Comprehensive webhook event monitoring with administrative tenant webhook management and delivery tracking
@@ -71,7 +82,7 @@ This document provides a comprehensive API reference for Resume AI by ThetaLogic
 - **NEW** Admin analytics endpoints for platform-wide metrics overview and usage trend analysis with enhanced response structure including flat fields for quick access
 
 ## Project Structure
-The backend is a FastAPI application that mounts routers for each functional area. The frontend client demonstrates typical usage patterns and token handling.
+The backend is a FastAPI application that mounts routers for each functional area. The frontend client demonstrates typical usage patterns and token handling. The unified Interview API consolidates voice screening and AI recruiter functionality into a single cohesive interface.
 
 ```mermaid
 graph TB
@@ -94,6 +105,9 @@ R_DASHBOARD["Routes: dashboard.py"]
 R_ADMIN["Routes: admin.py"]
 R_TRANSCRIPT["Routes: transcript.py"]
 R_WEBHOOK_DOCS["Routes: webhook_docs.py"]
+R_INT["Routes: interviews.py"]
+R_VOICE["Routes: voice.py"]
+R_RECRUITER["Routes: recruiter.py"]
 MW["Middleware: auth.py"]
 SC["Models: schemas.py"]
 DBM["Models: db_models.py"]
@@ -115,6 +129,9 @@ subgraph "Frontend"
 FE["Client: api.js"]
 OVERVIEW["Page: AdminOverviewPage.jsx"]
 METRICS["Page: MetricsPage.jsx"]
+UNIFIED_INT["Unified Interview API"]
+LEGACY_VOICE["Legacy Voice API"]
+LEGACY_RECRUITER["Legacy Recruiter API"]
 end
 M --> R_AUTH
 M --> R_ANALYZE
@@ -133,6 +150,9 @@ M --> R_DASHBOARD
 M --> R_ADMIN
 M --> R_TRANSCRIPT
 M --> R_WEBHOOK_DOCS
+M --> R_INT
+M --> R_VOICE
+M --> R_RECRUITER
 R_AUTH --> MW
 R_ANALYZE --> MW
 R_CAND --> MW
@@ -156,10 +176,13 @@ R_ADMIN --> ADMIN_TRENDS
 OVERVIEW --> FE
 METRICS --> FE
 PHONESCREEN --> FE
+UNIFIED_INT --> FE
+LEGACY_VOICE --> FE
+LEGACY_RECRUITER --> FE
 ```
 
 **Diagram sources**
-- [main.py:174-215](file://app/backend/main.py#L174-L215)
+- [main.py:444-447](file://app/backend/main.py#L444-L447)
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [schemas.py:89-136](file://app/backend/models/schemas.py#L89-L136)
 - [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
@@ -180,6 +203,9 @@ PHONESCREEN --> FE
 - [admin.py:1-3265](file://app/backend/routes/admin.py#L1-3265)
 - [transcript.py:1-220](file://app/backend/routes/transcript.py#L1-220)
 - [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
+- [interviews.py:1-1034](file://app/backend/routes/interviews.py#L1-1034)
+- [voice.py:1-658](file://app/backend/routes/voice.py#L1-658)
+- [recruiter.py:1-902](file://app/backend/routes/recruiter.py#L1-902)
 - [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-360)
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-307)
 - [transcript_service.py:1-374](file://app/backend/services/transcript_service.py#L1-374)
@@ -189,7 +215,7 @@ PHONESCREEN --> FE
 - [MetricsPage.jsx:119-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L119-L155)
 
 **Section sources**
-- [main.py:174-215](file://app/backend/main.py#L174-L215)
+- [main.py:444-447](file://app/backend/main.py#L444-L447)
 - [api.js:1-44](file://app/frontend/src/lib/api.js#L1-L44)
 
 ## Core Components
@@ -219,6 +245,25 @@ PHONESCREEN --> FE
   - Storage of original uploaded resume files
   - Support for multiple file formats (PDF, DOCX, DOC, ODT, TXT, RTF)
   - Inline preview for PDFs, forced download for other formats
+- **NEW** Unified Interview API
+  - 12 dedicated endpoints under /api/interviews/* for comprehensive interview management
+  - Unified session management supporting quick, standard, and deep interview depths
+  - Consolidated configuration management for voice screening and AI recruiter
+  - Integrated analytics and export functionality
+  - Backward compatibility with legacy voice.py and recruiter.py endpoints
+  - **NEW** Unified interview functions in frontend api.js: createInterviewSession, getInterviewSessions, getInterviewSession, getInterviewTranscript, getInterviewScorecard, cancelInterviewSession, retryInterviewSession, getInterviewConfigUnified, updateInterviewConfigUnified, getInterviewAnalytics, and exportInterviewSessions
+- **NEW** Voice Screening System
+  - Legacy voice screening endpoints with backward compatibility notice
+  - Quick interview depth support (quick)
+  - Separate from unified API for backward compatibility
+- **NEW** AI Recruiter System
+  - Legacy AI recruiter endpoints with backward compatibility notice
+  - Standard and deep interview depth support (standard, deep)
+  - Separate from unified API for backward compatibility
+- **NEW** Enhanced Interview Depth System
+  - Unified depth support: quick, standard, deep
+  - DB-level mapping: quick/deep with standard mapped to deep
+  - Feature flag control for AI recruiter functionality
 - **NEW** Admin API Endpoints
   - Comprehensive tenant management and oversight with audit logging and export functionality
   - Billing administration with dunning management and administrative invoice handling
@@ -267,15 +312,22 @@ PHONESCREEN --> FE
 - [transcript_service.py:265-374](file://app/backend/services/transcript_service.py#L265-L374)
 - [AdminOverviewPage.jsx:84-108](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L84-L108)
 - [MetricsPage.jsx:145-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L145-L155)
+- [interviews.py:1-1034](file://app/backend/routes/interviews.py#L1-1034)
+- [voice.py:46-48](file://app/backend/routes/voice.py#L46-L48)
+- [recruiter.py:60-62](file://app/backend/routes/recruiter.py#L60-L62)
+- [api.js:1725-1802](file://app/frontend/src/lib/api.js#L1725-L1802)
 
 ## Architecture Overview
-The API follows a layered architecture:
+The API follows a layered architecture with unified interview management:
 - Routers expose endpoints grouped by feature
 - Middleware enforces authentication and authorization
 - Services orchestrate analysis, LLM interactions, and intelligent scoring
 - Database models persist state, usage metrics, and job queues
 - Queue system manages asynchronous job processing with priority scheduling
 - File storage system handles resume file management with multiple format support
+- **NEW** Unified Interview API provides comprehensive interview management with 12 dedicated endpoints
+- **NEW** Voice screening and AI recruiter endpoints maintain backward compatibility
+- **NEW** Interview depth system supports quick, standard, and deep configurations
 - **NEW** Admin API endpoints provide operational oversight and administrative functions with comprehensive audit logging, billing administration, and webhook management
 - **NEW** Enhanced billing administration system manages subscription lifecycle and dunning processes with administrative resolution capabilities
 - **NEW** Comprehensive audit logging system with export capabilities for compliance and monitoring
@@ -290,24 +342,33 @@ The API follows a layered architecture:
 ```mermaid
 sequenceDiagram
 participant C as "Client"
-participant A as "Auth Router"
+participant UNIFIED as "Unified Interviews Router"
+participant VOICE as "Voice Router"
+participant RECRUITER as "Recruiter Router"
 participant U as "User"
-participant T as "Tenant"
-participant S as "Subscription Router"
-participant Q as "Queue Manager"
-participant F as "File Storage"
-participant D as "Dashboard Router"
-participant J as "JD Candidates Router"
-participant E as "Export Router"
-participant I as "Interview Kit Router"
-participant TSC as "Transcript Service"
-participant ADM as "Admin Router"
-participant WB as "Webhook Docs Router"
-participant MET as "Admin Metrics Router"
-C->>A : POST /api/auth/register
-A->>U : Create admin user
-A->>T : Create tenant
-A-->>C : TokenResponse(access_token, refresh_token, user, tenant)
+T as "Tenant"
+S as "Subscription Router"
+Q as "Queue Manager"
+F as "File Storage"
+D as "Dashboard Router"
+J as "JD Candidates Router"
+E as "Export Router"
+I as "Interview Kit Router"
+TSC as "Transcript Service"
+ADM as "Admin Router"
+WB as "Webhook Docs Router"
+MET as "Admin Metrics Router"
+C->>UNIFIED : POST /api/interviews/sessions
+UNIFIED->>UNIFIED : Create unified interview session (quick/standard/deep)
+UNIFIED->>VOICE : Quick session -> voice screening
+UNIFIED->>RECRUITER : Standard/Deep session -> AI recruiter
+UNIFIED-->>C : Unified session response with depth info
+C->>VOICE : Legacy voice endpoints (backward compatibility)
+VOICE->>VOICE : Create voice screening session
+VOICE-->>C : Voice session response
+C->>RECRUITER : Legacy recruiter endpoints (backward compatibility)
+RECRUITER->>RECRUITER : Create AI recruiter session
+RECRUITER-->>C : Recruiter session response
 C->>S : GET /api/subscription
 S->>T : Load tenant + plan
 S-->>C : FullSubscriptionResponse
@@ -331,7 +392,6 @@ C->>I : GET /api/results/{result_id}/scorecard
 I->>I : Generate automated scorecard with experience_deep_dive_summary
 C->>I : POST /api/results/{result_id}/generate-debrief
 I->>I : Generate LLM-powered debrief with recruiter score
-I-->>C : DebriefResponse with structured analysis
 C->>TSC : POST /api/transcript/analyze
 TSC->>TSC : Parse transcript and analyze with PII redaction
 TSC-->>C : TranscriptAnalysisResponse with unbiased evaluation
@@ -371,6 +431,9 @@ WB-->>C : Event definitions with signing info
 - [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
 - [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
 - [webhook_docs.py:87-93](file://app/backend/routes/webhook_docs.py#L87-L93)
+- [interviews.py:103-268](file://app/backend/routes/interviews.py#L103-L268)
+- [voice.py:110-160](file://app/backend/routes/voice.py#L110-L160)
+- [recruiter.py:119-173](file://app/backend/routes/recruiter.py#L119-L173)
 
 ## Detailed Component Analysis
 
@@ -401,6 +464,253 @@ Security and requirements:
 - [auth.py:57-152](file://app/backend/routes/auth.py#L57-L152)
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
 - [schemas.py:140-171](file://app/backend/models/schemas.py#L140-L171)
+
+### Unified Interview API Endpoints
+**NEW** Comprehensive unified interview management system with 12 dedicated endpoints
+
+- POST /api/interviews/sessions
+  - Purpose: Create unified interview session supporting quick, standard, and deep depths
+  - Body: InterviewCreateRequest (candidate_id, phone_number, jd_id, depth, scheduled_at, focus_areas)
+  - Response: Unified session response with session_id, depth, status, scheduled_at, phone_number
+  - Behavior: Creates either voice screening (quick) or AI recruiter session (standard/deep)
+  - Validation: depth must be quick, standard, or deep; standard requires AI recruiter feature flag
+- GET /api/interviews/sessions
+  - Purpose: List unified interview sessions with filtering and pagination
+  - Query: depth (quick/standard/deep), status, candidate_id, page, page_size
+  - Response: Paginated sessions list with enriched session details
+  - Behavior: Returns both voice screening and AI recruiter sessions with unified interface
+- GET /api/interviews/sessions/{session_id}
+  - Purpose: Get unified session detail with transcript and recruiter metadata
+  - Response: Session detail with candidate info, JD info, transcript entries, and recruiter session info
+  - Behavior: Returns voice session with optional linked AI recruiter session metadata
+- GET /api/interviews/sessions/{session_id}/transcript
+  - Purpose: Get session transcript entries
+  - Response: Transcript entries with speaker, text, timestamp, audio_url
+  - Behavior: Returns structured transcript data for the specified session
+- GET /api/interviews/sessions/{session_id}/scorecard
+  - Purpose: Get interview scorecard (voice assessment for quick, recruiter scorecard for standard/deep)
+  - Response: Scorecard data with assessment for quick sessions or detailed scorecard for recruiter sessions
+  - Behavior: Returns appropriate scorecard based on interview depth
+- POST /api/interviews/sessions/{session_id}/cancel
+  - Purpose: Cancel interview session and associated recruiter session if present
+  - Response: Cancellation confirmation with session status
+  - Behavior: Cancels voice session and any linked AI recruiter session
+- POST /api/interviews/sessions/{session_id}/retry
+  - Purpose: Retry failed interview session
+  - Response: Retry result with new session ID for AI recruiter sessions
+  - Behavior: Retries voice screening for quick sessions, creates new AI recruiter session for standard/deep
+- GET /api/interviews/config
+  - Purpose: Get merged voice + recruiter configuration
+  - Response: Unified configuration with voice settings and recruiter settings
+  - Behavior: Returns combined configuration from both voice screening and AI recruiter systems
+- PUT /api/interviews/config
+  - Purpose: Update merged voice + recruiter configuration
+  - Body: Unified configuration update (voice, recruiter)
+  - Response: Updated unified configuration
+  - Behavior: Updates both voice and recruiter configurations atomically
+- GET /api/interviews/analytics
+  - Purpose: Get combined analytics for voice and recruiter interviews
+  - Response: Unified analytics with voice and recruiter statistics
+  - Behavior: Returns aggregated metrics from both voice screening and AI recruiter systems
+- POST /api/interviews/sessions/export
+  - Purpose: Export interview sessions as CSV
+  - Query: format (csv)
+  - Response: CSV file with session details
+  - Behavior: Exports unified session data including both voice and AI recruiter sessions
+- POST /api/interviews/internal/complete
+  - Purpose: Internal callback from voice agent for session completion
+  - Body: Session completion payload with transcript and call metadata
+  - Response: Completion confirmation
+  - Behavior: Handles voice session completion and triggers AI recruiter scorecard generation for deep sessions
+
+**Updated** Added comprehensive unified Interview API with 12 dedicated endpoints supporting unified session management, configuration, analytics, and export functionality
+
+**Section sources**
+- [interviews.py:103-268](file://app/backend/routes/interviews.py#L103-L268)
+- [interviews.py:271-374](file://app/backend/routes/interviews.py#L271-L374)
+- [interviews.py:377-477](file://app/backend/routes/interviews.py#L377-L477)
+- [interviews.py:480-603](file://app/backend/routes/interviews.py#L480-L603)
+- [interviews.py:608-703](file://app/backend/routes/interviews.py#L608-L703)
+- [interviews.py:708-790](file://app/backend/routes/interviews.py#L708-L790)
+- [interviews.py:795-859](file://app/backend/routes/interviews.py#L795-L859)
+- [interviews.py:890-1033](file://app/backend/routes/interviews.py#L890-L1033)
+
+### Unified Interview API Functions (Frontend)
+**NEW** Comprehensive unified interview management system with 12 dedicated frontend functions
+
+- createInterviewSession(payload)
+  - Purpose: Create unified interview session supporting quick, standard, and deep depths
+  - Parameters: InterviewCreateRequest (candidate_id, phone_number, jd_id, depth, scheduled_at, focus_areas)
+  - Response: Unified session response with session_id, depth, status, scheduled_at, phone_number
+  - Behavior: Calls POST /api/interviews/sessions with unified interview parameters
+- getInterviewSessions(params)
+  - Purpose: List unified interview sessions with filtering and pagination
+  - Parameters: depth (quick/standard/deep), status, candidate_id, page, page_size
+  - Response: Paginated sessions list with enriched session details
+  - Behavior: Calls GET /api/interviews/sessions with unified filtering parameters
+- getInterviewSession(sessionId)
+  - Purpose: Get unified session detail with transcript and recruiter metadata
+  - Response: Session detail with candidate info, JD info, transcript entries, and recruiter session info
+  - Behavior: Calls GET /api/interviews/sessions/{sessionId} with unified session details
+- getInterviewTranscript(sessionId)
+  - Purpose: Get session transcript entries
+  - Response: Transcript entries with speaker, text, timestamp, audio_url
+  - Behavior: Calls GET /api/interviews/sessions/{sessionId}/transcript with unified transcript data
+- getInterviewScorecard(sessionId)
+  - Purpose: Get interview scorecard (voice assessment for quick, recruiter scorecard for standard/deep)
+  - Response: Scorecard data with assessment for quick sessions or detailed scorecard for recruiter sessions
+  - Behavior: Calls GET /api/interviews/sessions/{sessionId}/scorecard with unified scorecard data
+- cancelInterviewSession(sessionId)
+  - Purpose: Cancel interview session and associated recruiter session if present
+  - Response: Cancellation confirmation with session status
+  - Behavior: Calls POST /api/interviews/sessions/{sessionId}/cancel with unified cancellation
+- retryInterviewSession(sessionId)
+  - Purpose: Retry failed interview session
+  - Response: Retry result with new session ID for AI recruiter sessions
+  - Behavior: Calls POST /api/interviews/sessions/{sessionId}/retry with unified retry logic
+- getInterviewConfigUnified()
+  - Purpose: Get merged voice + recruiter configuration
+  - Response: Unified configuration with voice settings and recruiter settings
+  - Behavior: Calls GET /api/interviews/config with unified configuration
+- updateInterviewConfigUnified(payload)
+  - Purpose: Update merged voice + recruiter configuration
+  - Body: Unified configuration update (voice, recruiter)
+  - Response: Updated unified configuration
+  - Behavior: Calls PUT /api/interviews/config with unified configuration update
+- getInterviewAnalytics()
+  - Purpose: Get combined analytics for voice and recruiter interviews
+  - Response: Unified analytics with voice and recruiter statistics
+  - Behavior: Calls GET /api/interviews/analytics with unified analytics
+- exportInterviewSessions(params)
+  - Purpose: Export interview sessions as CSV
+  - Query: format (csv)
+  - Response: CSV file with session details
+  - Behavior: Calls POST /api/interviews/sessions/export with unified export functionality
+
+**Updated** Added comprehensive unified Interview API functions in frontend api.js supporting unified session management, configuration, analytics, and export functionality
+
+**Section sources**
+- [api.js:1725-1802](file://app/frontend/src/lib/api.js#L1725-L1802)
+
+### Voice Screening Endpoints (Legacy)
+**Updated** Legacy voice screening endpoints maintained for backward compatibility
+
+- GET /api/voice/settings
+  - Purpose: Get tenant's voice bot configuration
+  - Response: VoiceTenantConfigOut
+  - Behavior: Returns voice screening configuration for the tenant
+- PUT /api/voice/settings
+  - Purpose: Update tenant's voice bot configuration
+  - Body: VoiceTenantConfigUpdate
+  - Response: VoiceTenantConfigOut
+  - Behavior: Updates voice screening configuration
+- POST /api/voice/schedule
+  - Purpose: Schedule a voice screening call for a candidate
+  - Body: ScheduleVoiceCallRequest
+  - Response: ScheduleVoiceCallResponse
+  - Behavior: Creates voice screening session and schedules call
+- GET /api/voice/sessions
+  - Purpose: List voice screening sessions for tenant
+  - Query: candidate_id, status, search, jd_id, limit, offset
+  - Response: Paginated sessions list
+  - Behavior: Returns voice screening sessions with filtering options
+- GET /api/voice/sessions/{id}
+  - Purpose: Get session detail with transcript
+  - Response: Session detail with transcript entries
+  - Behavior: Returns voice session with candidate and JD information
+- GET /api/voice/sessions/analytics
+  - Purpose: Session analytics summary
+  - Response: Voice analytics data
+  - Behavior: Returns voice screening session statistics
+- POST /api/voice/sessions/bulk-cancel
+  - Purpose: Cancel multiple sessions
+  - Body: BulkCancelRequest
+  - Response: Cancellation results
+  - Behavior: Cancels multiple voice screening sessions
+- GET /api/voice/sessions/export
+  - Purpose: Export sessions as CSV
+  - Response: CSV file with session details
+  - Behavior: Exports voice screening session data
+- GET /api/voice/next-slot
+  - Purpose: Next available call slot
+  - Response: Next available slot information
+  - Behavior: Returns next available time slot for voice screening calls
+
+**Section sources**
+- [voice.py:63-105](file://app/backend/routes/voice.py#L63-L105)
+- [voice.py:110-160](file://app/backend/routes/voice.py#L110-L160)
+- [voice.py:165-200](file://app/backend/routes/voice.py#L165-L200)
+- [voice.py:201-300](file://app/backend/routes/voice.py#L201-L300)
+- [voice.py:301-400](file://app/backend/routes/voice.py#L301-L400)
+- [voice.py:401-500](file://app/backend/routes/voice.py#L401-L500)
+- [voice.py:501-600](file://app/backend/routes/voice.py#L501-L600)
+- [voice.py:601-658](file://app/backend/routes/voice.py#L601-L658)
+
+### AI Recruiter Endpoints (Legacy)
+**Updated** Legacy AI recruiter endpoints maintained for backward compatibility
+
+- POST /api/recruiter/sessions
+  - Purpose: Initiate an AI recruiter interview session
+  - Body: RecruiterSessionCreate
+  - Response: RecruiterSessionOut
+  - Behavior: Creates AI recruiter interview session with orchestrator
+- GET /api/recruiter/sessions
+  - Purpose: List AI recruiter sessions for tenant
+  - Query: status, candidate_id, page, page_size
+  - Response: Paginated sessions list
+  - Behavior: Returns AI recruiter sessions with filtering and pagination
+- GET /api/recruiter/sessions/{session_id}
+  - Purpose: Get session detail
+  - Response: Session detail with questions and answers
+  - Behavior: Returns AI recruiter session with transcript questions
+- GET /api/recruiter/sessions/{session_id}/transcript
+  - Purpose: Get session transcript questions
+  - Response: Transcript questions with responses
+  - Behavior: Returns structured transcript data with candidate responses
+- GET /api/recruiter/sessions/{session_id}/scorecard
+  - Purpose: Get session scorecard
+  - Response: RecruiterScorecardOut with evidence data
+  - Behavior: Returns detailed scorecard with technical, behavioral, and cultural fit evidence
+- POST /api/recruiter/sessions/{session_id}/cancel
+  - Purpose: Cancel a session
+  - Response: Cancellation confirmation
+  - Behavior: Cancels AI recruiter session
+- POST /api/recruiter/sessions/{session_id}/retry
+  - Purpose: Retry a failed session
+  - Response: New session ID
+  - Behavior: Creates new AI recruiter session for failed session
+- GET /api/recruiter/config
+  - Purpose: Get auto-trigger configuration
+  - Response: RecruiterAutoTriggerConfigOut
+  - Behavior: Returns AI recruiter auto-trigger configuration
+- PUT /api/recruiter/config
+  - Purpose: Update auto-trigger configuration
+  - Body: RecruiterAutoTriggerConfigUpdate
+  - Response: Updated configuration
+  - Behavior: Updates AI recruiter auto-trigger configuration
+- GET /api/recruiter/candidates/{candidate_id}/sessions
+  - Purpose: List sessions for a candidate
+  - Response: Candidate sessions list
+  - Behavior: Returns AI recruiter sessions for specific candidate
+- GET /api/recruiter/analytics
+  - Purpose: Aggregated analytics
+  - Response: Recruiter analytics data
+  - Behavior: Returns AI recruiter session statistics
+- POST /api/recruiter/sessions/export
+  - Purpose: Export sessions as CSV
+  - Response: CSV file with session details
+  - Behavior: Exports AI recruiter session data
+
+**Section sources**
+- [recruiter.py:119-173](file://app/backend/routes/recruiter.py#L119-L173)
+- [recruiter.py:176-250](file://app/backend/routes/recruiter.py#L176-L250)
+- [recruiter.py:251-350](file://app/backend/routes/recruiter.py#L251-L350)
+- [recruiter.py:351-450](file://app/backend/routes/recruiter.py#L351-L450)
+- [recruiter.py:451-550](file://app/backend/routes/recruiter.py#L451-L550)
+- [recruiter.py:551-650](file://app/backend/routes/recruiter.py#L551-L650)
+- [recruiter.py:651-750](file://app/backend/routes/recruiter.py#L651-L750)
+- [recruiter.py:751-850](file://app/backend/routes/recruiter.py#L751-L850)
+- [recruiter.py:851-902](file://app/backend/routes/recruiter.py#L851-L902)
 
 ### Resume Analysis Endpoints
 - POST /api/analyze
@@ -962,12 +1272,15 @@ Limits and billing:
   - Response: { message, version, docs }
 - GET /health
   - Response: { status, db, ollama }
+- GET /api/health/deep
+  - Response: Comprehensive health check with database, LLM, and disk space status
 - GET /api/llm-status
   - Response: LLM model readiness and diagnosis
 
 **Section sources**
-- [main.py:219-259](file://app/backend/main.py#L219-L259)
-- [main.py:262-326](file://app/backend/main.py#L262-L326)
+- [main.py:452-515](file://app/backend/main.py#L452-L515)
+- [main.py:518-612](file://app/backend/main.py#L518-L612)
+- [main.py:615-644](file://app/backend/main.py#L615-L644)
 
 ## Dependency Analysis
 Key dependencies and relationships:
@@ -980,6 +1293,11 @@ Key dependencies and relationships:
 - Weight management system provides intelligent scoring with AI suggestions
 - Candidate routes now include resume file storage and retrieval functionality
 - File storage system handles binary resume data with format detection
+- **NEW** Unified Interview API endpoints depend on voice screening and AI recruiter services
+- **NEW** Interview depth system supports quick, standard, and deep configurations with feature flag control
+- **NEW** Unified Interview API consolidates voice.py and recruiter.py endpoints with backward compatibility
+- **NEW** Voice screening endpoints maintain backward compatibility with unified API
+- **NEW** AI recruiter endpoints maintain backward compatibility with unified API
 - **NEW** Admin API endpoints depend on elevated privilege middleware (require_platform_admin, require_super_admin, require_billing_admin, require_security_admin, require_support)
 - **NEW** Billing administration system integrates with dunning service and payment providers
 - **NEW** Audit logging system supports export functionality with filtering and pagination
@@ -1005,6 +1323,11 @@ Key dependencies and relationships:
 - **NEW** Admin analytics system includes enhanced metrics overview with flat fields for quick access and usage trends for historical analysis
 - **NEW** Frontend AdminOverviewPage utilizes the new flat fields (active_users, total_analyses, mrr) for real-time dashboard display
 - **NEW** Frontend MetricsPage integrates usage trends data with active users visualization
+- **NEW** Frontend Unified Interview API provides comprehensive interview management with 12 dedicated endpoints
+- **NEW** Frontend Legacy Voice API maintains backward compatibility with existing integrations
+- **NEW** Frontend Legacy Recruiter API maintains backward compatibility with existing integrations
+- **NEW** Unified Interview API functions in frontend api.js provide comprehensive interview management with unified session creation, cancellation, retry, and analytics
+- **NEW** Unified Interview API functions maintain backward compatibility with existing voice and recruiter endpoints
 
 ```mermaid
 graph LR
@@ -1025,6 +1348,9 @@ DASH["Dashboard Router"] --> MW
 ADMIN["Admin Router"] --> MW
 TRANSCRIPT["Transcript Router"] --> MW
 WEBHOOK_DOCS["Webhook Docs Router"] --> MW
+INT_UNIFIED["Unified Interviews Router"] --> MW
+INT_VOICE["Voice Router"] --> MW
+INT_RECRUITER["Recruiter Router"] --> MW
 ADMIN --> AUDIT["Audit Export System"]
 ADMIN --> NOTIFICATIONS["Notifications System"]
 ADMIN --> FEATUREFLAGS["Feature Flags System"]
@@ -1051,6 +1377,10 @@ TRAIN --> DBM
 UPLOAD --> WS
 QUEUE --> WM
 CAND --> RESUME["Resume File Storage"]
+INT_UNIFIED --> VOICE_SERVICE["Voice Screening Service"]
+INT_UNIFIED --> RECRUITER_SERVICE["AI Recruiter Service"]
+INT_VOICE --> VOICE_SERVICE
+INT_RECRUITER --> RECRUITER_SERVICE
 INTKIT --> EVALS["Interview Evaluations"]
 INTKIT --> OVERALL["Overall Assessments"]
 INTKIT --> EXP_DEEP_DIVE["Experience Deep-Dive Category"]
@@ -1069,6 +1399,21 @@ METRICS_TRENDS --> DAILY_ANALYSES["Daily Analyses"]
 METRICS_TRENDS --> NEW_SIGNUPS["New Signups"]
 OVERVIEW_PAGE["AdminOverviewPage.jsx"] --> FLAT_FIELDS
 METRICS_PAGE["MetricsPage.jsx"] --> DAILY_ANALYSES
+UNIFIED_INT_API["Unified Interview API"] --> INT_UNIFIED
+LEGACY_VOICE_API["Legacy Voice API"] --> INT_VOICE
+LEGACY_RECRUITER_API["Legacy Recruiter API"] --> INT_RECRUITER
+UNIFIED_INT_FUNCTIONS["Unified Interview Functions"] --> UNIFIED_INT_API
+UNIFIED_INT_FUNCTIONS --> CREATE_SESSION["createInterviewSession"]
+UNIFIED_INT_FUNCTIONS --> GET_SESSIONS["getInterviewSessions"]
+UNIFIED_INT_FUNCTIONS --> GET_SESSION["getInterviewSession"]
+UNIFIED_INT_FUNCTIONS --> GET_TRANSCRIPT["getInterviewTranscript"]
+UNIFIED_INT_FUNCTIONS --> GET_SCORECARD["getInterviewScorecard"]
+UNIFIED_INT_FUNCTIONS --> CANCEL_SESSION["cancelInterviewSession"]
+UNIFIED_INT_FUNCTIONS --> RETRY_SESSION["retryInterviewSession"]
+UNIFIED_INT_FUNCTIONS --> GET_CONFIG["getInterviewConfigUnified"]
+UNIFIED_INT_FUNCTIONS --> UPDATE_CONFIG["updateInterviewConfigUnified"]
+UNIFIED_INT_FUNCTIONS --> GET_ANALYTICS["getInterviewAnalytics"]
+UNIFIED_INT_FUNCTIONS --> EXPORT_SESSIONS["exportInterviewSessions"]
 ```
 
 **Diagram sources**
@@ -1089,6 +1434,9 @@ METRICS_PAGE["MetricsPage.jsx"] --> DAILY_ANALYSES
 - [admin.py:1-3265](file://app/backend/routes/admin.py#L1-3265)
 - [transcript.py:1-220](file://app/backend/routes/transcript.py#L1-220)
 - [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
+- [interviews.py:1-1034](file://app/backend/routes/interviews.py#L1-1034)
+- [voice.py:1-658](file://app/backend/routes/voice.py#L1-658)
+- [recruiter.py:1-902](file://app/backend/routes/recruiter.py#L1-902)
 - [db_models.py:11-250](file://app/backend/models/db_models.py#L11-L250)
 - [weight_mapper.py:1-360](file://app/backend/services/weight_mapper.py#L1-360)
 - [weight_suggester.py:1-307](file://app/backend/services/weight_suggester.py#L1-307)
@@ -1096,6 +1444,7 @@ METRICS_PAGE["MetricsPage.jsx"] --> DAILY_ANALYSES
 - [PhoneScreenKit.jsx:1-476](file://app/frontend/src/components/PhoneScreenKit.jsx#L1-L476)
 - [AdminOverviewPage.jsx:1-134](file://app/frontend/src/pages/admin/AdminOverviewPage.jsx#L1-L134)
 - [MetricsPage.jsx:119-155](file://app/frontend/src/pages/admin/MetricsPage.jsx#L119-L155)
+- [api.js:1725-1802](file://app/frontend/src/lib/api.js#L1725-L1802)
 
 **Section sources**
 - [auth.py:19-46](file://app/backend/middleware/auth.py#L19-L46)
@@ -1111,6 +1460,11 @@ METRICS_PAGE["MetricsPage.jsx"] --> DAILY_ANALYSES
 - Intelligent weight system optimizes scoring accuracy with AI-powered suggestions
 - Frontend client sets reasonable timeouts for long-running operations
 - Resume file storage uses efficient binary storage with format-specific delivery optimization
+- **NEW** Unified Interview API provides consolidated interview management with optimized routing
+- **NEW** Interview depth system supports quick, standard, and deep configurations with minimal overhead
+- **NEW** Unified Interview API consolidates voice screening and AI recruiter functionality with backward compatibility
+- **NEW** Voice screening endpoints maintain backward compatibility with existing integrations
+- **NEW** AI recruiter endpoints maintain backward compatibility with existing integrations
 - **NEW** Admin API endpoints implement pagination and filtering for large datasets
 - **NEW** Audit log export system limits results to 10,000 rows for performance and compliance
 - **NEW** Billing administration system optimizes dunning record queries with status filtering
@@ -1136,6 +1490,10 @@ METRICS_PAGE["MetricsPage.jsx"] --> DAILY_ANALYSES
 - **NEW** Admin analytics system includes enhanced metrics overview with flat fields for quick access and usage trends for historical analysis
 - **NEW** Frontend AdminOverviewPage efficiently displays the new flat fields (active_users, total_analyses, mrr) with fallback to nested structure
 - **NEW** Frontend MetricsPage integrates usage trends data with active users visualization and chart rendering
+- **NEW** Frontend Unified Interview API provides comprehensive interview management with 12 dedicated endpoints and optimized performance
+- **NEW** Frontend Legacy Voice API maintains backward compatibility with existing integrations and performance characteristics
+- **NEW** Frontend Legacy Recruiter API maintains backward compatibility with existing integrations and performance characteristics
+- **NEW** Unified Interview API functions in frontend api.js provide comprehensive interview management with optimized performance and backward compatibility
 
 ## Troubleshooting Guide
 Common errors and resolutions:
@@ -1143,25 +1501,25 @@ Common errors and resolutions:
   - Cause: Missing or invalid bearer token
   - Resolution: Authenticate and refresh tokens
 - 403 Forbidden
-  - Cause: Non-admin attempting admin-only operation, tenant boundary violation, insufficient privilege level, CSRF token missing or invalid
+  - Cause: Non-admin attempting admin-only operation, tenant boundary violation, insufficient privilege level, CSRF token missing or invalid, unauthorized access to unified interview API
   - Resolution: Ensure proper role (platform_admin, super_admin, billing_admin, security_admin, support) or proper tenant access
 - 400 Bad Request
-  - Cause: Invalid file type, oversized file, insufficient JD length, invalid JSON, chunk validation errors, transcript format issues, invalid evaluation categories, invalid date formats in audit export, invalid webhook configuration
+  - Cause: Invalid file type, oversized file, insufficient JD length, invalid JSON, chunk validation errors, transcript format issues, invalid evaluation categories, invalid date formats in audit export, invalid webhook configuration, invalid interview depth, invalid unified interview request
   - Resolution: Validate inputs and file constraints
 - 404 Not Found
-  - Cause: Resource not found (user, candidate, template, result, job, resume file, screening result, job description, transcript analysis, tenant, feature flag, webhook)
+  - Cause: Resource not found (user, candidate, template, result, job, resume file, screening result, job description, transcript analysis, tenant, feature flag, webhook, unified interview session)
   - Resolution: Verify IDs and tenant scoping
 - 422 Unprocessable Entity
-  - Cause: Validation errors in interview evaluation categories, ratings, overall assessment recommendations, JD status updates, transcript analysis parameters, feature flag toggles, webhook configuration validation
-  - Resolution: Check allowed values: question_category (technical, behavioral, culture_fit, experience_deep_dive), rating (strong, adequate, weak), recommendation (advance, hold, reject), status (pending, shortlisted, rejected, in-review, hired)
+  - Cause: Validation errors in interview evaluation categories, ratings, overall assessment recommendations, JD status updates, transcript analysis parameters, feature flag toggles, webhook configuration validation, invalid interview depth values, invalid unified interview parameters
+  - Resolution: Check allowed values: question_category (technical, behavioral, culture_fit, experience_deep_dive), rating (strong, adequate, weak), recommendation (advance, hold, reject), status (pending, shortlisted, rejected, in-review, hired), depth (quick, standard, deep)
 - 429 Too Many Requests
   - Cause: Monthly analysis limit exceeded
   - Resolution: Upgrade plan or wait for reset
 - 500 Internal Server Error
-  - Cause: Pipeline or LLM failures, queue processing errors, file storage failures, database constraint violations, dashboard analytics failures, debrief generation errors, transcript analysis failures, admin API processing errors, webhook delivery failures
+  - Cause: Pipeline or LLM failures, queue processing errors, file storage failures, database constraint violations, dashboard analytics failures, debrief generation errors, transcript analysis failures, admin API processing errors, webhook delivery failures, unified interview API processing errors
   - Resolution: Retry or check /health and /api/llm-status
 - 503 Service Unavailable
-  - Cause: Queue system overloaded, LLM service unavailable, admin metrics system overwhelmed, transcript analysis service unavailable, dunning processing system overloaded, webhook service unavailable
+  - Cause: Queue system overloaded, LLM service unavailable, admin metrics system overwhelmed, transcript analysis service unavailable, dunning processing system overloaded, webhook service unavailable, unified interview API service unavailable
   - Resolution: Retry with exponential backoff, check queue stats, verify database connectivity
 
 **Section sources**
@@ -1177,9 +1535,10 @@ Common errors and resolutions:
 - [transcript.py:56-66](file://app/backend/routes/transcript.py#L56-L66)
 - [candidates.py:694-698](file://app/backend/routes/candidates.py#L694-L698)
 - [admin.py:1159-1221](file://app/backend/routes/admin.py#L1159-L1221)
+- [interviews.py:113-117](file://app/backend/routes/interviews.py#L113-L117)
 
 ## Conclusion
-This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. The new resume file management system provides comprehensive support for multiple file formats with format-specific delivery behavior. **NEW** The Admin API endpoints introduce comprehensive operational oversight with audit logging, administrative notifications, feature flag management, and billing administration capabilities. **NEW** The billing administration system provides dunning management, invoice handling, and webhook event monitoring for complete subscription lifecycle management. **NEW** The enhanced audit logging system supports compliance with export functionality and filtering capabilities. **NEW** The Phone screening system introduces structured interview evaluation with Experience Deep-Dive category support and comprehensive debrief generation with LLM-powered analysis. **NEW** The Transcript analysis system enables unbiased candidate evaluation from audio/video sources with PII redaction and evidence validation capabilities. **NEW** The enhanced interview kit functionality provides comprehensive evaluation across four categories with integrated debrief generation and scoring. **NEW** The Dashboard system introduces comprehensive screening analytics with period-based filtering, pipeline visualization, and JD effectiveness tracking. **NEW** JD-scoped candidate management enables focused candidate ranking, bulk status updates, and tenant-scoped operations. **NEW** HM Handoff Package export delivers structured data for hiring managers with comparison matrices and interview evaluation integration. **NEW** Admin analytics provides platform-wide insights with metrics overview and usage trend reporting. **NEW** The webhook event enumeration system provides comprehensive event type definitions for integration development. **NEW** Tenant webhook management enables comprehensive webhook configuration and delivery tracking. **NEW** Administrative invoice management provides complete billing administration capabilities. **NEW** Dunning record management integrates with billing administration for subscription lifecycle management. **NEW** The enhanced admin analytics system includes comprehensive metrics overview with three new flat fields (active_users, total_analyses, mrr) for quick access and usage trends for historical analysis. **NEW** The frontend AdminOverviewPage efficiently displays the new flat fields for real-time dashboard monitoring. Clients should implement token refresh, handle streaming events, respect rate limits, utilize the queue system for optimal performance, leverage the resume file management for seamless candidate file handling, integrate the phone screening system for structured interview workflows, use transcript analysis for unbiased evaluation, integrate the enhanced interview kit for comprehensive assessment, utilize the frontend PhoneScreenKit component for complete phone screening experience, implement administrative workflows using the new admin API endpoints for operational oversight and management, integrate webhook event enumeration for comprehensive event type discovery, configure tenant webhooks for delivery tracking, manage administrative invoices for billing operations, monitor dunning records for subscription lifecycle management, utilize the enhanced admin analytics endpoints for comprehensive platform monitoring, and implement the new flat fields (active_users, total_analyses, mrr) for real-time dashboard display and historical trend analysis. Administrators can manage plans, usage, and queue operations via dedicated endpoints while accessing platform-wide metrics and usage trends, managing billing processes, monitoring audit trails, overseeing feature deployments, configuring webhooks, and managing subscription lifecycle through comprehensive administrative interfaces.
+This API provides a robust foundation for AI-powered resume screening with strong tenant isolation, usage controls, collaborative features, and advanced processing capabilities. The addition of chunked upload support enables handling of large files, while the job queue system provides scalable asynchronous processing. The intelligent scoring system with AI-powered weight suggestions enhances analysis accuracy. The new resume file management system provides comprehensive support for multiple file formats with format-specific delivery behavior. **NEW** The Unified Interview API introduces comprehensive interview management with 12 dedicated endpoints supporting unified session management, configuration, analytics, and export functionality across voice screening and AI recruiter systems. **NEW** The Interview depth system supports quick, standard, and deep configurations with feature flag control for AI recruiter functionality. **NEW** The unified API consolidates voice.py and recruiter.py endpoints while maintaining backward compatibility for existing integrations. **NEW** The Admin API endpoints introduce comprehensive operational oversight with audit logging, administrative notifications, feature flag management, and billing administration capabilities. **NEW** The billing administration system provides dunning management, invoice handling, and webhook event monitoring for complete subscription lifecycle management. **NEW** The enhanced audit logging system supports compliance with export functionality and filtering capabilities. **NEW** The Phone screening system introduces structured interview evaluation with Experience Deep-Dive category support and comprehensive debrief generation with LLM-powered analysis. **NEW** The Transcript analysis system enables unbiased candidate evaluation from audio/video sources with PII redaction and evidence validation capabilities. **NEW** The enhanced interview kit functionality provides comprehensive evaluation across four categories with integrated debrief generation and scoring. **NEW** The Dashboard system introduces comprehensive screening analytics with period-based filtering, pipeline visualization, and JD effectiveness tracking. **NEW** JD-scoped candidate management enables focused candidate ranking, bulk status updates, and tenant-scoped operations. **NEW** HM Handoff Package export delivers structured data for hiring managers with comparison matrices and interview evaluation integration. **NEW** Admin analytics provides platform-wide insights with metrics overview and usage trend reporting. **NEW** The webhook event enumeration system provides comprehensive event type definitions for integration development. **NEW** Tenant webhook management enables comprehensive webhook configuration and delivery tracking. **NEW** Administrative invoice management provides complete billing administration capabilities. **NEW** Dunning record management integrates with billing administration for subscription lifecycle management. **NEW** The enhanced admin analytics system includes comprehensive metrics overview with three new flat fields (active_users, total_analyses, mrr) for quick access and usage trends for historical analysis. **NEW** The frontend AdminOverviewPage efficiently displays the new flat fields for real-time dashboard monitoring. **NEW** The frontend Unified Interview API provides comprehensive interview management with 12 dedicated endpoints and optimized performance. **NEW** The frontend Legacy Voice API maintains backward compatibility with existing integrations and performance characteristics. **NEW** The frontend Legacy Recruiter API maintains backward compatibility with existing integrations and performance characteristics. **NEW** The unified Interview API functions in frontend api.js provide comprehensive interview management with optimized performance and backward compatibility. Clients should implement token refresh, handle streaming events, respect rate limits, utilize the queue system for optimal performance, leverage the resume file management for seamless candidate file handling, integrate the unified interview API for comprehensive interview management, use the phone screening system for structured interview workflows, use transcript analysis for unbiased evaluation, integrate the enhanced interview kit for comprehensive assessment, utilize the frontend PhoneScreenKit component for complete phone screening experience, implement administrative workflows using the new admin API endpoints for operational oversight and management, integrate webhook event enumeration for comprehensive event type discovery, configure tenant webhooks for delivery tracking, manage administrative invoices for billing operations, monitor dunning records for subscription lifecycle management, utilize the enhanced admin analytics endpoints for comprehensive platform monitoring, implement the new flat fields (active_users, total_analyses, mrr) for real-time dashboard display and historical trend analysis, and migrate from legacy voice and recruiter endpoints to the unified Interview API for future-proof integration.
 
 ## Appendices
 
@@ -1240,6 +1599,57 @@ This API provides a robust foundation for AI-powered resume screening with stron
 **Section sources**
 - [candidates.py:504-558](file://app/backend/routes/candidates.py#L504-L558)
 - [db_models.py:112-133](file://app/backend/models/db_models.py#L112-L133)
+
+### Unified Interview API System
+**NEW** Comprehensive unified interview management system with 12 dedicated endpoints
+
+- Unified Interview Endpoints:
+  - POST /api/interviews/sessions: Create unified interview session (quick, standard, deep)
+  - GET /api/interviews/sessions: List unified interview sessions with filtering
+  - GET /api/interviews/sessions/{id}: Get session detail with transcript and recruiter metadata
+  - GET /api/interviews/sessions/{id}/transcript: Get session transcript entries
+  - GET /api/interviews/sessions/{id}/scorecard: Get interview scorecard
+  - POST /api/interviews/sessions/{id}/cancel: Cancel interview session
+  - POST /api/interviews/sessions/{id}/retry: Retry failed interview session
+  - GET /api/interviews/config: Get merged voice + recruiter configuration
+  - PUT /api/interviews/config: Update merged voice + recruiter configuration
+  - GET /api/interviews/analytics: Get combined analytics for voice and recruiter interviews
+  - POST /api/interviews/sessions/export: Export interview sessions as CSV
+  - POST /api/interviews/internal/complete: Internal callback for session completion
+- Interview Depth System:
+  - Supported depths: quick (voice screening), standard/deep (AI recruiter)
+  - DB-level mapping: quick/deep with standard mapped to deep
+  - Feature flag control for AI recruiter functionality
+- Backward Compatibility:
+  - Legacy voice.py endpoints maintained for existing integrations
+  - Legacy recruiter.py endpoints maintained for existing integrations
+  - Unified API consolidates functionality while preserving existing APIs
+- Interview Evaluation System:
+  - Four-category evaluation framework: technical, behavioral, culture_fit, experience_deep_dive
+  - Structured debrief generation with sentiment analysis
+  - Recruiter score calculation combining rating distribution and sentiment
+  - Overall assessment with recommendation system
+- Transcript Analysis Integration:
+  - Voice session transcript parsing and storage
+  - AI recruiter session question-response tracking
+  - Evidence-based scoring with PII redaction
+- Frontend Integration:
+  - Unified Interview API provides comprehensive interview management
+  - Legacy Voice API maintains backward compatibility
+  - Legacy Recruiter API maintains backward compatibility
+  - **NEW** Unified Interview API functions in frontend api.js provide comprehensive interview management with optimized performance
+
+**Updated** Added comprehensive unified Interview API system with 12 dedicated endpoints, interview depth support, and backward compatibility
+
+**Section sources**
+- [interviews.py:1-1034](file://app/backend/routes/interviews.py#L1-L1034)
+- [voice.py:46-48](file://app/backend/routes/voice.py#L46-L48)
+- [recruiter.py:60-62](file://app/backend/routes/recruiter.py#L60-L62)
+- [interview_kit.py:217-257](file://app/backend/routes/interview_kit.py#L217-L257)
+- [interview_kit.py:246-405](file://app/backend/routes/interview_kit.py#L246-L405)
+- [db_models.py:217-257](file://app/backend/models/db_models.py#L217-L257)
+- [schemas.py:441-517](file://app/backend/models/schemas.py#L441-L517)
+- [api.js:1725-1802](file://app/frontend/src/lib/api.js#L1725-L1802)
 
 ### Admin API System
 **NEW** Comprehensive administrative system for operational oversight and management
@@ -1487,6 +1897,10 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Queue job monitoring with polling
   - Batch uploads and exports
   - Resume file download and preview with format-specific behavior
+  - **NEW** Unified Interview API integration with comprehensive interview management including session creation, cancellation, retry, and analytics
+  - **NEW** Unified Interview API functions in frontend api.js provide comprehensive interview management with optimized performance
+  - **NEW** Legacy Voice API integration for backward compatibility with existing voice screening integrations
+  - **NEW** Legacy Recruiter API integration for backward compatibility with existing AI recruiter integrations
   - **NEW** Admin API integration with privilege-aware endpoints including audit log exports, webhook event enumeration, invoice retrieval, dunning record management, and webhook event configuration
   - **NEW** Administrative notifications with read/unread tracking
   - **NEW** Feature flag management with tenant overrides
@@ -1512,6 +1926,10 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Implement chunked upload with proper error handling
   - Monitor queue jobs with retry logic
   - Handle binary resume file downloads with appropriate response types
+  - **NEW** Unified Interview API integration with comprehensive interview management
+  - **NEW** Unified Interview API functions for backward compatibility
+  - **NEW** Legacy Voice API integration for backward compatibility
+  - **NEW** Legacy Recruiter API integration for backward compatibility
   - **NEW** Admin API integration with privilege validation
   - **NEW** Audit log export with filtering and compliance support
   - **NEW** Administrative notifications management
@@ -1536,6 +1954,10 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - Implement JWT verification and bearer token parsing
   - Handle chunked upload streams and queue operations
   - Process binary resume file responses with proper MIME type handling
+  - **NEW** Unified Interview API integration with comprehensive interview management
+  - **NEW** Unified Interview API functions for backward compatibility
+  - **NEW** Legacy Voice API integration for backward compatibility
+  - **NEW** Legacy Recruiter API integration for backward compatibility
   - **NEW** Admin API integration with privilege validation
   - **NEW** Audit log export with filtering capabilities
   - **NEW** Administrative notification handling
@@ -1563,6 +1985,7 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [api.js:558-569](file://app/frontend/src/lib/api.js#L558-L569)
 - [api.js:984-1036](file://app/frontend/src/lib/api.js#L984-L1036)
 - [api.js:1209-1247](file://app/frontend/src/lib/api.js#L1209-L1247)
+- [api.js:1725-1802](file://app/frontend/src/lib/api.js#L1725-L1802)
 
 ### Request/Response Schemas
 - AnalysisResponse
@@ -1584,6 +2007,24 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - role_category, seniority_level, suggested_weights, reasoning, confidence, role_excellence_label
 - ResumeFileResponse
   - Binary file stream with appropriate MIME type and Content-Disposition header
+- **NEW** Unified Interview API schemas:
+  - InterviewCreateRequest: candidate_id, phone_number, jd_id, depth, scheduled_at, focus_areas
+  - UnifiedSessionResponse: session_id, depth, status, scheduled_at, phone_number, voice_session_id
+  - UnifiedSessionDetail: enriched session data with candidate info, JD info, transcript, recruiter metadata
+  - TranscriptEntry: speaker, text, timestamp, audio_url
+  - UnifiedScorecardResponse: assessment for quick sessions or detailed scorecard for recruiter sessions
+  - UnifiedConfigResponse: merged voice + recruiter configuration
+  - UnifiedAnalyticsResponse: combined voice + recruiter statistics
+  - InternalCompletePayload: session completion callback with transcript and call metadata
+- **NEW** Legacy Voice API schemas:
+  - VoiceTenantConfigUpdate: voice configuration fields
+  - ScheduleVoiceCallRequest: candidate scheduling parameters
+  - ScheduleVoiceCallResponse: scheduled session details
+- **NEW** Legacy Recruiter API schemas:
+  - RecruiterSessionCreate: AI recruiter session creation parameters
+  - RecruiterSessionOut: AI recruiter session details
+  - RecruiterScorecardOut: detailed scorecard with evidence data
+  - RecruiterAutoTriggerConfigUpdate: AI recruiter configuration parameters
 - **NEW** Admin API schemas:
   - AuditLogExportRequest: format, action, start_date, end_date
   - AuditLogExportResponse: CSV/JSON audit log data
@@ -1626,6 +2067,18 @@ This API provides a robust foundation for AI-powered resume screening with stron
   - WebhookEventDefinition: event type, description, example payload
   - WebhookSigningInfo: algorithm, header, description
   - WebhookEventCatalog: events array with definitions, signing configuration
+- **NEW** Unified Interview API functions schemas:
+  - createInterviewSession: InterviewCreateRequest -> UnifiedSessionResponse
+  - getInterviewSessions: params -> { sessions: UnifiedSessionResponse[], total, page, page_size }
+  - getInterviewSession: sessionId -> UnifiedSessionDetail
+  - getInterviewTranscript: sessionId -> { session_id, transcript: TranscriptEntry[] }
+  - getInterviewScorecard: sessionId -> UnifiedScorecardResponse
+  - cancelInterviewSession: sessionId -> { session_id, status, message }
+  - retryInterviewSession: sessionId -> UnifiedSessionResponse or RecruiterSessionOut
+  - getInterviewConfigUnified: -> UnifiedConfigResponse
+  - updateInterviewConfigUnified: UnifiedConfigResponse -> UnifiedConfigResponse
+  - getInterviewAnalytics: -> UnifiedAnalyticsResponse
+  - exportInterviewSessions: params -> blob (CSV)
 
 **Section sources**
 - [schemas.py:89-136](file://app/backend/models/schemas.py#L89-L136)
@@ -1648,6 +2101,10 @@ This API provides a robust foundation for AI-powered resume screening with stron
 - [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
 - [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
 - [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
+- [interviews.py:103-268](file://app/backend/routes/interviews.py#L103-L268)
+- [voice.py:63-105](file://app/backend/routes/voice.py#L63-L105)
+- [recruiter.py:119-173](file://app/backend/routes/recruiter.py#L119-L173)
+- [api.js:1725-1802](file://app/frontend/src/lib/api.js#L1725-L1802)
 
 ### Data Model Overview
 ```mermaid
@@ -2020,38 +2477,113 @@ class MetricsOverview {
 +PlanDistribution plans
 +RevenueMetrics revenue
 }
-class UsageTrends {
-+int period_days
-+DailyAnalyses[] analyses
-+DailySignups[] signups
+class VoiceScreeningSession {
++int id
++int tenant_id
++int candidate_id
++int jd_id
++string phone_number
++string direction
++string status
++string interview_depth
++datetime scheduled_at
++datetime started_at
++datetime ended_at
++int duration_seconds
++int retry_count
++bool consent_recorded
++Text assessment_json
 }
-SubscriptionPlan "1" --> "many" Tenant : "plan"
-Tenant "1" --> "many" User : "users"
-Tenant "1" --> "many" Candidate : "candidates"
-Tenant "1" --> "many" ScreeningResult : "results"
-Tenant "1" --> "many" RoleTemplate : "templates"
-Tenant "1" --> "many" UsageLog : "usage_logs"
-Tenant "1" --> "many" AnalysisJob : "jobs"
-Candidate "1" --> "many" ScreeningResult : "results"
-RoleTemplate "1" --> "many" ScreeningResult : "results"
-User "1" --> "many" Comment : "comments"
-ScreeningResult "1" --> "many" Comment : "comments"
-AnalysisJob "1" --> "many" AnalysisResult : "results"
-AnalysisJob "1" --> "many" JobMetrics : "metrics"
-ScreeningResult "1" --> "many" InterviewEvaluation : "evaluations"
-ScreeningResult "1" --> "many" OverallAssessment : "overall_assessments"
-ScreeningResult "1" --> "many" DashboardSummary : "dashboard"
-ScreeningResult "1" --> "many" ScreeningAnalytics : "analytics"
-ScreeningResult "1" --> "many" HandoffPackage : "handoff"
-Tenant "1" --> "many" AuditLog : "audit_logs"
-Tenant "1" --> "many" AdminNotification : "notifications"
-Tenant "1" --> "many" FeatureFlag : "feature_flags"
-Tenant "1" --> "many" DunningRecord : "dunning_records"
-Tenant "1" --> "many" Webhook : "webhooks"
-Tenant "1" --> "many" Invoice : "invoices"
-ScreeningResult "1" --> "many" TranscriptAnalysis : "transcripts"
-TranscriptAnalysis "1" --> "many" Candidate : "candidate"
-TranscriptAnalysis "1" --> "many" RoleTemplate : "role_template"
+class RecruiterInterviewSession {
++int id
++int tenant_id
++int candidate_id
++int jd_id
++string status
++string interview_depth
++datetime scheduled_at
++datetime started_at
++datetime ended_at
++int duration_seconds
++Text screening_result_id
++Text created_by
++Text interview_config_json
+}
+class VoiceTenantConfig {
++int id
++int tenant_id
++string greeting_script
++string consent_script
++bool auto_record_calls
++int max_retry_attempts
++int retry_delay_minutes
++datetime created_at
++datetime updated_at
+}
+class RecruiterAutoTriggerConfig {
++string id
++int tenant_id
++bool auto_trigger_enabled
++int auto_trigger_delay_hours
++string focus_areas
++datetime created_at
++datetime updated_at
+}
+class VoiceTranscriptEntry {
++int id
++int session_id
++string speaker
++Text text
++datetime timestamp
++string audio_url
+}
+class RecruiterInterviewQuestion {
++string id
++int session_id
++int sequence_number
++string category
++string question_text
++string question_context
++Text candidate_response
++int response_duration_seconds
++bool is_follow_up
++datetime created_at
++datetime updated_at
+}
+class RecruiterScorecard {
++int id
++int session_id
++int tenant_id
++string recommendation
++Text technical_evidence
++Text behavioral_evidence
++Text communication_evidence
++Text cultural_fit_evidence
++Text motivation_evidence
++Text risk_signals_validated
++Text gaps_explained
++datetime created_at
++datetime updated_at
+}
+class UnifiedInterviewSession {
++int id
++int tenant_id
++int candidate_id
++int jd_id
++string phone_number
++string status
++string interview_depth
++datetime scheduled_at
++datetime started_at
++datetime ended_at
++int duration_seconds
++int retry_count
++bool consent_recorded
++Text assessment_json
++Text screening_result_id
++Text created_by
++Text interview_config_json
+}
 ```
 
 **Diagram sources**
@@ -2069,3 +2601,6 @@ TranscriptAnalysis "1" --> "many" RoleTemplate : "role_template"
 - [webhook_docs.py:40-93](file://app/backend/routes/webhook_docs.py#L40-L93)
 - [admin.py:1480-1521](file://app/backend/routes/admin.py#L1480-L1521)
 - [admin.py:1524-1558](file://app/backend/routes/admin.py#L1524-L1558)
+- [interviews.py:1-1034](file://app/backend/routes/interviews.py#L1-1034)
+- [voice.py:1-658](file://app/backend/routes/voice.py#L1-658)
+- [recruiter.py:1-902](file://app/backend/routes/recruiter.py#L1-902)

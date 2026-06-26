@@ -3,7 +3,7 @@ schema_version: 1
 locale: en-US
 branch: main
 nodes_managed: true
-exported_at: "2026-06-24T21:29:28Z"
+exported_at: "2026-06-26T05:50:42Z"
 modules:
     "":
         dir_name: AI-Driven Recruitment Platform Orchestrator
@@ -61,8 +61,8 @@ modules:
         depends_on: []
         related_to: []
     dependency_management:
-        dir_name: Multi-Service Dependency Management with Docker Compose and Lockfiles
-        title: Multi-Service Dependency Management with Docker Compose and Lockfiles
+        dir_name: Multi-Service Dependency Management Strategy
+        title: Multi-Service Dependency Management Strategy
         scope: []
         source_files:
             - app/backend/requirements.txt
@@ -70,11 +70,10 @@ modules:
             - app/frontend/package-lock.json
             - app/speech_service/requirements.txt
             - app/voice_agent/requirements.txt
-            - package.json
-            - package-lock.json
             - docker-compose.yml
             - app/backend/Dockerfile
             - app/frontend/Dockerfile
+            - .github/workflows/ci.yml
         children: []
         depends_on: []
         related_to: []

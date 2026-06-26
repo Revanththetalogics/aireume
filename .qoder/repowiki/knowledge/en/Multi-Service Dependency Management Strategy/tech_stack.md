@@ -1,0 +1,3 @@
+- **Hybrid Scoring**: Combines deterministic Python logic (`services/hybrid_pipeline.py`) with Ollama-hosted LLMs (e.g., `gemma4:31b-cloud`) for narrative generation.
+- **Document Parsing**: Uses `pdfplumber`, `PyMuPDF`, `python-docx`, and `antiword` for multi-format resume extraction.
+- **Chunked Uploads**: Implements a custom 10MB chunking protocol with MD5 integrity checks to bypass CDN size limits.

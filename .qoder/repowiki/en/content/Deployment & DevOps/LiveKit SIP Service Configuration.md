@@ -16,10 +16,9 @@
 
 ## Update Summary
 **Changes Made**
-- Updated RTP port range configuration from 201 ports (50000-50200) to 101 ports (10000-10100) for improved operational efficiency and Portainer interface stability
-- Updated LiveKit server configuration documentation to reflect the optimized port range
-- Enhanced Docker deployment documentation with new port mapping details
-- Updated troubleshooting guidance for port-related configuration issues
+- Updated Docker Compose configuration documentation to reflect the corrected VOICE_AGENT_URL environment variable from container name to service name for improved DNS resolution and service discovery reliability
+- Enhanced service discovery documentation with proper container-to-service naming conventions
+- Updated troubleshooting guidance for service URL configuration issues
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -482,7 +481,7 @@ The system relies on comprehensive environment variable configuration for flexib
 
 ### Voice Agent Configuration Variables
 
-**Updated** Enhanced SIP configuration with termination address support
+**Updated** Enhanced SIP configuration with termination address support and corrected service discovery URLs
 
 | Variable | Default Value | Description |
 |----------|---------------|-------------|
@@ -498,12 +497,14 @@ The system relies on comprehensive environment variable configuration for flexib
 
 ### Backend Integration Variables
 
+**Updated** Corrected VOICE_AGENT_URL from container name to service name for improved DNS resolution and service discovery reliability
+
 | Variable | Default Value | Description |
 |----------|---------------|-------------|
 | `DATABASE_URL` | `postgresql://aria:aria_secret@postgres:5432/aria_db` | PostgreSQL connection string |
 | `JWT_SECRET_KEY` | `change-this-in-production-use-a-long-random-string` | JWT signing key |
 | `ENVIRONMENT` | `development` | Application environment |
-| `VOICE_AGENT_URL` | `http://voice-agent:8002` | Voice agent service URL |
+| `VOICE_AGENT_URL` | `http://voice-agent:8002` | Voice agent service URL (service name-based) |
 
 **Section sources**
 - [docker-compose.yml:60-82](file://docker-compose.yml#L60-L82)
@@ -549,6 +550,16 @@ The system relies on comprehensive environment variable configuration for flexib
 3. **Number Normalization**: Implement phone number validation and normalization before call initiation
 4. **Import Error Handling**: Verify LiveKit protocol module imports for Python SDK compatibility
 5. **Port Range Optimization**: Use the optimized 101-port range (10000-10100) for improved operational efficiency
+6. **Service Discovery**: Use service names (voice-agent) instead of container names for reliable DNS resolution
+
+### Service Discovery Best Practices
+
+**Updated** Service discovery best practices for improved reliability
+
+1. **Service Name Usage**: Always use service names (voice-agent) rather than container names (staging-voice-agent) for inter-service communication
+2. **DNS Resolution**: Docker Compose automatically resolves service names to internal network addresses
+3. **Container Naming**: Container names can differ from service names but service names must remain consistent for network communication
+4. **Network Isolation**: Services communicate through Docker networks using service names, not container names
 
 ## Troubleshooting Guide
 
@@ -648,6 +659,23 @@ The system relies on comprehensive environment variable configuration for flexib
 3. Review APScheduler job configuration
 4. Examine call scheduling logs
 
+#### Service Discovery Issues
+
+**Updated** Service discovery troubleshooting for corrected VOICE_AGENT_URL configuration
+
+**Symptoms**: Backend cannot reach voice agent service
+**Causes**:
+- Incorrect VOICE_AGENT_URL configuration
+- DNS resolution failures between services
+- Container name vs service name confusion
+
+**Solutions**:
+1. Verify VOICE_AGENT_URL uses service name (voice-agent) not container name (staging-voice-agent)
+2. Check Docker network connectivity between backend and voice-agent services
+3. Validate service name resolution in Docker Compose network
+4. Review service discovery logs for DNS resolution errors
+5. Ensure service name consistency across all environment files
+
 ### Diagnostic Commands
 
 ```bash
@@ -671,6 +699,12 @@ echo $SIP_TERMINATION_ADDRESS
 
 # Check port range configuration
 docker compose config | grep -A 10 -B 5 "10000-10100"
+
+# Verify service discovery resolution
+docker compose exec backend nslookup voice-agent
+
+# Check VOICE_AGENT_URL configuration
+echo $VOICE_AGENT_URL
 ```
 
 **Section sources**
@@ -683,6 +717,8 @@ The LiveKit SIP Service Configuration provides a robust foundation for implement
 
 **Updated** Recent enhancements include the optimized RTP port range from 201 ports (50000-50200) to 101 ports (10000-10100), which significantly improves operational efficiency and Portainer interface stability. These optimizations, combined with enhanced SIP termination address configuration, improved trunk resolution logic, Python SDK import error handling, and phone number normalization considerations, provide substantial improvements to telephony reliability and proper SIP termination addressing.
 
+**Updated** The most significant improvement relates to the corrected VOICE_AGENT_URL environment variable configuration. The system now properly uses the service name 'voice-agent' instead of the container name 'staging-voice-agent' for improved DNS resolution and service discovery reliability. This change ensures consistent service communication regardless of container naming conventions and provides better isolation between development and production environments.
+
 Key strengths of the configuration include:
 
 - **Enhanced SIP Integration**: Programmatic trunk management with termination address matching supports multiple telephony providers
@@ -691,5 +727,6 @@ Key strengths of the configuration include:
 - **AI-Powered Conversations**: Seamless integration with LLM services for intelligent dialogue
 - **Production-Ready Deployment**: Comprehensive Docker orchestration with health monitoring
 - **Scalable Architecture**: Designed to handle varying call volumes and concurrent sessions
+- **Reliable Service Discovery**: Proper service naming conventions ensure consistent inter-service communication
 
 The configuration serves as a solid foundation for organizations seeking to implement automated voice screening while maintaining flexibility for customization and extension based on specific requirements.

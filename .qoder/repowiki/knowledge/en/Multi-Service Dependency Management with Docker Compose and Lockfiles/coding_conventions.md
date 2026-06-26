@@ -1,3 +1,0 @@
-- Internal service-to-service endpoints use an `/internal/` path prefix and bypass authentication middleware.
-- Tenant-specific configurations are auto-created on first access if no record exists in the database.
-- Background tasks and schedulers are initialized and gracefully shut down within the FastAPI `lifespan` context manager.

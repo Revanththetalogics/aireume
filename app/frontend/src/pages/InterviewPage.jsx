@@ -4,12 +4,12 @@ import { motion } from 'framer-motion'
 import {
   Mic, Brain, BarChart3, Settings as SettingsIcon, Plus, Search,
   RefreshCw, Clock, CheckCircle2, XCircle, AlertTriangle, Loader2,
-  Calendar, FileText, ChevronRight, Download, Save, X, TrendingUp,
+  Calendar, CalendarClock, FileText, ChevronRight, Download, Save, X, TrendingUp,
   Users, Target, Zap, Phone, PhoneCall, Volume2, Shield, Bell,
 } from 'lucide-react'
 import {
   getVoiceSessions, getVoiceSettings, updateVoiceSettings,
-  getVoiceAnalytics, cancelVoiceSession, exportVoiceSessions,
+  getVoiceAnalytics, cancelVoiceSession, exportVoiceSessions, rescheduleVoiceCall,
   getRecruiterSessions, getRecruiterAnalytics, getRecruiterConfig,
   updateRecruiterConfig, cancelRecruiterSession, exportRecruiterSessions,
   getInterviewAnalytics, exportInterviewSessions,
@@ -291,6 +291,25 @@ export default function InterviewPage() {
     }
   }
 
+  async function handleReschedule(session) {
+    const defaultValue = session.scheduled_at
+      ? new Date(session.scheduled_at).toISOString().slice(0, 16)
+      : ''
+    const newTime = window.prompt('Enter new scheduled time (YYYY-MM-DDTHH:mm)', defaultValue)
+    if (!newTime) return
+    try {
+      await rescheduleVoiceCall(session.rawId, { scheduled_at: new Date(newTime).toISOString() })
+      const [vs, rs] = await Promise.all([
+        getVoiceSessions({ limit: 50 }).catch(() => []),
+        getRecruiterSessions({ limit: 50 }).catch(() => []),
+      ])
+      setVoiceSessions(Array.isArray(vs) ? vs : vs.sessions || [])
+      setRecruiterSessions(Array.isArray(rs) ? rs : rs.sessions || [])
+    } catch (err) {
+      setError(err.message || 'Failed to reschedule')
+    }
+  }
+
   function handleSessionClick(session) {
     navigate(`/ai-interviews/${session.rawId}?source=${session.source}&depth=${session.depth}`)
   }
@@ -566,8 +585,27 @@ export default function InterviewPage() {
 
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-xs text-slate-400">
-                          {session.created_at ? new Date(session.created_at).toLocaleDateString('en-US') : ''}
+                          {session.status === 'scheduled' && session.scheduled_at
+                            ? new Date(session.scheduled_at).toLocaleString('en-US', {
+                                month: 'short', day: 'numeric',
+                                hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+                              })
+                            : session.created_at
+                              ? new Date(session.created_at).toLocaleString('en-US', {
+                                  month: 'short', day: 'numeric',
+                                  hour: 'numeric', minute: '2-digit',
+                                })
+                              : ''}
                         </span>
+                        {session.status === 'scheduled' && session.source === 'voice' && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleReschedule(session) }}
+                            className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-400 transition-colors"
+                            title="Reschedule"
+                          >
+                            <CalendarClock className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {['scheduled', 'pending_strategy', 'strategy_ready', 'failed', 'no_answer'].includes(session.status) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleCancelSession(session) }}

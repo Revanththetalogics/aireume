@@ -1,0 +1,6 @@
+- **Entry Point**: FastAPI application (`app/backend/main.py`) aggregates domain-specific routers (e.g., `routes/analyze.py`, `routes/billing.py`, `routes/voice.py`) and manages lifecycle tasks like queue workers and background schedulers.
+- **Core Pipeline**: `services/hybrid_pipeline.py` implements a two-phase architecture: Phase 1 uses deterministic Python rules for JD/resume parsing and scoring, while Phase 2 triggers an asynchronous LLM call for narrative generation, managed via background tasks.
+- **Data Persistence**: Relies on SQLAlchemy models (`Candidate`, `ScreeningResult`, `JdCache`) for storing parsed profiles, analysis results, and shared JD caches to optimize multi-worker performance.
+- **File Handling**: A dedicated chunked upload system (`uploadChunked.js` frontend, `routes/upload.py` backend) splits large files into 10MB chunks, storing them in `/tmp/aria_chunks` before assembly and validation.
+- **Parsing Engine**: `services/parser_service.py` provides a multi-stage extraction pipeline for various document formats (PDF, DOCX, etc.), utilizing libraries like PyMuPDF and pdfplumber with fallback mechanisms.
+- **Queue System**: `services/queue_manager.py` implements a priority-based job queue with lease-based locking and automatic retry logic for scalable background processing.

@@ -811,6 +811,8 @@ class RecruiterSessionOut(BaseModel):
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    candidate_name: Optional[str] = None
+    jd_title: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

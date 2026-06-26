@@ -1,0 +1,3 @@
+- **Chunk Storage**: Requires write access to `/tmp/aria_chunks` for temporary storage of uploaded file fragments.
+- **LLM Configuration**: Depends on environment variables `OLLAMA_BASE_URL` and `OLLAMA_MODEL` for the narrative generation service.
+- **Background Tasks**: Uses `asyncio` tasks for non-blocking LLM calls, requiring graceful shutdown handling via `shutdown_background_tasks()`.

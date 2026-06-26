@@ -1,0 +1,4 @@
+- Non-critical failures in caching, parsing, or background tasks are caught and logged with a 'Non-critical:' prefix to prevent request abortion.
+- Candidate deduplication follows a three-layer strategy: email match, file hash match, and name+phone combination.
+- Input sanitization is applied to JD and resume text before LLM prompts to prevent injection attacks, including truncation and pattern filtering.
+- Database fields with variable length (e.g., roles, companies) are explicitly truncated to 255 characters before persistence to avoid SQL errors.

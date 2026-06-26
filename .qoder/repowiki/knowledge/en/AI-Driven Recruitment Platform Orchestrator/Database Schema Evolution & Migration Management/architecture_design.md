@@ -1,4 +1,4 @@
-- **Framework**: Uses Alembic for migration management, configured via `alembic/env.py` which integrates with the application's SQLAlchemy `Base` metadata.
-- **Structure**: Migrations are stored sequentially in `alembic/versions/` with numeric prefixes (e.g., `001_...`, `045_...`) to enforce execution order.
-- **Integration**: The `env.py` script dynamically imports application models (`app.backend.models.db_models`) to drive auto-generation and comparison, while setting the database URL from the app's configuration.
-- **Lifecycle**: Each migration file implements `upgrade()` and `downgrade()` functions, supporting both online and offline migration modes as defined in `env.py`.
+- **Framework Integration**: Configured via `alembic/env.py`, which imports the application's SQLAlchemy `Base` metadata (`app.backend.db.database`) to drive auto-generation and comparison.
+- **Sequential Versioning**: Migrations are stored in `alembic/versions/` with numeric or descriptive prefixes (e.g., `001_...`, `036_queue_lease_locking`) to enforce strict execution order and dependency tracking via `down_revision`.
+- **Lifecycle Management**: Each migration file implements `upgrade()` and `downgrade()` functions, supporting both online and offline migration modes as defined in the environment script.
+- **Idempotency Pattern**: Migrations extensively use inline schema inspection (via `sa.inspect` or raw SQL against `information_schema`) to verify the existence of tables, columns, or indexes before applying changes, ensuring safety during repeated runs or legacy transitions.

@@ -1,1 +1,1 @@
-Alembic for database migrations, SQLAlchemy for ORM and schema inspection.
+Alembic for migration orchestration; SQLAlchemy for ORM metadata and schema inspection.

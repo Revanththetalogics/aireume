@@ -1,1 +1,1 @@
-Manages versioned database schema changes using Alembic, ensuring idempotent and reversible migrations for a multi-tenant SaaS application.
+Manages versioned database schema changes for a multi-tenant SaaS application using Alembic, ensuring idempotent and reversible migrations through strict state inspection.

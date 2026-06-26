@@ -2,19 +2,15 @@
 
 <cite>
 **Referenced Files in This Document**
+- [conversation.py](file://app/voice_agent/conversation.py)
 - [agent.py](file://app/voice_agent/agent.py)
 - [recruiter_conversation.py](file://app/voice_agent/recruiter_conversation.py)
+- [interviews.py](file://app/backend/routes/interviews.py)
+- [orchestrator.py](file://app/backend/services/recruiter/orchestrator.py)
+- [voice_call_scheduler.py](file://app/backend/services/voice_call_scheduler.py)
 - [main.py](file://app/speech_service/main.py)
 - [voice.py](file://app/backend/routes/voice.py)
 - [recruiter.py](file://app/backend/routes/recruiter.py)
-- [voice_call_scheduler.py](file://app/backend/services/voice_call_scheduler.py)
-- [voice_screening_service.py](file://app/backend/services/voice_screening_service.py)
-- [orchestrator.py](file://app/backend/services/recruiter/orchestrator.py)
-- [context_engine.py](file://app/backend/services/recruiter/context_engine.py)
-- [strategy_agent.py](file://app/backend/services/recruiter/strategy_agent.py)
-- [evaluation_agents.py](file://app/backend/services/recruiter/evaluation_agents.py)
-- [recommendation_agent.py](file://app/backend/services/recruiter/recommendation_agent.py)
-- [auto_trigger.py](file://app/backend/services/recruiter/auto_trigger.py)
 - [db_models.py](file://app/backend/models/db_models.py)
 - [schemas.py](file://app/backend/models/schemas.py)
 - [VoiceScreeningPage.jsx](file://app/frontend/src/pages/VoiceScreeningPage.jsx)
@@ -31,36 +27,37 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced voice agent system with AI Recruiter integration for advanced structured interviews
-- Added sophisticated conversation state management with multi-dimensional assessment capabilities
-- Implemented automated interview initiation through AI Recruiter orchestration
-- Integrated advanced evaluation agents for technical, behavioral, and cultural assessments
-- Added comprehensive auto-trigger functionality for pipeline-driven interview scheduling
-- Enhanced frontend interfaces for AI Recruiter session management and configuration
+- Updated to reflect Applied Changes: Complete replacement of separate screening and AI recruiter conversation modules with unified 657-line conversation framework supporting three interview depth levels (Quick: 3-5 min, Standard: 10-15 min, Deep: 20-30 min)
+- Enhanced state management, dynamic question loading, and depth-specific response handling
+- Added unified interview system with InterviewContext and InterviewDepth enums
+- Integrated unified conversation engine into voice agent worker
+- Updated backend routes to support unified interview management
+- Enhanced AI Recruiter integration with unified conversation capabilities
 
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [System Architecture](#system-architecture)
 3. [Core Components](#core-components)
-4. [Voice Agent Implementation](#voice-agent-implementation)
-5. [AI Recruiter Integration](#ai-recruiter-integration)
-6. [Backend Services](#backend-services)
-7. [Database Schema](#database-schema)
-8. [Frontend Integration](#frontend-integration)
-9. [API Endpoints](#api-endpoints)
-10. [Conversation Flow](#conversation-flow)
-11. [Testing Framework](#testing-framework)
-12. [Deployment Architecture](#deployment-architecture)
-13. [Troubleshooting Procedures](#troubleshooting-procedures)
-14. [Conclusion](#conclusion)
+4. [Unified Conversation Engine](#unified-conversation-engine)
+5. [Voice Agent Implementation](#voice-agent-implementation)
+6. [AI Recruiter Integration](#ai-recruiter-integration)
+7. [Backend Services](#backend-services)
+8. [Database Schema](#database-schema)
+9. [Frontend Integration](#frontend-integration)
+10. [API Endpoints](#api-endpoints)
+11. [Conversation Flow](#conversation-flow)
+12. [Testing Framework](#testing-framework)
+13. [Deployment Architecture](#deployment-architecture)
+14. [Troubleshooting Procedures](#troubleshooting-procedures)
+15. [Conclusion](#conclusion)
 
 ## Introduction
 
 The Voice Agent Conversation System is an AI-powered phone screening solution designed to automate initial candidate interviews through intelligent voice conversations. Built as part of the Resume AI platform by ThetaLogics, this system combines advanced natural language processing, real-time audio processing, and sophisticated conversation management to deliver scalable recruitment screening capabilities.
 
-**Current Implementation Status**: Phase 2.0 - The system now implements a comprehensive AI Recruiter integration with advanced conversation state management, automated interview initiation capabilities, and sophisticated multi-dimensional assessment systems. The system maintains full telephony integration readiness with comprehensive audio processing, conversation management, and AI-powered evaluation capabilities.
+**Current Implementation Status**: Phase 2.0 - The system now implements a comprehensive unified conversation engine that replaces separate screening and AI recruiter conversation modules. The new conversation.py module provides a unified 657-line conversation framework supporting three interview depth levels: Quick (3-5 minutes), Standard (10-15 minutes), and Deep (20-30 minutes). The system maintains full telephony integration readiness with comprehensive audio processing, conversation management, and AI-powered evaluation capabilities.
 
-The system operates through a comprehensive dual-component architecture featuring a FastAPI HTTP dispatch server and LiveKit Agent Worker, coordinated with integrated speech processing services, Twilio SIP trunking, and AI Recruiter orchestration. The platform supports both outbound calling and inbound callback scenarios, with configurable business hours, retry mechanisms, compliance features, and advanced AI-powered interview capabilities.
+The system operates through a comprehensive dual-component architecture featuring a FastAPI HTTP dispatch server and LiveKit Agent Worker, coordinated with integrated speech processing services, Twilio SIP trunking, and unified AI-powered interview capabilities. The platform supports both outbound calling and inbound callback scenarios, with configurable business hours, retry mechanisms, compliance features, and advanced AI-powered interview management across all depth levels.
 
 ## System Architecture
 
@@ -86,31 +83,39 @@ SC[Speech Service]
 BK[Backend API]
 LLM[Ollama Cloud LLM]
 end
+subgraph "Unified Conversation Engine"
+UNIFIED[UnifiedConversation]
+CONTEXT[InterviewContext]
+DEPTH[InterviewDepth]
+END
 subgraph "AI Recruiter Services"
 ORCHESTRATOR[Recruiter Orchestrator]
-CONTEXT[Context Engine]
+CONTEXT_ENGINE[Context Engine]
 STRATEGY[Strategy Agent]
 EVALUATORS[Evaluation Agents]
 RECOMMENDER[Recommendation Agent]
 AUTOTRIGGER[Auto Trigger]
-end
+END
 subgraph "Infrastructure"
 DB[(PostgreSQL Database)]
 SCHED[APScheduler]
 LOCK[PostgreSQL Advisory Lock]
-end
+END
 FE --> API
 UI --> API
 RI --> API
 API --> DISPATCH
 DISPATCH --> WORKER
+WORKER --> UNIFIED
+UNIFIED --> CONTEXT
+UNIFIED --> DEPTH
 WORKER --> LK
 WORKER --> TWILIO
 WORKER --> SC
 WORKER --> BK
 WORKER --> LLM
 API --> ORCHESTRATOR
-ORCHESTRATOR --> CONTEXT
+ORCHESTRATOR --> CONTEXT_ENGINE
 ORCHESTRATOR --> STRATEGY
 ORCHESTRATOR --> EVALUATORS
 ORCHESTRATOR --> RECOMMENDER
@@ -128,23 +133,24 @@ SCHED --> LOCK
 - [voice_call_scheduler.py:518-603](file://app/backend/services/voice_call_scheduler.py#L518-L603)
 - [docker-compose.yml:110-175](file://docker-compose.yml#L110-L175)
 
-**Updated** The architecture now includes FastAPI HTTP dispatch server for initiating voice calls, LiveKit Agent Worker for real-time conversation management, Twilio SIP trunking for telephony coordination, comprehensive speech processing services for audio handling, and AI Recruiter orchestration services for advanced interview management. The AI Recruiter system includes specialized services for context building, strategy generation, evaluation, and recommendation. The LiveKit Server provides WebRTC SFU functionality with SIP trunking configuration support and enhanced network security through reduced port ranges. A PostgreSQL advisory lock mechanism ensures single-instance scheduler execution in multi-worker deployments.
+**Updated** The architecture now includes FastAPI HTTP dispatch server for initiating voice calls, LiveKit Agent Worker for real-time conversation management, Twilio SIP trunking for telephony coordination, comprehensive speech processing services for audio handling, and unified AI-powered interview capabilities through the new UnifiedConversation engine. The unified conversation engine provides consistent state management across all interview depth levels with InterviewContext and InterviewDepth enums. The AI Recruiter system includes specialized services for context building, strategy generation, evaluation, and recommendation. The LiveKit Server provides WebRTC SFU functionality with SIP trunking configuration support and enhanced network security through reduced port ranges. A PostgreSQL advisory lock mechanism ensures single-instance scheduler execution in multi-worker deployments.
 
-The architecture consists of seven main layers:
+The architecture consists of eight main layers:
 
 1. **Presentation Layer**: React-based frontend with voice screening management interface and AI Recruiter session management
 2. **API Layer**: FastAPI backend providing RESTful endpoints for voice screening and AI Recruiter operations
 3. **Dispatch Layer**: HTTP dispatch API that triggers call initiation and room creation
-4. **Agent Layer**: LiveKit Agent Worker that manages real-time voice conversations with audio processing
-5. **AI Recruiter Layer**: Specialized services for advanced interview orchestration and evaluation
-6. **Telephony Layer**: LiveKit Server with Twilio SIP trunking for PSTN connectivity
-7. **Data Layer**: PostgreSQL database with specialized voice screening models, AI Recruiter sessions, and evaluation data
+4. **Agent Layer**: LiveKit Agent Worker that manages real-time voice conversations with unified audio processing
+5. **Unified Conversation Engine**: Single conversation engine managing all interview depth levels with InterviewContext and InterviewDepth
+6. **AI Recruiter Layer**: Specialized services for advanced interview orchestration and evaluation
+7. **Telephony Layer**: LiveKit Server with Twilio SIP trunking for PSTN connectivity
+8. **Data Layer**: PostgreSQL database with specialized voice screening models, AI Recruiter sessions, and evaluation data
 
 ## Core Components
 
 ### HTTP Dispatch API
 
-The HTTP dispatch API serves as the entry point for voice call initiation, creating LiveKit rooms and coordinating SIP outbound calls to candidates.
+The HTTP dispatch API serves as the entry point for voice call initiation, creating LiveKit rooms and coordinating SIP outbound calls to candidates with unified InterviewContext parameter passing.
 
 ```mermaid
 classDiagram
@@ -165,6 +171,11 @@ class DispatchRequest {
 +int candidate_id
 +string jd_title
 +list jd_must_have_skills
++string depth
++string mode
++dict interview_strategy
++dict interview_config
++effective_depth() str
 }
 class DispatchResponse {
 +bool success
@@ -183,24 +194,104 @@ FastAPIApp --> LiveKitSIPDispatcher
 **Diagram sources**
 - [agent.py:535-602](file://app/voice_agent/agent.py#L535-L602)
 - [agent.py:781-852](file://app/voice_agent/agent.py#L781-L852)
+- [agent.py:1247-1266](file://app/voice_agent/agent.py#L1247-L1266)
 
 **Section sources**
 - [agent.py:535-602](file://app/voice_agent/agent.py#L535-L602)
 - [agent.py:781-852](file://app/voice_agent/agent.py#L781-L852)
+- [agent.py:1247-1266](file://app/voice_agent/agent.py#L1247-L1266)
+
+### Unified Conversation Engine
+
+The unified conversation engine provides a comprehensive 657-line conversation framework that replaces separate screening and AI recruiter conversation modules, supporting three interview depth levels with consistent state management.
+
+```mermaid
+classDiagram
+class InterviewDepth {
+<<enumeration>>
+QUICK
+STANDARD
+DEEP
+}
+class InterviewContext {
++string session_id
++InterviewDepth depth
++string candidate_name
++string company_name
++string jd_title
++list jd_must_have_skills
++dict strategy
++dict interview_config
++int tenant_id
++int candidate_id
++string phone_number
++string bot_name
++string greeting_style
++string consent_script
++InterviewState current_state
++list transcript
++list questions_asked
++int current_dimension_idx
++int current_question_idx
++int follow_up_count
++dict dimension_scores
++bool consent_recorded
++float started_at
++bool wrap_up_reached
++time_budget() int
++max_questions() int
++max_follow_ups_per_question() int
++has_warmup() bool
++elapsed() float
+}
+class UnifiedConversation {
++InterviewContext ctx
++LLMClient llm
++SpeechClient speech
++list history
++__init__(context, llm_client, speech_client)
++_load_questions() void
++get_greeting() string
++handle_response(candidate_text) string
++_detect_edge_case(text) string
++_should_follow_up(response) bool
++_generate_follow_up(response) string
++_get_next_question() string
++_get_dimension_question() string
++_get_wrapup_message() string
++is_complete() bool
++get_result() dict
++get_transcript() list
++get_questions_responses() list
++build_system_prompt() string
+}
+InterviewContext --> InterviewDepth
+UnifiedConversation --> InterviewContext
+```
+
+**Diagram sources**
+- [conversation.py:25-28](file://app/voice_agent/conversation.py#L25-L28)
+- [conversation.py:43-99](file://app/voice_agent/conversation.py#L43-L99)
+- [conversation.py:103-144](file://app/voice_agent/conversation.py#L103-L144)
+
+**Section sources**
+- [conversation.py:1-658](file://app/voice_agent/conversation.py#L1-L658)
 
 ### LiveKit Agent Worker
 
-The LiveKit Agent Worker manages real-time audio streams, processes speech-to-text and text-to-speech conversions, and executes the conversation state machine.
+The LiveKit Agent Worker manages real-time audio streams, processes speech-to-text and text-to-speech conversions, and executes the unified conversation state machine across all interview depth levels.
 
 ```mermaid
 classDiagram
 class VoiceAgentWorker {
 +handle_room(room_name, agent_token, session_ctx) void
 +dispatch_and_run(session_ctx, room_info) void
++handle_unified_room(room_name, agent_token, interview_ctx) void
++handle_recruiter_room(room_name, agent_token, session_ctx) void
 +_active_sessions dict
 }
-class ConversationEngine {
-+ScreeningContext ctx
+class UnifiedConversation {
++InterviewContext ctx
 +SpeechClient speech
 +LLMClient llm
 +BackendClient backend
@@ -218,20 +309,22 @@ class AudioProcessing {
 +transcribe_chunk(chunk) string
 +synthesize_response(text) bytes
 }
-VoiceAgentWorker --> ConversationEngine
+VoiceAgentWorker --> UnifiedConversation
 VoiceAgentWorker --> AudioProcessing
-ConversationEngine --> SpeechClient
-ConversationEngine --> LLMClient
-ConversationEngine --> BackendClient
+UnifiedConversation --> SpeechClient
+UnifiedConversation --> LLMClient
+UnifiedConversation --> BackendClient
 ```
 
 **Diagram sources**
 - [agent.py:606-771](file://app/voice_agent/agent.py#L606-L771)
 - [agent.py:258-427](file://app/voice_agent/agent.py#L258-L427)
+- [agent.py:942-1076](file://app/voice_agent/agent.py#L942-L1076)
 
 **Section sources**
 - [agent.py:606-771](file://app/voice_agent/agent.py#L606-L771)
 - [agent.py:258-427](file://app/voice_agent/agent.py#L258-L427)
+- [agent.py:942-1076](file://app/voice_agent/agent.py#L942-L1076)
 
 ### Speech Processing Service
 
@@ -336,6 +429,147 @@ Wait --> AcquireLock
 **Section sources**
 - [voice_call_scheduler.py:518-603](file://app/backend/services/voice_call_scheduler.py#L518-L603)
 
+## Unified Conversation Engine
+
+### Interview Depth Management
+
+The unified conversation engine provides comprehensive support for three distinct interview depth levels with consistent state management and dynamic question adaptation.
+
+```mermaid
+stateDiagram-v2
+[*] --> GREETING
+GREETING --> CONSENT
+CONSENT --> WARMUP : STANDARD/DEEP
+WARMUP --> QUESTIONS
+QUESTIONS --> FOLLOW_UP : Standard/Deep
+FOLLOW_UP --> QUESTIONS
+QUESTIONS --> WRAP_UP : Time limit or all questions
+WRAP_UP --> ENDED
+```
+
+**Diagram sources**
+- [conversation.py:31-39](file://app/voice_agent/conversation.py#L31-L39)
+- [conversation.py:103-144](file://app/voice_agent/conversation.py#L103-L144)
+
+**Updated** The unified conversation engine now supports three interview depth levels with consistent state management:
+- **Quick (3-5 minutes)**: Linear skill-based questions with pass/fail assessment and no follow-ups
+- **Standard (10-15 minutes)**: LLM-generated strategy questions with 3-dimensional scoring and 1 follow-up per weak answer
+- **Deep (20-30 minutes)**: Full strategy with 5-dimensional assessment plus fitment scoring and 2 follow-ups per question
+
+The engine maintains InterviewContext for persistent state across all depth levels and provides dynamic question loading based on interview depth and strategy configuration.
+
+### Interview Context Management
+
+The InterviewContext class provides comprehensive state management for unified conversation handling across all interview depth levels.
+
+**Enhanced Context Features**:
+- Unified depth-based configuration with InterviewDepth enumeration
+- Dynamic time budget management (300/900/1800 seconds)
+- Maximum question limits per depth level (5/12/20 questions)
+- Follow-up question management with depth-specific limits
+- Dimension scoring tracking for multi-dimensional assessments
+- Consent recording and wrap-up state management
+- Transcript and questions_asked persistence for evaluation
+
+**Section sources**
+- [conversation.py:43-99](file://app/voice_agent/conversation.py#L43-L99)
+
+### Unified Question Loading System
+
+The unified conversation engine provides dynamic question loading based on interview depth and strategy configuration.
+
+**Question Loading Logic**:
+- **Quick Depth**: Generates skill-based questions from JD must-have skills or falls back to general questions
+- **Standard/Deep Depth**: Uses pre-generated strategy with dimension mapping and question flattening
+- **Fallback System**: Ultimate fallback to generic background questions when no skills provided
+- **Dimension Mapping**: Flattens strategy dimensions for quick access and dimension rotation
+
+**Section sources**
+- [conversation.py:149-187](file://app/voice_agent/conversation.py#L149-L187)
+
+### Edge Case Detection and Response Handling
+
+The unified conversation engine includes comprehensive edge case detection with consistent handling across all interview depth levels.
+
+**Edge Case Categories**:
+- **Silence Detection**: Handles [silence], [no speech detected], and empty responses
+- **Uncertainty Responses**: Manages "I don't know" and "I'm not sure" responses
+- **Rescheduling Requests**: Processes "not a good time" and "can we reschedule" requests
+- **Compensation Questions**: Handles salary and benefits inquiries
+- **AI Detection**: Responds to "are you a robot" and "is this automated" questions
+- **Negative Responses**: Manages decline and busy responses
+- **Vague Language**: Identifies hedging and uncertain responses
+
+**Section sources**
+- [conversation.py:230-283](file://app/voice_agent/conversation.py#L230-L283)
+
+### Follow-up Question Generation
+
+The unified conversation engine provides intelligent follow-up question generation with depth-specific logic and LLM integration.
+
+**Follow-up Logic**:
+- **Word Count Analysis**: Short answers (<15 words) trigger immediate follow-ups
+- **Vague Language Detection**: Hedging phrases trigger contextual follow-ups
+- **LLM Integration**: Dynamic follow-up generation for Standard/Deep interviews
+- **Fallback Responses**: Intelligent fallback questions for weak responses
+- **Follow-up Limits**: Depth-specific maximum follow-ups per question
+
+**Section sources**
+- [conversation.py:538-584](file://app/voice_agent/conversation.py#L538-L584)
+
+## Voice Agent Implementation
+
+### Unified Room Handler
+
+The VoiceAgentWorker now includes a unified room handler that manages all interview depth levels through the single UnifiedConversation engine.
+
+```mermaid
+sequenceDiagram
+participant Room as "LiveKit Room"
+participant Worker as "VoiceAgentWorker"
+participant Conv as "UnifiedConversation"
+participant Speech as "SpeechClient"
+participant Backend as "BackendClient"
+Room->>Worker : Audio track subscribed
+Worker->>Speech : Transcribe audio chunk
+Speech-->>Worker : Text transcription
+Worker->>Conv : handle_response(text)
+Conv->>Conv : Process response and state
+Conv-->>Worker : Bot response text
+Worker->>Speech : Synthesize response
+Speech-->>Worker : Audio bytes
+Worker->>Room : Publish audio to candidate
+Worker->>Backend : Update session status
+```
+
+**Diagram sources**
+- [agent.py:942-1076](file://app/voice_agent/agent.py#L942-L1076)
+
+**Updated** The unified room handler provides consistent conversation management across all interview depth levels:
+- Single conversation engine handles Quick/Standard/Deep interviews
+- Unified state management with InterviewContext persistence
+- Consistent audio processing and response synthesis
+- Unified backend integration for session updates
+- Time budget enforcement across all depth levels
+
+**Section sources**
+- [agent.py:942-1076](file://app/voice_agent/agent.py#L942-L1076)
+
+### Backward Compatibility Support
+
+The VoiceAgentWorker maintains backward compatibility with legacy conversation modules while providing unified functionality.
+
+**Legacy Support Features**:
+- Separate handlers for ScreeningContext and RecruiterContext
+- Unified handler for InterviewContext with depth resolution
+- Backward-compatible mode mapping for legacy "screening"/"recruiter" modes
+- Graceful fallback to unified engine for all context types
+- Legacy conversation modules marked as deprecated but functional
+
+**Section sources**
+- [agent.py:1077-1204](file://app/voice_agent/agent.py#L1077-L1204)
+- [recruiter_conversation.py:1-10](file://app/voice_agent/recruiter_conversation.py#L1-L10)
+
 ## AI Recruiter Integration
 
 ### Advanced Interview Orchestration
@@ -399,33 +633,7 @@ RecruiterOrchestrator --> RecruiterAutoTrigger
 - [recommendation_agent.py:9-88](file://app/backend/services/recruiter/recommendation_agent.py#L9-L88)
 - [auto_trigger.py:23-131](file://app/backend/services/recruiter/auto_trigger.py#L23-L131)
 
-**Updated** The AI Recruiter system now includes comprehensive interview orchestration with advanced context building, strategy generation, multi-dimensional evaluation, and recommendation synthesis. The system supports automated interview initiation based on pipeline triggers and provides sophisticated conversation state management for structured interviews.
-
-### AI Recruiter Conversation System
-
-The AI Recruiter conversation system implements advanced state management for multi-dimensional interviews with dynamic question adaptation and real-time evaluation.
-
-```mermaid
-stateDiagram-v2
-[*] --> GREETING
-GREETING --> CONSENT
-CONSENT --> WARMUP
-WARMUP --> TECHNICAL
-TECHNICAL --> BEHAVIORAL
-BEHAVIORAL --> CULTURAL
-CULTURAL --> WRAP_UP
-WRAP_UP --> ANALYSIS
-ANALYSIS --> [*]
-```
-
-**Diagram sources**
-- [recruiter_conversation.py:18-27](file://app/voice_agent/recruiter_conversation.py#L18-L27)
-- [recruiter_conversation.py:110-128](file://app/voice_agent/recruiter_conversation.py#L110-L128)
-
-**Updated** The AI Recruiter conversation system now includes sophisticated state management with greeting, consent, warmup, technical assessment, behavioral evaluation, cultural fit assessment, wrap-up, and analysis phases. The system supports dynamic question flow, follow-up question generation, time management, and real-time answer quality detection with multi-dimensional assessment capabilities.
-
-**Section sources**
-- [recruiter_conversation.py:1-365](file://app/voice_agent/recruiter_conversation.py#L1-L365)
+**Updated** The AI Recruiter system now includes comprehensive interview orchestration with advanced context building, strategy generation, multi-dimensional evaluation, and recommendation synthesis. The system supports automated interview initiation based on pipeline triggers and provides sophisticated conversation state management for structured interviews. The unified conversation engine enhances AI Recruiter capabilities with consistent state management across all depth levels.
 
 ### Automated Interview Initiation
 
@@ -453,13 +661,13 @@ CheckJD --> |No| ManualTrigger
 CheckJD --> |Yes| InitiateInterview[Initiate AI Interview]
 InitiateInterview --> ScheduleCall[Schedule Voice Call]
 ScheduleCall --> CreateSession[Create Interview Session]
-CreateSession --> StartConversation[Start AI Recruiter Conversation]
+CreateSession --> StartConversation[Start Unified Conversation]
 ```
 
 **Diagram sources**
 - [auto_trigger.py:29-131](file://app/backend/services/recruiter/auto_trigger.py#L29-L131)
 
-**Updated** The automated interview initiation system now includes comprehensive trigger evaluation with pipeline stage matching, fit score threshold validation, phone number verification, and job description association. The system supports configurable delay scheduling and provides robust error handling for failed auto-trigger attempts.
+**Updated** The automated interview initiation system now includes comprehensive trigger evaluation with pipeline stage matching, fit score threshold validation, phone number verification, and job description association. The system supports configurable delay scheduling and provides robust error handling for failed auto-trigger attempts. The unified conversation engine enhances automated scheduling with consistent state management across all interview depth levels.
 
 **Section sources**
 - [auto_trigger.py:1-156](file://app/backend/services/recruiter/auto_trigger.py#L1-L156)
@@ -560,7 +768,7 @@ Orchestrator-->>Client : Session Details
 **Diagram sources**
 - [orchestrator.py:43-155](file://app/backend/services/recruiter/orchestrator.py#L43-L155)
 
-**Updated** The AI Recruiter orchestrator now includes comprehensive interview management with advanced context building, strategy generation, evaluation pipeline, and automated interview initiation. The system supports multi-tenancy, dynamic strategy generation, structured evaluation, and real-time session monitoring.
+**Updated** The AI Recruiter orchestrator now includes comprehensive interview management with advanced context building, strategy generation, evaluation pipeline, and automated interview initiation. The system supports multi-tenancy, dynamic strategy generation, structured evaluation, and real-time session monitoring. The unified conversation engine enhances AI Recruiter capabilities with consistent state management across all interview depth levels.
 
 **Section sources**
 - [orchestrator.py:1-429](file://app/backend/services/recruiter/orchestrator.py#L1-L429)
@@ -712,7 +920,7 @@ TENANTS ||--o{ RECRUITER_AUTO_TRIGGER_CONFIGS : has
 **Diagram sources**
 - [db_models.py:875-1090](file://app/backend/models/db_models.py#L875-L1090)
 
-**Updated** The database schema now includes comprehensive AI Recruiter support with dedicated tables for interview sessions, questions, scorecards, and auto-trigger configurations. The unified `transcript_json` field provides comprehensive storage for all conversation data, while the new AI Recruiter tables support structured interview management, evaluation tracking, and automated scheduling capabilities.
+**Updated** The database schema now includes comprehensive AI Recruiter support with dedicated tables for interview sessions, questions, scorecards, and auto-trigger configurations. The unified `transcript_json` field provides comprehensive storage for all conversation data, while the new AI Recruiter tables support structured interview management, evaluation tracking, and automated scheduling capabilities. The schema maintains backward compatibility with legacy voice screening tables while adding new AI Recruiter-specific fields and relationships.
 
 **Section sources**
 - [db_models.py:875-1090](file://app/backend/models/db_models.py#L875-L1090)
@@ -763,7 +971,7 @@ PHONE_VALIDATION --> JD_ASSOCIATION
 - [VoiceScreeningPage.jsx:147-696](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L147-L696)
 - [RecruiterInterviewPage.jsx:92-565](file://app/frontend/src/pages/RecruiterInterviewPage.jsx#L92-L565)
 
-**Updated** Enhanced frontend integration now includes comprehensive AI Recruiter session management with interview initiation modal, session tracking, analytics dashboard, and auto-trigger configuration. The interface supports both traditional voice screening and advanced AI Recruiter interview capabilities with unified session management and real-time status monitoring.
+**Updated** Enhanced frontend integration now includes comprehensive AI Recruiter session management with interview initiation modal, session tracking, analytics dashboard, and auto-trigger configuration. The interface supports both traditional voice screening and advanced AI Recruiter interview capabilities with unified session management and real-time status monitoring. The unified conversation engine enhances AI Recruiter capabilities with consistent state management across all interview depth levels.
 
 **Section sources**
 - [VoiceScreeningPage.jsx:1-786](file://app/frontend/src/pages/VoiceScreeningPage.jsx#L1-L786)
@@ -800,7 +1008,7 @@ Success --> CloseModal["Close Modal & Refresh"]
 **Diagram sources**
 - [InterviewInitiateModal.jsx:17-54](file://app/frontend/src/components/InterviewInitiateModal.jsx#L17-L54)
 
-**Updated** The interview initiation modal now includes comprehensive AI Recruiter support with candidate selection, job description template selection, duration configuration, and focus area specification. The interface provides real-time validation, error handling, and user feedback for a seamless interview initiation experience.
+**Updated** The interview initiation modal now includes comprehensive AI Recruiter support with candidate selection, job description template selection, duration configuration, and focus area specification. The interface provides real-time validation, error handling, and user feedback for a seamless interview initiation experience. The unified conversation engine enhances AI Recruiter capabilities with consistent state management across all interview depth levels.
 
 **Section sources**
 - [InterviewInitiateModal.jsx:1-178](file://app/frontend/src/components/InterviewInitiateModal.jsx#L1-L178)
@@ -836,15 +1044,30 @@ The backend exposes a comprehensive set of RESTful endpoints for voice screening
 - `GET /api/recruiter/analytics` - **New** Get AI Recruiter analytics
 - `POST /api/recruiter/sessions/export` - **New** Export AI Recruiter sessions
 
+### Unified Interview Management
+- `POST /api/interviews/sessions` - **New** Create unified interview session (quick/standard/deep)
+- `GET /api/interviews/sessions` - **New** List unified interview sessions
+- `GET /api/interviews/sessions/{session_id}` - **New** Get unified interview session detail
+- `GET /api/interviews/sessions/{session_id}/transcript` - **New** Get unified interview transcript
+- `GET /api/interviews/sessions/{session_id}/scorecard` - **New** Get unified interview scorecard
+- `POST /api/interviews/sessions/{session_id}/cancel` - **New** Cancel unified interview session
+- `POST /api/interviews/sessions/{session_id}/retry` - **New** Retry failed unified interview session
+- `GET /api/interviews/config` - **New** Get merged interview configuration
+- `PUT /api/interviews/config` - **New** Update merged interview configuration
+- `GET /api/interviews/analytics` - **New** Get combined analytics
+- `POST /api/interviews/sessions/export` - **New** Export unified interview sessions
+- `POST /api/interviews/internal/complete` - **New** Voice agent completion callback
+
 ### Internal Service Endpoints
 - `GET /api/voice/internal/config/{tenant_id}` - Internal tenant config access
 - `GET /api/voice/internal/candidate/{tenant_id}/{candidate_id}` - Internal candidate info access
 
-**Updated** Enhanced rescheduling endpoint now supports job description ID tracking and improved error handling for rescheduling operations. The AI Recruiter endpoints provide comprehensive interview management capabilities including session initiation, monitoring, evaluation, and analytics. The internal configuration endpoint now includes comprehensive tenant settings including bot name, greeting style, and consent script. New auto-trigger configuration endpoints support pipeline-driven interview scheduling with configurable thresholds and delays.
+**Updated** Enhanced rescheduling endpoint now supports job description ID tracking and improved error handling for rescheduling operations. The AI Recruiter endpoints provide comprehensive interview management capabilities including session initiation, monitoring, evaluation, and analytics. The unified interview endpoints combine voice screening and AI Recruiter functionality with depth-aware orchestration. The internal configuration endpoint now includes comprehensive tenant settings including bot name, greeting style, and consent script. New auto-trigger configuration endpoints support pipeline-driven interview scheduling with configurable thresholds and delays. The unified conversation engine enhances AI Recruiter capabilities with consistent state management across all interview depth levels.
 
 **Section sources**
 - [voice.py:47-385](file://app/backend/routes/voice.py#L47-L385)
 - [recruiter.py:1-704](file://app/backend/routes/recruiter.py#L1-L704)
+- [interviews.py:1-800](file://app/backend/routes/interviews.py#L1-L800)
 
 ## Conversation Flow
 
@@ -879,34 +1102,34 @@ VoiceAgent->>Backend : Update session status
 **Diagram sources**
 - [agent.py:431-485](file://app/voice_agent/agent.py#L431-L485)
 
-**Updated** The conversation flow now includes enhanced rescheduling capabilities with job description ID tracking and improved error handling for rescheduling operations. The system enforces configurable call duration limits and applies customized consent scripts. The AI Recruiter conversation flow includes sophisticated state management with greeting, consent, warmup, technical assessment, behavioral evaluation, cultural fit assessment, wrap-up, and analysis phases with dynamic question adaptation and multi-dimensional evaluation.
+**Updated** The conversation flow now includes enhanced rescheduling capabilities with job description ID tracking and improved error handling for rescheduling operations. The system enforces configurable call duration limits and applies customized consent scripts. The unified conversation engine enhances AI Recruiter capabilities with sophisticated state management across all interview depth levels including greeting, consent, warmup, questions, follow-up, wrap-up, and ended states with dynamic question adaptation and multi-dimensional evaluation.
 
 **Section sources**
 - [agent.py:431-485](file://app/voice_agent/agent.py#L431-L485)
 
-### AI Recruiter Conversation Flow
+### Unified Conversation Flow
 
-The AI Recruiter conversation flow implements advanced state management for structured multi-dimensional interviews.
+The unified conversation flow implements advanced state management for structured multi-dimensional interviews across all depth levels.
 
 ```mermaid
 sequenceDiagram
 participant Candidate as "Candidate"
-participant RecruiterAgent as "AI Recruiter Agent"
+participant UnifiedConv as "UnifiedConversation"
 participant Strategy as "Interview Strategy"
 participant LLM as "Evaluation LLM"
 participant Backend as "Backend API"
-Candidate->>RecruiterAgent : Call connects
-RecruiterAgent->>Strategy : Load Interview Strategy
-RecruiterAgent->>Candidate : Greeting & Consent
+Candidate->>UnifiedConv : Call connects
+UnifiedConv->>Strategy : Load Interview Strategy
+UnifiedConv->>Candidate : Greeting & Consent
 loop Assessment Phases
-Candidate->>RecruiterAgent : Answer Question
-RecruiterAgent->>LLM : Evaluate Response Quality
-LLM->>RecruiterAgent : Response Quality Score
-RecruiterAgent->>Strategy : Determine Next Question
-Strategy->>RecruiterAgent : Next Question Text
-RecruiterAgent->>Candidate : Ask Next Question
+Candidate->>UnifiedConv : Answer Question
+UnifiedConv->>LLM : Evaluate Response Quality
+LLM->>UnifiedConv : Response Quality Score
+UnifiedConv->>Strategy : Determine Next Question
+Strategy->>UnifiedConv : Next Question Text
+UnifiedConv->>Candidate : Ask Next Question
 end
-RecruiterAgent->>Backend : Generate Scorecard
+UnifiedConv->>Backend : Generate Scorecard
 Backend->>LLM : Synthesize Recommendation
 LLM->>Backend : Final Recommendation
 Backend->>Candidate : Wrap-up Message
@@ -914,12 +1137,12 @@ Backend->>Backend : Update Session Status
 ```
 
 **Diagram sources**
-- [recruiter_conversation.py:86-365](file://app/voice_agent/recruiter_conversation.py#L86-L365)
+- [conversation.py:86-365](file://app/voice_agent/conversation.py#L86-L365)
 
-**Updated** The AI Recruiter conversation flow includes sophisticated state management with greeting, consent, warmup, technical assessment, behavioral evaluation, cultural fit assessment, wrap-up, and analysis phases. The system supports dynamic question flow based on candidate responses, multi-dimensional evaluation with real-time quality assessment, and automated interview completion with structured scorecard generation.
+**Updated** The unified conversation flow includes sophisticated state management with greeting, consent, warmup, questions, follow-up, wrap-up, and ended phases. The system supports dynamic question flow based on interview depth and strategy, multi-dimensional evaluation with real-time quality assessment, and automated interview completion with structured scorecard generation. The unified conversation engine provides consistent state management across Quick, Standard, and Deep interview depth levels.
 
 **Section sources**
-- [recruiter_conversation.py:86-365](file://app/voice_agent/recruiter_conversation.py#L86-L365)
+- [conversation.py:86-365](file://app/voice_agent/conversation.py#L86-L365)
 
 ## Testing Framework
 
@@ -942,6 +1165,14 @@ The voice screening system includes comprehensive testing coverage through unit 
 - **Auto-Trigger Functionality**: Pipeline-driven interview initiation and configuration testing
 - **Multi-Dimensional Assessment**: Technical, behavioral, communication, and cultural fit evaluation testing
 - **Recommendation System**: Overall score calculation and recommendation synthesis testing
+- **Unified Conversation Engine**: Interview depth management, state transitions, and dynamic question flow testing
+- **Interview Context Management**: Depth-based configuration, time budget enforcement, and follow-up logic testing
+- **Edge Case Detection**: Silence handling, uncertainty responses, and negative response processing
+- **Follow-up Question Generation**: LLM integration and fallback response generation testing
+- **Backward Compatibility**: Legacy conversation module support and mode mapping validation
+- **Unified Interview Management**: Combined voice screening and AI Recruiter functionality testing
+- **Depth-Aware Orchestration**: Quick/Standard/Deep interview depth validation
+- **Shared Infrastructure**: Common conversation engine across all interview types
 
 ### Test Scenarios
 - Configuration validation and defaults
@@ -950,15 +1181,21 @@ The voice screening system includes comprehensive testing coverage through unit 
 - Business hour adjustments
 - Assessment structure validation
 - **Enhanced** Rescheduling operation validation with job description ID tracking
-- **New** AI Recruiter session initiation and management testing
-- **New** Interview strategy generation with LLM integration testing
-- **New** Multi-dimensional evaluation pipeline testing
+- **New** Unified conversation engine testing across all interview depth levels
+- **New** Interview context management and state persistence validation
+- **New** Edge case detection and response handling across all depth levels
+- **New** Follow-up question generation with LLM integration testing
+- **New** Backward compatibility validation for legacy conversation modules
+- **New** Interview depth-specific behavior validation (Quick/Standard/Deep)
+- **New** Multi-dimensional evaluation pipeline testing with unified engine
 - **New** Auto-trigger configuration and pipeline integration testing
 - **New** Scorecard generation and recommendation synthesis testing
 - **New** Conversation state management and dynamic question flow testing
 - **New** Follow-up question generation and response quality assessment testing
+- **New** Unified interview management testing with depth-aware orchestration
+- **New** Shared infrastructure validation across all interview types
 
-**Updated** Testing framework now includes comprehensive validation for AI Recruiter integration with interview orchestration, strategy generation, multi-dimensional evaluation, and recommendation synthesis. New test coverage includes auto-trigger functionality with pipeline integration, conversation state management with dynamic question adaptation, and sophisticated evaluation agents for technical, behavioral, communication, and cultural fit assessment. Enhanced testing covers AI-powered interview initiation, structured scorecard generation, and automated interview scheduling capabilities.
+**Updated** Testing framework now includes comprehensive validation for the unified conversation engine with interview depth management, state transitions, and dynamic question flow testing. New test coverage includes InterviewContext management with depth-based configuration, time budget enforcement, and follow-up logic validation. Enhanced testing covers AI-powered interview initiation, structured scorecard generation, and automated interview scheduling capabilities. The framework now includes backward compatibility testing for legacy conversation modules while validating unified engine functionality. Unified interview management testing validates depth-aware orchestration and shared infrastructure across all interview types.
 
 **Section sources**
 - [test_voice_screening.py:1-871](file://app/backend/tests/test_voice_screening.py#L1-L871)
@@ -981,12 +1218,12 @@ LOCK[PostgreSQL Advisory Lock]
 LLM[Ollama Cloud LLM]
 LIVESERVER[LiveKit Server]
 TWILIO[Twilio SIP Trunk]
-end
+END
 subgraph "External Dependencies"
 LLM[Ollama Cloud LLM]
 LIVESERVER[LiveKit Server]
 TWILIO[Twilio SIP Trunk]
-end
+END
 BACKEND --> DATABASE
 BACKEND --> REDIS
 BACKEND --> SCHEDULER
@@ -1006,9 +1243,9 @@ BACKEND --> TWILIO
 **Diagram sources**
 - [docker-compose.yml](file://docker-compose.yml)
 
-**Updated** The deployment architecture now reflects the current Phase 2.0 implementation status with comprehensive AI Recruiter integration, advanced conversation state management, and automated interview initiation capabilities. The system includes specialized AI Recruiter services for interview orchestration, context building, strategy generation, evaluation, and recommendation. Enhanced rescheduling capabilities are fully integrated into the deployment architecture. The LiveKit configuration now includes reduced port ranges (50000-50200) and node IP configuration for improved network security. The advisory lock mechanism ensures single-instance scheduler execution across multiple workers.
+**Updated** The deployment architecture now reflects the current Phase 2.0 implementation status with comprehensive unified conversation engine integration, advanced conversation state management, and automated interview initiation capabilities. The system includes specialized AI Recruiter services for interview orchestration, context building, strategy generation, evaluation, and recommendation. Enhanced rescheduling capabilities are fully integrated into the deployment architecture. The LiveKit configuration now includes reduced port ranges (50000-50200) and node IP configuration for improved network security. The advisory lock mechanism ensures single-instance scheduler execution across multiple workers.
 
-The deployment architecture supports horizontal scaling, service discovery, and resilient communication patterns essential for production voice screening and AI Recruiter operations.
+The deployment architecture supports horizontal scaling, service discovery, and resilient communication patterns essential for production voice screening and AI Recruiter operations. The unified conversation engine enhances deployment with consistent state management across all interview depth levels and backward compatibility with legacy conversation modules.
 
 **Updated** The LiveKit Server configuration has been updated to reflect programmatic SIP trunk management. The livekit.yaml file now explicitly states that SIP trunking is configured programmatically via the LiveKit API in the voice-agent, as the livekit-server version does not support SIP config in YAML. The LiveKit Server now exposes port 5060 for SIP signaling to support external telephony provider integration. The track subscription event handling mechanism is now fully integrated into the deployment architecture, ensuring reliable audio processing through the synchronous wrapper function.
 
@@ -1090,10 +1327,25 @@ The deployment architecture supports horizontal scaling, service discovery, and 
 - **Solution**: Verify pipeline stage configuration and fit score thresholds
 - **Diagnostic**: Check auto-trigger logs and configuration validation
 
-#### Conversation State Management Issues
+#### Unified Conversation Engine Issues
 - **Issue**: Interview flow interruptions or state inconsistencies
-- **Solution**: Verify state transition logic and conversation context persistence
-- **Diagnostic**: Check conversation state logs and context validation
+- **Solution**: Verify InterviewContext persistence and InterviewDepth resolution
+- **Diagnostic**: Check unified conversation logs and context validation
+
+#### Interview Depth Management Issues
+- **Issue**: Incorrect depth handling or budget enforcement
+- **Solution**: Verify InterviewDepth enum usage and time budget calculations
+- **Diagnostic**: Check depth-specific behavior logs and budget validation
+
+#### Backward Compatibility Issues
+- **Issue**: Legacy conversation module failures or mode mapping errors
+- **Solution**: Verify deprecated module compatibility and mode resolution logic
+- **Diagnostic**: Check legacy module logs and mode mapping validation
+
+#### Unified Interview Management Issues
+- **Issue**: Depth-aware orchestration failures or shared infrastructure problems
+- **Solution**: Verify InterviewContext usage and depth resolution across all interview types
+- **Diagnostic**: Check unified interview logs and depth-aware orchestration validation
 
 ### Monitoring and Logging
 
@@ -1112,8 +1364,11 @@ The system provides comprehensive monitoring through:
 - **AI Recruiter Monitoring**: Interview orchestration, strategy generation, and evaluation pipeline status
 - **Auto-Trigger Monitoring**: Pipeline integration and interview initiation validation
 - **Conversation State Monitoring**: Interview flow and state management validation
+- **Unified Engine Monitoring**: Interview depth management and state transition validation
+- **Backward Compatibility Monitoring**: Legacy module support and mode mapping validation
+- **Unified Interview Monitoring**: Depth-aware orchestration and shared infrastructure validation
 
-**Updated** Enhanced troubleshooting now includes comprehensive monitoring for AI Recruiter integration, covering interview orchestration, strategy generation, evaluation pipeline, and recommendation synthesis. Auto-trigger functionality monitoring includes pipeline stage validation, fit score threshold checking, and interview initiation tracking. Conversation state management monitoring validates interview flow, state transitions, and dynamic question adaptation. The system now includes specialized monitoring for AI-powered interview capabilities, structured evaluation pipelines, and automated scheduling systems.
+**Updated** Enhanced troubleshooting now includes comprehensive monitoring for the unified conversation engine with interview depth management, state transitions, and dynamic question flow validation. Auto-trigger functionality monitoring includes pipeline stage validation, fit score threshold checking, and interview initiation tracking. Conversation state management monitoring validates interview flow, state transitions, and dynamic question adaptation across all depth levels. The system now includes specialized monitoring for AI-powered interview capabilities, structured evaluation pipelines, and automated scheduling systems. Backward compatibility monitoring ensures legacy conversation module support while validating unified engine functionality. Unified interview management monitoring validates depth-aware orchestration and shared infrastructure across all interview types.
 
 **Section sources**
 - [livekit.yaml:27-44](file://app/voice_agent/livekit.yaml#L27-L44)
@@ -1122,35 +1377,34 @@ The system provides comprehensive monitoring through:
 
 The Voice Agent Conversation System represents a comprehensive solution for automated phone screening and AI-powered interview management in recruitment processes. By combining advanced AI capabilities with robust infrastructure, the system delivers scalable, compliant, and efficient candidate screening experiences.
 
-**Current Implementation Status**: Phase 2.0 - The system now implements a comprehensive AI Recruiter integration with advanced conversation state management, automated interview initiation capabilities, and sophisticated multi-dimensional assessment systems. The current implementation maintains full telephony integration readiness while ensuring system stability and performance.
+**Current Implementation Status**: Phase 2.0 - The system now implements a comprehensive unified conversation engine that replaces separate screening and AI recruiter conversation modules. The new conversation.py module provides a unified 657-line conversation framework supporting three interview depth levels: Quick (3-5 minutes), Standard (10-15 minutes), and Deep (20-30 minutes). The current implementation maintains full telephony integration readiness while ensuring system stability and performance.
 
-Enhanced AI Recruiter capabilities with advanced conversation state management provide sophisticated multi-dimensional assessment including technical depth, behavioral evaluation, communication quality, and cultural fit assessment. The system now includes comprehensive auto-trigger functionality for pipeline-driven interview scheduling, automated interview initiation based on fit scores and pipeline stages, and intelligent conversation flow with dynamic question adaptation.
+Enhanced unified conversation capabilities with comprehensive state management provide sophisticated multi-dimensional assessment including technical depth, behavioral evaluation, communication quality, and cultural fit assessment across all interview depth levels. The system now includes comprehensive auto-trigger functionality for pipeline-driven interview scheduling, automated interview initiation based on fit scores and pipeline stages, and intelligent conversation flow with dynamic question adaptation.
 
-The unified transcript management through `transcript_json` field provides seamless integration with assessment generation and compliance reporting. Advanced evaluation agents provide structured scoring across multiple dimensions with evidence-based recommendations and confidence levels.
+The unified conversation engine provides consistent InterviewContext management with InterviewDepth enumeration, dynamic question loading based on interview depth, and sophisticated edge case detection with depth-specific response handling. Advanced evaluation agents provide structured scoring across multiple dimensions with evidence-based recommendations and confidence levels.
 
 **Key Enhancements**:
-- **AI Recruiter Integration**: Comprehensive structured interview system with multi-dimensional assessment
-- **Advanced Conversation State Management**: Sophisticated state machine with dynamic question flow and real-time evaluation
-- **Automated Interview Initiation**: Pipeline-driven interview scheduling with configurable thresholds and delays
-- **Multi-Dimensional Evaluation**: Technical, behavioral, communication, and cultural fit assessment with structured scoring
-- **Intelligent Strategy Generation**: LLM-powered interview planning with dynamic adaptation based on candidate responses
-- **Structured Recommendation System**: Evidence-based recommendations with confidence levels and human validation requirements
+- **Unified Conversation Engine**: Comprehensive 657-line framework replacing separate screening and AI recruiter modules
+- **Three Interview Depth Levels**: Quick (3-5 min), Standard (10-15 min), Deep (20-30 min) with consistent state management
+- **InterviewContext Management**: Unified context handling with InterviewDepth enumeration and dynamic configuration
+- **Dynamic Question Loading**: Depth-specific question generation with strategy-based and skill-based approaches
+- **Edge Case Detection**: Comprehensive edge case handling with depth-specific responses and follow-up logic
+- **Follow-up Question Generation**: Intelligent follow-up generation with LLM integration and fallback responses
+- **Backward Compatibility**: Legacy conversation module support with graceful deprecation and mode mapping
 - **Enhanced Auto-Trigger Functionality**: Pipeline integration for automated interview scheduling based on fit scores and pipeline stages
-- **Comprehensive Monitoring**: Advanced troubleshooting and diagnostic capabilities for AI Recruiter and voice agent systems
-- **PostgreSQL Advisory Lock**: Single-instance scheduler execution protection across multi-worker deployments
-- **Programmatic SIP Trunk Management**: Three-tier approach (discovery, creation, fallback) eliminates YAML dependency
-- **Enhanced Audio Processing**: WAV header stripping and proper PCM frame creation for LiveKit integration
-- **Sophisticated Error Handling**: Comprehensive audio capture operation error handling with graceful degradation
-- **Enhanced Rescheduling**: Job description ID tracking and improved error handling for rescheduling operations
-- **Improved Session Management**: Sophisticated job description association and rescheduling capabilities
-- **Unified Transcript Management**: Comprehensive JSON storage for all conversation data
-- **Flexible Tenant Configuration**: Customizable bot names, greeting styles, and consent scripts
+- **Multi-Dimensional Evaluation**: Technical, behavioral, communication, and cultural fit assessment with structured scoring
+- **Structured Recommendation System**: Evidence-based recommendations with confidence levels and human validation requirements
+- **Unified Transcript Management**: Comprehensive JSON storage for all conversation data across all depth levels
+- **Flexible Tenant Configuration**: Customizable bot names, greeting styles, and consent scripts with InterviewContext persistence
 - **Enhanced Network Security**: Reduced port ranges and node IP configuration for LiveKit Server
 - **SIP Signaling Configuration**: Port 5060 exposure and programmatic trunk management for external provider integration
 - **Protobuf API Integration**: Enhanced LiveKit protocol compatibility with protobuf-based API methods
 - **Phone Number Normalization**: Robust E.164 compliance for proper Twilio integration
 - **LiveKit Event System Bridge**: Synchronous wrapper function that addresses event system limitations while maintaining asynchronous audio processing capabilities
+- **Comprehensive Monitoring**: Advanced troubleshooting and diagnostic capabilities for unified conversation engine and voice agent systems
+- **Unified Interview Management**: Combined voice screening and AI Recruiter functionality with depth-aware orchestration
+- **Shared Infrastructure**: Common conversation engine supporting all interview types with consistent state management
 
-The system provides a solid foundation for organizations seeking to enhance their recruitment processes through intelligent automation while maintaining human oversight and compliance standards. The current Phase 2.0 implementation ensures full telephony integration readiness with comprehensive audio processing, conversation management, AI-powered evaluation, and automated interview scheduling capabilities.
+The system provides a solid foundation for organizations seeking to enhance their recruitment processes through intelligent automation while maintaining human oversight and compliance standards. The current Phase 2.0 implementation ensures full telephony integration readiness with comprehensive audio processing, conversation management, AI-powered evaluation, and automated interview scheduling capabilities across all interview depth levels.
 
-**Updated** The migration to AI Recruiter integration with advanced conversation state management and automated interview initiation represents a significant architectural enhancement, providing sophisticated multi-dimensional assessment capabilities and intelligent interview orchestration. The system now supports pipeline-driven interview scheduling, structured evaluation with evidence-based recommendations, and comprehensive monitoring for AI-powered recruitment processes. The addition of AI Recruiter services with specialized orchestration, context building, strategy generation, evaluation, and recommendation capabilities significantly expands the system's interview management capabilities beyond traditional voice screening. The enhanced troubleshooting procedures now include comprehensive monitoring for AI Recruiter integration, conversation state management, and automated scheduling systems, providing developers with better tools for diagnosing and resolving complex interview orchestration issues.
+**Updated** The migration to unified conversation engine with comprehensive state management and automated interview initiation represents a significant architectural enhancement, providing sophisticated multi-dimensional assessment capabilities and intelligent interview orchestration across all depth levels. The system now supports pipeline-driven interview scheduling, structured evaluation with evidence-based recommendations, and comprehensive monitoring for AI-powered recruitment processes. The addition of unified conversation engine with InterviewContext and InterviewDepth provides consistent state management across Quick, Standard, and Deep interview modes, significantly expanding the system's interview management capabilities beyond traditional voice screening. The enhanced troubleshooting procedures now include comprehensive monitoring for unified conversation engine, conversation state management, and automated scheduling systems, providing developers with better tools for diagnosing and resolving complex interview orchestration issues. Backward compatibility ensures legacy conversation module support while validating unified engine functionality. Unified interview management validates depth-aware orchestration and shared infrastructure across all interview types.
