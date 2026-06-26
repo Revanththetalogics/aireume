@@ -68,7 +68,7 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
       - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
       - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
-      - VOICE_AGENT_URL=http://staging-voice-agent:8002
+      - VOICE_AGENT_URL=http://voice-agent:8002
     depends_on:
       - postgres
       - ollama
