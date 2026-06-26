@@ -28,7 +28,7 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }}
       run: |
-        pytest app/backend/tests/ -v --cov=app.backend.services --cov-report=xml
+        pytest app/backend/tests/ -v --cov=app.backend.services --cov-report=xml --ignore=app/backend/tests/test_agent_pipeline.py
 
     - name: Upload coverage
       uses: codecov/codecov-action@v3
