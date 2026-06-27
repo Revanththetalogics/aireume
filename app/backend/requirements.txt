@@ -54,6 +54,10 @@ pytest-cov==6.0.0
 # PDF Generation
 weasyprint>=61.0
 
+# LLM Integration
+langchain-core>=0.3.0
+langchain-ollama>=0.3.0
+
 # Utilities
 python-dotenv==1.0.1
 dateparser>=1.2

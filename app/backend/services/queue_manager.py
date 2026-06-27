@@ -36,14 +36,13 @@ logger = logging.getLogger(__name__)
 # Job Models (SQLAlchemy models for queue tables)
 # ============================================================================
 
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Float, ForeignKey
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Float, ForeignKey, JSON, Uuid
 
 
 class AnalysisJob(Base):
     __tablename__ = 'analysis_jobs'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(Integer, ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
     candidate_id = Column(Integer, ForeignKey('candidates.id', ondelete='SET NULL'), nullable=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
@@ -68,7 +67,7 @@ class AnalysisJob(Base):
     worker_id = Column(String(100), nullable=True, index=True)
     worker_heartbeat = Column(DateTime(timezone=True), nullable=True)
     
-    artifact_id = Column(UUID(as_uuid=True), ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True)
+    artifact_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True)
     
     processing_stage = Column(String(50), nullable=True)
     progress_percent = Column(Integer, nullable=False, default=0)
@@ -77,10 +76,10 @@ class AnalysisJob(Base):
     error_message = Column(Text, nullable=True)
     error_type = Column(String(100), nullable=True)
     error_stack_trace = Column(Text, nullable=True)
-    error_context = Column(JSONB, nullable=True)
+    error_context = Column(JSON, nullable=True)
     
-    result_id = Column(UUID(as_uuid=True), ForeignKey('analysis_results.id', ondelete='SET NULL'), nullable=True)
-    job_config = Column(JSONB, nullable=True)
+    result_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_results.id', ondelete='SET NULL'), nullable=True)
+    job_config = Column(JSON, nullable=True)
 
     # Lease-based locking: set when a worker claims the job
     leased_until = Column(DateTime(timezone=True), nullable=True, index=True)
@@ -92,8 +91,8 @@ class AnalysisJob(Base):
 class AnalysisResult(Base):
     __tablename__ = 'analysis_results'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    job_id = Column(UUID(as_uuid=True), ForeignKey('analysis_jobs.id', ondelete='CASCADE'), nullable=False, unique=True)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_jobs.id', ondelete='CASCADE'), nullable=False, unique=True)
     tenant_id = Column(Integer, ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
     candidate_id = Column(Integer, ForeignKey('candidates.id', ondelete='SET NULL'), nullable=True, index=True)
     
@@ -101,12 +100,12 @@ class AnalysisResult(Base):
     final_recommendation = Column(String(50), nullable=False)
     risk_level = Column(String(20), nullable=True)
     
-    analysis_data = Column(JSONB, nullable=False)
-    parsed_resume = Column(JSONB, nullable=False)
-    parsed_jd = Column(JSONB, nullable=False)
+    analysis_data = Column(JSON, nullable=False)
+    parsed_resume = Column(JSON, nullable=False)
+    parsed_jd = Column(JSON, nullable=False)
     
     narrative_status = Column(String(20), nullable=False, default='pending')
-    narrative_data = Column(JSONB, nullable=True)
+    narrative_data = Column(JSON, nullable=True)
     narrative_generated_at = Column(DateTime(timezone=True), nullable=True)
     ai_enhanced = Column(Boolean, nullable=False, default=False)
     
@@ -118,13 +117,13 @@ class AnalysisResult(Base):
     analysis_quality = Column(String(20), nullable=False, default='medium')
     confidence_score = Column(Float, nullable=True)
     
-    artifact_id = Column(UUID(as_uuid=True), ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True)
+    artifact_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True)
 
 
 class AnalysisArtifact(Base):
     __tablename__ = 'analysis_artifacts'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(Integer, ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
     
     resume_filename = Column(String(255), nullable=False)
@@ -143,8 +142,8 @@ class AnalysisArtifact(Base):
     resume_text = Column(Text, nullable=False)
     resume_text_length = Column(Integer, nullable=False)
     
-    parsed_resume_cache = Column(JSONB, nullable=True)
-    parsed_jd_cache = Column(JSONB, nullable=True)
+    parsed_resume_cache = Column(JSON, nullable=True)
+    parsed_jd_cache = Column(JSON, nullable=True)
     
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=True)
@@ -155,8 +154,8 @@ class AnalysisArtifact(Base):
 class JobMetrics(Base):
     __tablename__ = 'job_metrics'
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    job_id = Column(UUID(as_uuid=True), ForeignKey('analysis_jobs.id', ondelete='CASCADE'), nullable=False, index=True)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_jobs.id', ondelete='CASCADE'), nullable=False, index=True)
     tenant_id = Column(Integer, ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
     
     queue_wait_time_ms = Column(Integer, nullable=True)
@@ -174,7 +173,7 @@ class JobMetrics(Base):
     analysis_confidence = Column(Float, nullable=True)
     json_parse_retries = Column(Integer, nullable=False, default=0)
     
-    stage_timings = Column(JSONB, nullable=True)
+    stage_timings = Column(JSON, nullable=True)
     
     error_stage = Column(String(50), nullable=True)
     retry_attempts = Column(Integer, nullable=False, default=0)

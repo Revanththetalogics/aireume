@@ -17,6 +17,13 @@ import tempfile
 
 import pytest
 
+# Check if langgraph is available (WIP-only dependency for agent_pipeline)
+try:
+    import langgraph  # noqa: F401
+    _has_langgraph = True
+except ImportError:
+    _has_langgraph = False
+
 # Ensure project root is on the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
@@ -609,6 +616,10 @@ class TestPipelineONETIntegration:
         source = inspect.getsource(hybrid_pipeline)
         assert "match_skills_with_onet" in source
 
+    @pytest.mark.skipif(
+        not _has_langgraph,
+        reason="langgraph not installed (agent_pipeline is WIP)",
+    )
     def test_agent_pipeline_imports_onet(self):
         """Verify agent_pipeline imports match_skills_with_onet."""
         from app.backend.services.wip import agent_pipeline
@@ -623,6 +634,10 @@ class TestPipelineONETIntegration:
         source = inspect.getsource(hybrid_pipeline)
         assert "job_title=" in source
 
+    @pytest.mark.skipif(
+        not _has_langgraph,
+        reason="langgraph not installed (agent_pipeline is WIP)",
+    )
     def test_agent_pipeline_passes_job_title(self):
         """Verify agent_pipeline passes job_title to match_skills_with_onet."""
         from app.backend.services.wip import agent_pipeline
