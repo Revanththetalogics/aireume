@@ -8,10 +8,12 @@ Handles:
   • Integration with Speech Service (STT/TTS) and Ollama Cloud (LLM)
 """
 import asyncio
+import io
 import json
 import logging
 import os
 import re
+import struct
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -733,6 +735,24 @@ def _strip_wav_header(data: bytes) -> bytes:
     return data  # Already raw PCM
 
 
+def _pcm_to_wav(pcm_data: bytes, sample_rate: int, channels: int = 1, sample_width: int = 2) -> bytes:
+    """Wrap raw PCM bytes in a WAV header so the speech service can resample correctly."""
+    num_samples = len(pcm_data) // sample_width
+    byte_rate = sample_rate * channels * sample_width
+    block_align = channels * sample_width
+    data_size = len(pcm_data)
+
+    header = struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF', 36 + data_size, b'WAVE',
+        b'fmt ', 16,
+        1,  # PCM format
+        channels, sample_rate, byte_rate, block_align, sample_width * 8,
+        b'data', data_size,
+    )
+    return header + pcm_data
+
+
 async def _notify_backend_complete(session_id: str, result: dict):
     """Notify backend that interview has completed (unified endpoint)."""
     backend_url = os.getenv("BACKEND_URL", ARIA_BACKEND_URL)
@@ -751,7 +771,9 @@ async def _notify_backend_complete(session_id: str, result: dict):
 async def _publish_audio(room, audio_source, pcm_data: bytes, sample_rate: int):
     """Publish raw PCM audio to the LiveKit room via the agent's audio track.
 
-    Handles WAV→PCM conversion, frame splitting, and track publishing.
+    Handles WAV→PCM conversion, frame splitting (20ms chunks), and track publishing.
+    LiveKit expects small audio frames (~20ms). Sending the entire TTS output as
+    one frame can silently fail or cause audio glitches.
     """
     from livekit import rtc
 
@@ -760,21 +782,54 @@ async def _publish_audio(room, audio_source, pcm_data: bytes, sample_rate: int):
         logger.warning("Empty audio data — skipping publish")
         return
 
-    samples_per_channel = len(pcm) // 2  # 16-bit = 2 bytes per sample
-    if samples_per_channel == 0:
+    # 20ms frames = 320 samples at 16kHz, 2 bytes per sample = 640 bytes
+    FRAME_SAMPLES = int(sample_rate * 0.02)  # 20ms
+    FRAME_BYTES = FRAME_SAMPLES * 2  # 16-bit PCM
+
+    total_samples = len(pcm) // 2
+    if total_samples == 0:
+        logger.warning("No audio samples after WAV header strip — skipping")
         return
 
-    frame = rtc.AudioFrame(
-        data=pcm,
-        sample_rate=sample_rate,
-        num_channels=1,
-        samples_per_channel=samples_per_channel,
-    )
+    frames_published = 0
+    offset = 0
+    while offset + FRAME_BYTES <= len(pcm):
+        chunk = pcm[offset:offset + FRAME_BYTES]
+        frame = rtc.AudioFrame(
+            data=chunk,
+            sample_rate=sample_rate,
+            num_channels=1,
+            samples_per_channel=FRAME_SAMPLES,
+        )
+        try:
+            await audio_source.capture_frame(frame)
+            frames_published += 1
+        except Exception as e:
+            logger.warning("capture_frame failed at offset %d: %s", offset, e)
+            break
+        # Small delay to let LiveKit process the frame
+        await asyncio.sleep(0.02)
+        offset += FRAME_BYTES
 
-    try:
-        await audio_source.capture_frame(frame)
-    except Exception as e:
-        logger.warning("capture_frame failed: %s", e)
+    # Handle any remaining partial frame
+    if offset < len(pcm):
+        remaining = pcm[offset:]
+        remaining_samples = len(remaining) // 2
+        if remaining_samples > 0:
+            frame = rtc.AudioFrame(
+                data=remaining,
+                sample_rate=sample_rate,
+                num_channels=1,
+                samples_per_channel=remaining_samples,
+            )
+            try:
+                await audio_source.capture_frame(frame)
+                frames_published += 1
+            except Exception as e:
+                logger.warning("capture_frame failed for partial frame: %s", e)
+
+    logger.info("Published %d audio frames (%d samples, %.1fs)",
+                frames_published, total_samples, total_samples / sample_rate)
 
 
 # ─── LiveKit Agent Worker ─────────────────────────────────────────────────────
@@ -803,12 +858,13 @@ class VoiceAgentWorker:
 
         # Audio buffer for STT (accumulate ~3s of audio per chunk)
         audio_buffer = bytearray()
-        SAMPLE_RATE = 16000
+        TTS_SAMPLE_RATE = 16000
         CHUNK_DURATION_SEC = 3.0
-        CHUNK_SIZE = int(SAMPLE_RATE * 2 * CHUNK_DURATION_SEC)  # 16-bit samples
+        actual_sample_rate: Optional[int] = None
+        CHUNK_SIZE = int(48000 * 2 * CHUNK_DURATION_SEC)  # Default 48kHz; adjusted on first frame
 
         # Persistent audio source for agent → candidate playback
-        audio_source = rtc.AudioSource(SAMPLE_RATE, 1)
+        audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
@@ -821,14 +877,20 @@ class VoiceAgentWorker:
 
                 async for event in stream:
                     frame = event.frame
+                    frame_rate = frame.sample_rate
+                    if actual_sample_rate is None:
+                        actual_sample_rate = frame_rate
+                        logger.info("Detected audio track sample rate: %d Hz", frame_rate)
                     audio_buffer.extend(frame.data)
 
-                    if len(audio_buffer) >= CHUNK_SIZE:
-                        chunk = bytes(audio_buffer[:CHUNK_SIZE])
-                        audio_buffer.clear()
+                    dynamic_chunk_size = int(frame_rate * 2 * CHUNK_DURATION_SEC)
+                    if len(audio_buffer) >= dynamic_chunk_size:
+                        chunk = bytes(audio_buffer[:dynamic_chunk_size])
+                        del audio_buffer[:dynamic_chunk_size]
 
-                        # Transcribe (LiveKit delivers raw PCM 16kHz 16-bit mono)
-                        text = await speech.transcribe(chunk, "audio/pcm")
+                        # Wrap PCM in WAV with correct sample rate for speech service
+                        wav_data = _pcm_to_wav(chunk, frame_rate)
+                        text = await speech.transcribe(wav_data, "audio/wav")
                         if text.strip():
                             session_ctx.transcript.append({
                                 "role": "candidate",
@@ -850,7 +912,7 @@ class VoiceAgentWorker:
                                 # Synthesize speech and publish to room
                                 audio_out = await speech.synthesize(bot_text)
                                 if audio_out:
-                                    await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+                                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
 
                             # Advance conversation state
                             engine.advance_state()
@@ -906,7 +968,7 @@ class VoiceAgentWorker:
             session_ctx.transcript.append({"role": "bot", "text": greeting, "timestamp": time.time()})
             audio_out = await speech.synthesize(greeting)
             if audio_out:
-                await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+                await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
                 logger.info("Greeting published for session %d", session_ctx.session_id)
 
             # Keep the call alive until ended or max duration
@@ -954,12 +1016,14 @@ class VoiceAgentWorker:
 
         # Audio buffer for STT (accumulate ~3s of audio per chunk)
         audio_buffer = bytearray()
-        SAMPLE_RATE = 16000
+        TTS_SAMPLE_RATE = 16000  # Our TTS audio source rate
         CHUNK_DURATION_SEC = 3.0
-        CHUNK_SIZE = int(SAMPLE_RATE * 2 * CHUNK_DURATION_SEC)  # 16-bit samples
+        # LiveKit Opus decodes to 48kHz, not 16kHz — we detect actual rate from first frame
+        actual_sample_rate: Optional[int] = None
+        CHUNK_SIZE = int(48000 * 2 * CHUNK_DURATION_SEC)  # Default to 48kHz; adjusted on first frame
 
         # Persistent audio source for agent → candidate playback
-        audio_source = rtc.AudioSource(SAMPLE_RATE, 1)
+        audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
@@ -972,14 +1036,23 @@ class VoiceAgentWorker:
 
                 async for event in stream:
                     frame = event.frame
+                    frame_rate = frame.sample_rate
+                    if actual_sample_rate is None:
+                        actual_sample_rate = frame_rate
+                        logger.info("Detected audio track sample rate: %d Hz", frame_rate)
+
                     audio_buffer.extend(frame.data)
 
-                    if len(audio_buffer) >= CHUNK_SIZE:
-                        chunk = bytes(audio_buffer[:CHUNK_SIZE])
-                        audio_buffer.clear()
+                    # Calculate chunk size based on actual sample rate
+                    dynamic_chunk_size = int(frame_rate * 2 * CHUNK_DURATION_SEC)
+                    if len(audio_buffer) >= dynamic_chunk_size:
+                        chunk = bytes(audio_buffer[:dynamic_chunk_size])
+                        del audio_buffer[:dynamic_chunk_size]
 
-                        # Transcribe (LiveKit delivers raw PCM 16kHz 16-bit mono)
-                        text = await speech.transcribe(chunk, "audio/pcm")
+                        # Wrap PCM in WAV header with correct sample rate
+                        # so speech service can resample to 16kHz for Whisper
+                        wav_data = _pcm_to_wav(chunk, frame_rate)
+                        text = await speech.transcribe(wav_data, "audio/wav")
                         if text.strip():
                             logger.info("Candidate said: %s", text)
 
@@ -991,7 +1064,7 @@ class VoiceAgentWorker:
                                 # Synthesize speech and publish to room
                                 audio_out = await speech.synthesize(bot_text)
                                 if audio_out:
-                                    await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+                                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
 
                             # Check for call end conditions
                             if conversation.is_complete():
@@ -1035,10 +1108,14 @@ class VoiceAgentWorker:
             # Deliver initial greeting via TTS
             greeting = await conversation.get_greeting()
             interview_ctx.transcript.append({"speaker": "bot", "text": greeting, "timestamp": 0.0, "state": "greeting"})
+            logger.info("Greeting text: %s", greeting[:100])
             audio_out = await speech.synthesize(greeting)
             if audio_out:
-                await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+                logger.info("TTS returned %d bytes for greeting", len(audio_out))
+                await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
                 logger.info("Greeting published for session %s", interview_ctx.session_id)
+            else:
+                logger.error("TTS returned empty audio for greeting — speech service may be unreachable at %s", SPEECH_SERVICE_URL)
 
             # Keep the call alive until ended or max duration
             while not conversation.is_complete():
@@ -1086,12 +1163,13 @@ class VoiceAgentWorker:
 
         # Audio buffer for STT (accumulate ~3s of audio per chunk)
         audio_buffer = bytearray()
-        SAMPLE_RATE = 16000
+        TTS_SAMPLE_RATE = 16000
         CHUNK_DURATION_SEC = 3.0
-        CHUNK_SIZE = int(SAMPLE_RATE * 2 * CHUNK_DURATION_SEC)  # 16-bit samples
+        actual_sample_rate: Optional[int] = None
+        CHUNK_SIZE = int(48000 * 2 * CHUNK_DURATION_SEC)  # Default 48kHz; adjusted on first frame
 
         # Persistent audio source for agent → candidate playback
-        audio_source = rtc.AudioSource(SAMPLE_RATE, 1)
+        audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
@@ -1104,14 +1182,20 @@ class VoiceAgentWorker:
 
                 async for event in stream:
                     frame = event.frame
+                    frame_rate = frame.sample_rate
+                    if actual_sample_rate is None:
+                        actual_sample_rate = frame_rate
+                        logger.info("Detected audio track sample rate: %d Hz", frame_rate)
                     audio_buffer.extend(frame.data)
 
-                    if len(audio_buffer) >= CHUNK_SIZE:
-                        chunk = bytes(audio_buffer[:CHUNK_SIZE])
-                        audio_buffer.clear()
+                    dynamic_chunk_size = int(frame_rate * 2 * CHUNK_DURATION_SEC)
+                    if len(audio_buffer) >= dynamic_chunk_size:
+                        chunk = bytes(audio_buffer[:dynamic_chunk_size])
+                        del audio_buffer[:dynamic_chunk_size]
 
-                        # Transcribe (LiveKit delivers raw PCM 16kHz 16-bit mono)
-                        text = await speech.transcribe(chunk, "audio/pcm")
+                        # Wrap PCM in WAV with correct sample rate for speech service
+                        wav_data = _pcm_to_wav(chunk, frame_rate)
+                        text = await speech.transcribe(wav_data, "audio/wav")
                         if text.strip():
                             logger.info("Candidate said: %s", text)
 
@@ -1123,7 +1207,7 @@ class VoiceAgentWorker:
                                 # Synthesize speech and publish to room
                                 audio_out = await speech.synthesize(bot_text)
                                 if audio_out:
-                                    await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+                                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
 
                             # Check for call end conditions
                             if conversation.is_complete():
@@ -1166,7 +1250,7 @@ class VoiceAgentWorker:
             if greeting:
                 audio_out = await speech.synthesize(greeting)
                 if audio_out:
-                    await _publish_audio(room, audio_source, audio_out, SAMPLE_RATE)
+                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
                     logger.info("Recruiter greeting published for session %s", session_ctx.session_id)
 
             # Keep the call alive until complete or max duration
