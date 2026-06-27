@@ -79,8 +79,20 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 
 ### AI Recruiter (Intelligent Interview Agent)
 - **Voice-based AI interviews** extending existing LiveKit/Twilio voice infrastructure
-- **Multi-dimensional evaluation**: Technical, Behavioral, Communication, Cultural Fit, Motivation
-- **Dynamic question adaptation** based on candidate responses and answer quality
+- **Interview Orchestrator**: Real-time adaptive interview engine with 7 structured stages
+  - **Introduction** — Identity verification, process explanation, consent, mic check
+  - **Resume Verification** — Compare answers against resume claims, flag inconsistencies
+  - **Technical** — Adaptive difficulty based on real-time answer scoring (0-100)
+  - **Behavioral** — STAR-format questions with LLM evaluation
+  - **Communication** — Real-time metrics: speaking speed, fillers, silence, confidence
+  - **Motivation** — Career goals, why this company, salary expectations
+  - **Closing** — Candidate questions, next steps
+- **Dynamic Question Planner**: Generates questions in real-time based on stage, answer scores, conversation history, resume data, and time remaining
+- **Real-time Answer Evaluation**: LLM scores each answer 0-100, adjusts difficulty (harder/same/simpler/switch_topic)
+- **Kokoro TTS**: Professional, human-like voice (CPU-based, no GPU required)
+- **VAD-driven speech segmentation**: Natural turn-taking, eliminates fixed audio buffer latency
+- **Recruiter Copilot**: Per-answer observations with confidence level, concerns, and suggested follow-ups
+- **7-dimension scoring**: Technical, Behavioral, Communication, Cultural Fit, Motivation, Integrity, Confidence
 - **Fitment score verification & adjustment** against existing screening analysis
 - **Auto-trigger**: Configurable to automatically interview candidates at specific pipeline stages
 - **Independent scorecard** with hiring recommendation (strong_hire → strong_no_hire)
