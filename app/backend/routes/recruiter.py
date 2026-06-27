@@ -142,6 +142,14 @@ async def create_recruiter_session(
             detail="Candidate not found or not in your tenant",
         )
 
+    # Build config from both flat fields and legacy interview_config_json
+    config = (body.interview_config_json or {}).copy()
+    config.setdefault("duration_minutes", body.duration_minutes)
+    config.setdefault("focus_areas", body.focus_areas)
+    config.setdefault("phone_number", body.phone_number)
+    config.setdefault("scheduled_at", body.scheduled_at)
+    config.setdefault("timezone", body.timezone)
+
     orchestrator = RecruiterOrchestrator(db)
     try:
         session_id = await orchestrator.initiate_interview(
@@ -150,7 +158,7 @@ async def create_recruiter_session(
             jd_id=body.jd_id,
             screening_result_id=body.screening_result_id,
             trigger_type=body.trigger_type or "manual",
-            config=body.interview_config_json or {},
+            config=config,
             created_by=current_user.id,
         )
     except ValueError as exc:

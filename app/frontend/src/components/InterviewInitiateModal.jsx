@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   X, Mic, Loader2, User, FileText, Phone, Brain, Target,
-  Clock, Zap, CheckCircle2,
+  Clock, Zap, CheckCircle2, Globe,
 } from 'lucide-react'
 import {
   getCandidates, getTemplates,
@@ -45,6 +45,77 @@ const FOCUS_AREAS = [
   'Technical', 'Behavioral', 'Communication', 'Cultural', 'Motivation',
 ]
 
+// Common timezone options; default to the browser's local timezone
+const TIMEZONE_OPTIONS = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Shanghai',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+]
+
+function getDefaultTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch {
+    return 'UTC'
+  }
+}
+
+// Convert a datetime-local value (interpreted as the chosen timezone) to a UTC ISO string
+function toUtcIso(localValue, timezone) {
+  if (!localValue) return null
+  try {
+    const localDate = new Date(localValue) // browser treats it as local TZ, so we ignore its offset
+    const parts = localValue.split('T')
+    if (parts.length !== 2) return null
+    const [datePart, timePart] = parts
+    const [year, month, day] = datePart.split('-').map(Number)
+    const [hour, minute] = timePart.split(':').map(Number)
+    const tzDate = new Date(Date.UTC(year, month - 1, day, hour, minute))
+    const offsetMinutes = -tzDate.getTimezoneOffset()
+    const targetOffset = getTargetOffsetMinutes(timezone, tzDate)
+    const diffMinutes = targetOffset - offsetMinutes
+    const utcMs = tzDate.getTime() - diffMinutes * 60 * 1000
+    return new Date(utcMs).toISOString()
+  } catch {
+    return null
+  }
+}
+
+function getTargetOffsetMinutes(timezone, date) {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      timeZoneName: 'shortOffset',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    })
+    const parts = formatter.formatToParts(date)
+    const tzName = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT+0'
+    const match = tzName.match(/GMT([+-]\d{1,2}):?(\d{2})?/)
+    if (!match) return 0
+    const hours = parseInt(match[1], 10)
+    const minutes = parseInt(match[2] || '0', 10)
+    return hours * 60 + (hours < 0 ? -minutes : minutes)
+  } catch {
+    return 0
+  }
+}
+
 export default function InterviewInitiateModal({ onClose, onSuccess }) {
   const [candidates, setCandidates] = useState([])
   const [templates, setTemplates] = useState([])
@@ -61,6 +132,7 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
   const [selectedFocusAreas, setSelectedFocusAreas] = useState(['Technical', 'Communication'])
   const [scheduleType, setScheduleType] = useState('now') // 'now' | 'later'
   const [scheduledAt, setScheduledAt] = useState('')
+  const [timezone, setTimezone] = useState(getDefaultTimezone)
 
   useEffect(() => {
     async function load() {
@@ -106,6 +178,11 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
     if (!candidateId || !jdId) return
     setSubmitting(true)
     setError(null)
+
+    const scheduledAtUtc = scheduleType === 'later' && scheduledAt
+      ? toUtcIso(scheduledAt, timezone)
+      : null
+
     try {
       if (depth === 'quick') {
         // Route to Voice Screening API
@@ -113,7 +190,7 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
           parseInt(candidateId),
           phoneNumber,
           parseInt(jdId),
-          scheduleType === 'later' && scheduledAt ? scheduledAt : null
+          scheduledAtUtc
         )
       } else {
         // Route to Recruiter API
@@ -122,6 +199,9 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
           jd_id: parseInt(jdId),
           duration_minutes: durationMinutes,
           focus_areas: selectedFocusAreas,
+          phone_number: phoneNumber || undefined,
+          scheduled_at: scheduledAtUtc,
+          timezone,
         })
       }
       onSuccess?.()
@@ -244,60 +324,74 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
                 </select>
               </div>
 
-              {/* Phone number (for quick screens) */}
-              {depth === 'quick' && (
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                    <span className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5" /> Phone Number</span>
-                  </label>
-                  <input
-                    type="tel"
-                    value={phoneNumber}
-                    onChange={e => setPhoneNumber(e.target.value)}
-                    placeholder="+14155551234"
-                    required={depth === 'quick'}
-                    className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 text-sm outline-none transition-all"
-                  />
-                  <p className="text-xs text-slate-400 mt-1">E.164 format (e.g. +14155551234)</p>
-                </div>
-              )}
+              {/* Phone number (optional override for all depths) */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                  <span className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5" /> Phone Number</span>
+                </label>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={e => setPhoneNumber(e.target.value)}
+                  placeholder="+14155551234"
+                  required={depth === 'quick'}
+                  className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 text-sm outline-none transition-all"
+                />
+                <p className="text-xs text-slate-400 mt-1">E.164 format (optional override; uses candidate profile if left blank)</p>
+              </div>
 
-              {/* Schedule (for quick screens) */}
-              {depth === 'quick' && (
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Schedule</label>
-                  <div className="flex gap-2 mb-2">
-                    <button
-                      type="button"
-                      onClick={() => setScheduleType('now')}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                        scheduleType === 'now'
-                          ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      <Zap className="w-3.5 h-3.5" /> Call Now
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScheduleType('later')}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                        scheduleType === 'later'
-                          ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      <Clock className="w-3.5 h-3.5" /> Schedule Later
-                    </button>
-                  </div>
-                  {scheduleType === 'later' && (
+              {/* Schedule (for all depths) */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Schedule</label>
+                <div className="flex gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setScheduleType('now')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                      scheduleType === 'now'
+                        ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Zap className="w-3.5 h-3.5" /> Call Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleType('later')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                      scheduleType === 'later'
+                        ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Clock className="w-3.5 h-3.5" /> Schedule Later
+                  </button>
+                </div>
+                {scheduleType === 'later' && (
+                  <div className="space-y-2">
                     <input
                       type="datetime-local"
                       value={scheduledAt}
                       onChange={e => setScheduledAt(e.target.value)}
+                      required={scheduleType === 'later'}
                       className="w-full px-3.5 py-2.5 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 text-sm outline-none transition-all"
                     />
-                  )}
-                </div>
-              )}
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-3.5 h-3.5 text-slate-400" />
+                      <select
+                        value={timezone}
+                        onChange={e => setTimezone(e.target.value)}
+                        className="flex-1 px-3 py-2 bg-white rounded-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 text-sm outline-none transition-all"
+                      >
+                        {TIMEZONE_OPTIONS.map(tz => (
+                          <option key={tz} value={tz}>{tz}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      Time shown in {timezone}. Will be converted to UTC for scheduling.
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {/* Duration (for standard/deep) */}
               {depth !== 'quick' && (
@@ -358,7 +452,7 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
               className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition-colors disabled:opacity-50 shadow-sm shadow-brand-200"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
-              {depth === 'quick' ? 'Schedule Call' : 'Start Interview'}
+              {scheduleType === 'later' ? 'Schedule Interview' : (depth === 'quick' ? 'Call Now' : 'Start Interview')}
             </button>
           </div>
         </form>

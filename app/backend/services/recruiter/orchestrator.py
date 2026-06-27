@@ -3,8 +3,9 @@
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, available_timezones
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -78,6 +79,23 @@ class RecruiterOrchestrator:
         if not candidate.phone:
             raise ValueError(f"Candidate {candidate_id} has no phone number")
 
+        # Duplicate check: prevent multiple active scheduled sessions for same candidate + JD
+        active_statuses = {"pending_strategy", "scheduled", "in_progress"}
+        existing = self.db.execute(
+            select(RecruiterInterviewSession).where(
+                RecruiterInterviewSession.tenant_id == tenant_id,
+                RecruiterInterviewSession.candidate_id == candidate_id,
+                RecruiterInterviewSession.jd_id == jd_id,
+                RecruiterInterviewSession.status.in_(active_statuses),
+            )
+        ).scalars().first()
+        if existing:
+            raise ValueError(
+                f"Active recruiter session already exists for this candidate and JD "
+                f"(session_id={existing.id}, status={existing.status}). "
+                f"Cancel it before creating a new one."
+            )
+
         # Build context and generate strategy
         context = self.context_engine.build_context(
             self.db,
@@ -92,15 +110,23 @@ class RecruiterOrchestrator:
         }
         strategy = await self.strategy_agent.generate_strategy(context, strategy_config)
 
-        # Normalize scheduled_at to datetime if provided as ISO string
-        scheduled_at = self._parse_scheduled_at(config.get("scheduled_at"))
+        # Normalize scheduled_at to timezone-aware datetime using provided timezone
+        tz_name = config.get("timezone")
+        scheduled_at = self._parse_scheduled_at(
+            config.get("scheduled_at"),
+            timezone_hint=tz_name,
+        )
+        if scheduled_at is not None and scheduled_at < datetime.now(timezone.utc):
+            raise ValueError("Scheduled time must be in the future")
+
+        phone_number = config.get("phone_number") or candidate.phone
 
         # Create the voice screening session using existing infrastructure
         voice_session = VoiceScreeningSession(
             tenant_id=tenant_id,
             candidate_id=candidate_id,
             jd_id=jd_id,
-            phone_number=candidate.phone,
+            phone_number=phone_number,
             direction="outbound",
             status="scheduled",
             scheduled_at=scheduled_at,
@@ -443,15 +469,27 @@ class RecruiterOrchestrator:
             )
         ).scalar_one_or_none()
 
-    def _parse_scheduled_at(self, value: Any) -> datetime | None:
+    def _parse_scheduled_at(
+        self, value: Any, timezone_hint: str | None = None
+    ) -> datetime | None:
         if value is None:
             return None
         if isinstance(value, datetime):
-            return value
-        try:
-            return datetime.fromisoformat(value)
-        except (ValueError, TypeError):
-            return None
+            dt = value
+        else:
+            try:
+                dt = datetime.fromisoformat(value)
+            except (ValueError, TypeError):
+                return None
+
+        # If no timezone info, interpret as the user's selected timezone (or UTC)
+        if dt.tzinfo is None:
+            tz = timezone.utc
+            if timezone_hint and timezone_hint in available_timezones:
+                tz = ZoneInfo(timezone_hint)
+            dt = dt.replace(tzinfo=tz)
+
+        return dt.astimezone(timezone.utc)
 
     def _load_json(self, raw: str | None, default: Any) -> Any:
         if not raw:

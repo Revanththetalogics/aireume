@@ -784,6 +784,11 @@ class RecruiterSessionCreate(BaseModel):
     screening_result_id: Optional[int] = None
     voice_session_id: Optional[int] = None
     trigger_type: Optional[str] = "manual"
+    scheduled_at: Optional[str] = None
+    timezone: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    focus_areas: Optional[List[str]] = None
+    phone_number: Optional[str] = None
     interview_config_json: Optional[Dict[str, Any]] = None
 
     @field_validator('trigger_type')
