@@ -868,6 +868,7 @@ class VoiceAgentWorker:
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
+            nonlocal actual_sample_rate
             if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
                 logger.info(
                     "Audio track subscribed: participant=%s session=%d",
@@ -1027,6 +1028,7 @@ class VoiceAgentWorker:
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
+            nonlocal actual_sample_rate
             if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
                 logger.info(
                     "Audio track subscribed: participant=%s session=%s",
@@ -1173,6 +1175,7 @@ class VoiceAgentWorker:
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
+            nonlocal actual_sample_rate
             if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
                 logger.info(
                     "Audio track subscribed: participant=%s session=%s",
