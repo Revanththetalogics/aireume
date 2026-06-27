@@ -12,6 +12,7 @@ The planner uses the LLM to generate contextually relevant questions that
 adapt to the candidate's performance.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -19,12 +20,36 @@ from typing import Any, Optional
 
 import httpx
 
-from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
-
 logger = logging.getLogger("voice_agent.planner")
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "https://ollama.com")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
+
+_ollama_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_ollama_semaphore() -> asyncio.Semaphore:
+    global _ollama_semaphore
+    if _ollama_semaphore is None:
+        env_val = os.getenv("OLLAMA_MAX_CONCURRENT")
+        if env_val is not None:
+            max_concurrent = int(env_val)
+        elif OLLAMA_BASE_URL.startswith("https://") or "ollama.com" in OLLAMA_BASE_URL.lower():
+            max_concurrent = 4
+        else:
+            max_concurrent = 1
+        _ollama_semaphore = asyncio.Semaphore(max_concurrent)
+    return _ollama_semaphore
+
+
+def _get_ollama_headers() -> dict[str, str]:
+    headers = {}
+    if "ollama.com" in OLLAMA_BASE_URL.lower():
+        api_key = OLLAMA_API_KEY.strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+    return headers
 
 
 class QuestionPlanner:
@@ -114,7 +139,7 @@ Return ONLY a JSON object:
 JSON:"""
 
         try:
-            semaphore = get_ollama_semaphore()
+            semaphore = _get_ollama_semaphore()
             async with semaphore:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(
@@ -126,7 +151,7 @@ JSON:"""
                             "format": "json",
                             "options": {"temperature": 0.5, "num_predict": 256},
                         },
-                        headers=get_ollama_headers(self.base_url),
+                        headers=_get_ollama_headers(),
                     )
                     resp.raise_for_status()
                     response_text = resp.json().get("response", "")
