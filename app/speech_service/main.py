@@ -3,7 +3,7 @@ Speech Service — CPU-optimized inference for STT, TTS, and VAD.
 
 Endpoints:
   POST /stt/transcribe       — Audio bytes → text (OpenAI Whisper base)
-  POST /tts/synthesize       — Text → audio bytes (Microsoft Edge TTS)
+  POST /tts/synthesize       — Text → audio bytes (Kokoro TTS, Edge TTS fallback)
   POST /vad/detect           — Audio bytes → speech/silence segments (Silero VAD v5)
   GET  /health               — Model readiness probe
 """
@@ -25,15 +25,22 @@ logger = logging.getLogger("speech_service")
 whisper_model = None
 vad_model = None
 vad_utils = None
+kokoro_pipeline = None
 
 SAMPLE_RATE = 16000  # All models use 16 kHz
+KOKORO_SAMPLE_RATE = 24000  # Kokoro outputs at 24 kHz
 
-# Edge TTS voice mapping
+# Kokoro voice mapping (American English voices)
+KOKORO_VOICES = {
+    "female": "af_heart",
+    "male": "am_michael",
+}
+
+# Edge TTS voice mapping (fallback)
 EDGE_TTS_VOICES = {
     "female": "en-US-JennyNeural",
     "male": "en-US-GuyNeural",
 }
-
 
 # ─── Model loading ────────────────────────────────────────────────────────────
 
@@ -49,6 +56,20 @@ def load_stt():
         return True
     except Exception as e:
         logger.error("Failed to load Whisper model: %s", e)
+        return False
+
+
+def load_tts():
+    """Load Kokoro TTS pipeline — CPU-based, professional voice."""
+    global kokoro_pipeline
+    try:
+        from kokoro import KPipeline
+        logger.info("Loading Kokoro TTS pipeline (lang_code='a')")
+        kokoro_pipeline = KPipeline(lang_code='a')
+        logger.info("Kokoro TTS pipeline loaded successfully")
+        return True
+    except Exception as e:
+        logger.error("Failed to load Kokoro TTS: %s", e)
         return False
 
 
@@ -73,7 +94,7 @@ def load_vad():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load models on startup. TTS uses edge-tts (cloud, no local model)."""
+    """Load models on startup. Kokoro TTS loads locally, Edge TTS is cloud fallback."""
     logger.info("════════════════════════════════════════════")
     logger.info("  Speech Service — Starting model warmup")
     logger.info("════════════════════════════════════════════")
@@ -82,7 +103,7 @@ async def lifespan(app: FastAPI):
     results = {}
 
     results["stt"] = load_stt()
-    results["tts"] = True  # edge-tts is cloud-based, no model to load
+    results["tts"] = load_tts()
     results["vad"] = load_vad()
 
     elapsed = time.time() - start
@@ -121,7 +142,8 @@ def health():
         "status": "healthy",
         "models": {
             "stt": whisper_model is not None,
-            "tts": True,  # edge-tts is always ready (cloud)
+            "tts": kokoro_pipeline is not None,
+            "tts_fallback": True,  # edge-tts is always ready (cloud)
             "vad": vad_model is not None,
         },
     }
@@ -196,12 +218,10 @@ async def transcribe_audio(request: Request):
 @app.post("/tts/synthesize")
 async def synthesize_speech(request: Request):
     """
-    Synthesize text to audio using Microsoft Edge TTS (neural voices).
+    Synthesize text to audio using Kokoro TTS (primary) or Edge TTS (fallback).
     Body JSON: {"text": "...", "voice": "female"|"male", "speed": 1.0}
-    Returns: WAV audio bytes.
+    Returns: WAV audio bytes at 16kHz mono.
     """
-    import edge_tts
-
     body = await request.json()
     text = body.get("text", "").strip()
     if not text:
@@ -209,57 +229,109 @@ async def synthesize_speech(request: Request):
 
     voice_key = body.get("voice", "female")
     speed = body.get("speed", 1.0)
-    voice_name = EDGE_TTS_VOICES.get(voice_key, EDGE_TTS_VOICES["female"])
 
-    # Convert speed to rate percentage for edge-tts (e.g., 1.0 → "+0%", 0.8 → "+20%")
-    # edge-tts uses rate like "+20%" for faster, "-20%" for slower
+    # Try Kokoro TTS first (local, CPU-based, professional voice)
+    if kokoro_pipeline is not None:
+        try:
+            return await _synthesize_kokoro(text, voice_key, speed)
+        except Exception as e:
+            logger.warning("Kokoro TTS failed, falling back to Edge TTS: %s", e)
+
+    # Fallback: Edge TTS (cloud-based)
+    return await _synthesize_edge(text, voice_key, speed)
+
+
+async def _synthesize_kokoro(text: str, voice_key: str, speed: float) -> StreamingResponse:
+    """Synthesize speech using Kokoro TTS pipeline."""
+    import soundfile as sf
+
+    voice_name = KOKORO_VOICES.get(voice_key, KOKORO_VOICES["female"])
+    start = time.time()
+
+    # Kokoro pipeline yields (graphemes, phonemes, audio) chunks
+    audio_chunks = []
+    for _gs, _ps, audio in kokoro_pipeline(text, voice=voice_name):
+        audio_chunks.append(audio)
+
+    if not audio_chunks:
+        raise HTTPException(status_code=500, detail="Kokoro generated no audio")
+
+    # Concatenate audio chunks (numpy arrays at 24kHz)
+    import numpy as np
+    full_audio = np.concatenate(audio_chunks)
+
+    # Resample from 24kHz to 16kHz using torchaudio
+    audio_tensor = torch.from_numpy(full_audio).float().unsqueeze(0)
+    resampler = torchaudio.transforms.Resample(KOKORO_SAMPLE_RATE, SAMPLE_RATE)
+    audio_16k = resampler(audio_tensor).squeeze().numpy()
+
+    # Convert to 16-bit PCM
+    audio_int16 = (audio_16k * 32768).clip(-32768, 32767).astype(np.int16)
+
+    # Write WAV to buffer
+    wav_buffer = io.BytesIO()
+    sf.write(wav_buffer, audio_int16, SAMPLE_RATE, format='WAV', subtype='PCM_16')
+    wav_buffer.seek(0)
+
+    elapsed = time.time() - start
+    audio_duration = len(audio_16k) / SAMPLE_RATE
+    logger.info("Kokoro TTS: %d chars → %.1fs audio in %.2fs", len(text), audio_duration, elapsed)
+
+    return StreamingResponse(
+        wav_buffer,
+        media_type="audio/wav",
+        headers={
+            "X-Inference-Time": f"{elapsed:.3f}",
+            "X-Audio-Duration": f"{audio_duration:.2f}",
+            "X-TTS-Engine": "kokoro",
+        },
+    )
+
+
+async def _synthesize_edge(text: str, voice_key: str, speed: float) -> StreamingResponse:
+    """Synthesize speech using Edge TTS (cloud fallback)."""
+    import edge_tts
+
+    voice_name = EDGE_TTS_VOICES.get(voice_key, EDGE_TTS_VOICES["female"])
     rate_pct = int((1.0 / max(speed, 0.5) - 1.0) * 100)
     rate_str = f"+{rate_pct}%" if rate_pct >= 0 else f"{rate_pct}%"
 
-    try:
-        start = time.time()
+    start = time.time()
 
-        # Use edge-tts to generate audio
-        communicate = edge_tts.Communicate(text, voice_name, rate=rate_str)
-        audio_chunks = []
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_chunks.append(chunk["data"])
+    communicate = edge_tts.Communicate(text, voice_name, rate=rate_str)
+    audio_chunks = []
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            audio_chunks.append(chunk["data"])
 
-        if not audio_chunks:
-            raise HTTPException(status_code=500, detail="No audio generated")
+    if not audio_chunks:
+        raise HTTPException(status_code=500, detail="Edge TTS generated no audio")
 
-        # edge-tts returns MP3 — convert to WAV at 16kHz mono using pydub
-        mp3_bytes = b"".join(audio_chunks)
-        mp3_buffer = io.BytesIO(mp3_bytes)
+    # edge-tts returns MP3 — convert to WAV at 16kHz mono using pydub
+    mp3_bytes = b"".join(audio_chunks)
+    mp3_buffer = io.BytesIO(mp3_bytes)
 
-        from pydub import AudioSegment
-        audio_seg = AudioSegment.from_mp3(mp3_buffer)
-        audio_seg = audio_seg.set_frame_rate(SAMPLE_RATE).set_channels(1).set_sample_width(2)
+    from pydub import AudioSegment
+    audio_seg = AudioSegment.from_mp3(mp3_buffer)
+    audio_seg = audio_seg.set_frame_rate(SAMPLE_RATE).set_channels(1).set_sample_width(2)
 
-        # Export as WAV
-        wav_buffer = io.BytesIO()
-        audio_seg.export(wav_buffer, format="wav")
-        wav_buffer.seek(0)
+    wav_buffer = io.BytesIO()
+    audio_seg.export(wav_buffer, format="wav")
+    wav_buffer.seek(0)
 
-        elapsed = time.time() - start
-        audio_duration = len(audio_seg) / 1000.0  # pydub uses milliseconds
-        logger.info("TTS: %d chars → %.1fs audio in %.2fs", len(text), audio_duration, elapsed)
+    elapsed = time.time() - start
+    audio_duration = len(audio_seg) / 1000.0
+    logger.info("Edge TTS: %d chars → %.1fs audio in %.2fs", len(text), audio_duration, elapsed)
 
-        return StreamingResponse(
-            wav_buffer,
-            media_type="audio/wav",
-            headers={
-                "X-Inference-Time": f"{elapsed:.3f}",
-                "X-Audio-Duration": f"{audio_duration:.2f}",
-            },
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("TTS synthesis error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
+    return StreamingResponse(
+        wav_buffer,
+        media_type="audio/wav",
+        headers={
+            "X-Inference-Time": f"{elapsed:.3f}",
+            "X-Audio-Duration": f"{audio_duration:.2f}",
+            "X-TTS-Engine": "edge",
+        },
+    )
 
 
 # ─── VAD Endpoint ──────────────────────────────────────────────────────────────
