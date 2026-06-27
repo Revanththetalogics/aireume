@@ -218,6 +218,28 @@ def execute_scheduled_call(session_id: int):
 
         db.commit()
 
+    except httpx.ConnectError as e:
+        logger.warning(
+            "Voice agent unreachable at %s — session %d set to pending for retry: %s",
+            VOICE_AGENT_URL, session_id, e,
+        )
+        try:
+            session.status = "pending"
+            session.error_log = f"Voice agent unreachable: {e}"
+            db.commit()
+        except Exception:
+            pass
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "Voice agent returned HTTP %d for session %d: %s",
+            e.response.status_code, session_id, e,
+        )
+        try:
+            session.status = "failed"
+            session.error_log = f"Voice agent HTTP {e.response.status_code}: {e.response.text[:200]}"
+            db.commit()
+        except Exception:
+            pass
     except Exception as e:
         logger.error("Failed to execute scheduled call %d: %s", session_id, e, exc_info=True)
         try:
@@ -236,7 +258,7 @@ def process_voice_retries():
     """
     Process all due voice call retries.
 
-    Checks for sessions in 'no_answer' or 'failed' status where:
+    Checks for sessions in 'pending', 'no_answer' or 'failed' status where:
     - retry_count < max_retries
     - Next retry time has elapsed (based on retry_intervals)
     """
@@ -247,7 +269,7 @@ def process_voice_retries():
         # Find sessions needing retry
         sessions = db.execute(
             select(VoiceScreeningSession).where(
-                VoiceScreeningSession.status.in_(["no_answer", "failed"]),
+                VoiceScreeningSession.status.in_(["pending", "no_answer", "failed"]),
                 VoiceScreeningSession.direction == "outbound",
             )
         ).scalars().all()
