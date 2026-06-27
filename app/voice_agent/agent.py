@@ -24,6 +24,7 @@ import httpx
 
 from app.voice_agent.recruiter_conversation import RecruiterConversation, RecruiterContext, RecruiterState
 from app.voice_agent.conversation import UnifiedConversation, InterviewContext, InterviewDepth
+from app.voice_agent.vad_segmenter import SpeechSegmenter
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -856,19 +857,17 @@ class VoiceAgentWorker:
         backend = BackendClient()
         engine = ConversationEngine(session_ctx, speech, llm, backend)
 
-        # Audio buffer for STT (accumulate ~3s of audio per chunk)
-        audio_buffer = bytearray()
+        # VAD-driven speech segmentation (replaces fixed 3-second buffer)
         TTS_SAMPLE_RATE = 16000
-        CHUNK_DURATION_SEC = 3.0
         actual_sample_rate: Optional[int] = None
-        CHUNK_SIZE = int(48000 * 2 * CHUNK_DURATION_SEC)  # Default 48kHz; adjusted on first frame
+        segmenter: Optional[SpeechSegmenter] = None
 
         # Persistent audio source for agent → candidate playback
         audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
-            nonlocal actual_sample_rate
+            nonlocal actual_sample_rate, segmenter
             if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
                 logger.info(
                     "Audio track subscribed: participant=%s session=%d",
@@ -881,16 +880,13 @@ class VoiceAgentWorker:
                     frame_rate = frame.sample_rate
                     if actual_sample_rate is None:
                         actual_sample_rate = frame_rate
-                        logger.info("Detected audio track sample rate: %d Hz", frame_rate)
-                    audio_buffer.extend(frame.data)
+                        segmenter = SpeechSegmenter(sample_rate=frame_rate)
+                        logger.info("Detected audio track sample rate: %d Hz — VAD segmenter initialized", frame_rate)
 
-                    dynamic_chunk_size = int(frame_rate * 2 * CHUNK_DURATION_SEC)
-                    if len(audio_buffer) >= dynamic_chunk_size:
-                        chunk = bytes(audio_buffer[:dynamic_chunk_size])
-                        del audio_buffer[:dynamic_chunk_size]
+                    segmenter.add_audio(bytes(frame.data))
 
-                        # Wrap PCM in WAV with correct sample rate for speech service
-                        wav_data = _pcm_to_wav(chunk, frame_rate)
+                    for segment_pcm in segmenter.get_speech_segments():
+                        wav_data = _pcm_to_wav(segment_pcm, frame_rate)
                         text = await speech.transcribe(wav_data, "audio/wav")
                         if text.strip():
                             session_ctx.transcript.append({
@@ -1015,20 +1011,17 @@ class VoiceAgentWorker:
         backend = BackendClient()
         conversation = UnifiedConversation(interview_ctx, llm, speech)
 
-        # Audio buffer for STT (accumulate ~3s of audio per chunk)
-        audio_buffer = bytearray()
+        # VAD-driven speech segmentation (replaces fixed 3-second buffer)
         TTS_SAMPLE_RATE = 16000  # Our TTS audio source rate
-        CHUNK_DURATION_SEC = 3.0
-        # LiveKit Opus decodes to 48kHz, not 16kHz — we detect actual rate from first frame
         actual_sample_rate: Optional[int] = None
-        CHUNK_SIZE = int(48000 * 2 * CHUNK_DURATION_SEC)  # Default to 48kHz; adjusted on first frame
+        segmenter: Optional[SpeechSegmenter] = None
 
         # Persistent audio source for agent → candidate playback
         audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
-            nonlocal actual_sample_rate
+            nonlocal actual_sample_rate, segmenter
             if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
                 logger.info(
                     "Audio track subscribed: participant=%s session=%s",
@@ -1041,19 +1034,16 @@ class VoiceAgentWorker:
                     frame_rate = frame.sample_rate
                     if actual_sample_rate is None:
                         actual_sample_rate = frame_rate
-                        logger.info("Detected audio track sample rate: %d Hz", frame_rate)
+                        segmenter = SpeechSegmenter(sample_rate=frame_rate)
+                        logger.info("Detected audio track sample rate: %d Hz — VAD segmenter initialized", frame_rate)
 
-                    audio_buffer.extend(frame.data)
+                    # Feed audio to VAD segmenter
+                    segmenter.add_audio(bytes(frame.data))
 
-                    # Calculate chunk size based on actual sample rate
-                    dynamic_chunk_size = int(frame_rate * 2 * CHUNK_DURATION_SEC)
-                    if len(audio_buffer) >= dynamic_chunk_size:
-                        chunk = bytes(audio_buffer[:dynamic_chunk_size])
-                        del audio_buffer[:dynamic_chunk_size]
-
+                    # Check for completed speech segments
+                    for segment_pcm in segmenter.get_speech_segments():
                         # Wrap PCM in WAV header with correct sample rate
-                        # so speech service can resample to 16kHz for Whisper
-                        wav_data = _pcm_to_wav(chunk, frame_rate)
+                        wav_data = _pcm_to_wav(segment_pcm, frame_rate)
                         text = await speech.transcribe(wav_data, "audio/wav")
                         if text.strip():
                             logger.info("Candidate said: %s", text)
@@ -1163,19 +1153,17 @@ class VoiceAgentWorker:
         backend = BackendClient()
         conversation = RecruiterConversation(session_ctx, speech, llm)
 
-        # Audio buffer for STT (accumulate ~3s of audio per chunk)
-        audio_buffer = bytearray()
+        # VAD-driven speech segmentation (replaces fixed 3-second buffer)
         TTS_SAMPLE_RATE = 16000
-        CHUNK_DURATION_SEC = 3.0
         actual_sample_rate: Optional[int] = None
-        CHUNK_SIZE = int(48000 * 2 * CHUNK_DURATION_SEC)  # Default 48kHz; adjusted on first frame
+        segmenter: Optional[SpeechSegmenter] = None
 
         # Persistent audio source for agent → candidate playback
         audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
-            nonlocal actual_sample_rate
+            nonlocal actual_sample_rate, segmenter
             if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
                 logger.info(
                     "Audio track subscribed: participant=%s session=%s",
@@ -1188,16 +1176,13 @@ class VoiceAgentWorker:
                     frame_rate = frame.sample_rate
                     if actual_sample_rate is None:
                         actual_sample_rate = frame_rate
-                        logger.info("Detected audio track sample rate: %d Hz", frame_rate)
-                    audio_buffer.extend(frame.data)
+                        segmenter = SpeechSegmenter(sample_rate=frame_rate)
+                        logger.info("Detected audio track sample rate: %d Hz — VAD segmenter initialized", frame_rate)
 
-                    dynamic_chunk_size = int(frame_rate * 2 * CHUNK_DURATION_SEC)
-                    if len(audio_buffer) >= dynamic_chunk_size:
-                        chunk = bytes(audio_buffer[:dynamic_chunk_size])
-                        del audio_buffer[:dynamic_chunk_size]
+                    segmenter.add_audio(bytes(frame.data))
 
-                        # Wrap PCM in WAV with correct sample rate for speech service
-                        wav_data = _pcm_to_wav(chunk, frame_rate)
+                    for segment_pcm in segmenter.get_speech_segments():
+                        wav_data = _pcm_to_wav(segment_pcm, frame_rate)
                         text = await speech.transcribe(wav_data, "audio/wav")
                         if text.strip():
                             logger.info("Candidate said: %s", text)
