@@ -20,8 +20,8 @@ from typing import Optional, Union
 
 import httpx
 
-from recruiter_conversation import RecruiterConversation, RecruiterContext, RecruiterState
-from conversation import UnifiedConversation, InterviewContext, InterviewDepth
+from app.voice_agent.recruiter_conversation import RecruiterConversation, RecruiterContext, RecruiterState
+from app.voice_agent.conversation import UnifiedConversation, InterviewContext, InterviewDepth
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
