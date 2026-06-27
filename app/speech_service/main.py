@@ -45,11 +45,11 @@ EDGE_TTS_VOICES = {
 # ─── Model loading ────────────────────────────────────────────────────────────
 
 def load_stt():
-    """Load OpenAI Whisper base model — fast and reliable on CPU."""
+    """Load OpenAI Whisper tiny model — fast on CPU (~0.5s for 3s audio)."""
     global whisper_model
     try:
         import whisper
-        model_name = "base"  # 74M params, ~2-5s inference for 3s audio on CPU
+        model_name = "tiny"  # 39M params, ~0.5s inference for 3s audio on CPU
         logger.info("Loading Whisper model: %s", model_name)
         whisper_model = whisper.load_model(model_name, device="cpu")
         logger.info("Whisper model loaded successfully")

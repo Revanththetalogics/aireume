@@ -23,17 +23,27 @@ class RecommendationAgent:
         behavioral = scorecard.get("behavioral", {}) or {}
         communication = scorecard.get("communication", {}) or {}
         cultural = scorecard.get("cultural_fit", {}) or {}
+        motivation = scorecard.get("motivation", {}) or {}
+        integrity = scorecard.get("integrity", {}) or {}
+        confidence = scorecard.get("confidence", {}) or {}
 
         tech_score = technical.get("score", 50) or 50
         beh_score = behavioral.get("score", 50) or 50
         comm_score = communication.get("score", 50) or 50
         cult_score = cultural.get("score", 50) or 50
+        mot_score = motivation.get("score", 50) or 50
+        int_score = integrity.get("score", 50) or 50
+        conf_score = confidence.get("score", 50) or 50
 
+        # Weighted blend of 7 dimensions
         overall_score = int(
-            (tech_score * 0.35)
-            + (beh_score * 0.25)
-            + (comm_score * 0.20)
-            + (cult_score * 0.20)
+            (tech_score * 0.25)
+            + (beh_score * 0.15)
+            + (comm_score * 0.15)
+            + (cult_score * 0.10)
+            + (mot_score * 0.15)
+            + (int_score * 0.10)
+            + (conf_score * 0.10)
         )
 
         adjusted = adjusted_fitment.get("adjusted_score", overall_score) or overall_score
@@ -56,7 +66,8 @@ class RecommendationAgent:
             f"{candidate_name} interviewed for {role_title} with an overall score of "
             f"{final_score}/100 ({recommendation.replace('_', ' ')}). "
             f"Technical: {tech_score}, Behavioral: {beh_score}, Communication: {comm_score}, "
-            f"Cultural fit: {cult_score}."
+            f"Cultural fit: {cult_score}, Motivation: {mot_score}, Integrity: {int_score}, "
+            f"Confidence: {conf_score}."
         )
 
         recommendation_reasoning = self._build_reasoning(

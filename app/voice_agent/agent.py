@@ -25,6 +25,7 @@ import httpx
 from app.voice_agent.recruiter_conversation import RecruiterConversation, RecruiterContext, RecruiterState
 from app.voice_agent.conversation import UnifiedConversation, InterviewContext, InterviewDepth
 from app.voice_agent.vad_segmenter import SpeechSegmenter
+from app.voice_agent.orchestrator import InterviewOrchestrator, OrchestratorContext, InterviewStage
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -1275,9 +1276,151 @@ class VoiceAgentWorker:
             except Exception:
                 pass
 
+    async def handle_orchestrator_room(self, room_name: str, agent_token: str, orch_ctx: OrchestratorContext):
+        """
+        Join a LiveKit room and run the Interview Orchestrator.
+        This is the primary handler — replaces handle_unified_room for new interviews.
+        Uses VAD-driven speech segmentation, real-time answer evaluation,
+        and dynamic question planning.
+        """
+        from livekit import rtc
+
+        room = rtc.Room()
+        speech = SpeechClient()
+        llm = LLMClient()
+        backend = BackendClient()
+        orchestrator = InterviewOrchestrator(orch_ctx, llm, speech)
+
+        TTS_SAMPLE_RATE = 16000
+        actual_sample_rate: Optional[int] = None
+        segmenter: Optional[SpeechSegmenter] = None
+
+        audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
+
+        async def _process_track(track, publication, participant):
+            """Async body for processing a subscribed audio track."""
+            nonlocal actual_sample_rate, segmenter
+            if hasattr(track, 'kind') and track.kind == 1:  # AUDIO
+                logger.info(
+                    "Audio track subscribed: participant=%s session=%s",
+                    participant.identity, orch_ctx.session_id,
+                )
+                stream = rtc.AudioStream(track)
+
+                async for event in stream:
+                    frame = event.frame
+                    frame_rate = frame.sample_rate
+                    if actual_sample_rate is None:
+                        actual_sample_rate = frame_rate
+                        segmenter = SpeechSegmenter(sample_rate=frame_rate)
+                        logger.info("Detected audio track sample rate: %d Hz — VAD segmenter initialized", frame_rate)
+
+                    segmenter.add_audio(bytes(frame.data))
+
+                    for segment_pcm in segmenter.get_speech_segments():
+                        wav_data = _pcm_to_wav(segment_pcm, frame_rate)
+                        text = await speech.transcribe(wav_data, "audio/wav")
+                        if text.strip():
+                            logger.info("Candidate said: %s", text)
+
+                            bot_text = await orchestrator.handle_candidate_response(text)
+                            if bot_text:
+                                logger.info("Bot responds: %s", bot_text)
+                                audio_out = await speech.synthesize(bot_text)
+                                if audio_out:
+                                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
+
+                            if orchestrator.is_complete():
+                                logger.info("Interview orchestrator complete, ending call")
+                                break
+
+                            if orch_ctx.time_remaining < 30:
+                                logger.info("Time budget exceeded, ending call")
+                                break
+
+        def on_track_subscribed(track, publication, participant):
+            asyncio.create_task(_process_track(track, publication, participant))
+
+        room.on("track_subscribed", on_track_subscribed)
+
+        try:
+            await speech.start()
+            orch_ctx.started_at = time.time()
+
+            await room.connect(LIVEKIT_URL, agent_token)
+            logger.info("Orchestrator agent joined room: %s (session=%s)", room_name, orch_ctx.session_id)
+
+            try:
+                track = rtc.LocalAudioTrack.create_audio_track("aria-agent", audio_source)
+                options = rtc.TrackPublishOptions()
+                options.source = rtc.TrackSource.SOURCE_MICROPHONE
+                await room.local_participant.publish_track(track, options)
+                logger.info("Audio track published to room")
+            except Exception as pub_err:
+                logger.error("Failed to publish audio track: %s", pub_err, exc_info=True)
+
+            try:
+                await backend.update_session(int(orch_ctx.session_id), {"status": "in_progress"})
+            except Exception:
+                pass
+
+            # Start the interview with the greeting
+            greeting = await orchestrator.start()
+            orch_ctx.transcript.append({
+                "speaker": "bot", "text": greeting,
+                "timestamp": 0.0, "stage": "introduction",
+            })
+            logger.info("Greeting text: %s", greeting[:100])
+            audio_out = await speech.synthesize(greeting)
+            if audio_out:
+                logger.info("TTS returned %d bytes for greeting", len(audio_out))
+                await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
+                logger.info("Greeting published for session %s", orch_ctx.session_id)
+            else:
+                logger.error("TTS returned empty audio for greeting — speech service may be unreachable at %s", SPEECH_SERVICE_URL)
+
+            # Keep the call alive until interview ends or max duration
+            while not orchestrator.is_complete():
+                if orch_ctx.time_remaining < 10:
+                    logger.info("Max duration reached for session %s", orch_ctx.session_id)
+                    break
+                await asyncio.sleep(1)
+
+            # Call ended — finalize and notify backend
+            duration = int(orch_ctx.elapsed)
+            logger.info(
+                "Interview ended: session=%s duration=%ds answers=%d",
+                orch_ctx.session_id, duration, len(orch_ctx.questions_responses),
+            )
+
+            result = orchestrator.get_result()
+            await _notify_backend_complete(orch_ctx.session_id, result)
+
+        except Exception as e:
+            logger.error("Orchestrator session %s failed: %s", orch_ctx.session_id, e, exc_info=True)
+            try:
+                await backend.update_session(int(orch_ctx.session_id), {
+                    "status": "failed",
+                    "error_log": str(e),
+                })
+            except Exception:
+                pass
+        finally:
+            await speech.stop()
+            try:
+                await room.disconnect()
+            except Exception:
+                pass
+
     async def dispatch_and_run(self, session_ctx, room_info: dict, depth: str = "quick"):
-        """Dispatch a call and run the unified agent in the room."""
-        if isinstance(session_ctx, InterviewContext):
+        """Dispatch a call and run the appropriate agent handler in the room."""
+        if isinstance(session_ctx, OrchestratorContext):
+            handler = self.handle_orchestrator_room(
+                room_info["room_name"],
+                room_info["agent_token"],
+                session_ctx,
+            )
+        elif isinstance(session_ctx, InterviewContext):
             handler = self.handle_unified_room(
                 room_info["room_name"],
                 room_info["agent_token"],
@@ -1363,31 +1506,35 @@ async def dispatch_call(req: DispatchRequest):
             candidate_name=req.candidate_name,
         )
 
-        # 2. Fetch tenant config to personalize the call
+        # 2. Fetch tenant config and candidate context
         backend = BackendClient()
         tenant_config = await backend.get_tenant_config(req.tenant_id)
+        candidate_info = await backend.get_candidate_info(req.tenant_id, req.candidate_id)
 
-        # 3. Build unified interview context
+        # 3. Build orchestrator context with full candidate data
         depth = req.effective_depth
-        ctx = InterviewContext(
+        duration_s = {"quick": 300, "standard": 900, "deep": 1200}.get(depth, 1200)
+
+        orch_ctx = OrchestratorContext(
             session_id=str(req.session_id),
-            depth=InterviewDepth(depth),
             candidate_name=req.candidate_name or "there",
             company_name=tenant_config.get("company_name", "the company"),
             jd_title=req.jd_title or "",
-            jd_must_have_skills=req.jd_must_have_skills or [],
-            strategy=req.interview_strategy,
-            interview_config=req.interview_config,
+            bot_name=tenant_config.get("bot_name", "ARIA"),
             tenant_id=req.tenant_id,
             candidate_id=req.candidate_id,
             phone_number=req.phone_number,
-            bot_name=tenant_config.get("bot_name", DEFAULT_BOT_NAME),
-            greeting_style=tenant_config.get("greeting_style", DEFAULT_GREETING_STYLE),
-            consent_script=tenant_config.get("consent_script"),
+            candidate_context=candidate_info,
+            role_context={
+                "title": req.jd_title or "",
+                "required_skills": req.jd_must_have_skills or [],
+            },
+            screening_result=req.interview_strategy or {},
+            total_duration_s=duration_s,
         )
 
         # 4. Launch agent worker in the room (non-blocking)
-        await worker.dispatch_and_run(ctx, room_info, depth=depth)
+        await worker.dispatch_and_run(orch_ctx, room_info, depth=depth)
 
         return DispatchResponse(
             success=True,

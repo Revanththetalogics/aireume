@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Brain, Sparkles, ChevronDown, CheckCircle2, TrendingUp, ArrowRight,
-  Users, MessageSquare, Heart, XCircle, AlertCircle,
+  Users, MessageSquare, Heart, XCircle, AlertCircle, ShieldCheck, Zap,
 } from 'lucide-react'
 
 const RECOMMENDATION_CONFIG = {
@@ -18,16 +18,17 @@ const CONFIDENCE_CONFIG = {
   low:    { label: 'Low Confidence',    color: 'bg-red-50 text-red-700 ring-red-200' },
 }
 
-// 5-dimension model. Each entry maps a dimension key to its label, score
-// field, evidence field, and a representative icon. New dimensions (motivation)
-// are rendered only when the backend supplies a score, preserving backwards
-// compatibility with scorecards that only carry 4 dimensions.
+// 7-dimension model. Each entry maps a dimension key to its label, score
+// field, evidence field, and a representative icon. New dimensions (motivation,
+// integrity, confidence) are rendered only when the backend supplies a score.
 const DIMENSIONS = [
   { key: 'technical',     label: 'Technical Proficiency',  scoreField: 'technical_score',      evidenceField: 'technical_evidence',      icon: Brain },
   { key: 'behavioral',    label: 'Behavioral Alignment',   scoreField: 'behavioral_score',     evidenceField: 'behavioral_evidence',     icon: Users },
   { key: 'communication', label: 'Communication Skills',   scoreField: 'communication_score',  evidenceField: 'communication_evidence',  icon: MessageSquare },
   { key: 'cultural_fit',  label: 'Cultural Fit',           scoreField: 'cultural_fit_score',   evidenceField: 'cultural_fit_evidence',   icon: Heart },
   { key: 'motivation',    label: 'Motivation & Growth',    scoreField: 'motivation_score',     evidenceField: 'motivation_evidence',     icon: Sparkles },
+  { key: 'integrity',     label: 'Integrity',              scoreField: 'integrity_score',      evidenceField: 'integrity_evidence',      icon: ShieldCheck },
+  { key: 'confidence',    label: 'Confidence',             scoreField: 'confidence_score',     evidenceField: 'confidence_evidence',     icon: Zap },
 ]
 
 const DIMENSION_LABELS = DIMENSIONS.reduce((acc, d) => {

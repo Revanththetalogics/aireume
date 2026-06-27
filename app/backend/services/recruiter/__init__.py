@@ -14,6 +14,7 @@ from app.backend.services.recruiter.evaluation_agents import (
 from app.backend.services.recruiter.fitment_adjuster import FitmentAdjuster
 from app.backend.services.recruiter.recommendation_agent import RecommendationAgent
 from app.backend.services.recruiter.orchestrator import RecruiterOrchestrator
+from app.backend.services.recruiter.copilot_agent import CopilotAgent
 
 __all__ = [
     "InterviewContextEngine",
@@ -25,4 +26,5 @@ __all__ = [
     "FitmentAdjuster",
     "RecommendationAgent",
     "RecruiterOrchestrator",
+    "CopilotAgent",
 ]

@@ -28,6 +28,7 @@ from app.backend.services.recruiter.evaluation_agents import (
 )
 from app.backend.services.recruiter.fitment_adjuster import FitmentAdjuster
 from app.backend.services.recruiter.recommendation_agent import RecommendationAgent
+from app.backend.services.recruiter.copilot_agent import CopilotAgent
 
 logger = logging.getLogger("aria.recruiter")
 
@@ -242,12 +243,41 @@ class RecruiterOrchestrator:
         communication = await communication_eval.evaluate(transcript, {})
         cultural = await cultural_eval.evaluate(questions_responses, company_context)
 
+        # Extract motivation and integrity scores from per-answer data
+        motivation_score = self._extract_dimension_score(questions_responses, "motivation", cultural.get("score", 50))
+        integrity_score = self._extract_dimension_score(questions_responses, "integrity", behavioral.get("score", 50))
+
+        # Confidence score from communication metrics (if available from orchestrator)
+        confidence_score = communication.get("score", 50)
+        if any(qr.get("confidence_score") for qr in questions_responses):
+            scores = [qr["confidence_score"] for qr in questions_responses if qr.get("confidence_score")]
+            confidence_score = sum(scores) // len(scores) if scores else 50
+
         scorecard = {
             "technical": technical,
             "behavioral": behavioral,
             "communication": communication,
             "cultural_fit": cultural,
+            "motivation": {"score": motivation_score, "evidence": ["Derived from motivation stage answers."]},
+            "integrity": {"score": integrity_score, "evidence": ["Derived from resume verification and behavioral answers."]},
+            "confidence": {"score": confidence_score, "evidence": ["Derived from communication metrics."]},
         }
+
+        # Run Copilot agent for per-answer observations
+        copilot = CopilotAgent()
+        for qr in questions_responses:
+            if qr.get("answer") and qr.get("score") is not None:
+                try:
+                    observation = await copilot.generate_observation(
+                        question=qr.get("question", ""),
+                        answer=qr.get("answer", ""),
+                        stage=qr.get("stage", qr.get("category", "technical")),
+                        answer_score=qr.get("score", 50),
+                        context=context,
+                    )
+                    qr["copilot_observation"] = observation
+                except Exception as e:
+                    logger.warning("Copilot observation failed for Q: %s", e)
 
         # Fitment adjustment
         screening = context.get("screening_result", {}) or {}
@@ -290,6 +320,19 @@ class RecruiterOrchestrator:
             executive_summary=recommendation.get("executive_summary"),
         )
         self.db.add(scorecard_record)
+
+        # Update stored questions with copilot observations and scores
+        for qr in questions_responses:
+            if qr.get("copilot_observation") or qr.get("score") is not None:
+                matching_db_q = next(
+                    (q for q in stored_questions if q.question_text == qr.get("question", "")),
+                    None,
+                )
+                if matching_db_q:
+                    if qr.get("score") is not None:
+                        matching_db_q.answer_score = qr["score"]
+                    if qr.get("copilot_observation"):
+                        matching_db_q.copilot_observation = json.dumps(qr["copilot_observation"], default=str)
 
         interview_session.status = "completed"
         interview_session.ended_at = datetime.now(timezone.utc)
@@ -451,3 +494,27 @@ class RecruiterOrchestrator:
             if response:
                 turn_idx += 1
         return paired
+
+    def _extract_dimension_score(
+        self,
+        questions_responses: list[dict[str, Any]],
+        dimension: str,
+        fallback: int = 50,
+    ) -> int:
+        """Extract a dimension score from per-answer data (from the voice agent orchestrator)."""
+        matching = [
+            qr for qr in questions_responses
+            if isinstance(qr, dict) and qr.get("stage") == dimension and qr.get("score") is not None
+        ]
+        if matching:
+            scores = [qr["score"] for qr in matching]
+            return sum(scores) // len(scores)
+        # Also check category field for backward compat
+        matching_cat = [
+            qr for qr in questions_responses
+            if isinstance(qr, dict) and qr.get("category") == dimension and qr.get("score") is not None
+        ]
+        if matching_cat:
+            scores = [qr["score"] for qr in matching_cat]
+            return sum(scores) // len(scores)
+        return fallback
