@@ -13,11 +13,16 @@ import time
 from contextlib import asynccontextmanager
 
 import numpy as np
+import soundfile as sf
 import torch
 import torchaudio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger("speech_service")
 
 # ─── Global model holders ─────────────────────────────────────────────────────
@@ -171,16 +176,24 @@ async def transcribe_audio(request: Request):
         if "raw" in content_type or "pcm" in content_type:
             # Raw PCM: 16kHz, 16-bit, mono → float32 numpy array
             audio_np = np.frombuffer(body, dtype=np.int16).astype(np.float32) / 32768.0
+            sample_rate = SAMPLE_RATE
         else:
-            # WAV — load via torchaudio and convert to float32 numpy
+            # WAV — load via soundfile (more robust than torchaudio) and convert to float32 numpy
             audio_buffer = io.BytesIO(body)
-            waveform, sample_rate = torchaudio.load(audio_buffer)
-            if sample_rate != SAMPLE_RATE:
-                resampler = torchaudio.transforms.Resample(sample_rate, SAMPLE_RATE)
-                waveform = resampler(waveform)
-            if waveform.shape[0] > 1:
-                waveform = waveform.mean(dim=0, keepdim=True)
-            audio_np = waveform.squeeze().numpy()
+            audio_np, sample_rate = sf.read(audio_buffer, dtype="float32")
+            if audio_np.ndim > 1:
+                audio_np = audio_np.mean(axis=1)
+
+        if sample_rate != SAMPLE_RATE:
+            logger.info("Resampling STT audio from %d Hz to %d Hz", sample_rate, SAMPLE_RATE)
+            audio_tensor = torch.from_numpy(audio_np).unsqueeze(0)
+            resampler = torchaudio.transforms.Resample(sample_rate, SAMPLE_RATE)
+            audio_tensor = resampler(audio_tensor)
+            audio_np = audio_tensor.squeeze(0).numpy()
+
+        if len(audio_np) < 512:
+            logger.warning("Audio too short for STT: %d samples", len(audio_np))
+            return {"text": "", "duration_audio": 0.0, "duration_inference": 0.0, "chunks": []}
 
         # Whisper expects float32 numpy array at 16kHz
         start = time.time()
