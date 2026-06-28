@@ -253,6 +253,8 @@ services:
       - SIP_TERMINATION_ADDRESS=aria-staging.pstn.twilio.com
       - SIP_AUTH_USERNAME=${SIP_AUTH_USERNAME:-aria-livekit}
       - SIP_AUTH_PASSWORD=${SIP_AUTH_PASSWORD:-Itslogical1.}
+      - SIP_FROM_HOST=${SIP_FROM_HOST:-aria-staging.pstn.twilio.com}
+      - SIP_TRANSPORT=${SIP_TRANSPORT:-SIP_TRANSPORT_TCP}
     depends_on:
       - livekit
       - speech-service

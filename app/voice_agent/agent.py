@@ -49,6 +49,8 @@ SIP_OUTBOUND_NUMBER = os.getenv("SIP_OUTBOUND_NUMBER", "+18722789563")
 SIP_TERMINATION_ADDRESS = os.getenv("SIP_TERMINATION_ADDRESS", "aria-staging.pstn.twilio.com")
 SIP_AUTH_USERNAME = os.getenv("SIP_AUTH_USERNAME", "aria-livekit")
 SIP_AUTH_PASSWORD = os.getenv("SIP_AUTH_PASSWORD", "Itslogical1.")
+SIP_FROM_HOST = os.getenv("SIP_FROM_HOST", SIP_TERMINATION_ADDRESS)
+SIP_TRANSPORT = os.getenv("SIP_TRANSPORT", "SIP_TRANSPORT_TCP")  # auto/udp/tcp/tls
 AGENT_PORT = int(os.getenv("AGENT_PORT", "8002"))
 
 # Conversation settings (defaults, overridden per-call by tenant config)
@@ -586,9 +588,18 @@ class LiveKitSIPDispatcher:
         try:
             from livekit.protocol.sip import (
                 ListSIPOutboundTrunkRequest,
-                CreateSIPOutboundTrunkRequest,
-                SIPOutboundTrunkInfo,
+                DeleteSIPTrunkRequest,
+                SIPTransport,
             )
+            transport_map = {
+                "SIP_TRANSPORT_AUTO": SIPTransport.SIP_TRANSPORT_AUTO,
+                "SIP_TRANSPORT_UDP": SIPTransport.SIP_TRANSPORT_UDP,
+                "SIP_TRANSPORT_TCP": SIPTransport.SIP_TRANSPORT_TCP,
+                "SIP_TRANSPORT_TLS": SIPTransport.SIP_TRANSPORT_TLS,
+            }
+            desired_transport = transport_map.get(SIP_TRANSPORT, SIPTransport.SIP_TRANSPORT_TCP)
+            desired_from_host = SIP_FROM_HOST
+
             resp = await api.sip.list_outbound_trunk(ListSIPOutboundTrunkRequest())
             trunks = list(resp.items) if resp and resp.items else []
             logger.info("LiveKit SIP outbound trunks found: %d", len(trunks))
@@ -596,14 +607,31 @@ class LiveKitSIPDispatcher:
                 trunk_id = trunk.sip_trunk_id or ''
                 trunk_name = trunk.name or ''
                 trunk_addr = trunk.address or ''
+                trunk_transport = trunk.transport
+                trunk_from_host = trunk.from_host or ''
                 logger.info(
-                    "  trunk: id=%s name=%s address=%s numbers=%s",
+                    "  trunk: id=%s name=%s address=%s numbers=%s transport=%s from_host=%s",
                     trunk_id, trunk_name, trunk_addr, list(trunk.numbers),
+                    SIPTransport.Name(trunk_transport) if trunk_transport is not None else "auto",
+                    trunk_from_host,
                 )
                 # Match by exact termination address or configured name
                 if (trunk_addr == SIP_TERMINATION_ADDRESS or
                         trunk_name == SIP_TRUNK_ID or
                         trunk_id == SIP_TRUNK_ID):
+                    # If the trunk exists but settings changed, delete and recreate it.
+                    if trunk_transport != desired_transport or trunk_from_host != desired_from_host:
+                        logger.warning(
+                            "Existing trunk %s settings do not match (transport=%s from_host=%s); recreating",
+                            trunk_id, SIPTransport.Name(trunk_transport) if trunk_transport is not None else "auto",
+                            trunk_from_host,
+                        )
+                        try:
+                            await api.sip.delete_sip_trunk(DeleteSIPTrunkRequest(sip_trunk_id=trunk_id))
+                            logger.info("Deleted stale SIP trunk: %s", trunk_id)
+                        except Exception as del_err:
+                            logger.error("Failed to delete stale SIP trunk %s: %s", trunk_id, del_err)
+                        break
                     self._resolved_trunk_id = trunk_id
                     logger.info("Resolved existing SIP trunk: %s (name=%s)", trunk_id, trunk_name)
                     return trunk_id
@@ -628,7 +656,15 @@ class LiveKitSIPDispatcher:
             from livekit.protocol.sip import (
                 CreateSIPOutboundTrunkRequest,
                 SIPOutboundTrunkInfo,
+                SIPTransport,
             )
+            transport_map = {
+                "SIP_TRANSPORT_AUTO": SIPTransport.SIP_TRANSPORT_AUTO,
+                "SIP_TRANSPORT_UDP": SIPTransport.SIP_TRANSPORT_UDP,
+                "SIP_TRANSPORT_TCP": SIPTransport.SIP_TRANSPORT_TCP,
+                "SIP_TRANSPORT_TLS": SIPTransport.SIP_TRANSPORT_TLS,
+            }
+            transport = transport_map.get(SIP_TRANSPORT, SIPTransport.SIP_TRANSPORT_TCP)
             req = CreateSIPOutboundTrunkRequest(
                 trunk=SIPOutboundTrunkInfo(
                     name=SIP_TRUNK_ID,
@@ -636,11 +672,16 @@ class LiveKitSIPDispatcher:
                     numbers=[SIP_OUTBOUND_NUMBER],
                     auth_username=SIP_AUTH_USERNAME,
                     auth_password=SIP_AUTH_PASSWORD,
+                    transport=transport,
+                    from_host=SIP_FROM_HOST,
                 )
             )
             result = await api.sip.create_outbound_trunk(req)
             trunk_id = result.sip_trunk_id
-            logger.info("Created SIP outbound trunk: id=%s name=%s", trunk_id, result.name)
+            logger.info(
+                "Created SIP outbound trunk: id=%s name=%s transport=%s from_host=%s",
+                trunk_id, result.name, SIP_TRANSPORT, SIP_FROM_HOST,
+            )
             return trunk_id
         except ImportError as e:
             logger.error("SIPOutboundTrunkInfo not available in livekit.protocol.sip: %s", e)
