@@ -51,3 +51,6 @@ test_full_output.txt
 e2e/.auth/user.json
 test-results/
 playwright-report/
+
+# Runtime logs
+Logs/

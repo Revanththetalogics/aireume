@@ -178,10 +178,14 @@ export default function InterviewPage() {
 
   const configDirty = config && configDraft && JSON.stringify(config) !== JSON.stringify(configDraft)
 
-  // Merge + normalize sessions
+  // Merge + normalize sessions. Voice sessions that are linked to a recruiter
+  // interview are rendered as part of that interview, not as standalone rows.
   const allSessions = useMemo(() => {
-    const voice = voiceSessions.map(normalizeVoiceSession)
     const recruiter = recruiterSessions.map(normalizeRecruiterSession)
+    const linkedVoiceIds = new Set(recruiter.map(s => s.voice_session_id).filter(Boolean))
+    const voice = voiceSessions
+      .filter(s => !linkedVoiceIds.has(s.id))
+      .map(normalizeVoiceSession)
     return [...voice, ...recruiter].sort((a, b) =>
       new Date(b.created_at || 0) - new Date(a.created_at || 0)
     )

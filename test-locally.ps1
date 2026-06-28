@@ -33,6 +33,12 @@ Write-Host "======================================================="
 Write-Host "  ARIA - Local Pre-Push Test Suite"
 Write-Host "======================================================="
 
+# Ensure required environment variables are present for local test runs
+if (-not $env:JWT_SECRET_KEY) {
+    $env:JWT_SECRET_KEY = "local-test-jwt-secret-key-not-for-production"
+    Write-Host "JWT_SECRET_KEY not set; using a local test secret." -ForegroundColor Yellow
+}
+
 # ─── Step 1: Python imports ───────────────────────────────────
 Step-Header 1 "Checking Python imports..."
 Set-Location $ROOT

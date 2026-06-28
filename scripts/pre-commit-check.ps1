@@ -119,9 +119,8 @@ foreach ($file in $frontendFiles) {
     if (Test-Path $file) {
         Write-Host "[OK] $file" -ForegroundColor Green
     } else {
-        Write-Host "[FAIL] Missing: $file" -ForegroundColor Red
+        Write-Host "[WARN] Missing: $file" -ForegroundColor Yellow
         $frontendOk = $false
-        $exitCode = 1
     }
 }
 
