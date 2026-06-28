@@ -251,6 +251,8 @@ services:
       - SIP_TRUNK_ID=twilio-aria
       - SIP_OUTBOUND_NUMBER=+18722789563
       - SIP_TERMINATION_ADDRESS=aria-staging.pstn.twilio.com
+      - SIP_AUTH_USERNAME=${SIP_AUTH_USERNAME:-aria-livekit}
+      - SIP_AUTH_PASSWORD=${SIP_AUTH_PASSWORD:-Itslogical1.}
     depends_on:
       - livekit
       - speech-service
