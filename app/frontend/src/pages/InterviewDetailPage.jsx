@@ -14,6 +14,7 @@ import {
 } from '../lib/api'
 import RecruiterScorecard from '../components/RecruiterScorecard'
 import RecruiterTranscript from '../components/RecruiterTranscript'
+import VoiceScheduleModal from '../components/VoiceScheduleModal'
 
 const DEPTH_CONFIG = {
   quick:    { label: 'Quick Screen',     color: 'bg-blue-100 text-blue-700' },
@@ -173,6 +174,7 @@ export default function InterviewDetailPage() {
   const [depth, setDepth] = useState(depthParam)
   const [transcript, setTranscript] = useState(null)
   const [scorecard, setScorecard] = useState(null)
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [tabLoading, setTabLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -302,18 +304,24 @@ export default function InterviewDetailPage() {
     }
   }
 
-  async function handleReschedule() {
-    const defaultValue = session?.scheduled_at
-      ? new Date(session.scheduled_at).toISOString().slice(0, 16)
-      : ''
-    const newTime = window.prompt('Enter new scheduled time (YYYY-MM-DDTHH:mm)', defaultValue)
-    if (!newTime) return
+  function handleReschedule() {
+    const voiceSessionId = source === 'voice' ? id : session?.voice_session_id
+    if (!voiceSessionId) {
+      setError('No voice session associated with this interview')
+      return
+    }
+    setShowRescheduleModal(true)
+  }
+
+  async function handleRescheduleComplete() {
+    setShowRescheduleModal(false)
     try {
-      await rescheduleVoiceCall(id, { scheduled_at: new Date(newTime).toISOString() })
-      const updated = await getVoiceSession(id)
+      const updated = source === 'voice'
+        ? await getVoiceSession(id)
+        : await getRecruiterSession(id)
       setSession(updated)
     } catch (err) {
-      setError(err.message || 'Failed to reschedule')
+      setError(err.message || 'Failed to refresh session')
     }
   }
 
@@ -413,7 +421,7 @@ export default function InterviewDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {session.status === 'scheduled' && source === 'voice' && (
+              {session.status === 'scheduled' && (source === 'voice' || session?.voice_session_id) && (
                 <button
                   onClick={handleReschedule}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
@@ -632,6 +640,19 @@ export default function InterviewDetailPage() {
               })()}
             </div>
           </motion.div>
+        )}
+
+        {/* Reschedule Modal */}
+        {showRescheduleModal && session && (
+          <VoiceScheduleModal
+            onClose={() => setShowRescheduleModal(false)}
+            onScheduled={handleRescheduleComplete}
+            editSession={{
+              id: source === 'voice' ? id : session.voice_session_id,
+              scheduled_at: session.scheduled_at,
+              phone_number: session.phone_number,
+            }}
+          />
         )}
       </div>
     </div>

@@ -165,7 +165,7 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
               <Phone className="w-5 h-5 text-brand-600" />
             </div>
             <h2 className="text-lg font-bold text-slate-800">
-              {isEditing ? 'Reschedule Screening Call' : 'Schedule Screening Call'}
+              {isEditing ? 'Reschedule Call' : 'Schedule Screening Call'}
             </h2>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400">

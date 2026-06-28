@@ -15,6 +15,7 @@ import {
   getInterviewAnalytics, exportInterviewSessions,
 } from '../lib/api'
 import InterviewInitiateModal from '../components/InterviewInitiateModal'
+import VoiceScheduleModal from '../components/VoiceScheduleModal'
 
 /* ── Depth config ────────────────────────────────────── */
 const DEPTH_CONFIG = {
@@ -130,6 +131,7 @@ function normalizeRecruiterSession(s) {
   return {
     id: `r-${s.id}`,
     rawId: s.id,
+    voice_session_id: s.voice_session_id,
     source: 'recruiter',
     depth: isDeep ? 'deep' : 'standard',
     candidate_id: s.candidate_id,
@@ -140,9 +142,9 @@ function normalizeRecruiterSession(s) {
     score: s.overall_score ?? null,
     recommendation: s.recommendation || null,
     created_at: s.created_at,
-    scheduled_at: null,
+    scheduled_at: s.scheduled_at || null,
     direction: null,
-    phone_number: null,
+    phone_number: s.phone_number || null,
     error_log: s.error_log || null,
   }
 }
@@ -172,6 +174,7 @@ export default function InterviewPage() {
   const [statusFilter, setStatusFilter] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showInitiateModal, setShowInitiateModal] = useState(false)
+  const [rescheduleSession, setRescheduleSession] = useState(null)
 
   const configDirty = config && configDraft && JSON.stringify(config) !== JSON.stringify(configDraft)
 
@@ -291,14 +294,22 @@ export default function InterviewPage() {
     }
   }
 
-  async function handleReschedule(session) {
-    const defaultValue = session.scheduled_at
-      ? new Date(session.scheduled_at).toISOString().slice(0, 16)
-      : ''
-    const newTime = window.prompt('Enter new scheduled time (YYYY-MM-DDTHH:mm)', defaultValue)
-    if (!newTime) return
+  function handleReschedule(session) {
+    const voiceSessionId = session.source === 'voice' ? session.rawId : session.voice_session_id
+    if (!voiceSessionId) {
+      setError('No voice session associated with this interview')
+      return
+    }
+    setRescheduleSession({
+      id: voiceSessionId,
+      scheduled_at: session.scheduled_at,
+      phone_number: session.phone_number,
+    })
+  }
+
+  async function handleRescheduleComplete() {
+    setRescheduleSession(null)
     try {
-      await rescheduleVoiceCall(session.rawId, { scheduled_at: new Date(newTime).toISOString() })
       const [vs, rs] = await Promise.all([
         getVoiceSessions({ limit: 50 }).catch(() => []),
         getRecruiterSessions({ limit: 50 }).catch(() => []),
@@ -306,7 +317,7 @@ export default function InterviewPage() {
       setVoiceSessions(Array.isArray(vs) ? vs : vs.sessions || [])
       setRecruiterSessions(Array.isArray(rs) ? rs : rs.sessions || [])
     } catch (err) {
-      setError(err.message || 'Failed to reschedule')
+      setError(err.message || 'Failed to refresh sessions')
     }
   }
 
@@ -597,7 +608,7 @@ export default function InterviewPage() {
                                 })
                               : ''}
                         </span>
-                        {session.status === 'scheduled' && session.source === 'voice' && (
+                        {session.status === 'scheduled' && (session.source === 'voice' || session.voice_session_id) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleReschedule(session) }}
                             className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-400 transition-colors"
@@ -891,6 +902,15 @@ export default function InterviewPage() {
           <InterviewInitiateModal
             onClose={() => setShowInitiateModal(false)}
             onSuccess={() => fetchAll()}
+          />
+        )}
+
+        {/* Reschedule Modal */}
+        {rescheduleSession && (
+          <VoiceScheduleModal
+            onClose={() => setRescheduleSession(null)}
+            onScheduled={handleRescheduleComplete}
+            editSession={rescheduleSession}
           />
         )}
       </div>

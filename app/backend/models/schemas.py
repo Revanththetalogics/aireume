@@ -818,6 +818,8 @@ class RecruiterSessionOut(BaseModel):
     updated_at: Optional[datetime] = None
     candidate_name: Optional[str] = None
     jd_title: Optional[str] = None
+    scheduled_at: Optional[datetime] = None  # mirrored from voice_session
+    phone_number: Optional[str] = None        # mirrored from voice_session
 
     model_config = {"from_attributes": True}
 

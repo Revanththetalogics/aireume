@@ -196,6 +196,7 @@ def list_recruiter_sessions(
     ).options(
         selectinload(RecruiterInterviewSession.candidate),
         selectinload(RecruiterInterviewSession.jd),
+        selectinload(RecruiterInterviewSession.voice_session),
     )
 
     if status:
@@ -219,6 +220,9 @@ def list_recruiter_sessions(
         out = RecruiterSessionOut.model_validate(s)
         out.candidate_name = s.candidate.name if s.candidate else None
         out.jd_title = s.jd.name if s.jd else None
+        if s.voice_session:
+            out.scheduled_at = s.voice_session.scheduled_at
+            out.phone_number = s.voice_session.phone_number
         results.append(out)
 
     return {
@@ -244,6 +248,7 @@ def get_recruiter_session(
         .options(
             selectinload(RecruiterInterviewSession.candidate),
             selectinload(RecruiterInterviewSession.jd),
+            selectinload(RecruiterInterviewSession.voice_session),
         )
     ).scalar_one_or_none()
 
@@ -253,8 +258,12 @@ def get_recruiter_session(
             detail="Session not found",
         )
 
+    base_out = RecruiterSessionOut.model_validate(session)
+    if session.voice_session:
+        base_out.scheduled_at = session.voice_session.scheduled_at
+        base_out.phone_number = session.voice_session.phone_number
     data = {
-        **RecruiterSessionOut.model_validate(session).model_dump(),
+        **base_out.model_dump(),
         "interview_strategy_json": _load_json(
             session.interview_strategy_json, default={}
         ),
@@ -545,10 +554,18 @@ def list_candidate_recruiter_sessions(
             RecruiterInterviewSession.tenant_id == current_user.tenant_id,
             RecruiterInterviewSession.candidate_id == candidate_id,
         )
+        .options(selectinload(RecruiterInterviewSession.voice_session))
         .order_by(RecruiterInterviewSession.created_at.desc())
     ).scalars().all()
 
-    return [RecruiterSessionOut.model_validate(s) for s in sessions]
+    results = []
+    for s in sessions:
+        out = RecruiterSessionOut.model_validate(s)
+        if s.voice_session:
+            out.scheduled_at = s.voice_session.scheduled_at
+            out.phone_number = s.voice_session.phone_number
+        results.append(out)
+    return results
 
 
 # ─── Analytics ────────────────────────────────────────────────────────────────

@@ -292,7 +292,14 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
                 />
                 <select
                   value={candidateId}
-                  onChange={e => setCandidateId(e.target.value)}
+                  onChange={e => {
+                    const id = e.target.value
+                    setCandidateId(id)
+                    const candidate = candidates.find(c => String(c.id) === id)
+                    if (candidate?.phone && !phoneNumber) {
+                      setPhoneNumber(candidate.phone)
+                    }
+                  }}
                   required
                   size={Math.min(filteredCandidates.length + 1, 6)}
                   className="w-full px-3.5 py-1.5 bg-white rounded-b-xl ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 text-sm outline-none transition-all"
