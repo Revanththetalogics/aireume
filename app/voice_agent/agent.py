@@ -47,6 +47,8 @@ LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "")
 SIP_TRUNK_ID = os.getenv("SIP_TRUNK_ID", "twilio-aria")
 SIP_OUTBOUND_NUMBER = os.getenv("SIP_OUTBOUND_NUMBER", "+18722789563")
 SIP_TERMINATION_ADDRESS = os.getenv("SIP_TERMINATION_ADDRESS", "aria-staging.pstn.twilio.com")
+SIP_AUTH_USERNAME = os.getenv("SIP_AUTH_USERNAME", "aria-livekit")
+SIP_AUTH_PASSWORD = os.getenv("SIP_AUTH_PASSWORD", "Itslogical1.")
 AGENT_PORT = int(os.getenv("AGENT_PORT", "8002"))
 
 # Conversation settings (defaults, overridden per-call by tenant config)
@@ -629,11 +631,11 @@ class LiveKitSIPDispatcher:
             )
             req = CreateSIPOutboundTrunkRequest(
                 trunk=SIPOutboundTrunkInfo(
-                    name="twilio-aria",
+                    name=SIP_TRUNK_ID,
                     address=SIP_TERMINATION_ADDRESS,
                     numbers=[SIP_OUTBOUND_NUMBER],
-                    auth_username="aria-livekit",
-                    auth_password="Itslogical1.",
+                    auth_username=SIP_AUTH_USERNAME,
+                    auth_password=SIP_AUTH_PASSWORD,
                 )
             )
             result = await api.sip.create_outbound_trunk(req)

@@ -162,6 +162,9 @@ services:
       - ARIA_BACKEND_URL=http://backend:8000
       - SIP_TRUNK_ID=${SIP_TRUNK_ID:-twilio-aria}
       - SIP_OUTBOUND_NUMBER=${SIP_OUTBOUND_NUMBER:-+18722789563}
+      - SIP_TERMINATION_ADDRESS=${SIP_TERMINATION_ADDRESS:-aria-staging.pstn.twilio.com}
+      - SIP_AUTH_USERNAME=${SIP_AUTH_USERNAME:-aria-livekit}
+      - SIP_AUTH_PASSWORD=${SIP_AUTH_PASSWORD:-}
       - AGENT_PORT=8002
     ports:
       - "8002:8002"
