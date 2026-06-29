@@ -42,7 +42,7 @@ class SpeechSegmenter:
         sample_rate: int = 48000,
         energy_threshold: float = 300.0,
         min_speech_duration_ms: int = 250,
-        silence_duration_ms: int = 500,
+        silence_duration_ms: int = 1200,
         max_speech_duration_s: int = 30,
     ):
         self.sample_rate = sample_rate

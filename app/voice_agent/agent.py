@@ -1556,7 +1556,13 @@ async def dispatch_call(req: DispatchRequest):
 
         # 3. Build orchestrator context with full candidate data
         depth = req.effective_depth
-        duration_s = {"quick": 300, "standard": 900, "deep": 1200}.get(depth, 1200)
+        # Prefer the actual configured duration; fall back to depth-based mapping
+        interview_config = req.interview_config or {}
+        duration_minutes = interview_config.get("duration_minutes")
+        if duration_minutes and isinstance(duration_minutes, (int, float)) and duration_minutes > 0:
+            duration_s = int(duration_minutes * 60)
+        else:
+            duration_s = {"quick": 300, "standard": 900, "deep": 1200}.get(depth, 1200)
 
         orch_ctx = OrchestratorContext(
             session_id=str(req.session_id),

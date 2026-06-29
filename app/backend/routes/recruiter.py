@@ -144,7 +144,8 @@ async def create_recruiter_session(
 
     # Build config from both flat fields and legacy interview_config_json
     config = (body.interview_config_json or {}).copy()
-    config.setdefault("duration_minutes", body.duration_minutes)
+    if body.duration_minutes is not None:
+        config.setdefault("duration_minutes", body.duration_minutes)
     config.setdefault("focus_areas", body.focus_areas)
     config.setdefault("phone_number", body.phone_number)
     config.setdefault("scheduled_at", body.scheduled_at)

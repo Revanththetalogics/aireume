@@ -15,8 +15,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY app/speech_service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install spaCy model required by Kokoro / misaki
+RUN python -m spacy download en_core_web_sm
+
 # Copy speech service code
 COPY app/speech_service/ ./app/speech_service/
+
+# Pre-download Kokoro model so runtime starts don't depend on HuggingFace
+# Cache under /app so the non-root runtime user can read it
+ENV HF_HOME=/app/.cache/huggingface
+ENV TORCH_HOME=/app/.cache/torch
+RUN mkdir -p /app/.cache && \
+    python - <<'PY'
+from kokoro import KPipeline
+KPipeline(lang_code='a')
+PY
 
 # Create non-root user
 RUN useradd -m -u 1000 speechuser
@@ -24,6 +37,8 @@ RUN chown -R speechuser:speechuser /app
 USER speechuser
 
 ENV PYTHONPATH=/app
+ENV HF_HOME=/app/.cache/huggingface
+ENV TORCH_HOME=/app/.cache/torch
 EXPOSE 8001
 
 # Health check — wait for models to load

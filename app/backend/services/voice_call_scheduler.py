@@ -186,6 +186,21 @@ def execute_scheduled_call(session_id: int):
             except Exception:
                 pass
 
+        # Load associated recruiter interview config (if any) to preserve duration/depth
+        interview_config = None
+        try:
+            from app.backend.models.db_models import RecruiterInterviewSession
+
+            recruiter_session = db.execute(
+                select(RecruiterInterviewSession).where(
+                    RecruiterInterviewSession.voice_session_id == session.id
+                )
+            ).scalar_one_or_none()
+            if recruiter_session and recruiter_session.interview_config_json:
+                interview_config = json.loads(recruiter_session.interview_config_json)
+        except Exception:
+            interview_config = None
+
         # Dispatch via voice-agent HTTP API
         dispatch_payload = {
             "session_id": session.id,
@@ -195,6 +210,8 @@ def execute_scheduled_call(session_id: int):
             "candidate_id": session.candidate_id,
             "jd_title": jd_title,
             "jd_must_have_skills": [],
+            "depth": session.interview_depth or "quick",
+            "interview_config": interview_config or {},
         }
 
         resp = httpx.post(

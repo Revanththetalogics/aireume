@@ -212,11 +212,15 @@ async def _create_recruiter_session(
         if sr:
             screening_result_id = sr.id
 
+    # Map unified depth to a concrete duration so the voice agent respects it
+    depth_duration_minutes = {"quick": 5, "standard": 15, "deep": 20}.get(depth, 20)
+
     config: dict[str, Any] = {
         "scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
         "phone_number": body.phone_number,
         "focus_areas": body.focus_areas or [],
         "interview_depth": depth,
+        "duration_minutes": depth_duration_minutes,
     }
 
     orchestrator = RecruiterOrchestrator(db)

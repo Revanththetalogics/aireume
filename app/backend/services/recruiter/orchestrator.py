@@ -121,6 +121,14 @@ class RecruiterOrchestrator:
 
         phone_number = config.get("phone_number") or candidate.phone
 
+        # Map configured duration to the DB-supported depth labels (quick/deep).
+        # "deep" is used by existing code for both standard and deep interviews.
+        duration_minutes = strategy_config.get("duration_minutes") or 20
+        if duration_minutes <= 7:
+            voice_depth = "quick"
+        else:
+            voice_depth = "deep"
+
         # Create the voice screening session using existing infrastructure
         voice_session = VoiceScreeningSession(
             tenant_id=tenant_id,
@@ -129,6 +137,7 @@ class RecruiterOrchestrator:
             phone_number=phone_number,
             direction="outbound",
             status="scheduled",
+            interview_depth=voice_depth,
             scheduled_at=scheduled_at,
         )
         self.db.add(voice_session)
