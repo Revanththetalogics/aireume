@@ -1013,6 +1013,7 @@ export default function SettingsPage() {
                       type="email"
                       value={profile.email}
                       disabled
+                      autoComplete="email"
                       className="w-full px-4 py-2.5 bg-slate-50 rounded-xl text-sm text-slate-500 ring-1 ring-slate-200 cursor-not-allowed"
                     />
                     <p className="text-xs text-slate-400 mt-1">Contact support to change your email</p>
@@ -1024,6 +1025,7 @@ export default function SettingsPage() {
                       type="password"
                       placeholder="••••••••"
                       disabled
+                      autoComplete="current-password"
                       className="w-full px-4 py-2.5 bg-slate-50 rounded-xl text-sm text-slate-500 ring-1 ring-slate-200 cursor-not-allowed"
                     />
                   </div>

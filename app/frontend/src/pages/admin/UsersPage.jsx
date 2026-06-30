@@ -134,6 +134,7 @@ function AddUserModal({ tenantId, tenantName, onClose, onAdded }) {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               placeholder="user@company.com"
               className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
               required

@@ -23,10 +23,27 @@ function getCsrfToken() {
     ?.split('=')[1] || null
 }
 
+// Paths that are CSRF-exempt on the backend (no CSRF token needed)
+const CSRF_EXEMPT_PATHS = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/refresh',
+  '/auth/logout',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/billing/webhook',
+  '/sso/callback',
+]
+
+function isCsrfExempt(url) {
+  const path = url?.split('?')[0] || ''
+  return CSRF_EXEMPT_PATHS.some(p => path === p || path.startsWith(p + '/'))
+}
+
 // Add CSRF token to state-mutating requests for browser clients
 api.interceptors.request.use(async (config) => {
   const safeMethod = ['get', 'head', 'options'].includes(config.method?.toLowerCase())
-  if (!safeMethod) {
+  if (!safeMethod && !isCsrfExempt(config.url)) {
     let csrfToken = getCsrfToken()
     if (!csrfToken) {
       // Try to refresh CSRF cookie by calling /auth/me (sets new CSRF cookie)

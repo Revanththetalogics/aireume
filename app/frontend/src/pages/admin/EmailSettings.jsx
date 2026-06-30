@@ -333,6 +333,7 @@ export default function EmailSettings() {
                 value={form.smtp_password}
                 onChange={(e) => handleChange('smtp_password', e.target.value)}
                 onFocus={handlePasswordFocus}
+                autoComplete="off"
                 placeholder={originalPassword ? '••••••••' : ''}
                 className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white outline-none transition-all"
               />
@@ -349,6 +350,7 @@ export default function EmailSettings() {
                 type="email"
                 value={form.smtp_from}
                 onChange={(e) => handleChange('smtp_from', e.target.value)}
+                autoComplete="email"
                 placeholder="noreply@example.com"
                 className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white outline-none transition-all"
               />
@@ -371,6 +373,7 @@ export default function EmailSettings() {
                 type="email"
                 value={form.reply_to}
                 onChange={(e) => handleChange('reply_to', e.target.value)}
+                autoComplete="email"
                 placeholder="recruiting@example.com"
                 className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 text-sm bg-white outline-none transition-all"
               />

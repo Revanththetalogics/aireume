@@ -193,6 +193,7 @@ function CreateTenantModal({ plans, onClose, onCreated }) {
               type="email"
               value={form.contact_email}
               onChange={(e) => setForm(prev => ({ ...prev, contact_email: e.target.value }))}
+              autoComplete="email"
               placeholder="admin@acme.com"
               className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
             />

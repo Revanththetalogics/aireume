@@ -109,6 +109,7 @@ export default function LoginPage() {
                   value={tenantSlug}
                   onChange={(e) => setTenantSlug(e.target.value)}
                   required
+                  autoComplete="organization"
                   placeholder="your-company"
                   className="w-full pl-9 pr-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
                 />
@@ -127,6 +128,7 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required={!ssoEnforced}
+                    autoComplete="email"
                     placeholder="you@company.com"
                     className="w-full px-4 py-2.5 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
                   />
@@ -139,6 +141,7 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required={!ssoEnforced}
+                      autoComplete="current-password"
                       placeholder="••••••••"
                       className="w-full px-4 py-2.5 pr-11 rounded-xl ring-1 ring-brand-200 focus:ring-2 focus:ring-brand-500 bg-white text-sm text-slate-800 placeholder-slate-400 transition-shadow"
                     />
