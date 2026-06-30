@@ -31,7 +31,7 @@ class TestComputeDeterministicScore:
         score = compute_deterministic_score(features, eligibility)
         assert score == 0
 
-    def test_ineligible_capped_at_35(self):
+    def test_ineligible_penalty_applied(self):
         features = {
             "core_skill_match": 1.0,
             "secondary_skill_match": 1.0,
@@ -40,9 +40,9 @@ class TestComputeDeterministicScore:
         }
         eligibility = EligibilityResult(eligible=False, reason="domain_mismatch")
         score = compute_deterministic_score(features, eligibility)
-        assert score <= 35
+        assert score == 80  # 100 - 20 ineligible penalty
 
-    def test_low_domain_match_capped_at_35(self):
+    def test_low_domain_match_penalty_applied(self):
         features = {
             "core_skill_match": 0.8,
             "secondary_skill_match": 0.8,
@@ -51,9 +51,10 @@ class TestComputeDeterministicScore:
         }
         eligibility = EligibilityResult(eligible=True)
         score = compute_deterministic_score(features, eligibility)
-        assert score <= 35
+        # (0.8*0.4 + 0.8*0.15 + 0.2*0.25 + 0.8*0.2) * 100 - 10 = 65 - 10
+        assert score == 55
 
-    def test_low_core_skill_match_capped_at_40(self):
+    def test_low_core_skill_match_penalty_applied(self):
         features = {
             "core_skill_match": 0.2,
             "secondary_skill_match": 0.8,
@@ -62,19 +63,21 @@ class TestComputeDeterministicScore:
         }
         eligibility = EligibilityResult(eligible=True)
         score = compute_deterministic_score(features, eligibility)
-        assert score <= 40
+        # (0.2*0.4 + 0.8*0.15 + 0.8*0.25 + 0.8*0.2) * 100 - 10 = 56 - 10
+        assert score == 46
 
-    def test_multiple_caps_lowest_wins(self):
-        """Ineligible (cap 35) and low core skills (cap 40) → lowest cap 35 wins."""
+    def test_multiple_penalties_stack(self):
+        """Ineligible, low core skills, and low domain match all subtract."""
         features = {
             "core_skill_match": 0.2,
             "secondary_skill_match": 0.8,
-            "domain_match": 0.8,
+            "domain_match": 0.2,
             "relevant_experience": 0.8,
         }
         eligibility = EligibilityResult(eligible=False, reason="low_core_skills")
         score = compute_deterministic_score(features, eligibility)
-        assert score <= 35
+        # (0.2*0.4 + 0.8*0.15 + 0.2*0.25 + 0.8*0.2) * 100 - 20 - 10 - 10 = 41 - 40
+        assert score == 1
 
     def test_score_is_integer(self):
         features = {
@@ -127,7 +130,7 @@ class TestExplainDecision:
         result = explain_decision(features, eligibility)
         assert result["decision"] == "Reject"
         assert len(result["caps_applied"]) > 0
-        assert "ineligible_cap_35" in result["caps_applied"]
+        assert "ineligible_penalty" in result["caps_applied"]
 
     def test_domain_mismatch_reason_mentions_both_domains(self):
         features = {

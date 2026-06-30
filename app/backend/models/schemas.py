@@ -904,6 +904,10 @@ class RecruiterAutoTriggerConfigOut(BaseModel):
     auto_schedule_delay_minutes: int
     interview_duration_target: int
     focus_areas: Optional[List[str]] = None
+    auto_status_update_enabled: bool = False
+    auto_status_mapping_json: Optional[Dict[str, str]] = None
+    require_consent: bool = True
+    evaluator_model_json: Optional[Dict[str, str]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -919,13 +923,17 @@ class RecruiterAutoTriggerConfigUpdate(BaseModel):
     auto_schedule_delay_minutes: Optional[int] = None
     interview_duration_target: Optional[int] = None
     focus_areas: Optional[List[str]] = None
+    auto_status_update_enabled: Optional[bool] = None
+    auto_status_mapping_json: Optional[Dict[str, str]] = None
+    require_consent: Optional[bool] = None
+    evaluator_model_json: Optional[Dict[str, str]] = None
 
     @field_validator('trigger_pipeline_stage')
     @classmethod
     def validate_stage(cls, v):
         if v is None:
             return v
-        allowed = {'shortlisted', 'in_review'}
+        allowed = {'pending', 'shortlisted', 'in_review'}
         if v not in allowed:
             raise ValueError(f'trigger_pipeline_stage must be one of {allowed}')
         return v
@@ -944,5 +952,218 @@ class RecruiterAnalyticsOut(BaseModel):
     sessions_by_status: Optional[Dict[str, int]] = None
     score_distribution: Optional[Dict[str, int]] = None
     sessions_this_month: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+# ─── Screening Project schemas ───────────────────────────────────────────────
+
+class ScreeningProjectCreate(BaseModel):
+    name: str
+    role_template_id: int
+    description: Optional[str] = None
+    status: str = "draft"
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        allowed = {"draft", "active", "paused", "closed"}
+        if v not in allowed:
+            raise ValueError(f"status must be one of {allowed}")
+        return v
+
+
+class ScreeningProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    role_template_id: Optional[int] = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        if v is None:
+            return v
+        allowed = {"draft", "active", "paused", "closed"}
+        if v not in allowed:
+            raise ValueError(f"status must be one of {allowed}")
+        return v
+
+
+class ScreeningProjectOut(BaseModel):
+    id: int
+    tenant_id: int
+    role_template_id: int
+    name: str
+    description: Optional[str] = None
+    status: str
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+    candidate_count: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class ScreeningProjectCandidateAdd(BaseModel):
+    candidate_ids: List[int]
+    screening_result_ids: Optional[Dict[int, int]] = None  # candidate_id -> screening_result_id
+
+
+class ScreeningProjectCandidateStatusUpdate(BaseModel):
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        allowed = {"pending", "shortlisted", "rejected", "in-review", "hired"}
+        if v not in allowed:
+            raise ValueError(f"status must be one of {allowed}")
+        return v
+
+
+class ScreeningProjectCandidateOut(BaseModel):
+    id: int
+    project_id: int
+    candidate_id: int
+    screening_result_id: Optional[int] = None
+    status: str
+    added_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    candidate_name: Optional[str] = None
+    candidate_email: Optional[str] = None
+    fit_score: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ─── ATS Connector Schemas ────────────────────────────────────────────────────
+
+class ATSConnectionCreate(BaseModel):
+    provider: str = Field(..., description="greenhouse / lever / workday / generic")
+    label: str
+    api_key: Optional[str] = None
+    api_secret: Optional[str] = None
+    base_url: Optional[str] = None
+    webhook_url: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    sync_direction: str = Field("push", description="push / pull / bidirectional")
+    status_mapping_json: Optional[Dict[str, str]] = None
+
+    @field_validator('provider')
+    @classmethod
+    def validate_provider(cls, v):
+        allowed = {'greenhouse', 'lever', 'workday', 'generic'}
+        if v not in allowed:
+            raise ValueError(f'provider must be one of {allowed}')
+        return v
+
+    @field_validator('sync_direction')
+    @classmethod
+    def validate_direction(cls, v):
+        allowed = {'push', 'pull', 'bidirectional'}
+        if v not in allowed:
+            raise ValueError(f'sync_direction must be one of {allowed}')
+        return v
+
+
+class ATSConnectionUpdate(BaseModel):
+    label: Optional[str] = None
+    api_key: Optional[str] = None
+    api_secret: Optional[str] = None
+    base_url: Optional[str] = None
+    webhook_url: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    is_active: Optional[bool] = None
+    sync_direction: Optional[str] = None
+    status_mapping_json: Optional[Dict[str, str]] = None
+
+    @field_validator('sync_direction')
+    @classmethod
+    def validate_direction(cls, v):
+        if v is None:
+            return v
+        allowed = {'push', 'pull', 'bidirectional'}
+        if v not in allowed:
+            raise ValueError(f'sync_direction must be one of {allowed}')
+        return v
+
+
+class ATSConnectionOut(BaseModel):
+    id: int
+    tenant_id: int
+    provider: str
+    label: str
+    base_url: Optional[str] = None
+    webhook_url: Optional[str] = None
+    is_active: bool
+    sync_direction: str
+    status_mapping_json: Optional[Dict[str, str]] = None
+    last_sync_at: Optional[datetime] = None
+    last_sync_status: Optional[str] = None
+    last_error: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ATSSyncLogOut(BaseModel):
+    id: int
+    connection_id: int
+    direction: str
+    entity_type: str
+    entity_id: Optional[str] = None
+    candidate_id: Optional[int] = None
+    screening_result_id: Optional[int] = None
+    success: bool
+    error_message: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ATSPushRequest(BaseModel):
+    candidate_id: int
+    screening_result_id: Optional[int] = None
+    external_id: Optional[str] = Field(None, description="External ATS candidate/application ID")
+    status: Optional[str] = Field(None, description="Status to push (uses mapping if omitted)")
+
+
+# ─── Interview Template Schemas ───────────────────────────────────────────────
+
+class InterviewTemplateQuestion(BaseModel):
+    question: str
+    category: str = "technical"
+    rationale: Optional[str] = None
+    sequence_number: Optional[int] = None
+
+
+class InterviewTemplateCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    project_id: Optional[int] = None
+    questions: List[InterviewTemplateQuestion]
+
+
+class InterviewTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    project_id: Optional[int] = None
+    questions: Optional[List[InterviewTemplateQuestion]] = None
+    is_active: Optional[bool] = None
+
+
+class InterviewTemplateOut(BaseModel):
+    id: int
+    tenant_id: int
+    project_id: Optional[int] = None
+    name: str
+    description: Optional[str] = None
+    questions: List[Dict[str, Any]] = []
+    is_active: bool
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

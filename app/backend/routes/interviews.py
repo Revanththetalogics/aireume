@@ -410,10 +410,92 @@ def get_interview_transcript(
                 "text": e.text,
                 "timestamp": e.timestamp.isoformat() if e.timestamp else None,
                 "audio_url": e.audio_url,
+                "question_id": e.question_id,
             }
             for e in entries
         ],
     }
+
+
+@router.get("/sessions/{session_id}/copilot")
+async def copilot_stream(
+    session_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """SSE stream of recruiter copilot observations for a live interview.
+
+    Polls the transcript for new candidate answers and generates
+    copilot observations in real-time. The stream closes when the
+    interview session completes or the client disconnects.
+    """
+    _require_recruiter_or_admin(current_user)
+
+    session = db.execute(
+        select(VoiceScreeningSession).where(
+            VoiceScreeningSession.id == session_id,
+            VoiceScreeningSession.tenant_id == current_user.tenant_id,
+        )
+    ).scalar_one_or_none()
+
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    from app.backend.services.recruiter.copilot_agent import CopilotAgent
+    import asyncio
+
+    copilot = CopilotAgent()
+    seen_entry_ids: set[int] = set()
+
+    async def event_stream():
+        while True:
+            if await request.is_disconnected():
+                break
+
+            voice_session = db.execute(
+                select(VoiceScreeningSession).where(VoiceScreeningSession.id == session_id)
+            ).scalar_one_or_none()
+
+            if voice_session and voice_session.status in ("completed", "cancelled", "failed"):
+                yield f"data: {json.dumps({'stage': 'session_ended', 'status': voice_session.status})}\n\n"
+                break
+
+            entries = db.execute(
+                select(VoiceTranscriptEntry)
+                .where(VoiceTranscriptEntry.session_id == session_id)
+                .order_by(VoiceTranscriptEntry.timestamp.asc())
+            ).scalars().all()
+
+            new_entries = [e for e in entries if e.id not in seen_entry_ids]
+            for e in new_entries:
+                seen_entry_ids.add(e.id)
+                if e.speaker == "candidate" and e.text.strip():
+                    try:
+                        observation = await copilot.generate_observation(
+                            question="",
+                            answer=e.text,
+                            stage="realtime",
+                            answer_score=50,
+                        )
+                        event = {
+                            "stage": "copilot_observation",
+                            "entry_id": e.id,
+                            "question_id": e.question_id,
+                            "observation": observation,
+                        }
+                        yield f"data: {json.dumps(event, default=str)}\n\n"
+                    except Exception as exc:
+                        logger.warning("Copilot observation failed for entry %s: %s", e.id, exc)
+
+            yield ": heartbeat\n\n"
+            await asyncio.sleep(3)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/sessions/{session_id}/scorecard")
@@ -526,6 +608,140 @@ async def cancel_interview_session(
 
     db.commit()
     return {"session_id": session.id, "status": "cancelled", "message": "Session cancelled"}
+
+
+# ─── Candidate Consent ────────────────────────────────────────────────────────
+
+@router.post("/sessions/{session_id}/consent")
+async def record_candidate_consent(
+    session_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+):
+    """Record candidate consent for an AI interview.
+
+    This endpoint is called by the frontend (candidate-facing) or the voice
+    agent to record that the candidate has been informed and has agreed or
+    declined to participate in an AI-conducted interview.
+
+    No JWT auth — uses session_id as the access token (candidate-facing).
+    """
+    consent = body.get("consent")  # "confirmed" | "denied"
+    if consent not in ("confirmed", "denied"):
+        raise HTTPException(status_code=400, detail="consent must be 'confirmed' or 'denied'")
+
+    voice_session = db.execute(
+        select(VoiceScreeningSession).where(
+            VoiceScreeningSession.id == session_id,
+        )
+    ).scalar_one_or_none()
+
+    if voice_session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    voice_session.consent_recorded = True
+    voice_session.consent_status = consent
+
+    recruiter_session = db.execute(
+        select(RecruiterInterviewSession).where(
+            RecruiterInterviewSession.voice_session_id == session_id
+        )
+    ).scalar_one_or_none()
+
+    if recruiter_session:
+        recruiter_session.consent_status = consent
+        if consent == "denied" and recruiter_session.status not in ("completed", "cancelled"):
+            recruiter_session.status = "cancelled"
+            from app.backend.services.recruiter.orchestrator import RecruiterOrchestrator
+            orch = RecruiterOrchestrator(db)
+            await orch.cancel_interview(recruiter_session.id)
+
+    db.commit()
+    return {"session_id": session_id, "consent": consent}
+
+
+@router.post("/sessions/{session_id}/pre-notify")
+def send_pre_notification(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a pre-interview notification to the candidate (SMS/email).
+
+    Informs the candidate that an AI-conducted interview has been scheduled
+    and provides a link to confirm consent.
+    """
+    _require_recruiter_or_admin(current_user)
+
+    voice_session = db.execute(
+        select(VoiceScreeningSession).where(
+            VoiceScreeningSession.id == session_id,
+            VoiceScreeningSession.tenant_id == current_user.tenant_id,
+        )
+    ).scalar_one_or_none()
+
+    if voice_session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    candidate = db.execute(
+        select(Candidate).where(Candidate.id == voice_session.candidate_id)
+    ).scalar_one_or_none()
+
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    notification_sent = False
+    notification_channels = []
+
+    try:
+        from app.backend.services.email_service import email_service
+        if candidate.email and email_service.is_configured:
+            body_html = (
+                f"<h3>AI Interview Scheduled</h3>"
+                f"<p>Hi {candidate.name or 'Candidate'},</p>"
+                f"<p>An AI-conducted interview has been scheduled for you. "
+                f"Please confirm your consent to participate.</p>"
+                f"<p>Session ID: {session_id}</p>"
+            )
+            email_service.send_email(
+                to=candidate.email,
+                subject="AI Interview Scheduled - Action Required",
+                body_html=body_html,
+            )
+            notification_channels.append("email")
+            notification_sent = True
+    except Exception as e:
+        logger.warning("Failed to send email pre-notification: %s", e)
+
+    try:
+        if candidate.phone:
+            import importlib
+            sms_mod = importlib.import_module("app.backend.services.sms_service")
+            send_sms = getattr(sms_mod, "send_sms", None)
+            if send_sms:
+                message = (
+                    f"Hi {candidate.name or 'there'}, an AI interview has been scheduled. "
+                    f"Please confirm your consent at your earliest convenience. Session ID: {session_id}"
+                )
+                send_sms(candidate.phone, message)
+                notification_channels.append("sms")
+                notification_sent = True
+    except ImportError:
+        logger.info("SMS service not configured, skipping SMS pre-notification")
+    except Exception as e:
+        logger.warning("Failed to send SMS pre-notification: %s", e)
+
+    if not notification_sent:
+        raise HTTPException(
+            status_code=422,
+            detail="No notification channel available (email not configured, no candidate phone/email)",
+        )
+
+    return {
+        "session_id": session_id,
+        "notification_sent": True,
+        "channels": notification_channels,
+    }
 
 
 @router.post("/sessions/{session_id}/retry", status_code=status.HTTP_201_CREATED)
@@ -645,6 +861,8 @@ def get_interview_config(
         "recruiter": {
             **RecruiterAutoTriggerConfigOut.model_validate(recruiter_config).model_dump(),
             "focus_areas": _load_json(recruiter_config.focus_areas, default=[]),
+            "auto_status_mapping_json": _load_json(recruiter_config.auto_status_mapping_json, default={}),
+            "evaluator_model_json": _load_json(recruiter_config.evaluator_model_json, default={}),
         },
         "recruiter_enabled": RECRUITER_ENABLED,
     }
@@ -691,6 +909,10 @@ def update_interview_config(
         for field, value in update.items():
             if field == "focus_areas" and isinstance(value, list):
                 value = json.dumps(value)
+            if field == "auto_status_mapping_json" and isinstance(value, dict):
+                value = json.dumps(value)
+            if field == "evaluator_model_json" and isinstance(value, dict):
+                value = json.dumps(value)
             setattr(recruiter_config, field, value)
 
     db.commit()
@@ -702,6 +924,8 @@ def update_interview_config(
         "recruiter": {
             **RecruiterAutoTriggerConfigOut.model_validate(recruiter_config).model_dump(),
             "focus_areas": _load_json(recruiter_config.focus_areas, default=[]),
+            "auto_status_mapping_json": _load_json(recruiter_config.auto_status_mapping_json, default={}),
+            "evaluator_model_json": _load_json(recruiter_config.evaluator_model_json, default={}),
         },
         "recruiter_enabled": RECRUITER_ENABLED,
     }
@@ -1003,6 +1227,12 @@ async def _generate_scorecard_background(session_id: str) -> None:
     try:
         orchestrator = RecruiterOrchestrator(db)
         await orchestrator.on_interview_completed(session_id)
+
+        # Auto-update candidate status from AI recommendation if enabled
+        try:
+            _apply_auto_status_update(db, session_id)
+        except Exception as e:
+            logger.warning("Auto-status-update failed for session %s: %s", session_id, e)
     except Exception as e:
         logger.error(
             "Scorecard generation failed for session %s: %s",
@@ -1019,6 +1249,55 @@ async def _generate_scorecard_background(session_id: str) -> None:
             db.commit()
     finally:
         db.close()
+
+
+def _apply_auto_status_update(db: Session, recruiter_session_id: str) -> None:
+    """Apply configurable status mapping from AI recommendation to candidate's screening result."""
+    session = db.execute(
+        select(RecruiterInterviewSession).where(
+            RecruiterInterviewSession.id == recruiter_session_id
+        )
+    ).scalar_one_or_none()
+    if not session or not session.screening_result_id:
+        return
+
+    config = db.execute(
+        select(RecruiterAutoTriggerConfig).where(
+            RecruiterAutoTriggerConfig.tenant_id == session.tenant_id
+        )
+    ).scalar_one_or_none()
+    if not config or not config.auto_status_update_enabled:
+        return
+
+    mapping = _load_json(config.auto_status_mapping_json, default={})
+    if not mapping:
+        return
+
+    scorecard = db.execute(
+        select(RecruiterScorecard).where(
+            RecruiterScorecard.session_id == recruiter_session_id
+        )
+    ).scalar_one_or_none()
+    if not scorecard or not scorecard.recommendation:
+        return
+
+    new_status = mapping.get(scorecard.recommendation)
+    if not new_status:
+        return
+
+    screening_result = db.execute(
+        select(ScreeningResult).where(
+            ScreeningResult.id == session.screening_result_id
+        )
+    ).scalar_one_or_none()
+    if screening_result and screening_result.status != new_status:
+        screening_result.status = new_status
+        screening_result.status_updated_at = datetime.now(timezone.utc)
+        db.commit()
+        logger.info(
+            "Auto-updated candidate status to '%s' from recommendation '%s' for session %s",
+            new_status, scorecard.recommendation, recruiter_session_id,
+        )
 
 
 @router.post("/internal/complete")
@@ -1090,6 +1369,7 @@ async def on_interview_complete(
                 speaker=entry.get("speaker", "candidate"),
                 text=entry.get("text", ""),
                 timestamp=abs_ts,
+                question_id=entry.get("question_id"),
             ))
 
     db.commit()
@@ -1131,20 +1411,27 @@ async def on_interview_complete(
     questions_responses = result.get("questions_responses", [])
     if questions_responses:
         from app.backend.models.db_models import RecruiterInterviewQuestion
-        existing_questions = {
-            q.question_text: q
-            for q in db.execute(
-                select(RecruiterInterviewQuestion).where(
-                    RecruiterInterviewQuestion.session_id == recruiter_session.id
-                )
-            ).scalars().all()
-        }
+        existing_by_id = {}
+        existing_by_text = {}
+        for q in db.execute(
+            select(RecruiterInterviewQuestion).where(
+                RecruiterInterviewQuestion.session_id == recruiter_session.id
+            )
+        ).scalars().all():
+            existing_by_id[q.id] = q
+            existing_by_text[q.question_text] = q
 
         for idx, qr in enumerate(questions_responses):
             if not isinstance(qr, dict):
                 continue
             question_text = qr.get("question", "")
-            existing = existing_questions.get(question_text)
+            question_id = qr.get("question_id")
+
+            existing = None
+            if question_id:
+                existing = existing_by_id.get(question_id)
+            if not existing:
+                existing = existing_by_text.get(question_text)
 
             if existing:
                 existing.candidate_response = qr.get("response", "")
@@ -1152,8 +1439,9 @@ async def on_interview_complete(
                 if qr.get("is_follow_up", False):
                     existing.is_follow_up = True
             else:
+                new_q_id = question_id or str(uuid.uuid4())
                 db.add(RecruiterInterviewQuestion(
-                    id=str(uuid.uuid4()),
+                    id=new_q_id,
                     session_id=recruiter_session.id,
                     sequence_number=idx + 1,
                     category=qr.get("category", "technical"),

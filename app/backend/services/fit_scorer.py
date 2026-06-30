@@ -477,17 +477,26 @@ def compute_deterministic_score(features: dict, eligibility, weights: Optional[D
     # Normalize to 0-100 range
     score = max(0, min(100, score))
 
-    # Apply hard caps for ineligible candidates
+    # Graduated penalties instead of hard caps.  These replace the previous
+    # hard caps that rejected qualified candidates in non-tech domains.
+    caps_applied = []
+
     if not eligibility.eligible:
-        score = min(score, 35)
+        # Significant penalty for ineligibility, but not a hard ceiling
+        score = max(0, score - 20)
+        caps_applied.append("ineligible_penalty")
 
-    # Apply domain match cap
-    if features.get("domain_match", 0) < 0.3:
-        score = min(score, 35)
+    domain_match = features.get("domain_match", 0)
+    if domain_match < 0.3:
+        # Mild penalty for low domain match; if the candidate is ineligible because
+        # of domain mismatch, the penalty above already applies.
+        score = max(0, score - 10)
+        caps_applied.append("low_domain_match_penalty")
 
-    # Apply core skill cap
-    if features.get("core_skill_match", 0) < 0.3:
-        score = min(score, 40)
+    core_skill_match = features.get("core_skill_match", 0)
+    if core_skill_match < 0.3:
+        score = max(0, score - 10)
+        caps_applied.append("low_core_skills_penalty")
 
     return int(score)
 
@@ -519,20 +528,20 @@ def explain_decision(features: dict, eligibility) -> dict:
 
     # Build reasons
     if not eligibility.eligible:
-        caps_applied.append("ineligible_cap_35")
+        caps_applied.append("ineligible_penalty")
         if eligibility.reason == "domain_mismatch":
             reasons.append(f"Domain mismatch: JD requires {eligibility.details.get('jd_domain', 'unknown')}, candidate is {eligibility.details.get('candidate_domain', 'unknown')}")
         elif eligibility.reason == "low_core_skills":
-            reasons.append(f"Core skill match too low: {eligibility.details.get('core_skill_match', 0):.0%} (minimum 30%)")
+            reasons.append(f"Core skill match low: {eligibility.details.get('core_skill_match', 0):.0%} (threshold {eligibility.details.get('threshold', 0.15):.0%})")
         elif eligibility.reason == "no_relevant_experience":
             reasons.append("No relevant experience detected")
 
     if features.get("domain_match", 0) < 0.3:
-        caps_applied.append("low_domain_cap_35")
+        caps_applied.append("low_domain_match_penalty")
         reasons.append(f"Low domain match: {features.get('domain_match', 0):.0%}")
 
     if features.get("core_skill_match", 0) < 0.3:
-        caps_applied.append("low_core_skills_cap_40")
+        caps_applied.append("low_core_skills_penalty")
         reasons.append(f"Low core skill match: {features.get('core_skill_match', 0):.0%}")
 
     if not reasons:

@@ -43,7 +43,7 @@ class TestDeterministicIntegration:
 
         explanation = explain_decision(features, eligibility)
         assert explanation["decision"] == "Reject"
-        assert "ineligible_cap_35" in explanation["caps_applied"]
+        assert "ineligible_penalty" in explanation["caps_applied"]
 
     def test_same_domain_strong_candidate_gets_high_score(self):
         """A backend JD with a backend candidate and strong features should get a high score."""
@@ -140,8 +140,8 @@ class TestDeterministicIntegration:
             "relevant_experience": 0.2,
         }
         score = compute_deterministic_score(features, eligibility)
-        assert score <= 40  # low_core_skills cap
+        assert score <= 40  # low_core_skills penalty
 
         explanation = explain_decision(features, eligibility)
         assert explanation["decision"] == "Reject"
-        assert "low_core_skills_cap_40" in explanation["caps_applied"]
+        assert "low_core_skills_penalty" in explanation["caps_applied"]

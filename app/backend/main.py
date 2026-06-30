@@ -84,6 +84,8 @@ from app.backend.routes import webhook_docs
 from app.backend.routes import voice
 from app.backend.routes import recruiter
 from app.backend.routes import interviews
+from app.backend.routes import projects
+from app.backend.routes import ats
 from app.backend.services import llm_service
 
 log = logging.getLogger("aria.startup")
@@ -445,6 +447,8 @@ app.include_router(webhook_docs.router)
 app.include_router(voice.router)
 app.include_router(recruiter.router)
 app.include_router(interviews.router)
+app.include_router(projects.router)
+app.include_router(ats.router)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

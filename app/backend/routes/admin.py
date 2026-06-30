@@ -32,6 +32,7 @@ from app.backend.models.db_models import (
     SSOConfig, RevokedToken, AdminNotification,
 )
 from app.backend.services.audit_service import log_audit
+from app.backend.services.weight_mapper import validate_and_normalize_weights
 from app.backend.services.billing.factory import get_payment_provider
 from app.backend.services.billing.dunning_service import dunning_service
 from app.backend.services.proration_service import calculate_proration, get_plan_price_for_period
@@ -723,8 +724,9 @@ def update_tenant(
         tenant.subscription_status = body.subscription_status
         updates["subscription_status"] = body.subscription_status
     if body.scoring_weights is not None:
-        tenant.scoring_weights = json.dumps(body.scoring_weights)
-        updates["scoring_weights"] = body.scoring_weights
+        normalized = validate_and_normalize_weights(body.scoring_weights)
+        tenant.scoring_weights = json.dumps(normalized)
+        updates["scoring_weights"] = normalized
 
     db.commit()
     db.refresh(tenant)

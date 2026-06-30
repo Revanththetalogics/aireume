@@ -482,6 +482,8 @@ def get_recruiter_config(
     data = {
         **RecruiterAutoTriggerConfigOut.model_validate(config).model_dump(),
         "focus_areas": _load_json(config.focus_areas, default=[]),
+        "auto_status_mapping_json": _load_json(config.auto_status_mapping_json, default={}),
+        "evaluator_model_json": _load_json(config.evaluator_model_json, default={}),
     }
     return RecruiterAutoTriggerConfigOut.model_validate(data)
 
@@ -512,6 +514,10 @@ def update_recruiter_config(
     for field, value in update_data.items():
         if field == "focus_areas" and isinstance(value, list):
             value = json.dumps(value)
+        if field == "auto_status_mapping_json" and isinstance(value, dict):
+            value = json.dumps(value)
+        if field == "evaluator_model_json" and isinstance(value, dict):
+            value = json.dumps(value)
         setattr(config, field, value)
 
     db.commit()
@@ -520,6 +526,8 @@ def update_recruiter_config(
     data = {
         **RecruiterAutoTriggerConfigOut.model_validate(config).model_dump(),
         "focus_areas": _load_json(config.focus_areas, default=[]),
+        "auto_status_mapping_json": _load_json(config.auto_status_mapping_json, default={}),
+        "evaluator_model_json": _load_json(config.evaluator_model_json, default={}),
     }
     return RecruiterAutoTriggerConfigOut.model_validate(data)
 

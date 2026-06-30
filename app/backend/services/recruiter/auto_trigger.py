@@ -101,6 +101,13 @@ class RecruiterAutoTrigger:
             )
             return False
 
+        if config.require_consent:
+            logger.info(
+                "Auto-trigger: consent required for candidate %s — interview scheduled, "
+                "pre-notification should be sent before call connects",
+                candidate_id,
+            )
+
         jd_id = screening.role_template_id
         if jd_id is None:
             logger.info(

@@ -31,7 +31,7 @@ from sqlalchemy import update, func
 from app.backend.db.database import get_db, SessionLocal
 from app.backend.middleware.auth import get_current_user, require_active_subscription
 from app.backend.services.jd_quality_scorer import score_jd_quality
-from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan, OutcomeSkillPattern, SkillTrendSnapshot, TeamSkillProfile, RoleTemplate
+from app.backend.models.db_models import ScreeningResult, User, Candidate, JdCache, Tenant, SubscriptionPlan, OutcomeSkillPattern, SkillTrendSnapshot, TeamSkillProfile, RoleTemplate, ScreeningProject, ScreeningProjectCandidate
 from app.backend.models.schemas import (
     AnalysisResponse, BatchAnalysisResponse, BatchAnalysisResult,
     BatchFailedItem, BatchStreamEvent,
@@ -332,7 +332,7 @@ def _get_or_cache_jd(db: Session, job_description: str) -> dict:
     Cached entries are automatically invalidated when JD_CACHE_VERSION changes,
     ensuring stale skill-extraction results are never reused after logic updates.
     """
-    jd_hash = hashlib.md5(job_description[:2000].encode()).hexdigest()
+    jd_hash = hashlib.md5(job_description.encode()).hexdigest()
     cached = db.query(JdCache).filter(JdCache.hash == jd_hash).first()
     if cached:
         try:
@@ -345,6 +345,7 @@ def _get_or_cache_jd(db: Session, job_description: str) -> dict:
             log.warning("Non-critical: Failed to parse cached JD JSON, re-parsing: %s", e)
     jd_analysis = parse_jd_rules(job_description)
     jd_analysis["_cache_version"] = JD_CACHE_VERSION
+    jd_analysis.setdefault("_profile_source", "rules")
     try:
         db.merge(JdCache(hash=jd_hash, result_json=json.dumps(jd_analysis, default=_json_default)))
         db.commit()
@@ -355,6 +356,51 @@ def _get_or_cache_jd(db: Session, job_description: str) -> dict:
         except Exception as rollback_err:
             log.warning("Non-critical: Rollback also failed: %s", rollback_err)
     return jd_analysis
+
+
+def _link_to_project(
+    db: Session,
+    project_id: int,
+    tenant_id: int,
+    candidate_id: int,
+    screening_result_id: int,
+    added_by: int,
+) -> None:
+    """Link a candidate + screening result to a ScreeningProject.
+
+    Non-critical: failures are logged and ignored so analysis never fails
+    because of project linking.
+    """
+    try:
+        project = db.query(ScreeningProject).filter(
+            ScreeningProject.id == project_id,
+            ScreeningProject.tenant_id == tenant_id,
+        ).first()
+        if not project:
+            log.warning("Cannot link to project %s: not found for tenant %s", project_id, tenant_id)
+            return
+
+        existing = db.query(ScreeningProjectCandidate).filter(
+            ScreeningProjectCandidate.project_id == project_id,
+            ScreeningProjectCandidate.candidate_id == candidate_id,
+        ).first()
+        if existing:
+            existing.screening_result_id = screening_result_id
+        else:
+            db.add(ScreeningProjectCandidate(
+                project_id=project_id,
+                candidate_id=candidate_id,
+                screening_result_id=screening_result_id,
+                status="pending",
+                added_by=added_by,
+            ))
+        db.commit()
+    except Exception as e:
+        log.warning("Non-critical: Failed to link candidate to project %s: %s", project_id, e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 # ─── Candidate deduplication & profile storage ────────────────────────────────
@@ -425,10 +471,32 @@ def _store_candidate_profile(
     candidate.resume_file_hash   = file_hash
     if filename:
         candidate.resume_filename = filename
+
+    # Store resume file in object storage when available, else fall back to BYTEA
+    from app.backend.services.object_storage import ObjectStorageService
+    use_object_storage = ObjectStorageService.is_available()
+
     if file_content:
-        candidate.resume_file_data = file_content
+        if use_object_storage:
+            key = ObjectStorageService.build_key(candidate.tenant_id, candidate.id, filename or "resume")
+            if ObjectStorageService.upload(key, file_content):
+                candidate.resume_file_key = key
+                candidate.resume_file_data = None  # clear legacy BYTEA
+            else:
+                candidate.resume_file_data = file_content  # fallback to BYTEA
+        else:
+            candidate.resume_file_data = file_content
+
     if converted_pdf_content:
-        candidate.resume_converted_pdf_data = converted_pdf_content
+        if use_object_storage:
+            pdf_key = ObjectStorageService.build_key(candidate.tenant_id, candidate.id, filename or "resume", suffix="converted.pdf")
+            if ObjectStorageService.upload(pdf_key, converted_pdf_content, content_type="application/pdf"):
+                candidate.resume_pdf_key = pdf_key
+                candidate.resume_converted_pdf_data = None
+            else:
+                candidate.resume_converted_pdf_data = converted_pdf_content
+        else:
+            candidate.resume_converted_pdf_data = converted_pdf_content
     candidate.raw_resume_text    = parsed_data.get("raw_text", "")[:100000]  # cap at 100k chars
     candidate.parser_snapshot_json = _parser_snapshot_json(parsed_data)
     candidate.parsed_skills      = json.dumps(parsed_data.get("skills", []), default=_json_default)
@@ -1377,6 +1445,7 @@ async def analyze_endpoint(
     action: str = Form(None),   # use_existing | update_profile | create_new | None
     template_id: Optional[int] = Form(None),
     team_id: Optional[str] = Form(None),
+    project_id: Optional[int] = Form(None),
     current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
@@ -1549,6 +1618,7 @@ async def analyze_endpoint(
                 screening_result_id=db_result.id,
                 tenant_id=current_user.tenant_id,
                 phase3_context=phase3_context,
+                db_session=db,
             )
             
             # Update result with analysis
@@ -1559,6 +1629,10 @@ async def analyze_endpoint(
             result["analysis_id"]    = db_result.id   # Add this line
             result["candidate_id"]   = existing.id
             result["candidate_name"] = existing.name
+
+            if project_id:
+                _link_to_project(db, project_id, current_user.tenant_id, existing.id, db_result.id, current_user.id)
+
             return result
 
     t_start = time.time()
@@ -1632,6 +1706,7 @@ async def analyze_endpoint(
         screening_result_id=db_result.id,
         tenant_id=current_user.tenant_id,
         phase3_context=phase3_context,
+        db_session=db,
     )
 
     # Update result in DB
@@ -1672,6 +1747,9 @@ async def analyze_endpoint(
     result["result_id"]    = db_result.id
     result["analysis_id"]  = db_result.id   # Add this line
     result["candidate_id"] = candidate_id
+
+    if project_id:
+        _link_to_project(db, project_id, current_user.tenant_id, candidate_id, db_result.id, current_user.id)
 
     # Resolve name: candidate.name (possibly edited) takes priority over parsed/analysis data
     _cand_row = db.get(Candidate, candidate_id)
@@ -1722,6 +1800,7 @@ async def analyze_stream_endpoint(
     action: str = Form(None),
     template_id: Optional[int] = Form(None),
     team_id: Optional[str] = Form(None),
+    project_id: Optional[int] = Form(None),
     current_user: User = Depends(require_active_subscription),
     db: Session = Depends(get_db),
 ):
@@ -1919,6 +1998,7 @@ async def analyze_stream_endpoint(
                 screening_result_id=screening_result_id,
                 tenant_id=tenant_id,
                 phase3_context=phase3_context,
+                db_session=db,
             ):
                 # Check for client disconnect between stages
                 if await request.is_disconnected():
@@ -2074,6 +2154,18 @@ async def analyze_stream_endpoint(
             "quality":     final_result.get("analysis_quality"),
             "total_ms":    int((time.time() - t_start) * 1000),
         }, default=_json_default))
+
+        # Link to screening project if specified
+        if project_id:
+            try:
+                from app.backend.db.database import SessionLocal as _SL
+                _link_db = _SL()
+                try:
+                    _link_to_project(_link_db, project_id, tenant_id, candidate_id, screening_result_id, current_user.id)
+                finally:
+                    _link_db.close()
+            except Exception as link_exc:
+                log.warning("Non-critical: Failed to link to project in stream: %s", link_exc)
 
         # Webhook dispatch — never let webhook failure affect analysis
         try:

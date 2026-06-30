@@ -16,8 +16,11 @@ class EligibilityResult:
     details: dict = field(default_factory=dict)
 
 
-# Threshold below which two domains are considered a mismatch
+# Thresholds for the hard eligibility gates. These are deliberately conservative:
+# a candidate should only be rejected when there is a clear signal of mismatch.
 DOMAIN_SIMILARITY_MISMATCH_THRESHOLD = 0.2
+CORE_SKILL_MISMATCH_THRESHOLD = 0.15
+RELEVANT_EXPERIENCE_MISMATCH_THRESHOLD = 0.0
 
 
 def _compute_domain_similarity_for_eligibility(
@@ -25,14 +28,29 @@ def _compute_domain_similarity_for_eligibility(
 ) -> float:
     """Compute cosine similarity between JD and candidate domain score vectors.
 
-    Falls back to binary name comparison when score vectors are unavailable.
+    Falls back to the candidate's domain-keyword confidence when the same label
+    is used (common in domain-agnostic mode).
     """
+    jd_name = jd_domain.get("domain", "unknown")
+    cand_name = candidate_domain.get("domain", "unknown")
+
     jd_scores = jd_domain.get("scores", {})
     cand_scores = candidate_domain.get("scores", {})
 
+    # Domain-agnostic mode: the JD has a single domain label and the candidate was
+    # scored against the JD's keywords.  Return the candidate confidence.
+    if (
+        jd_name != "unknown"
+        and cand_name != "unknown"
+        and jd_name == cand_name
+        and len(jd_scores) == 1
+        and list(jd_scores.keys())[0] == jd_name
+    ):
+        return candidate_domain.get("confidence", 0.0)
+
     if not jd_scores or not cand_scores:
         # Fallback to binary if scores not available
-        if jd_domain.get("domain", "unknown") == candidate_domain.get("domain", "unknown"):
+        if jd_name == cand_name:
             return jd_domain.get("confidence", 0)
         return 0.0
 
@@ -57,6 +75,11 @@ def check_eligibility(
     relevant_experience: float,
 ) -> EligibilityResult:
     """Check candidate eligibility using deterministic rules.
+
+    These gates are now conservative warning flags rather than hard rejections:
+    a candidate is only marked ineligible when the JD domain is clearly
+    mismatched, core skills are essentially absent, or no relevant experience
+    is present.
 
     Args:
         jd_domain: Domain dict from detect_domain_from_jd() with keys
@@ -97,19 +120,19 @@ def check_eligibility(
                 },
             )
 
-    # Rule 2: Core skill match too low
-    if core_skill_match < 0.3:
+    # Rule 2: Core skill match too low (very conservative)
+    if core_skill_match < CORE_SKILL_MISMATCH_THRESHOLD:
         return EligibilityResult(
             eligible=False,
             reason="low_core_skills",
             details={
                 "core_skill_match": core_skill_match,
-                "threshold": 0.3,
+                "threshold": CORE_SKILL_MISMATCH_THRESHOLD,
             },
         )
 
     # Rule 3: No relevant experience
-    if relevant_experience <= 0:
+    if relevant_experience <= RELEVANT_EXPERIENCE_MISMATCH_THRESHOLD:
         return EligibilityResult(
             eligible=False,
             reason="no_relevant_experience",

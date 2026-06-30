@@ -16,6 +16,7 @@ from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import RoleTemplate, SkillClassificationTemplate, User
 from app.backend.models.schemas import TemplateCreate, TemplateOut, TemplateUpdate
+from app.backend.services.weight_mapper import validate_and_normalize_weights
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,8 @@ def create_template(
     if existing:
         # Update weights/tags if provided (user may have changed them)
         if body.scoring_weights:
-            existing.scoring_weights = json.dumps(body.scoring_weights, default=_json_default)
+            normalized = validate_and_normalize_weights(body.scoring_weights)
+            existing.scoring_weights = json.dumps(normalized, default=_json_default)
         if body.tags:
             existing.tags = body.tags
         if body.required_skills_override is not None:
@@ -137,7 +139,7 @@ def create_template(
         tenant_id=current_user.tenant_id,
         name=body.name,
         jd_text=body.jd_text,
-        scoring_weights=json.dumps(body.scoring_weights, default=_json_default) if body.scoring_weights else None,
+        scoring_weights=json.dumps(validate_and_normalize_weights(body.scoring_weights), default=_json_default) if body.scoring_weights else None,
         tags=auto_tags,
         required_skills_override=body.required_skills_override,
         nice_to_have_skills_override=body.nice_to_have_skills_override,
@@ -190,6 +192,7 @@ async def create_template_from_file(
 
     if existing:
         if weights:
+            weights = validate_and_normalize_weights(weights)
             existing.scoring_weights = json.dumps(weights, default=_json_default)
         if tags:
             existing.tags = tags
@@ -214,7 +217,7 @@ async def create_template_from_file(
         tenant_id=current_user.tenant_id,
         name=name,
         jd_text=jd_text,
-        scoring_weights=json.dumps(weights, default=_json_default) if weights else None,
+        scoring_weights=json.dumps(validate_and_normalize_weights(weights), default=_json_default) if weights else None,
         tags=auto_tags,
         required_skills_override=required_skills_override,
         nice_to_have_skills_override=nice_to_have_skills_override,
@@ -244,7 +247,7 @@ def update_template(
     if body.jd_text is not None:
         template.jd_text = body.jd_text
     if body.scoring_weights is not None:
-        template.scoring_weights = json.dumps(body.scoring_weights, default=_json_default)
+        template.scoring_weights = json.dumps(validate_and_normalize_weights(body.scoring_weights), default=_json_default)
     if body.tags is not None:
         template.tags = body.tags
     if body.required_skills_override is not None:

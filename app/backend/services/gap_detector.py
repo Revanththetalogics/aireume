@@ -108,6 +108,35 @@ def _merge_intervals(intervals: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
     return [tuple(iv) for iv in merged]
 
 
+def _normalize_company(company: str) -> str:
+    """Normalize company name for comparison.
+
+    Strips common suffixes/prefixes and lowercases so that slight variations
+    (e.g., "Cognitus Consulting" vs "Cognitus") match.
+    """
+    if not company:
+        return ""
+    c = str(company).lower().strip()
+    c = re.sub(r'\b(inc\.?|llc|ltd\.?|limited|corp\.?|corporation|company|co\.?)\b', '', c)
+    c = re.sub(r'\s+', ' ', c).strip()
+    return c
+
+
+def _is_independent_role(job: Dict[str, Any], jobs: List[Dict[str, Any]]) -> bool:
+    """Return True if a short role is not a project within a longer same-company role."""
+    company = _normalize_company(job.get("company", ""))
+    if not company:
+        return True
+    for other in jobs:
+        if other is job:
+            continue
+        if _normalize_company(other.get("company", "")) == company:
+            # If the other role spans this one, treat this short role as a project
+            if other["start_ym"] <= job["start_ym"] and other["end_ym"] >= job["end_ym"]:
+                return False
+    return True
+
+
 # ─── Main detector ─────────────────────────────────────────────────────────────
 
 class GapDetector:
@@ -183,7 +212,9 @@ class GapDetector:
                     "severity":        entry["gap_severity"],
                 })
 
-        # overlapping_jobs — any pair with meaningful overlap (>1 month)
+        # overlapping_jobs — flag overlaps at DIFFERENT companies only.
+        # Same-company overlapping roles are merged into a single employment period
+        # to avoid false positives for consulting projects / internal rotations.
         overlapping_jobs: List[Dict[str, Any]] = []
         for i in range(len(jobs)):
             for j in range(i + 1, len(jobs)):
@@ -191,13 +222,16 @@ class GapDetector:
                 if a["start_ym"] <= b["end_ym"] and b["start_ym"] <= a["end_ym"]:
                     overlap = _months_between(b["start_ym"], min(a["end_ym"], b["end_ym"]))
                     if overlap > 1:
-                        overlapping_jobs.append({
-                            "job1": f"{a['role']} at {a['company']}",
-                            "job2": f"{b['role']} at {b['company']}",
-                            "type": "overlapping_job",
-                        })
+                        # Same company (or one company is empty/unknown) — likely projects
+                        same_company = _normalize_company(a["company"]) == _normalize_company(b["company"])
+                        if not same_company:
+                            overlapping_jobs.append({
+                                "job1": f"{a['role']} at {a['company']}",
+                                "job2": f"{b['role']} at {b['company']}",
+                                "type": "overlapping_job",
+                            })
 
-        # short_stints — roles lasting < 6 months
+        # short_stints — roles lasting < 6 months (exclude same-company projects)
         short_stints: List[Dict[str, Any]] = [
             {
                 "company":          job["company"],
@@ -206,8 +240,9 @@ class GapDetector:
                 "type":             "short_stint",
             }
             for job in jobs
-            if 0 < job["duration_months"] < 6
+            if 0 < job["duration_months"] < 6 and _is_independent_role(job, jobs)
         ]
+
 
         # Overlap-aware total experience — merge overlapping intervals, then sum
         intervals = [(job["start_ym"], job["end_ym"]) for job in jobs]

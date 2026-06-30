@@ -50,10 +50,11 @@ class TestDetectDomainFromJd:
     def test_returns_dict_shape(self):
         jd = "Senior Python developer with FastAPI and PostgreSQL."
         result = detect_domain_from_jd(jd)
-        assert set(result.keys()) == {"domain", "confidence", "scores"}
+        assert set(result.keys()) == {"domain", "confidence", "scores", "keywords"}
         assert isinstance(result["domain"], str)
         assert isinstance(result["confidence"], float)
         assert isinstance(result["scores"], dict)
+        assert isinstance(result["keywords"], list)
 
 
 class TestDetectDomainFromResume:
@@ -101,7 +102,8 @@ class TestDetectDomainFromResume:
     def test_returns_same_dict_shape(self):
         skills = ["kubernetes", "docker", "terraform"]
         result = detect_domain_from_resume(skills=skills)
-        assert set(result.keys()) == {"domain", "confidence", "scores"}
+        assert set(result.keys()) == {"domain", "confidence", "scores", "keywords"}
         assert isinstance(result["domain"], str)
         assert isinstance(result["confidence"], float)
         assert isinstance(result["scores"], dict)
+        assert isinstance(result["keywords"], list)

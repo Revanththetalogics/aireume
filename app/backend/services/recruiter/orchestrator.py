@@ -110,6 +110,9 @@ class RecruiterOrchestrator:
         }
         strategy = await self.strategy_agent.generate_strategy(context, strategy_config)
 
+        # Merge must-ask questions from project config and interview templates
+        strategy = self._merge_must_ask_questions(strategy, config, jd_id)
+
         # Normalize scheduled_at to timezone-aware datetime using provided timezone
         tz_name = config.get("timezone")
         scheduled_at = self._parse_scheduled_at(
@@ -118,6 +121,10 @@ class RecruiterOrchestrator:
         )
         if scheduled_at is not None and scheduled_at < datetime.now(timezone.utc):
             raise ValueError("Scheduled time must be in the future")
+
+        # Scheduling conflict detection — check for overlapping interviews
+        if scheduled_at is not None:
+            self._check_scheduling_conflict(tenant_id, candidate_id, scheduled_at, duration_minutes=20)
 
         phone_number = config.get("phone_number") or candidate.phone
 
@@ -215,7 +222,7 @@ class RecruiterOrchestrator:
                 .order_by(VoiceTranscriptEntry.timestamp.asc())
             ).scalars().all()
             transcript = [
-                {"speaker": e.speaker, "text": e.text, "timestamp": e.timestamp.isoformat() if e.timestamp else None}
+                {"speaker": e.speaker, "text": e.text, "timestamp": e.timestamp.isoformat() if e.timestamp else None, "question_id": e.question_id}
                 for e in entries
             ]
 
@@ -240,6 +247,7 @@ class RecruiterOrchestrator:
                     "response": q.candidate_response or "",
                     "response_duration": q.response_duration_seconds,
                     "is_follow_up": q.is_follow_up,
+                    "question_id": q.id,
                 }
                 for q in stored_questions
             ]
@@ -509,6 +517,99 @@ class RecruiterOrchestrator:
         except (json.JSONDecodeError, TypeError):
             return default
 
+    def _check_scheduling_conflict(
+        self,
+        tenant_id: int,
+        candidate_id: int,
+        scheduled_at: datetime,
+        duration_minutes: int = 20,
+    ) -> None:
+        """Check for scheduling conflicts — raises ValueError if the candidate
+        already has an interview scheduled within the time window.
+        """
+        from datetime import timedelta
+        window_start = scheduled_at - timedelta(minutes=duration_minutes)
+        window_end = scheduled_at + timedelta(minutes=duration_minutes)
+
+        conflicting = self.db.execute(
+            select(VoiceScreeningSession).where(
+                VoiceScreeningSession.tenant_id == tenant_id,
+                VoiceScreeningSession.candidate_id == candidate_id,
+                VoiceScreeningSession.status.in_(["scheduled", "ringing", "in_progress"]),
+                VoiceScreeningSession.scheduled_at.between(window_start, window_end),
+            )
+        ).scalars().all()
+
+        if conflicting:
+            conflict_ids = [str(s.id) for s in conflicting]
+            raise ValueError(
+                f"Scheduling conflict: candidate {candidate_id} already has "
+                f"interview(s) {', '.join(conflict_ids)} scheduled within "
+                f"the requested time window"
+            )
+
+    def _merge_must_ask_questions(
+        self,
+        strategy: dict[str, Any],
+        config: dict[str, Any],
+        jd_id: int | None,
+    ) -> dict[str, Any]:
+        """Merge must-ask questions from project config and interview templates into the strategy.
+
+        Must-ask questions are prepended to the generated questions list so they
+        are asked first. Each question is tagged with `must_ask: True`.
+        """
+        must_ask: list[dict[str, Any]] = []
+
+        # 1. From config (direct must_ask_questions list)
+        config_questions = config.get("must_ask_questions", [])
+        for q in config_questions:
+            if isinstance(q, dict) and q.get("question"):
+                must_ask.append({
+                    "question_text": q["question"],
+                    "category": q.get("category", "technical"),
+                    "question_context": q.get("rationale", ""),
+                    "must_ask": True,
+                    "sequence_number": len(must_ask) + 1,
+                })
+
+        # 2. From interview templates attached to the project
+        project_id = config.get("project_id")
+        if project_id:
+            from app.backend.models.db_models import InterviewTemplate
+            templates = self.db.execute(
+                select(InterviewTemplate).where(
+                    InterviewTemplate.project_id == project_id,
+                    InterviewTemplate.is_active == True,
+                )
+            ).scalars().all()
+            for tpl in templates:
+                tpl_questions = self._load_json(tpl.questions_json, [])
+                if isinstance(tpl_questions, list):
+                    for q in tpl_questions:
+                        if isinstance(q, dict) and q.get("question"):
+                            must_ask.append({
+                                "question_text": q["question"],
+                                "category": q.get("category", "technical"),
+                                "question_context": q.get("rationale", ""),
+                                "must_ask": True,
+                                "sequence_number": len(must_ask) + 1,
+                            })
+
+        if not must_ask:
+            return strategy
+
+        existing_questions = strategy.get("questions", [])
+        # Renumber existing questions after must-ask ones
+        offset = len(must_ask)
+        for i, q in enumerate(existing_questions):
+            if isinstance(q, dict):
+                q["sequence_number"] = offset + i + 1
+
+        strategy["questions"] = must_ask + existing_questions
+        strategy["must_ask_count"] = len(must_ask)
+        return strategy
+
     def _pair_questions_responses(
         self,
         questions: list[dict[str, Any]],
@@ -516,30 +617,46 @@ class RecruiterOrchestrator:
     ) -> list[dict[str, Any]]:
         """
         Best-effort pairing of strategy questions with candidate transcript turns.
-        Since the voice agent does not currently tag answers by question, we
-        assign successive candidate turns to successive questions.
+
+        When transcript entries include a 'question_id' field (tagged by the
+        voice agent), pairing is deterministic. Otherwise, falls back to
+        sequential assignment of candidate turns to questions.
         """
-        candidate_turns = [
-            t.get("text", "")
-            for t in transcript
-            if isinstance(t, dict) and t.get("speaker") != "bot"
-        ]
+        # Build a map of question_id -> response text from transcript
+        id_to_responses: dict[str, list[str]] = {}
+        candidate_turns: list[str] = []
+
+        for t in transcript:
+            if not isinstance(t, dict):
+                continue
+            if t.get("speaker") == "bot":
+                continue
+            text = t.get("text", "")
+            qid = t.get("question_id")
+            if qid:
+                id_to_responses.setdefault(str(qid), []).append(text)
+            candidate_turns.append(text)
 
         paired: list[dict[str, Any]] = []
         turn_idx = 0
         for q in questions:
             if not isinstance(q, dict):
                 continue
-            response = candidate_turns[turn_idx] if turn_idx < len(candidate_turns) else ""
+            qid = q.get("question_id") or q.get("id")
+            if qid and str(qid) in id_to_responses:
+                response = " ".join(id_to_responses[str(qid)])
+            else:
+                response = candidate_turns[turn_idx] if turn_idx < len(candidate_turns) else ""
+                if response:
+                    turn_idx += 1
             paired.append({
                 "sequence_number": q.get("sequence_number"),
                 "category": q.get("category", "technical"),
                 "question": q.get("question_text", ""),
                 "response": response,
                 "question_context": q.get("question_context", ""),
+                "question_id": str(qid) if qid else None,
             })
-            if response:
-                turn_idx += 1
         return paired
 
     def _extract_dimension_score(

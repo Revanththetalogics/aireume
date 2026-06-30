@@ -18,6 +18,7 @@ from app.backend.models.db_models import Comment, JdCache, RoleTemplate, Screeni
 from app.backend.models.schemas import CommentCreate, CommentOut, InviteRequest
 from app.backend.routes.auth import _hash_password
 from app.backend.services.hybrid_pipeline import parse_jd_rules
+from app.backend.services.skill_matcher import JD_CACHE_VERSION
 from app.backend.services.team_service import (
     compute_team_gaps,
     create_team_profile,
@@ -168,12 +169,9 @@ def add_comment(
 
 # ─── Team Skill Profile endpoints ──────────────────────────────────────────────
 
-JD_CACHE_VERSION = "v1"
-
-
 def _get_or_cache_jd(db: Session, jd_text: str) -> dict:
     """Parse a JD or return the cached result (mirrors analyze.py pattern)."""
-    jd_hash = hashlib.md5(jd_text[:2000].encode()).hexdigest()
+    jd_hash = hashlib.md5(jd_text.encode()).hexdigest()
     cached = db.query(JdCache).filter(JdCache.hash == jd_hash).first()
     if cached:
         try:

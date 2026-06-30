@@ -64,6 +64,17 @@ def execute_erasure(db: Session, erasure_log_id: int) -> int:
             c.resume_converted_pdf_data = None
             c.parser_snapshot_json = None
             c.ai_professional_summary = None
+            # Delete from object storage if keys exist
+            try:
+                from app.backend.services.object_storage import ObjectStorageService
+                if c.resume_file_key:
+                    ObjectStorageService.delete(c.resume_file_key)
+                if c.resume_pdf_key:
+                    ObjectStorageService.delete(c.resume_pdf_key)
+            except Exception:
+                pass
+            c.resume_file_key = None
+            c.resume_pdf_key = None
         records_affected += len(candidates)
         details["tables"]["candidates"] = len(candidates)
 

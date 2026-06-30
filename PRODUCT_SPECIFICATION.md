@@ -144,11 +144,14 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - **Presets**: Balanced, Skill-Heavy, Experience-Heavy, Domain-Focused
 
 #### 1.5 Deterministic Scoring & Eligibility
-- **Eligibility Gates**: Candidates failing critical requirements capped at score 35
-- **Domain Mismatch Cap**: Low domain similarity (<30%) caps score at 35
-- **Core Skills Cap**: Low core skills (<30%) caps score at 40
+- **Eligibility Gates**: Candidates failing critical requirements receive graduated penalties (not hard caps)
+- **Domain Mismatch Penalty**: Low domain similarity (<30%) applies graduated penalty to final score
+- **Core Skills Penalty**: Low core skills (<30%) applies graduated penalty to final score
+- **Graduated Penalty Model**: Scoring penalties scale proportionally with severity rather than capping at fixed thresholds
 - **Score Clamping**: Final scores always clamped to 0-100 range
 - **Transparent Decision Engine**: All scoring factors explainable with evidence
+- **Universal 7-Weight Schema**: All stored weights (tenant-level, template-level) are normalized to the universal schema on write via `validate_and_normalize_weights()`
+- **Weight Migration**: `migrate_stored_weights()` utility converts legacy 4-weight and old backend 7-weight schemas to universal schema
 
 ### 2. Candidate Management
 
@@ -167,6 +170,15 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 3. **Name + Phone Match**: Fuzzy matching on name and phone
 
 #### 2.3 JD Re-Analysis
+- **Re-analyze**: Re-run scoring with different JD using stored candidate profile
+- **Version Tracking**: Screening results track version numbers for re-analysis
+- **Screening Projects**: Lightweight grouping of candidates for a specific hiring push
+  - **Endpoint**: `POST/GET/PUT/DELETE /api/projects`
+  - **Per-Project Pipeline**: Kanban view grouped by candidate status (pending/shortlisted/rejected/in-review/hired)
+  - **Project-Candidate Linkage**: `POST /api/projects/{id}/candidates` adds candidates with optional screening result
+  - **Per-Project Status**: Candidate status is tracked per-project, independent of global ScreeningResult.status
+  - **Auto-Link on Analyze**: Pass `project_id` to `/api/analyze` or `/api/analyze/stream` to auto-link results
+  - **JD Template Binding**: Each project is tied to a RoleTemplate (JD) for consistent scoring
 - **No Re-Upload Required**: Evaluate existing candidates against new job descriptions
 - **Stored Profile Reuse**: Uses enriched candidate profile from database
 - **Version Tracking**: Each re-analysis creates new version with version_number

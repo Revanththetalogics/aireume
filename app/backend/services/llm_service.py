@@ -220,19 +220,147 @@ class LLMService:
         Use this instead of _call_ollama for any non-resume-analysis prompts."""
         return await self._call_ollama(prompt)
 
-    async def _call_ollama(self, prompt: str) -> str:
+    async def extract_jd_profile(self, job_description: str, timeout: Optional[float] = None) -> Dict[str, Any]:
+        """Extract a structured, domain-agnostic profile from a job description.
+
+        The profile drives the rest of the pipeline: domain detection, architecture
+        scoring, education relevance, and experience alignment.  A clean JSON schema
+        is requested from the model.
+        """
+        if not job_description:
+            return self._fallback_jd_profile()
+
+        prompt = self._build_jd_profile_prompt(job_description)
+        _timeout = (timeout or float(os.getenv("LLM_NARRATIVE_TIMEOUT", "120"))) + 30
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await self._call_ollama(prompt, timeout=_timeout)
+                parsed = self._parse_json_response(response)
+                if parsed:
+                    return self._validate_jd_profile(parsed)
+            except Exception as e:
+                logger.warning("JD profile extraction failed (attempt %d): %s", attempt + 1, e)
+                if attempt == self.max_retries:
+                    return self._fallback_jd_profile()
+
+        return self._fallback_jd_profile()
+
+    async def _call_ollama(self, prompt: str, timeout: Optional[float] = None) -> str:
         url = f"{self.base_url}/api/generate"
 
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "format": "json"
+            "format": "json",
         }
 
         headers = get_ollama_headers(self.base_url)
-        _timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500")) + 30
-        async with httpx.AsyncClient(timeout=_timeout) as client:  # respects LLM_NARRATIVE_TIMEOUT env var
+        _timeout = timeout or (float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500")) + 30)
+        async with httpx.AsyncClient(timeout=_timeout) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("response", "")
+
+    def _build_jd_profile_prompt(self, job_description: str) -> str:
+        """Build a strict JSON prompt for domain-agnostic JD profile extraction."""
+        jd_summary = job_description[:4000] if len(job_description) > 4000 else job_description
+        return f"""You are a precise talent-acquisition parser. Analyze the job description below and return a single JSON object with no markdown, no explanations, and no trailing text.
+
+Extract the following fields:
+- "role_title": the exact job title or the most concise professional title for this role.
+- "domain": a free-text domain label (e.g., "SAP/ERP", "Healthcare", "Finance", "Backend Engineering", "Data Science", "DevOps", "Sales", "Legal", "Manufacturing"). Use the domain name most commonly used in industry.
+- "domain_keywords": 10-20 specific terms, tools, technologies, certifications, or concepts that indicate this domain. Include abbreviations and synonyms. Do not include generic soft skills.
+- "architecture_signals": 8-12 role-excellence signals that show a senior candidate has designed, led, scaled, or delivered outcomes in this domain. Examples: "designed", "architected", "led implementation", "configured", "optimized", "cutover", "compliance", "workflow design", "process blueprint", "solution design", "mentored", "stakeholder management".
+- "relevant_education_fields": 5-10 relevant degree fields, majors, or certifications (e.g., ["Computer Science", "MBA", "Supply Chain", "Industrial Engineering", "SAP Certification"]).
+- "required_skills": the hard must-have skills/qualifications for the role.
+- "nice_to_have_skills": preferred but not mandatory skills.
+- "min_required_years": minimum years of experience required (0 if not specified).
+- "max_required_years": maximum years of experience requested (0 if not specified; use the upper bound of a range like "5-8").
+- "seniority": "junior", "mid", "senior", or "lead".
+
+Return JSON:
+{{
+  "role_title": "...",
+  "domain": "...",
+  "domain_keywords": ["..."],
+  "architecture_signals": ["..."],
+  "relevant_education_fields": ["..."],
+  "required_skills": ["..."],
+  "nice_to_have_skills": ["..."],
+  "min_required_years": 0,
+  "max_required_years": 0,
+  "seniority": "..."
+}}
+
+JOB DESCRIPTION:
+{jd_summary}
+
+JSON:"""
+
+    def _validate_jd_profile(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize and sanitize the LLM-extracted JD profile."""
+        def _as_list(value, default=None):
+            if default is None:
+                default = []
+            if isinstance(value, list):
+                return [str(v).strip() for v in value if v]
+            return default
+
+        min_years = int(data.get("min_required_years", 0) or 0)
+        max_years = int(data.get("max_required_years", 0) or 0)
+        if max_years and max_years < min_years:
+            max_years = min_years
+
+        seniority = str(data.get("seniority", "mid")).lower()
+        if seniority not in ("junior", "mid", "senior", "lead"):
+            seniority = "mid"
+
+        return {
+            "role_title": str(data.get("role_title", "Not specified")).strip() or "Not specified",
+            "domain": str(data.get("domain", "General")).strip() or "General",
+            "domain_keywords": _as_list(data.get("domain_keywords")),
+            "architecture_signals": _as_list(data.get("architecture_signals")),
+            "relevant_education_fields": _as_list(data.get("relevant_education_fields")),
+            "required_skills": _as_list(data.get("required_skills")),
+            "nice_to_have_skills": _as_list(data.get("nice_to_have_skills")),
+            "min_required_years": min_years,
+            "max_required_years": max_years,
+            "seniority": seniority,
+            "_source": "llm",
+        }
+
+    def _fallback_jd_profile(self) -> Dict[str, Any]:
+        """Safe fallback when LLM extraction fails."""
+        return {
+            "role_title": "Not specified",
+            "domain": "General",
+            "domain_keywords": [],
+            "architecture_signals": [],
+            "relevant_education_fields": [],
+            "required_skills": [],
+            "nice_to_have_skills": [],
+            "min_required_years": 0,
+            "max_required_years": 0,
+            "seniority": "mid",
+            "_source": "fallback",
+        }
+
+    async def _call_ollama(self, prompt: str, timeout: Optional[float] = None) -> str:
+        url = f"{self.base_url}/api/generate"
+
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+        }
+
+        headers = get_ollama_headers(self.base_url)
+        _timeout = timeout or (float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500")) + 30)
+        async with httpx.AsyncClient(timeout=_timeout) as client:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
@@ -335,3 +463,16 @@ async def analyze_with_llm(
         gaps=gaps,
         risks=risks
     )
+
+
+async def extract_jd_profile_with_llm(
+    job_description: str,
+    timeout: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Extract a domain-agnostic structured profile from a job description.
+
+    Returns a dict with domain, skills, experience range, education fields,
+    and role-excellence signals.  Falls back to a safe default if the LLM fails.
+    """
+    service = LLMService()
+    return await service.extract_jd_profile(job_description, timeout=timeout)

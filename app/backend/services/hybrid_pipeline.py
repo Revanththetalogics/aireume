@@ -45,6 +45,7 @@ from app.backend.services.skill_matcher import (
     _extract_skills_from_text,
     match_skills,
     match_skills_with_onet,
+    JD_CACHE_VERSION,
 )
 
 log = logging.getLogger("aria.hybrid")
@@ -212,9 +213,15 @@ YEARS_PATTERNS = [
     r'minimum\s+(?:of\s+)?(\d+)\s*years?',
     r'at\s+least\s+(\d+)\s*years?',
     r'(\d+)\s*[-–]\s*\d+\s*years?',
-    r'(\d+)\s+to\s+\d+\s*years?',
+    r'(\d+)\s+to\s+(\d+)\s*years?',
     r'(\d+)\s*years?\s+(?:of\s+)?experience',
     r'experience\s+(?:of\s+)?(\d+)\s*years?',
+]
+
+# Range patterns that capture both min and max years (e.g., "5-8 years", "5 to 8 years")
+YEARS_RANGE_PATTERNS = [
+    r'(\d+)\s*[-–]\s*(\d+)\s*years?',
+    r'(\d+)\s+to\s+(\d+)\s*years?',
 ]
 
 _NICE_TO_HAVE_RE = re.compile(
@@ -231,29 +238,97 @@ _TITLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Explicit labels that announce the role title (e.g., "Job Title: Senior Accountant")
+_TITLE_LABEL_RE = re.compile(
+    r'^(?:job\s*title|position\s*title|role|title|position|designation|opening|vacancy|we\s*are\s*looking\s*for|we\s*are\s*hiring|hiring)'
+    r'[:\s\-]*\s*(.+)$',
+    re.IGNORECASE,
+)
 
-def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
-    """Parse a job description purely with Python rules. Returns structured dict."""
+# Common role-ending words (tech and non-tech) used to validate a candidate title line
+_ROLE_TITLE_KEYWORDS = {
+    "engineer", "developer", "architect", "analyst", "scientist", "manager", "consultant",
+    "specialist", "designer", "lead", "director", "officer", "head", "vp", "president",
+    "intern", "associate", "researcher", "nurse", "physician", "attorney", "lawyer",
+    "auditor", "accountant", "recruiter", "coordinator", "supervisor", "technician",
+    "therapist", "advisor", "representative", "executive", "planner", "strategist",
+    "administrator", "assistant", "coordinator", "operator", "agent", "salesperson",
+    "marketer", "writer", "editor", "teacher", "professor", "instructor", "counselor",
+    "pharmacist", "dentist", "surgeon", "therapist", "caregiver", "paramedic",
+    "electrician", "plumber", "carpenter", "mechanic", "technician", "inspector",
+    "controller", "treasurer", "bookkeeper", "clerk", "teller", "underwriter",
+    "broker", "agent", "realtor", "appraiser", "adjuster", "actuary", "statistician",
+    "economist", "mathematician", "physicist", "chemist", "biologist", "geologist",
+    "psychologist", "sociologist", "anthropologist", "historian", "librarian", "curator",
+    "archivist", "translator", "interpreter", "journalist", "reporter", "correspondent",
+    "anchor", "producer", "director", "host", "musician", "composer", "artist",
+    "photographer", "videographer", "designer", "illustrator", "animator", "actor",
+    "dancer", "choreographer", "coach", "trainer", "athlete", "referee", "umpire",
+    "chef", "cook", "baker", "waiter", "waitress", "bartender", "hostess", "maitre",
+    "sommelier", "barista", "cashier", "receptionist", "concierge", "housekeeper",
+    "custodian", "janitor", "security", "guard", "officer", "detective", "police",
+    "firefighter", "paramedic", "emt", "soldier", "sailor", "pilot", "captain",
+    "flight", "attendant", "driver", "dispatcher", "mechanic", "technician",
+}
+
+
+def _extract_role_title(jd_text: str) -> str:
+    """Extract a role title from the first lines of a JD using labels, keywords, and regex.
+
+    Returns the cleaned title or an empty string if none is found.
+    """
+    lines = [l.strip() for l in jd_text.split("\n") if l.strip()]
+    if not lines:
+        return ""
+
+    # 1. Explicit title label (e.g., "Job Title: Senior Accountant")
+    for line in lines[:20]:
+        m = _TITLE_LABEL_RE.search(line)
+        if m:
+            title = m.group(1).strip()
+            # Remove markdown heading markers
+            title = re.sub(r'^[#\*\-]+\s*', '', title).strip()
+            # Remove trailing punctuation / metadata
+            title = re.sub(r'\s*[\|\-–].*$', '', title).strip()
+            if title and len(title.split()) <= 12:
+                return title
+
+    # 2. First non-noisy line that contains a role keyword and is short enough
+    for line in lines[:10]:
+        # Strip markdown headings and bullets
+        clean = re.sub(r'^[#\*\-]+\s*', '', line).strip()
+        if re.search(r'[@|:/\(\)#,\d]{2,}', clean):
+            continue
+        if len(clean.split()) > 10:
+            continue
+        words = {w.strip(".,;:-").lower() for w in clean.split()}
+        if words & _ROLE_TITLE_KEYWORDS:
+            return clean
+
+    # 3. Fallback regex on the first 500 chars
+    m = _TITLE_RE.search(jd_text[:500])
+    if m:
+        return m.group(0).strip()
+
+    return ""
+
+
+def parse_jd_rules(jd_text: str, llm_profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Parse a job description.  Uses rule-based extraction, optionally merged with an LLM profile.
+
+    Args:
+        jd_text: Raw job description text.
+        llm_profile: Optional pre-computed LLM-extracted profile (see jd_profile_service).
+    """
     from app.backend.services.constants import JOB_FUNCTION_KEYWORDS, GENERIC_SOFT_SKILLS
-    
+
     text_lower = jd_text.lower()
 
     # ── Role title ──────────────────────────────────────────────────────────
-    role_title = ""
+    role_title = _extract_role_title(jd_text)
+
+    # Lines used for responsibilities and soft-skill classification below
     lines = [l.strip() for l in jd_text.split("\n") if l.strip()]
-    for line in lines[:8]:
-        if re.search(r'[@|:/\(\)#\d]{2,}', line):
-            continue
-        if len(line.split()) > 10:
-            continue
-        if re.search(r'\b(?:engineer|developer|analyst|architect|manager|scientist|'
-                     r'designer|consultant|specialist|lead|officer|director)\b', line, re.I):
-            role_title = line.strip()
-            break
-    if not role_title:
-        m = _TITLE_RE.search(jd_text[:500])
-        if m:
-            role_title = m.group(0).strip()
 
     # ── Job function detection ─────────────────────────────────────────────
     job_function = "other"
@@ -262,26 +337,44 @@ def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
         hits = sum(1 for kw in keywords if kw in text_lower)
         if hits:
             job_function_scores[jf] = hits
-    
+
     # Also check role title for job function hints
     title_lower = role_title.lower()
     for jf, keywords in JOB_FUNCTION_KEYWORDS.items():
         if any(kw in title_lower for kw in keywords):
             job_function_scores[jf] = job_function_scores.get(jf, 0) + 3  # Boost title matches
-    
+
     if job_function_scores:
         job_function = max(job_function_scores, key=job_function_scores.get)
 
-    # ── Years required ───────────────────────────────────────────────────────
+    # ── Years required (min/max) ───────────────────────────────────────────
+    min_required_years = 0
+    max_required_years = 0
     required_years = 0
-    for pat in YEARS_PATTERNS:
+
+    # First try range patterns (e.g., 5-8 years, 5 to 8 years)
+    for pat in YEARS_RANGE_PATTERNS:
         m = re.search(pat, text_lower)
         if m:
             try:
-                required_years = int(m.group(1))
+                min_required_years = int(m.group(1))
+                max_required_years = int(m.group(2))
+                required_years = min_required_years
                 break
             except (ValueError, IndexError):
                 pass
+
+    # Fall back to single-value patterns
+    if not min_required_years:
+        for pat in YEARS_PATTERNS:
+            m = re.search(pat, text_lower)
+            if m:
+                try:
+                    required_years = int(m.group(1))
+                    min_required_years = required_years
+                    break
+                except (ValueError, IndexError):
+                    pass
 
     # ── Domain classification ────────────────────────────────────────────────
     domain_hits: Dict[str, int] = {}
@@ -301,13 +394,13 @@ def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
         seniority = "junior"
     elif any(w in jd_text[:500].lower() for w in ("lead ", "staff ", "principal ")):
         seniority = "lead"
-    elif required_years >= 8:
+    elif min_required_years >= 8:
         seniority = "lead"
-    elif required_years >= 5:
+    elif min_required_years >= 5:
         seniority = "senior"
-    elif required_years >= 2:
+    elif min_required_years >= 2:
         seniority = "mid"
-    elif required_years > 0:
+    elif min_required_years > 0:
         seniority = "junior"
     else:
         seniority = "mid"
@@ -323,13 +416,13 @@ def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
 
     required_skills  = _extract_skills_from_text(required_text)
     nice_have_skills = _extract_skills_from_text(nice_have_text)
-    
+
     # Filter out generic soft skills from required (unless explicitly emphasized)
     required_skills_filtered = [
         skill for skill in required_skills
         if skill.lower() not in GENERIC_SOFT_SKILLS
     ]
-    
+
     # If filtering removed too many skills, keep some if they appear multiple times
     if len(required_skills_filtered) < 2 and len(required_skills) > 2:
         # Soft skills mentioned frequently might be important
@@ -339,10 +432,10 @@ def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
         ]
         # Keep at most 1-2 soft skills if they're emphasized
         required_skills_filtered = required_skills_filtered + soft_skills_in_jd[:2]
-    
+
     # Remove overlap
     nice_have_skills = [s for s in nice_have_skills if s not in required_skills]
-    
+
     # Add soft skills to nice-to-have if they were filtered from required
     filtered_soft_skills = set(required_skills) - set(required_skills_filtered)
     nice_have_skills = list(set(nice_have_skills + list(filtered_soft_skills)))
@@ -356,16 +449,29 @@ def parse_jd_rules(jd_text: str) -> Dict[str, Any]:
         if len(resp_lines) >= 6:
             break
 
-    return {
+    result = {
         "role_title":        role_title or "Not specified",
         "job_function":      job_function,
         "domain":            domain,
         "seniority":         seniority,
         "required_skills":   required_skills_filtered,
         "required_years":    required_years,
+        "min_required_years": min_required_years,
+        "max_required_years": max_required_years,
         "nice_to_have_skills": nice_have_skills,
         "key_responsibilities": resp_lines,
+        "domain_keywords":   [],
+        "architecture_signals": [],
+        "relevant_education_fields": [],
+        "_profile_source":   "rules",
     }
+
+    # Merge LLM profile if available
+    if llm_profile:
+        from app.backend.services.jd_profile_service import merge_jd_profile
+        result = merge_jd_profile(result, llm_profile)
+
+    return result
 
 
 def _infer_total_years_from_resume_text(text: str) -> float:
@@ -492,8 +598,17 @@ def _build_career_summary(role: str, company: str, years: float) -> str:
 # DEGREE_SCORES and FIELD_RELEVANCE are now imported from constants.py
 
 
-def score_education_rules(candidate_profile: Dict[str, Any], jd_domain: str) -> int:
-    """Return a 0-100 education score."""
+def score_education_rules(candidate_profile: Dict[str, Any], jd_analysis) -> int:
+    """Return a 0-100 education score.
+
+    Uses the JD profile's relevant_education_fields when available; otherwise
+    falls back to the static FIELD_RELEVANCE mapping.  Accepts a plain domain
+    string for backward compatibility.
+    """
+    # Backward compatibility: caller passed a plain domain string
+    if isinstance(jd_analysis, str):
+        jd_analysis = {"domain": jd_analysis}
+
     education = candidate_profile.get("education", [])
     if not education:
         return 60  # neutral default — no penalty for missing education data
@@ -516,13 +631,17 @@ def score_education_rules(candidate_profile: Dict[str, Any], jd_domain: str) -> 
         return 60
 
     # Field relevance multiplier
-    relevant_fields = FIELD_RELEVANCE.get(jd_domain, FIELD_RELEVANCE["other"])
+    relevant_fields = jd_analysis.get("relevant_education_fields", []) or []
+    if not relevant_fields:
+        relevant_fields = FIELD_RELEVANCE.get(jd_analysis.get("domain", ""), FIELD_RELEVANCE["other"])
+
     multiplier = 0.70
     for rf in relevant_fields:
-        if rf in best_field:
+        rf_lower = rf.lower()
+        if rf_lower in best_field:
             multiplier = 1.0
             break
-        if any(word in best_field for word in rf.split()):
+        if any(word in best_field for word in rf_lower.split()):
             multiplier = max(multiplier, 0.85)
 
     return round(best_score * multiplier)
@@ -537,9 +656,15 @@ def score_experience_rules(
     jd_analysis: Dict[str, Any],
     gap_analysis: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Return experience_score, timeline_score, and a text timeline summary."""
+    """Return experience_score, timeline_score, and a text timeline summary.
+
+    Experience score rewards candidates whose years fall within the JD's
+    requested range.  Over-qualified candidates are not over-rewarded.
+    """
     actual_years   = candidate_profile.get("total_effective_years", 0.0)
     required_years = jd_analysis.get("required_years", 0)
+    min_required_years = jd_analysis.get("min_required_years", required_years) or 0
+    max_required_years = jd_analysis.get("max_required_years", 0) or 0
 
     # ── Fallback: if dates couldn't be parsed but work entries exist, estimate ─
     # Avoids showing 0% experience when the resume has jobs but ambiguous dates.
@@ -550,24 +675,31 @@ def score_experience_rules(
             actual_years = float(min(15, len(work_exp) * 1.5))
 
     # ── Experience score ──────────────────────────────────────────────────────
-    if required_years == 0:
+    if min_required_years == 0:
+        # No explicit requirement: score based on presence of experience
         exp_score = min(100, int(actual_years * 10))
-    elif actual_years >= required_years:
-        exp_score = min(100, 70 + int((actual_years - required_years) * 5))
+    elif max_required_years and actual_years > max_required_years:
+        # Within range is best; being above the max is still good but not over-rewarded
+        exp_score = max(70, 100 - int((actual_years - max_required_years) * 3))
+    elif actual_years >= min_required_years:
+        # Ideal: within requested range
+        exp_score = 95
     else:
-        exp_score = int((actual_years / required_years) * 70)
-    exp_score = max(0, exp_score)
+        # Below minimum: proportional score
+        exp_score = int((actual_years / min_required_years) * 70)
+    exp_score = max(0, min(100, exp_score))
 
     # ── Timeline score (gap deductions) ──────────────────────────────────────
-    t_score = 85
+    # Reduced penalties: modern careers include contract work, breaks, and projects.
+    t_score = 90
     employment_gaps = gap_analysis.get("employment_gaps", [])
     for gap in employment_gaps:
         severity = gap.get("severity", "negligible")
-        if severity == "minor":     t_score -= 5
-        elif severity == "moderate": t_score -= 12
-        elif severity == "critical": t_score -= 22
-    for _ in gap_analysis.get("short_stints", []):    t_score -= 5
-    for _ in gap_analysis.get("overlapping_jobs", []): t_score -= 8
+        if severity == "minor":     t_score -= 3
+        elif severity == "moderate": t_score -= 7
+        elif severity == "critical": t_score -= 14
+    for _ in gap_analysis.get("short_stints", []):    t_score -= 3
+    for _ in gap_analysis.get("overlapping_jobs", []): t_score -= 5
     t_score = max(10, min(100, t_score))
 
     # ── Timeline summary text ─────────────────────────────────────────────────
@@ -593,6 +725,8 @@ def score_experience_rules(
         "timeline_text":   timeline_text,
         "actual_years":    actual_years,
         "required_years":  required_years,
+        "min_required_years": min_required_years,
+        "max_required_years": max_required_years,
     }
 
 
@@ -612,32 +746,53 @@ ARCHITECTURE_SIGNALS = [
 
 def domain_architecture_rules(
     raw_text: str,
-    jd_domain: str,
+    jd_analysis,
     current_role: Optional[str],
 ) -> Dict[str, Any]:
-    """Return domain_score and architecture_score."""
+    """Return domain_score and architecture_score using the JD profile.
+
+    If the JD profile has domain_keywords and architecture_signals, those are
+    used.  Otherwise, the legacy static lists are used as fallback.  Accepts
+    a plain domain string for backward compatibility.
+    """
+    # Backward compatibility: caller passed a plain domain string
+    if isinstance(jd_analysis, str):
+        jd_analysis = {"domain": jd_analysis}
+
     text_lower = raw_text.lower()
 
     # ── Domain fit score ──────────────────────────────────────────────────────
-    domain_keywords = DOMAIN_KEYWORDS.get(jd_domain, [])
-    hits = sum(1 for kw in domain_keywords if kw in text_lower)
+    domain_keywords = jd_analysis.get("domain_keywords", []) or DOMAIN_KEYWORDS.get(jd_analysis.get("domain", ""), [])
+    if not domain_keywords:
+        # Generic fallback for unrecognized domains
+        domain_keywords = [jd_analysis.get("domain", "").lower()]
 
-    if   hits >= 8: domain_score = 90
-    elif hits >= 5: domain_score = 75
-    elif hits >= 3: domain_score = 60
-    elif hits >= 1: domain_score = 45
-    else:           domain_score = 30
+    hits = sum(1 for kw in domain_keywords if kw and kw.lower() in text_lower)
+    total = len(domain_keywords)
+    if total == 0:
+        domain_score = 50
+    else:
+        ratio = hits / total
+        if   ratio >= 0.40: domain_score = 90
+        elif ratio >= 0.25: domain_score = 75
+        elif ratio >= 0.15: domain_score = 60
+        elif ratio > 0.00:  domain_score = 45
+        else:               domain_score = 30
 
     # Bonus/penalty from current role title
     if current_role:
         role_lower = current_role.lower()
-        if any(kw in role_lower for kw in domain_keywords[:5]):
+        # Use the first few keywords as role indicators (e.g., "sap", "mm", "consultant")
+        role_signals = [kw.lower() for kw in domain_keywords[:5]]
+        if any(kw in role_lower for kw in role_signals if len(kw) > 2):
             domain_score = min(100, domain_score + 10)
-        elif not any(w in role_lower for w in ("engineer", "developer", "analyst", "architect")):
+        elif not any(w in role_lower for w in ("engineer", "developer", "analyst", "architect", "consultant", "manager", "specialist", "lead", "director")):
             domain_score = max(0, domain_score - 5)
 
-    # ── Architecture score ────────────────────────────────────────────────────
-    arch_hits = sum(1 for sig in ARCHITECTURE_SIGNALS if sig in text_lower)
+    # ── Architecture / role-excellence score ────────────────────────────────────
+    # Use JD-specific signals if available; otherwise fall back to generic signals
+    architecture_signals = jd_analysis.get("architecture_signals", []) or ARCHITECTURE_SIGNALS
+    arch_hits = sum(1 for sig in architecture_signals if sig and sig.lower() in text_lower)
     arch_score = min(100, 40 + arch_hits * 8)
 
     return {
@@ -2327,9 +2482,9 @@ def _run_python_phase(
     if proficiency_analysis:
         skill_a["proficiency_analysis"] = proficiency_analysis
 
-    edu_s    = score_education_rules(profile, jd["domain"])
+    edu_s    = score_education_rules(profile, jd)
     exp_r    = score_experience_rules(profile, jd, gap_analysis)
-    dom_r    = domain_architecture_rules(resume_text, jd["domain"], profile.get("current_role"))
+    dom_r    = domain_architecture_rules(resume_text, jd, profile.get("current_role"))
 
     all_scores = {
         "skill_score":    skill_a["skill_score"],
@@ -2375,22 +2530,31 @@ def _run_python_phase(
     decision_explanation = {}
     deterministic_features = {}
     try:
-        jd_domain = detect_domain_from_jd(job_description)
+        # Domain-agnostic detection: use the JD profile's keywords when available
+        jd_domain = detect_domain_from_jd(job_description, jd_analysis=jd)
         candidate_domain = detect_domain_from_resume(
             skills=profile.get("skills_identified", []),
             resume_text=resume_text,
+            jd_domain=jd_domain,
         )
 
+        # Domain match: how many of the JD domain keywords appear in the candidate profile
+        domain_match = candidate_domain.get("confidence", 0.0)
+        if not domain_match:
+            domain_match = _compute_domain_similarity(jd_domain, candidate_domain)
+
+        required_years = jd.get("min_required_years", jd.get("required_years", 1)) or 1
+        relevant_exp_ratio = min(profile.get("total_effective_years", 0) / required_years, 1.0)
         deterministic_features = {
             "core_skill_match": skill_a.get("core_match_ratio", 0) if isinstance(skill_a, dict) else 0,
             "secondary_skill_match": skill_a.get("secondary_match_ratio", 0) if isinstance(skill_a, dict) else 0,
-            "domain_match": _compute_domain_similarity(jd_domain, candidate_domain),
-            "relevant_experience": min(profile.get("total_effective_years", 0) / max(jd.get("required_years", 1), 1), 1.0),
+            "domain_match": domain_match,
+            "relevant_experience": relevant_exp_ratio,
             "total_experience": profile.get("total_effective_years", 0),
         }
 
-        # Skip eligibility if domain detection failed
-        if jd_domain.get("domain") == "unknown" or candidate_domain.get("domain") == "unknown":
+        # Skip eligibility only if we have no meaningful domain signal at all
+        if not jd_domain.get("domain") or jd_domain.get("domain") == "unknown":
             log.debug("Skipping eligibility check — domain detection incomplete")
             from app.backend.services.eligibility_service import EligibilityResult
             eligibility = EligibilityResult(eligible=True, reason="Domain detection incomplete — defaulting to eligible")
@@ -2754,6 +2918,30 @@ async def _background_llm_narrative(
             await _write_status(narrative_status, narrative_error)
 
 
+def _persist_merged_jd_profile(db_session, job_description: str, jd_analysis: Dict[str, Any]) -> None:
+    """Persist an LLM-merged JD profile back to the JdCache table.
+
+    Non-critical: failures are logged and ignored so scoring never fails because
+    of cache writes.
+    """
+    if db_session is None:
+        return
+    if jd_analysis.get("_profile_source") != "merged":
+        return
+    try:
+        from app.backend.models.db_models import JdCache
+        jd_hash = hashlib.md5(job_description.encode()).hexdigest()
+        jd_analysis["_cache_version"] = jd_analysis.get("_cache_version", JD_CACHE_VERSION)
+        db_session.merge(JdCache(hash=jd_hash, result_json=json.dumps(jd_analysis, default=_json_default)))
+        db_session.commit()
+    except Exception as e:
+        log.warning("Non-critical: Failed to persist merged JD profile: %s", e)
+        try:
+            db_session.rollback()
+        except Exception as rollback_err:
+            log.warning("Non-critical: Rollback also failed: %s", rollback_err)
+
+
 async def run_hybrid_pipeline(
     resume_text: str,
     job_description: str,
@@ -2764,17 +2952,35 @@ async def run_hybrid_pipeline(
     screening_result_id: Optional[int] = None,
     tenant_id: Optional[int] = None,
     phase3_context: Optional[Dict] = None,
+    db_session=None,
 ) -> Dict[str, Any]:
     """
     Non-streaming version. Returns Python scoring results immediately.
-    
+
     If screening_result_id and tenant_id are provided, spawns a background
     task to generate LLM narrative and write to DB. The immediate result
     includes narrative_pending=True and a fallback narrative.
-    
+
     If screening_result_id is None, falls back to synchronous LLM call
     (for backward compatibility with batch and existing tests).
+
+    When jd_analysis is not pre-computed, an LLM-driven domain-agnostic JD profile
+    is extracted before the Python phase.  If db_session is provided, the merged
+    JD profile is persisted back to the JdCache so later requests skip re-extraction.
     """
+    # ── Domain-agnostic JD profile extraction ───────────────────────────────
+    if jd_analysis is None or jd_analysis.get("_profile_source") not in ("llm", "merged"):
+        try:
+            from app.backend.services.jd_profile_service import extract_jd_profile, merge_jd_profile
+            llm_profile = await extract_jd_profile(job_description)
+            rules_jd = jd_analysis or parse_jd_rules(job_description)
+            jd_analysis = merge_jd_profile(rules_jd, llm_profile)
+            _persist_merged_jd_profile(db_session, job_description, jd_analysis)
+        except Exception as e:
+            log.warning("LLM JD profile extraction failed, falling back to rules: %s", e)
+            if jd_analysis is None:
+                jd_analysis = parse_jd_rules(job_description)
+
     python_result = _run_python_phase(
         resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis,
         phase3_context=phase3_context,
@@ -2859,6 +3065,7 @@ async def astream_hybrid_pipeline(
     screening_result_id: Optional[int] = None,
     tenant_id: Optional[int] = None,
     phase3_context: Optional[Dict] = None,
+    db_session=None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     SSE streaming version.
@@ -2867,13 +3074,29 @@ async def astream_hybrid_pipeline(
       - Yields Python results immediately with narrative_pending=True
       - Spawns background LLM task that writes to DB
       - Frontend polls GET /api/analysis/{id}/narrative for the LLM narrative
-    
+
     If screening_result_id is None (legacy mode):
       - Yields:
         {"stage": "parsing",  "result": {all Python scores}}  — within 2s
         {"stage": "scoring",  "result": {LLM narrative}}       — after ~40s
         {"stage": "complete", "result": {full merged result}}
+
+    When jd_analysis is not pre-computed, an LLM-driven domain-agnostic JD profile
+    is extracted before the Python phase.
     """
+    # ── Domain-agnostic JD profile extraction ───────────────────────────────
+    if jd_analysis is None or jd_analysis.get("_profile_source") not in ("llm", "merged"):
+        try:
+            from app.backend.services.jd_profile_service import extract_jd_profile, merge_jd_profile
+            llm_profile = await extract_jd_profile(job_description)
+            rules_jd = jd_analysis or parse_jd_rules(job_description)
+            jd_analysis = merge_jd_profile(rules_jd, llm_profile)
+            _persist_merged_jd_profile(db_session, job_description, jd_analysis)
+        except Exception as e:
+            log.warning("LLM JD profile extraction failed, falling back to rules: %s", e)
+            if jd_analysis is None:
+                jd_analysis = parse_jd_rules(job_description)
+
     # Phase 1 — Python (instant)
     python_result = _run_python_phase(
         resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis,

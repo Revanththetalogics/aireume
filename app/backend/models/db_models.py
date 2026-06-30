@@ -145,8 +145,10 @@ class Candidate(Base):
     # ── Enriched profile (stored once, re-used for every JD re-analysis) ──────
     resume_file_hash   = Column(String(64),  nullable=True, index=True)  # MD5(file bytes)
     resume_filename    = Column(String(255), nullable=True)              # Original filename
-    resume_file_data   = Column(LargeBinary, nullable=True)              # Original file bytes (BYTEA)
-    resume_converted_pdf_data = Column(LargeBinary, nullable=True)       # PDF conversion of .doc for browser viewing
+    resume_file_data   = Column(LargeBinary, nullable=True)              # Original file bytes (BYTEA) — legacy, migrated to object storage
+    resume_file_key    = Column(String(500), nullable=True)              # S3/MinIO object key (preferred over BYTEA)
+    resume_converted_pdf_data = Column(LargeBinary, nullable=True)       # PDF conversion of .doc for browser viewing — legacy
+    resume_pdf_key     = Column(String(500), nullable=True)              # S3/MinIO object key for converted PDF
     raw_resume_text    = Column(Text,        nullable=True)
     parsed_skills      = Column(Text,        nullable=True)   # JSON array
     parsed_education   = Column(Text,        nullable=True)   # JSON array
@@ -929,6 +931,7 @@ class VoiceScreeningSession(Base):
     duration_seconds  = Column(Integer, nullable=True)
     retry_count       = Column(Integer, nullable=False, server_default="0")
     consent_recorded  = Column(Boolean, nullable=False, server_default="false", default=False)
+    consent_status    = Column(String(20), nullable=True)  # confirmed/denied/skipped (null when not yet asked)
     call_sid          = Column(String(100), nullable=True)  # LiveKit/Twilio call identifier
     error_log         = Column(Text, nullable=True)
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
@@ -956,6 +959,7 @@ class VoiceTranscriptEntry(Base):
     text       = Column(Text, nullable=False)
     timestamp  = Column(DateTime(timezone=True), nullable=False)
     audio_url  = Column(Text, nullable=True)  # URL to audio clip for this turn
+    question_id = Column(String(36), nullable=True)  # Links to RecruiterInterviewQuestion.id for deterministic pairing
 
     session = relationship("VoiceScreeningSession", back_populates="transcript_entries")
 
@@ -978,6 +982,7 @@ class RecruiterInterviewSession(Base):
     voice_session_id      = Column(Integer, ForeignKey("voice_screening_sessions.id", ondelete="SET NULL"), nullable=True)
     trigger_type          = Column(String(20), nullable=False, default="manual", server_default="manual")
     status                = Column(String(30), nullable=False, default="pending_strategy", server_default="pending_strategy")
+    consent_status        = Column(String(20), nullable=False, default="pending", server_default="pending")  # pending/confirmed/denied/skipped
     interview_strategy_json = Column(Text, nullable=True)  # JSON: generated interview plan
     interview_config_json   = Column(Text, nullable=True)  # JSON: runtime interview config
     started_at            = Column(DateTime(timezone=True), nullable=True)
@@ -1086,8 +1091,159 @@ class RecruiterAutoTriggerConfig(Base):
     auto_schedule_delay_minutes = Column(Integer, nullable=False, default=60, server_default="60")
     interview_duration_target   = Column(Integer, nullable=False, default=15, server_default="15")
     focus_areas                 = Column(Text, nullable=True)  # JSON array of focus area strings
+    auto_status_update_enabled  = Column(Boolean, nullable=False, default=False, server_default="false")
+    auto_status_mapping_json    = Column(Text, nullable=True)  # JSON: {"strong_hire": "shortlisted", ...}
+    require_consent             = Column(Boolean, nullable=False, default=True, server_default="true")
+    evaluator_model_json        = Column(Text, nullable=True)  # JSON: {"strategy": "model_name", "technical": "...", "behavioral": "...", "copilot": "..."}
     created_at                  = Column(DateTime(timezone=True), server_default=func.now())
     updated_at                  = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     tenant = relationship("Tenant", backref="recruiter_auto_trigger_config", uselist=False)
+
+
+# ─── Screening Projects ──────────────────────────────────────────────────────
+
+class ScreeningProject(Base):
+    """Lightweight grouping of candidates for a specific hiring push.
+
+    Tied to a RoleTemplate (JD) but not a full ATS requisition — supports
+    per-project candidate pipelines without the overhead of req management.
+    """
+    __tablename__ = "screening_projects"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    tenant_id       = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    role_template_id = Column(Integer, ForeignKey("role_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    name            = Column(String(200), nullable=False)
+    description     = Column(Text, nullable=True)
+    status          = Column(String(20), nullable=False, default="draft", server_default="draft")  # draft/active/paused/closed
+    must_ask_questions_json = Column(Text, nullable=True)  # JSON: [{"question": "...", "category": "...", "rationale": "..."}]
+    created_by      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at      = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    closed_at       = Column(DateTime(timezone=True), nullable=True)
+
+    tenant         = relationship("Tenant", backref="screening_projects")
+    role_template  = relationship("RoleTemplate", backref="screening_projects")
+    creator        = relationship("User", foreign_keys=[created_by])
+    project_candidates = relationship("ScreeningProjectCandidate", back_populates="project", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_screening_projects_tenant_status", "tenant_id", "status"),
+    )
+
+
+class ScreeningProjectCandidate(Base):
+    """Per-project candidate entry with project-specific status.
+
+    This decouples candidate pipeline status from the global ScreeningResult.status,
+    allowing the same candidate to be in different stages across multiple projects.
+    """
+    __tablename__ = "screening_project_candidates"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    project_id          = Column(Integer, ForeignKey("screening_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    candidate_id        = Column(Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True)
+    screening_result_id = Column(Integer, ForeignKey("screening_results.id", ondelete="SET NULL"), nullable=True)
+    status              = Column(String(50), nullable=False, default="pending", server_default="pending")  # pending/shortlisted/rejected/in-review/hired
+    added_by            = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    added_at            = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at          = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    project           = relationship("ScreeningProject", back_populates="project_candidates")
+    candidate         = relationship("Candidate", backref="project_memberships")
+    screening_result  = relationship("ScreeningResult", backref="project_memberships")
+    adder             = relationship("User", foreign_keys=[added_by])
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "candidate_id", name="uq_project_candidate"),
+        Index("ix_project_candidates_project_status", "project_id", "status"),
+    )
+
+
+# ─── ATS Connectors ──────────────────────────────────────────────────────────
+
+class ATSConnection(Base):
+    """Per-tenant ATS integration configuration (Greenhouse, Lever, Workday, etc.)."""
+    __tablename__ = "ats_connections"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    tenant_id           = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider            = Column(String(30), nullable=False)  # greenhouse / lever / workday / generic
+    label               = Column(String(100), nullable=False)  # human-friendly name
+    api_key             = Column(Text, nullable=True)  # encrypted at rest by caller
+    api_secret          = Column(Text, nullable=True)
+    base_url            = Column(String(500), nullable=True)  # override for self-hosted
+    webhook_url         = Column(String(500), nullable=True)  # inbound webhook endpoint
+    webhook_secret      = Column(String(255), nullable=True)  # HMAC secret for inbound verification
+    is_active           = Column(Boolean, nullable=False, default=True, server_default="true")
+    sync_direction      = Column(String(10), nullable=False, default="push", server_default="push")  # push / pull / bidirectional
+    status_mapping_json = Column(Text, nullable=True)  # JSON: {"shortlisted": "Greenhouse:active", ...}
+    last_sync_at        = Column(DateTime(timezone=True), nullable=True)
+    last_sync_status    = Column(String(20), nullable=True)  # success / failed / partial
+    last_error          = Column(Text, nullable=True)
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at          = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    tenant = relationship("Tenant", backref="ats_connections")
+
+    __table_args__ = (
+        Index("ix_ats_connections_tenant_provider", "tenant_id", "provider"),
+    )
+
+
+class ATSSyncLog(Base):
+    """Record of a single ATS sync operation (push or pull)."""
+    __tablename__ = "ats_sync_logs"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    connection_id       = Column(Integer, ForeignKey("ats_connections.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id           = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    direction           = Column(String(10), nullable=False)  # push / pull
+    entity_type         = Column(String(30), nullable=False)  # candidate_status / requisition / application
+    entity_id           = Column(String(100), nullable=True)  # external ID
+    candidate_id        = Column(Integer, ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True)
+    screening_result_id = Column(Integer, ForeignKey("screening_results.id", ondelete="SET NULL"), nullable=True)
+    payload             = Column(Text, nullable=True)  # JSON: what was sent/received
+    response_status     = Column(Integer, nullable=True)
+    response_body       = Column(Text, nullable=True)
+    success             = Column(Boolean, nullable=False, default=False)
+    error_message       = Column(Text, nullable=True)
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+
+    connection = relationship("ATSConnection", backref="sync_logs")
+
+    __table_args__ = (
+        Index("ix_ats_sync_logs_conn_created", "connection_id", "created_at"),
+    )
+
+
+# ─── Interview Templates ─────────────────────────────────────────────────────
+
+class InterviewTemplate(Base):
+    """Reusable interview question template that can be attached to ScreeningProjects.
+
+    Templates contain must-ask questions that are merged into the AI-generated
+    interview strategy at session creation time.
+    """
+    __tablename__ = "interview_templates"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    tenant_id       = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id      = Column(Integer, ForeignKey("screening_projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    name            = Column(String(200), nullable=False)
+    description     = Column(Text, nullable=True)
+    questions_json  = Column(Text, nullable=False)  # JSON: [{"question": "...", "category": "...", "rationale": "...", "sequence_number": 1}]
+    is_active       = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_by      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at      = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    tenant  = relationship("Tenant", backref="interview_templates")
+    project = relationship("ScreeningProject", backref="interview_templates")
+    creator = relationship("User", foreign_keys=[created_by])
+
+    __table_args__ = (
+        Index("ix_interview_templates_tenant_project", "tenant_id", "project_id"),
+    )
 

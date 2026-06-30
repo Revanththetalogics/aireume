@@ -333,11 +333,11 @@ class TestScoreExperienceRules:
 
     def test_exact_years_match(self):
         result = score_experience_rules(self._profile(5), self._jd(5), self._gap())
-        assert result["exp_score"] == 70  # exact match = 70
+        assert result["exp_score"] == 95  # within requested range = 95
 
     def test_over_years_bonus(self):
         result = score_experience_rules(self._profile(8), self._jd(5), self._gap())
-        assert result["exp_score"] > 70  # above required → bonus
+        assert result["exp_score"] >= 95  # above min, treated as within range
 
     def test_under_years_penalty(self):
         result = score_experience_rules(self._profile(2), self._jd(5), self._gap())
@@ -351,7 +351,7 @@ class TestScoreExperienceRules:
     def test_critical_gap_deducts_timeline(self):
         gaps = [{"severity": "critical", "duration_months": 15, "start_date": "2020-01", "end_date": "2021-04"}]
         result = score_experience_rules(self._profile(5), self._jd(5), self._gap(gaps=gaps))
-        assert result["timeline_score"] <= 63   # 85 - 22
+        assert result["timeline_score"] <= 76   # 90 - 14
 
     def test_minor_gaps_moderate_deduction(self):
         gaps = [
@@ -359,16 +359,16 @@ class TestScoreExperienceRules:
             {"severity": "moderate", "duration_months": 8},
         ]
         result = score_experience_rules(self._profile(5), self._jd(5), self._gap(gaps=gaps))
-        assert result["timeline_score"] <= 68   # 85 - 5 - 12
+        assert result["timeline_score"] <= 80   # 90 - 3 - 7
 
     def test_short_stints_deduction(self):
         stints = [{"duration_months": 2}, {"duration_months": 3}]
         result = score_experience_rules(self._profile(5), self._jd(5), self._gap(stints=stints))
-        assert result["timeline_score"] <= 75   # 85 - 10
+        assert result["timeline_score"] <= 84   # 90 - 6
 
     def test_no_gaps_full_timeline(self):
         result = score_experience_rules(self._profile(7), self._jd(5), self._gap())
-        assert result["timeline_score"] == 85
+        assert result["timeline_score"] == 90
         assert "Continuous" in result["timeline_text"]
 
     def test_timeline_text_mentions_gaps(self):
@@ -857,3 +857,90 @@ class TestRunHybridPipeline:
                 mock_parse.assert_not_called()
 
         assert result["job_role"] == "Pre-built"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Domain-agnostic regression tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestDomainAgnosticPipeline:
+    """Ensure non-tech JDs are scored fairly using dynamic LLM-extracted profiles."""
+
+    def _parsed_data(self, resume_text):
+        return {
+            "raw_text": resume_text,
+            "contact_info": {"name": "Jane Doe", "email": "jane@example.com"},
+            "skills": ["SAP", "SAP MM", "Inventory Management", "Procurement", "Vendor Management"],
+            "education": [{"degree": "MBA", "field": "Supply Chain Management"}],
+            "work_experience": [
+                {
+                    "title": "SAP MM Consultant",
+                    "company": "Acme Logistics",
+                    "start_date": "2018-01",
+                    "end_date": "2024-01",
+                    "description": "Implemented SAP MM, managed procurement and inventory.",
+                }
+            ],
+            "career_summary": "SAP MM Consultant with 6 years of experience.",
+        }
+
+    def _gap_analysis(self):
+        return {
+            "employment_gaps": [],
+            "short_stints": [],
+            "overlapping_jobs": [],
+            "total_years": 6.0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_non_tech_jd_uses_dynamic_domain_keywords(self):
+        """A SAP/MM resume should not be rejected by static tech keyword lists."""
+        jd_text = (
+            "SAP MM Consultant\n"
+            "We need an SAP MM Consultant with 5+ years of experience in SAP MM, "
+            "procurement, inventory management, and vendor management."
+        )
+        resume_text = (
+            "Jane Doe\n"
+            "SAP MM Consultant with 6 years of experience.\n"
+            "Expert in SAP MM, procurement, inventory management, vendor management.\n"
+            "Implemented SAP MM modules at Acme Logistics."
+        )
+
+        mock_llm_profile = {
+            "role_title": "SAP MM Consultant",
+            "domain": "SAP/ERP",
+            "domain_keywords": ["sap", "sap mm", "procurement", "inventory management", "vendor management"],
+            "architecture_signals": ["implemented", "led", "managed", "configured"],
+            "relevant_education_fields": ["supply chain", "business administration", "information systems"],
+            "required_skills": ["sap mm", "procurement", "inventory management"],
+            "nice_to_have_skills": ["vendor management"],
+            "min_required_years": 5,
+            "max_required_years": 8,
+            "seniority": "senior",
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.content = json.dumps({
+            "strengths": ["Strong SAP MM experience"],
+            "weaknesses": [],
+            "recommendation_rationale": "Good fit.",
+            "explainability": {"skill_rationale": "", "experience_rationale": "", "overall_rationale": ""},
+            "interview_questions": {"technical_questions": [], "behavioral_questions": [], "culture_fit_questions": []},
+        })
+        mock_llm = MagicMock()
+        mock_llm.ainvoke = AsyncMock(return_value=mock_resp)
+
+        with patch("app.backend.services.hybrid_pipeline._get_llm", return_value=mock_llm):
+            with patch("app.backend.services.jd_profile_service.extract_jd_profile", new=AsyncMock(return_value=mock_llm_profile)):
+                result = await run_hybrid_pipeline(
+                    resume_text=resume_text,
+                    job_description=jd_text,
+                    parsed_data=self._parsed_data(resume_text),
+                    gap_analysis=self._gap_analysis(),
+                )
+
+        # A qualified SAP/MM candidate should not be hard-rejected by a tech-only cap
+        assert result["fit_score"] > 40
+        assert result["final_recommendation"] in ("Shortlist", "Consider")
+        assert result["job_role"] == "SAP MM Consultant"

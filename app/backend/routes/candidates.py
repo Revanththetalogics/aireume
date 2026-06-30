@@ -124,7 +124,14 @@ def list_candidates(
     if search:
         q = f"%{search}%"
         query = query.filter(
-            (Candidate.name.ilike(q)) | (Candidate.email.ilike(q))
+            (Candidate.name.ilike(q))
+            | (Candidate.email.ilike(q))
+            | (Candidate.current_role.ilike(q))
+            | (Candidate.current_company.ilike(q))
+            | (Candidate.parsed_skills.ilike(q))
+            | (Candidate.parsed_education.ilike(q))
+            | (Candidate.parsed_work_exp.ilike(q))
+            | (Candidate.raw_resume_text.ilike(q))
         )
 
     # Skill filter: find candidates whose screening results contain that skill
@@ -220,6 +227,73 @@ def list_candidates(
         })
 
     return {"candidates": result, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/search")
+def search_candidates(
+    q: str = Query(..., min_length=2, description="Search query"),
+    fields: Optional[str] = Query(None, description="Comma-separated fields to search: name,email,skills,company,title,education,raw_text"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Advanced candidate search across multiple fields.
+
+    Searches across name, email, skills, current company, current role,
+    education, work experience, and raw resume text by default. Use the
+    `fields` parameter to restrict which fields are searched.
+    """
+    all_fields = {
+        "name": Candidate.name,
+        "email": Candidate.email,
+        "skills": Candidate.parsed_skills,
+        "company": Candidate.current_company,
+        "title": Candidate.current_role,
+        "education": Candidate.parsed_education,
+        "experience": Candidate.parsed_work_exp,
+        "raw_text": Candidate.raw_resume_text,
+    }
+
+    if fields:
+        search_fields = {k: v for k, v in all_fields.items() if k in fields.split(",")}
+        if not search_fields:
+            raise HTTPException(status_code=400, detail=f"No valid fields specified. Available: {list(all_fields.keys())}")
+    else:
+        search_fields = all_fields
+
+    query = db.query(Candidate).filter(Candidate.tenant_id == current_user.tenant_id)
+
+    like_term = f"%{q}%"
+    from sqlalchemy import or_
+    conditions = []
+    for field_col in search_fields.values():
+        conditions.append(field_col.ilike(like_term))
+    query = query.filter(or_(*conditions))
+
+    total = query.count()
+    candidates = (
+        query.order_by(Candidate.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    result = []
+    for c in candidates:
+        result.append({
+            "id": c.id,
+            "name": c.name,
+            "email": c.email,
+            "phone": c.phone,
+            "current_role": c.current_role,
+            "current_company": c.current_company,
+            "total_years_exp": c.total_years_exp,
+            "profile_quality": c.profile_quality,
+            "created_at": c.created_at,
+        })
+
+    return {"candidates": result, "total": total, "page": page, "page_size": page_size, "query": q}
 
 
 @router.get("/results/{result_id}")
@@ -635,6 +709,101 @@ def update_candidate(
     db.commit()
     db.refresh(candidate)
     return {"id": candidate.id, "name": candidate.name}
+
+
+@router.put("/{candidate_id}/parsed-data")
+def correct_parsed_data(
+    candidate_id: int,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Correct mis-parsed resume data (skills, work experience, education, contact info).
+
+    Accepts partial updates — only fields present in the request body are updated.
+    All changes are audit-logged.
+
+    Request body (all fields optional):
+    {
+        "skills": ["Python", "FastAPI", ...],
+        "work_experience": [{...}, ...],
+        "education": [{...}, ...],
+        "contact_info": {"email": "...", "phone": "..."},
+        "current_role": "Senior Engineer",
+        "current_company": "Acme Corp",
+        "total_years_exp": 8.5
+    }
+    """
+    candidate = db.query(Candidate).filter(
+        Candidate.id == candidate_id,
+        Candidate.tenant_id == current_user.tenant_id,
+    ).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    updated_fields = []
+
+    if "skills" in body:
+        old_val = candidate.parsed_skills
+        new_val = json.dumps(body["skills"], default=_json_default)
+        log_field_change(db, current_user.tenant_id, "candidate", candidate.id, "parsed_skills", old_val, new_val, current_user.id)
+        candidate.parsed_skills = new_val
+        updated_fields.append("skills")
+
+    if "work_experience" in body:
+        old_val = candidate.parsed_work_exp
+        new_val = json.dumps(body["work_experience"], default=_json_default)
+        log_field_change(db, current_user.tenant_id, "candidate", candidate.id, "parsed_work_exp", old_val, new_val, current_user.id)
+        candidate.parsed_work_exp = new_val
+        updated_fields.append("work_experience")
+
+    if "education" in body:
+        old_val = candidate.parsed_education
+        new_val = json.dumps(body["education"], default=_json_default)
+        log_field_change(db, current_user.tenant_id, "candidate", candidate.id, "parsed_education", old_val, new_val, current_user.id)
+        candidate.parsed_education = new_val
+        updated_fields.append("education")
+
+    if "contact_info" in body:
+        ci = body["contact_info"]
+        if "email" in ci:
+            log_field_change(db, current_user.tenant_id, "candidate", candidate.id, "email", candidate.email, ci["email"], current_user.id)
+            candidate.email = ci["email"]
+        if "phone" in ci:
+            log_field_change(db, current_user.tenant_id, "candidate", candidate.id, "phone", candidate.phone, ci["phone"], current_user.id)
+            candidate.phone = ci["phone"]
+        if "name" in ci:
+            log_field_change(db, current_user.tenant_id, "candidate", candidate.id, "name", candidate.name, ci["name"], current_user.id)
+            candidate.name = ci["name"]
+        updated_fields.append("contact_info")
+
+    if "current_role" in body:
+        log_field_change(db, current_user.tenant_id, "candidate", candidate.id, "current_role", candidate.current_role, body["current_role"], current_user.id)
+        candidate.current_role = body["current_role"]
+        updated_fields.append("current_role")
+
+    if "current_company" in body:
+        log_field_change(db, current_user.tenant_id, "candidate", candidate.id, "current_company", candidate.current_company, body["current_company"], current_user.id)
+        candidate.current_company = body["current_company"]
+        updated_fields.append("current_company")
+
+    if "total_years_exp" in body:
+        log_field_change(db, current_user.tenant_id, "candidate", candidate.id, "total_years_exp", candidate.total_years_exp, body["total_years_exp"], current_user.id)
+        candidate.total_years_exp = body["total_years_exp"]
+        updated_fields.append("total_years_exp")
+
+    if not updated_fields:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    candidate.profile_updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(candidate)
+
+    return {
+        "id": candidate.id,
+        "updated_fields": updated_fields,
+        "message": f"Updated {len(updated_fields)} field(s)",
+    }
 
 
 @router.get("/{candidate_id}/audit-log")
@@ -1284,6 +1453,7 @@ async def analyze_existing_candidate(
             gap_analysis=gap_analysis,
             scoring_weights=body.scoring_weights,
             jd_analysis=jd_analysis,
+            db_session=db,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
@@ -1366,7 +1536,22 @@ def download_candidate_resume(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    if not candidate.resume_file_data:
+    # Fetch resume data from object storage (preferred) or legacy BYTEA
+    from app.backend.services.object_storage import ObjectStorageService
+    resume_data = None
+    pdf_data = None
+
+    if candidate.resume_file_key and ObjectStorageService.is_available():
+        resume_data = ObjectStorageService.download(candidate.resume_file_key)
+    if resume_data is None:
+        resume_data = candidate.resume_file_data
+
+    if candidate.resume_pdf_key and ObjectStorageService.is_available():
+        pdf_data = ObjectStorageService.download(candidate.resume_pdf_key)
+    if pdf_data is None:
+        pdf_data = candidate.resume_converted_pdf_data
+
+    if not resume_data:
         raise HTTPException(
             status_code=404,
             detail="Resume file not stored for this candidate. Re-upload to enable download.",
@@ -1380,14 +1565,14 @@ def download_candidate_resume(
         # Already a PDF → serve inline
         if lower_name.endswith(".pdf"):
             return Response(
-                content=candidate.resume_file_data,
+                content=resume_data,
                 media_type="application/pdf",
                 headers={"Content-Disposition": "inline"},
             )
         # .doc or .docx with a converted PDF → serve the PDF inline
-        if lower_name.endswith((".doc", ".docx")) and candidate.resume_converted_pdf_data:
+        if lower_name.endswith((".doc", ".docx")) and pdf_data:
             return Response(
-                content=candidate.resume_converted_pdf_data,
+                content=pdf_data,
                 media_type="application/pdf",
                 headers={"Content-Disposition": "inline"},
             )
@@ -1401,9 +1586,9 @@ def download_candidate_resume(
 
     # ── Standard download/view mode ─────────────────────────────────────────
     # For .doc files with a converted PDF, serve the PDF inline for browser viewing
-    if lower_name.endswith(".doc") and candidate.resume_converted_pdf_data:
+    if lower_name.endswith(".doc") and pdf_data:
         return Response(
-            content=candidate.resume_converted_pdf_data,
+            content=pdf_data,
             media_type="application/pdf",
             headers={"Content-Disposition": "inline"},
         )
@@ -1432,7 +1617,7 @@ def download_candidate_resume(
         disposition = f'attachment; filename="{filename}"'
 
     return Response(
-        content=candidate.resume_file_data,
+        content=resume_data,
         media_type=media_type,
         headers={"Content-Disposition": disposition},
     )

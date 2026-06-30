@@ -6,6 +6,7 @@ from app.backend.services.eligibility_service import (
     check_eligibility,
     EligibilityResult,
     _compute_domain_similarity_for_eligibility,
+    CORE_SKILL_MISMATCH_THRESHOLD,
     DOMAIN_SIMILARITY_MISMATCH_THRESHOLD,
 )
 
@@ -178,20 +179,20 @@ class TestCheckEligibility:
         result = check_eligibility(
             jd_domain="backend",
             candidate_domain="backend",
-            core_skill_match=0.2,
+            core_skill_match=0.1,
             relevant_experience=5.0,
         )
         assert result.eligible is False
         assert result.reason == "low_core_skills"
-        assert result.details["core_skill_match"] == 0.2
-        assert result.details["threshold"] == 0.3
+        assert result.details["core_skill_match"] == 0.1
+        assert result.details["threshold"] == CORE_SKILL_MISMATCH_THRESHOLD
 
     def test_core_skill_boundary_passes(self):
-        """core_skill_match == 0.3 is at the boundary and should pass."""
+        """core_skill_match == CORE_SKILL_MISMATCH_THRESHOLD is at the boundary and should pass."""
         result = check_eligibility(
             jd_domain="backend",
             candidate_domain="backend",
-            core_skill_match=0.3,
+            core_skill_match=CORE_SKILL_MISMATCH_THRESHOLD,
             relevant_experience=5.0,
         )
         assert result.eligible is True

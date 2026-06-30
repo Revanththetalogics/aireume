@@ -230,6 +230,72 @@ def convert_to_new_schema(weights: Optional[Dict[str, float]]) -> Dict[str, floa
         return normalize_weights(merged)
 
 
+UNIVERSAL_WEIGHT_KEYS = frozenset({
+    "core_competencies",
+    "experience",
+    "domain_fit",
+    "education",
+    "career_trajectory",
+    "role_excellence",
+    "risk",
+})
+
+
+def validate_and_normalize_weights(weights: Optional[Dict[str, float]]) -> Dict[str, float]:
+    """Validate and normalize weights to the universal 7-weight schema.
+
+    Accepts any supported schema (legacy 4-weight, old backend 7-weight, or
+    new universal 7-weight), converts to universal, and validates value ranges.
+
+    Returns:
+        Normalized weights in universal schema.
+    """
+    converted = convert_to_new_schema(weights)
+
+    for key in UNIVERSAL_WEIGHT_KEYS:
+        if key not in converted:
+            converted[key] = NEW_DEFAULT_WEIGHTS[key]
+        val = converted[key]
+        if not isinstance(val, (int, float)):
+            log.warning("Weight '%s' has non-numeric value %r, using default", key, val)
+            converted[key] = NEW_DEFAULT_WEIGHTS[key]
+        else:
+            converted[key] = float(val)
+
+    for extra_key in set(converted.keys()) - UNIVERSAL_WEIGHT_KEYS:
+        del converted[extra_key]
+
+    return normalize_weights(converted)
+
+
+def migrate_stored_weights(weights_json: Optional[str]) -> Optional[str]:
+    """Migrate a stored JSON weight string to the universal schema.
+
+    Used for one-time migration of existing RoleTemplate.scoring_weights and
+    Tenant.scoring_weights values. Returns JSON string of normalized universal
+    weights, or None if input was None/empty.
+
+    Args:
+        weights_json: JSON string of weights in any schema (or None)
+
+    Returns:
+        JSON string of normalized universal weights, or None
+    """
+    import json
+
+    if not weights_json:
+        return None
+
+    try:
+        weights = json.loads(weights_json)
+    except (json.JSONDecodeError, TypeError):
+        log.warning("Could not parse stored weights JSON, returning None")
+        return None
+
+    normalized = validate_and_normalize_weights(weights)
+    return json.dumps(normalized)
+
+
 def get_weight_labels(role_category: Optional[str] = None) -> Dict[str, Dict[str, str]]:
     """
     Get adaptive labels for weights based on role category.
