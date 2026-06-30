@@ -1363,6 +1363,7 @@ class VoiceAgentWorker:
                     for segment_pcm in segmenter.get_speech_segments():
                         wav_data = _pcm_to_wav(segment_pcm, frame_rate)
                         text = await speech.transcribe(wav_data, "audio/wav")
+                        segment_duration = len(segment_pcm) // 2 / frame_rate
                         if text.strip():
                             logger.info("Candidate said: %s", text)
 
@@ -1380,6 +1381,16 @@ class VoiceAgentWorker:
                             if orch_ctx.time_remaining < 30:
                                 logger.info("Time budget exceeded, ending call")
                                 break
+                        elif segment_duration > 0.5:
+                            # Speech was detected but STT returned empty — ask the candidate to repeat
+                            logger.warning(
+                                "STT returned empty for %.1fs speech segment; asking candidate to repeat",
+                                segment_duration,
+                            )
+                            repeat_prompt = "I'm sorry, I didn't catch that. Could you please repeat?"
+                            audio_out = await speech.synthesize(repeat_prompt)
+                            if audio_out:
+                                await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
 
         def on_track_subscribed(track, publication, participant):
             asyncio.create_task(_process_track(track, publication, participant))

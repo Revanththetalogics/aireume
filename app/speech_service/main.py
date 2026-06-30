@@ -50,11 +50,11 @@ EDGE_TTS_VOICES = {
 # ─── Model loading ────────────────────────────────────────────────────────────
 
 def load_stt():
-    """Load OpenAI Whisper tiny model — fast on CPU (~0.5s for 3s audio)."""
+    """Load OpenAI Whisper base model — balances accuracy and CPU latency."""
     global whisper_model
     try:
         import whisper
-        model_name = "tiny"  # 39M params, ~0.5s inference for 3s audio on CPU
+        model_name = "base"  # 74M params, better accuracy for phone/SIP audio
         logger.info("Loading Whisper model: %s", model_name)
         whisper_model = whisper.load_model(model_name, device="cpu")
         logger.info("Whisper model loaded successfully")
@@ -194,6 +194,18 @@ async def transcribe_audio(request: Request):
         if len(audio_np) < 512:
             logger.warning("Audio too short for STT: %d samples", len(audio_np))
             return {"text": "", "duration_audio": 0.0, "duration_inference": 0.0, "chunks": []}
+
+        # ── Audio preprocessing for phone/SIP audio ───────────────────────────
+        # 1. High-pass filter to remove low-frequency rumble/hum
+        audio_np = np.convolve(audio_np, np.array([1.0, -0.97]), mode="same")
+        # 2. Normalize to [-1, 1] using the 95th percentile to avoid outlier spikes
+        peak = np.percentile(np.abs(audio_np), 95)
+        if peak > 0:
+            audio_np = audio_np / peak
+            audio_np = np.clip(audio_np, -1.0, 1.0)
+        # 3. Soft noise gate: keep very quiet samples near zero but preserve speech
+        audio_np = np.where(np.abs(audio_np) < 0.01, 0.0, audio_np)
+        # ───────────────────────────────────────────────────────────────────────
 
         # Whisper expects float32 numpy array at 16kHz
         start = time.time()
