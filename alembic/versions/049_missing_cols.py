@@ -1,6 +1,6 @@
 """Add missing columns to recruiter and voice tables.
 
-Revision ID: 049_missing_recruiter_voice_columns
+Revision ID: 049_missing_cols
 Revises: 048_candidate_storage_keys
 Create Date: 2026-07-01
 
@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from sqlalchemy import inspect
 
 
-revision = "049_missing_recruiter_voice_columns"
+revision = "049_missing_cols"
 down_revision = "048_candidate_storage_keys"
 branch_labels = None
 depends_on = None
