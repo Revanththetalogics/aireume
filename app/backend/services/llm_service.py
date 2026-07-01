@@ -246,6 +246,81 @@ class LLMService:
 
         return self._fallback_jd_profile()
 
+    # ─── Layer 2: LLM Resume Skill Extraction ───────────────────────────────
+
+    async def extract_resume_skills(self, resume_text: str, timeout: Optional[float] = None) -> list:
+        """Extract domain-specific skills from resume text using LLM.
+
+        Returns a list of canonical skill strings.  Falls back to an empty
+        list on any error so the caller can proceed with rule-based skills only.
+        """
+        if not resume_text or not resume_text.strip():
+            return []
+
+        prompt = self._build_resume_skills_prompt(resume_text)
+        _timeout = (timeout or float(os.getenv("LLM_NARRATIVE_TIMEOUT", "120"))) + 30
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await self._call_ollama(prompt, timeout=_timeout)
+                skills = self._parse_resume_skills_response(response)
+                if skills:
+                    return skills
+            except Exception as e:
+                logger.warning("Resume skill extraction failed (attempt %d): %s", attempt + 1, e)
+                if attempt == self.max_retries:
+                    return []
+
+        return []
+
+    def _build_resume_skills_prompt(self, resume_text: str) -> str:
+        """Build a strict JSON prompt for LLM resume skill extraction."""
+        resume_summary = resume_text[:6000] if len(resume_text) > 6000 else resume_text
+        return f"""You are a precise resume parser. Extract ALL technical and domain-specific skills from the resume below.
+
+Return ONLY a JSON array of skill strings. No explanations, no markdown, no trailing text.
+
+Rules:
+- Extract specific technologies, tools, methodologies, and domain concepts
+- Include both explicitly stated skills and skills clearly implied by work descriptions
+- Use canonical industry names (e.g., "SAP MM" not "SAP Materials Management")
+- Include module/ecosystem names (e.g., "SAP S/4HANA", "SAP SD", "SAP FI")
+- Include methodologies (e.g., "Procure-to-Pay", "Data Migration", "Cutover")
+- Include tools (e.g., "LSMW", "BDC", "Solution Manager", "ServiceNow")
+- Include certifications (e.g., "SAP Certified Application Associate")
+- Do NOT include soft skills (e.g., "communication", "leadership")
+- Do NOT include generic terms (e.g., "management", "training")
+
+RESUME:
+{resume_summary}
+
+JSON:"""
+
+    def _parse_resume_skills_response(self, response: str) -> list:
+        """Parse the LLM response into a list of skill strings."""
+        # Try direct JSON parse first
+        try:
+            skills = json.loads(response)
+            if isinstance(skills, list):
+                return [str(s).strip() for s in skills if s and isinstance(s, (str, int, float))]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Try to extract a JSON array from the response
+        import re
+        array_match = re.search(r'\[.*?\]', response, re.DOTALL)
+        if array_match:
+            try:
+                skills = json.loads(array_match.group(0))
+                if isinstance(skills, list):
+                    return [str(s).strip() for s in skills if s and isinstance(s, (str, int, float))]
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Fallback: extract quoted strings
+        matches = re.findall(r'"([^"]+)"', response)
+        return matches if matches else []
+
     async def _call_ollama(self, prompt: str, timeout: Optional[float] = None) -> str:
         url = f"{self.base_url}/api/generate"
 
@@ -476,3 +551,16 @@ async def extract_jd_profile_with_llm(
     """
     service = LLMService()
     return await service.extract_jd_profile(job_description, timeout=timeout)
+
+
+async def extract_resume_skills_with_llm(
+    resume_text: str,
+    timeout: Optional[float] = None,
+) -> list:
+    """Extract domain-specific skills from resume text using LLM.
+
+    Returns a list of canonical skill strings.  Falls back to an empty
+    list on any error so the caller can proceed with rule-based skills only.
+    """
+    service = LLMService()
+    return await service.extract_resume_skills(resume_text, timeout=timeout)

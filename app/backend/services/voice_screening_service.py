@@ -169,6 +169,7 @@ async def generate_post_call_assessment(
     candidate_name: str,
     jd_title: str = "",
     must_have_skills: list = None,
+    nice_to_have_skills: list = None,
     detail_level: str = "full",
 ) -> dict:
     """
@@ -192,6 +193,7 @@ async def generate_post_call_assessment(
     )
 
     skills_str = ", ".join(must_have_skills[:10]) if must_have_skills else "general skills"
+    nice_skills_str = ", ".join(nice_to_have_skills[:10]) if nice_to_have_skills else ""
 
     detail_instruction = (
         "Provide a FULL assessment with per-question breakdowns, skill-by-skill ratings, "
@@ -221,7 +223,8 @@ async def generate_post_call_assessment(
         f"Candidate: {candidate_name}\n"
         f"Role: {jd_title or 'the position'}\n"
         f"Must-have skills: {skills_str}\n"
-        f"Job description: {jd_text[:1500]}\n\n"
+        + (f"Nice-to-have skills: {nice_skills_str}\n" if nice_skills_str else "")
+        + f"Job description: {jd_text[:1500]}\n\n"
         f"--- TRANSCRIPT ---\n{transcript_text[:5000]}\n--- END TRANSCRIPT ---"
     )
 
@@ -311,22 +314,28 @@ def build_conversation_context(db: Session, session_id: int) -> dict:
             select(RoleTemplate).where(RoleTemplate.id == voice_session.jd_id)
         ).scalar_one_or_none()
 
-    # Extract must-have skills from JD
+    # Extract must-have and nice-to-have skills from JD
     must_have_skills = []
+    nice_to_have_skills = []
     jd_text = ""
     jd_title = ""
     if jd:
         jd_text = jd.jd_text or ""
         jd_title = jd.name or ""
-        if jd.required_skills_override:
+        for raw_override, target in (
+            (jd.required_skills_override, must_have_skills),
+            (jd.nice_to_have_skills_override, nice_to_have_skills),
+        ):
+            if not raw_override:
+                continue
             try:
-                skills_data = json.loads(jd.required_skills_override)
+                skills_data = json.loads(raw_override)
                 if isinstance(skills_data, list):
                     for s in skills_data:
                         if isinstance(s, str):
-                            must_have_skills.append(s)
+                            target.append(s)
                         elif isinstance(s, dict) and "skill" in s:
-                            must_have_skills.append(s["skill"])
+                            target.append(s["skill"])
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -338,6 +347,7 @@ def build_conversation_context(db: Session, session_id: int) -> dict:
         "jd_text": jd_text,
         "jd_title": jd_title,
         "must_have_skills": must_have_skills,
+        "nice_to_have_skills": nice_to_have_skills,
         "candidate_name": candidate.name if candidate else "Candidate",
         "phone_number": voice_session.phone_number,
         "bot_name": config.bot_name if config else "ARIA Assistant",
@@ -386,6 +396,7 @@ async def process_completed_call(db: Session, session_id: int):
         candidate_name=ctx["candidate_name"],
         jd_title=ctx["jd_title"],
         must_have_skills=ctx["must_have_skills"],
+        nice_to_have_skills=ctx.get("nice_to_have_skills", []),
         detail_level=config.assessment_detail_level if config else "full",
     )
 

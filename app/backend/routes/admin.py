@@ -3480,3 +3480,39 @@ def trigger_dunning_retries(
         "processed": len(results),
         "results": results,
     }
+
+
+# ─── Bias Audit ───────────────────────────────────────────────────────────────
+
+@router.post("/bias-audit/run")
+def run_bias_audit(
+    tenant_id: Optional[int] = None,
+    group_field: str = "gender",
+    days_back: int = 90,
+    admin: User = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """Run a bias audit on screening outcomes. Requires platform admin.
+
+    Analyzes screening results for disparate impact across demographic groups
+    using the EEOC four-fifths rule and score disparity tests.
+    """
+    from app.backend.services.bias_audit_service import run_bias_audit as _run_audit
+    result = _run_audit(db, tenant_id=tenant_id, group_field=group_field, days_back=days_back)
+    from dataclasses import asdict
+    return asdict(result)
+
+
+@router.get("/bias-audit/run")
+def get_bias_audit(
+    tenant_id: Optional[int] = None,
+    group_field: str = "gender",
+    days_back: int = 90,
+    admin: User = Depends(require_readonly_platform),
+    db: Session = Depends(get_db),
+):
+    """Get bias audit results (read-only). Same as POST but for read access."""
+    from app.backend.services.bias_audit_service import run_bias_audit as _run_audit
+    result = _run_audit(db, tenant_id=tenant_id, group_field=group_field, days_back=days_back)
+    from dataclasses import asdict
+    return asdict(result)

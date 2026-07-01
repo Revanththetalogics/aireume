@@ -80,6 +80,23 @@ class PIIRedactionService:
                     "URL",
                     "US_SSN",
                     "CREDIT_CARD",
+                    # International PII entities
+                    "UK_NHS_NUMBER",
+                    "UK_NINO",         # UK National Insurance Number
+                    "ES_NIF",          # Spain NIF
+                    "ES_NIE",          # Spain NIE
+                    "FR_CNI",          # France National ID
+                    "IT_FISCAL_CODE",  # Italy Codice Fiscale
+                    "IT_VAT_CODE",     # Italy VAT
+                    "DE_VAT",          # Germany VAT
+                    "SG_NRIC_FIN",     # Singapore NRIC/FIN
+                    "IN_AADHAAR",      # India Aadhaar
+                    "IN_PAN",          # India PAN
+                    "AU_ABN",          # Australia ABN
+                    "AU_TFN",          # Australia Tax File Number
+                    "IBAN_CODE",       # International Bank Account Number
+                    "IP_ADDRESS",      # IP addresses
+                    "DATE_TIME",       # Dates that could be DOB
                 ],
                 language="en"
             )
@@ -154,6 +171,72 @@ class PIIRedactionService:
             redaction_map["PHONE_NUMBER"] = [f"{p[0]}-{p[1]}-{p[2]}" for p in phones]
             redacted = re.sub(phone_pattern, "PHONE", redacted)
             total_redactions += len(phones)
+        
+        # International phone patterns
+        intl_phone_pattern = r'\+(?:44|49|33|34|39|31|91|86|81|82|65|61|55|52|1)[-\s]?(?:\d[-\s]?){6,12}\d'
+        intl_phones = re.findall(intl_phone_pattern, redacted)
+        if intl_phones:
+            redaction_map["INTL_PHONE"] = intl_phones
+            redacted = re.sub(intl_phone_pattern, "PHONE", redacted)
+            total_redactions += len(intl_phones)
+        
+        # UK National Insurance Number (e.g. AB123456C)
+        uk_nino_pattern = r'\b[A-Z]{2}\d{6}[A-Z]\b'
+        uk_ninos = re.findall(uk_nino_pattern, redacted)
+        if uk_ninos:
+            redaction_map["UK_NINO"] = uk_ninos
+            redacted = re.sub(uk_nino_pattern, "UK_NINO", redacted)
+            total_redactions += len(uk_ninos)
+        
+        # India Aadhaar (12 digits with spaces, e.g. 1234 5678 9012)
+        aadhaar_pattern = r'\b\d{4}\s?\d{4}\s?\d{4}\b'
+        aadhaars = re.findall(aadhaar_pattern, redacted)
+        if aadhaars:
+            redaction_map["IN_AADHAAR"] = aadhaars
+            redacted = re.sub(aadhaar_pattern, "AADHAAR", redacted)
+            total_redactions += len(aadhaars)
+        
+        # India PAN (e.g. ABCDE1234F)
+        pan_pattern = r'\b[A-Z]{5}\d{4}[A-Z]\b'
+        pans = re.findall(pan_pattern, redacted)
+        if pans:
+            redaction_map["IN_PAN"] = pans
+            redacted = re.sub(pan_pattern, "PAN", redacted)
+            total_redactions += len(pans)
+        
+        # Singapore NRIC/FIN (e.g. S1234567A)
+        nric_pattern = r'\b[STFG]\d{7}[A-Z]\b'
+        nrics = re.findall(nric_pattern, redacted)
+        if nrics:
+            redaction_map["SG_NRIC"] = nrics
+            redacted = re.sub(nric_pattern, "NRIC", redacted)
+            total_redactions += len(nrics)
+        
+        # IBAN (International Bank Account Number)
+        iban_pattern = r'\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b'
+        ibans = re.findall(iban_pattern, redacted)
+        if ibans:
+            redaction_map["IBAN"] = ibans
+            redacted = re.sub(iban_pattern, "IBAN", redacted)
+            total_redactions += len(ibans)
+        
+        # EU National ID patterns (various)
+        eu_id_pattern = r'\b\d{10,12}[A-Z]?\b'  # Broad pattern for various EU IDs
+        # Only match if preceded by common ID labels
+        eu_id_labeled = r'(?:id|identity|national\s+id|nif|nie|cni|fiscal)\s*(?:number|no\.?|num[:#])?\s*[:.]?\s*(\b\d{8,12}[A-Z]?\b)'
+        eu_ids = re.findall(eu_id_labeled, redacted, re.IGNORECASE)
+        if eu_ids:
+            redaction_map["EU_NATIONAL_ID"] = eu_ids
+            redacted = re.sub(eu_id_labeled, r'EU_ID', redacted, flags=re.IGNORECASE)
+            total_redactions += len(eu_ids)
+        
+        # IP addresses
+        ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+        ips = re.findall(ip_pattern, redacted)
+        if ips:
+            redaction_map["IP_ADDRESS"] = ips
+            redacted = re.sub(ip_pattern, "IP_ADDR", redacted)
+            total_redactions += len(ips)
         
         # Pattern: URLs
         url_pattern = r'https?://[^\s]+'

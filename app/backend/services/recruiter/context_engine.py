@@ -267,7 +267,7 @@ class InterviewContextEngine:
 
         return {
             "matched": analysis.get("matched_skills", []),
-            "gaps": analysis.get("gap_skills", []),
+            "gaps": analysis.get("missing_skills", []) or analysis.get("gap_skills", []),
             "core_skill_score": screening.core_skill_score,
         }
 
@@ -300,8 +300,26 @@ class InterviewContextEngine:
         if not isinstance(analysis, dict):
             return weak
 
-        for dim in ("skills", "experience", "education", "stability"):
-            score = analysis.get(dim)
+        score_breakdown = analysis.get("score_breakdown", {})
+        if not isinstance(score_breakdown, dict):
+            score_breakdown = {}
+
+        # Map dimension labels to score_breakdown keys
+        dimension_keys = {
+            "skills": "skill_match",
+            "experience": "experience_match",
+            "education": "education",
+            "domain_fit": "domain_fit",
+            "architecture": "architecture",
+            "stability": "stability",
+        }
+
+        for dim, sb_key in dimension_keys.items():
+            raw = score_breakdown.get(sb_key)
+            if raw is None:
+                continue
+            # Some values are dicts with a "score" key, others are raw numbers
+            score = raw.get("score") if isinstance(raw, dict) else raw
             if isinstance(score, (int, float)) and score < 50:
                 weak.append((dim, score))
         return weak

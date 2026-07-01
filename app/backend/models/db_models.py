@@ -1247,3 +1247,26 @@ class InterviewTemplate(Base):
         Index("ix_interview_templates_tenant_project", "tenant_id", "project_id"),
     )
 
+
+# ─── Scoring cache for batch consistency ──────────────────────────────────────
+
+class ScreeningCache(Base):
+    """Caches screening results by content hash for batch scoring consistency.
+
+    Ensures the same resume+JD combination always produces identical scores,
+    which is critical for audit compliance and reproducibility.
+    """
+    __tablename__ = "screening_cache"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    cache_key   = Column(String(128), unique=True, index=True, nullable=False)
+    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True, index=True)
+    result_json = Column(Text, nullable=False)
+    resume_hash = Column(String(32), index=True, nullable=False)
+    jd_hash     = Column(String(32), index=True, nullable=False)
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_screening_cache_tenant_created", "tenant_id", "created_at"),
+    )
+

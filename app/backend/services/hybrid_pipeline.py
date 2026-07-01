@@ -18,6 +18,7 @@ Background Processing:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -505,8 +506,17 @@ def _infer_total_years_from_resume_text(text: str) -> float:
 # COMPONENT 2: RESUME PROFILE BUILDER
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def parse_resume_rules(parsed_data: Dict[str, Any], gap_analysis: Dict[str, Any]) -> Dict[str, Any]:
-    """Build a structured candidate profile from parser output and gap analysis."""
+def parse_resume_rules(
+    parsed_data: Dict[str, Any],
+    gap_analysis: Dict[str, Any],
+    llm_resume_skills: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Build a structured candidate profile from parser output and gap analysis.
+
+    If ``llm_resume_skills`` is provided, these LLM-extracted skills are merged
+    into ``skills_identified`` (after deduplication) to capture domain-specific
+    skills that the static FlashText registry may miss.
+    """
     contact      = parsed_data.get("contact_info", {}) or {}
     work_exp     = parsed_data.get("work_experience", [])
     raw_text     = parsed_data.get("raw_text", "")
@@ -543,6 +553,14 @@ def parse_resume_rules(parsed_data: Dict[str, Any], gap_analysis: Dict[str, Any]
                     existing_lower.add(skill.lower())
     except Exception as e:
         log.debug("Targeted skill confirmation skipped: %s", e)
+
+    # Layer 2: Merge LLM-extracted resume skills (semantic, domain-agnostic)
+    if llm_resume_skills:
+        existing_lower = {s.lower() for s in skills_identified}
+        for skill in llm_resume_skills:
+            if skill and skill.lower() not in existing_lower:
+                skills_identified.append(skill)
+                existing_lower.add(skill.lower())
 
     total_years = float(gap_analysis.get("total_years", 0.0) or 0.0)
     if total_years <= 0 and raw_text:
@@ -1187,7 +1205,12 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     must_have_ctx = "\n".join(must_have_ctx_lines) if must_have_ctx_lines else "  No must-have skills data available"
 
     # Build the recruiter-focused prompt with explicit JSON instruction
-    prompt = f"""IMPORTANT: You must respond with ONLY a valid JSON object. No explanation, no markdown, no code blocks. Start with {{ and end with }}.
+    # Inject language instruction for multi-language support if detected
+    _lang_ctx = context.get("language_context", {})
+    _lang_instruction = _lang_ctx.get("llm_instruction", "")
+    _lang_prefix = f"\n{_lang_instruction}\n" if _lang_instruction else ""
+
+    prompt = f"""IMPORTANT: You must respond with ONLY a valid JSON object. No explanation, no markdown, no code blocks. Start with {{ and end with }}.{_lang_prefix}
 
 You are ARIA, an AI recruitment analyst. Produce a JSON assessment explaining
 WHY this candidate is/isn't suited for this role. Be specific — reference
@@ -2392,13 +2415,22 @@ def _run_python_phase(
     scoring_weights: Optional[Dict],
     jd_analysis: Optional[Dict],
     phase3_context: Optional[Dict] = None,
+    llm_resume_skills: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Execute all deterministic Python components. Returns a rich result dict."""
     # Sanitize user-provided text to prevent prompt injection
     resume_text, job_description = _wrap_user_content(resume_text, job_description)
 
     jd       = jd_analysis or parse_jd_rules(job_description)
-    profile  = parse_resume_rules(parsed_data, gap_analysis)
+
+    # Layer 1: Inject JD skills into gap_analysis so confirm_skills_in_text
+    # can search the resume text for JD-specific skills (e.g. "SAP MM",
+    # "Material Master", "LSMW") that the static FlashText registry may miss.
+    gap_analysis = dict(gap_analysis)  # shallow copy — don't mutate caller's dict
+    gap_analysis.setdefault("required_skills", jd.get("required_skills", []))
+    gap_analysis.setdefault("nice_to_have_skills", jd.get("nice_to_have_skills", []))
+
+    profile  = parse_resume_rules(parsed_data, gap_analysis, llm_resume_skills=llm_resume_skills)
     skill_a  = match_skills_with_onet(
         profile.get("skills_identified", []),
         jd.get("required_skills", []),
@@ -2577,8 +2609,24 @@ def _run_python_phase(
         import traceback
         log.debug("Deterministic engine traceback: %s", traceback.format_exc())
 
-    log.info("Final score after deterministic engine: %s", deterministic_score)
-    all_scores["fit_score"] = deterministic_score
+    # Blend deterministic score with the nuanced fit_score.
+    # The deterministic engine uses only 4 crude 0-1 ratios (core_skill_match,
+    # secondary_skill_match, domain_match, relevant_experience) and ignores the
+    # carefully computed skill_score (with confidence weighting, proficiency),
+    # education, timeline, and architecture scores.  Using it as the sole score
+    # unfairly penalises eligible candidates whose skill names don't exactly match.
+    if eligibility is not None and eligibility.eligible:
+        final_score = int(0.6 * fit_r["fit_score"] + 0.4 * deterministic_score)
+    else:
+        final_score = deterministic_score
+    final_score = max(0, min(100, final_score))
+
+    log.info(
+        "Final score: %s (fit_score=%s, deterministic=%s, eligible=%s)",
+        final_score, fit_r["fit_score"], deterministic_score,
+        eligibility.eligible if eligibility else "N/A",
+    )
+    all_scores["fit_score"] = final_score
     # Use the deterministic decision (which respects caps) when available,
     # otherwise fall back to the legacy recommendation.
     all_scores["final_recommendation"] = (
@@ -2592,6 +2640,42 @@ def _run_python_phase(
 
     quality = _assess_quality(profile)
 
+    # ── Enterprise enrichment (non-breaking, additive fields) ────────────────
+    language_context = {}
+    proficiency_data = {}
+    fraud_check_result = {}
+    enrichment_data = {}
+
+    try:
+        from app.backend.services.language_service import get_resume_language_context
+        language_context = get_resume_language_context(resume_text)
+    except Exception as e:
+        log.debug("Language detection failed (non-fatal): %s", e)
+
+    try:
+        from app.backend.services.proficiency_service import detect_proficiency
+        proficiency_data = detect_proficiency(resume_text)
+    except Exception as e:
+        log.debug("Proficiency detection failed (non-fatal): %s", e)
+
+    try:
+        from app.backend.services.fraud_detection_service import run_fraud_check
+        fraud_check_result = run_fraud_check(
+            resume_text=resume_text,
+            matched_skills=skill_a.get("matched_skills_detailed", []),
+            candidate_profile=profile,
+            gap_analysis=gap_analysis,
+            jd_required_skills=jd.get("required_skills", []),
+        )
+    except Exception as e:
+        log.debug("Fraud detection failed (non-fatal): %s", e)
+
+    try:
+        from app.backend.services.resume_enrichment_service import enrich_resume
+        enrichment_data = enrich_resume(resume_text)
+    except Exception as e:
+        log.debug("Resume enrichment failed (non-fatal): %s", e)
+
     return {
         "jd_analysis":         jd,
         "candidate_profile":   profile,
@@ -2604,7 +2688,7 @@ def _run_python_phase(
             "short_stints":     gap_analysis.get("short_stints", []),
         },
         # Top-level fields for AnalysisResponse schema
-        "fit_score":            deterministic_score,
+        "fit_score":            final_score,
         "job_role":             jd["role_title"],
         "final_recommendation": all_scores["final_recommendation"],
         "risk_level":           fit_r["risk_level"],
@@ -2643,6 +2727,11 @@ def _run_python_phase(
             s["skill"] for s in skill_a.get("onet_validation", {}).get("validated", [])
             if s.get("is_hot")
         ],
+        # ── Enterprise enrichment fields (additive, non-breaking) ─────────────
+        "language_context":     language_context,
+        "proficiency_assessment": proficiency_data,
+        "fraud_check":          fraud_check_result,
+        "resume_enrichment":    enrichment_data,
         # Internal — used by fallback
         "_required_years":      exp_r["required_years"],
         "_scores":              all_scores,
@@ -2786,6 +2875,26 @@ async def _background_llm_narrative(
                             # Continue even if merge fails - narrative_json is still saved
                         
                         db.commit()
+
+                        # Backfill denormalized columns if still NULL (edge case
+                        # where early save happened without pipeline_result)
+                        if result.deterministic_score is None:
+                            base_for_cols = current_analysis if current_analysis.get("fit_score") else python_result
+                            try:
+                                result.deterministic_score = base_for_cols.get("deterministic_score") or base_for_cols.get("fit_score")
+                                skill_a = base_for_cols.get("skill_analysis", {})
+                                if isinstance(skill_a, dict):
+                                    result.core_skill_score = skill_a.get("core_match_ratio")
+                                cand_dom = base_for_cols.get("candidate_domain", {})
+                                if isinstance(cand_dom, dict):
+                                    result.domain_match_score = cand_dom.get("confidence")
+                                elig = base_for_cols.get("eligibility", {})
+                                if isinstance(elig, dict):
+                                    result.eligibility_status = elig.get("eligible")
+                                    result.eligibility_reason = elig.get("reason")
+                                db.commit()
+                            except Exception as col_err:
+                                log.warning("Non-critical: Failed to backfill denormalized columns: %s", col_err)
 
                         # Cache candidate_profile_summary to Candidate.ai_professional_summary
                         summary = narrative.get("candidate_profile_summary")
@@ -2942,6 +3051,48 @@ def _persist_merged_jd_profile(db_session, job_description: str, jd_analysis: Di
             log.warning("Non-critical: Rollback also failed: %s", rollback_err)
 
 
+def _sync_jd_skills_to_role_template(db_session, job_description: str, jd_analysis: Dict[str, Any]) -> None:
+    """Sync enriched JD required/nice-to-have skills back to RoleTemplate.
+
+    This ensures the voice screening service uses the LLM-enriched skill list
+    when generating screening questions, instead of stale or empty overrides.
+
+    Non-critical: failures are logged and ignored.  Only updates templates
+    where ``required_skills_override`` is empty (no manual user override).
+    """
+    if db_session is None:
+        return
+    if jd_analysis.get("_profile_source") not in ("llm", "merged"):
+        return
+    try:
+        from app.backend.models.db_models import RoleTemplate
+        enriched_required = jd_analysis.get("required_skills", [])
+        enriched_nice = jd_analysis.get("nice_to_have_skills", [])
+        if not enriched_required:
+            return
+
+        templates = db_session.query(RoleTemplate).filter(
+            RoleTemplate.jd_text == job_description
+        ).all()
+
+        for template in templates:
+            if not template.required_skills_override:
+                template.required_skills_override = json.dumps(enriched_required, default=_json_default)
+                template.nice_to_have_skills_override = json.dumps(enriched_nice, default=_json_default)
+                log.info(
+                    "Synced enriched JD skills to RoleTemplate %d: %d required, %d nice-to-have",
+                    template.id, len(enriched_required), len(enriched_nice),
+                )
+
+        db_session.commit()
+    except Exception as e:
+        log.warning("Non-critical: Failed to sync JD skills to RoleTemplate: %s", e)
+        try:
+            db_session.rollback()
+        except Exception as rollback_err:
+            log.warning("Non-critical: Rollback also failed: %s", rollback_err)
+
+
 async def run_hybrid_pipeline(
     resume_text: str,
     job_description: str,
@@ -2968,22 +3119,55 @@ async def run_hybrid_pipeline(
     is extracted before the Python phase.  If db_session is provided, the merged
     JD profile is persisted back to the JdCache so later requests skip re-extraction.
     """
-    # ── Domain-agnostic JD profile extraction ───────────────────────────────
+    # ── Scoring cache check (batch consistency) ──────────────────────────────
+    try:
+        from app.backend.services.scoring_cache_service import get_cached_result
+        cached = get_cached_result(resume_text, job_description, scoring_weights, tenant_id)
+        if cached is not None:
+            log.info("Scoring cache hit — returning cached result (tenant=%s)", tenant_id)
+            return cached
+    except Exception as e:
+        log.debug("Scoring cache check failed (non-fatal): %s", e)
+
+    # ── Domain-agnostic JD profile + LLM resume skill extraction (concurrent) ─
+    llm_resume_skills: List[str] = []
     if jd_analysis is None or jd_analysis.get("_profile_source") not in ("llm", "merged"):
         try:
             from app.backend.services.jd_profile_service import extract_jd_profile, merge_jd_profile
-            llm_profile = await extract_jd_profile(job_description)
+            from app.backend.services.llm_service import extract_resume_skills_with_llm
+
+            # Run JD profile and resume skill extraction concurrently for zero added latency
+            jd_task = asyncio.create_task(extract_jd_profile(job_description))
+            resume_skills_task = asyncio.create_task(extract_resume_skills_with_llm(resume_text))
+
+            llm_profile = await jd_task
+            try:
+                llm_resume_skills = await resume_skills_task
+                log.info("LLM resume skills extracted: %d skills", len(llm_resume_skills))
+            except Exception as e:
+                log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
+
             rules_jd = jd_analysis or parse_jd_rules(job_description)
             jd_analysis = merge_jd_profile(rules_jd, llm_profile)
             _persist_merged_jd_profile(db_session, job_description, jd_analysis)
+            _sync_jd_skills_to_role_template(db_session, job_description, jd_analysis)
         except Exception as e:
             log.warning("LLM JD profile extraction failed, falling back to rules: %s", e)
             if jd_analysis is None:
                 jd_analysis = parse_jd_rules(job_description)
+    else:
+        # JD profile already merged — still extract resume skills for Layer 2
+        try:
+            from app.backend.services.llm_service import extract_resume_skills_with_llm
+            llm_resume_skills = await extract_resume_skills_with_llm(resume_text)
+            log.info("LLM resume skills extracted: %d skills", len(llm_resume_skills))
+        except Exception as e:
+            log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
 
     python_result = _run_python_phase(
         resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis,
         phase3_context=phase3_context,
+        llm_resume_skills=llm_resume_skills,
     )
 
     llm_context = {
@@ -2999,6 +3183,9 @@ async def run_hybrid_pipeline(
         "score_rationales":  python_result.get("score_rationales", {}),
         "risk_summary":      python_result.get("risk_summary", {}),
         "skill_depth":       python_result.get("skill_depth", {}),
+        # Enterprise enrichment
+        "language_context":  python_result.get("language_context", {}),
+        "fraud_check":       python_result.get("fraud_check", {}),
     }
 
     # If screening_result_id provided, spawn background task and return immediately
@@ -3052,7 +3239,16 @@ async def run_hybrid_pipeline(
         llm_result = _build_fallback_narrative(python_result, python_result["skill_analysis"])
         python_result["narrative_pending"] = True
 
-    return _merge_llm_into_result(python_result, llm_result)
+    final_result = _merge_llm_into_result(python_result, llm_result)
+
+    # ── Cache the result for batch consistency ───────────────────────────────
+    try:
+        from app.backend.services.scoring_cache_service import cache_result
+        cache_result(resume_text, job_description, final_result, scoring_weights, tenant_id)
+    except Exception as e:
+        log.debug("Scoring cache store failed (non-fatal): %s", e)
+
+    return final_result
 
 
 async def astream_hybrid_pipeline(
@@ -3084,23 +3280,57 @@ async def astream_hybrid_pipeline(
     When jd_analysis is not pre-computed, an LLM-driven domain-agnostic JD profile
     is extracted before the Python phase.
     """
-    # ── Domain-agnostic JD profile extraction ───────────────────────────────
+    # ── Scoring cache check (batch consistency) ──────────────────────────────
+    try:
+        from app.backend.services.scoring_cache_service import get_cached_result
+        cached = get_cached_result(resume_text, job_description, scoring_weights, tenant_id)
+        if cached is not None:
+            log.info("Scoring cache hit (stream) — returning cached result (tenant=%s)", tenant_id)
+            yield {"stage": "complete", "result": cached}
+            return
+    except Exception as e:
+        log.debug("Scoring cache check failed (non-fatal): %s", e)
+
+    # ── Domain-agnostic JD profile + LLM resume skill extraction (concurrent) ──
+    llm_resume_skills: List[str] = []
     if jd_analysis is None or jd_analysis.get("_profile_source") not in ("llm", "merged"):
         try:
             from app.backend.services.jd_profile_service import extract_jd_profile, merge_jd_profile
-            llm_profile = await extract_jd_profile(job_description)
+            from app.backend.services.llm_service import extract_resume_skills_with_llm
+
+            # Run JD profile and resume skill extraction concurrently for zero added latency
+            jd_task = asyncio.create_task(extract_jd_profile(job_description))
+            resume_skills_task = asyncio.create_task(extract_resume_skills_with_llm(resume_text))
+
+            llm_profile = await jd_task
+            try:
+                llm_resume_skills = await resume_skills_task
+                log.info("LLM resume skills extracted: %d skills", len(llm_resume_skills))
+            except Exception as e:
+                log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
+
             rules_jd = jd_analysis or parse_jd_rules(job_description)
             jd_analysis = merge_jd_profile(rules_jd, llm_profile)
             _persist_merged_jd_profile(db_session, job_description, jd_analysis)
+            _sync_jd_skills_to_role_template(db_session, job_description, jd_analysis)
         except Exception as e:
             log.warning("LLM JD profile extraction failed, falling back to rules: %s", e)
             if jd_analysis is None:
                 jd_analysis = parse_jd_rules(job_description)
+    else:
+        # JD profile already merged — still extract resume skills for Layer 2
+        try:
+            from app.backend.services.llm_service import extract_resume_skills_with_llm
+            llm_resume_skills = await extract_resume_skills_with_llm(resume_text)
+            log.info("LLM resume skills extracted: %d skills", len(llm_resume_skills))
+        except Exception as e:
+            log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
 
     # Phase 1 — Python (instant)
     python_result = _run_python_phase(
         resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis,
         phase3_context=phase3_context,
+        llm_resume_skills=llm_resume_skills,
     )
 
     llm_context = {
@@ -3116,6 +3346,9 @@ async def astream_hybrid_pipeline(
         "score_rationales":  python_result.get("score_rationales", {}),
         "risk_summary":      python_result.get("risk_summary", {}),
         "skill_depth":       python_result.get("skill_depth", {}),
+        # Enterprise enrichment
+        "language_context":  python_result.get("language_context", {}),
+        "fraud_check":       python_result.get("fraud_check", {}),
     }
 
     # If screening_result_id provided, spawn background task and return immediately
@@ -3211,4 +3444,12 @@ async def astream_hybrid_pipeline(
     yield {"stage": "scoring", "result": llm_result or {}}
 
     final = _merge_llm_into_result(python_result, llm_result or {})
+
+    # ── Cache the result for batch consistency ───────────────────────────────
+    try:
+        from app.backend.services.scoring_cache_service import cache_result
+        cache_result(resume_text, job_description, final, scoring_weights, tenant_id)
+    except Exception as e:
+        log.debug("Scoring cache store failed (non-fatal): %s", e)
+
     yield {"stage": "complete", "result": final}

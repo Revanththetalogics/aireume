@@ -944,3 +944,356 @@ class TestDomainAgnosticPipeline:
         assert result["fit_score"] > 40
         assert result["final_recommendation"] in ("Shortlist", "Consider")
         assert result["job_role"] == "SAP MM Consultant"
+
+
+# ==============================================================================
+# Layer 1: JD Skills Injected into confirm_skills_in_text
+# ==============================================================================
+
+class TestLayer1JDSkillInjection:
+    """Tests that JD required_skills are injected into gap_analysis so
+    confirm_skills_in_text can find domain-specific skills in the resume text."""
+
+    def test_confirm_skills_finds_jd_skills_in_resume_text(self):
+        """Layer 1: JD skills like 'Material Master' and 'LSMW' should be
+        confirmed from resume text even when not in the static FlashText registry."""
+        parsed_data = {
+            "raw_text": (
+                "Kalpana P\n"
+                "SAP MM Consultant with 9 years of experience.\n"
+                "Configured Material Master, Vendor Master, and Source Determination.\n"
+                "Used LSMW for data migration and BAPI for integration.\n"
+                "Managed cutover activities during S/4HANA migration."
+            ),
+            "skills": ["SAP MM"],
+            "work_experience": [
+                {
+                    "title": "SAP MM Consultant",
+                    "company": "TechCorp",
+                    "start_date": "2015-01",
+                    "end_date": "2024-01",
+                    "description": "SAP MM implementation and data migration.",
+                }
+            ],
+            "contact_info": {"name": "Kalpana P", "email": "kalpana@example.com"},
+            "education": [],
+        }
+        gap_analysis = {"total_years": 9.0, "employment_gaps": [], "short_stints": []}
+        jd_analysis = {
+            "required_skills": ["SAP MM", "Material Master", "Vendor Master", "LSMW", "ABAP"],
+            "nice_to_have_skills": ["SAP Certification"],
+            "min_required_years": 5,
+            "role_title": "SAP MM Consultant",
+            "domain": "SAP/ERP",
+            "domain_keywords": ["sap mm", "material master", "lsmw"],
+            "seniority": "senior",
+        }
+
+        result = _run_python_phase(
+            resume_text=parsed_data["raw_text"],
+            job_description="SAP MM Consultant with 5+ years experience",
+            parsed_data=parsed_data,
+            gap_analysis=gap_analysis,
+            scoring_weights=None,
+            jd_analysis=jd_analysis,
+        )
+
+        skills = result["candidate_profile"]["skills_identified"]
+        skills_lower = [s.lower() for s in skills]
+        # Material Master, Vendor Master, LSMW should be confirmed from text
+        assert "material master" in skills_lower
+        assert "vendor master" in skills_lower
+        assert "lsmw" in skills_lower
+
+    def test_confirm_skills_does_not_mutate_caller_gap_analysis(self):
+        """Layer 1: The injection should not mutate the caller's gap_analysis dict."""
+        parsed_data = {
+            "raw_text": "Python developer with Django and Flask experience.",
+            "skills": ["Python"],
+            "work_experience": [],
+            "contact_info": {},
+            "education": [],
+        }
+        gap_analysis = {"total_years": 3.0, "employment_gaps": []}
+        original_keys = set(gap_analysis.keys())
+
+        jd_analysis = {
+            "required_skills": ["Python", "Django", "Flask"],
+            "nice_to_have_skills": [],
+            "role_title": "Python Developer",
+            "domain": "backend",
+            "min_required_years": 2,
+        }
+
+        _run_python_phase(
+            resume_text=parsed_data["raw_text"],
+            job_description="Python Developer",
+            parsed_data=parsed_data,
+            gap_analysis=gap_analysis,
+            scoring_weights=None,
+            jd_analysis=jd_analysis,
+        )
+
+        # The caller's dict should not have been mutated
+        assert set(gap_analysis.keys()) == original_keys
+        assert "required_skills" not in gap_analysis
+
+    def test_confirm_skills_with_empty_jd_skills(self):
+        """Layer 1: Empty JD skills should not cause errors."""
+        parsed_data = {
+            "raw_text": "Software engineer with Java experience.",
+            "skills": ["Java"],
+            "work_experience": [],
+            "contact_info": {},
+            "education": [],
+        }
+        gap_analysis = {"total_years": 2.0, "employment_gaps": []}
+        jd_analysis = {
+            "required_skills": [],
+            "nice_to_have_skills": [],
+            "role_title": "Software Engineer",
+            "domain": "backend",
+            "min_required_years": 1,
+        }
+
+        result = _run_python_phase(
+            resume_text=parsed_data["raw_text"],
+            job_description="Software Engineer",
+            parsed_data=parsed_data,
+            gap_analysis=gap_analysis,
+            scoring_weights=None,
+            jd_analysis=jd_analysis,
+        )
+
+        # Should not crash, and Java should still be in skills
+        skills = result["candidate_profile"]["skills_identified"]
+        skills_lower = [s.lower() for s in skills]
+        assert "java" in skills_lower
+
+
+# ==============================================================================
+# Layer 2: LLM Resume Skill Extraction and Merging
+# ==============================================================================
+
+class TestLayer2LLMResumeSkills:
+    """Tests for LLM-extracted resume skill merging into parse_resume_rules."""
+
+    def test_llm_resume_skills_merged_into_skills_identified(self):
+        """Layer 2: LLM-extracted skills should be merged into skills_identified."""
+        parsed_data = {
+            "raw_text": (
+                "SAP MM Consultant. Implemented P2P, configured BAPI, managed cutover."
+            ),
+            "skills": ["SAP MM"],
+            "work_experience": [],
+            "contact_info": {},
+            "education": [],
+        }
+        gap_analysis = {"total_years": 9.0}
+        llm_skills = ["SAP MM", "Procure-to-Pay", "BAPI", "Cutover", "SAP S/4HANA"]
+
+        profile = parse_resume_rules(parsed_data, gap_analysis, llm_resume_skills=llm_skills)
+
+        skills_lower = [s.lower() for s in profile["skills_identified"]]
+        assert "procure-to-pay" in skills_lower
+        assert "bapi" in skills_lower
+        assert "cutover" in skills_lower
+        assert "sap s/4hana" in skills_lower
+
+    def test_llm_resume_skills_deduplicated(self):
+        """Layer 2: LLM skills should not create duplicates with existing skills."""
+        parsed_data = {
+            "raw_text": "SAP MM Consultant with procurement experience.",
+            "skills": ["SAP MM", "Procurement"],
+            "work_experience": [],
+            "contact_info": {},
+            "education": [],
+        }
+        gap_analysis = {"total_years": 5.0}
+        # LLM returns "SAP MM" and "Procurement" which already exist
+        llm_skills = ["SAP MM", "Procurement", "Material Master", "LSMW"]
+
+        profile = parse_resume_rules(parsed_data, gap_analysis, llm_resume_skills=llm_skills)
+
+        skills = profile["skills_identified"]
+        # Check no duplicates (case-insensitive)
+        skills_lower = [s.lower() for s in skills]
+        assert len(skills_lower) == len(set(skills_lower))
+        # New skills should be added
+        assert "material master" in skills_lower
+        assert "lsmw" in skills_lower
+
+    def test_llm_resume_skills_none_does_not_break(self):
+        """Layer 2: Passing None for llm_resume_skills should work as before."""
+        parsed_data = {
+            "raw_text": "Python developer with Django experience.",
+            "skills": ["Python", "Django"],
+            "work_experience": [],
+            "contact_info": {},
+            "education": [],
+        }
+        gap_analysis = {"total_years": 3.0}
+
+        profile = parse_resume_rules(parsed_data, gap_analysis, llm_resume_skills=None)
+
+        skills_lower = [s.lower() for s in profile["skills_identified"]]
+        assert "python" in skills_lower
+        assert "django" in skills_lower
+
+    def test_llm_resume_skills_empty_list_does_not_break(self):
+        """Layer 2: Empty list for llm_resume_skills should work as before."""
+        parsed_data = {
+            "raw_text": "Java developer with Spring experience.",
+            "skills": ["Java", "Spring"],
+            "work_experience": [],
+            "contact_info": {},
+            "education": [],
+        }
+        gap_analysis = {"total_years": 2.0}
+
+        profile = parse_resume_rules(parsed_data, gap_analysis, llm_resume_skills=[])
+
+        skills_lower = [s.lower() for s in profile["skills_identified"]]
+        assert "java" in skills_lower
+        assert "spring" in skills_lower
+
+    def test_layer1_and_layer2_combined(self):
+        """Both layers together: JD skills injected (Layer 1) + LLM skills merged (Layer 2)."""
+        parsed_data = {
+            "raw_text": (
+                "Kalpana P\n"
+                "SAP MM Consultant with 9 years of experience.\n"
+                "Configured Material Master and Vendor Master.\n"
+                "Used LSMW for data migration."
+            ),
+            "skills": ["SAP MM"],
+            "work_experience": [
+                {
+                    "title": "SAP MM Consultant",
+                    "company": "TechCorp",
+                    "start_date": "2015-01",
+                    "end_date": "2024-01",
+                    "description": "SAP MM implementation.",
+                }
+            ],
+            "contact_info": {"name": "Kalpana P"},
+            "education": [],
+        }
+        gap_analysis = {"total_years": 9.0, "employment_gaps": [], "short_stints": []}
+        jd_analysis = {
+            "required_skills": ["SAP MM", "Material Master", "Vendor Master", "LSMW", "ABAP"],
+            "nice_to_have_skills": ["SAP Certification"],
+            "min_required_years": 5,
+            "role_title": "SAP MM Consultant",
+            "domain": "SAP/ERP",
+            "domain_keywords": ["sap mm", "material master", "lsmw"],
+            "seniority": "senior",
+        }
+        llm_skills = ["SAP MM", "Procure-to-Pay", "BAPI", "SAP S/4HANA", "Cutover"]
+
+        result = _run_python_phase(
+            resume_text=parsed_data["raw_text"],
+            job_description="SAP MM Consultant with 5+ years experience",
+            parsed_data=parsed_data,
+            gap_analysis=gap_analysis,
+            scoring_weights=None,
+            jd_analysis=jd_analysis,
+            llm_resume_skills=llm_skills,
+        )
+
+        skills = result["candidate_profile"]["skills_identified"]
+        skills_lower = [s.lower() for s in skills]
+
+        # Layer 1: confirmed from text
+        assert "material master" in skills_lower
+        assert "vendor master" in skills_lower
+        assert "lsmw" in skills_lower
+
+        # Layer 2: from LLM extraction
+        assert "procure-to-pay" in skills_lower
+        assert "bapi" in skills_lower
+        assert "sap s/4hana" in skills_lower
+        assert "cutover" in skills_lower
+
+        # No duplicates
+        assert len(skills_lower) == len(set(skills_lower))
+
+        # Core skill match should be significantly improved
+        skill_analysis = result["skill_analysis"]
+        core_match = skill_analysis.get("core_match_ratio", 0)
+        assert core_match > 0.5, f"Expected core_match_ratio > 0.5, got {core_match}"
+
+
+# ==============================================================================
+# Layer 2: LLM Service — extract_resume_skills
+# ==============================================================================
+
+class TestLLMResumeSkillExtraction:
+    """Tests for the LLMService.extract_resume_skills method and parser."""
+
+    def test_parse_resume_skills_response_valid_json(self):
+        """_parse_resume_skills_response should parse a valid JSON array."""
+        from app.backend.services.llm_service import LLMService
+        svc = LLMService()
+        response = '["SAP MM", "SAP S/4HANA", "Procure-to-Pay", "LSMW"]'
+        skills = svc._parse_resume_skills_response(response)
+        assert skills == ["SAP MM", "SAP S/4HANA", "Procure-to-Pay", "LSMW"]
+
+    def test_parse_resume_skills_response_with_surrounding_text(self):
+        """_parse_resume_skills_response should extract JSON array from surrounding text."""
+        from app.backend.services.llm_service import LLMService
+        svc = LLMService()
+        response = 'Here are the skills:\n["Python", "Django", "PostgreSQL"]\nDone.'
+        skills = svc._parse_resume_skills_response(response)
+        assert "Python" in skills
+        assert "Django" in skills
+        assert "PostgreSQL" in skills
+
+    def test_parse_resume_skills_response_empty(self):
+        """_parse_resume_skills_response should return empty list for invalid input."""
+        from app.backend.services.llm_service import LLMService
+        svc = LLMService()
+        skills = svc._parse_resume_skills_response("")
+        assert skills == []
+
+    def test_parse_resume_skills_response_fallback_quoted(self):
+        """_parse_resume_skills_response should fall back to quoted string extraction."""
+        from app.backend.services.llm_service import LLMService
+        svc = LLMService()
+        response = 'I found "SAP MM" and "Material Master" in the resume.'
+        skills = svc._parse_resume_skills_response(response)
+        assert "SAP MM" in skills
+        assert "Material Master" in skills
+
+    @pytest.mark.asyncio
+    async def test_extract_resume_skills_empty_text(self):
+        """extract_resume_skills should return empty list for empty resume text."""
+        from app.backend.services.llm_service import LLMService
+        svc = LLMService()
+        skills = await svc.extract_resume_skills("")
+        assert skills == []
+
+    @pytest.mark.asyncio
+    async def test_extract_resume_skills_with_llm_failure(self):
+        """extract_resume_skills should return empty list on LLM failure."""
+        from app.backend.services.llm_service import LLMService
+        svc = LLMService()
+
+        with patch.object(svc, "_call_ollama", side_effect=Exception("LLM unavailable")):
+            skills = await svc.extract_resume_skills("Some resume text here")
+            assert skills == []
+
+    @pytest.mark.asyncio
+    async def test_extract_resume_skills_with_mocked_llm(self):
+        """extract_resume_skills should parse skills from LLM response."""
+        from app.backend.services.llm_service import LLMService
+        svc = LLMService()
+
+        mock_response = '["SAP MM", "SAP S/4HANA", "Procure-to-Pay", "LSMW", "BAPI"]'
+        with patch.object(svc, "_call_ollama", new=AsyncMock(return_value=mock_response)):
+            skills = await svc.extract_resume_skills("SAP MM Consultant resume text")
+            assert "SAP MM" in skills
+            assert "SAP S/4HANA" in skills
+            assert "Procure-to-Pay" in skills
+            assert "LSMW" in skills
+            assert "BAPI" in skills

@@ -415,13 +415,29 @@ class ResumeParser:
         
         text = '\n'.join(final_lines)
         
-        # Scanned-PDF guard
+        # Scanned-PDF guard — try OCR fallback before rejecting
         if len(text.strip()) < 100:
-            raise ValueError(
-                "This PDF appears to be a scanned image and cannot be read automatically. "
-                "Please upload a text-based PDF (exported from Word/Google Docs) rather than "
-                "a scanned or photographed document."
-            )
+            try:
+                from app.backend.services.ocr_service import ocr_with_fallback
+                ocr_text = ocr_with_fallback(file_bytes, text)
+                if ocr_text and len(ocr_text.strip()) >= 100:
+                    text = ocr_text
+                    logger.info("Scanned PDF recovered via OCR: %d chars", len(text.strip()))
+                else:
+                    raise ValueError(
+                        "This PDF appears to be a scanned image and cannot be read automatically. "
+                        "Please upload a text-based PDF (exported from Word/Google Docs) rather than "
+                        "a scanned or photographed document."
+                    )
+            except ValueError:
+                raise
+            except Exception as ocr_err:
+                logger.warning("OCR fallback failed: %s", ocr_err)
+                raise ValueError(
+                    "This PDF appears to be a scanned image and cannot be read automatically. "
+                    "Please upload a text-based PDF (exported from Word/Google Docs) rather than "
+                    "a scanned or photographed document."
+                )
         
         # Normalise Unicode characters
         if _HAS_UNIDECODE:

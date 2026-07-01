@@ -75,6 +75,107 @@ DOMAIN_KEYWORDS: Dict[str, List[str]] = {
     "management":   ["product manager", "engineering manager", "team lead", "delivery manager",
                      "scrum master", "agile coach", "roadmap", "stakeholder", "okr",
                      "program manager", "pmo", "budget", "hiring"],
+    # ── Non-tech domains ──────────────────────────────────────────────────────
+    "healthcare":   ["patient care", "clinical", "nursing", "medical", "healthcare", "hospital",
+                     "electronic health records", "ehr", "emr", "hipaa", "patient safety",
+                     "pharmacy", "radiology", "laboratory", "diagnostic", "treatment plan",
+                     "patient outcomes", "medical terminology", "telemedicine", "epic",
+                     "cerner", "medical coding", "icd-10", "cpt", "health informatics",
+                     "public health", "epidemiology", "infection control", "patient discharge",
+                     "care coordination", "medical device", "pharmaceutical", "clinical trial"],
+    "finance":      ["financial analysis", "accounting", "financial modeling", "budgeting",
+                     "forecasting", "gaap", "ifrs", "audit", "tax", "treasury",
+                     "financial reporting", "balance sheet", "cash flow", "p&l", "profit loss",
+                     "reconciliation", "accounts payable", "accounts receivable", "general ledger",
+                     "quickbooks", "sap fi", "oracle financials", "financial planning",
+                     "risk assessment", "compliance", "internal controls", "sox",
+                     "valuation", "dcf", "npv", "irr", "financial statements",
+                     "cost accounting", "variance analysis", "capital budgeting"],
+    "legal":        ["law", "legal", "attorney", "lawyer", "paralegal", "litigation",
+                     "contract", "compliance", "regulatory", "corporate law", "ip law",
+                     "patent", "trademark", "copyright", "legal research", "legal writing",
+                     "discovery", "deposition", "brief", "motion", "pleading",
+                     "due diligence", "mergers acquisitions", "nda", "non-disclosure",
+                     "employment law", "labor law", "real estate law", "criminal law",
+                     "civil litigation", "arbitration", "mediation", "bar admission",
+                     "westlaw", "lexisnexis", "legal hold", "evidence", "statute"],
+    "sales":        ["sales strategy", "crm", "salesforce", "pipeline management", "negotiation",
+                     "lead generation", "account management", "b2b sales", "closing deals",
+                     "sales forecasting", "prospecting", "relationship building",
+                     "cold calling", "sales pitch", "quota", "revenue target",
+                     "territory management", "sales cycle", "b2c sales", "inside sales",
+                     "field sales", "channel sales", "partner management", "upselling",
+                     "cross-selling", "customer acquisition", "sales operations",
+                     "hubspot", "pipedrive", "outreach", "sales loft", "gong"],
+    "marketing":    ["digital marketing", "content marketing", "seo", "sem", "social media",
+                     "email marketing", "marketing automation", "google analytics",
+                     "campaign management", "brand management", "marketing strategy",
+                     "lead generation", "conversion optimization", "ppc", "google ads",
+                     "facebook ads", "marketing analytics", "customer segmentation",
+                     "marketing research", "competitive analysis", "go-to-market",
+                     "content strategy", "copywriting", "marketing funnel",
+                     "hubspot", "marketo", "pardot", "mailchimp", "hootsuite",
+                     "buffer", "canva", "adobe creative suite", "marketing roi"],
+    "hr":           ["human resources", "recruitment", "talent acquisition", "onboarding",
+                     "employee relations", "performance management", "hris", "workday",
+                     "successfactors", "bamboo hr", "payroll", "benefits administration",
+                     "compensation", "job analysis", "employee engagement",
+                     "diversity inclusion", "training development", "l&d",
+                     "labor law compliance", "grievance handling", "exit interviews",
+                     "workforce planning", "succession planning", "hr analytics",
+                     "applicant tracking system", "ats", "background verification",
+                     "policy development", "organizational development"],
+    "education":    ["curriculum development", "lesson planning", "pedagogy", "assessment",
+                     "classroom management", "educational technology", "e-learning",
+                     "instructional design", "teaching", "tutoring", "student engagement",
+                     "differentiated instruction", "special education", "iep",
+                     "stem education", "early childhood education", "higher education",
+                     "academic research", "grant writing", "rubric", "formative assessment",
+                     "summative assessment", "learning management system", "lms",
+                     "canvas", "blackboard", "moodle", "google classroom",
+                     "schoology", "edtech", "blended learning", "distance learning"],
+    "manufacturing": ["lean manufacturing", "six sigma", "quality control", "iso 9001",
+                     "production planning", "supply chain", "inventory management",
+                     "erp", "sap", "oracle manufacturing", "mrp", "capacity planning",
+                     "continuous improvement", "kaizen", "5s", "poka-yoke",
+                     "statistical process control", "spc", "root cause analysis",
+                     "safety compliance", "osha", "forklift", "cnc", "cad",
+                     "cam", "autocad", "solidworks", "manufacturing execution system",
+                     "mes", "total productive maintenance", "tpm", "value stream mapping"],
+    "consulting":   ["strategy consulting", "management consulting", "business analysis",
+                     "stakeholder management", "change management", "process improvement",
+                     "project management", "pmo", "business transformation",
+                     "digital transformation", "operational excellence", "mckinsey",
+                     "bcg", "bain", "deloitte", "accenture", "pwc", "ey", "kpmg",
+                     "case study", "executive presentation", "workshop facilitation",
+                     "requirements gathering", "gap analysis", "business case",
+                     "roi analysis", "transformation roadmap", "process mapping",
+                     "lean six sigma", "agile transformation", "organizational design"],
+    "design":       ["ui design", "ux design", "user research", "wireframing", "prototyping",
+                     "figma", "sketch", "adobe xd", "design system", "component library",
+                     "accessibility", "wcag", "responsive design", "interaction design",
+                     "information architecture", "usability testing", "heuristic evaluation",
+                     "user journey", "persona", "design thinking", "service design",
+                     "visual design", "typography", "color theory", "branding",
+                     "adobe creative suite", "photoshop", "illustrator", "after effects",
+                     "motion design", "3d modeling", "blender", "cinema 4d"],
+    "logistics":    ["supply chain management", "logistics", "warehousing", "distribution",
+                     "freight", "shipping", "inventory control", "demand forecasting",
+                     "procurement", "vendor management", "3pl", "4pl",
+                     "transportation management", "wms", "tms", "erp",
+                     "customs clearance", "import export", "incoterms", "hs code",
+                     "freight forwarding", "last mile delivery", "route optimization",
+                     "fleet management", "cold chain", "reverse logistics",
+                     "supply chain optimization", "s&op", "demand planning"],
+    "construction": ["construction management", "project management", "site supervision",
+                     "building codes", "autocad", "revit", "bim", "primavera",
+                     "ms project", "cost estimation", "quantity surveying",
+                     "blueprint reading", "safety compliance", "osha",
+                     "contract administration", "change order", "rfi",
+                     "submittal", "leed certification", "sustainable construction",
+                     "structural engineering", "civil engineering", " MEP",
+                     "hvac", "electrical systems", "plumbing", "concrete",
+                     "steel structure", "foundation", "demolition", "renovation"],
 }
 
 
@@ -112,8 +213,47 @@ FIELD_RELEVANCE: Dict[str, List[str]] = {
                      "mobile computing"],
     "management":   ["business", "management", "mba", "project management", "administration",
                      "operations", "strategy"],
+    "healthcare":   ["medicine", "nursing", "public health", "health science", "pharmacy",
+                     "biomedical", "healthcare administration", "health informatics",
+                     "radiology", "medical technology", "clinical research", "epidemiology",
+                     "biochemistry", "microbiology", "anatomy", "physiology"],
+    "finance":      ["finance", "accounting", "economics", "business", "commerce",
+                     "financial management", "banking", "actuarial science",
+                     "taxation", "auditing", "corporate finance", "investment",
+                     "mathematics", "statistics"],
+    "legal":        ["law", "juris doctor", "llb", "ll.m", "legal studies",
+                     "paralegal studies", "criminal justice", "political science",
+                     "public policy", "international law", "corporate law"],
+    "sales":        ["business", "marketing", "sales", "communication", "management",
+                     "business administration", "psychology", "economics"],
+    "marketing":    ["marketing", "business", "communication", "advertising",
+                     "public relations", "journalism", "digital media",
+                     "market research", "consumer behavior", "brand management"],
+    "hr":           ["human resources", "psychology", "industrial relations",
+                     "organizational behavior", "business administration",
+                     "labor studies", "sociology", "education", "management"],
+    "education":    ["education", "educational leadership", "curriculum instruction",
+                     "pedagogy", "teaching", "educational technology",
+                     "special education", "early childhood education",
+                     "higher education administration", "subject specific"],
+    "manufacturing": ["industrial engineering", "mechanical engineering",
+                     "manufacturing engineering", "production engineering",
+                     "quality engineering", "operations management",
+                     "supply chain management", "industrial management"],
+    "consulting":   ["business", "management", "mba", "economics", "finance",
+                     "strategy", "operations research", "industrial engineering",
+                     "organizational psychology", "public policy"],
+    "design":       ["design", "graphic design", "interaction design", "visual communication",
+                     "industrial design", "ux design", "ui design", "human computer interaction",
+                     "fine arts", "applied arts", "multimedia design"],
+    "logistics":    ["supply chain management", "logistics", "operations management",
+                     "business", "industrial engineering", "transportation",
+                     "international business", "commerce"],
+    "construction": ["civil engineering", "construction management", "architecture",
+                     "structural engineering", "building science", "quantity surveying",
+                     "mechanical engineering", "electrical engineering"],
     "other":        ["computer", "information", "engineering", "technology", "science",
-                     "mathematics", "systems"],
+                     "mathematics", "systems", "business", "arts", "social science"],
 }
 
 
@@ -308,7 +448,228 @@ JOB_FUNCTION_SKILL_TAXONOMY: Dict[str, Dict[str, List[str]]] = {
             "conduct product demos", "negotiate contracts", "exceed sales targets",
             "collaborate with marketing", "provide market feedback"
         ]
-    }
+    },
+    "healthcare_clinical": {
+        "core_skills": [
+            "patient care", "clinical assessment", "medical terminology", "patient safety",
+            "electronic health records", "ehr", "emr", "epic", "cerner",
+            "treatment planning", "medication administration", "vital signs",
+            "patient discharge", "care coordination", "infection control", "hipaa"
+        ],
+        "adjacent_skills": [
+            "communication", "empathy", "critical thinking", "teamwork",
+            "time management", "documentation", "quality assurance",
+            "patient education", "telemedicine", "data entry"
+        ],
+        "irrelevant_skills": [
+            "python", "react", "kubernetes", "digital marketing", "salesforce",
+            "graphic design", "content strategy"
+        ],
+        "core_responsibilities": [
+            "provide direct patient care", "maintain accurate medical records",
+            "administer medications", "monitor patient progress",
+            "collaborate with healthcare team", "ensure regulatory compliance",
+            "educate patients and families", "respond to emergencies"
+        ]
+    },
+    "finance_accounting": {
+        "core_skills": [
+            "financial analysis", "accounting", "gaap", "ifrs", "financial reporting",
+            "reconciliation", "general ledger", "accounts payable", "accounts receivable",
+            "quickbooks", "excel", "financial modeling", "budgeting", "forecasting"
+        ],
+        "adjacent_skills": [
+            "audit", "tax", "sox compliance", "internal controls", "sap",
+            "oracle financials", "data analysis", "communication", "attention to detail",
+            "problem solving", "process improvement"
+        ],
+        "irrelevant_skills": [
+            "react", "kubernetes", "graphic design", "content marketing",
+            "patient care", "machine learning"
+        ],
+        "core_responsibilities": [
+            "prepare financial statements", "conduct financial analysis",
+            "manage accounts payable receivable", "ensure regulatory compliance",
+            "support audit processes", "maintain general ledger",
+            "assist with budgeting forecasting", "reconcile accounts"
+        ]
+    },
+    "legal": {
+        "core_skills": [
+            "legal research", "legal writing", "contract review", "litigation",
+            "regulatory compliance", "due diligence", "corporate law",
+            "westlaw", "lexisnexis", "contract drafting", "legal analysis"
+        ],
+        "adjacent_skills": [
+            "negotiation", "communication", "attention to detail", "analytical thinking",
+            "project management", "stakeholder management", "risk assessment",
+            "policy development", "ethics"
+        ],
+        "irrelevant_skills": [
+            "python", "react", "kubernetes", "digital marketing", "patient care",
+            "graphic design", "machine learning"
+        ],
+        "core_responsibilities": [
+            "conduct legal research", "draft and review contracts",
+            "manage litigation proceedings", "ensure regulatory compliance",
+            "provide legal counsel", "support mergers acquisitions",
+            "maintain corporate records", "advise on risk mitigation"
+        ]
+    },
+    "marketing": {
+        "core_skills": [
+            "digital marketing", "seo", "sem", "content marketing", "social media",
+            "email marketing", "google analytics", "marketing automation",
+            "campaign management", "ppc", "google ads", "hubspot"
+        ],
+        "adjacent_skills": [
+            "communication", "copywriting", "data analysis", "a/b testing",
+            "brand management", "market research", "competitive analysis",
+            "figma", "canva", "adobe creative suite", "project management"
+        ],
+        "irrelevant_skills": [
+            "python", "kubernetes", "patient care", "financial modeling",
+            "legal research", "machine learning"
+        ],
+        "core_responsibilities": [
+            "develop marketing campaigns", "manage social media presence",
+            "optimize seo sem performance", "create content strategy",
+            "analyze campaign metrics", "manage marketing budget",
+            "collaborate with sales team", "drive brand awareness"
+        ]
+    },
+    "human_resources": {
+        "core_skills": [
+            "recruitment", "talent acquisition", "employee relations",
+            "performance management", "onboarding", "hris", "workday",
+            "successfactors", "compensation benefits", "labor law compliance"
+        ],
+        "adjacent_skills": [
+            "communication", "conflict resolution", "negotiation", "empathy",
+            "data analysis", "project management", "training development",
+            "organizational development", "diversity inclusion"
+        ],
+        "irrelevant_skills": [
+            "python", "react", "kubernetes", "patient care", "digital marketing",
+            "financial modeling", "machine learning"
+        ],
+        "core_responsibilities": [
+            "manage full cycle recruitment", "facilitate onboarding",
+            "handle employee relations", "administer performance reviews",
+            "ensure labor law compliance", "manage benefits programs",
+            "support organizational development", "maintain hris data"
+        ]
+    },
+    "education_teaching": {
+        "core_skills": [
+            "curriculum development", "lesson planning", "classroom management",
+            "assessment", "instructional design", "educational technology",
+            "differentiated instruction", "student engagement", "lms"
+        ],
+        "adjacent_skills": [
+            "communication", "patience", "creativity", "collaboration",
+            "public speaking", "google classroom", "canvas", "moodle",
+            "special education", "mentoring"
+        ],
+        "irrelevant_skills": [
+            "python", "kubernetes", "patient care", "financial modeling",
+            "digital marketing", "salesforce"
+        ],
+        "core_responsibilities": [
+            "develop and deliver lessons", "assess student progress",
+            "manage classroom behavior", "adapt instruction for diverse learners",
+            "collaborate with parents staff", "maintain accurate records",
+            "integrate technology in learning", "support student wellbeing"
+        ]
+    },
+    "manufacturing_operations": {
+        "core_skills": [
+            "lean manufacturing", "six sigma", "quality control", "iso 9001",
+            "production planning", "supply chain", "erp", "sap",
+            "statistical process control", "root cause analysis", "5s", "kaizen"
+        ],
+        "adjacent_skills": [
+            "autocad", "solidworks", "cnc", "cad cam", "safety compliance",
+            "osha", "continuous improvement", "data analysis", "project management",
+            "communication", "teamwork"
+        ],
+        "irrelevant_skills": [
+            "react", "digital marketing", "patient care", "legal research",
+            "content marketing", "graphic design"
+        ],
+        "core_responsibilities": [
+            "manage production schedules", "ensure quality standards",
+            "optimize manufacturing processes", "implement safety protocols",
+            "manage inventory levels", "drive continuous improvement",
+            "coordinate with supply chain", "lead operational teams"
+        ]
+    },
+    "design_creative": {
+        "core_skills": [
+            "ui design", "ux design", "figma", "sketch", "adobe xd",
+            "user research", "wireframing", "prototyping", "design system",
+            "accessibility", "responsive design", "interaction design"
+        ],
+        "adjacent_skills": [
+            "html", "css", "javascript", "communication", "collaboration",
+            "photoshop", "illustrator", "after effects", "design thinking",
+            "usability testing", "information architecture"
+        ],
+        "irrelevant_skills": [
+            "kubernetes", "patient care", "financial modeling", "legal research",
+            "supply chain management", "manufacturing"
+        ],
+        "core_responsibilities": [
+            "create user centered designs", "conduct user research",
+            "develop wireframes prototypes", "maintain design systems",
+            "ensure accessibility compliance", "collaborate with engineering",
+            "present design rationale", "iterate based on feedback"
+        ]
+    },
+    "logistics_supply_chain": {
+        "core_skills": [
+            "supply chain management", "logistics", "warehousing", "inventory management",
+            "procurement", "vendor management", "freight", "shipping",
+            "wms", "tms", "erp", "demand forecasting"
+        ],
+        "adjacent_skills": [
+            "data analysis", "excel", "communication", "negotiation",
+            "project management", "process improvement", "customs",
+            "import export", "safety compliance", "teamwork"
+        ],
+        "irrelevant_skills": [
+            "react", "machine learning", "patient care", "graphic design",
+            "content marketing", "legal research"
+        ],
+        "core_responsibilities": [
+            "manage warehouse operations", "coordinate shipments",
+            "optimize inventory levels", "manage vendor relationships",
+            "ensure customs compliance", "track delivery performance",
+            "optimize routes", "manage logistics budget"
+        ]
+    },
+    "construction_engineering": {
+        "core_skills": [
+            "construction management", "project management", "autocad", "revit",
+            "bim", "cost estimation", "quantity surveying", "building codes",
+            "safety compliance", "osha", "blueprint reading"
+        ],
+        "adjacent_skills": [
+            "ms project", "primavera", "structural engineering", "civil engineering",
+            "communication", "leadership", "problem solving", "contract administration",
+            "quality assurance", "teamwork"
+        ],
+        "irrelevant_skills": [
+            "react", "digital marketing", "patient care", "machine learning",
+            "content marketing", "graphic design"
+        ],
+        "core_responsibilities": [
+            "manage construction projects", "ensure safety compliance",
+            "coordinate with subcontractors", "monitor project progress",
+            "control project costs", "review blueprints",
+            "conduct site inspections", "manage quality standards"
+        ]
+    },
 }
 
 # Job Function Detection Keywords (maps JD keywords to job functions)
@@ -340,7 +701,59 @@ JOB_FUNCTION_KEYWORDS: Dict[str, List[str]] = {
     "sales": [
         "account executive", "sales representative", "sales manager",
         "business development", "ae", "sdr", "bdr", "sales director"
-    ]
+    ],
+    "healthcare_clinical": [
+        "registered nurse", "rn", "nurse practitioner", "physician",
+        "doctor", "medical officer", "clinical specialist", "pharmacist",
+        "radiologist", "lab technician", "medical technologist",
+        "physical therapist", "occupational therapist", "nursing manager"
+    ],
+    "finance_accounting": [
+        "financial analyst", "accountant", "controller", "cfo",
+        "finance manager", "audit manager", "tax specialist",
+        "treasury analyst", "fp&a analyst", "bookkeeper",
+        "accounts payable specialist", "accounts receivable specialist"
+    ],
+    "legal": [
+        "attorney", "lawyer", "paralegal", "legal counsel",
+        "compliance officer", "legal advisor", "contract specialist",
+        "litigation associate", "corporate counsel", "legal consultant"
+    ],
+    "marketing": [
+        "marketing manager", "digital marketing specialist", "seo specialist",
+        "content marketing manager", "social media manager", "brand manager",
+        "growth marketing manager", "marketing analyst", "demand generation"
+    ],
+    "human_resources": [
+        "hr manager", "recruiter", "talent acquisition specialist",
+        "hr business partner", "people operations", "l&d specialist",
+        "compensation analyst", "hr coordinator", "people partner"
+    ],
+    "education_teaching": [
+        "teacher", "professor", "instructor", "curriculum developer",
+        "instructional designer", "education coordinator", "academic advisor",
+        "school administrator", "education specialist", "tutor"
+    ],
+    "manufacturing_operations": [
+        "production manager", "quality engineer", "manufacturing engineer",
+        "plant manager", "operations manager", "supply chain analyst",
+        "process engineer", "industrial engineer", "qa qc inspector"
+    ],
+    "design_creative": [
+        "ux designer", "ui designer", "product designer", "graphic designer",
+        "visual designer", "interaction designer", "brand designer",
+        "motion designer", "design researcher", "creative director"
+    ],
+    "logistics_supply_chain": [
+        "logistics coordinator", "supply chain manager", "warehouse manager",
+        "procurement specialist", "distribution manager", "freight coordinator",
+        "inventory analyst", "shipping manager", "transportation planner"
+    ],
+    "construction_engineering": [
+        "project engineer", "construction manager", "site engineer",
+        "civil engineer", "structural engineer", "quantity surveyor",
+        "architect", "bim coordinator", "safety officer", "cost estimator"
+    ],
 }
 
 # Generic Soft Skills (should NOT be in must-have unless explicitly emphasized)

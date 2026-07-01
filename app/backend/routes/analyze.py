@@ -221,6 +221,38 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def _populate_denormalized_columns(sr: ScreeningResult, result: dict) -> None:
+    """Populate denormalized score columns on ScreeningResult from pipeline result dict.
+
+    The pipeline computes deterministic_score, core_skill_score, domain_match_score,
+    eligibility_status, and eligibility_reason but stores them only inside the
+    analysis_result JSON blob.  Several consumers (voice screening UI, recruiter
+    context engine, auto-trigger, project lists) read these columns directly
+    without parsing the JSON blob, so they must be populated.
+    """
+    if not isinstance(result, dict):
+        return
+    try:
+        sr.deterministic_score = result.get("deterministic_score")
+        if sr.deterministic_score is None:
+            sr.deterministic_score = result.get("fit_score")
+
+        skill_analysis = result.get("skill_analysis", {})
+        if isinstance(skill_analysis, dict):
+            sr.core_skill_score = skill_analysis.get("core_match_ratio")
+
+        candidate_domain = result.get("candidate_domain", {})
+        if isinstance(candidate_domain, dict):
+            sr.domain_match_score = candidate_domain.get("confidence")
+
+        eligibility = result.get("eligibility", {})
+        if isinstance(eligibility, dict):
+            sr.eligibility_status = eligibility.get("eligible")
+            sr.eligibility_reason = eligibility.get("reason")
+    except Exception as e:
+        log.warning("Non-critical: Failed to populate denormalized columns: %s", e)
+
+
 def _upsert_screening_result(
     db: Session,
     tenant_id: int,
@@ -231,6 +263,7 @@ def _upsert_screening_result(
     parsed_data: str,
     analysis_result: str,
     narrative_status: str | None = None,
+    pipeline_result: dict | None = None,
 ) -> ScreeningResult:
     """Insert or update a ScreeningResult, respecting the unique constraint."""
     existing = db.query(ScreeningResult).filter(
@@ -249,6 +282,8 @@ def _upsert_screening_result(
         existing.status_updated_at = datetime.now(timezone.utc)
         if narrative_status is not None:
             existing.narrative_status = narrative_status
+        if pipeline_result is not None:
+            _populate_denormalized_columns(existing, pipeline_result)
         db.commit()
         db.refresh(existing)
         return existing
@@ -262,6 +297,8 @@ def _upsert_screening_result(
         parsed_data=parsed_data,
         analysis_result=analysis_result,
     )
+    if pipeline_result is not None:
+        _populate_denormalized_columns(new_result, pipeline_result)
     if narrative_status is not None:
         new_result.narrative_status = narrative_status
 
@@ -552,9 +589,10 @@ def _get_or_create_candidate(
     file_content: bytes | None = None,
     filename: str | None = None,
     converted_pdf_content: bytes | None = None,
+    resume_text: str | None = None,
 ) -> tuple[int, bool]:
     """
-    3-layer deduplication. Returns (candidate_id, is_duplicate).
+    4-layer deduplication. Returns (candidate_id, is_duplicate).
 
     action values:
       None / unrecognised  → deduplicate, return duplicate_info in result
@@ -583,6 +621,19 @@ def _get_or_create_candidate(
                 Candidate.resume_file_hash == file_hash,
                 Candidate.tenant_id        == tenant_id,
             ).first()
+
+        # Layer 2b — content hash match (normalized resume text)
+        if existing is None and resume_text:
+            try:
+                from app.backend.services.dedup_service import compute_resume_hash
+                content_hash = compute_resume_hash(resume_text)
+                if content_hash:
+                    existing = db.query(Candidate).filter(
+                        Candidate.resume_file_hash == content_hash,
+                        Candidate.tenant_id        == tenant_id,
+                    ).first()
+            except Exception:
+                pass  # non-fatal — fall through to Layer 3
 
         # Layer 3 — name + phone
         if existing is None and name and phone:
@@ -1623,6 +1674,7 @@ async def analyze_endpoint(
             
             # Update result with analysis
             db_result.analysis_result = json.dumps(result, default=_json_default)
+            _populate_denormalized_columns(db_result, result)
             db.commit()
             
             result["result_id"]      = db_result.id
@@ -1682,6 +1734,7 @@ async def analyze_endpoint(
         file_content=content,
         filename=resume.filename,
         converted_pdf_content=pdf_bytes,
+        resume_text=parsed_data.get("raw_text", ""),
     )
 
     db_result = _upsert_screening_result(
@@ -1711,6 +1764,7 @@ async def analyze_endpoint(
 
     # Update result in DB
     db_result.analysis_result = json.dumps(result, default=_json_default)
+    _populate_denormalized_columns(db_result, result)
     
     # Update candidate profile quality
     _store_candidate_profile(
@@ -1960,6 +2014,7 @@ async def analyze_stream_endpoint(
         file_content=content,
         filename=resume.filename,
         converted_pdf_content=pdf_bytes,
+        resume_text=parsed_data.get("raw_text", ""),
     )
     
     db_result = _upsert_screening_result(
@@ -2020,6 +2075,7 @@ async def analyze_stream_endpoint(
                                     sr = disc_db.query(ScreeningResult).filter(ScreeningResult.id == screening_result_id).first()
                                     if sr:
                                         sr.analysis_result = json.dumps(stage_result, default=_json_default)
+                                        _populate_denormalized_columns(sr, stage_result)
                                         disc_db.commit()
                                         python_scores_saved = True
                                         log.info("Early DB save completed after client disconnect (fit_score=%s)", stage_result.get("fit_score"))
@@ -2054,6 +2110,7 @@ async def analyze_stream_endpoint(
                                 sr = early_db.query(ScreeningResult).filter(ScreeningResult.id == screening_result_id).first()
                                 if sr:
                                     sr.analysis_result = json.dumps(parsing_result, default=_json_default)
+                                    _populate_denormalized_columns(sr, parsing_result)
                                     early_db.commit()
                                     python_scores_saved = True
                                     log.info("Early DB save completed after parsing phase (fit_score=%s)", parsing_result.get("fit_score"))
@@ -2105,6 +2162,7 @@ async def analyze_stream_endpoint(
                 sr = save_db.query(ScreeningResult).filter(ScreeningResult.id == screening_result_id).first()
                 if sr:
                     sr.analysis_result = json.dumps(final_result, default=_json_default)
+                    _populate_denormalized_columns(sr, final_result)
                     # Also update candidate profile
                     cand = save_db.query(Candidate).filter(Candidate.id == candidate_id).first()
                     if cand:
@@ -2395,6 +2453,7 @@ async def batch_analyze_chunked_endpoint(
                 profile_quality=raw.get("analysis_quality", "medium"),
                 file_content=content,
                 filename=filename,
+                resume_text=parsed_data.get("raw_text", ""),
             )
 
             db_result = _upsert_screening_result(
@@ -2407,6 +2466,7 @@ async def batch_analyze_chunked_endpoint(
                 parsed_data=json.dumps(parsed_data),
                 analysis_result=json.dumps(raw),
                 narrative_status="pending",
+                pipeline_result=raw,
             )
             raw["result_id"] = db_result.id
 
@@ -2755,6 +2815,7 @@ async def batch_analyze_stream_endpoint(
                     profile_quality=raw.get("analysis_quality", "medium"),
                     file_content=content,
                     filename=filename,
+                    resume_text=parsed_data.get("raw_text", ""),
                 )
 
                 cand = save_db.get(Candidate, candidate_id)
@@ -2777,6 +2838,7 @@ async def batch_analyze_stream_endpoint(
                     parsed_data=json.dumps(parsed_data, default=_json_default),
                     analysis_result=json.dumps(raw, default=_json_default),
                     narrative_status="pending",
+                    pipeline_result=raw,
                 )
 
                 screening_result_id = db_result.id
@@ -3020,6 +3082,7 @@ async def batch_analyze_endpoint(
             file_content=content,
             filename=filename,
             converted_pdf_content=pdf_bytes,
+            resume_text=parsed_data.get("raw_text", ""),
         )
 
         db_result = _upsert_screening_result(
@@ -3032,6 +3095,7 @@ async def batch_analyze_endpoint(
             parsed_data=json.dumps(parsed_data),
             analysis_result=json.dumps(raw),
             narrative_status="pending",
+            pipeline_result=raw,
         )
         raw["result_id"] = db_result.id
 
@@ -3387,8 +3451,16 @@ def rescore_endpoint(
             log.warning("Deterministic re-score failed, using fit_score: %s", e)
             deterministic_score = fit_r["fit_score"]
 
-    # Use deterministic score when available, otherwise use compute_fit_score result
-    final_fit_score = deterministic_score if det_features else fit_r["fit_score"]
+    # Blend deterministic score with fit_score for eligible candidates
+    # (same logic as _run_python_phase in hybrid_pipeline.py)
+    if det_features:
+        if eligibility is not None and eligibility.eligible:
+            final_fit_score = int(0.6 * fit_r["fit_score"] + 0.4 * deterministic_score)
+        else:
+            final_fit_score = deterministic_score
+        final_fit_score = max(0, min(100, final_fit_score))
+    else:
+        final_fit_score = fit_r["fit_score"]
     final_recommendation = fit_r["final_recommendation"]
     # Override recommendation based on deterministic score thresholds
     if det_features:
@@ -3435,6 +3507,7 @@ def rescore_endpoint(
 
     # ── 9. Persist to database ────────────────────────────────────────────────
     result.analysis_result = json.dumps(analysis, default=_json_default)
+    _populate_denormalized_columns(result, analysis)
     db.commit()
 
     log.info(json.dumps({

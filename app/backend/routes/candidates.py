@@ -1504,6 +1504,8 @@ async def analyze_existing_candidate(
         weight_reasoning=weight_reasoning,
         suggested_weights_json=suggested_weights_json,
     )
+    from app.backend.routes.analyze import _populate_denormalized_columns
+    _populate_denormalized_columns(db_result, result)
     db.add(db_result)
     db.commit()
     db.refresh(db_result)
@@ -2239,3 +2241,49 @@ def get_outcome_patterns(
         role_template_id=role_template_id,
         role_category=role_category,
     )
+
+
+# ─── GDPR endpoints ───────────────────────────────────────────────────────────
+
+@router.delete("/{candidate_id}/gdpr-delete")
+def gdpr_hard_delete_candidate(
+    candidate_id: int,
+    reason: str = "gdpr_request",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """GDPR Article 17 — Right to be forgotten. Permanently deletes candidate and all associated data."""
+    from app.backend.services.gdpr_service import hard_delete_candidate
+    result = hard_delete_candidate(db, candidate_id, current_user.tenant_id, reason=reason)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.get("/{candidate_id}/gdpr-export")
+def gdpr_export_candidate_data(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """GDPR Article 20 — Data portability. Exports all candidate data as JSON."""
+    from app.backend.services.gdpr_service import export_candidate_data
+    data = export_candidate_data(db, candidate_id, current_user.tenant_id)
+    if "error" in data:
+        raise HTTPException(status_code=404, detail=data["error"])
+    return data
+
+
+@router.post("/{candidate_id}/gdpr-anonymize")
+def gdpr_anonymize_candidate(
+    candidate_id: int,
+    reason: str = "retention_expiry",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Anonymize candidate PII while preserving aggregate analytics data."""
+    from app.backend.services.gdpr_service import anonymize_candidate
+    result = anonymize_candidate(db, candidate_id, current_user.tenant_id, reason=reason)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result

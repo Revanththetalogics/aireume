@@ -263,3 +263,105 @@ class TestAutoTrigger:
             new_status="shortlisted",
         )
         assert result is False
+
+
+class TestContextEngineGapFixes:
+    """Tests for audit gap fixes in context_engine.py."""
+
+    def test_extract_skill_match_uses_missing_skills_key(self):
+        """GAP 2: _extract_skill_match should read missing_skills (not gap_skills)."""
+        from app.backend.services.recruiter.context_engine import InterviewContextEngine
+        engine = InterviewContextEngine()
+
+        screening = MagicMock()
+        screening.analysis_result = json.dumps({
+            "matched_skills": ["python", "java"],
+            "missing_skills": ["kubernetes", "aws", "docker"],
+            "gap_skills": ["old_key_should_not_be_used"],
+        })
+        screening.core_skill_score = 75.0
+
+        result = engine._extract_skill_match(screening)
+        assert result["gaps"] == ["kubernetes", "aws", "docker"]
+        assert "old_key_should_not_be_used" not in result["gaps"]
+
+    def test_extract_skill_match_falls_back_to_gap_skills(self):
+        """GAP 2: backward compatibility — fall back to gap_skills when missing_skills absent."""
+        from app.backend.services.recruiter.context_engine import InterviewContextEngine
+        engine = InterviewContextEngine()
+
+        screening = MagicMock()
+        screening.analysis_result = json.dumps({
+            "matched_skills": ["python"],
+            "gap_skills": ["kubernetes"],
+        })
+        screening.core_skill_score = 70.0
+
+        result = engine._extract_skill_match(screening)
+        assert result["gaps"] == ["kubernetes"]
+
+    def test_find_weak_dimensions_reads_score_breakdown(self):
+        """GAP 3: _find_weak_dimensions should read from score_breakdown nested dict."""
+        from app.backend.services.recruiter.context_engine import InterviewContextEngine
+        engine = InterviewContextEngine()
+
+        screening = {
+            "analysis_result": {
+                "score_breakdown": {
+                    "skill_match": {"score": 35},
+                    "experience_match": {"score": 60},
+                    "education": 25,
+                    "domain_fit": 45,
+                    "architecture": 80,
+                    "stability": 90,
+                }
+            }
+        }
+
+        weak = engine._find_weak_dimensions(screening)
+        weak_dims = [d for d, s in weak]
+        assert "skills" in weak_dims
+        assert "education" in weak_dims
+        assert "domain_fit" in weak_dims
+        assert "experience" not in weak_dims
+        assert "architecture" not in weak_dims
+        assert "stability" not in weak_dims
+
+    def test_find_weak_dimensions_empty_when_no_score_breakdown(self):
+        """GAP 3: returns empty list when score_breakdown is absent."""
+        from app.backend.services.recruiter.context_engine import InterviewContextEngine
+        engine = InterviewContextEngine()
+
+        screening = {"analysis_result": {"skills": 30, "experience": 20}}
+        weak = engine._find_weak_dimensions(screening)
+        assert weak == []
+
+    def test_find_weak_dimensions_handles_dict_and_raw_values(self):
+        """GAP 3: should handle both dict-wrapped and raw number score_breakdown values."""
+        from app.backend.services.recruiter.context_engine import InterviewContextEngine
+        engine = InterviewContextEngine()
+
+        screening = {
+            "analysis_result": {
+                "score_breakdown": {
+                    "skill_match": {"score": 30},
+                    "education": 40,
+                    "architecture": {"score": 55},
+                }
+            }
+        }
+
+        weak = engine._find_weak_dimensions(screening)
+        weak_dims = {d: s for d, s in weak}
+        assert weak_dims["skills"] == 30
+        assert weak_dims["education"] == 40
+        assert "architecture" not in weak_dims
+
+    def test_screening_data_uses_deterministic_score_column(self, db_session, sample_candidate, sample_screening_result, sample_jd):
+        """GAP 4: _extract_screening_data should read deterministic_score from DB column."""
+        from app.backend.services.recruiter.context_engine import InterviewContextEngine
+        engine = InterviewContextEngine()
+
+        data = engine._extract_screening_data(sample_screening_result)
+        assert data["fit_score"] == 65
+        assert data["core_skill_score"] == 70.0
