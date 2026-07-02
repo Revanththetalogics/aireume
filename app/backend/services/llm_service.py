@@ -248,8 +248,20 @@ class LLMService:
 
     # ─── Layer 2: LLM Resume Skill Extraction ───────────────────────────────
 
-    async def extract_resume_skills(self, resume_text: str, timeout: Optional[float] = None) -> list:
+    async def extract_resume_skills(
+        self,
+        resume_text: str,
+        timeout: Optional[float] = None,
+        jd_domain: Optional[str] = None,
+        target_skills: Optional[list] = None,
+    ) -> list:
         """Extract domain-specific skills from resume text using LLM.
+
+        Args:
+            resume_text: The resume content to extract skills from.
+            timeout: Optional timeout for the LLM call.
+            jd_domain: Optional domain context (e.g., 'sap', 'salesforce') to guide extraction.
+            target_skills: Optional list of target skills from the JD to confirm in the resume.
 
         Returns a list of canonical skill strings.  Falls back to an empty
         list on any error so the caller can proceed with rule-based skills only.
@@ -257,7 +269,11 @@ class LLMService:
         if not resume_text or not resume_text.strip():
             return []
 
-        prompt = self._build_resume_skills_prompt(resume_text)
+        prompt = self._build_resume_skills_prompt(
+            resume_text,
+            jd_domain=jd_domain,
+            target_skills=target_skills,
+        )
         _timeout = (timeout or float(os.getenv("LLM_NARRATIVE_TIMEOUT", "120"))) + 30
 
         for attempt in range(self.max_retries + 1):
@@ -273,10 +289,21 @@ class LLMService:
 
         return []
 
-    def _build_resume_skills_prompt(self, resume_text: str) -> str:
-        """Build a strict JSON prompt for LLM resume skill extraction."""
+    def _build_resume_skills_prompt(
+        self,
+        resume_text: str,
+        jd_domain: Optional[str] = None,
+        target_skills: Optional[list] = None,
+    ) -> str:
+        """Build a strict JSON prompt for LLM resume skill extraction.
+
+        If target_skills is provided, the prompt will ask the LLM to confirm
+        which of those skills are present in the resume, along with any additional
+        skills found. This improves extraction accuracy by using the JD as a guide.
+        """
         resume_summary = resume_text[:6000] if len(resume_text) > 6000 else resume_text
-        return f"""You are a precise resume parser. Extract ALL technical and domain-specific skills from the resume below.
+
+        base_instructions = """You are a precise resume parser. Extract ALL technical and domain-specific skills from the resume below.
 
 Return ONLY a JSON array of skill strings. No explanations, no markdown, no trailing text.
 
@@ -289,7 +316,30 @@ Rules:
 - Include tools (e.g., "LSMW", "BDC", "Solution Manager", "ServiceNow")
 - Include certifications (e.g., "SAP Certified Application Associate")
 - Do NOT include soft skills (e.g., "communication", "leadership")
-- Do NOT include generic terms (e.g., "management", "training")
+- Do NOT include generic terms (e.g., "management", "training")"""
+
+        if jd_domain or target_skills:
+            domain_context = f"""
+
+CONTEXT: This candidate is being evaluated for a {jd_domain or 'general'} role.""" if jd_domain else ""
+
+            target_context = ""
+            if target_skills:
+                skills_list = ", ".join(f'"{s}"' for s in target_skills[:30])
+                target_context = f"""
+
+TARGET SKILLS TO CONFIRM: Check if the resume contains evidence of these skills: [{skills_list}].
+For each target skill, only include it in the output if you find clear evidence in the resume text (explicit mention or clear implication).
+Also look for any additional relevant skills not in the target list."""
+
+            return f"""{base_instructions}{domain_context}{target_context}
+
+RESUME:
+{resume_summary}
+
+JSON:"""
+
+        return f"""{base_instructions}
 
 RESUME:
 {resume_summary}
@@ -556,11 +606,24 @@ async def extract_jd_profile_with_llm(
 async def extract_resume_skills_with_llm(
     resume_text: str,
     timeout: Optional[float] = None,
+    jd_domain: Optional[str] = None,
+    target_skills: Optional[list] = None,
 ) -> list:
     """Extract domain-specific skills from resume text using LLM.
+
+    Args:
+        resume_text: The resume content to extract skills from.
+        timeout: Optional timeout for the LLM call.
+        jd_domain: Optional domain context to guide extraction.
+        target_skills: Optional list of target skills from the JD to confirm.
 
     Returns a list of canonical skill strings.  Falls back to an empty
     list on any error so the caller can proceed with rule-based skills only.
     """
     service = LLMService()
-    return await service.extract_resume_skills(resume_text, timeout=timeout)
+    return await service.extract_resume_skills(
+        resume_text,
+        timeout=timeout,
+        jd_domain=jd_domain,
+        target_skills=target_skills,
+    )

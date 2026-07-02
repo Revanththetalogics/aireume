@@ -645,7 +645,183 @@ class TestExpandedSkills:
         assert "patient care" in skills
 
 
+# ─── SAP Skill Registry & Domain Inference ───────────────────────────────────
+
+class TestSAPSkillInference:
+    RESUME_TEXT = """
+    Dynamic and accomplished SAP MM Consultant with over 9 years of specialized experience in SAP MM,
+    SD Integration, and SAP S/4HANA implementations. Skilled in SAP project management from solution
+    design to deployment, with a focus on process optimization and cross-functional integration.
+    Certified in S/4HANA Sourcing and Procurement, with a hands-on approach to configuring and
+    enhancing supply chain processes.
+
+    Responsibilities:
+    Functional Specification Development: Created detailed functional specification documents.
+    S/4HANA Brownfield Implementation: Participated in the S/4HANA Brownfield implementation.
+    Testing: We conducted detailed unit testing across various scenarios within the development environment.
+    Configured Material Master, Purchase Requisition (PR), Request for quotation, Purchase Order (PO).
+    Configuration of Goods Receipt in two steps for quality inspection.
+    Set up of third-party drop shipment process, Subcontracting, Consignment processes.
+    Stock transfer order (Inter and Intra), Release strategy for Purchase requisition and Purchase Order.
+    Cross verification of Vendor invoices and send them to the Finance dept.
+    WBS assignment from Inventory.
+    Worked with the technical team to complete the interfaces for Service now.
+    """
+
+    def test_sap_skills_in_master_list(self):
+        from app.backend.services.skill_matcher import MASTER_SKILLS
+        assert "sap mm" in MASTER_SKILLS
+        assert "sap s/4hana" in MASTER_SKILLS
+        assert "procure-to-pay" in MASTER_SKILLS
+        assert "inventory management" in MASTER_SKILLS
+        assert "idoc" in MASTER_SKILLS
+
+    def test_sap_procure_to_pay_inferred_from_resume(self):
+        from app.backend.services.skill_matcher import confirm_skills_in_text
+        confirmed = confirm_skills_in_text(["procure-to-pay"], self.RESUME_TEXT)
+        assert confirmed["procure-to-pay"]["found"] is True
+
+    def test_sap_inventory_management_inferred_from_resume(self):
+        from app.backend.services.skill_matcher import confirm_skills_in_text
+        confirmed = confirm_skills_in_text(["inventory management"], self.RESUME_TEXT)
+        assert confirmed["inventory management"]["found"] is True
+
+    def test_sap_invoice_verification_inferred_from_resume(self):
+        from app.backend.services.skill_matcher import confirm_skills_in_text
+        confirmed = confirm_skills_in_text(["invoice verification"], self.RESUME_TEXT)
+        assert confirmed["invoice verification"]["found"] is True
+
+    def test_sap_material_master_data_inferred_from_resume(self):
+        from app.backend.services.skill_matcher import confirm_skills_in_text
+        confirmed = confirm_skills_in_text(["material master data"], self.RESUME_TEXT)
+        assert confirmed["material master data"]["found"] is True
+
+    def test_sap_vendor_master_data_inferred_from_resume(self):
+        from app.backend.services.skill_matcher import confirm_skills_in_text
+        confirmed = confirm_skills_in_text(["vendor master data"], self.RESUME_TEXT)
+        assert confirmed["vendor master data"]["found"] is True
+
+    def test_sap_s4hana_and_sd_extracted_from_resume(self):
+        from app.backend.services.skill_matcher import _extract_skills_from_text
+        skills = _extract_skills_from_text(self.RESUME_TEXT)
+        assert "sap s/4hana" in [s.lower() for s in skills]
+        assert "sap sd" in [s.lower() for s in skills]
+
+    def test_sap_p2p_alias_inferred_from_resume(self):
+        from app.backend.services.skill_matcher import confirm_skills_in_text
+        confirmed = confirm_skills_in_text(["p2p"], self.RESUME_TEXT)
+        assert confirmed["p2p"]["found"] is True
+
+
+class TestExpandedRecruiterSkills:
+    def test_recruiting_ats_tools_in_registry(self):
+        from app.backend.services.skill_matcher import MASTER_SKILLS, SKILL_TAXONOMY
+        assert "greenhouse" in MASTER_SKILLS
+        assert "lever" in MASTER_SKILLS
+        assert "icims" in MASTER_SKILLS
+        assert "salesforce" in MASTER_SKILLS
+        assert "hubspot" in MASTER_SKILLS
+        assert "customer success" in MASTER_SKILLS
+        assert "microsoft office" in MASTER_SKILLS
+        assert "pmp" in MASTER_SKILLS
+        assert "sales_customer_success" in SKILL_TAXONOMY
+        assert "operations_admin" in SKILL_TAXONOMY
+        assert "certifications" in SKILL_TAXONOMY
+
+    def test_ats_skills_extracted_from_job_description(self):
+        from app.backend.services.skill_matcher import _extract_skills_from_text
+        jd = """
+        We are looking for a recruiter with experience in Greenhouse, Lever, and LinkedIn Recruiter.
+        Familiarity with Workday Recruiting and BambooHR is a plus. SHRM-CP or PHR preferred.
+        """
+        skills = _extract_skills_from_text(jd)
+        skills_lower = [s.lower() for s in skills]
+        assert "greenhouse" in skills_lower
+        assert "lever" in skills_lower
+        assert "linkedin recruiter" in skills_lower
+        assert "workday recruiting" in skills_lower
+        assert "bamboohr" in skills_lower
+
+    def test_sales_skills_extracted_from_resume(self):
+        from app.backend.services.skill_matcher import _extract_skills_from_text
+        resume = """
+        Account Executive with 5 years of experience in Salesforce CRM, HubSpot, and Gong.
+        Managed renewals, upsell, and cross-sell motions. Used Salesloft and Outreach for cadences.
+        """
+        skills = _extract_skills_from_text(resume)
+        skills_lower = [s.lower() for s in skills]
+        assert "salesforce" in skills_lower
+        assert "hubspot" in skills_lower
+        assert "gong" in skills_lower
+        assert "salesloft" in skills_lower
+        assert "outreach" in skills_lower
+
+    def test_operations_skills_extracted_from_resume(self):
+        from app.backend.services.skill_matcher import _extract_skills_from_text
+        resume = """
+        Operations Manager proficient in Microsoft Office, Excel, Google Workspace, Asana, and QuickBooks.
+        Managed procurement, vendor coordination, and expense reporting.
+        """
+        skills = _extract_skills_from_text(resume)
+        skills_lower = [s.lower() for s in skills]
+        assert "microsoft office" in skills_lower
+        assert "google workspace" in skills_lower
+        assert "asana" in skills_lower
+        assert "quickbooks" in skills_lower
+        assert "procurement" in skills_lower
+
+
 # ─── Full Enrichment Integration ──────────────────────────────────────────────
+
+class TestRecruiterSkillRegistryFeedback:
+    def test_user_skills_added_to_global_registry(self, db):
+        from app.backend.services.skill_matcher import add_user_skills_to_registry
+        from app.backend.models.db_models import Skill
+
+        new_skills = ["zztestrecruiteraddedtool", "zztestrecruiteraddedskill"]
+        added = add_user_skills_to_registry(new_skills, db)
+
+        assert "zztestrecruiteraddedtool" in added
+        assert "zztestrecruiteraddedskill" in added
+
+        db_skill = db.query(Skill).filter(Skill.name == "zztestrecruiteraddedtool").first()
+        assert db_skill is not None
+        assert db_skill.source == "manual"
+        assert db_skill.status == "active"
+        assert db_skill.domain == "general"
+
+    def test_existing_skills_not_duplicated(self, db):
+        from app.backend.services.skill_matcher import add_user_skills_to_registry
+        from app.backend.models.db_models import Skill
+
+        db.add(Skill(
+            name="zzpreexistingtestskill",
+            aliases="",
+            domain="general",
+            status="active",
+            source="seed",
+            frequency=0,
+        ))
+        db.commit()
+
+        added = add_user_skills_to_registry(
+            ["zzpreexistingtestskill", "zznewtestskill"], db
+        )
+        assert "zzpreexistingtestskill" not in added
+        assert "zznewtestskill" in added
+
+    def test_proficiency_dict_skills_extracted(self, db):
+        from app.backend.services.skill_matcher import add_user_skills_to_registry
+        from app.backend.models.db_models import Skill
+
+        skills = [
+            {"skill": "zztestdictskill", "proficiency": "advanced"},
+            "zzteststringskill",
+        ]
+        added = add_user_skills_to_registry(skills, db)
+        assert "zztestdictskill" in added
+        assert "zzteststringskill" in added
+
 
 class TestResumeEnrichment:
     def test_enrich_resume_combines_all(self):

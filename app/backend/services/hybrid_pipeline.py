@@ -51,6 +51,10 @@ from app.backend.services.skill_matcher import (
 
 log = logging.getLogger("aria.hybrid")
 
+# Feature flag for target-guided LLM resume skill extraction
+# When enabled, the LLM prompt includes JD domain and required skills to guide extraction
+ENABLE_TARGET_GUIDED_EXTRACTION = os.getenv("ENABLE_TARGET_GUIDED_EXTRACTION", "true").lower() == "true"
+
 # Track background tasks for graceful shutdown
 _background_tasks: set = set()
 
@@ -3131,19 +3135,49 @@ async def run_hybrid_pipeline(
 
     # ── Domain-agnostic JD profile + LLM resume skill extraction (concurrent) ─
     llm_resume_skills: List[str] = []
+
+    # Extract JD domain and target skills for guided resume extraction
+    # Use incoming jd_analysis if available, otherwise do a quick parse
+    jd_domain = None
+    target_skills = []
+    if ENABLE_TARGET_GUIDED_EXTRACTION:
+        # If jd_analysis is provided with required_skills, use those directly
+        if jd_analysis and jd_analysis.get("required_skills"):
+            jd_domain = jd_analysis.get("domain", "").lower() or None
+            target_skills = jd_analysis.get("required_skills", []) or []
+        elif jd_analysis and jd_analysis.get("_profile_source") in ("llm", "merged"):
+            jd_domain = jd_analysis.get("domain", "").lower() or None
+            target_skills = jd_analysis.get("required_skills", []) or []
+        else:
+            # Quick parse to get domain and skills for guided extraction
+            try:
+                quick_jd = parse_jd_rules(job_description)
+                jd_domain = quick_jd.get("domain", "").lower() or None
+                target_skills = quick_jd.get("required_skills", []) or []
+            except Exception:
+                pass
+
     if jd_analysis is None or jd_analysis.get("_profile_source") not in ("llm", "merged"):
         try:
             from app.backend.services.jd_profile_service import extract_jd_profile, merge_jd_profile
             from app.backend.services.llm_service import extract_resume_skills_with_llm
 
             # Run JD profile and resume skill extraction concurrently for zero added latency
+            # Pass domain and target skills to guide resume extraction
             jd_task = asyncio.create_task(extract_jd_profile(job_description))
-            resume_skills_task = asyncio.create_task(extract_resume_skills_with_llm(resume_text))
+            resume_skills_task = asyncio.create_task(
+                extract_resume_skills_with_llm(
+                    resume_text,
+                    jd_domain=jd_domain,
+                    target_skills=target_skills,
+                )
+            )
 
             llm_profile = await jd_task
             try:
                 llm_resume_skills = await resume_skills_task
-                log.info("LLM resume skills extracted: %d skills", len(llm_resume_skills))
+                log.info("LLM resume skills extracted: %d skills (domain=%s, targets=%d)",
+                         len(llm_resume_skills), jd_domain or "none", len(target_skills))
             except Exception as e:
                 log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
 
@@ -3159,8 +3193,13 @@ async def run_hybrid_pipeline(
         # JD profile already merged — still extract resume skills for Layer 2
         try:
             from app.backend.services.llm_service import extract_resume_skills_with_llm
-            llm_resume_skills = await extract_resume_skills_with_llm(resume_text)
-            log.info("LLM resume skills extracted: %d skills", len(llm_resume_skills))
+            llm_resume_skills = await extract_resume_skills_with_llm(
+                resume_text,
+                jd_domain=jd_domain,
+                target_skills=target_skills,
+            )
+            log.info("LLM resume skills extracted: %d skills (domain=%s, targets=%d)",
+                     len(llm_resume_skills), jd_domain or "none", len(target_skills))
         except Exception as e:
             log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
 
@@ -3293,6 +3332,26 @@ async def astream_hybrid_pipeline(
 
     # ── Domain-agnostic JD profile + LLM resume skill extraction (concurrent) ──
     llm_resume_skills: List[str] = []
+
+    # Extract JD domain and target skills for guided resume extraction
+    jd_domain = None
+    target_skills = []
+    if ENABLE_TARGET_GUIDED_EXTRACTION:
+        # If jd_analysis is provided with required_skills, use those directly
+        if jd_analysis and jd_analysis.get("required_skills"):
+            jd_domain = jd_analysis.get("domain", "").lower() or None
+            target_skills = jd_analysis.get("required_skills", []) or []
+        elif jd_analysis and jd_analysis.get("_profile_source") in ("llm", "merged"):
+            jd_domain = jd_analysis.get("domain", "").lower() or None
+            target_skills = jd_analysis.get("required_skills", []) or []
+        else:
+            try:
+                quick_jd = parse_jd_rules(job_description)
+                jd_domain = quick_jd.get("domain", "").lower() or None
+                target_skills = quick_jd.get("required_skills", []) or []
+            except Exception:
+                pass
+
     if jd_analysis is None or jd_analysis.get("_profile_source") not in ("llm", "merged"):
         try:
             from app.backend.services.jd_profile_service import extract_jd_profile, merge_jd_profile
@@ -3300,12 +3359,19 @@ async def astream_hybrid_pipeline(
 
             # Run JD profile and resume skill extraction concurrently for zero added latency
             jd_task = asyncio.create_task(extract_jd_profile(job_description))
-            resume_skills_task = asyncio.create_task(extract_resume_skills_with_llm(resume_text))
+            resume_skills_task = asyncio.create_task(
+                extract_resume_skills_with_llm(
+                    resume_text,
+                    jd_domain=jd_domain,
+                    target_skills=target_skills,
+                )
+            )
 
             llm_profile = await jd_task
             try:
                 llm_resume_skills = await resume_skills_task
-                log.info("LLM resume skills extracted: %d skills", len(llm_resume_skills))
+                log.info("LLM resume skills extracted: %d skills (domain=%s, targets=%d)",
+                         len(llm_resume_skills), jd_domain or "none", len(target_skills))
             except Exception as e:
                 log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
 
@@ -3321,8 +3387,13 @@ async def astream_hybrid_pipeline(
         # JD profile already merged — still extract resume skills for Layer 2
         try:
             from app.backend.services.llm_service import extract_resume_skills_with_llm
-            llm_resume_skills = await extract_resume_skills_with_llm(resume_text)
-            log.info("LLM resume skills extracted: %d skills", len(llm_resume_skills))
+            llm_resume_skills = await extract_resume_skills_with_llm(
+                resume_text,
+                jd_domain=jd_domain,
+                target_skills=target_skills,
+            )
+            log.info("LLM resume skills extracted: %d skills (domain=%s, targets=%d)",
+                     len(llm_resume_skills), jd_domain or "none", len(target_skills))
         except Exception as e:
             log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
 

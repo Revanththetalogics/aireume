@@ -258,7 +258,15 @@ MASTER_SKILLS: List[str] = [
     "active directory", "group policy", "ldap", "kerberos",
     # ── CRM / ERP / Business ───────────────────────────────────────────────────
     "salesforce", "hubspot", "zoho", "pipedrive", "freshsales",
-    "sap", "oracle erp", "dynamics 365", "netsuite", "workday",
+    "sap", "sap mm", "sap s/4hana", "sap s4hana", "sap s/4 hana",
+    "sap mm configuration", "sap sd", "sap pp", "sap fi", "sap wm",
+    "sap ariba", "sap srm", "sap ewm", "solution manager",
+    "procure-to-pay", "p2p", "purchase requisition", "purchase order",
+    "goods receipt", "inventory management", "invoice verification",
+    "material master data", "vendor master data", "idoc",
+    "subcontracting", "consignment", "stock transfer order",
+    "release strategy", "request for quotation", "batch management",
+    "oracle erp", "dynamics 365", "netsuite", "workday",
     "servicenow", "jira service management", "freshdesk", "zendesk",
     "sharepoint", "power platform", "power apps", "power automate",
     "outsystems", "mendix", "appian", "apex", "soap", "visualforce", "soql", "lightning", "lwc",
@@ -433,6 +441,88 @@ MASTER_SKILLS: List[str] = [
     "requirements gathering", "gap analysis", "business case",
     "transformation roadmap", "process mapping",
     "agile transformation", "organizational design",
+    # ── Recruiting & HR Tools (everyday recruiter use cases) ───────────────────
+    "greenhouse", "lever", "workday recruiting", "icims", "jobvite",
+    "smartrecruiters", "taleo", "recruitee", "breezy hr", "jazzhr",
+    "linkedin recruiter", "indeed", "monster", "naukri", "glassdoor",
+    "ziprecruiter", "careerbuilder", "angelList", "wellfound", "hireez",
+    "gem", "seekout", "hiretual", "entelo", "pymetrics", "paradox",
+    "mya", "xor", "textio", "phenom", "eightfold", "beamery",
+    "adp workforce now", "paylocity", "paychex", "gusto", "deel",
+    "rippling", "bamboohr", "namely", "zenefits", "factorial",
+    "hi bob", "lattice", "15five", "culture amp", "glint",
+    "qualtrics", "survey monkey", "typeform", "officevibe",
+    "linkedin learning", "udemy", "coursera", "pluralsight", "skillsoft",
+    "cornerstone ondemand", "saba", "docebo", "lessonly", "thinkific",
+    # ── Sales & Customer Success ───────────────────────────────────────────────
+    "salesforce", "hubspot", "zoho", "pipedrive",
+    "freshsales", "insightly", "copper crm", "nimble", "close crm",
+    "salesloft", "outreach", "apollo.io", "zoominfo", "lusha",
+    "seamless.ai", "clearbit", "linkedin sales navigator", "gong",
+    "chorus.ai", "execvision", "clari", "revenue grid", "prolifiq",
+    "customer success", "customer onboarding", "account management",
+    "renewals management", "upsell", "cross-sell", "churn reduction",
+    "net promoter score", "nps", "customer health scoring",
+    "support ticket management", "help desk", "live chat", "chatbot",
+    "intercom", "zendesk", "freshdesk", "kustomer", "crisp",
+    # ── Operations & Administration ───────────────────────────────────────────
+    "operations management", "business operations", "office management",
+    "executive assistance", "virtual assistance", "administrative support",
+    "calendar management", "travel coordination", "expense reporting",
+    "data entry", "document management", "file management",
+    "microsoft office", "ms office", "microsoft word", "microsoft excel",
+    "microsoft powerpoint", "microsoft outlook", "microsoft sharepoint",
+    "google workspace", "google docs", "google sheets", "google slides",
+    "google forms", "google drive", "google calendar",
+    "slack", "microsoft teams", "zoom", "webex", "gotomeeting",
+    "asana", "monday.com", "clickup", "notion", "trello", "smartsheet",
+    "wrike", "basecamp", "teamwork", "proofhub", "airtable",
+    "confluence", "sharepoint", "oneDrive", "dropbox", "box",
+    "docusign", "adobe sign", "hellosign", "pandadoc", "signnow",
+    "quickbooks", "xero", "freshbooks", "wave accounting", "zoho books",
+    "expensify", "concur", "tripactions", "navan", "brex", "ramp",
+    "event planning", "vendor coordination", "facilities management",
+    "procurement", "purchasing", "inventory control", "asset management",
+    # ── Additional Industry & Domain Skills ────────────────────────────────────
+    "clinical research", "regulatory affairs", "pharmacovigilance",
+    "quality assurance", "qa", "gmp", "glp", "gcp", "fda",
+    "underwriting", "claims processing", "risk management", "actuarial",
+    "property management", "real estate", "lease administration",
+    "hospitality management", "food and beverage", "restaurant management",
+    "retail management", "merchandising", "visual merchandising",
+    "supply chain operations", "warehouse operations", "distribution center",
+    "logistics coordination", "transportation management", "fleet operations",
+    "customer service", "call center", "helpdesk", "technical support",
+    "field service", "service delivery", "installation", "maintenance",
+    "repair", "troubleshooting", "quality inspection",
+    "social work", "case management", "counseling", "behavioral health",
+    "nonprofit management", "grant management", "fundraising", "donor relations",
+    "public relations", "media relations", "press releases", "crisis communication",
+    "content creation", "video production", "photography", "graphic design",
+    "ux research", "user interviews", "usability testing", "prototyping",
+    "instructional design", "e-learning development", "training delivery",
+    "data analysis", "business reporting", "kpi tracking", "dashboard creation",
+    "market analysis", "competitive intelligence", "pricing analysis",
+    # ── Common Certifications & Credentials ────────────────────────────────────
+    "pmp", "certified associate in project management", "capm",
+    "six sigma green belt", "six sigma black belt", "lean six sigma",
+    "certified public accountant", "cpa", "chartered financial analyst", "cfa",
+    "certified internal auditor", "cia", "certified management accountant", "cma",
+    "shrm certified professional", "shrm-cp", "shrm senior certified professional", "shrm-scp",
+    "professional in human resources", "phr", "senior professional in human resources", "sphr",
+    "certified compensation professional", "ccp", "global remuneration professional", "grp",
+    "certified talent acquisition specialist", "ctas", "certified professional recruiter", "cpr",
+    "aws certified solutions architect", "aws certified developer",
+    "google professional data engineer", "microsoft certified azure administrator",
+    "certified scrum master", "csm", "safe certified", "pmi acp",
+    "itil foundation", "itil 4", "cobit", "iso 27001",
+    "certified information systems auditor", "cisa",
+    "certified information security manager", "cism",
+    "certified ethical hacker", "ceh", "comptia security+", "comptia a+",
+    "google ads certification", "hubspot inbound certification",
+    "meta certified digital marketing associate",
+    "salesforce certified administrator", "salesforce certified platform developer",
+    "sap certified application associate", "oracle certified professional",
 ]
 
 SKILL_ALIASES: Dict[str, List[str]] = {
@@ -559,6 +649,109 @@ SKILL_ALIASES: Dict[str, List[str]] = {
 
     # ServiceNow
     "servicenow":              ["snow", "service now", "service-now"],
+
+    # SAP
+    "sap":                     ["systems applications and products"],
+    "sap mm":                  ["sap materials management", "materials management"],
+    "sap s/4hana":             ["sap s4hana", "sap s/4 hana", "s4hana", "s/4hana"],
+    "sap mm configuration":    ["mm configuration", "sap mm customizing"],
+    "sap sd":                  ["sales and distribution", "sap sales and distribution", "sd integration"],
+    "sap pp":                  ["production planning", "sap production planning", "pp integration"],
+    "sap fi":                  ["financial accounting", "sap financial accounting", "fi integration", "cross-module integration (fi"],
+    "sap wm":                  ["warehouse management", "sap warehouse management", "wm integration"],
+    "procure-to-pay":          ["p2p", "procure to pay", "purchase to pay", "purchase-to-pay"],
+    "purchase requisition":    ["pr", "purchase req"],
+    "purchase order":          ["po", "purchase orders"],
+    "goods receipt":           ["gr", "goods receipts"],
+    "inventory management":    ["inventory control", "inventory tracking"],
+    "invoice verification":    ["vendor invoice verification", "invoice processing"],
+    "material master data":    ["material master", "material masters"],
+    "vendor master data":      ["vendor master"],
+    "idoc":                    ["intermediate document"],
+    "subcontracting":          ["subcontract"],
+    "consignment":             ["consignment process"],
+    "stock transfer order":    ["sto", "stock transfer"],
+    "release strategy":        ["approval strategy", "release procedure"],
+    "request for quotation":   ["rfq"],
+    "batch management":        ["batches"],
+    "solution manager":        ["sap solution manager"],
+
+    # Recruiting & HR tools
+    "greenhouse":              ["greenhouse ats", "greenhouse recruiting"],
+    "lever":                   ["lever ats", "lever recruiting"],
+    "icims":                   ["icims ats"],
+    "jobvite":                 ["jobvite ats"],
+    "smartrecruiters":         ["smartrecruiters ats"],
+    "taleo":                   ["oracle taleo", "taleo ats"],
+    "recruitee":               ["recruitee ats"],
+    "jazzhr":                  ["jazz hr"],
+    "bamboohr":                ["bamboo hr"],
+    "hi bob":                  ["hibob", "hi bob"],
+    "15five":                  ["15 five"],
+    "culture amp":             ["cultureamp"],
+    "survey monkey":           ["surveymonkey"],
+    "qualtrics":               ["qualtrics employee experience"],
+    "adp workforce now":       ["adp"],
+    "workday recruiting":      ["workday ats"],
+    "linkedin recruiter":      ["linkedin recruiting"],
+    "naukri":                  ["naukri.com"],
+    "wellfound":               ["angellist", "angel list"],
+    "phenom":                  ["phenom people"],
+    "eightfold":               ["eightfold ai"],
+    "beamery":                 ["beamery crm"],
+
+    # Sales & Customer Success
+    "hubspot":                 ["hubspot crm"],
+    "zoho":                    ["zoho crm"],
+    "copper crm":              ["copper"],
+    "close crm":               ["close"],
+    "salesloft":               ["salesloft cadence"],
+    "outreach":                ["outreach.io"],
+    "apollo.io":               ["apollo"],
+    "gong":                    ["gong.io"],
+    "chorus.ai":               ["chorus"],
+    "customer success":        ["customer success management", "csm"],
+    "account management":      ["account mgmt"],
+    "net promoter score":      ["nps"],
+    "help desk":               ["helpdesk"],
+    "zendesk":                 ["zendesk support"],
+    "freshdesk":               ["freshdesk support"],
+
+    # Operations & Admin
+    "microsoft office":        ["ms office"],
+    "microsoft word":          ["ms word", "word"],
+    "microsoft excel":         ["ms excel", "excel"],
+    "microsoft powerpoint":    ["ms powerpoint", "powerpoint"],
+    "microsoft outlook":       ["outlook"],
+    "google workspace":        ["g suite", "gsuite"],
+    "google docs":             ["gdocs"],
+    "google sheets":           ["gsheets"],
+    "google slides":           ["gslides"],
+    "monday.com":              ["monday"],
+    "clickup":                 ["clickup project management"],
+    "airtable":                ["airtable database"],
+    "docusign":                ["docu sign"],
+    "adobe sign":              ["adobesign"],
+    "quickbooks":              ["quickbooks online"],
+    "concur":                  ["sap concur"],
+    "procurement":             ["sourcing", "purchasing"],
+    "customer service":        ["customer support"],
+    "call center":             ["contact center"],
+    "technical support":       ["tech support"],
+
+    # Certifications
+    "pmp":                     ["project management professional"],
+    "capm":                    ["certified associate in project management"],
+    "cpa":                     ["certified public accountant"],
+    "cfa":                     ["chartered financial analyst"],
+    "csm":                     ["certified scrum master"],
+    "phr":                     ["professional in human resources"],
+    "sphr":                    ["senior professional in human resources"],
+    "shrm-cp":                 ["shrm certified professional"],
+    "shrm-scp":                ["shrm senior certified professional"],
+    "cisa":                    ["certified information systems auditor"],
+    "cism":                    ["certified information security manager"],
+    "ceh":                     ["certified ethical hacker"],
 
     # Oracle
     "plsql":                   ["pl/sql", "pl sql", "oracle pl/sql"],
@@ -760,6 +953,28 @@ CONTEXTUAL_SKILL_INDICATORS = {
     "communication": ["presented to", "stakeholder presentation", "client-facing", "executive summary", "cross-functional collaboration"],
     "stakeholder management": ["stakeholder engagement", "client relationship", "business partner", "executive stakeholder"],
     "problem solving": ["troubleshot", "root cause analysis", "debug", "resolved issue", "diagnosed"],
+    # SAP / ERP domain inference
+    "procure-to-pay": ["purchase requisition", "purchase order", "goods receipt", "vendor invoice", "p2p cycle"],
+    "p2p": ["purchase requisition", "purchase order", "goods receipt", "vendor invoice", "p2p cycle"],
+    "inventory management": ["inventory", "goods receipt", "goods issue", "stock transfer", "warehouse"],
+    "invoice verification": ["vendor invoice", "invoice verification", "invoice processing", "three-way match"],
+    "material master data": ["material master", "material master data"],
+    "vendor master data": ["vendor master", "vendor master data", "vendor invoices"],
+    "sap sd": ["sd integration", "sales and distribution", "sap sd"],
+    "sap fi": ["fi integration", "financial accounting", "cross-module integration (fi", "fi, sd"],
+    "sap pp": ["production planning", "pp integration"],
+    "sap wm": ["warehouse management", "wm integration"],
+    "sap s/4hana": ["sap s/4hana", "sap s4hana", "s/4hana implementation", "s4hana"],
+    "idoc": ["idoc", "intermediate document"],
+    # Recruiting / sales / ops inference
+    "customer success": ["customer onboarding", "churn reduction", "customer health", "renewals", "upsell", "cross-sell"],
+    "account management": ["account mgmt", "renewals management", "client relationship", "key accounts"],
+    "operations management": ["business operations", "process optimization", "operational excellence", "day-to-day operations"],
+    "business analysis": ["requirements gathering", "gap analysis", "business requirements", "process mapping"],
+    "project management": ["project delivery", "project planning", "project lifecycle", "project coordination"],
+    "microsoft office": ["microsoft word", "microsoft excel", "microsoft powerpoint", "microsoft outlook", "ms office"],
+    "google workspace": ["google docs", "google sheets", "google slides", "google drive", "g suite"],
+    "procurement": ["purchase requisition", "purchase order", "vendor management", "sourcing"],
 }
 
 
@@ -933,7 +1148,14 @@ SKILL_TAXONOMY = {
     },
     "business_erp": {
         "crm": ["salesforce", "apex", "visualforce", "lightning", "soql", "soap", "lwc", "hubspot", "zoho", "dynamics 365", "pipedrive"],
-        "erp": ["sap", "oracle erp", "dynamics 365", "netsuite", "workday"],
+        "erp": ["sap", "sap mm", "sap s/4hana", "sap sd", "sap pp", "sap fi", "sap wm",
+                "sap ariba", "sap srm", "sap ewm", "solution manager",
+                "oracle erp", "dynamics 365", "netsuite", "workday"],
+        "procurement": ["procure-to-pay", "p2p", "purchase requisition", "purchase order",
+                          "goods receipt", "invoice verification", "request for quotation",
+                          "release strategy", "subcontracting", "consignment", "stock transfer order"],
+        "master_data": ["material master data", "vendor master data", "batch management"],
+        "integration": ["idoc", "cross-module integration"],
         "service": ["servicenow", "freshdesk", "zendesk"],
         "low_code": ["power platform", "power apps", "outsystems", "mendix"]
     },
@@ -1001,10 +1223,49 @@ SKILL_TAXONOMY = {
                  "performance management", "compensation", "benefits administration"],
         "development": ["training development", "l&d", "employee engagement",
                         "diversity inclusion", "organizational development"],
-        "tools": ["hris", "workday", "successfactors", "bamboo hr", "applicant tracking system", "ats"],
+        "tools": ["hris", "workday", "successfactors", "bamboo hr", "applicant tracking system", "ats",
+                  "greenhouse", "lever", "icims", "jobvite", "smartrecruiters", "taleo", "recruitee",
+                  "jazzhr", "linkedin recruiter", "indeed", "monster", "naukri", "glassdoor",
+                  "ziprecruiter", "careerbuilder", "wellfound", "hireez", "gem", "seekout",
+                  "hiretual", "entelo", "pymetrics", "paradox", "mya", "xor", "textio", "phenom",
+                  "eightfold", "beamery", "adp workforce now", "paylocity", "paychex", "gusto",
+                  "deel", "rippling", "bamboohr", "namely", "zenefits", "factorial", "hi bob",
+                  "lattice", "15five", "culture amp", "glint", "qualtrics", "survey monkey"],
         "compliance": ["labor law compliance", "policy development", "grievance handling"],
         "strategy": ["workforce planning", "succession planning", "hr analytics",
                      "competency mapping", "360 feedback", "performance appraisal"],
+    },
+    "sales_customer_success": {
+        "crm": ["salesforce", "hubspot", "zoho", "pipedrive",
+                 "freshsales", "insightly", "copper crm", "nimble", "close crm"],
+        "engagement": ["salesloft", "outreach", "apollo.io", "zoominfo", "lusha",
+                        "seamless.ai", "clearbit", "linkedin sales navigator"],
+        "conversation_intelligence": ["gong", "chorus.ai", "execvision", "clari",
+                                         "revenue grid", "prolifiq"],
+        "cs": ["customer success", "customer onboarding", "account management",
+                "renewals management", "upsell", "cross-sell", "churn reduction",
+                "net promoter score", "nps", "customer health scoring"],
+        "support": ["support ticket management", "help desk", "live chat", "chatbot",
+                    "intercom", "zendesk", "freshdesk", "kustomer", "crisp"],
+    },
+    "operations_admin": {
+        "office": ["operations management", "business operations", "office management",
+                    "executive assistance", "virtual assistance", "administrative support",
+                    "calendar management", "travel coordination", "expense reporting"],
+        "productivity": ["microsoft office", "ms office", "microsoft word", "microsoft excel",
+                         "microsoft powerpoint", "microsoft outlook", "microsoft sharepoint",
+                         "google workspace", "google docs", "google sheets", "google slides",
+                         "google forms", "google drive", "google calendar"],
+        "collaboration": ["slack", "microsoft teams", "zoom", "webex", "gotomeeting"],
+        "project_tools": ["asana", "monday.com", "clickup", "notion", "trello", "smartsheet",
+                           "wrike", "basecamp", "teamwork", "proofhub", "airtable",
+                           "confluence", "sharepoint"],
+        "documents": ["onedrive", "dropbox", "box", "docusign", "adobe sign", "hellosign",
+                       "pandadoc", "signnow"],
+        "finance_ops": ["quickbooks", "xero", "freshbooks", "wave accounting", "zoho books",
+                          "expensify", "concur", "tripactions", "navan", "brex", "ramp"],
+        "procurement": ["procurement", "purchasing", "inventory control", "asset management",
+                         "vendor coordination", "facilities management"],
     },
     "education_domain": {
         "core": ["curriculum development", "lesson planning", "pedagogy", "assessment",
@@ -1055,6 +1316,22 @@ SKILL_TAXONOMY = {
                      "process mapping", "process improvement"],
         "delivery": ["executive presentation", "workshop facilitation",
                      "requirements gathering", "transformation roadmap"],
+    },
+    "certifications": {
+        "project": ["pmp", "capm", "certified scrum master", "csm", "safe certified", "pmi acp"],
+        "quality": ["six sigma green belt", "six sigma black belt", "lean six sigma"],
+        "accounting_finance": ["cpa", "certified public accountant", "cfa", "chartered financial analyst",
+                                 "cia", "certified internal auditor", "cma", "certified management accountant"],
+        "hr": ["phr", "professional in human resources", "sphr", "senior professional in human resources",
+               "shrm-cp", "shrm-scp", "ccp", "global remuneration professional", "grp",
+               "ctas", "certified professional recruiter"],
+        "security": ["cisa", "cism", "ceh", "comptia security+", "comptia a+", "iso 27001"],
+        "cloud_tech": ["aws certified solutions architect", "aws certified developer",
+                       "google professional data engineer", "microsoft certified azure administrator"],
+        "sales_marketing": ["google ads certification", "hubspot inbound certification",
+                             "meta certified digital marketing associate",
+                             "salesforce certified administrator", "salesforce certified platform developer"],
+        "erp": ["sap certified application associate", "oracle certified professional"],
     },
 }
 
@@ -1328,9 +1605,15 @@ class SkillsRegistry:
                             skills.extend(a.strip() for a in row.aliases.split(",") if a.strip())
             except Exception as e:
                 logger.warning("Skills load from DB failed (using hardcoded): %s", e)
-        if not skills:
-            skills = list(MASTER_SKILLS)
-        self._build_processor(skills)
+        # Always merge with MASTER_SKILLS so code updates to hardcoded skills are
+        # reflected even when the DB was seeded earlier with an older version.
+        # Aliases are registered separately via SKILL_ALIASES mapping in _build_processor.
+        base = list(MASTER_SKILLS)
+        if skills:
+            merged = list(dict.fromkeys(skills + base))
+        else:
+            merged = base
+        self._build_processor(merged)
         self._loaded = True
         logger.info("SkillsRegistry loaded %d skills", len(self._skills))
 
@@ -1353,10 +1636,79 @@ class SkillsRegistry:
 
 # Bump this version whenever skill-extraction logic changes (aliases, boundaries,
 # MASTER_SKILLS list, etc.).  Old JD-cache entries will be auto-invalidated.
-JD_CACHE_VERSION: str = "3"
+JD_CACHE_VERSION: str = "4"
 
 # Module-level singleton
 skills_registry = SkillsRegistry()
+
+
+def add_user_skills_to_registry(
+    skill_names: list,
+    db=None,
+    source: str = "manual",
+    status: str = "active",
+) -> list[str]:
+    """Persist new skills from recruiter overrides into the global Skill DB registry.
+
+    Normalizes input names via SKILL_ALIASES, skips existing canonicals (case-insensitive),
+    inserts the remainder as active manual skills, and hot-reloads the in-memory registry
+    so the skills are immediately available for subsequent extraction.
+
+    Returns the list of newly added canonical skill names.
+    """
+    if not skill_names or not db:
+        return []
+
+    from app.backend.models.db_models import Skill
+    from sqlalchemy.exc import IntegrityError
+
+    added: list[str] = []
+    seen: set[str] = set()
+
+    try:
+        existing = {row[0].lower() for row in db.query(Skill.name).all()}
+    except Exception as e:
+        logger.warning("Failed to read existing skills from registry: %s", e)
+        return []
+
+    for raw in skill_names:
+        if isinstance(raw, dict):
+            raw = raw.get("skill", "")
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        canonical = normalize_skill_name(raw.strip()).lower().strip()
+        if not canonical:
+            continue
+        if canonical in seen or canonical in existing:
+            continue
+        seen.add(canonical)
+        try:
+            db.add(Skill(
+                name=canonical,
+                aliases="",
+                domain="general",
+                status=status,
+                source=source,
+                frequency=1,
+            ))
+            db.commit()
+            existing.add(canonical)
+            added.append(canonical)
+        except IntegrityError:
+            db.rollback()
+            existing.add(canonical)
+        except Exception as e:
+            db.rollback()
+            logger.warning("Failed to add skill '%s' to registry: %s", canonical, e)
+
+    if added:
+        try:
+            skills_registry.rebuild(db)
+            logger.info("Added %d user skills to global registry: %s", len(added), added)
+        except Exception as e:
+            logger.warning("Failed to rebuild skills registry after adding user skills: %s", e)
+
+    return added
 
 
 def _extract_skills_from_text(text: str) -> List[str]:
@@ -1396,14 +1748,38 @@ def _extract_skills_from_text(text: str) -> List[str]:
 
         return list(dict.fromkeys(verified))
 
-    # Regex fallback with hyphen-aware strict boundaries
+    # Regex fallback with hyphen-aware strict boundaries and alias-to-canonical mapping
     text_lower = text.lower()
     result = []
-    for s in skills_registry.get_all_skills():
-        pattern = r'(?:^|[^a-z0-9])' + re.escape(s.lower()) + r'(?:$|[^a-z0-9-])'
+    seen = set()
+
+    # Build a variant -> canonical map from registered skills + SKILL_ALIASES
+    variant_map: Dict[str, str] = {}
+    for canonical in skills_registry.get_all_skills():
+        canonical_lower = canonical.lower()
+        if canonical_lower not in _BANNED_FREETEXT_ALIASES:
+            variant_map[canonical_lower] = canonical_lower
+        for alias in SKILL_ALIASES.get(canonical_lower, []):
+            alias_lower = alias.lower()
+            if alias_lower not in _BANNED_FREETEXT_ALIASES:
+                variant_map[alias_lower] = canonical_lower
+    # Also map any canonical skill that is itself an alias of another canonical
+    for canonical_lower, aliases in SKILL_ALIASES.items():
+        for alias in aliases:
+            alias_lower = alias.lower()
+            if alias_lower in variant_map and canonical_lower not in variant_map:
+                variant_map[canonical_lower] = variant_map[alias_lower]
+
+    for variant, canonical_lower in variant_map.items():
+        if canonical_lower in seen:
+            continue
+        if variant in _BANNED_FREETEXT_ALIASES:
+            continue
+        pattern = r'(?:^|[^a-z0-9])' + re.escape(variant) + r'(?:$|[^a-z0-9-])'
         if re.search(pattern, text_lower):
-            result.append(s)
-    return result
+            result.append(canonical_lower)
+            seen.add(canonical_lower)
+    return list(dict.fromkeys(result))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

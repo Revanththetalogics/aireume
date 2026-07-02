@@ -361,6 +361,49 @@ def _apply_skill_overrides(jd_analysis: dict, overrides: dict | None) -> dict:
     return jd_analysis
 
 
+def _persist_skill_overrides_to_template(
+    db: Session,
+    template_id: Optional[int],
+    tenant_id: int,
+    parsed_skill_overrides: Optional[dict],
+) -> None:
+    """Persist recruiter skill overrides to the RoleTemplate and global Skill registry.
+
+    Saves the override lists on the template so they are reused for future candidates,
+    then upserts any new skill names into the global Skill DB registry so they are
+    available for extraction across the system.
+    """
+    if not template_id or not parsed_skill_overrides:
+        return
+    try:
+        template = db.query(RoleTemplate).filter(
+            RoleTemplate.id == template_id,
+            RoleTemplate.tenant_id == tenant_id,
+        ).first()
+        if not template:
+            return
+        template.required_skills_override = json.dumps(
+            parsed_skill_overrides.get("required_skills", [])
+        )
+        template.nice_to_have_skills_override = json.dumps(
+            parsed_skill_overrides.get("nice_to_have_skills", [])
+        )
+        db.commit()
+        log.info("Persisted skill overrides to template %s", template_id)
+
+        # Add any new skills to the global registry so they can be extracted from resumes
+        all_skills = (
+            parsed_skill_overrides.get("required_skills", []) +
+            parsed_skill_overrides.get("nice_to_have_skills", [])
+        )
+        from app.backend.services.skill_matcher import add_user_skills_to_registry
+        added = add_user_skills_to_registry(all_skills, db)
+        if added:
+            log.info("Added %d new skills to global registry from template %s", len(added), template_id)
+    except Exception as e:
+        log.warning("Failed to persist skill overrides to template: %s", e)
+
+
 # ─── JD cache helpers ─────────────────────────────────────────────────────────
 
 def _get_or_cache_jd(db: Session, job_description: str) -> dict:
@@ -1780,23 +1823,9 @@ async def analyze_endpoint(
     db.commit()
 
     # Persist skill overrides to template after successful analysis
-    if template_id and parsed_skill_overrides:
-        try:
-            template = db.query(RoleTemplate).filter(
-                RoleTemplate.id == template_id,
-                RoleTemplate.tenant_id == current_user.tenant_id
-            ).first()
-            if template:
-                template.required_skills_override = json.dumps(
-                    parsed_skill_overrides.get("required_skills", [])
-                )
-                template.nice_to_have_skills_override = json.dumps(
-                    parsed_skill_overrides.get("nice_to_have_skills", [])
-                )
-                db.commit()
-                log.info("Persisted skill overrides to template %s", template_id)
-        except Exception as e:
-            log.warning("Failed to persist skill overrides to template: %s", e)
+    _persist_skill_overrides_to_template(
+        db, template_id, current_user.tenant_id, parsed_skill_overrides
+    )
 
     result["result_id"]    = db_result.id
     result["analysis_id"]  = db_result.id   # Add this line
@@ -2171,23 +2200,9 @@ async def analyze_stream_endpoint(
                     log.info("Final DB save completed for screening_result_id=%s (fit_score=%s)", screening_result_id, final_result.get("fit_score"))
 
                     # Persist skill overrides to template after successful analysis
-                    if template_id and parsed_skill_overrides:
-                        try:
-                            tmpl = save_db.query(RoleTemplate).filter(
-                                RoleTemplate.id == template_id,
-                                RoleTemplate.tenant_id == tenant_id
-                            ).first()
-                            if tmpl:
-                                tmpl.required_skills_override = json.dumps(
-                                    parsed_skill_overrides.get("required_skills", [])
-                                )
-                                tmpl.nice_to_have_skills_override = json.dumps(
-                                    parsed_skill_overrides.get("nice_to_have_skills", [])
-                                )
-                                save_db.commit()
-                                log.info("Persisted skill overrides to template %s", template_id)
-                        except Exception as e:
-                            log.warning("Failed to persist skill overrides to template: %s", e)
+                    _persist_skill_overrides_to_template(
+                        save_db, template_id, tenant_id, parsed_skill_overrides
+                    )
                 else:
                     log.error("ScreeningResult id=%s not found for final save", screening_result_id)
             except Exception as inner_db_exc:
