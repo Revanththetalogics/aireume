@@ -3607,3 +3607,61 @@ def get_narrative(
     
     # Still pending or processing
     return {"status": "pending"}
+
+
+# ─── JD Templates Endpoints ───────────────────────────────────────────────────
+
+@router.get("/jd-templates")
+async def get_jd_templates(
+    category: Optional[str] = Query(None, description="Filter by category"),
+):
+    """Get available JD templates for common roles.
+
+    These templates help recruiters write JDs that the system can parse effectively.
+    """
+    from app.backend.services.jd_template_service import (
+        get_all_templates,
+        get_templates_by_category,
+        get_categories,
+    )
+
+    if category:
+        return {
+            "templates": get_templates_by_category(category),
+            "category": category,
+        }
+
+    return {
+        "templates": get_all_templates(),
+        "categories": get_categories(),
+    }
+
+
+@router.get("/jd-templates/{template_id}")
+async def get_jd_template(
+    template_id: str,
+    company_name: Optional[str] = Query(None, description="Company name for customization"),
+    location: Optional[str] = Query(None, description="Job location"),
+):
+    """Get a specific JD template and optionally generate full JD text."""
+    from app.backend.services.jd_template_service import (
+        get_template,
+        generate_jd_from_template,
+    )
+
+    template = get_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # Generate full JD if customization provided
+    full_jd = None
+    if company_name or location:
+        full_jd = generate_jd_from_template(
+            template_id,
+            {"company_name": company_name, "location": location}
+        )
+
+    return {
+        "template": template,
+        "generated_jd": full_jd,
+    }

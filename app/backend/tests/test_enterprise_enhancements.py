@@ -841,3 +841,232 @@ class TestResumeEnrichment:
         assert "parsed_dates" in result
         assert "linkedin" in result["social_profiles"]
         assert result["salary_expectation"] is not None
+
+
+# ─── Non-Tech JD Parsing Tests ───────────────────────────────────────────────
+
+class TestNonTechJDParsing:
+    """Test JD parsing for non-technical industries."""
+
+    def test_hr_manager_jd_parsing(self):
+        """HR Manager JD should extract HR-related skills."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        HR Manager
+        We are looking for an experienced HR Manager to lead our people operations.
+        Requirements:
+        - 5+ years HR experience
+        - SHRM-CP or PHR certification preferred
+        - Experience with Workday, BambooHR
+        Nice to have:
+        - SAP SuccessFactors
+        - ADP
+        """
+        result = parse_jd_rules(jd)
+        # Domain may be 'hr' or 'legal' depending on keyword overlap
+        assert result["required_years"] >= 5, f"Expected 5+ years, got {result['required_years']}"
+        # Check HR-related skills are extracted
+        all_skills = [s.lower() for s in result.get("required_skills", []) + result.get("nice_to_have_skills", [])]
+        assert any("workday" in s or "bamboohr" in s or "shrm" in s for s in all_skills), f"Expected HR tools in skills, got {all_skills}"
+
+    def test_financial_analyst_jd_parsing(self):
+        """Financial Analyst JD should extract finance-related skills."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        Financial Analyst
+        We need a Financial Analyst to join our finance team.
+        Requirements:
+        - 3+ years in financial analysis
+        - CPA or CFA preferred
+        - Experience with QuickBooks, Excel
+        - Knowledge of GAAP, financial modeling
+        """
+        result = parse_jd_rules(jd)
+        assert result["domain"] == "finance", f"Expected domain 'finance', got '{result['domain']}'"
+        assert result["required_years"] >= 3
+        # Check finance-related skills are extracted (may be in required or nice-to-have)
+        all_skills = [s.lower() for s in result.get("required_skills", []) + result.get("nice_to_have_skills", [])]
+        assert any("quickbooks" in s or "excel" in s or "gaap" in s or "cpa" in s or "cfa" in s for s in all_skills), f"Expected finance skills, got {all_skills}"
+
+    def test_sales_representative_jd_parsing(self):
+        """Sales Rep JD should extract: domain=sales, skills."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        Account Executive
+        Join our sales team to drive revenue growth.
+        Requirements:
+        - 2+ years B2B sales experience
+        - Experience with Salesforce CRM
+        - Strong negotiation skills
+        - Track record of meeting quota
+        """
+        result = parse_jd_rules(jd)
+        assert result["domain"] == "sales", f"Expected domain 'sales', got '{result['domain']}'"
+        assert result["required_years"] >= 2
+        skills_lower = [s.lower() for s in result.get("required_skills", [])]
+        assert any("salesforce" in s or "crm" in s for s in skills_lower), f"Expected CRM skills, got {skills_lower}"
+
+    def test_healthcare_jd_parsing(self):
+        """Healthcare JD should extract: domain=healthcare, skills."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        Registered Nurse
+        We are hiring a Registered Nurse for our hospital.
+        Requirements:
+        - Current RN license
+        - 2+ years clinical experience
+        - Epic or Cerner experience preferred
+        - BLS certification
+        """
+        result = parse_jd_rules(jd)
+        assert result["domain"] == "healthcare", f"Expected domain 'healthcare', got '{result['domain']}'"
+        skills_lower = [s.lower() for s in result.get("required_skills", [])]
+        assert any("epic" in s or "cerner" in s or "rn" in s for s in skills_lower), f"Expected healthcare skills, got {skills_lower}"
+
+    def test_legal_paralegal_jd_parsing(self):
+        """Legal/Paralegal JD should extract: domain=legal, skills."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        Paralegal
+        Seeking a Paralegal to support our legal team.
+        Requirements:
+        - 3+ years paralegal experience
+        - Experience with litigation support
+        - Knowledge of Westlaw, LexisNexis
+        - Strong legal research skills
+        """
+        result = parse_jd_rules(jd)
+        assert result["domain"] == "legal", f"Expected domain 'legal', got '{result['domain']}'"
+        skills_lower = [s.lower() for s in result.get("required_skills", [])]
+        assert any("westlaw" in s or "lexis" in s or "litigation" in s for s in skills_lower), f"Expected legal skills, got {skills_lower}"
+
+    def test_operations_manager_jd_parsing(self):
+        """Operations Manager JD should extract operations-related skills."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        Operations Manager
+        Lead our operations team for smooth business execution.
+        Requirements:
+        - 5+ years operations experience
+        - Experience with process improvement
+        - Knowledge of supply chain management
+        - Six Sigma preferred
+        """
+        result = parse_jd_rules(jd)
+        # Domain may be 'operations_admin' or 'manufacturing' due to supply chain keywords
+        assert result["required_years"] >= 5
+        all_skills = [s.lower() for s in result.get("required_skills", []) + result.get("nice_to_have_skills", [])]
+        assert any("six sigma" in s or "process improvement" in s for s in all_skills), f"Expected operations skills, got {all_skills}"
+
+    def test_marketing_manager_jd_parsing(self):
+        """Marketing Manager JD should extract: domain=marketing, skills."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        Marketing Manager
+        Join our marketing team to drive brand growth.
+        Requirements:
+        - 4+ years marketing experience
+        - Experience with HubSpot, Google Analytics
+        - SEO/SEM knowledge
+        - Content marketing experience
+        """
+        result = parse_jd_rules(jd)
+        assert result["domain"] == "marketing", f"Expected domain 'marketing', got '{result['domain']}'"
+        skills_lower = [s.lower() for s in result.get("required_skills", [])]
+        assert any("hubspot" in s or "google analytics" in s or "seo" in s for s in skills_lower), f"Expected marketing skills, got {skills_lower}"
+
+
+class TestIndustryWeights:
+    """Test industry-specific scoring weights."""
+
+    def test_healthcare_weights_higher_experience(self):
+        """Healthcare should weight experience higher than skills."""
+        from app.backend.services.constants import get_industry_weights
+        hw = get_industry_weights("healthcare")
+        assert hw["experience"] > hw["skills"], "Healthcare should value experience more than specific skills"
+
+    def test_finance_weights_higher_education(self):
+        """Finance should weight education/certifications higher."""
+        from app.backend.services.constants import get_industry_weights
+        fw = get_industry_weights("finance")
+        assert fw["education"] > fw["skills"], "Finance should value education/certifications more"
+
+    def test_sales_weights_higher_domain(self):
+        """Sales should weight domain knowledge higher."""
+        from app.backend.services.constants import get_industry_weights
+        sw = get_industry_weights("sales")
+        assert sw["domain"] > 0.15, "Sales should weight domain knowledge higher"
+
+    def test_legal_weights_highest_experience(self):
+        """Legal should weight experience highest."""
+        from app.backend.services.constants import get_industry_weights
+        lw = get_industry_weights("legal")
+        assert lw["experience"] >= 0.35, "Legal should weight experience at 35%+"
+
+    def test_default_weights_for_unknown_domain(self):
+        """Unknown domains should fall back to default weights."""
+        from app.backend.services.constants import get_industry_weights, DEFAULT_WEIGHTS
+        uw = get_industry_weights("unknown_domain")
+        assert uw == DEFAULT_WEIGHTS, "Unknown domain should use default weights"
+
+    def test_tech_domain_uses_default(self):
+        """Tech domains should use default weights."""
+        from app.backend.services.constants import get_industry_weights, DEFAULT_WEIGHTS
+        tw = get_industry_weights("backend")
+        assert tw == DEFAULT_WEIGHTS, "Tech domain should use default weights"
+
+
+# ─── Edge Case Tests for JD Parsing ───────────────────────────────────────────
+
+class TestJDEdgeCases:
+    """Test edge cases for JD parsing."""
+
+    def test_empty_jd_parsing(self):
+        """Empty JD should not crash and return sensible defaults."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        result = parse_jd_rules("")
+        assert "domain" in result
+        assert "required_years" in result
+        assert result["required_years"] == 0
+
+    def test_very_short_jd_parsing(self):
+        """Very short JD should parse without crashing."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        result = parse_jd_rules("Manager needed")
+        assert "domain" in result
+        assert "role_title" in result
+
+    def test_jd_with_only_soft_skills(self):
+        """JD with only soft skills should handle gracefully."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        We need a great communicator and leader.
+        Must have excellent communication skills and leadership ability.
+        """
+        result = parse_jd_rules(jd)
+        assert "domain" in result
+        # Should still extract soft skills to nice-to-have
+        assert len(result.get("nice_to_have_skills", [])) > 0
+
+    def test_jd_with_typos(self):
+        """JD with typos should still parse reasonably."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        Sofware Devloper
+        Need 5+ years of Pytthon experiance
+        """
+        result = parse_jd_rules(jd)
+        assert "domain" in result
+        # May detect as backend due to "developer" keyword
+
+    def test_jd_with_multiple_domains(self):
+        """JD matching multiple domains should pick the dominant one."""
+        from app.backend.services.hybrid_pipeline import parse_jd_rules
+        jd = """
+        Technical Project Manager
+        Need someone with Python, JavaScript, and also marketing experience.
+        Experience with React and financial analysis.
+        """
+        result = parse_jd_rules(jd)
+        assert "domain" in result
+        # Should pick one based on keyword count

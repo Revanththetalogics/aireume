@@ -42,6 +42,156 @@ DEFAULT_WEIGHTS = {
 }
 
 
+# --- Industry-Specific Scoring Weights ---
+# Override default weights based on detected industry for more accurate scoring
+# Keys map to domain values from DOMAIN_KEYWORDS
+INDUSTRY_WEIGHTS: Dict[str, Dict[str, float]] = {
+    # Healthcare: certifications and clinical experience matter more
+    "healthcare": {
+        "skills":       0.20,
+        "experience":   0.25,
+        "education":    0.15,
+        "timeline":     0.10,
+        "domain":       0.15,
+        "risk":         0.15,
+    },
+    # Finance: certifications (CPA, CFA) are critical
+    "finance": {
+        "skills":       0.15,
+        "experience":   0.20,
+        "education":    0.25,
+        "timeline":     0.10,
+        "domain":       0.15,
+        "risk":         0.15,
+    },
+    # Sales: achievements and track record over formal credentials
+    "sales": {
+        "skills":       0.15,
+        "experience":   0.25,
+        "education":    0.10,
+        "timeline":     0.15,
+        "domain":       0.20,
+        "risk":         0.15,
+    },
+    # HR: experience and certifications (SHRM, PHR)
+    "hr": {
+        "skills":       0.15,
+        "experience":   0.30,
+        "education":    0.15,
+        "timeline":     0.10,
+        "domain":       0.15,
+        "risk":         0.15,
+    },
+    # Legal: bar admission and experience
+    "legal": {
+        "skills":       0.10,
+        "experience":   0.35,
+        "education":    0.20,
+        "timeline":     0.10,
+        "domain":       0.10,
+        "risk":         0.15,
+    },
+    # Manufacturing: practical skills and experience
+    "manufacturing": {
+        "skills":       0.25,
+        "experience":   0.25,
+        "education":    0.15,
+        "timeline":     0.10,
+        "domain":       0.15,
+        "risk":         0.10,
+    },
+    # Operations/Admin: experience and domain knowledge
+    "operations_admin": {
+        "skills":       0.15,
+        "experience":   0.30,
+        "education":    0.15,
+        "timeline":     0.10,
+        "domain":       0.20,
+        "risk":         0.10,
+    },
+    # Marketing: creative skills and results
+    "marketing": {
+        "skills":       0.20,
+        "experience":   0.25,
+        "education":    0.15,
+        "timeline":     0.10,
+        "domain":       0.20,
+        "risk":         0.10,
+    },
+    # Education: certifications and teaching experience
+    "education": {
+        "skills":       0.15,
+        "experience":   0.30,
+        "education":    0.20,
+        "timeline":     0.10,
+        "domain":       0.15,
+        "risk":         0.10,
+    },
+    # Consulting: experience and education
+    "consulting": {
+        "skills":       0.15,
+        "experience":   0.30,
+        "education":    0.20,
+        "timeline":     0.10,
+        "domain":       0.15,
+        "risk":         0.10,
+    },
+    # Logistics: operations experience
+    "logistics": {
+        "skills":       0.20,
+        "experience":   0.30,
+        "education":    0.15,
+        "timeline":     0.10,
+        "domain":       0.15,
+        "risk":         0.10,
+    },
+    # Construction: practical experience
+    "construction": {
+        "skills":       0.20,
+        "experience":   0.30,
+        "education":    0.15,
+        "timeline":     0.10,
+        "domain":       0.15,
+        "risk":         0.10,
+    },
+}
+
+
+def get_industry_weights(domain: str) -> Dict[str, float]:
+    """Get scoring weights for a given domain/industry.
+
+    Args:
+        domain: The detected domain (e.g., 'healthcare', 'finance', 'sales')
+
+    Returns:
+        Industry-specific weights if available, otherwise DEFAULT_WEIGHTS
+    """
+    # Direct match
+    if domain in INDUSTRY_WEIGHTS:
+        return INDUSTRY_WEIGHTS[domain]
+
+    # Map related domains
+    domain_mapping = {
+        "hr": "hr",
+        "sales": "sales",
+        "marketing": "marketing",
+        "legal": "legal",
+        "manufacturing": "manufacturing",
+        "operations_admin": "operations_admin",
+        "logistics": "logistics",
+        "construction": "construction",
+        "consulting": "consulting",
+        "education": "education",
+    }
+
+    mapped = domain_mapping.get(domain.lower())
+    if mapped and mapped in INDUSTRY_WEIGHTS:
+        return INDUSTRY_WEIGHTS[mapped]
+
+    # Default to standard weights
+    return DEFAULT_WEIGHTS
+
+
 # --- Domain Keywords ---
 DOMAIN_KEYWORDS: Dict[str, List[str]] = {
     "backend":      ["fastapi", "django", "flask", "spring", "rest api", "grpc",

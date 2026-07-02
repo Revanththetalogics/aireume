@@ -344,10 +344,12 @@ MASTER_SKILLS: List[str] = [
     "mental health", "psychiatric nursing", "geriatric care",
     "pediatric care", "emergency medicine", "critical care",
     "anesthesia", "surgical technology", "sterile technique",
+    "meditech", "eclinicalworks", "allscripts", "athenahealth", "nextgen",
+    "medicare", "medicaid", "hipaa compliance", "joint commission",
     # ── Finance & Accounting ───────────────────────────────────────────────────
     "financial analysis", "accounting", "gaap", "ifrs", "financial reporting",
     "reconciliation", "general ledger", "accounts payable", "accounts receivable",
-    "quickbooks", "financial modeling", "budgeting", "forecasting",
+    "quickbooks", "xero", "sage", "netsuite", "financial modeling", "budgeting", "forecasting",
     "audit", "tax", "treasury", "sox", "internal controls",
     "valuation", "dcf", "npv", "irr", "financial statements",
     "cost accounting", "variance analysis", "capital budgeting",
@@ -442,7 +444,7 @@ MASTER_SKILLS: List[str] = [
     "transformation roadmap", "process mapping",
     "agile transformation", "organizational design",
     # ── Recruiting & HR Tools (everyday recruiter use cases) ───────────────────
-    "greenhouse", "lever", "workday recruiting", "icims", "jobvite",
+    "greenhouse", "lever", "workday recruiting", "icims", "jobvite", "adp",
     "smartrecruiters", "taleo", "recruitee", "breezy hr", "jazzhr",
     "linkedin recruiter", "indeed", "monster", "naukri", "glassdoor",
     "ziprecruiter", "careerbuilder", "angelList", "wellfound", "hireez",

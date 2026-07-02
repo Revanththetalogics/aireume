@@ -2555,7 +2555,16 @@ def _run_python_phase(
     }
     log.debug("Internal weights for compute_fit_score: %s", internal_weights)
 
-    fit_r = compute_fit_score(all_scores, internal_weights, jd_analysis=jd, phase3_context=phase3_context, skill_match_result=skill_a)
+    # Extract industry from JD analysis for industry-specific weights
+    industry = jd.get("domain") if jd else None
+    fit_r = compute_fit_score(
+        all_scores,
+        internal_weights,
+        jd_analysis=jd,
+        phase3_context=phase3_context,
+        skill_match_result=skill_a,
+        industry=industry,
+    )
     log.info("compute_fit_score result: fit_score=%s", fit_r["fit_score"])
 
     # ── Deterministic engine (domain → eligibility → deterministic score) ─────
@@ -3108,6 +3117,7 @@ async def run_hybrid_pipeline(
     tenant_id: Optional[int] = None,
     phase3_context: Optional[Dict] = None,
     db_session=None,
+    industry: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Non-streaming version. Returns Python scoring results immediately.

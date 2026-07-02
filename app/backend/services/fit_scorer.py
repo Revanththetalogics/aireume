@@ -78,11 +78,13 @@ def compute_fit_score(
     jd_analysis: Optional[Dict] = None,
     phase3_context: Optional[Dict] = None,
     skill_match_result: Optional[Dict] = None,
+    industry: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Compute weighted fit score, risk signals, and recommendation.
 
     When custom scoring_weights are provided, they are applied to scoring.
-    When no custom weights are provided, DEFAULT_WEIGHTS from constants.py is used.
+    When no custom weights are provided but industry is specified, industry-specific
+    weights from constants.py are used. Otherwise DEFAULT_WEIGHTS is used.
 
     When jd_analysis is provided with required_skills and nice_to_have_skills,
     skill_score is computed with a 70/30 weight split (required/nice-to-have).
@@ -98,7 +100,15 @@ def compute_fit_score(
     - outcome_patterns: per-skill multiplier on required_ratio
     - team_gaps: adds a team_fit dimension with weight redistribution
     """
-    w = (scoring_weights or DEFAULT_WEIGHTS).copy()
+    from app.backend.services.constants import get_industry_weights
+
+    # Determine weights: custom > industry > default
+    if scoring_weights:
+        w = scoring_weights.copy()
+    elif industry:
+        w = get_industry_weights(industry)
+    else:
+        w = DEFAULT_WEIGHTS.copy()
 
     skill_score    = scores.get("skill_score",    50)
     exp_score      = scores.get("exp_score",       50)
