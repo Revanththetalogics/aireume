@@ -87,7 +87,7 @@ export function formatDate(date, options = {}) {
  */
 export function formatNumber(num) {
   if (num === null || num === undefined) return ''
-  return Number(num).toLocaleString()
+  return Number(num).toLocaleString('en-US')
 }
 
 /**

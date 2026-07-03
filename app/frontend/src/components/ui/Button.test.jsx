@@ -44,6 +44,6 @@ describe('Button', () => {
 
   it('shows loading spinner when loading', () => {
     render(<Button loading>Loading</Button>)
-    expect(screen.getByTestId('loading-spinner')).toBeInTheDocument()
+    expect(screen.getByRole('button').querySelector('.animate-spin')).toBeInTheDocument()
   })
 })
