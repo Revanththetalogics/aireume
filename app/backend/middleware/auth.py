@@ -13,16 +13,33 @@ from app.backend.db.database import get_db
 from app.backend.models.db_models import User, ImpersonationSession, RevokedToken
 
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
-if not SECRET_KEY or SECRET_KEY == "your-secret-key-change-in-production":
+# List of insecure default values that should never be used in production
+INSECURE_SECRET_KEYS = {
+    "your-secret-key-change-in-production",
+    "dev-only-change-in-production",
+    "change-me-in-production",
+    "change-this-in-production",
+    "your-secret-key",
+    "secret",
+    "password",
+    "12345",
+}
+if not SECRET_KEY or SECRET_KEY in INSECURE_SECRET_KEYS:
+    env = os.environ.get("ENVIRONMENT", "development")
     if os.environ.get("TESTING", "").lower() in ("1", "true"):
         SECRET_KEY = "test-secret-key-for-testing-only"
-    else:
+    elif env == "production":
         import sys
         import logging
         logging.getLogger(__name__).critical(
-            "FATAL: JWT_SECRET environment variable not set or using default. Refusing to start."
+            f"FATAL: JWT_SECRET_KEY environment variable not set or using insecure default. Refusing to start in production."
         )
         sys.exit(1)
+    else:
+        import logging
+        logging.getLogger(__name__).warning(
+            "WARNING: Using insecure JWT_SECRET_KEY in development mode. This is acceptable for local development only."
+        )
 ALGORITHM = "HS256"
 
 bearer_scheme = HTTPBearer(auto_error=False)

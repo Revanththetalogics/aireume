@@ -1130,3 +1130,46 @@ SKILL_HIERARCHY = {
     # SAP
     "abap": {"parent": "sap", "category": "programming"},
 }
+
+
+# --- API Limits and Timeouts ---
+# Centralized constants for API request limits, timeouts, and sizes
+
+# File Upload Limits
+MAX_RESUME_FILE_SIZE_MB = 10
+MAX_JD_SIZE_BYTES = 50 * 1024  # 50KB
+MAX_SCORING_WEIGHTS_SIZE_BYTES = 4 * 1024  # 4KB
+MAX_PDF_PAGES = 500
+ALLOWED_RESUME_EXTENSIONS = ('.pdf', '.docx', '.doc', '.txt', '.rtf', '.odt')
+
+# Batch Processing
+MAX_BATCH_SIZE = 50
+DEFAULT_BATCH_CONCURRENT = 30
+
+# Timeouts (seconds)
+DEFAULT_PARSE_TIMEOUT_SECONDS = 30
+DEFAULT_LLM_NARRATIVE_TIMEOUT = 500
+DEFAULT_OLLAMA_WARMUP_TIMEOUT = 300
+DEFAULT_OLLAMA_WAIT_TIMEOUT = 120
+
+# Pagination
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 100
+
+# Rate Limiting
+DEFAULT_RATE_LIMIT_PER_MINUTE = 60
+DEFAULT_RATE_LIMIT_BURST = 10
+
+# Cache TTL (seconds)
+DEFAULT_JD_CACHE_TTL = 3600  # 1 hour
+SKILL_CACHE_TTL = 86400  # 24 hours
+
+# Queue Settings
+QUEUE_STALE_JOB_TIMEOUT_SECONDS = 3600  # 1 hour
+QUEUE_MAX_RETRIES = 3
+QUEUE_RETRY_DELAY_SECONDS = 60
+
+# Session Settings
+DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 60
+DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS = 30
+IDLE_TIMEOUT_MINUTES = 30

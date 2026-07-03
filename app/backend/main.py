@@ -47,6 +47,43 @@ if os.getenv("ENVIRONMENT") == "production":
 request_id_var = contextvars.ContextVar('request_id', default='-')
 
 
+# ─── Startup Environment Validation ─────────────────────────────────────────────
+def _validate_environment() -> None:
+    """Validate critical environment variables at startup. Fail fast in production."""
+    env = os.getenv("ENVIRONMENT", "development")
+    missing_vars = []
+    warnings = []
+
+    # Required in production
+    required_production = ["JWT_SECRET_KEY", "DATABASE_URL", "POSTGRES_PASSWORD"]
+    for var in required_production:
+        value = os.getenv(var)
+        if not value or value.startswith("change-me") or value.startswith("change-this"):
+            missing_vars.append(var)
+
+    # Warn for missing but not critical
+    if not os.getenv("OLLAMA_API_KEY"):
+        warnings.append("OLLAMA_API_KEY not set - LLM features will be limited")
+    if not os.getenv("CORS_ORIGINS"):
+        warnings.append("CORS_ORIGINS not set - using default localhost origins")
+
+    if env == "production" and missing_vars:
+        logger.critical(
+            f"FATAL: Missing or insecure environment variables in production: {', '.join(missing_vars)}. Refusing to start."
+        )
+        import sys
+        sys.exit(1)
+
+    for warning in warnings:
+        logger.warning(f"STARTUP: {warning}")
+
+    if env == "production":
+        logger.info("STARTUP: Running in PRODUCTION mode with strict validation")
+
+
+_validate_environment()
+
+
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """Middleware that generates/propagates a correlation ID per request."""
     async def dispatch(self, request, call_next):
@@ -388,16 +425,18 @@ cors_origins_str = os.getenv(
 )
 origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
 
-# Security: warn if any localhost origin is configured in production.
+# Security: fail if any localhost origin is configured in production.
 # Production deployments must only allow real frontend domains.
 if os.getenv("ENVIRONMENT") == "production":
-    localhost_origins = [o for o in origins if "localhost" in o]
+    localhost_origins = [o for o in origins if "localhost" in o or "127.0.0.1" in o]
     if localhost_origins:
-        log.warning(
-            "CORS_ORIGINS contains localhost in production: %s — "
-            "this should be overridden via env var to only real domains",
+        log.critical(
+            "CORS_ORIGINS contains localhost/127.0.0.1 in production: %s — "
+            "this is a security risk. Set CORS_ORIGINS to only production domains.",
             localhost_origins,
         )
+        import sys
+        sys.exit(1)
 
 app.add_middleware(
     CORSMiddleware,
@@ -449,6 +488,87 @@ app.include_router(recruiter.router)
 app.include_router(interviews.router)
 app.include_router(projects.router)
 app.include_router(ats.router)
+
+
+# ─── Request Size Limits ───────────────────────────────────────────────────────
+
+# Global request size limits (can be overridden per-endpoint)
+DEFAULT_MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE_MB", "25")) * 1024 * 1024  # 25MB default
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Middleware to enforce maximum request body size limits."""
+
+    def __init__(self, app, max_size: int = DEFAULT_MAX_REQUEST_SIZE):
+        super().__init__(app)
+        self.max_size = max_size
+        # Endpoints that allow larger payloads (file uploads)
+        self.large_endpoints = {
+            "/api/analyze",
+            "/api/analyze/batch",
+            "/api/upload/resume",
+            "/api/upload/jd",
+            "/api/video/upload",
+            "/api/transcript/upload",
+        }
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip size check for GET requests and small payloads
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return await call_next(request)
+
+        # Check if endpoint allows larger payloads
+        path = request.url.path
+        allows_large = any(path.startswith(endpoint) for endpoint in self.large_endpoints)
+
+        # Set appropriate limit
+        max_size = self.max_size * 3 if allows_large else self.max_size
+
+        # Check Content-Length header first
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > max_size:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": f"Request body too large. Maximum size: {max_size // (1024*1024)}MB"}
+                    )
+            except ValueError:
+                pass
+
+        return await call_next(request)
+
+
+app.add_middleware(RequestSizeLimitMiddleware)
+
+
+# ─── API Versioning ───────────────────────────────────────────────────────────
+
+API_VERSION = "v1"
+API_VERSION_MAJOR = 1
+
+
+class APIVersioningMiddleware(BaseHTTPMiddleware):
+    """Middleware to handle API versioning and deprecation warnings."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Add API version header to all /api/* responses
+        if request.url.path.startswith("/api/"):
+            response.headers["X-API-Version"] = API_VERSION
+            response.headers["X-API-Version-Major"] = str(API_VERSION_MAJOR)
+
+            # Check for deprecated version in request
+            requested_version = request.headers.get("X-API-Version")
+            if requested_version and requested_version != API_VERSION:
+                response.headers["X-API-Deprecated"] = "true"
+                response.headers["X-API-Migration-Guide"] = f"/docs/migration/{requested_version}-to-{API_VERSION}"
+
+        return response
+
+
+app.add_middleware(APIVersioningMiddleware)
 
 
 # ─── Root endpoints ───────────────────────────────────────────────────────────

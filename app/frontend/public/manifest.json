@@ -1,0 +1,42 @@
+{
+  "name": "ARIA - AI Resume Intelligence",
+  "short_name": "ARIA",
+  "description": "AI-powered resume screening and candidate intelligence platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#7c3aed",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Analyze Resume",
+      "short_name": "Analyze",
+      "description": "Upload and analyze a resume",
+      "url": "/analyze",
+      "icons": [{ "src": "/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Candidates",
+      "short_name": "Candidates",
+      "description": "View all candidates",
+      "url": "/candidates",
+      "icons": [{ "src": "/icon-96.png", "sizes": "96x96" }]
+    }
+  ]
+}

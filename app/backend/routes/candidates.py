@@ -13,7 +13,7 @@ import json
 import logging
 from datetime import datetime, date, timezone
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, File, HTTPException, Query, BackgroundTasks
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -41,6 +41,32 @@ jd_router = APIRouter(prefix="/api/jd", tags=["jd-candidates"])
 
 # Allowed statuses for bulk shortlist updates
 _VALID_STATUSES = {"pending", "shortlisted", "rejected", "in-review", "hired"}
+
+
+# ─── Bulk Import ───────────────────────────────────────────────────────────────
+
+@router.post("/import/csv")
+async def import_candidates_csv(
+    file_id: str = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Bulk import candidates from CSV file.
+
+    Expected CSV columns:
+    - name (required)
+    - email (required)
+    - phone (optional)
+    - resume_url (optional) - URL to resume file
+    - notes (optional)
+    """
+    import csv
+    import io
+
+    # Get file from upload service or cache
+    # This is a placeholder - actual implementation would retrieve from storage
+    raise HTTPException(status_code=501, detail="CSV import not yet implemented. Use ATS sync instead.")
 
 
 async def _schedule_auto_trigger(

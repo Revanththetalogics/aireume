@@ -120,6 +120,41 @@ class AnalysisResult(Base):
     artifact_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True)
 
 
+class DeadLetterJob(Base):
+    """Dead letter queue - stores jobs that failed after all retries."""
+    __tablename__ = 'dead_letter_jobs'
+    
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    original_job_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
+    tenant_id = Column(Integer, nullable=False, index=True)
+    candidate_id = Column(Integer, nullable=True)
+    user_id = Column(Integer, nullable=True)
+    
+    job_type = Column(String(50), nullable=False)
+    resume_hash = Column(String(64), nullable=False)
+    jd_hash = Column(String(64), nullable=False)
+    input_hash = Column(String(64), nullable=False)
+    
+    # Original job data
+    job_config = Column(JSON, nullable=True)
+    
+    # Failure information
+    failure_reason = Column(Text, nullable=False)
+    failure_type = Column(String(100), nullable=True)
+    last_error_message = Column(Text, nullable=True)
+    last_error_trace = Column(Text, nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    
+    # Timestamps
+    original_created_at = Column(DateTime(timezone=True), nullable=False)
+    failed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    reprocessed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Status
+    status = Column(String(20), nullable=False, default='pending', index=True)
+    reprocessed_job_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_jobs.id', ondelete='SET NULL'), nullable=True)
+
+
 class AnalysisArtifact(Base):
     __tablename__ = 'analysis_artifacts'
     
@@ -525,7 +560,104 @@ class QueueManager:
         if stale_jobs:
             db.commit()
             logger.info(f"Recovered {len(stale_jobs)} stale jobs")
-    
+
+    # ─── Dead Letter Queue Operations ───────────────────────────────────────────
+
+    async def move_to_dead_letter(
+        self,
+        db: Session,
+        job: AnalysisJob,
+        failure_reason: str,
+        error_type: Optional[str] = None,
+        error_message: Optional[str] = None,
+        error_trace: Optional[str] = None,
+    ) -> DeadLetterJob:
+        """
+        Move a failed job to the dead letter queue after all retries exhausted.
+        """
+        dlq_job = DeadLetterJob(
+            original_job_id=job.id,
+            tenant_id=job.tenant_id,
+            candidate_id=job.candidate_id,
+            user_id=job.user_id,
+            job_type=job.job_type,
+            resume_hash=job.resume_hash,
+            jd_hash=job.jd_hash,
+            input_hash=job.input_hash,
+            job_config=job.job_config,
+            failure_reason=failure_reason,
+            failure_type=error_type,
+            last_error_message=error_message,
+            last_error_trace=error_trace,
+            retry_count=job.retry_count,
+            original_created_at=job.created_at,
+            status='pending',
+        )
+        
+        db.add(dlq_job)
+        
+        # Mark original job as dead-lettered
+        job.status = 'dead_letter'
+        job.failed_at = datetime.now(timezone.utc)
+        
+        db.commit()
+        logger.warning(f"Moved job {job.id} to dead letter queue: {failure_reason}")
+        
+        return dlq_job
+
+    async def get_dead_letter_jobs(
+        self,
+        db: Session,
+        tenant_id: Optional[int] = None,
+        status: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[DeadLetterJob]:
+        """Get dead letter jobs with optional filters."""
+        query = db.query(DeadLetterJob)
+        
+        if tenant_id:
+            query = query.filter(DeadLetterJob.tenant_id == tenant_id)
+        if status:
+            query = query.filter(DeadLetterJob.status == status)
+        
+        return query.order_by(DeadLetterJob.failed_at.desc()).limit(limit).all()
+
+    async def retry_dead_letter_job(self, db: Session, dlq_job_id: uuid.UUID) -> Optional[AnalysisJob]:
+        """Retry a dead letter job by creating a new analysis job."""
+        dlq_job = db.query(DeadLetterJob).filter(DeadLetterJob.id == dlq_job_id).first()
+        
+        if not dlq_job:
+            return None
+        
+        if dlq_job.status != 'pending':
+            raise ValueError(f"Cannot retry dead letter job with status: {dlq_job.status}")
+        
+        # Create new job from dead letter job
+        new_job = AnalysisJob(
+            tenant_id=dlq_job.tenant_id,
+            candidate_id=dlq_job.candidate_id,
+            user_id=dlq_job.user_id,
+            job_type=dlq_job.job_type,
+            resume_hash=dlq_job.resume_hash,
+            jd_hash=dlq_job.jd_hash,
+            input_hash=dlq_job.input_hash,
+            job_config=dlq_job.job_config,
+            priority=5,
+            status='queued',
+        )
+        
+        db.add(new_job)
+        
+        # Update dead letter job status
+        dlq_job.status = 'reprocessed'
+        dlq_job.reprocessed_at = datetime.now(timezone.utc)
+        dlq_job.reprocessed_job_id = new_job.id
+        
+        db.commit()
+        logger.info(f"Retried dead letter job {dlq_job_id} as new job {new_job.id}")
+        
+        return new_job
+
     async def worker_loop(self):
         """Main worker loop - processes jobs from the queue."""
         logger.info(f"Worker loop started: {self.worker_id}")
