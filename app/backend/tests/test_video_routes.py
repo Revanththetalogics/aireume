@@ -56,14 +56,15 @@ class TestVideoFileUpload:
         assert resp.status_code == 400
         assert "Unsupported" in resp.json().get("detail", "") or "supported" in resp.json().get("detail", "").lower()
 
-    def test_file_too_large_returns_400(self, auth_client):
+    def test_file_too_large_returns_413(self, auth_client):
         # Create content larger than 200 MB
         large_content = b"\x00" * (201 * 1024 * 1024)
         resp = auth_client.post(
             "/api/analyze/video",
             files={"video": ("big.mp4", io.BytesIO(large_content), "video/mp4")},
         )
-        assert resp.status_code == 400
+        # Server returns 413 (Request Entity Too Large) for oversized files
+        assert resp.status_code == 413
         assert "200 MB" in resp.json().get("detail", "") or "large" in resp.json().get("detail", "").lower()
 
     def test_successful_video_upload(self, auth_client):
