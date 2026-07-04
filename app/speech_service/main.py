@@ -36,9 +36,10 @@ SAMPLE_RATE = 16000  # All models use 16 kHz
 KOKORO_SAMPLE_RATE = 24000  # Kokoro outputs at 24 kHz
 
 # Kokoro voice mapping (American English voices)
+# af_bella: Grade A-, more natural sounding than af_heart
 KOKORO_VOICES = {
-    "female": "af_heart",
-    "male": "am_michael",
+    "female": "af_bella",
+    "male": "am_puck",
 }
 
 # Edge TTS voice mapping (fallback)
@@ -189,7 +190,7 @@ async def transcribe_audio(request: Request):
             audio_tensor = torch.from_numpy(audio_np).unsqueeze(0)
             resampler = torchaudio.transforms.Resample(sample_rate, SAMPLE_RATE)
             audio_tensor = resampler(audio_tensor)
-            audio_np = audio_tensor.squeeze(0).numpy()
+            audio_np = audio_tensor.squeeze(0).numpy().astype(np.float32)
 
         if len(audio_np) < 512:
             logger.warning("Audio too short for STT: %d samples", len(audio_np))
@@ -274,8 +275,9 @@ async def _synthesize_kokoro(text: str, voice_key: str, speed: float) -> Streami
     start = time.time()
 
     # Kokoro pipeline yields (graphemes, phonemes, audio) chunks
+    # speed: 1.0 = normal, 0.9 = slower, 1.1 = faster
     audio_chunks = []
-    for _gs, _ps, audio in kokoro_pipeline(text, voice=voice_name):
+    for _gs, _ps, audio in kokoro_pipeline(text, voice=voice_name, speed=speed):
         audio_chunks.append(audio)
 
     if not audio_chunks:
