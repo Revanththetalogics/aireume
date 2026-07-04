@@ -37,9 +37,9 @@ logger = logging.getLogger("voice_agent")
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
 SPEECH_SERVICE_URL = os.getenv("SPEECH_SERVICE_URL", "http://speech-service:8001")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "https://ollama.com")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL_VOICE", os.getenv("OLLAMA_MODEL", "qwen2.5:3b"))
 ARIA_BACKEND_URL = os.getenv("ARIA_BACKEND_URL", "http://backend:8000")
 LIVEKIT_URL = os.getenv("LIVEKIT_URL", "ws://livekit:7880")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "")

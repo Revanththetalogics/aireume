@@ -74,7 +74,7 @@ class OllamaState(str, enum.Enum):
 class OllamaHealthSentinel:
     def __init__(self, ollama_base_url: str = None, model_name: str = None, probe_interval: int = 60):
         self.base_url = ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-        self.model_name = model_name or os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+        self.model_name = model_name or os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
         self.probe_interval = probe_interval
         self.state = OllamaState.COLD
         self.last_probe_time: float = 0
@@ -181,7 +181,7 @@ def get_sentinel() -> OllamaHealthSentinel | None:
 class LLMService:
     def __init__(self):
         self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+        self.model = os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
         self.max_retries = 1
 
     async def analyze_resume(

@@ -178,7 +178,7 @@ def _get_llm():
             # responses. We rely on prompt instructions + robust _parse_llm_json_response()
             # for JSON extraction instead.
             _llm_kwargs = {
-                "model": os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud",
+                "model": os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b")),
                 "base_url": _base_url,
                 "temperature": 0.1,
                 "num_predict": _num_predict,
@@ -1411,7 +1411,7 @@ No markdown, no code fences."""
 
         # Build kwargs for retry LLM - higher temperature as fallback for edge cases
         _retry_kwargs = {
-            "model": os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud",
+            "model": os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b")),
             "base_url": _base_url,
             "temperature": 0.3,
             "num_predict": _num_predict_retry,

@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 # Use same model as main application (gemma4:31b-cloud for Ollama Cloud)
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
 
 def _get_llm() -> ChatOllama:
     """Get LLM instance for weight suggestion"""

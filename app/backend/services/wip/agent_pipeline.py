@@ -66,8 +66,8 @@ def _truncate(text: str, max_len: int) -> str:
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
 
 
 def _is_ollama_cloud(base_url: str) -> bool:
