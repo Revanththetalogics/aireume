@@ -53,7 +53,7 @@ services:
       resources:
         limits:
           cpus: '4'
-          memory: 6G
+          memory: 8G
     restart: unless-stopped
 
   backend:

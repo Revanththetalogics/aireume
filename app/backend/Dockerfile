@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     libcairo2 \
     libffi-dev \
+    # OCR dependencies for scanned PDFs
+    tesseract-ocr \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching

@@ -1990,7 +1990,7 @@ async def _llm_extract_structured(raw_text: str, data: Dict[str, Any]) -> Dict[s
 
         headers = get_ollama_headers(OLLAMA_BASE_URL)
 
-        async with _httpx.AsyncClient(timeout=10.0) as client:
+        async with _httpx.AsyncClient(timeout=50.0) as client:
             response = await client.post(
                 f"{OLLAMA_BASE_URL}/api/chat",
                 headers=headers,
