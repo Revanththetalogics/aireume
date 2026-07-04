@@ -58,13 +58,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Local Ollama: http://ollama:11434 (set in .env)
+      # Backend uses Ollama Cloud (set OLLAMA_BASE_URL=https://ollama.com in .env for cloud)
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
-      # Separate models for voice (fast, real-time) vs backend (quality, batch)
-      - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      # Backend model - use cloud for quality, local for testing
       - OLLAMA_MODEL_BACKEND=${OLLAMA_MODEL_BACKEND:-qwen2.5:7b}
-      # Legacy env var - defaults to backend model
       - OLLAMA_MODEL=${OLLAMA_MODEL:-${OLLAMA_MODEL_BACKEND:-qwen2.5:7b}}
+      # Voice uses local Ollama
+      - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL_VOICE:-http://ollama:11434}
+      - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}
       # 300s sufficient for qwen2.5:7b with reduced output (7-8 questions)
       - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-300}
       - DATABASE_URL=postgresql://aria:aria_secret@postgres:5432/aria_db
@@ -156,10 +158,9 @@ services:
       - LIVEKIT_URL=ws://livekit:7880
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
-      # Local Ollama: http://ollama:11434
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
-      # Voice uses smaller model for real-time conversation
-      - OLLAMA_MODEL=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}
+      # Local Ollama for voice (fast, real-time)
+      - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL_VOICE:-http://ollama:11434}
+      - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}
       - ARIA_BACKEND_URL=http://backend:8000
       - SIP_TRUNK_ID=${SIP_TRUNK_ID:-twilio-aria}
       - SIP_OUTBOUND_NUMBER=${SIP_OUTBOUND_NUMBER:-+18722789563}

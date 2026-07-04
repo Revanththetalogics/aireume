@@ -22,7 +22,7 @@ import httpx
 
 logger = logging.getLogger("voice_agent.planner")
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL_VOICE", os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"))
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL_VOICE", os.getenv("OLLAMA_MODEL", "qwen2.5:3b"))
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
 
