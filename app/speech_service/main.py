@@ -201,14 +201,14 @@ async def transcribe_audio(request: Request):
         # Ensure float32 before processing (numpy operations default to float64)
         audio_np = audio_np.astype(np.float32)
         # 1. High-pass filter to remove low-frequency rumble/hum
-        audio_np = np.convolve(audio_np, np.array([1.0, -0.97]), mode="same")
+        audio_np = np.convolve(audio_np, np.array([1.0, -0.97]), mode="same").astype(np.float32)
         # 2. Normalize to [-1, 1] using the 95th percentile to avoid outlier spikes
         peak = np.percentile(np.abs(audio_np), 95)
         if peak > 0:
-            audio_np = audio_np / peak
+            audio_np = (audio_np / peak).astype(np.float32)
             audio_np = np.clip(audio_np, -1.0, 1.0)
         # 3. Soft noise gate: keep very quiet samples near zero but preserve speech
-        audio_np = np.where(np.abs(audio_np) < 0.01, 0.0, audio_np)
+        audio_np = np.where(np.abs(audio_np) < 0.01, 0.0, audio_np).astype(np.float32)
         # ───────────────────────────────────────────────────────────────────────
 
         # Whisper expects float32 numpy array at 16kHz
