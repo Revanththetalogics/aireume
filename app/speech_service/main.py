@@ -197,6 +197,12 @@ async def transcribe_audio(request: Request):
             logger.warning("Audio too short for STT: %d samples", len(audio_np))
             return {"text": "", "duration_audio": 0.0, "duration_inference": 0.0, "chunks": []}
 
+        # Debug: Log audio levels before preprocessing
+        rms_before = np.sqrt(np.mean(audio_np.astype(np.float32) ** 2))
+        peak_before = np.max(np.abs(audio_np.astype(np.float32)))
+        logger.info("STT debug: audio=%.2fs, rms_before=%.4f, peak_before=%.4f", 
+                    len(audio_np) / SAMPLE_RATE, rms_before, peak_before)
+
         # ── Audio preprocessing for phone/SIP audio ───────────────────────────
         # Ensure float32 before processing (numpy operations default to float64)
         audio_np = audio_np.astype(np.float32)
@@ -209,7 +215,12 @@ async def transcribe_audio(request: Request):
             audio_np = np.clip(audio_np, -1.0, 1.0)
         # 3. Soft noise gate: keep very quiet samples near zero but preserve speech
         audio_np = np.where(np.abs(audio_np) < 0.01, 0.0, audio_np).astype(np.float32)
-        # ───────────────────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────────────
+
+        # Debug: Log audio levels after preprocessing
+        rms_after = np.sqrt(np.mean(audio_np ** 2))
+        peak_after = np.max(np.abs(audio_np))
+        logger.info("STT debug: rms_after=%.4f, peak_after=%.4f", rms_after, peak_after)
 
         # Whisper expects float32 numpy array at 16kHz
         start = time.time()

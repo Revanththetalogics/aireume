@@ -88,6 +88,10 @@ class SpeechSegmenter:
         sum_sq = sum(s * s for s in samples)
         rms = (sum_sq / frame_samples) ** 0.5
 
+        # Debug: Log first few frames to see audio levels
+        if self._total_samples < frame_samples * 10:
+            logger.info("VAD debug: first frame rms=%.2f, threshold=%.2f", rms, self.energy_threshold)
+
         self._total_samples += frame_samples
 
         if rms >= self.energy_threshold:
