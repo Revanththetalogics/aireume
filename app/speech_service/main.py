@@ -293,7 +293,7 @@ async def _synthesize_kokoro(text: str, voice_key: str, speed: float) -> Streami
     # Resample from 24kHz to 16kHz using torchaudio
     audio_tensor = torch.from_numpy(full_audio).float().unsqueeze(0)
     resampler = torchaudio.transforms.Resample(KOKORO_SAMPLE_RATE, SAMPLE_RATE)
-    audio_16k = resampler(audio_tensor).squeeze().numpy()
+    audio_16k = resampler(audio_tensor).squeeze().numpy().astype(np.float32)
 
     # Convert to 16-bit PCM
     audio_int16 = (audio_16k * 32768).clip(-32768, 32767).astype(np.int16)
@@ -384,7 +384,7 @@ async def detect_speech(request: Request):
 
     try:
         if "raw" in content_type or "pcm" in content_type:
-            audio_np = np.frombuffer(body, dtype=np.int16).astype(np.float32) / 32768.0
+            audio_np = np.frombuffer(body, dtype=np.int16).astype(np.float32) / np.float32(32768.0)
             audio_tensor = torch.from_numpy(audio_np)
         else:
             audio_buffer = io.BytesIO(body)
