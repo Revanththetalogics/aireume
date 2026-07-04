@@ -197,6 +197,8 @@ async def transcribe_audio(request: Request):
             return {"text": "", "duration_audio": 0.0, "duration_inference": 0.0, "chunks": []}
 
         # ── Audio preprocessing for phone/SIP audio ───────────────────────────
+        # Ensure float32 before processing (numpy operations default to float64)
+        audio_np = audio_np.astype(np.float32)
         # 1. High-pass filter to remove low-frequency rumble/hum
         audio_np = np.convolve(audio_np, np.array([1.0, -0.97]), mode="same")
         # 2. Normalize to [-1, 1] using the 95th percentile to avoid outlier spikes
