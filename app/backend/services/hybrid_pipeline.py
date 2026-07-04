@@ -167,10 +167,10 @@ def _get_llm():
             # if REQUIRE_CLOUD and not _is_cloud:
             #     raise RuntimeError(f"OLLAMA_REQUIRE_CLOUD is set but OLLAMA_BASE_URL points to local instance: {_base_url}")
 
-            # num_predict: Cloud models need significantly more tokens for verbose output
-            # Local: 6000 tokens for 15 structured interview questions with candidate briefing
-            # Cloud: 8000 tokens for very large models (480B+) that generate extremely verbose output
-            _num_predict = 8000 if _is_cloud else 6000
+            # num_predict: Reduced from 8000/6000 to 4000/3000 since we now generate 7-8 questions instead of 15
+            # Cloud: 4000 tokens for 7-8 structured interview questions with candidate briefing
+            # Local: 3000 tokens for 7-8 structured interview questions
+            _num_predict = 4000 if _is_cloud else 3000
 
             # Build kwargs for ChatOllama
             # NOTE: "format": "json" is intentionally omitted. Ollama's constrained JSON
@@ -1293,7 +1293,7 @@ NARRATIVE QUALITY RULES:
 7. hiring_decision.action_items must be SPECIFIC and ACTIONABLE — never generic like 'conduct interview'.
 
 INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
-1. TECHNICAL QUESTIONS (5 questions):
+1. TECHNICAL QUESTIONS (3 questions):
    a) RULE: Generate at least 1 question per MISSING MUST-HAVE skill. Each question MUST reference the specific JD responsibility that requires this skill. Format: "In this role, you would {{responsibility}}. Tell me about a time you {{scenario requiring that missing skill}}..." or "This position requires {{responsibility}}. Walk me through how you would approach {{task requiring missing skill}}..."
    b) RULE: For matched must-have skills with proficiency gaps (see MUST-HAVE SKILLS CONTEXT above), ask depth-probing questions. Format: "Tell me about a time you pushed the limits of {{skill}} beyond what was expected..."
    c) If architecture gaps exist: Include a system design question relevant to the domain.
@@ -1306,20 +1306,20 @@ INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
      * "adequate": What general understanding looks like — some relevant experience but lacks specifics or depth.
      * "weak": What a surface-level, theoretical-only answer looks like — no concrete examples or practical experience.
 
-2. BEHAVIORAL QUESTIONS (4 questions, STAR format):
+2. BEHAVIORAL QUESTIONS (2 questions, STAR format):
    a) Address the biggest risk signal from gap/timeline assessment.
    b) Target a seniority-specific challenge: senior->leadership/mentorship; mid->ownership; junior->learning agility.
    c) Probe the role transition motivation.
    d) Map behavioral questions to JD-stated soft skills. If the role implies "leadership", "team collaboration", "communication", or "cross-functional coordination", the behavioral question must DIRECTLY assess that specific skill — not a generic teamwork question.
    For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
 
-3. CULTURE-FIT QUESTIONS (3 questions):
+3. CULTURE-FIT QUESTIONS (1 question):
    a) Motivation for THIS specific role given career trajectory.
    b) Work-style alignment tied to role context.
    c) Growth mindset and continuous learning approach.
    For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
 
-4. EXPERIENCE DEEP-DIVE QUESTIONS (3 questions):
+4. EXPERIENCE DEEP-DIVE QUESTIONS (1-2 questions):
    a) Ask about the most relevant past project — scope, individual contribution, challenges, measurable outcomes.
    b) Ask about working outside comfort zone or taking on responsibilities beyond job title.
    c) Ask how their approach to a key responsibility has evolved over their career.
@@ -1406,8 +1406,8 @@ No markdown, no code fences."""
         _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
         _is_cloud_retry = _is_ollama_cloud(_base_url)
 
-        # num_predict: Cloud models need significantly more tokens for verbose output
-        _num_predict_retry = 8000 if _is_cloud_retry else 6000
+        # num_predict: Reduced for retry since we now generate 7-8 questions
+        _num_predict_retry = 4000 if _is_cloud_retry else 3000
 
         # Build kwargs for retry LLM - higher temperature as fallback for edge cases
         _retry_kwargs = {
