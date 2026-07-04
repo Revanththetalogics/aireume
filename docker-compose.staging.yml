@@ -46,6 +46,9 @@ services:
       - OLLAMA_KEEP_ALIVE=-1
     volumes:
       - staging_ollama_data:/root/.ollama
+    # To pull models (run once):
+    #   docker exec staging-ollama ollama pull qwen2.5:3b
+    #   docker exec staging-ollama ollama pull qwen2.5:7b
     deploy:
       resources:
         limits:
@@ -60,13 +63,17 @@ services:
     command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-graceful-shutdown 30
     stop_grace_period: 30s
     environment:
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
-      - OLLAMA_API_KEY=${OLLAMA_API_KEY:?OLLAMA_API_KEY is required}
+      # Local Ollama: http://ollama:11434
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      # Separate models for voice (fast) vs backend (quality)
+      - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}
+      - OLLAMA_MODEL_BACKEND=${OLLAMA_MODEL_BACKEND:-qwen2.5:7b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-${OLLAMA_MODEL_BACKEND:-qwen2.5:7b}}
       - DATABASE_URL=postgresql://${STAGING_POSTGRES_USER:-aria_staging}:${STAGING_POSTGRES_PASSWORD}@postgres:5432/${STAGING_POSTGRES_DB:-aria_staging_db}
       - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY:?STAGING_JWT_SECRET_KEY must be set}
       - ENVIRONMENT=staging
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
-      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-500}
+      # 300s sufficient for qwen2.5:7b with reduced output
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-300}
       - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
       - VOICE_AGENT_URL=http://voice-agent:8002
     depends_on:
@@ -118,7 +125,7 @@ services:
       /bin/sh -c "
         echo '=== Staging: Ollama Warmup ===';
         until ollama list > /dev/null 2>&1; do sleep 3; done;
-        ollama run gemma4:31b 'warmup' --nowordwrap;
+        ollama run qwen2.5:7b 'warmup' --nowordwrap;
         echo 'Warmup complete';
       "
     environment:
@@ -244,9 +251,10 @@ services:
       - LIVEKIT_URL=ws://livekit:7880
       - LIVEKIT_API_KEY=${STAGING_LIVEKIT_API_KEY:-staging_devkey}
       - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET:-staging_devsecret_min32chars_long_xyz}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
-      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
+      # Local Ollama: http://ollama:11434
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      # Voice uses smaller model for real-time
+      - OLLAMA_MODEL=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}
       - ARIA_BACKEND_URL=http://backend:8000
       - SIP_TRUNK_ID=twilio-aria
       - SIP_OUTBOUND_NUMBER=+18722789563
