@@ -176,12 +176,13 @@ async def transcribe_audio(request: Request):
         # Convert audio to the format Whisper expects
         if "raw" in content_type or "pcm" in content_type:
             # Raw PCM: 16kHz, 16-bit, mono → float32 numpy array
-            audio_np = np.frombuffer(body, dtype=np.int16).astype(np.float32) / 32768.0
+            audio_np = np.frombuffer(body, dtype=np.int16).astype(np.float32) / np.float32(32768.0)
             sample_rate = SAMPLE_RATE
         else:
             # WAV — load via soundfile (more robust than torchaudio) and convert to float32 numpy
             audio_buffer = io.BytesIO(body)
             audio_np, sample_rate = sf.read(audio_buffer, dtype="float32")
+            audio_np = audio_np.astype(np.float32)
             if audio_np.ndim > 1:
                 audio_np = audio_np.mean(axis=1)
 
