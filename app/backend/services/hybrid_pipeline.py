@@ -3220,7 +3220,7 @@ async def run_hybrid_pipeline(
     except Exception as e:
         log.debug("Scoring cache check failed (non-fatal): %s", e)
 
-    # ── Domain-agnostic JD profile + LLM resume skill extraction (concurrent) ─
+    # ── Domain-agnostic JD profile extraction (LLM) ─────────────────────────
     llm_resume_skills: List[str] = []
 
     # Extract JD domain and target skills for guided resume extraction
@@ -3247,26 +3247,10 @@ async def run_hybrid_pipeline(
     if jd_analysis is None or jd_analysis.get("_profile_source") not in ("llm", "merged"):
         try:
             from app.backend.services.jd_profile_service import extract_jd_profile, merge_jd_profile
-            from app.backend.services.llm_service import extract_resume_skills_with_llm
 
-            # Run JD profile and resume skill extraction concurrently for zero added latency
-            # Pass domain and target skills to guide resume extraction
-            jd_task = asyncio.create_task(extract_jd_profile(job_description))
-            resume_skills_task = asyncio.create_task(
-                extract_resume_skills_with_llm(
-                    resume_text,
-                    jd_domain=jd_domain,
-                    target_skills=target_skills,
-                )
-            )
-
-            llm_profile = await jd_task
-            try:
-                llm_resume_skills = await resume_skills_task
-                log.info("LLM resume skills extracted: %d skills (domain=%s, targets=%d)",
-                         len(llm_resume_skills), jd_domain or "none", len(target_skills))
-            except Exception as e:
-                log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
+            # Run JD profile extraction only (resume skills use Python-based extraction)
+            llm_profile = await extract_jd_profile(job_description)
+            log.info("LLM JD profile extracted for domain=%s", jd_domain or "none")
 
             rules_jd = jd_analysis or parse_jd_rules(job_description)
             jd_analysis = merge_jd_profile(rules_jd, llm_profile)
@@ -3277,18 +3261,7 @@ async def run_hybrid_pipeline(
             if jd_analysis is None:
                 jd_analysis = parse_jd_rules(job_description)
     else:
-        # JD profile already merged — still extract resume skills for Layer 2
-        try:
-            from app.backend.services.llm_service import extract_resume_skills_with_llm
-            llm_resume_skills = await extract_resume_skills_with_llm(
-                resume_text,
-                jd_domain=jd_domain,
-                target_skills=target_skills,
-            )
-            log.info("LLM resume skills extracted: %d skills (domain=%s, targets=%d)",
-                     len(llm_resume_skills), jd_domain or "none", len(target_skills))
-        except Exception as e:
-            log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
+        log.info("JD profile already cached/merged, skipping LLM extraction")
 
     python_result = _run_python_phase(
         resume_text, job_description, parsed_data, gap_analysis, scoring_weights, jd_analysis,
@@ -3417,7 +3390,7 @@ async def astream_hybrid_pipeline(
     except Exception as e:
         log.debug("Scoring cache check failed (non-fatal): %s", e)
 
-    # ── Domain-agnostic JD profile + LLM resume skill extraction (concurrent) ──
+    # ── Domain-agnostic JD profile extraction (LLM) ─────────────────────────
     llm_resume_skills: List[str] = []
 
     # Extract JD domain and target skills for guided resume extraction
@@ -3442,25 +3415,10 @@ async def astream_hybrid_pipeline(
     if jd_analysis is None or jd_analysis.get("_profile_source") not in ("llm", "merged"):
         try:
             from app.backend.services.jd_profile_service import extract_jd_profile, merge_jd_profile
-            from app.backend.services.llm_service import extract_resume_skills_with_llm
 
-            # Run JD profile and resume skill extraction concurrently for zero added latency
-            jd_task = asyncio.create_task(extract_jd_profile(job_description))
-            resume_skills_task = asyncio.create_task(
-                extract_resume_skills_with_llm(
-                    resume_text,
-                    jd_domain=jd_domain,
-                    target_skills=target_skills,
-                )
-            )
-
-            llm_profile = await jd_task
-            try:
-                llm_resume_skills = await resume_skills_task
-                log.info("LLM resume skills extracted: %d skills (domain=%s, targets=%d)",
-                         len(llm_resume_skills), jd_domain or "none", len(target_skills))
-            except Exception as e:
-                log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
+            # Run JD profile extraction only (resume skills use Python-based extraction)
+            llm_profile = await extract_jd_profile(job_description)
+            log.info("LLM JD profile extracted (stream) for domain=%s", jd_domain or "none")
 
             rules_jd = jd_analysis or parse_jd_rules(job_description)
             jd_analysis = merge_jd_profile(rules_jd, llm_profile)
@@ -3471,18 +3429,7 @@ async def astream_hybrid_pipeline(
             if jd_analysis is None:
                 jd_analysis = parse_jd_rules(job_description)
     else:
-        # JD profile already merged — still extract resume skills for Layer 2
-        try:
-            from app.backend.services.llm_service import extract_resume_skills_with_llm
-            llm_resume_skills = await extract_resume_skills_with_llm(
-                resume_text,
-                jd_domain=jd_domain,
-                target_skills=target_skills,
-            )
-            log.info("LLM resume skills extracted: %d skills (domain=%s, targets=%d)",
-                     len(llm_resume_skills), jd_domain or "none", len(target_skills))
-        except Exception as e:
-            log.warning("LLM resume skill extraction failed (non-fatal): %s", e)
+        log.info("JD profile already cached/merged (stream), skipping LLM extraction")
 
     # Phase 1 — Python (instant)
     python_result = _run_python_phase(
