@@ -336,28 +336,30 @@ def get_recruiter_scorecard(
             detail="Scorecard not yet generated",
         )
 
-    data = {
-        **RecruiterScorecardOut.model_validate(scorecard).model_dump(),
-        "technical_evidence": _load_json(
-            scorecard.technical_evidence, default={}
-        ),
-        "behavioral_evidence": _load_json(
-            scorecard.behavioral_evidence, default={}
-        ),
-        "communication_evidence": _load_json(
-            scorecard.communication_evidence, default={}
-        ),
-        "cultural_fit_evidence": _load_json(
-            scorecard.cultural_fit_evidence, default={}
-        ),
-        "motivation_evidence": _load_json(
-            scorecard.motivation_evidence, default={}
-        ),
-        "risk_signals_validated": _load_json(
-            scorecard.risk_signals_validated, default={}
-        ),
-        "gaps_explained": _load_json(scorecard.gaps_explained, default={}),
+    # Build a plain dict from the ORM object, then parse JSON-string fields
+    # before Pydantic validation. The ORM stores evidence fields as JSON text.
+    json_fields = {
+        "technical_evidence",
+        "behavioral_evidence",
+        "communication_evidence",
+        "cultural_fit_evidence",
+        "motivation_evidence",
+        "risk_signals_validated",
+        "gaps_explained",
     }
+    data = {
+        k: getattr(scorecard, k)
+        for k in RecruiterScorecardOut.model_fields.keys()
+        if k not in json_fields
+    }
+    data["technical_evidence"] = _load_json(scorecard.technical_evidence, default={}) or {}
+    data["behavioral_evidence"] = _load_json(scorecard.behavioral_evidence, default={}) or {}
+    data["communication_evidence"] = _load_json(scorecard.communication_evidence, default={}) or {}
+    data["cultural_fit_evidence"] = _load_json(scorecard.cultural_fit_evidence, default={}) or {}
+    data["motivation_evidence"] = _load_json(scorecard.motivation_evidence, default={}) or {}
+    data["risk_signals_validated"] = _load_json(scorecard.risk_signals_validated, default={}) or {}
+    data["gaps_explained"] = _load_json(scorecard.gaps_explained, default={}) or {}
+
     return RecruiterScorecardOut.model_validate(data)
 
 
