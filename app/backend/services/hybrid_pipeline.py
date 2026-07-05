@@ -25,6 +25,8 @@ import os
 import random
 import re
 import time
+from datetime import date, datetime
+from decimal import Decimal
 from typing import AsyncGenerator, Dict, Any, List, Optional, Callable
 
 from app.backend.services.metrics import LLM_CALL_DURATION, LLM_FALLBACK_TOTAL
@@ -50,6 +52,16 @@ from app.backend.services.skill_matcher import (
 )
 
 log = logging.getLogger("aria.hybrid")
+
+
+def _json_default(obj: Any) -> Any:
+    """Handle non-serializable types for json.dumps (datetime, date, Decimal)."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
 
 # Feature flag for target-guided LLM resume skill extraction
 # When enabled, the LLM prompt includes JD domain and required skills to guide extraction
@@ -1342,6 +1354,61 @@ DO NOT generate generic questions like "Tell me about yourself" or "What are you
 
 No markdown, no code fences."""
 
+    # Compact fallback prompt used when the full narrative response is truncated.
+    # It keeps the same JSON schema but omits verbose scoring_criteria and caps
+    # array lengths so the model can complete the response within tight output
+    # limits (common with some cloud-hosted models).
+    compact_prompt = f"""IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no code blocks. Keep the response concise and complete.{_lang_prefix}
+
+ROLE: {role_title} | {domain} | {seniority}
+CANDIDATE: {candidate_name} | {years}y experience | {current_role} at {current_company}
+SCORES: skill={skill_score} exp={exp_score} edu={edu_score} timeline={timeline_score} fit={fit_score} /100
+RECOMMENDATION: {recommendation}
+MUST-HAVE MATCH: {len(matched_must)}/{len(matched_must)+len(missing_must)} required ({req_match_pct:.0f}%) | NICE-TO-HAVE MATCH: {len(matched_nice)}/{len(matched_nice)+len(missing_nice)} ({nice_match_pct:.0f}%)
+MATCHED MUST-HAVE: {', '.join(matched_must[:10]) if matched_must else 'None'}
+MISSING MUST-HAVE: {', '.join(missing_must[:6]) if missing_must else 'None'}
+MATCHED NICE-TO-HAVE: {', '.join(matched_nice[:6]) if matched_nice else 'None'}
+MISSING NICE-TO-HAVE: {', '.join(missing_nice[:4]) if missing_nice else 'None'}
+RISK FLAGS:
+{risk_flags}
+SCORE RATIONALES: {score_rationales_summary}
+
+Return ONLY valid JSON. Keep all string values under 200 characters. Keep arrays to 3 items max. Each interview question needs only text, what_to_listen_for, and follow_ups:
+{{
+  "candidate_profile_summary": "2-3 sentence recruiter-focused summary",
+  "fit_summary": "3-4 sentence executive summary with clear verdict",
+  "strengths": ["specific strength tied to role"],
+  "concerns": ["specific concern tied to gap"],
+  "dealbreakers": ["missing must-have dealbreaker or empty array"],
+  "differentiators": ["what makes this candidate unique"],
+  "recommendation_rationale": "why this recommendation in 1-2 sentences",
+  "hiring_decision": {{
+    "verdict": "Shortlist|Reject|Consider",
+    "confidence": 0.0-1.0,
+    "key_factors": ["factor 1", "factor 2", "factor 3"],
+    "action_items": ["action 1", "action 2"]
+  }},
+  "explainability": {{
+    "skill_rationale": "1 sentence",
+    "experience_rationale": "1 sentence",
+    "overall_rationale": "1 sentence"
+  }},
+  "interview_questions": {{
+    "candidate_briefing": {{
+      "profile_snapshot": "1 sentence",
+      "strengths_to_confirm": ["skill 1"],
+      "areas_to_probe": ["gap 1"],
+      "context_notes": ["note 1"]
+    }},
+    "technical_questions": [{{"text": "question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"]}}],
+    "behavioral_questions": [{{"text": "question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"]}}],
+    "culture_fit_questions": [{{"text": "question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"]}}],
+    "experience_deep_dive_questions": [{{"text": "question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"]}}]
+  }}
+}}
+
+No markdown, no code fences."""
+
     import httpx  # For specific error handling
     
     from langchain_core.messages import HumanMessage
@@ -1393,12 +1460,16 @@ No markdown, no code fences."""
     log.debug("LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
     log.info("LLM response received: %d characters, %d tokens (approx)", len(raw) if raw else 0, len(raw.split()) if raw else 0)
 
-    # Handle empty, whitespace-only, or ultra-short response - retry with higher temperature as fallback
-    # Ultra-short responses (e.g. "{" from Ollama Cloud) are not valid JSON narratives
-    # A valid narrative JSON is always 100+ chars; threshold of 20 catches degenerate outputs
-    if not raw or len(str(raw).strip()) < 20:
-        if raw and len(str(raw).strip()) < 20:
-            log.warning(f"LLM response too short ({len(str(raw).strip())} chars), treating as empty for retry")
+    # Detect empty, ultra-short, or truncated responses. A valid narrative JSON object
+    # must end with '}'. If the model stops mid-string (common with tight output limits
+    # on some cloud models), switch to a compact prompt that fits within the limit.
+    _raw_stripped = str(raw).strip() if raw else ""
+    _is_truncated = bool(_raw_stripped and not _raw_stripped.endswith("}"))
+    if not raw or len(_raw_stripped) < 20 or _is_truncated:
+        if _is_truncated:
+            log.warning(f"LLM response appears truncated ({len(_raw_stripped)} chars, does not end with '}}'), retrying with compact prompt...")
+        elif raw and len(_raw_stripped) < 20:
+            log.warning(f"LLM response too short ({len(_raw_stripped)} chars), treating as empty for retry")
         else:
             log.warning("LLM returned empty response, retrying with higher temperature as fallback...")
         from langchain_ollama import ChatOllama
@@ -1429,12 +1500,13 @@ No markdown, no code fences."""
             _retry_kwargs["keep_alive"] = -1
 
         retry_llm = ChatOllama(**_retry_kwargs)
+        compact_messages = [HumanMessage(content=compact_prompt)]
         
         # Wrap retry LLM call with httpx error handling and 429 retry logic
         raw = ""
         for attempt in range(max_retries + 1):
             try:
-                retry_resp = await retry_llm.ainvoke(messages)
+                retry_resp = await retry_llm.ainvoke(compact_messages)
                 raw = retry_resp.content.strip() if retry_resp and retry_resp.content else ""
                 break  # Success, exit retry loop
             except httpx.HTTPStatusError as e:
@@ -1468,8 +1540,13 @@ No markdown, no code fences."""
                 raise  # Re-raise non-429 exceptions
         log.debug("Retry LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
 
-    if not raw or len(str(raw).strip()) < 20:
-        log.warning("LLM returned empty or too-short response after retry")
+    _retry_stripped = str(raw).strip() if raw else ""
+    _retry_truncated = bool(_retry_stripped and not _retry_stripped.endswith("}"))
+    if not raw or len(_retry_stripped) < 20 or _retry_truncated:
+        if _retry_truncated:
+            log.warning("LLM returned truncated response after retry with compact prompt")
+        else:
+            log.warning("LLM returned empty or too-short response after retry")
         raise ValueError("LLM returned empty response")
 
     data = _parse_llm_json_response(raw)

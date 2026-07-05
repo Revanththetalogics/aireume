@@ -69,6 +69,9 @@ services:
       # Backend model (cloud - fast + quality)
       - OLLAMA_MODEL_BACKEND=${OLLAMA_MODEL_BACKEND:-gemini-3-flash-preview:cloud}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-${OLLAMA_MODEL_BACKEND:-gemini-3-flash-preview:cloud}}
+      # Local model for fast skill extraction (JD profile + resume skills)
+      - OLLAMA_LOCAL_URL=${OLLAMA_LOCAL_URL:-http://ollama:11434}
+      - OLLAMA_MODEL_SKILLS=${OLLAMA_MODEL_SKILLS:-qwen3.5:2b}
       # Voice uses local Ollama
       - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL_VOICE:-http://ollama:11434}
       - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}

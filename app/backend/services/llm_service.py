@@ -183,6 +183,9 @@ class LLMService:
         self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self.model = os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
         self.max_retries = 1
+        # Local model for fast skill extraction (JD profile + resume skills)
+        self._local_base_url = os.getenv("OLLAMA_LOCAL_URL", "http://ollama:11434")
+        self._local_model = os.getenv("OLLAMA_MODEL_SKILLS", "qwen3.5:2b")
 
     async def analyze_resume(
         self,
@@ -231,11 +234,11 @@ class LLMService:
             return self._fallback_jd_profile()
 
         prompt = self._build_jd_profile_prompt(job_description)
-        _timeout = (timeout or float(os.getenv("LLM_NARRATIVE_TIMEOUT", "120"))) + 30
+        _timeout = (timeout or 60) + 10
 
         for attempt in range(self.max_retries + 1):
             try:
-                response = await self._call_ollama(prompt, timeout=_timeout)
+                response = await self._call_ollama_local(prompt, timeout=_timeout)
                 parsed = self._parse_json_response(response)
                 if parsed:
                     return self._validate_jd_profile(parsed)
@@ -274,11 +277,11 @@ class LLMService:
             jd_domain=jd_domain,
             target_skills=target_skills,
         )
-        _timeout = (timeout or float(os.getenv("LLM_NARRATIVE_TIMEOUT", "120"))) + 30
+        _timeout = (timeout or 60) + 10
 
         for attempt in range(self.max_retries + 1):
             try:
-                response = await self._call_ollama(prompt, timeout=_timeout)
+                response = await self._call_ollama_local(prompt, timeout=_timeout)
                 skills = self._parse_resume_skills_response(response)
                 if skills:
                     return skills
@@ -385,6 +388,25 @@ JSON:"""
         _timeout = timeout or (float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500")) + 30)
         async with httpx.AsyncClient(timeout=_timeout) as client:
             response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("response", "")
+
+    async def _call_ollama_local(self, prompt: str, timeout: Optional[float] = None) -> str:
+        """Use local model for fast skill extraction (JD profile + resume skills)."""
+        url = f"{self._local_base_url}/api/generate"
+
+        payload = {
+            "model": self._local_model,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+        }
+
+        # Local model doesn't need auth headers
+        _timeout = timeout or 60.0
+        async with httpx.AsyncClient(timeout=_timeout) as client:
+            response = await client.post(url, json=payload)
             response.raise_for_status()
             data = response.json()
             return data.get("response", "")
