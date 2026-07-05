@@ -395,6 +395,7 @@ JSON:"""
     async def _call_ollama_local(self, prompt: str, timeout: Optional[float] = None) -> str:
         """Use local model for fast skill extraction (JD profile + resume skills)."""
         url = f"{self._local_base_url}/api/generate"
+        logger.info(f"[LLM] Calling local Ollama: {url} with model {self._local_model}")
 
         payload = {
             "model": self._local_model,
@@ -405,11 +406,15 @@ JSON:"""
 
         # Local model doesn't need auth headers
         _timeout = timeout or 60.0
-        async with httpx.AsyncClient(timeout=_timeout) as client:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            return data.get("response", "")
+        try:
+            async with httpx.AsyncClient(timeout=_timeout) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                return data.get("response", "")
+        except Exception as e:
+            logger.error(f"[LLM] Local Ollama failed: {type(e).__name__}: {e}")
+            raise
 
     def _build_jd_profile_prompt(self, job_description: str) -> str:
         """Build a strict JSON prompt for domain-agnostic JD profile extraction."""

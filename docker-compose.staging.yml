@@ -72,9 +72,9 @@ services:
       # Local model for fast skill extraction (JD profile + resume skills)
       - OLLAMA_LOCAL_URL=${OLLAMA_LOCAL_URL:-http://ollama:11434}
       - OLLAMA_MODEL_SKILLS=${OLLAMA_MODEL_SKILLS:-qwen3.5:2b}
-      # Voice uses local Ollama
-      - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL_VOICE:-http://ollama:11434}
-      - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}
+      # Voice uses cloud Ollama for reliability
+      - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:7b}
       - DATABASE_URL=postgresql://${STAGING_POSTGRES_USER:-aria_staging}:${STAGING_POSTGRES_PASSWORD}@postgres:5432/${STAGING_POSTGRES_DB:-aria_staging_db}
       - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY:?STAGING_JWT_SECRET_KEY must be set}
       - ENVIRONMENT=staging
@@ -257,9 +257,10 @@ services:
       - LIVEKIT_URL=ws://livekit:7880
       - LIVEKIT_API_KEY=${STAGING_LIVEKIT_API_KEY:-staging_devkey}
       - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET:-staging_devsecret_min32chars_long_xyz}
-      # Local Ollama for voice (fast, real-time)
-      - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL_VOICE:-http://ollama:11434}
-      - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}
+      # Cloud Ollama for voice (reliable)
+      - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY_VOICE=${OLLAMA_API_KEY:?OLLAMA_API_KEY is required}
+      - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:7b}
       - ARIA_BACKEND_URL=http://backend:8000
       - SIP_TRUNK_ID=twilio-aria
       - SIP_OUTBOUND_NUMBER=+18722789563
