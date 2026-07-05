@@ -236,18 +236,21 @@ class LLMService:
         prompt = self._build_jd_profile_prompt(job_description)
         _timeout = (timeout or 60) + 10
 
-        # Try local model first (fast when warm)
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = await self._call_ollama_local(prompt, timeout=_timeout)
-                parsed = self._parse_json_response(response)
-                if parsed:
-                    return self._validate_jd_profile(parsed)
-            except Exception as e:
-                logger.warning("JD profile local extraction failed (attempt %d): %s", attempt + 1, e)
+        # Local model disabled by default: it is too slow on the VPS and adds 70s
+        # of latency before falling back. Set OLLAMA_USE_LOCAL_JD_PROFILE=1 to opt-in.
+        use_local = os.getenv("OLLAMA_USE_LOCAL_JD_PROFILE", "").strip() in ("1", "true", "yes")
+        if use_local:
+            for attempt in range(self.max_retries + 1):
+                try:
+                    response = await self._call_ollama_local(prompt, timeout=_timeout)
+                    parsed = self._parse_json_response(response)
+                    if parsed:
+                        return self._validate_jd_profile(parsed)
+                except Exception as e:
+                    logger.warning("JD profile local extraction failed (attempt %d): %s", attempt + 1, e)
+            logger.info("Falling back to cloud model for JD profile extraction")
 
-        # Fallback to cloud model for reliability
-        logger.info("Falling back to cloud model for JD profile extraction")
+        # Use cloud model for fast, reliable JD profile extraction
         for attempt in range(self.max_retries + 1):
             try:
                 response = await self._call_ollama(prompt, timeout=_timeout)
