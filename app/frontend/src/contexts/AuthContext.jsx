@@ -15,20 +15,11 @@ export function AuthProvider({ children }) {
   // Browser automatically sends httpOnly cookies with the request
   const loadUser = useCallback(async () => {
     const gen = ++authGenRef.current
-    // 401 is expected when the user is not logged in; don't treat it as an error.
-    const authMe = async () =>
-      api.get('/auth/me', { validateStatus: (s) => s === 200 || s === 401 })
-
     try {
-      const res = await authMe()
+      const res = await api.get('/auth/me')
       if (gen !== authGenRef.current) return   // stale — login/register won
-      if (res.status === 200) {
-        setUser(res.data.user)
-        setTenant(res.data.tenant)
-      } else {
-        setUser(null)
-        setTenant(null)
-      }
+      setUser(res.data.user)
+      setTenant(res.data.tenant)
     } catch (err) {
       if (gen !== authGenRef.current) return   // stale — login/register won
       // Retry once on network error (not 401)
@@ -36,15 +27,10 @@ export function AuthProvider({ children }) {
         await new Promise(r => setTimeout(r, 1000))
         if (gen !== authGenRef.current) return
         try {
-          const res = await authMe()
+          const res = await api.get('/auth/me')
           if (gen !== authGenRef.current) return
-          if (res.status === 200) {
-            setUser(res.data.user)
-            setTenant(res.data.tenant)
-          } else {
-            setUser(null)
-            setTenant(null)
-          }
+          setUser(res.data.user)
+          setTenant(res.data.tenant)
           return
         } catch (retryErr) {
           if (gen !== authGenRef.current) return
