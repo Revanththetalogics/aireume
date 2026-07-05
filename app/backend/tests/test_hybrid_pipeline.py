@@ -1290,7 +1290,7 @@ class TestLLMResumeSkillExtraction:
         svc = LLMService()
 
         mock_response = '["SAP MM", "SAP S/4HANA", "Procure-to-Pay", "LSMW", "BAPI"]'
-        with patch.object(svc, "_call_ollama", new=AsyncMock(return_value=mock_response)):
+        with patch.object(svc, "_call_ollama_local", new=AsyncMock(return_value=mock_response)):
             skills = await svc.extract_resume_skills("SAP MM Consultant resume text")
             assert "SAP MM" in skills
             assert "SAP S/4HANA" in skills
