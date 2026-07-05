@@ -1690,7 +1690,7 @@ export async function initiateRecruiterInterview(payload) {
 
 export async function getRecruiterTranscript(sessionId) {
   const { data } = await api.get(`/recruiter/sessions/${sessionId}/transcript`);
-  return data;
+  return data?.questions ?? [];
 }
 
 export async function getRecruiterScorecard(sessionId) {

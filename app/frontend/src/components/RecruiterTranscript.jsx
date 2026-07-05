@@ -32,7 +32,10 @@ function EvalBadge({ score }) {
 export default function RecruiterTranscript({ transcript }) {
   const [expandedIdx, setExpandedIdx] = useState(null)
 
-  if (!transcript || transcript.length === 0) {
+  // Guard against non-array data (e.g. backend returning an object)
+  const items = Array.isArray(transcript) ? transcript : []
+
+  if (items.length === 0) {
     return (
       <div className="text-center py-12 text-slate-400">
         <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-40" />
@@ -43,7 +46,7 @@ export default function RecruiterTranscript({ transcript }) {
 
   return (
     <div className="space-y-3">
-      {transcript.map((item, idx) => {
+      {items.map((item, idx) => {
         const isExpanded = expandedIdx === idx
         const followUps = item.follow_ups || []
         const category = item.category || 'general'
