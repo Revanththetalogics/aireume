@@ -40,35 +40,53 @@ def _index_names(insp, table: str) -> set:
 
 
 def upgrade() -> None:
-    # ── baseline: ensure core tables exist ──────────────────────────────────
-    # This is the first revision (down_revision=None). The application normally
-    # bootstraps its schema via Base.metadata.create_all() and layers Alembic on
-    # top, so subsequent revisions assume the core tables already exist. Against
-    # a bare database (e.g. the CI migration-check job) they do not, which
-    # previously caused later revisions to fail reflecting `candidates`. Create
-    # any missing core tables from the model metadata first — create_all() is a
-    # no-op for tables that already exist, so this stays safe for existing
-    # databases where create_all already ran.
+    # ── baseline: create the core tables ────────────────────────────────────
+    # This is the first revision (down_revision=None). Historically the app
+    # bootstrapped its schema with Base.metadata.create_all() and Alembic was
+    # introduced only to *layer* changes on top — so every later revision that
+    # touches a "core" table (candidates, tenants, users, screening_results, …)
+    # assumes it already exists. In production the schema is now applied purely
+    # via `alembic upgrade heads` (docker-entrypoint.sh, no create_all), so on a
+    # bare database those core tables are never created and revision 002 fails
+    # reflecting `candidates`.
     #
-    # The analysis-queue tables are deliberately excluded here because revision
-    # 008 creates them unconditionally (along with views/triggers/FKs that are
-    # not expressed in the model metadata). Creating them now would make 008
-    # fail with "relation already exists".
+    # These 15 tables are the ones defined in the models but created by *no*
+    # migration (the legacy create_all set), minus dead_letter_jobs (see below).
+    # We create them here from the model
+    # metadata. All later ALTERs against them are idempotent (guarded by column/
+    # index existence checks), so materialising them at their final shape is
+    # safe. create_all() is also a no-op for tables that already exist, so this
+    # remains safe on databases that were originally seeded via create_all.
+    #
+    # `dead_letter_jobs` is intentionally excluded here because it has a foreign
+    # key to `analysis_jobs`, which is created later by revision 008; it is
+    # created by its own revision once that dependency exists.
     from app.backend.db.database import Base
     import app.backend.models.db_models  # noqa: F401 — registers all models
 
-    _queue_tables = {
-        "analysis_artifacts",
-        "analysis_jobs",
-        "analysis_results",
-        "job_metrics",
-    }
-    _baseline_tables = [
-        table
-        for name, table in Base.metadata.tables.items()
-        if name not in _queue_tables
+    _core_tables = [
+        "subscription_plans",
+        "tenants",
+        "users",
+        "candidates",
+        "role_templates",
+        "screening_results",
+        "screening_projects",
+        "screening_project_candidates",
+        "interview_templates",
+        "team_members",
+        "comments",
+        "training_examples",
+        "transcript_analyses",
+        "ats_connections",
+        "ats_sync_logs",
     ]
-    Base.metadata.create_all(bind=op.get_bind(), tables=_baseline_tables)
+    _tables = [
+        Base.metadata.tables[name]
+        for name in _core_tables
+        if name in Base.metadata.tables
+    ]
+    Base.metadata.create_all(bind=op.get_bind(), tables=_tables)
 
     insp = _inspector()
 
