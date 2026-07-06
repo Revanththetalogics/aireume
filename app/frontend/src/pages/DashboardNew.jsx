@@ -12,7 +12,7 @@ import { useAuth } from '../contexts/AuthContext'
 
 import { getDashboardSummary, getDashboardActivity, getInterviewAnalytics } from '../lib/api'
 import { safeStr } from '../lib/utils'
-import { getScoreColor } from '../lib/constants'
+import { getScoreColor, getScoreHexColor } from '../lib/constants'
 import Skeleton from '../components/Skeleton'
 import GettingStarted from '../components/GettingStarted'
 import { StaggerContainer, StaggerItem } from '../components/motion'
@@ -90,10 +90,8 @@ function ScoreRingGauge({ score, size = 80, strokeWidth = 6 }) {
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - Math.min(score, 100) / 100)
 
-  let strokeColor = '#ef4444' // red-500 (Poor <30)
-  if (score >= 70) strokeColor = '#22c55e'       // green-500 (Strong)
-  else if (score >= 50) strokeColor = '#f59e0b'   // amber-500 (Good)
-  else if (score >= 30) strokeColor = '#fca5a5'   // red-300 (Weak)
+  // Use shared thresholds (80/60/40) so gauge color matches badges everywhere
+  const strokeColor = getScoreHexColor(score)
 
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>

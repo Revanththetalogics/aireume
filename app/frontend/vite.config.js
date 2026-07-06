@@ -17,6 +17,12 @@ export default defineConfig({
       }
     }
   },
+  // Strip console.log/debug/info and debugger statements from production bundles.
+  // console.warn and console.error are preserved for real error reporting.
+  esbuild: {
+    pure: ['console.log', 'console.debug', 'console.info'],
+    drop: ['debugger'],
+  },
   build: {
     outDir: 'dist',
     sourcemap: true,

@@ -83,6 +83,7 @@ async def handle_webhook(
 
         provider_name = result.get("provider", provider.provider_name)
         event_type = result.get("event_type", "unknown")
+        event_id = result.get("event_id")
         data = result.get("data", {})
 
         # Process the event — updates tenant state, logs audit, fires webhooks
@@ -93,6 +94,7 @@ async def handle_webhook(
             event_type=event_type,
             data=data,
             raw_payload=raw_payload,
+            event_id=event_id,
         )
 
         log.info(

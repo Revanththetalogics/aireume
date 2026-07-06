@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { GitCompare, Trophy, Check, Download, ChevronDown, ChevronUp, MessageCircle, Gavel, Zap, AlertTriangle, FileText, Target } from 'lucide-react'
 import { getHistory, compareResults, exportCsv } from '../lib/api'
 import ComparisonMatrix from '../components/ComparisonMatrix'
+import EmptyState from '../components/EmptyState'
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -145,6 +146,15 @@ export default function ComparePage() {
               <div className="flex justify-center py-8">
                 <div className="w-6 h-6 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
               </div>
+            ) : history.length === 0 ? (
+              <EmptyState
+                icon={GitCompare}
+                title="No analyses to compare yet"
+                description="Analyze at least two resumes and they'll appear here so you can compare candidates side-by-side."
+                actionLabel="Analyze a resume"
+                actionHref="/analyze"
+                className="py-10"
+              />
             ) : (
               <div className="space-y-1.5 max-h-80 overflow-y-auto">
                 {history.map(r => (

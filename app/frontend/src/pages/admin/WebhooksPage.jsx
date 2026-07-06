@@ -114,7 +114,7 @@ function CreateWebhookModal({ tenantId, events, onClose, onCreated }) {
       <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-lg font-bold text-gray-900">Create Webhook</h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+          <button onClick={onClose} aria-label="Close dialog" className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
             <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>

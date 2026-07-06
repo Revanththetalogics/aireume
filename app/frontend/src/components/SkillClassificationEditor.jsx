@@ -105,6 +105,7 @@ function SkillPill({
           onClick={() => onRemove(index, column)}
           className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
           title="Remove"
+          aria-label="Remove skill"
         >
           <X className="w-3.5 h-3.5" />
         </button>

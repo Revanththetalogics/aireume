@@ -25,9 +25,8 @@ import {
   getAvailablePlans,
   seedSampleData,
 } from '../lib/api'
+import { INDUSTRIES, COMPANY_SIZES } from '../lib/constants'
 
-const INDUSTRIES = ['Technology', 'Healthcare', 'Finance', 'Legal', 'Manufacturing', 'Other']
-const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '500+']
 const TOTAL_STEPS = 4
 
 /* ─── Progress Bar ─────────────────────────────────────────────── */
@@ -389,6 +388,7 @@ function StepInviteTeam({ onNext, onBack, onSkip }) {
             {emails.length > 1 && (
               <button
                 onClick={() => removeEmailField(index)}
+                aria-label="Remove email field"
                 className="p-2 text-slate-300 hover:text-red-500 transition-colors"
               >
                 <X className="w-4 h-4" />

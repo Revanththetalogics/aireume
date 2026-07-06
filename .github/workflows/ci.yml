@@ -60,3 +60,126 @@ jobs:
     - name: Build frontend
       working-directory: app/frontend
       run: npm run build
+
+    - name: Audit frontend dependencies
+      working-directory: app/frontend
+      run: npm audit --audit-level=high || true
+
+  # Browser E2E for the unauthenticated login page. Deterministic and
+  # secret-free: builds the frontend, serves it with `vite preview`, and runs
+  # only the "Auth workflow (login page)" specs in real Chromium. Authenticated
+  # E2E needs the full stack and is run manually/against staging, not here.
+  test-e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Install E2E runner (root)
+      run: npm ci
+
+    - name: Install frontend dependencies
+      working-directory: app/frontend
+      run: npm ci
+
+    - name: Build frontend
+      working-directory: app/frontend
+      run: npm run build
+
+    - name: Install Playwright browser
+      run: npx playwright install --with-deps chromium
+
+    - name: Run login-page E2E
+      run: npx playwright test --config=playwright.ci.config.ts
+
+    - name: Upload Playwright report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-report
+        path: playwright-report/
+        retention-days: 7
+
+  # Validate the Alembic migration chain against a real PostgreSQL instance.
+  # Catches multiple-heads, broken revisions, and non-idempotent migrations
+  # before they reach a deploy (migrations run automatically via the container
+  # entrypoint, so a broken chain would otherwise fail on production startup).
+  migration-check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aria
+          POSTGRES_PASSWORD: aria
+          POSTGRES_DB: aria_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://aria:aria@localhost:5432/aria_test
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r app/backend/requirements.txt
+
+    - name: Assert a single Alembic head
+      run: |
+        HEADS=$(python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; s=ScriptDirectory.from_config(Config('alembic.ini')); print(len(s.get_heads()))")
+        echo "Alembic heads: $HEADS"
+        test "$HEADS" = "1"
+
+    - name: Run migrations up, then down, then up again
+      run: |
+        alembic -c alembic.ini upgrade heads
+        alembic -c alembic.ini downgrade -1
+        alembic -c alembic.ini upgrade heads
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Secret scan (gitleaks)
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Python dependency vulnerability audit (pip-audit)
+      run: |
+        python -m pip install --upgrade pip pip-audit
+        pip-audit -r app/backend/requirements.txt || true
+
+    - name: Filesystem vulnerability scan (Trivy)
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: fs
+        scan-ref: .
+        severity: HIGH,CRITICAL
+        ignore-unfixed: true
+        exit-code: '0'

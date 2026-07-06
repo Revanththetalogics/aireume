@@ -63,10 +63,19 @@ export default function StreamingText({
 
   return (
     <span className={`leading-relaxed ${className}`}>
-      {displayedText}
-      {isStreaming && (
-        <span className="inline-block w-[2px] h-[1em] bg-purple-600 ml-0.5 align-middle animate-pulse" />
-      )}
+      {/* Visual typewriter animation is hidden from assistive tech to avoid
+          per-character announcement chaos. */}
+      <span aria-hidden="true">
+        {displayedText}
+        {isStreaming && (
+          <span className="inline-block w-[2px] h-[1em] bg-purple-600 ml-0.5 align-middle animate-pulse" />
+        )}
+      </span>
+      {/* Screen readers get the full text once, announced politely only after
+          streaming completes (not on every incremental token). */}
+      <span className="sr-only" aria-live="polite">
+        {isStreaming ? '' : text}
+      </span>
     </span>
   );
 }

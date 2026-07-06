@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Users2, UserPlus, Shield, AlertCircle, Check, X } from 'lucide-react'
+import EmptyState from '../components/EmptyState'
 import { getTeamMembers, inviteTeamMember, startTraining, getTrainingStatus } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -32,7 +33,7 @@ function InviteModal({ onSave, onClose }) {
       <div className="bg-white/95 backdrop-blur-xl rounded-3xl ring-1 ring-brand-100 shadow-brand-xl w-full max-w-md p-6 card-animate">
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-extrabold text-brand-900 tracking-tight">Invite Team Member</h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
+          <button onClick={onClose} aria-label="Close dialog" className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
             <X className="w-5 h-5 text-slate-400" />
           </button>
         </div>
@@ -203,6 +204,15 @@ export default function TeamPage() {
             <div className="flex justify-center py-10">
               <div className="w-6 h-6 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
             </div>
+          ) : members.length === 0 ? (
+            <EmptyState
+              icon={Users2}
+              title="No team members yet"
+              description="Invite recruiters and hiring managers to collaborate on candidates and screenings."
+              actionLabel="Invite a teammate"
+              onAction={() => setShowInvite(true)}
+              className="py-12"
+            />
           ) : (
             <div className="divide-y divide-brand-50">
               {members.map(m => (

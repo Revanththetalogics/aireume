@@ -70,6 +70,7 @@ export default function SearchOverlay({ isOpen, onClose, items = [], renderItem,
               />
               <button
                 onClick={onClose}
+                aria-label="Close search"
                 className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-card-elevated text-slate-400"
               >
                 <X className="w-4 h-4" />

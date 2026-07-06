@@ -18,13 +18,17 @@ if DATABASE_URL.startswith("postgres://"):
 # Detect if using PostgreSQL
 _is_postgres = DATABASE_URL.startswith("postgresql")
 
-# Pool settings only for PostgreSQL (SQLite doesn't support pool settings)
+# Pool settings only for PostgreSQL (SQLite doesn't support pool settings).
+# Sizes are env-configurable so multi-worker deployments can keep the total
+# connection count (workers × pool_size) under PostgreSQL max_connections.
+# Defaults are conservative per-worker; tune DATABASE_POOL_SIZE via env.
 _pool_kwargs = {}
 if _is_postgres:
     _pool_kwargs = {
-        "pool_size": 15,
-        "max_overflow": 35,
-        "pool_recycle": 3600,
+        "pool_size": int(os.getenv("DATABASE_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("DATABASE_MAX_OVERFLOW", "10")),
+        "pool_recycle": int(os.getenv("DATABASE_POOL_RECYCLE", "3600")),
+        "pool_timeout": int(os.getenv("DATABASE_POOL_TIMEOUT", "30")),
     }
 
 connect_args = {"check_same_thread": False} if not _is_postgres else {}

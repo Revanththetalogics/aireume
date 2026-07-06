@@ -72,7 +72,11 @@ describe('ResultCard', () => {
     }
     render(<ResultCard result={resultWithSummary} />)
     expect(screen.getByText('Executive Summary')).toBeInTheDocument()
-    expect(screen.getByText('Strong candidate with excellent technical skills and leadership experience.')).toBeInTheDocument()
+    // StreamingText renders the summary twice: an aria-hidden visual span and an
+    // sr-only live region for screen readers — so there are two matching nodes.
+    expect(
+      screen.getAllByText('Strong candidate with excellent technical skills and leadership experience.').length
+    ).toBeGreaterThanOrEqual(1)
   })
 
   it('displays risk flags when provided', () => {

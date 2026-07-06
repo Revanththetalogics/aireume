@@ -188,6 +188,14 @@ export default function RecruiterInterviewPage() {
   return (
     <div className="min-h-screen bg-surface">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        {/* Breadcrumb back to the interview hub */}
+        <button
+          onClick={() => navigate('/ai-interviews')}
+          className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-brand-700 transition-colors mb-4"
+        >
+          <ChevronRight className="w-4 h-4 rotate-180" />
+          AI Interviews
+        </button>
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
@@ -234,7 +242,7 @@ export default function RecruiterInterviewPage() {
           <div className="mb-6 p-4 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
             <p className="text-sm text-red-700">{error}</p>
-            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">
+            <button onClick={() => setError(null)} aria-label="Dismiss error" className="ml-auto text-red-400 hover:text-red-600">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -382,6 +390,7 @@ export default function RecruiterInterviewPage() {
                               onClick={(e) => { e.stopPropagation(); handleCancelSession(session.id) }}
                               className="p-1.5 rounded-lg hover:bg-red-100 text-red-400 transition-colors"
                               title="Cancel"
+                              aria-label="Cancel session"
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>

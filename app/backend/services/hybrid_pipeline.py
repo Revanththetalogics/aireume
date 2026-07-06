@@ -127,8 +127,10 @@ _INJECTION_PATTERNS = [
     re.compile(r"\[/INST\]", re.IGNORECASE),
 ]
 
-_MAX_RESUME_LENGTH = 50_000   # ~50KB
-_MAX_JD_LENGTH = 20_000       # ~20KB
+# Prompt token budget (char-based proxy). Configurable via env so operators can
+# tune for their model's context window without a code change.
+_MAX_RESUME_LENGTH = int(os.getenv("MAX_RESUME_CHARS", "50000"))   # ~50KB
+_MAX_JD_LENGTH = int(os.getenv("MAX_JD_CHARS", "20000"))           # ~20KB
 
 
 def _sanitize_input(text: str, max_length: int, label: str = "content") -> str:
@@ -137,10 +139,20 @@ def _sanitize_input(text: str, max_length: int, label: str = "content") -> str:
         return text
     # Truncate excessively long inputs
     if len(text) > max_length:
+        log.info("Truncated %s from %d to %d chars before LLM prompt", label, len(text), max_length)
         text = text[:max_length]
-    # Strip known injection patterns
+    # Strip known injection patterns, counting hits for observability
+    hits = 0
     for pattern in _INJECTION_PATTERNS:
-        text = pattern.sub("[FILTERED]", text)
+        text, n = pattern.subn("[FILTERED]", text)
+        hits += n
+    if hits:
+        log.warning("Prompt-injection sanitization filtered %d pattern(s) in %s", hits, label)
+        try:
+            from app.backend.services.guardrail_service import emit_guardrail_event
+            emit_guardrail_event("prompt_injection_blocked", metadata={"field": label, "hits": hits})
+        except Exception:
+            pass
     return text
 
 

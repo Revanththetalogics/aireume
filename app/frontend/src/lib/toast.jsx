@@ -1,8 +1,9 @@
 import toast from 'react-hot-toast'
 
-export const showSuccess = (message) => toast.success(message)
+// Errors persist longer than successes so users have time to read them.
+export const showSuccess = (message) => toast.success(message, { duration: 3000 })
 
-export const showError = (message) => toast.error(message)
+export const showError = (message) => toast.error(message, { duration: 6000 })
 
 export const showUndo = (message, onUndo, duration = 5000) => {
   return toast.custom(
@@ -35,6 +36,6 @@ export const showUndo = (message, onUndo, duration = 5000) => {
   )
 }
 
-export const showLoading = (message) => toast.loading(message)
+export const showLoading = (message) => toast.loading(message, { duration: Infinity })
 
 export const dismissToast = (id) => toast.dismiss(id)

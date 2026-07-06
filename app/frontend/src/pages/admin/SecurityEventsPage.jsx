@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Loader2, Shield, Search } from 'lucide-react'
+import { Loader2, Shield, Search, AlertTriangle } from 'lucide-react'
 import { getSecurityEvents } from '../../lib/api'
 
 export default function SecurityEventsPage() {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
   const [filters, setFilters] = useState({ event_type: '', ip_address: '' })
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
@@ -12,6 +13,7 @@ export default function SecurityEventsPage() {
 
   const fetchEvents = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const params = { page, per_page: perPage }
       if (filters.event_type) params.event_type = filters.event_type
@@ -20,7 +22,8 @@ export default function SecurityEventsPage() {
       setEvents(data.items || [])
       setTotal(data.total || 0)
     } catch (err) {
-      console.error('Failed to fetch security events:', err)
+      setError(err?.response?.data?.detail || 'Failed to load security events. Please try again.')
+      setEvents([])
     } finally {
       setLoading(false)
     }
@@ -70,19 +73,35 @@ export default function SecurityEventsPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="flex items-center justify-between gap-4 bg-red-50 ring-1 ring-red-200 text-red-700 rounded-2xl px-4 py-3">
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <AlertTriangle className="w-4 h-4" />
+            {error}
+          </span>
+          <button
+            onClick={fetchEvents}
+            className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm font-bold hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {loading && !events.length ? (
         <div className="flex justify-center py-16">
           <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
         </div>
       ) : (
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-brand-50/50">
               <tr>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Event</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">IP Address</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">User Agent</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Time</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Event</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">IP Address</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">User Agent</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Time</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-brand-100">
@@ -109,6 +128,7 @@ export default function SecurityEventsPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

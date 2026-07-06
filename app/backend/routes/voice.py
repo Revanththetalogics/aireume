@@ -25,7 +25,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_internal_service
 from app.backend.models.db_models import (
     User, VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry, Candidate, RoleTemplate,
     ScreeningResult,
@@ -503,8 +503,12 @@ def get_next_available_slot(
 # They are NOT exposed through Nginx (only /api/voice/* is proxied).
 
 @router.get("/internal/config/{tenant_id}")
-def get_voice_config_internal(tenant_id: int, db: Session = Depends(get_db)):
-    """Get voice tenant config — called by voice-agent (internal, no auth)."""
+def get_voice_config_internal(
+    tenant_id: int,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_internal_service),
+):
+    """Get voice tenant config — called by voice-agent (internal, secret-guarded)."""
     config = db.execute(
         select(VoiceTenantConfig).where(VoiceTenantConfig.tenant_id == tenant_id)
     ).scalar_one_or_none()
@@ -527,8 +531,13 @@ def get_voice_config_internal(tenant_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/internal/candidate/{tenant_id}/{candidate_id}")
-def get_candidate_internal(tenant_id: int, candidate_id: int, db: Session = Depends(get_db)):
-    """Get candidate info — called by voice-agent (internal, no auth)."""
+def get_candidate_internal(
+    tenant_id: int,
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_internal_service),
+):
+    """Get candidate info — called by voice-agent (internal, secret-guarded)."""
     candidate = db.execute(
         select(Candidate).where(
             Candidate.id == candidate_id,
@@ -547,13 +556,28 @@ def get_candidate_internal(tenant_id: int, candidate_id: int, db: Session = Depe
     }
 
 
+class VoiceSessionUpdate(BaseModel):
+    """Typed, allow-listed fields for internal voice session updates."""
+    status: Optional[str] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    transcript_json: Optional[dict] = None
+    assessment_json: Optional[dict] = None
+    duration_seconds: Optional[int] = None
+    retry_count: Optional[int] = None
+    consent_recorded: Optional[bool] = None
+    call_sid: Optional[str] = None
+    error_log: Optional[str] = None
+
+
 @router.patch("/sessions/{session_id}")
 def update_voice_session(
     session_id: int,
-    body: dict,
+    body: VoiceSessionUpdate,
     db: Session = Depends(get_db),
+    _: None = Depends(require_internal_service),
 ):
-    """Update a voice screening session — called by voice-agent or internal use."""
+    """Update a voice screening session — called by voice-agent (internal, secret-guarded)."""
     session = db.execute(
         select(VoiceScreeningSession).where(VoiceScreeningSession.id == session_id)
     ).scalar_one_or_none()
@@ -561,14 +585,8 @@ def update_voice_session(
     if session is None:
         raise HTTPException(status_code=404, detail="Voice session not found")
 
-    allowed_fields = {
-        "status", "started_at", "ended_at", "transcript_json", "assessment_json",
-        "duration_seconds", "retry_count", "consent_recorded", "call_sid", "error_log",
-    }
-
-    for field_name, value in body.items():
-        if field_name in allowed_fields:
-            setattr(session, field_name, value)
+    for field_name, value in body.model_dump(exclude_unset=True).items():
+        setattr(session, field_name, value)
 
     db.commit()
     db.refresh(session)

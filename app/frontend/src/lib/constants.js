@@ -144,6 +144,22 @@ export function getScoreColor(score) {
 }
 
 /**
+ * Returns a raw hex color for a given numeric score, using the same tier
+ * thresholds as getScoreColor. Useful for SVG stroke/fill where Tailwind
+ * classes cannot be applied (e.g. gauges, charts).
+ *
+ * @param {number|null|undefined} score
+ * @returns {string} hex color
+ */
+export function getScoreHexColor(score) {
+  if (score == null) return '#94a3b8' // slate-400
+  if (score >= SCORE_THRESHOLDS.HIGH.min)   return '#22c55e' // green-500
+  if (score >= SCORE_THRESHOLDS.MEDIUM.min) return '#f59e0b' // amber-500
+  if (score >= SCORE_THRESHOLDS.LOW.min)    return '#fb923c' // orange-400
+  return '#ef4444' // red-500
+}
+
+/**
  * Returns a recommendation descriptor for a given numeric score.
  *
  * @param {number|null|undefined} score - The candidate fit score.
@@ -195,3 +211,15 @@ export function getRecommendation(score) {
  * @type {string[]}
  */
 export const PIPELINE_STAGES = ['pending', 'in-review', 'shortlisted', 'rejected', 'hired']
+
+/**
+ * Industry options presented during tenant onboarding.
+ * @type {string[]}
+ */
+export const INDUSTRIES = ['Technology', 'Healthcare', 'Finance', 'Legal', 'Manufacturing', 'Other']
+
+/**
+ * Company size buckets presented during tenant onboarding.
+ * @type {string[]}
+ */
+export const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '500+']

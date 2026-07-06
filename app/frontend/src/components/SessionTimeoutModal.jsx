@@ -10,6 +10,9 @@ export default function SessionTimeoutModal({ countdown, onStayLoggedIn, onLogou
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
       />
       <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="session-timeout-title"
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 350, damping: 28 }}
@@ -20,14 +23,14 @@ export default function SessionTimeoutModal({ countdown, onStayLoggedIn, onLogou
           <div className="mx-auto w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mb-3">
             <Clock className="w-7 h-7 text-amber-600" />
           </div>
-          <h2 className="text-xl font-bold text-slate-800">
+          <h2 id="session-timeout-title" className="text-xl font-bold text-slate-800">
             Session Expiring
           </h2>
         </div>
 
         {/* Body */}
         <div className="px-6 py-5 text-center">
-          <p className="text-sm text-slate-600 leading-relaxed">
+          <p className="text-sm text-slate-600 leading-relaxed" aria-live="assertive" aria-atomic="true">
             Your session will expire due to inactivity in{' '}
             <span className="font-bold text-amber-600 text-lg">{countdown}</span>{' '}
             second{countdown !== 1 ? 's' : ''}.

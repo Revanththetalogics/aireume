@@ -1028,12 +1028,15 @@ def add_user_to_tenant(
             "email": existing_user.email,
         }
 
-    # Create new user with temporary password
+    # Create the user with an unusable random password. The user sets their own
+    # password via a password-reset link emailed to them — the plaintext is never
+    # returned in the API response or written to logs.
     import secrets
+    from datetime import timedelta
     from app.backend.services.auth_service import get_password_hash
+    from app.backend.models.db_models import PasswordResetToken
 
-    temp_password = secrets.token_urlsafe(12)
-    hashed_pw = get_password_hash(temp_password)
+    hashed_pw = get_password_hash(secrets.token_urlsafe(32))
 
     new_user = User(
         email=body.email,
@@ -1059,12 +1062,44 @@ def add_user_to_tenant(
         ip_address=get_client_ip(request),
     )
 
+    # Issue a password-reset token and email a set-password link to the user.
+    email_sent = False
+    try:
+        reset_token = secrets.token_urlsafe(32)
+        db.add(PasswordResetToken(
+            user_id=new_user.id,
+            token=reset_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+        ))
+        db.commit()
+
+        from app.backend.services.email_service import email_service
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        reset_url = f"{frontend_url}/reset-password/{reset_token}"
+        html_body = (
+            f"<h2>Welcome to ARIA</h2>"
+            f"<p>An account has been created for you. Set your password using the "
+            f"link below (valid for 24 hours):</p>"
+            f'<p><a href="{reset_url}">Set your password</a></p>'
+        )
+        email_sent = email_service.send_email(
+            new_user.email, "Set Your Password — ARIA Platform", html_body
+        )
+    except Exception as e:  # pragma: no cover - email failures are non-fatal
+        import logging
+        logging.getLogger(__name__).error("Failed to send set-password email: %s", e)
+
     return {
         "message": "User created and added to tenant",
         "user_id": new_user.id,
         "email": new_user.email,
-        "temporary_password": temp_password,
-        "note": "User must change password on first login",
+        "invite_email_sent": email_sent,
+        "note": (
+            "A set-password link was emailed to the user."
+            if email_sent else
+            "User created, but the set-password email could not be sent. "
+            "Ask the user to use 'Forgot password' to set their password."
+        ),
     }
 
 

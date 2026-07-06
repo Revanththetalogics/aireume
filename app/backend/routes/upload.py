@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 from app.backend.middleware.auth import get_current_user, require_active_subscription
 from app.backend.models.db_models import User
+from app.backend.services.file_scan_service import validate_and_scan, UnsafeFileError
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 log = logging.getLogger("aria.upload")
@@ -290,6 +291,14 @@ async def finalize_upload(
                     status_code=400,
                     detail="File integrity check failed. MD5 hash mismatch. Please re-upload."
                 )
+
+        # Content validation + optional malware scan before the file is usable.
+        try:
+            with open(assembled_path, 'rb') as f:
+                validate_and_scan(f.read(), request.filename)
+        except UnsafeFileError as e:
+            assembled_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=str(e))
         
         log.info(
             f"File assembled: upload_id={upload_id}, filename={request.filename}, "

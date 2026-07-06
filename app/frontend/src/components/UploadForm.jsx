@@ -677,6 +677,7 @@ export default function UploadForm({
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); onFileSelect(null) }}
+                  aria-label="Remove file"
                   className="p-1.5 rounded-lg hover:bg-brand-100 text-slate-400 hover:text-brand-600 transition-colors"
                 >
                   <X className="w-4 h-4" />

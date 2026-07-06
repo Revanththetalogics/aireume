@@ -228,7 +228,7 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
               <p className="text-xs text-slate-400">Choose depth and configure the interview</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
+          <button onClick={onClose} aria-label="Close dialog" className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>

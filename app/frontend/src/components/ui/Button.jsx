@@ -50,6 +50,8 @@ export default function Button({
         ${className}
       `}
       disabled={disabled || loading}
+      aria-disabled={disabled || loading}
+      aria-busy={loading}
       {...props}
     >
       {loading && <Loader2 className="w-4 h-4 animate-spin" />}

@@ -7,6 +7,7 @@ from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import User
 from app.backend.models.schemas import JdUrlRequest, JdUrlResponse
 from app.backend.services.jd_scraper import scrape_jd
+from app.backend.services.url_safety import validate_public_url, UnsafeURLError
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +19,13 @@ async def extract_jd_from_url(
     body: JdUrlRequest,
     current_user: User = Depends(get_current_user),
 ):
-    if not body.url.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="Invalid URL — must start with http:// or https://")
+    try:
+        safe_url = validate_public_url(body.url)
+    except UnsafeURLError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     try:
+        body.url = safe_url
         jd_text = await scrape_jd(body.url)
     except Exception as e:
         logger.warning("JD extraction failed for URL %s: %s", body.url, e)

@@ -41,6 +41,8 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL_VOICE", os.getenv("OLLAMA_BASE_URL"
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL_VOICE", os.getenv("OLLAMA_MODEL", "qwen2.5:3b"))
 ARIA_BACKEND_URL = os.getenv("ARIA_BACKEND_URL", "http://backend:8000")
+INTERNAL_SERVICE_SECRET = os.getenv("INTERNAL_SERVICE_SECRET", "dev-internal-service-secret")
+INTERNAL_HEADERS = {"X-Internal-Secret": INTERNAL_SERVICE_SECRET}
 LIVEKIT_URL = os.getenv("LIVEKIT_URL", "ws://livekit:7880")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "")
@@ -261,6 +263,7 @@ class BackendClient:
             resp = await client.patch(
                 f"{self.base_url}/api/voice/sessions/{session_id}",
                 json=updates,
+                headers=INTERNAL_HEADERS,
             )
             if resp.status_code != 200:
                 logger.warning("Failed to update session %d: %s", session_id, resp.text)
@@ -270,6 +273,7 @@ class BackendClient:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{self.base_url}/api/voice/internal/config/{tenant_id}",
+                headers=INTERNAL_HEADERS,
             )
             if resp.status_code == 200:
                 return resp.json()
@@ -280,6 +284,7 @@ class BackendClient:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{self.base_url}/api/voice/internal/candidate/{tenant_id}/{candidate_id}",
+                headers=INTERNAL_HEADERS,
             )
             if resp.status_code == 200:
                 return resp.json()
@@ -806,6 +811,7 @@ async def _notify_backend_complete(session_id: str, result: dict):
             resp = await client.post(
                 f"{backend_url}/api/interviews/internal/complete",
                 json={"session_id": session_id, "result": result},
+                headers=INTERNAL_HEADERS,
             )
             resp.raise_for_status()
             logger.info("Notified backend of interview completion: session=%s status=%d", session_id, resp.status_code)

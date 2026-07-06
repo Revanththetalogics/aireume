@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, DateTime, Date, Text, Boolean, LargeBinary,
-    ForeignKey, Float, func, BigInteger, UniqueConstraint, Index, JSON
+    ForeignKey, Float, func, BigInteger, UniqueConstraint, Index, JSON, Uuid
 )
 from datetime import datetime, timezone
 import uuid
@@ -611,6 +611,7 @@ class BillingEvent(Base):
 
     id           = Column(Integer, primary_key=True, index=True)
     provider     = Column(String(20), nullable=False, index=True)   # stripe / razorpay / manual
+    event_id     = Column(String(255), nullable=True, index=True)   # provider's unique event id (idempotency)
     event_type   = Column(String(100), nullable=False, index=True)  # invoice.paid, subscription.activated, etc.
     tenant_id    = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
     raw_payload  = Column(Text, nullable=True)                       # JSON-serialised event payload
@@ -620,6 +621,10 @@ class BillingEvent(Base):
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant = relationship("Tenant")
+
+    __table_args__ = (
+        UniqueConstraint("provider", "event_id", name="uq_billing_event_provider_event_id"),
+    )
 
 
 class Invoice(Base):
@@ -1269,4 +1274,284 @@ class ScreeningCache(Base):
     __table_args__ = (
         Index("ix_screening_cache_tenant_created", "tenant_id", "created_at"),
     )
+
+
+# ─── Compliance & AI Governance ───────────────────────────────────────────────
+
+class CandidateConsent(Base):
+    """
+    Records candidate consent for AI-based processing (GDPR Art. 6/22, EU AI Act).
+    One row per (candidate, consent_type).
+    """
+    __tablename__ = "candidate_consents"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    tenant_id      = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    candidate_id   = Column(Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True)
+    consent_type   = Column(String(50), nullable=False)  # ai_screening / voice_interview / video_analysis / data_retention
+    consented      = Column(Boolean, nullable=False, default=False)
+    consented_at   = Column(DateTime(timezone=True), nullable=True)
+    consent_version = Column(String(20), nullable=False, default="1.0")
+    consent_ip     = Column(String(64), nullable=True)
+    withdrawal_at  = Column(DateTime(timezone=True), nullable=True)
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("candidate_id", "consent_type", name="uq_candidate_consent_type"),
+        Index("ix_candidate_consent_tenant", "tenant_id", "candidate_id"),
+    )
+
+
+class AIDecisionLog(Base):
+    """
+    Auditable record of every AI screening decision (GDPR Art. 22, EU AI Act
+    Art. 13/14). Captures model, prompt version, guardrail activity, and the
+    inputs-to-output chain so decisions can be explained and audited.
+    """
+    __tablename__ = "ai_decision_logs"
+
+    id                     = Column(BigInteger, primary_key=True, index=True)
+    tenant_id              = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    screening_result_id    = Column(Integer, ForeignKey("screening_results.id", ondelete="SET NULL"), nullable=True, index=True)
+    candidate_id           = Column(Integer, ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True, index=True)
+    model_name             = Column(String(100), nullable=True)
+    model_version          = Column(String(50), nullable=True)
+    prompt_template_version = Column(String(20), nullable=True)
+    prompt_hash            = Column(String(64), nullable=True)
+    raw_llm_output         = Column(Text, nullable=True)
+    guardrails_triggered   = Column(JSON, nullable=True, default=list)
+    fallback_used          = Column(Boolean, nullable=False, default=False)
+    deterministic_score    = Column(Float, nullable=True)
+    llm_score              = Column(Float, nullable=True)
+    final_score            = Column(Float, nullable=True)
+    created_at             = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_ai_decision_tenant_created", "tenant_id", "created_at"),
+    )
+
+
+class IdempotencyKey(Base):
+    """Stores processed idempotency keys to de-duplicate mutating requests."""
+    __tablename__ = "idempotency_keys"
+
+    key             = Column(String(128), primary_key=True)
+    tenant_id       = Column(Integer, nullable=False, index=True)
+    endpoint        = Column(String(200), nullable=False)
+    response_status = Column(Integer, nullable=True)
+    response_body   = Column(JSON, nullable=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at      = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class BreachLog(Base):
+    """Data breach incident register (GDPR Art. 33)."""
+    __tablename__ = "breach_logs"
+
+    id                        = Column(BigInteger, primary_key=True, index=True)
+    tenant_id                 = Column(Integer, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
+    detected_at               = Column(DateTime(timezone=True), server_default=func.now())
+    breach_type               = Column(String(100), nullable=False)
+    affected_records_count    = Column(Integer, nullable=True)
+    affected_data_categories  = Column(JSON, nullable=True)
+    reported_to_authority_at  = Column(DateTime(timezone=True), nullable=True)
+    notified_subjects_at      = Column(DateTime(timezone=True), nullable=True)
+    description               = Column(Text, nullable=True)
+    remediation_steps         = Column(Text, nullable=True)
+    created_by                = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at                = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DataRetentionPolicy(Base):
+    """Per-tenant data retention configuration (GDPR Art. 5(1)(e))."""
+    __tablename__ = "data_retention_policies"
+
+    id                                = Column(Integer, primary_key=True, index=True)
+    tenant_id                         = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    candidate_retention_days          = Column(Integer, nullable=False, default=730)
+    screening_result_retention_days   = Column(Integer, nullable=False, default=1095)
+    voice_transcript_retention_days   = Column(Integer, nullable=False, default=365)
+    ai_decision_log_retention_days    = Column(Integer, nullable=False, default=2555)
+    created_at                        = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at                        = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+# ─── Analysis Queue (scalable job queue) ──────────────────────────────────────
+# These models back the async analysis queue. They live here (rather than in
+# services/queue_manager.py where the QueueManager logic lives) so that all ORM
+# table definitions are colocated and discoverable by Alembic/tooling.
+import uuid as _uuid
+
+
+class AnalysisJob(Base):
+    __tablename__ = 'analysis_jobs'
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=_uuid.uuid4)
+    tenant_id = Column(Integer, ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    candidate_id = Column(Integer, ForeignKey('candidates.id', ondelete='SET NULL'), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+
+    job_type = Column(String(50), nullable=False, default='resume_screening', index=True)
+    resume_hash = Column(String(64), nullable=False, index=True)
+    jd_hash = Column(String(64), nullable=False, index=True)
+    input_hash = Column(String(64), nullable=False, unique=True)
+
+    status = Column(String(20), nullable=False, default='queued', index=True)
+    priority = Column(Integer, nullable=False, default=5, index=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    max_retries = Column(Integer, nullable=False, default=3)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    queued_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    failed_at = Column(DateTime(timezone=True), nullable=True)
+    next_retry_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+    worker_id = Column(String(100), nullable=True, index=True)
+    worker_heartbeat = Column(DateTime(timezone=True), nullable=True)
+
+    artifact_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True)
+
+    processing_stage = Column(String(50), nullable=True)
+    progress_percent = Column(Integer, nullable=False, default=0)
+    estimated_completion = Column(DateTime(timezone=True), nullable=True)
+
+    error_message = Column(Text, nullable=True)
+    error_type = Column(String(100), nullable=True)
+    error_stack_trace = Column(Text, nullable=True)
+    error_context = Column(JSON, nullable=True)
+
+    result_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_results.id', ondelete='SET NULL'), nullable=True)
+    job_config = Column(JSON, nullable=True)
+
+    leased_until = Column(DateTime(timezone=True), nullable=True, index=True)
+    content_hash = Column(String(64), nullable=True, index=True)
+
+
+class AnalysisResult(Base):
+    __tablename__ = 'analysis_results'
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=_uuid.uuid4)
+    job_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_jobs.id', ondelete='CASCADE'), nullable=False, unique=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    candidate_id = Column(Integer, ForeignKey('candidates.id', ondelete='SET NULL'), nullable=True, index=True)
+
+    fit_score = Column(Integer, nullable=False)
+    final_recommendation = Column(String(50), nullable=False)
+    risk_level = Column(String(20), nullable=True)
+
+    analysis_data = Column(JSON, nullable=False)
+    parsed_resume = Column(JSON, nullable=False)
+    parsed_jd = Column(JSON, nullable=False)
+
+    narrative_status = Column(String(20), nullable=False, default='pending')
+    narrative_data = Column(JSON, nullable=True)
+    narrative_generated_at = Column(DateTime(timezone=True), nullable=True)
+    ai_enhanced = Column(Boolean, nullable=False, default=False)
+
+    analysis_version = Column(String(20), nullable=False, default='1.0')
+    model_used = Column(String(100), nullable=True)
+    processing_time_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+
+    analysis_quality = Column(String(20), nullable=False, default='medium')
+    confidence_score = Column(Float, nullable=True)
+
+    artifact_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_artifacts.id', ondelete='SET NULL'), nullable=True)
+
+
+class DeadLetterJob(Base):
+    """Dead letter queue - stores jobs that failed after all retries."""
+    __tablename__ = 'dead_letter_jobs'
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=_uuid.uuid4)
+    original_job_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
+    tenant_id = Column(Integer, nullable=False, index=True)
+    candidate_id = Column(Integer, nullable=True)
+    user_id = Column(Integer, nullable=True)
+
+    job_type = Column(String(50), nullable=False)
+    resume_hash = Column(String(64), nullable=False)
+    jd_hash = Column(String(64), nullable=False)
+    input_hash = Column(String(64), nullable=False)
+
+    job_config = Column(JSON, nullable=True)
+
+    failure_reason = Column(Text, nullable=False)
+    failure_type = Column(String(100), nullable=True)
+    last_error_message = Column(Text, nullable=True)
+    last_error_trace = Column(Text, nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+
+    original_created_at = Column(DateTime(timezone=True), nullable=False)
+    failed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    reprocessed_at = Column(DateTime(timezone=True), nullable=True)
+
+    status = Column(String(20), nullable=False, default='pending', index=True)
+    reprocessed_job_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_jobs.id', ondelete='SET NULL'), nullable=True)
+
+
+class AnalysisArtifact(Base):
+    __tablename__ = 'analysis_artifacts'
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=_uuid.uuid4)
+    tenant_id = Column(Integer, ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    resume_filename = Column(String(255), nullable=False)
+    resume_size_bytes = Column(Integer, nullable=False)
+    resume_hash = Column(String(64), nullable=False, index=True)
+    resume_mime_type = Column(String(100), nullable=True)
+
+    jd_filename = Column(String(255), nullable=True)
+    jd_size_bytes = Column(Integer, nullable=True)
+    jd_hash = Column(String(64), nullable=False, index=True)
+    jd_text = Column(Text, nullable=False)
+
+    resume_storage_path = Column(String(500), nullable=True)
+    resume_storage_bucket = Column(String(100), nullable=True)
+
+    resume_text = Column(Text, nullable=False)
+    resume_text_length = Column(Integer, nullable=False)
+
+    parsed_resume_cache = Column(JSON, nullable=True)
+    parsed_jd_cache = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    access_count = Column(Integer, nullable=False, default=0)
+    last_accessed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class JobMetrics(Base):
+    __tablename__ = 'job_metrics'
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=_uuid.uuid4)
+    job_id = Column(Uuid(as_uuid=True), ForeignKey('analysis_jobs.id', ondelete='CASCADE'), nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    queue_wait_time_ms = Column(Integer, nullable=True)
+    parsing_time_ms = Column(Integer, nullable=True)
+    llm_time_ms = Column(Integer, nullable=True)
+    narrative_time_ms = Column(Integer, nullable=True)
+    total_time_ms = Column(Integer, nullable=False)
+
+    llm_tokens_input = Column(Integer, nullable=True)
+    llm_tokens_output = Column(Integer, nullable=True)
+    llm_calls_count = Column(Integer, nullable=True)
+    memory_peak_mb = Column(Integer, nullable=True)
+
+    parsing_confidence = Column(Float, nullable=True)
+    analysis_confidence = Column(Float, nullable=True)
+    json_parse_retries = Column(Integer, nullable=False, default=0)
+
+    stage_timings = Column(JSON, nullable=True)
+
+    error_stage = Column(String(50), nullable=True)
+    retry_attempts = Column(Integer, nullable=False, default=0)
+
+    worker_id = Column(String(100), nullable=True)
+    worker_version = Column(String(50), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

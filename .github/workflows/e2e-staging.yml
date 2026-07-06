@@ -1,0 +1,64 @@
+name: E2E - Staging (authenticated)
+
+# Runs the full authenticated Playwright suite against the live staging
+# environment. Kept separate from the PR CI (which only runs the secret-free
+# login-page specs) because these tests need real credentials and the full
+# stack to be up.
+on:
+  schedule:
+    # Every day at 02:30 UTC. Adjust as needed.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Override staging base URL (optional)'
+        required: false
+        default: ''
+
+concurrency:
+  group: e2e-staging
+  cancel-in-progress: true
+
+jobs:
+  e2e-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Credentials come from repository secrets — never hardcoded.
+      E2E_WORKSPACE: ${{ secrets.E2E_WORKSPACE }}
+      E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Install E2E runner (root)
+      run: npm ci
+
+    - name: Install Playwright browser
+      run: npx playwright install --with-deps chromium
+
+    - name: Guard — require credentials
+      run: |
+        if [ -z "$E2E_EMAIL" ] || [ -z "$E2E_PASSWORD" ] || [ -z "$E2E_WORKSPACE" ]; then
+          echo "::error::Missing E2E secrets. Set E2E_WORKSPACE, E2E_EMAIL and E2E_PASSWORD in repo secrets."
+          exit 1
+        fi
+
+    - name: Run authenticated E2E against staging
+      run: npx playwright test
+      env:
+        # Optional per-run base URL override from workflow_dispatch input.
+        PLAYWRIGHT_BASE_URL: ${{ github.event.inputs.base_url }}
+
+    - name: Upload Playwright report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-report-staging
+        path: playwright-report/
+        retention-days: 14

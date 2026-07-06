@@ -10,6 +10,7 @@ from pydantic import BaseModel, HttpUrl
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import User
 from app.backend.services.video_service import analyze_video_file, analyze_video_from_url
+from app.backend.services.url_safety import validate_public_url, UnsafeURLError
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +59,13 @@ async def analyze_video_url(
     body:         VideoUrlRequest,
     current_user: User = Depends(get_current_user),
 ):
-    if not body.url or not body.url.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="A valid HTTP/HTTPS URL is required.")
+    try:
+        safe_url = validate_public_url(body.url)
+    except UnsafeURLError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     try:
-        result = await analyze_video_from_url(body.url)
+        result = await analyze_video_from_url(safe_url)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

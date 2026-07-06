@@ -41,7 +41,14 @@ export default function VoiceAssessmentPanel({ assessment }) {
     try { return JSON.parse(assessment) } catch { return null }
   })() : assessment
 
-  if (!data) return null
+  if (!data || typeof data !== 'object') {
+    return (
+      <div className="flex items-center gap-2 p-4 rounded-2xl bg-amber-50 ring-1 ring-amber-200 text-sm text-amber-700">
+        <AlertTriangle className="w-4 h-4 shrink-0" />
+        Assessment data unavailable or malformed for this session.
+      </div>
+    )
+  }
 
   const {
     overall_score,

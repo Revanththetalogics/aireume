@@ -36,7 +36,7 @@ export default function ScoreGauge({ score }) {
           className="relative rounded-full p-3 shadow-lg shadow-slate-200"
           style={{ width: size, height: size }}
         >
-          <svg className="transform -rotate-90" width={size} height={size}>
+          <svg className="transform -rotate-90" width={size} height={size} role="img" aria-label="Fit score pending — manual review required">
             <circle
               cx={size / 2} cy={size / 2} r={radius}
               fill="none" stroke="#F1F5F9" strokeWidth={strokeWidth}
@@ -67,6 +67,8 @@ export default function ScoreGauge({ score }) {
           className="transform -rotate-90"
           width={size}
           height={size}
+          role="img"
+          aria-label={`Fit score ${score} out of 100 — ${label}`}
         >
           <circle
             cx={size / 2} cy={size / 2} r={radius}

@@ -24,6 +24,7 @@ function ProficiencyChip({ skill, onRemove }) {
           onClick={onRemove}
           className="p-0.5 rounded hover:bg-black/10 transition-colors"
           title="Remove skill"
+          aria-label="Remove skill"
         >
           <X className="w-3 h-3" />
         </button>
@@ -182,7 +183,7 @@ function ProfileModal({ profile, onSave, onClose }) {
           <h3 className="font-extrabold text-brand-900 tracking-tight">
             {isEdit ? 'Edit Team Profile' : 'New Team Profile'}
           </h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
+          <button onClick={onClose} aria-label="Close dialog" className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
             <X className="w-5 h-5 text-slate-400" />
           </button>
         </div>

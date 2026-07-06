@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 
 /**
  * PageTransition — wraps each page element for route-level enter/exit animation.
@@ -16,14 +16,21 @@ const variants = {
   exit: { opacity: 0, y: -8 },
 }
 
+const reducedVariants = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+}
+
 export default function PageTransition({ children }) {
+  const shouldReduceMotion = useReducedMotion()
   return (
     <motion.div
-      variants={variants}
+      variants={shouldReduceMotion ? reducedVariants : variants}
       initial="initial"
       animate="animate"
       exit="exit"
-      transition={{ duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
+      transition={shouldReduceMotion ? { duration: 0.15 } : { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
     >
       {children}
     </motion.div>

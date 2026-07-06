@@ -58,7 +58,7 @@ function TemplateModal({ template, onSave, onClose }) {
           <h3 className="font-extrabold text-brand-900 tracking-tight">
             {template ? 'Edit Job Description' : 'New Job Description'}
           </h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
+          <button onClick={onClose} aria-label="Close dialog" className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors">
             <X className="w-5 h-5 text-slate-400" />
           </button>
         </div>

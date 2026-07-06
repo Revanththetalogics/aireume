@@ -630,6 +630,7 @@ export default function PlanManagementPage() {
               </h3>
               <button
                 onClick={() => setShowModal(false)}
+                aria-label="Close dialog"
                 className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors"
               >
                 <X className="w-5 h-5 text-slate-400" />

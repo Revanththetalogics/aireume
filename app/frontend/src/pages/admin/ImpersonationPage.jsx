@@ -158,15 +158,16 @@ export default function ImpersonationPage() {
             <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
           </div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-brand-50/50">
               <tr>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Admin</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Target User</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Created</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Expires</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">IP</th>
-                <th className="text-right px-4 py-3 font-bold text-brand-900">Action</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Admin</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Target User</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Created</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Expires</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">IP</th>
+                <th scope="col" className="text-right px-4 py-3 font-bold text-brand-900">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-brand-100">
@@ -197,6 +198,7 @@ export default function ImpersonationPage() {
               )}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

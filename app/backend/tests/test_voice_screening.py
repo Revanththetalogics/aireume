@@ -469,7 +469,12 @@ class TestGetVoiceSession:
         assert data["transcript"] == []
 
 
-# ─── Internal Endpoints (no auth) ─────────────────────────────────────────────
+# ─── Internal Endpoints (secret-guarded, called by voice-agent) ───────────────
+
+# In the test environment INTERNAL_SERVICE_SECRET resolves to this value
+# (see app/backend/middleware/auth.py).
+_INTERNAL_HEADERS = {"X-Internal-Secret": "test-internal-service-secret"}
+
 
 class TestInternalConfig:
 
@@ -485,13 +490,18 @@ class TestInternalConfig:
         db.add(config)
         db.commit()
 
-        resp = client.get(f"/api/voice/internal/config/{tenant.id}")
+        resp = client.get(f"/api/voice/internal/config/{tenant.id}", headers=_INTERNAL_HEADERS)
         assert resp.status_code == 200
         assert resp.json()["bot_name"] == "TestBot"
 
+    def test_internal_config_requires_secret(self, client):
+        """Missing internal secret must be rejected with 403."""
+        resp = client.get("/api/voice/internal/config/1")
+        assert resp.status_code == 403
+
     def test_internal_config_missing(self, client, db):
         """Should return empty dict for unknown tenant."""
-        resp = client.get("/api/voice/internal/config/99999")
+        resp = client.get("/api/voice/internal/config/99999", headers=_INTERNAL_HEADERS)
         assert resp.status_code == 200
         assert resp.json() == {}
 
@@ -508,7 +518,10 @@ class TestInternalCandidate:
 
         candidate = _create_candidate(db, tenant.id, email="cand@test.com")
 
-        resp = client.get(f"/api/voice/internal/candidate/{tenant.id}/{candidate.id}")
+        resp = client.get(
+            f"/api/voice/internal/candidate/{tenant.id}/{candidate.id}",
+            headers=_INTERNAL_HEADERS,
+        )
         assert resp.status_code == 200
         assert resp.json()["name"] == "Voice Candidate"
 
@@ -520,7 +533,10 @@ class TestInternalCandidate:
         db.commit()
         db.refresh(tenant)
 
-        resp = client.get(f"/api/voice/internal/candidate/{tenant.id}/99999")
+        resp = client.get(
+            f"/api/voice/internal/candidate/{tenant.id}/99999",
+            headers=_INTERNAL_HEADERS,
+        )
         assert resp.status_code == 404
 
 
@@ -544,7 +560,7 @@ class TestUpdateVoiceSession:
         resp = auth_client.patch(f"/api/voice/sessions/{session.id}", json={
             "status": "in_progress",
             "call_sid": "test-sid-123",
-        })
+        }, headers=_INTERNAL_HEADERS)
         assert resp.status_code == 200
         assert resp.json()["status"] == "in_progress"
 
@@ -555,7 +571,8 @@ class TestUpdateVoiceSession:
 
     def test_patch_session_not_found(self, auth_client):
         """Should return 404 for unknown session."""
-        resp = auth_client.patch("/api/voice/sessions/99999", json={"status": "completed"})
+        resp = auth_client.patch("/api/voice/sessions/99999", json={"status": "completed"},
+                                 headers=_INTERNAL_HEADERS)
         assert resp.status_code == 404
 
     def test_patch_ignores_disallowed_fields(self, auth_client, db):
@@ -574,7 +591,7 @@ class TestUpdateVoiceSession:
         resp = auth_client.patch(f"/api/voice/sessions/{session.id}", json={
             "tenant_id": 999,  # Not allowed
             "phone_number": "+99999999999",  # Not allowed
-        })
+        }, headers=_INTERNAL_HEADERS)
         assert resp.status_code == 200
 
         # Verify disallowed fields were NOT changed

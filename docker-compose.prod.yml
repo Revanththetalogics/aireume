@@ -23,6 +23,7 @@ services:
       -c wal_buffers=64MB
       -c checkpoint_completion_target=0.9
       -c random_page_cost=1.1
+      -c log_min_duration_statement=1000
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aria}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
@@ -98,6 +99,7 @@ services:
       - DATABASE_POOL_SIZE=${DATABASE_POOL_SIZE:-20}
       - DATABASE_MAX_OVERFLOW=${DATABASE_MAX_OVERFLOW:-10}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
+      - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET must be set}
       - ENVIRONMENT=production
       # Using gemma4:31b-cloud - powerful multimodal model with strong reasoning
       # Excellent for video malpractice detection, resume analysis, and transcript evaluation
@@ -207,14 +209,15 @@ services:
         done;
         echo '  ✓  Ollama is up';
         echo '';
-        echo '  Loading gemma4:31b into RAM...';
-        ollama run gemma4:31b 'warmup' --nowordwrap;
-        echo '  ✓  gemma4:31b is HOT in RAM';
+        echo \"  Loading $${OLLAMA_MODEL} into RAM...\";
+        ollama run $${OLLAMA_MODEL} 'warmup' --nowordwrap;
+        echo \"  ✓  $${OLLAMA_MODEL} is HOT in RAM\";
         echo '  ✓  Warmup complete — exiting (KEEP_ALIVE=-1 keeps model loaded)';
         echo '============================================';
       "
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
     deploy:
       resources:
         limits:
@@ -222,12 +225,18 @@ services:
           memory: 256M
     restart: "no"
 
-  # Watchtower: polls Docker Hub every 60s and auto-restarts any container
-  # whose image has been updated. This is the deployment mechanism — every
-  # git push that passes CI/CD builds a new :latest image, and Watchtower
-  # picks it up within a minute without any manual SSH intervention.
-  # Monitors only ARIA containers (label filter) so it doesn't touch other
-  # stacks running on the same VPS.
+  # Watchtower: polls Docker Hub for updated images of ARIA containers.
+  #
+  # PRODUCTION SAFETY: by default this runs in MONITOR-ONLY mode
+  # (WATCHTOWER_MONITOR_ONLY=true) — it detects and logs/notifies about new
+  # images but does NOT auto-restart containers. This is the approval gate:
+  # an operator promotes a release by pulling and recreating the stack, e.g.
+  #     docker compose -f docker-compose.prod.yml pull
+  #     docker compose -f docker-compose.prod.yml up -d
+  # To restore fully-automatic production deploys, set
+  # WATCHTOWER_MONITOR_ONLY=false in the environment. Configure
+  # WATCHTOWER_NOTIFICATION_URL (shoutrrr) to receive update notifications.
+  # Monitors only ARIA containers so it doesn't touch other stacks on the VPS.
   watchtower:
     image: containrrr/watchtower
     container_name: resume-screener-watchtower
@@ -246,6 +255,8 @@ services:
     environment:
       - WATCHTOWER_INCLUDE_STOPPED=false
       - WATCHTOWER_NO_PULL=false
+      - WATCHTOWER_MONITOR_ONLY=${WATCHTOWER_MONITOR_ONLY:-true}
+      - WATCHTOWER_NOTIFICATION_URL=${WATCHTOWER_NOTIFICATION_URL:-}
     deploy:
       resources:
         limits:
@@ -317,6 +328,7 @@ services:
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:31b-cloud}
       - ARIA_BACKEND_URL=http://backend:8000
+      - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET must be set}
     depends_on:
       livekit:
         condition: service_healthy

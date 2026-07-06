@@ -36,7 +36,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-ACCESS_TOKEN_EXPIRE_MINUTES  = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES",  "5"))
+ACCESS_TOKEN_EXPIRE_MINUTES  = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES",  "15"))
 REFRESH_TOKEN_EXPIRE_DAYS    = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS",    "30"))
 
 
@@ -414,6 +414,24 @@ async def logout(request: Request, db: Session = Depends(get_db)):
             # If token is invalid, just proceed with logout
             pass
     
+    # Also revoke the access token JTI so it cannot be reused before natural expiry
+    access_token_value = request.cookies.get("access_token")
+    if not access_token_value:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            access_token_value = auth_header[7:]
+    if access_token_value:
+        try:
+            payload = jwt.decode(access_token_value, SECRET_KEY, algorithms=[ALGORITHM])
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and not db.query(RevokedToken).filter(RevokedToken.jti == jti).first():
+                expires_at = datetime.fromtimestamp(exp, tz=timezone.utc) if exp else datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+                db.add(RevokedToken(jti=jti, expires_at=expires_at))
+                db.commit()
+        except (JWTError, ValueError, Exception):
+            pass
+
     response = JSONResponse(content={"message": "Logged out successfully"})
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")

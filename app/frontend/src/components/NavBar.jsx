@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { STATUS_CONFIG } from '../lib/constants'
 import ProgressBadge from './ProgressBadge'
+import NotificationBell from './NotificationBell'
 
 /* ── Static config ───────────────────────────────────── */
 
@@ -154,6 +155,7 @@ function MobileTabBar({ location }) {
               <Link
                 key={tab.path}
                 to={tab.path}
+                aria-current={active ? 'page' : undefined}
                 className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors ${
                   active ? 'text-brand-600' : 'text-slate-400'
                 }`}
@@ -293,6 +295,7 @@ export default function NavBar() {
                 <Link
                   key={item.path}
                   to={item.path}
+                  aria-current={active ? 'page' : undefined}
                   className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                     active
                       ? 'text-brand-700'
@@ -317,6 +320,7 @@ export default function NavBar() {
           {/* Right: progress + admin link + avatar (desktop) */}
           <div className="hidden md:flex items-center gap-3">
             <ProgressBadge />
+            <NotificationBell />
             {isPlatformAdmin && (
               <Link
                 to="/admin"

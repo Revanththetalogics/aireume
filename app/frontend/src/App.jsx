@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, MotionConfig } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { NotificationProvider } from './contexts/NotificationContext'
 import { OnboardingProvider, useOnboarding } from './contexts/OnboardingContext'
@@ -73,10 +73,17 @@ function PageLoader() {
 }
 
 function Shell({ children }) {
+  const location = useLocation()
   return (
     <ProtectedRoute>
       <SubscriptionProvider>
-        <AppShell>{children}</AppShell>
+        <AppShell>
+          {/* Per-route boundary: a crash in one page keeps the NavBar and
+              other app chrome mounted, and resets when the route changes. */}
+          <ErrorBoundary key={location.pathname}>
+            {children}
+          </ErrorBoundary>
+        </AppShell>
       </SubscriptionProvider>
     </ProtectedRoute>
   )
@@ -107,6 +114,7 @@ function App() {
   const location = useLocation()
 
   return (
+    <MotionConfig reducedMotion="user">
     <AuthProvider>
         <NotificationProvider>
           <OnboardingProvider>
@@ -196,6 +204,7 @@ function App() {
           </OnboardingProvider>
         </NotificationProvider>
     </AuthProvider>
+    </MotionConfig>
   )
 }
 

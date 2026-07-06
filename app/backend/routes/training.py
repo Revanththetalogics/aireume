@@ -24,6 +24,18 @@ _status: dict = {}  # tenant_id → {trained, last_trained, model_name}
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
+def _training_enabled() -> bool:
+    """
+    Fine-tuning is a beta/WIP feature. It is disabled by default in production
+    and must be explicitly enabled via TRAINING_ENABLED=true. In non-production
+    environments it defaults to enabled for development.
+    """
+    explicit = os.getenv("TRAINING_ENABLED")
+    if explicit is not None:
+        return explicit.strip().lower() in ("1", "true", "yes", "on")
+    return os.getenv("ENVIRONMENT", "development").lower() != "production"
+
+
 @router.post("/label")
 def label_example(
     body: LabelRequest,
@@ -72,6 +84,12 @@ def start_training(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
+    if not _training_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Model fine-tuning is in beta and is currently disabled. Contact your administrator to enable it."
+        )
+
     examples = (
         db.query(TrainingExample)
         .filter(TrainingExample.tenant_id == current_user.tenant_id)

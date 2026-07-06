@@ -81,6 +81,13 @@ def _load_user_from_token(db: Session, token: str) -> User:
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+    # Reject tokens whose JTI has been explicitly revoked (e.g. on logout)
+    jti = payload.get("jti")
+    if jti:
+        revoked = db.query(RevokedToken).filter(RevokedToken.jti == jti).first()
+        if revoked:
+            raise HTTPException(status_code=401, detail="Token revoked")
+
     user = (
         db.query(User)
         .options(joinedload(User.tenant))
@@ -261,3 +268,39 @@ def require_feature(feature_key: str):
             )
         return current_user
     return dependency
+
+
+# ─── Internal Service-to-Service Auth ─────────────────────────────────────────
+
+import secrets as _secrets
+
+INTERNAL_SERVICE_SECRET = os.environ.get("INTERNAL_SERVICE_SECRET")
+if not INTERNAL_SERVICE_SECRET:
+    _env = os.environ.get("ENVIRONMENT", "development")
+    if os.environ.get("TESTING", "").lower() in ("1", "true"):
+        INTERNAL_SERVICE_SECRET = "test-internal-service-secret"
+    elif _env == "production":
+        import sys as _sys
+        import logging as _logging
+        _logging.getLogger(__name__).critical(
+            "FATAL: INTERNAL_SERVICE_SECRET not set. Refusing to start in production; "
+            "internal service endpoints (voice/recruiter/interview callbacks) require it."
+        )
+        _sys.exit(1)
+    else:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "WARNING: INTERNAL_SERVICE_SECRET not set. Using an insecure development default."
+        )
+        INTERNAL_SERVICE_SECRET = "dev-internal-service-secret"
+
+
+def require_internal_service(request: Request) -> None:
+    """
+    Dependency guarding service-to-service internal endpoints (called by the
+    voice-agent container). Validates the X-Internal-Secret header against
+    INTERNAL_SERVICE_SECRET using a constant-time comparison.
+    """
+    provided = request.headers.get("X-Internal-Secret", "")
+    if not provided or not _secrets.compare_digest(provided, INTERNAL_SERVICE_SECRET):
+        raise HTTPException(status_code=403, detail="Invalid or missing internal service credentials")

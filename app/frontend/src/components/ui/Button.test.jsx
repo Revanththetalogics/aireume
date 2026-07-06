@@ -46,4 +46,18 @@ describe('Button', () => {
     render(<Button loading>Loading</Button>)
     expect(screen.getByRole('button').querySelector('.animate-spin')).toBeInTheDocument()
   })
+
+  it('exposes aria-busy and aria-disabled while loading', () => {
+    render(<Button loading>Saving</Button>)
+    const btn = screen.getByRole('button')
+    expect(btn).toHaveAttribute('aria-busy', 'true')
+    expect(btn).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('is not aria-busy when idle', () => {
+    render(<Button>Idle</Button>)
+    const btn = screen.getByRole('button')
+    expect(btn).toHaveAttribute('aria-busy', 'false')
+    expect(btn).toHaveAttribute('aria-disabled', 'false')
+  })
 })

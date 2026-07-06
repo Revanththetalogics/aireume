@@ -3,12 +3,19 @@ import path from 'path';
 
 const authFile = path.join(__dirname, '.auth/user.json');
 
+// Credentials are overridable via env so this file needn't hardcode secrets.
+const E2E_WORKSPACE = process.env.E2E_WORKSPACE || 'thetalogics';
+const E2E_EMAIL = process.env.E2E_EMAIL || 'revanth.a@thetalogics.com';
+const E2E_PASSWORD = process.env.E2E_PASSWORD || 'Admin@123';
+
 setup('authenticate', async ({ page }) => {
   await page.goto('/login');
 
-  // Fill login form
-  await page.getByPlaceholder(/email/i).fill('revanth.a@thetalogics.com');
-  await page.getByPlaceholder(/password/i).fill('Admin@123');
+  // The login form now requires a workspace slug in addition to email/password.
+  // Placeholders (not labels) are the stable selectors on this page.
+  await page.getByPlaceholder('your-company').fill(E2E_WORKSPACE);
+  await page.getByPlaceholder('you@company.com').fill(E2E_EMAIL);
+  await page.getByPlaceholder('••••••••').fill(E2E_PASSWORD);
   await page.getByRole('button', { name: /sign in|log in|login/i }).click();
 
   // Wait for redirect to dashboard/home

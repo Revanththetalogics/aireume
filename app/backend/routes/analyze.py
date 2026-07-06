@@ -305,7 +305,48 @@ def _upsert_screening_result(
     db.add(new_result)
     db.commit()
     db.refresh(new_result)
+    _write_ai_decision_log(db, new_result, pipeline_result)
     return new_result
+
+
+def _write_ai_decision_log(db: Session, result: ScreeningResult, pipeline_result: dict | None) -> None:
+    """Persist an auditable AI decision record (GDPR Art. 22 / EU AI Act).
+
+    Best-effort: never raises into the analysis path.
+    """
+    if pipeline_result is None:
+        return
+    try:
+        from app.backend.models.db_models import AIDecisionLog
+
+        meta = pipeline_result.get("_meta", {}) if isinstance(pipeline_result, dict) else {}
+        guardrails = meta.get("guardrails_triggered") or pipeline_result.get("guardrails_triggered") or []
+        final_score = (
+            pipeline_result.get("fit_score")
+            or pipeline_result.get("overall_score")
+            or pipeline_result.get("score")
+        )
+        db.add(AIDecisionLog(
+            tenant_id=result.tenant_id,
+            screening_result_id=result.id,
+            candidate_id=result.candidate_id,
+            model_name=meta.get("model_name") or pipeline_result.get("model_used"),
+            model_version=meta.get("model_version"),
+            prompt_template_version=meta.get("prompt_template_version"),
+            prompt_hash=meta.get("prompt_hash"),
+            guardrails_triggered=guardrails if isinstance(guardrails, list) else [],
+            fallback_used=bool(meta.get("fallback_used") or pipeline_result.get("fallback_used")),
+            deterministic_score=meta.get("deterministic_score"),
+            llm_score=meta.get("llm_score"),
+            final_score=final_score,
+        ))
+        db.commit()
+    except Exception as e:
+        log.warning("Non-critical: failed to write AIDecisionLog: %s", e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def _apply_skill_overrides(jd_analysis: dict, overrides: dict | None) -> dict:

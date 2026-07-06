@@ -67,6 +67,15 @@ def _validate_environment() -> None:
     if not os.getenv("CORS_ORIGINS"):
         warnings.append("CORS_ORIGINS not set - using default localhost origins")
 
+    # LiveKit dev credentials must never be used in production.
+    if env == "production":
+        if os.getenv("LIVEKIT_API_KEY") == "devkey" or os.getenv("LIVEKIT_API_SECRET") == "devsecret":
+            missing_vars.append("LIVEKIT_API_KEY/LIVEKIT_API_SECRET (dev defaults not allowed in production)")
+        # CORS_ORIGINS wildcard is a security risk in production.
+        cors = os.getenv("CORS_ORIGINS", "")
+        if cors.strip() == "*" or "*" in [o.strip() for o in cors.split(",")]:
+            missing_vars.append("CORS_ORIGINS (wildcard '*' not allowed in production)")
+
     if env == "production" and missing_vars:
         logger.critical(
             f"FATAL: Missing or insecure environment variables in production: {', '.join(missing_vars)}. Refusing to start."
@@ -296,10 +305,15 @@ async def lifespan(app: FastAPI):
     Never raises: if startup checks crash, we still bind the server so nginx
     does not return 502 Bad Gateway (upstream connection refused).
     """
-    try:
-        Base.metadata.create_all(bind=engine)
-    except Exception as e:
-        log.exception("create_all failed: %s", e)
+    # Schema is managed exclusively by Alembic (see docker-entrypoint.sh:
+    # `alembic upgrade head`). We only auto-create tables in the test/dev-SQLite
+    # context where migrations are not run, to avoid production schema drift.
+    import os as _os
+    if _os.getenv("TESTING", "").lower() in ("1", "true") or _os.getenv("AUTO_CREATE_TABLES", "").lower() in ("1", "true"):
+        try:
+            Base.metadata.create_all(bind=engine)
+        except Exception as e:
+            log.exception("create_all failed: %s", e)
 
     try:
         checks = await _startup_checks()
@@ -396,11 +410,17 @@ async def lifespan(app: FastAPI):
     jd_cache_cleanup_task.cancel()
 
 
+# In production, disable interactive API docs and the OpenAPI schema endpoint
+# to reduce the reconnaissance attack surface.
+_is_production = os.getenv("ENVIRONMENT", "development") == "production"
 app = FastAPI(
     title="ARIA — AI Resume Intelligence by ThetaLogics",
     description="Multi-tenant AI resume screening platform",
     version=VERSION,
     lifespan=lifespan,
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 # ─── Prometheus Metrics ───────────────────────────────────────────────────────
@@ -410,7 +430,9 @@ instrumentator = Instrumentator(
     should_ignore_untemplated=True,
     excluded_handlers=["/health", "/metrics"],
 )
-instrumentator.instrument(app).expose(app, endpoint="/metrics")
+# include_in_schema=False keeps /metrics out of the OpenAPI spec. Network-level
+# access is additionally restricted to internal/monitoring IPs by nginx.
+instrumentator.instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
 

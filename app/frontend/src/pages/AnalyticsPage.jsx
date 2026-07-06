@@ -8,6 +8,7 @@ import { BarChart3, RefreshCw, TrendingUp } from 'lucide-react'
 import { getScreeningAnalytics, getSkillTrends, computeSkillTrends } from '../lib/api'
 import Skeleton from '../components/Skeleton'
 import SkillTrendChart from '../components/SkillTrendChart'
+import EmptyState from '../components/EmptyState'
 
 const PERIOD_OPTIONS = [
   { value: 'last_7_days', label: 'Last 7 Days' },
@@ -333,8 +334,20 @@ export default function AnalyticsPage() {
         </div>
       )}
 
+      {/* ── Empty (loaded, but nothing analyzed in this period) ─ */}
+      {data && !error && (data.total_analyzed ?? 0) === 0 && (
+        <EmptyState
+          icon={BarChart3}
+          title="No analytics for this period"
+          description="Once you analyze resumes, hiring trends, score distributions, and skill gaps will show up here."
+          actionLabel="Analyze a resume"
+          actionHref="/analyze"
+          className="py-16"
+        />
+      )}
+
       {/* ── Data ────────────────────────────────────────────── */}
-      {data && !error && (
+      {data && !error && (data.total_analyzed ?? 0) > 0 && (
         <>
           {/* Row 1 — KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

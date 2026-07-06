@@ -71,6 +71,7 @@ services:
       - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-300}
       - DATABASE_URL=postgresql://aria:aria_secret@postgres:5432/aria_db
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-only-change-in-production}
+      - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET:-dev-internal-service-secret}
       - ENVIRONMENT=development
       # Automatically skipped when using Ollama Cloud
       - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
@@ -162,6 +163,7 @@ services:
       - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL_VOICE:-http://ollama:11434}
       - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}
       - ARIA_BACKEND_URL=http://backend:8000
+      - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET:-dev-internal-service-secret}
       - SIP_TRUNK_ID=${SIP_TRUNK_ID:-twilio-aria}
       - SIP_OUTBOUND_NUMBER=${SIP_OUTBOUND_NUMBER:-+18722789563}
       - SIP_TERMINATION_ADDRESS=${SIP_TERMINATION_ADDRESS:-aria-staging.pstn.twilio.com}

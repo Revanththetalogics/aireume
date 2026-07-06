@@ -146,6 +146,7 @@ class StripeProvider(PaymentProvider):
             payload, signature, self._webhook_secret
         )
         return {
+            "event_id": event.get("id"),
             "event_type": event["type"],
             "data": event["data"],
             "provider": self.provider_name,

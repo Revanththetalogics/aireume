@@ -22,6 +22,7 @@ export default function SlideOutPanel({ isOpen, onClose, title, children, width 
           <h2 className="text-lg font-bold text-gray-900 truncate pr-4">{title}</h2>
           <button
             onClick={onClose}
+            aria-label="Close panel"
             className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors shrink-0"
           >
             <X className="w-5 h-5 text-gray-400" />

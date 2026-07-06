@@ -75,6 +75,7 @@ def _log_billing_event(
     raw_payload: str,
     result: str,
     error_detail: Optional[str] = None,
+    event_id: Optional[str] = None,
 ) -> BillingEvent:
     """Persist a BillingEvent row for audit.
 
@@ -82,6 +83,7 @@ def _log_billing_event(
     """
     evt = BillingEvent(
         provider=provider,
+        event_id=event_id,
         event_type=event_type,
         tenant_id=tenant_id,
         raw_payload=raw_payload[:10000] if raw_payload else None,  # cap size
@@ -709,6 +711,7 @@ def process_webhook_event(
     event_type: str,
     data: dict,
     raw_payload: str,
+    event_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Process a validated webhook event and update tenant state.
 
@@ -723,6 +726,29 @@ def process_webhook_event(
     Returns a normalised result dict.  Unknown events are logged and
     ignored gracefully — we never raise so the HTTP response is always 200.
     """
+    # ── Idempotency: skip events we've already processed successfully ─────────
+    if event_id:
+        existing = (
+            db.query(BillingEvent)
+            .filter(
+                BillingEvent.provider == provider,
+                BillingEvent.event_id == event_id,
+                BillingEvent.result == "success",
+            )
+            .first()
+        )
+        if existing:
+            log.info(
+                "Duplicate webhook ignored: provider=%s event_id=%s type=%s",
+                provider, event_id, event_type,
+            )
+            return {
+                "processed": False,
+                "reason": "duplicate",
+                "provider": provider,
+                "event_type": event_type,
+            }
+
     handler = _HANDLER_MAP.get((provider, event_type))
 
     if handler is None:
@@ -730,6 +756,7 @@ def process_webhook_event(
             db, provider=provider, event_type=event_type,
             tenant_id=None, raw_payload=raw_payload, result="ignored",
             error_detail="No handler registered for this event type",
+            event_id=event_id,
         )
         db.commit()
         return {
@@ -751,7 +778,7 @@ def process_webhook_event(
             _log_billing_event(
                 db, provider=provider, event_type=event_type,
                 tenant_id=None, raw_payload=raw_payload, result="error",
-                error_detail=str(exc)[:2000],
+                error_detail=str(exc)[:2000], event_id=event_id,
             )
             db.commit()
         except Exception:
@@ -763,6 +790,18 @@ def process_webhook_event(
             "provider": provider,
             "event_type": event_type,
         }
+
+    # Record a success audit row keyed by event_id so replays are de-duplicated.
+    try:
+        _log_billing_event(
+            db, provider=provider, event_type=event_type,
+            tenant_id=None, raw_payload=raw_payload, result="success",
+            event_id=event_id,
+        )
+        db.commit()
+    except Exception:
+        log.exception("Failed to log billing event success")
+        db.rollback()
 
     return {
         "processed": True,

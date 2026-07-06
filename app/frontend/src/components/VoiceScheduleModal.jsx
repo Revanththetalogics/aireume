@@ -168,7 +168,7 @@ export default function VoiceScheduleModal({ onClose, onScheduled, preselectedCa
               {isEditing ? 'Reschedule Call' : 'Schedule Screening Call'}
             </h2>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400">
+          <button onClick={onClose} aria-label="Close dialog" className="p-2 rounded-lg hover:bg-slate-100 text-slate-400">
             <X className="w-5 h-5" />
           </button>
         </div>

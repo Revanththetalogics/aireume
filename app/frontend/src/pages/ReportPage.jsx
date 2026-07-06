@@ -467,7 +467,6 @@ export default function ReportPage() {
     )
 
     if (isCompleteResult) {
-      console.log('[ReportPage] Using complete result from state')
       setCandidateName(resolveName(result))
       setLoading(false)
       return

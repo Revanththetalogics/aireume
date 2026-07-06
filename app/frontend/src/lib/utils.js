@@ -83,6 +83,26 @@ export function formatDate(date, options = {}) {
 }
 
 /**
+ * Format a date+time including the viewer's timezone abbreviation, e.g.
+ * "Jul 7, 2026, 12:30 PM PDT". Use this for schedules, audit logs, and history
+ * timestamps where the exact time (and zone) matters.
+ */
+export function formatDateTime(date, options = {}) {
+  if (!date) return ''
+  try {
+    return new Date(date).toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+      ...options,
+    })
+  } catch { return '' }
+}
+
+/**
  * Format number with thousands separator.
  */
 export function formatNumber(num) {

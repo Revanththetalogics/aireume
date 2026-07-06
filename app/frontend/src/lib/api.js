@@ -345,7 +345,19 @@ export async function analyzeResumeStream(
   let   streamDone = false
 
   while (true) {
-    const { done, value } = await reader.read()
+    let readResult
+    try {
+      readResult = await reader.read()
+    } catch (networkErr) {
+      // Connection dropped mid-stream (Wi-Fi loss, proxy timeout, tab sleep).
+      // We can't resume a POST upload stream, so surface a clear, retryable
+      // error instead of a cryptic "network error".
+      if (finalResult) break // we already have a usable result
+      const e = new Error('Connection lost during analysis. Please check your network and try again.')
+      e.retryable = true
+      throw e
+    }
+    const { done, value } = readResult
     if (done) break
 
     buffer += decoder.decode(value, { stream: true })
@@ -400,9 +412,10 @@ export async function analyzeResumeStream(
 
   if (!finalResult) {
     console.error('[SSE] Stream ended without final result')
-    throw new Error('Stream ended without a complete result.')
+    const e = new Error('The analysis was interrupted before completing. Please try again.')
+    e.retryable = true
+    throw e
   }
-  console.log('[SSE] Returning final result:', finalResult?.fit_score)
   return finalResult
 }
 

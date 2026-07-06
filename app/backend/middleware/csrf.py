@@ -80,11 +80,23 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if auth_header and auth_header.startswith("Bearer "):
             return await call_next(request)
         
-        # For cookie-based auth, require CSRF token
+        # For cookie-based auth, require CSRF token.
+        # A genuine non-browser API client has neither a Bearer header (handled above)
+        # nor an access_token cookie, so it can pass through to normal auth (which 401s).
+        # But a cookie-authenticated browser request MUST carry a matching CSRF token —
+        # a missing csrf_token cookie here indicates a forged cross-site request.
+        access_cookie = request.cookies.get("access_token")
         cookie_token = request.cookies.get("csrf_token")
-        if not cookie_token:
-            # No CSRF cookie set - skip validation (might be API client)
+
+        if not access_cookie:
+            # Not authenticated via cookie; let downstream auth handle it.
             return await call_next(request)
+
+        if not cookie_token:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF token missing"}
+            )
 
         header_token = request.headers.get("x-csrf-token")
         if not header_token or not secrets.compare_digest(cookie_token, header_token):

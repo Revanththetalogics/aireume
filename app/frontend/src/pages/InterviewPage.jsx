@@ -447,7 +447,7 @@ export default function InterviewPage() {
           <div className="mb-6 p-4 bg-red-50 ring-1 ring-red-200 rounded-2xl flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
             <p className="text-sm text-red-700">{error}</p>
-            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">
+            <button onClick={() => setError(null)} aria-label="Dismiss error" className="ml-auto text-red-400 hover:text-red-600">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -626,6 +626,7 @@ export default function InterviewPage() {
                             onClick={(e) => { e.stopPropagation(); handleCancelSession(session) }}
                             className="p-1.5 rounded-lg hover:bg-red-100 text-red-400 transition-colors"
                             title="Cancel"
+                            aria-label="Cancel session"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -875,6 +876,38 @@ export default function InterviewPage() {
                 </div>
               </Section>
             )}
+
+            {/* Advanced, engine-specific settings live on dedicated pages. */}
+            <Section title="Advanced Settings" icon={SettingsIcon} description="Fine-grained configuration for each interview engine">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  onClick={() => navigate('/voice-screening')}
+                  className="flex items-center justify-between gap-3 px-4 py-3 bg-white rounded-xl ring-1 ring-slate-200 hover:ring-brand-300 hover:bg-brand-50/40 transition-all text-left"
+                >
+                  <span className="flex items-center gap-3">
+                    <Phone className="w-4 h-4 text-brand-500" />
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-800">Voice call settings</span>
+                      <span className="block text-xs text-slate-500">Call windows, consent script, retries, timezone</span>
+                    </span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                </button>
+                <button
+                  onClick={() => navigate('/recruiter-interviews')}
+                  className="flex items-center justify-between gap-3 px-4 py-3 bg-white rounded-xl ring-1 ring-slate-200 hover:ring-brand-300 hover:bg-brand-50/40 transition-all text-left"
+                >
+                  <span className="flex items-center gap-3">
+                    <Brain className="w-4 h-4 text-brand-500" />
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-800">Recruiter automation</span>
+                      <span className="block text-xs text-slate-500">Strategy engine, triggers, and session management</span>
+                    </span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+            </Section>
 
             {/* Sticky save bar */}
             {configDirty && (

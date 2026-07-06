@@ -167,14 +167,15 @@ export default function ErasurePage() {
             <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
           </div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-brand-50/50">
               <tr>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Status</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Actor</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Records</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Started</th>
-                <th className="text-left px-4 py-3 font-bold text-brand-900">Completed</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Status</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Actor</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Records</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Started</th>
+                <th scope="col" className="text-left px-4 py-3 font-bold text-brand-900">Completed</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-brand-100">
@@ -206,6 +207,7 @@ export default function ErasurePage() {
               )}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

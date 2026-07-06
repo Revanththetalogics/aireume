@@ -30,7 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.backend.db.database import get_db
-from app.backend.middleware.auth import get_current_user
+from app.backend.middleware.auth import get_current_user, require_internal_service
 from app.backend.models.db_models import (
     Candidate,
     RecruiterAutoTriggerConfig,
@@ -1305,6 +1305,7 @@ async def on_interview_complete(
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    _: None = Depends(require_internal_service),
 ):
     """
     Internal callback from the voice agent when any interview finishes.

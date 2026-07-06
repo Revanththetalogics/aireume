@@ -148,6 +148,7 @@ function CandidateDetail({ candidateId, onClose }) {
             )}
             <button
               onClick={onClose}
+              aria-label="Close dialog"
               className="p-1.5 hover:bg-brand-50 rounded-xl transition-colors text-slate-400 hover:text-brand-600"
             >
               <X className="w-5 h-5" />

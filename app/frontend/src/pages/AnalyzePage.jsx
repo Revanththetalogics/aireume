@@ -1182,6 +1182,7 @@ export default function AnalyzePage() {
                         setSkillOverrides(null)
                         setJdParseResult(null)
                       }}
+                      aria-label="Remove job description file"
                       className="ml-4 p-2 hover:bg-red-50 rounded-lg transition-colors"
                     >
                       <X className="w-4 h-4 text-red-600" />
@@ -1388,6 +1389,7 @@ export default function AnalyzePage() {
                     </div>
                     <button
                       onClick={() => removeFile(idx)}
+                      aria-label="Remove file"
                       className="p-2 hover:bg-red-50 rounded-lg transition-colors"
                     >
                       <X className="w-4 h-4 text-red-600" />
