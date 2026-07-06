@@ -208,6 +208,9 @@ class TestVideoUrlAnalysis:
     def test_url_analysis_teams(self, auth_client):
         url_result = {**MOCK_ANALYSIS_RESULT, "platform": "Microsoft Teams", "filename": "teams_recording.mp4"}
         with patch(
+            "app.backend.routes.video.validate_public_url",
+            side_effect=lambda url: url,
+        ), patch(
             "app.backend.routes.video.analyze_video_from_url",
             new_callable=AsyncMock,
             return_value=url_result,

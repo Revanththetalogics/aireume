@@ -31,7 +31,10 @@ class TestJdUrlExtraction:
             mock_scrape.assert_called_once()
 
     def test_extract_url_scraper_failure_returns_422(self, auth_client):
-        with patch("app.backend.routes.jd_url.scrape_jd", side_effect=Exception("fetch failed")):
+        with patch(
+            "app.backend.routes.jd_url.validate_public_url",
+            side_effect=lambda url: url,
+        ), patch("app.backend.routes.jd_url.scrape_jd", side_effect=Exception("fetch failed")):
             resp = auth_client.post("/api/jd/extract-url", json={"url": "https://broken.example.com"})
             assert resp.status_code in (422, 500)
 
