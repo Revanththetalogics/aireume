@@ -15,7 +15,8 @@ soundfile>=0.12.0
 misaki[en]>=0.1.0
 edge-tts>=6.1.0
 
-# STT — OpenAI Whisper (reliable on CPU)
+# STT — faster-whisper (CPU INT8, 2-4x faster) with openai-whisper fallback
+faster-whisper>=1.1.0
 openai-whisper>=20231117
 
 # Silero VAD

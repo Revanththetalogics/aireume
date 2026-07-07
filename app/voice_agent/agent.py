@@ -26,6 +26,7 @@ from app.voice_agent.recruiter_conversation import RecruiterConversation, Recrui
 from app.voice_agent.conversation import UnifiedConversation, InterviewContext, InterviewDepth
 from app.voice_agent.vad_segmenter import SpeechSegmenter
 from app.voice_agent.orchestrator import InterviewOrchestrator, OrchestratorContext, InterviewStage
+from app.voice_agent.speech_pipeline import PlaybackGate, barge_in, speak_text
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -54,6 +55,8 @@ SIP_AUTH_PASSWORD = os.getenv("SIP_AUTH_PASSWORD", "Itslogical1.")
 SIP_FROM_HOST = os.getenv("SIP_FROM_HOST", SIP_TERMINATION_ADDRESS)
 SIP_TRANSPORT = os.getenv("SIP_TRANSPORT", "SIP_TRANSPORT_TCP")  # auto/udp/tcp/tls
 AGENT_PORT = int(os.getenv("AGENT_PORT", "8002"))
+# 0 = unlimited (monolithic deploy). Voice VPS should set to 1 on 4c/8GB boxes.
+MAX_CONCURRENT_CALLS = int(os.getenv("MAX_CONCURRENT_CALLS", "0"))
 
 # Conversation settings (defaults, overridden per-call by tenant config)
 DEFAULT_BOT_NAME = "ARIA Assistant"
@@ -819,7 +822,7 @@ async def _notify_backend_complete(session_id: str, result: dict):
         logger.error("Failed to notify backend of interview completion: session=%s error=%s", session_id, e)
 
 
-async def _publish_audio(room, audio_source, pcm_data: bytes, sample_rate: int):
+async def _publish_audio(room, audio_source, pcm_data: bytes, sample_rate: int, playback_gate: Optional[PlaybackGate] = None):
     """Publish raw PCM audio to the LiveKit room via the agent's audio track.
 
     Handles WAV→PCM conversion, frame splitting (20ms chunks), and track publishing.
@@ -845,6 +848,9 @@ async def _publish_audio(room, audio_source, pcm_data: bytes, sample_rate: int):
     frames_published = 0
     offset = 0
     while offset + FRAME_BYTES <= len(pcm):
+        if playback_gate and playback_gate.cancelled:
+            logger.debug("Playback cancelled mid-frame")
+            break
         chunk = pcm[offset:offset + FRAME_BYTES]
         frame = rtc.AudioFrame(
             data=chunk,
@@ -863,7 +869,7 @@ async def _publish_audio(room, audio_source, pcm_data: bytes, sample_rate: int):
         offset += FRAME_BYTES
 
     # Handle any remaining partial frame
-    if offset < len(pcm):
+    if offset < len(pcm) and not (playback_gate and playback_gate.cancelled):
         remaining = pcm[offset:]
         remaining_samples = len(remaining) // 2
         if remaining_samples > 0:
@@ -914,6 +920,7 @@ class VoiceAgentWorker:
 
         # Persistent audio source for agent → candidate playback
         audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
+        playback_gate = PlaybackGate()
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
@@ -936,6 +943,7 @@ class VoiceAgentWorker:
                     segmenter.add_audio(bytes(frame.data))
 
                     for segment_pcm in segmenter.get_speech_segments():
+                        await barge_in(playback_gate)
                         wav_data = _pcm_to_wav(segment_pcm, frame_rate)
                         text = await speech.transcribe(wav_data, "audio/wav")
                         if text.strip():
@@ -957,9 +965,15 @@ class VoiceAgentWorker:
                                 logger.info("Bot responds: %s", bot_text)
 
                                 # Synthesize speech and publish to room
-                                audio_out = await speech.synthesize(bot_text)
-                                if audio_out:
-                                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
+                                await speak_text(
+                                    bot_text,
+                                    speech,
+                                    room,
+                                    audio_source,
+                                    _publish_audio,
+                                    playback_gate,
+                                    sample_rate=TTS_SAMPLE_RATE,
+                                )
 
                             # Advance conversation state
                             engine.advance_state()
@@ -1013,10 +1027,16 @@ class VoiceAgentWorker:
                 f"This is {session_ctx.bot_name} calling about the {session_ctx.jd_title or 'open'} position."
             )
             session_ctx.transcript.append({"role": "bot", "text": greeting, "timestamp": time.time()})
-            audio_out = await speech.synthesize(greeting)
-            if audio_out:
-                await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
-                logger.info("Greeting published for session %d", session_ctx.session_id)
+            await speak_text(
+                greeting,
+                speech,
+                room,
+                audio_source,
+                _publish_audio,
+                playback_gate,
+                sample_rate=TTS_SAMPLE_RATE,
+            )
+            logger.info("Greeting published for session %d", session_ctx.session_id)
 
             # Keep the call alive until ended or max duration
             while session_ctx.state != CallState.ENDED and engine.check_time_budget():
@@ -1068,6 +1088,7 @@ class VoiceAgentWorker:
 
         # Persistent audio source for agent → candidate playback
         audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
+        playback_gate = PlaybackGate()
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
@@ -1092,6 +1113,7 @@ class VoiceAgentWorker:
 
                     # Check for completed speech segments
                     for segment_pcm in segmenter.get_speech_segments():
+                        await barge_in(playback_gate)
                         # Wrap PCM in WAV header with correct sample rate
                         wav_data = _pcm_to_wav(segment_pcm, frame_rate)
                         text = await speech.transcribe(wav_data, "audio/wav")
@@ -1104,9 +1126,15 @@ class VoiceAgentWorker:
                                 logger.info("Bot responds: %s", bot_text)
 
                                 # Synthesize speech and publish to room
-                                audio_out = await speech.synthesize(bot_text)
-                                if audio_out:
-                                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
+                                await speak_text(
+                                    bot_text,
+                                    speech,
+                                    room,
+                                    audio_source,
+                                    _publish_audio,
+                                    playback_gate,
+                                    sample_rate=TTS_SAMPLE_RATE,
+                                )
 
                             # Check for call end conditions
                             if conversation.is_complete():
@@ -1151,13 +1179,16 @@ class VoiceAgentWorker:
             greeting = await conversation.get_greeting()
             interview_ctx.transcript.append({"speaker": "bot", "text": greeting, "timestamp": 0.0, "state": "greeting"})
             logger.info("Greeting text: %s", greeting[:100])
-            audio_out = await speech.synthesize(greeting)
-            if audio_out:
-                logger.info("TTS returned %d bytes for greeting", len(audio_out))
-                await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
-                logger.info("Greeting published for session %s", interview_ctx.session_id)
-            else:
-                logger.error("TTS returned empty audio for greeting — speech service may be unreachable at %s", SPEECH_SERVICE_URL)
+            await speak_text(
+                greeting,
+                speech,
+                room,
+                audio_source,
+                _publish_audio,
+                playback_gate,
+                sample_rate=TTS_SAMPLE_RATE,
+            )
+            logger.info("Greeting published for session %s", interview_ctx.session_id)
 
             # Keep the call alive until ended or max duration
             while not conversation.is_complete():
@@ -1210,6 +1241,7 @@ class VoiceAgentWorker:
 
         # Persistent audio source for agent → candidate playback
         audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
+        playback_gate = PlaybackGate()
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
@@ -1232,6 +1264,7 @@ class VoiceAgentWorker:
                     segmenter.add_audio(bytes(frame.data))
 
                     for segment_pcm in segmenter.get_speech_segments():
+                        await barge_in(playback_gate)
                         wav_data = _pcm_to_wav(segment_pcm, frame_rate)
                         text = await speech.transcribe(wav_data, "audio/wav")
                         if text.strip():
@@ -1243,9 +1276,15 @@ class VoiceAgentWorker:
                                 logger.info("Bot responds: %s", bot_text)
 
                                 # Synthesize speech and publish to room
-                                audio_out = await speech.synthesize(bot_text)
-                                if audio_out:
-                                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
+                                await speak_text(
+                                    bot_text,
+                                    speech,
+                                    room,
+                                    audio_source,
+                                    _publish_audio,
+                                    playback_gate,
+                                    sample_rate=TTS_SAMPLE_RATE,
+                                )
 
                             # Check for call end conditions
                             if conversation.is_complete():
@@ -1286,10 +1325,16 @@ class VoiceAgentWorker:
             # Start the interview and deliver greeting
             greeting = await conversation.start()
             if greeting:
-                audio_out = await speech.synthesize(greeting)
-                if audio_out:
-                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
-                    logger.info("Recruiter greeting published for session %s", session_ctx.session_id)
+                await speak_text(
+                    greeting,
+                    speech,
+                    room,
+                    audio_source,
+                    _publish_audio,
+                    playback_gate,
+                    sample_rate=TTS_SAMPLE_RATE,
+                )
+                logger.info("Recruiter greeting published for session %s", session_ctx.session_id)
 
             # Keep the call alive until complete or max duration
             while not conversation.is_complete():
@@ -1345,6 +1390,7 @@ class VoiceAgentWorker:
         segmenter: Optional[SpeechSegmenter] = None
 
         audio_source = rtc.AudioSource(TTS_SAMPLE_RATE, 1)
+        playback_gate = PlaybackGate()
 
         async def _process_track(track, publication, participant):
             """Async body for processing a subscribed audio track."""
@@ -1367,6 +1413,7 @@ class VoiceAgentWorker:
                     segmenter.add_audio(bytes(frame.data))
 
                     for segment_pcm in segmenter.get_speech_segments():
+                        await barge_in(playback_gate)
                         wav_data = _pcm_to_wav(segment_pcm, frame_rate)
                         text = await speech.transcribe(wav_data, "audio/wav")
                         segment_duration = len(segment_pcm) // 2 / frame_rate
@@ -1376,9 +1423,15 @@ class VoiceAgentWorker:
                             bot_text = await orchestrator.handle_candidate_response(text)
                             if bot_text:
                                 logger.info("Bot responds: %s", bot_text)
-                                audio_out = await speech.synthesize(bot_text)
-                                if audio_out:
-                                    await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
+                                await speak_text(
+                                    bot_text,
+                                    speech,
+                                    room,
+                                    audio_source,
+                                    _publish_audio,
+                                    playback_gate,
+                                    sample_rate=TTS_SAMPLE_RATE,
+                                )
 
                             if orchestrator.is_complete():
                                 logger.info("Interview orchestrator complete, ending call")
@@ -1394,9 +1447,15 @@ class VoiceAgentWorker:
                                 segment_duration,
                             )
                             repeat_prompt = "I'm sorry, I didn't catch that. Could you please repeat?"
-                            audio_out = await speech.synthesize(repeat_prompt)
-                            if audio_out:
-                                await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
+                            await speak_text(
+                                repeat_prompt,
+                                speech,
+                                room,
+                                audio_source,
+                                _publish_audio,
+                                playback_gate,
+                                sample_rate=TTS_SAMPLE_RATE,
+                            )
 
         def on_track_subscribed(track, publication, participant):
             asyncio.create_task(_process_track(track, publication, participant))
@@ -1431,13 +1490,16 @@ class VoiceAgentWorker:
                 "timestamp": 0.0, "stage": "introduction",
             })
             logger.info("Greeting text: %s", greeting[:100])
-            audio_out = await speech.synthesize(greeting)
-            if audio_out:
-                logger.info("TTS returned %d bytes for greeting", len(audio_out))
-                await _publish_audio(room, audio_source, audio_out, TTS_SAMPLE_RATE)
-                logger.info("Greeting published for session %s", orch_ctx.session_id)
-            else:
-                logger.error("TTS returned empty audio for greeting — speech service may be unreachable at %s", SPEECH_SERVICE_URL)
+            await speak_text(
+                greeting,
+                speech,
+                room,
+                audio_source,
+                _publish_audio,
+                playback_gate,
+                sample_rate=TTS_SAMPLE_RATE,
+            )
+            logger.info("Greeting published for session %s", orch_ctx.session_id)
 
             # Keep the call alive until interview ends or max duration
             while not orchestrator.is_complete():
@@ -1548,7 +1610,12 @@ class DispatchResponse(BaseModel):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "voice-agent"}
+    return {
+        "status": "ok",
+        "service": "voice-agent",
+        "active_calls": len(worker._active_sessions),
+        "max_concurrent_calls": MAX_CONCURRENT_CALLS or None,
+    }
 
 
 @app.post("/dispatch", response_model=DispatchResponse)
@@ -1559,6 +1626,15 @@ async def dispatch_call(req: DispatchRequest):
     The agent worker then joins the room and runs the conversation.
     """
     try:
+        if MAX_CONCURRENT_CALLS > 0 and len(worker._active_sessions) >= MAX_CONCURRENT_CALLS:
+            return DispatchResponse(
+                success=False,
+                message=(
+                    f"Voice capacity reached ({MAX_CONCURRENT_CALLS} concurrent call"
+                    f"{'s' if MAX_CONCURRENT_CALLS != 1 else ''} max). Try again shortly."
+                ),
+            )
+
         # 1. Create room + SIP outbound call
         room_info = await sip_dispatcher.dispatch_call(
             session_id=req.session_id,

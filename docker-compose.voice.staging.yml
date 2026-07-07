@@ -1,0 +1,152 @@
+# ─── STAGING — VOICE STACK (4 vCore / 8 GB / 75 GB VPS) ────────────────────
+# LiveKit + SIP + speech-service + voice-agent only.
+# Main app (backend/DB) runs on docker-compose.main.staging.yml.
+#
+# Portainer: deploy as stack "aria-staging-voice"
+# Required env:
+#   STAGING_LIVEKIT_NODE_IP=<this VPS public IP>
+#   ARIA_BACKEND_URL=http://<main-vps-ip-or-domain>
+#   INTERNAL_SERVICE_SECRET=<same value as main stack>
+#   OLLAMA_API_KEY=<cloud key for voice LLM>
+# ────────────────────────────────────────────────────────────────────────────
+name: aria-staging-voice
+
+services:
+  livekit-redis:
+    image: redis:7-alpine
+    container_name: staging-livekit-redis
+    command: redis-server --maxmemory 48mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 96M
+    restart: unless-stopped
+
+  livekit:
+    image: revanth2245/resume-livekit:staging
+    pull_policy: always
+    container_name: staging-livekit
+    command: >
+      --config /etc/livekit.yaml
+    environment:
+      - LIVEKIT_API_KEY=${STAGING_LIVEKIT_API_KEY:?STAGING_LIVEKIT_API_KEY must be set}
+      - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET:?STAGING_LIVEKIT_API_SECRET must be set}
+      - LIVEKIT_NODE_IP=${STAGING_LIVEKIT_NODE_IP:?STAGING_LIVEKIT_NODE_IP must be set to this VPS public IP}
+    ports:
+      - "7890:7880"
+      - "7891:7881"
+      - "7892:7882/udp"
+      - "50000-50200:50000-50200/udp"
+    depends_on:
+      - livekit-redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.8'
+          memory: 768M
+    restart: unless-stopped
+
+  livekit-sip:
+    image: livekit/sip:latest
+    container_name: staging-livekit-sip
+    environment:
+      SIP_CONFIG_BODY: |
+        api_key: ${STAGING_LIVEKIT_API_KEY}
+        api_secret: ${STAGING_LIVEKIT_API_SECRET}
+        ws_url: ws://livekit:7880
+        redis:
+          address: livekit-redis:6379
+        sip_port: 5060
+        rtp_port: 10000-10100
+        use_external_ip: true
+        node_ip: ${STAGING_LIVEKIT_NODE_IP}
+        logging:
+          level: info
+    ports:
+      - "5060:5060"
+      - "5060:5060/udp"
+      - "10000-10100:10000-10100/udp"
+    depends_on:
+      - livekit
+      - livekit-redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 384M
+    restart: unless-stopped
+
+  speech-service:
+    image: revanth2245/resume-speech-service:staging
+    pull_policy: always
+    container_name: staging-speech-service
+    environment:
+      - STT_ENGINE=${STT_ENGINE:-faster_whisper}
+      - STT_MODEL=${STT_MODEL:-tiny}
+      - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-int8}
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 2500M
+    restart: unless-stopped
+
+  voice-agent:
+    image: revanth2245/resume-voice-agent:staging
+    pull_policy: always
+    container_name: staging-voice-agent
+    ports:
+      - "8002:8002"
+    environment:
+      - SPEECH_SERVICE_URL=http://speech-service:8001
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=${STAGING_LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${STAGING_LIVEKIT_API_SECRET}
+      - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL_VOICE:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:?OLLAMA_API_KEY is required}
+      - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen3.5:cloud}
+      - ARIA_BACKEND_URL=${ARIA_BACKEND_URL:?ARIA_BACKEND_URL must point to main backend, e.g. http://main-vps}
+      - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET must match main stack}
+      - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-1}
+      - SIP_TRUNK_ID=${SIP_TRUNK_ID:-twilio-aria}
+      - SIP_OUTBOUND_NUMBER=${SIP_OUTBOUND_NUMBER:-+18722789563}
+      - SIP_TERMINATION_ADDRESS=${SIP_TERMINATION_ADDRESS:-aria-staging.pstn.twilio.com}
+      - SIP_AUTH_USERNAME=${SIP_AUTH_USERNAME:-aria-livekit}
+      - SIP_AUTH_PASSWORD=${SIP_AUTH_PASSWORD:?SIP_AUTH_PASSWORD must be set}
+      - SIP_FROM_HOST=${SIP_FROM_HOST:-aria-staging.pstn.twilio.com}
+      - SIP_TRANSPORT=${SIP_TRANSPORT:-SIP_TRANSPORT_TCP}
+    depends_on:
+      - livekit
+      - speech-service
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 768M
+    restart: unless-stopped
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: staging-voice-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      --rolling-restart
+      --interval 60
+      --cleanup
+      staging-speech-service
+      staging-voice-agent
+      staging-livekit
+      staging-livekit-sip
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+    restart: unless-stopped
+
+networks:
+  default:
+    name: aria_staging_voice_network
+    driver: bridge

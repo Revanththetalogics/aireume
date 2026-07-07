@@ -2,13 +2,14 @@
 Speech Service — CPU-optimized inference for STT, TTS, and VAD.
 
 Endpoints:
-  POST /stt/transcribe       — Audio bytes → text (OpenAI Whisper base)
+  POST /stt/transcribe       — Audio bytes → text (faster-whisper or OpenAI Whisper)
   POST /tts/synthesize       — Text → audio bytes (Kokoro TTS, Edge TTS fallback)
   POST /vad/detect           — Audio bytes → speech/silence segments (Silero VAD v5)
   GET  /health               — Model readiness probe
 """
 import io
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -28,6 +29,9 @@ logger = logging.getLogger("speech_service")
 # ─── Global model holders ─────────────────────────────────────────────────────
 
 whisper_model = None
+faster_whisper_model = None
+stt_engine: str | None = None
+stt_model_name: str | None = None
 vad_model = None
 vad_utils = None
 kokoro_pipeline = None
@@ -50,19 +54,53 @@ EDGE_TTS_VOICES = {
 
 # ─── Model loading ────────────────────────────────────────────────────────────
 
-def load_stt():
-    """Load OpenAI Whisper base model — balances accuracy and CPU latency."""
-    global whisper_model
+def _load_openai_whisper(model_name: str = "base") -> bool:
+    """Load legacy OpenAI Whisper (fallback)."""
+    global whisper_model, stt_engine, stt_model_name
     try:
         import whisper
-        model_name = "base"  # 74M params, better accuracy for phone/SIP audio
-        logger.info("Loading Whisper model: %s", model_name)
+        logger.info("Loading OpenAI Whisper model: %s", model_name)
         whisper_model = whisper.load_model(model_name, device="cpu")
-        logger.info("Whisper model loaded successfully")
+        stt_engine = "whisper"
+        stt_model_name = model_name
+        logger.info("OpenAI Whisper loaded successfully")
         return True
     except Exception as e:
-        logger.error("Failed to load Whisper model: %s", e)
+        logger.error("Failed to load OpenAI Whisper model: %s", e)
         return False
+
+
+def load_stt():
+    """Load STT engine — faster-whisper (default) with OpenAI Whisper fallback."""
+    global faster_whisper_model, stt_engine, stt_model_name
+
+    engine_pref = os.getenv("STT_ENGINE", "faster_whisper").strip().lower()
+    model_name = os.getenv("STT_MODEL", "base").strip()
+    compute_type = os.getenv("STT_COMPUTE_TYPE", "int8").strip()
+
+    if engine_pref == "whisper":
+        return _load_openai_whisper(model_name)
+
+    try:
+        from faster_whisper import WhisperModel
+
+        logger.info(
+            "Loading faster-whisper model: %s (compute_type=%s)",
+            model_name,
+            compute_type,
+        )
+        faster_whisper_model = WhisperModel(
+            model_name,
+            device="cpu",
+            compute_type=compute_type,
+        )
+        stt_engine = "faster_whisper"
+        stt_model_name = model_name
+        logger.info("faster-whisper loaded successfully")
+        return True
+    except Exception as e:
+        logger.warning("faster-whisper unavailable (%s) — falling back to OpenAI Whisper", e)
+        return _load_openai_whisper(model_name)
 
 
 def load_tts():
@@ -147,7 +185,9 @@ def health():
     return {
         "status": "healthy",
         "models": {
-            "stt": whisper_model is not None,
+            "stt": whisper_model is not None or faster_whisper_model is not None,
+            "stt_engine": stt_engine,
+            "stt_model": stt_model_name,
             "tts": kokoro_pipeline is not None,
             "tts_fallback": True,  # edge-tts is always ready (cloud)
             "vad": vad_model is not None,
@@ -160,10 +200,10 @@ def health():
 @app.post("/stt/transcribe")
 async def transcribe_audio(request: Request):
     """
-    Transcribe audio bytes to text using OpenAI Whisper.
+    Transcribe audio bytes to text using faster-whisper or OpenAI Whisper.
     Accepts: raw PCM (16kHz, 16-bit, mono) or WAV bytes.
     """
-    if whisper_model is None:
+    if whisper_model is None and faster_whisper_model is None:
         raise HTTPException(status_code=503, detail="STT model not loaded")
 
     body = await request.body()
@@ -222,17 +262,35 @@ async def transcribe_audio(request: Request):
         peak_after = np.max(np.abs(audio_np))
         logger.info("STT debug: rms_after=%.4f, peak_after=%.4f", rms_after, peak_after)
 
-        # Whisper expects float32 numpy array at 16kHz
+        # Whisper / faster-whisper expect float32 numpy array at 16kHz
         start = time.time()
-        result = whisper_model.transcribe(
-            audio_np,
-            language="en",
-            fp16=False,  # CPU — use float32
-        )
+        if stt_engine == "faster_whisper" and faster_whisper_model is not None:
+            segments_iter, _info = faster_whisper_model.transcribe(
+                audio_np,
+                language="en",
+                beam_size=1,
+                vad_filter=False,
+            )
+            segments = list(segments_iter)
+            text = " ".join(s.text.strip() for s in segments if s.text.strip()).strip()
+            chunk_list = [
+                {"text": s.text.strip(), "timestamp": (s.start, s.end)}
+                for s in segments
+                if s.text.strip()
+            ]
+        else:
+            result = whisper_model.transcribe(
+                audio_np,
+                language="en",
+                fp16=False,  # CPU — use float32
+            )
+            text = result.get("text", "").strip()
+            segments = result.get("segments", [])
+            chunk_list = [
+                {"text": s.get("text", "").strip(), "timestamp": (s.get("start"), s.get("end"))}
+                for s in segments
+            ] if segments else []
         elapsed = time.time() - start
-
-        text = result.get("text", "").strip()
-        segments = result.get("segments", [])
 
         logger.info("STT: %d chars in %.2fs", len(text), elapsed)
 
@@ -240,10 +298,8 @@ async def transcribe_audio(request: Request):
             "text": text,
             "duration_audio": len(audio_np) / SAMPLE_RATE,
             "duration_inference": round(elapsed, 3),
-            "chunks": [
-                {"text": s.get("text", "").strip(), "timestamp": (s.get("start"), s.get("end"))}
-                for s in segments
-            ] if segments else [],
+            "engine": stt_engine,
+            "chunks": chunk_list,
         }
 
     except HTTPException:
