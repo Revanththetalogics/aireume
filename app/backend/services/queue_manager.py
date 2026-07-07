@@ -94,6 +94,7 @@ class QueueManager:
         user_id: Optional[int] = None,
         priority: int = 5,
         job_config: Optional[Dict[str, Any]] = None,
+        parsed_resume_cache: Optional[Dict[str, Any]] = None,
     ) -> uuid.UUID:
         """
         Add a new analysis job to the queue.
@@ -137,6 +138,7 @@ class QueueManager:
                 jd_text=jd_text,
                 jd_size_bytes=len(jd_text.encode()),
                 expires_at=datetime.now(timezone.utc) + timedelta(days=30),  # Keep for 30 days
+                parsed_resume_cache=parsed_resume_cache,
             )
             db.add(artifact)
             db.flush()
@@ -215,94 +217,38 @@ class QueueManager:
     
     async def process_job(self, job: AnalysisJob, db: Session) -> bool:
         """
-        Process a single analysis job.
+        Process a single analysis job via the shared screening pipeline.
         
         Returns:
             True if successful, False if failed
         """
         start_time = time.time()
-        stage_timings = {}
         
         try:
-            # Load artifact
             artifact = db.query(AnalysisArtifact).filter(AnalysisArtifact.id == job.artifact_id).first()
             if not artifact:
                 raise ValueError(f"Artifact not found: {job.artifact_id}")
             
             logger.info(f"Processing job {job.id}: {artifact.resume_filename}")
             
-            # Update progress
             job.processing_stage = 'parsing'
             job.progress_percent = 10
             db.commit()
             
-            # Run analysis - TODO: Integrate with existing analyze routes
-            # For now, this is a placeholder that will be replaced with actual integration
-            parse_start = time.time()
+            from app.backend.services.queue_analysis_service import complete_queue_job
             
-            # Import here to avoid circular dependency
-            from app.backend.routes.analyze import _process_single_resume
+            await complete_queue_job(job.id, db)
+            db.refresh(job)
             
-            result = await _process_single_resume(
-                content=artifact.resume_text.encode('utf-8'),
-                filename=artifact.resume_filename,
-                job_description=artifact.jd_text,
-                tenant_id=job.tenant_id,
-                user_id=job.user_id,
-                db=db,
-            )
-            
-            stage_timings['total_analysis'] = int((time.time() - parse_start) * 1000)
-            
-            # Validate result has required fields
-            required_fields = ['fit_score', 'final_recommendation', 'strengths', 'weaknesses', 'matched_skills']
-            missing = [f for f in required_fields if f not in result or result[f] is None]
-            
-            if missing:
-                raise ValueError(f"Analysis result missing required fields: {missing}")
-            
-            # Update progress
-            job.processing_stage = 'saving'
-            job.progress_percent = 90
-            db.commit()
-            
-            # Save result
-            analysis_result = AnalysisResult(
-                job_id=job.id,
-                tenant_id=job.tenant_id,
-                candidate_id=job.candidate_id,
-                fit_score=result['fit_score'],
-                final_recommendation=result['final_recommendation'],
-                risk_level=result.get('risk_level'),
-                analysis_data=result,
-                parsed_resume=result.get('parsed_resume', {}),
-                parsed_jd=result.get('parsed_jd', {}),
-                analysis_quality=result.get('analysis_quality', 'medium'),
-                confidence_score=result.get('confidence_score'),
-                model_used=result.get('model_used'),
-                processing_time_ms=int((time.time() - start_time) * 1000),
-                artifact_id=artifact.id,
-            )
-            db.add(analysis_result)
-            db.flush()
-            
-            # Update job status
-            job.status = 'completed'
-            job.completed_at = datetime.now(timezone.utc)
-            job.result_id = analysis_result.id
-            job.progress_percent = 100
-            db.commit()
-            
-            # Save metrics
             total_time_ms = int((time.time() - start_time) * 1000)
-            queue_wait_ms = int((job.started_at - job.queued_at).total_seconds() * 1000)
+            queue_wait_ms = int((job.started_at - job.queued_at).total_seconds() * 1000) if job.started_at and job.queued_at else 0
             
             metrics = JobMetrics(
                 job_id=job.id,
                 tenant_id=job.tenant_id,
                 queue_wait_time_ms=queue_wait_ms,
                 total_time_ms=total_time_ms,
-                stage_timings=stage_timings,
+                stage_timings={'total_analysis': total_time_ms},
                 worker_id=self.worker_id,
                 worker_version=self.worker_version,
                 retry_attempts=job.retry_count,
@@ -311,7 +257,7 @@ class QueueManager:
             db.commit()
             
             self.jobs_processed += 1
-            logger.info(f"Job completed: {job.id}, time={total_time_ms}ms, score={result['fit_score']}")
+            logger.info(f"Job completed: {job.id}, time={total_time_ms}ms")
             return True
             
         except Exception as e:

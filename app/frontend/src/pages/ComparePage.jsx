@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { GitCompare, Trophy, Check, Download, ChevronDown, ChevronUp, MessageCircle, Gavel, Zap, AlertTriangle, FileText, Target } from 'lucide-react'
-import { getHistory, compareResults, exportCsv } from '../lib/api'
+import { getHistory, compareResults, exportCsv, getTeamProfiles, getTeamGapAnalysis } from '../lib/api'
 import ComparisonMatrix from '../components/ComparisonMatrix'
 import EmptyState from '../components/EmptyState'
 
@@ -89,10 +89,29 @@ export default function ComparePage() {
   const [loading, setLoading]         = useState(false)
   const [histLoading, setHistLoading] = useState(true)
   const [error, setError]             = useState('')
+  const [teamProfiles, setTeamProfiles] = useState([])
+  const [selectedTeamProfile, setSelectedTeamProfile] = useState('')
+  const [teamGaps, setTeamGaps] = useState([])
 
   useEffect(() => {
     getHistory().then(data => { setHistory(data); setHistLoading(false) }).catch(() => setHistLoading(false))
+    getTeamProfiles()
+      .then((data) => setTeamProfiles(Array.isArray(data) ? data : data?.profiles || []))
+      .catch(() => setTeamProfiles([]))
   }, [])
+
+  useEffect(() => {
+    if (!selectedTeamProfile) {
+      setTeamGaps([])
+      return
+    }
+    getTeamGapAnalysis(selectedTeamProfile)
+      .then((data) => {
+        const gaps = data?.gaps || data?.missing_skills || data?.team_gaps || []
+        setTeamGaps(Array.isArray(gaps) ? gaps : [])
+      })
+      .catch(() => setTeamGaps([]))
+  }, [selectedTeamProfile])
 
   const toggleSelect = (id) => {
     if (selected.includes(id)) {
@@ -505,11 +524,44 @@ export default function ComparePage() {
               </div>
             </CollapsibleSection>
 
+            {/* Team coverage gap */}
+            {teamProfiles.length > 0 && (
+              <div className="bg-white/90 backdrop-blur-md rounded-2xl ring-1 ring-brand-100 shadow-sm p-5">
+                <h4 className="text-sm font-bold text-brand-900 mb-3">Team Coverage Gap</h4>
+                <select
+                  value={selectedTeamProfile}
+                  onChange={(e) => setSelectedTeamProfile(e.target.value)}
+                  className="w-full max-w-sm px-3 py-2 rounded-xl ring-1 ring-brand-200 text-sm mb-3"
+                >
+                  <option value="">Select team skill profile…</option>
+                  {teamProfiles.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name || p.team_name || `Profile #${p.id}`}</option>
+                  ))}
+                </select>
+                {selectedTeamProfile && teamGaps.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {teamGaps.map((g, i) => (
+                      <span
+                        key={i}
+                        className="px-2.5 py-1 text-xs font-medium text-amber-800 bg-amber-50 rounded-full ring-1 ring-amber-200"
+                      >
+                        {typeof g === 'string' ? g : g.skill || g.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : selectedTeamProfile ? (
+                  <p className="text-xs text-slate-400">No team gaps identified for this profile.</p>
+                ) : (
+                  <p className="text-xs text-slate-400">Compare candidates against your team&apos;s skill coverage.</p>
+                )}
+              </div>
+            )}
+
             {/* Skill-Level Comparison */}
             <ComparisonMatrix
               candidateIds={comparison.candidates.map(c => c.candidate_id).filter(Boolean)}
               screeningResultId={comparison.candidates[0]?.id}
-              teamGaps={[]}
+              teamGaps={teamGaps.map((g) => (typeof g === 'string' ? g : g.skill || g.name)).filter(Boolean)}
             />
           </div>
         )}

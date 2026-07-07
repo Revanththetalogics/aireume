@@ -25,8 +25,12 @@ const LoginPage    = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'))
+const CheckEmailPage = lazy(() => import('./pages/CheckEmailPage'))
 const CandidatesPage = lazy(() => import('./pages/CandidatesPage'))
 const CandidateProfilePage = lazy(() => import('./pages/CandidateProfilePage'))
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
+const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage'))
 const KanbanBoard    = lazy(() => import('./pages/KanbanBoard'))
 const ComparePage  = lazy(() => import('./pages/ComparePage'))
 const TeamPage       = lazy(() => import('./pages/TeamPage'))
@@ -128,6 +132,8 @@ function App() {
               <Route path="/register"   element={<RegisterPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+              <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
+              <Route path="/check-email" element={<CheckEmailPage />} />
               
               {/* Onboarding direct-access route */}
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingWizard /></ProtectedRoute>} />
@@ -144,6 +150,8 @@ function App() {
               <Route path="/candidates" element={<Shell><OnboardingGate><CandidatesPage /></OnboardingGate></Shell>} />
               <Route path="/candidates/:id" element={<Shell><OnboardingGate><CandidateProfilePage /></OnboardingGate></Shell>} />
               <Route path="/pipeline"    element={<Shell><OnboardingGate><KanbanBoard /></OnboardingGate></Shell>} />
+              <Route path="/projects"    element={<Shell><OnboardingGate><ProjectsPage /></OnboardingGate></Shell>} />
+              <Route path="/projects/:id" element={<Shell><OnboardingGate><ProjectDetailPage /></OnboardingGate></Shell>} />
               <Route path="/compare"    element={<Shell><OnboardingGate><ComparePage /></OnboardingGate></Shell>} />
               <Route path="/team"       element={<Shell><OnboardingGate><TeamPage /></OnboardingGate></Shell>} />
               <Route path="/team-skills" element={<Shell><OnboardingGate><TeamSkillsPage /></OnboardingGate></Shell>} />

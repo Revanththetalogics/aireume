@@ -23,7 +23,8 @@ export default function RegisterPage() {
     setLoading(true)
     try {
       await register(companyName, email, password)
-      navigate('/')
+      sessionStorage.setItem('aria_pending_verify_email', email)
+      navigate('/check-email')
     } catch (err) {
       setError(err.response?.data?.detail || 'Registration failed. Please try again.')
     } finally {

@@ -10,13 +10,17 @@ import ScoreGauge from '../components/ScoreGauge'
 import ResultCard from '../components/ResultCard'
 import InterviewScorecard from '../components/InterviewScorecard'
 import Timeline from '../components/Timeline'
-import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandidateAuditLog, getNarrative, viewCandidateResume, downloadCandidateResume, downloadPdfReport, getScreeningResult, getInterviewSessions, getInterviewScorecard } from '../lib/api'
+import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandidateAuditLog, viewCandidateResume, downloadCandidateResume, downloadPdfReport, getScreeningResult, getInterviewSessions, getInterviewScorecard, downloadAdverseAction } from '../lib/api'
 import AnimatedScore from '../components/AnimatedScore'
 import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
 import PhoneScreenKit from '../components/PhoneScreenKit'
 import EvaluationChecklist from '../components/EvaluationChecklist'
 import VoiceScheduleModal from '../components/VoiceScheduleModal'
+import { EnrichmentBanner, ActionRail, AnalysisStageTracker, RescoreSheet } from '../components/patterns'
+import { useEnrichmentPolling } from '../hooks/useEnrichmentPolling'
+import { useNotification } from '../contexts/NotificationContext'
+import { showSuccess } from '../lib/toast'
 import api from '../lib/api'
 
 /**
@@ -422,6 +426,10 @@ export default function ReportPage() {
 
   // ── Voice Screening modal state ──────────────────────────────────────────
   const [voiceScheduleOpen, setVoiceScheduleOpen] = useState(false)
+  const [rescoreOpen, setRescoreOpen] = useState(false)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
+  const { trackEnrichmentJob, updateEnrichmentJob, completeEnrichmentJob, addNotification } = useNotification()
+  const enrichmentJobIdRef = useRef(null)
 
   // ── AI Recruiter sessions state ─────────────────────────────────────────
   const [recruiterSessions, setRecruiterSessions] = useState([])
@@ -541,90 +549,77 @@ export default function ReportPage() {
       .finally(() => setRecruiterLoading(false))
   }, [result?.candidate_id])
 
-  // Poll for narrative completion if status is pending or processing
-  useEffect(() => {
-    if (!result?.analysis_id && !result?.result_id) return
-    
-    const analysisId = result.analysis_id || result.result_id
-    const status = result.narrative_status || 'pending'
-    const kitStatus = result.interview_kit_status || 'pending'
-    
-    const needsNarrativePoll = status === 'pending' || status === 'processing'
-    const needsKitPoll = (status === 'ready' || status === 'fallback') &&
-      (kitStatus === 'pending' || kitStatus === 'processing')
-
-    if (!needsNarrativePoll && !needsKitPoll) return
-    
-    setNarrativePolling(true)
-    let pollCount = 0
-    const maxPolls = 90 // up to ~3 min at 2s intervals
-    
-    const pollInterval = setInterval(async () => {
-      try {
-        const narrativeData = await getNarrative(analysisId)
-        const kit = narrativeData.interview_kit_status
-        
-        if (narrativeData.status === 'ready') {
-          setResult(prev => ({
-            ...prev,
-            ...narrativeData.narrative,
-            narrative_status: 'ready',
-            interview_kit_status: kit || prev.interview_kit_status,
-            ai_enhanced: true,
-          }))
-          if (kit === 'ready' || kit === 'fallback' || kit === 'skipped') {
-            setNarrativePolling(false)
-            clearInterval(pollInterval)
-          }
-        } else if (narrativeData.status === 'fallback' || narrativeData.status === 'failed') {
-          if (narrativeData.narrative) {
-            setResult(prev => ({
-              ...prev,
-              ...narrativeData.narrative,
-              narrative_status: narrativeData.status,
-              interview_kit_status: kit || prev.interview_kit_status,
-              narrative_error: narrativeData.error,
-              ai_enhanced: false,
-            }))
-          } else {
-            setResult(prev => ({
-              ...prev,
-              narrative_status: narrativeData.status,
-              interview_kit_status: kit || prev.interview_kit_status,
-              narrative_error: narrativeData.error,
-            }))
-          }
-          if (kit === 'ready' || kit === 'fallback' || kit === 'skipped' || !kit) {
-            setNarrativePolling(false)
-            clearInterval(pollInterval)
-          }
-        } else if (narrativeData.status === 'processing') {
-          setResult(prev => ({ ...prev, narrative_status: 'processing' }))
-        } else if (kit === 'ready' || kit === 'fallback') {
-          setResult(prev => ({
-            ...prev,
-            ...(narrativeData.narrative || {}),
-            interview_kit_status: kit,
-          }))
-          setNarrativePolling(false)
-          clearInterval(pollInterval)
-        }
-        
-        pollCount++
-        if (pollCount >= maxPolls) {
-          setNarrativePolling(false)
-          clearInterval(pollInterval)
-        }
-      } catch (error) {
-        console.error('Narrative polling error:', error)
+  // Poll for narrative + kit via shared hook
+  useEnrichmentPolling(result, (updater) => {
+    setResult((prev) => updater(prev))
+  }, {
+    onKitReady: () => {
+      addNotification({
+        type: 'success',
+        title: 'Interview kit ready',
+        message: `${candidateName || 'Candidate'} — screen questions are ready`,
+        href: `/report?id=${result?.result_id || result?.id}`,
+      })
+      if (enrichmentJobIdRef.current) {
+        completeEnrichmentJob(enrichmentJobIdRef.current, { phase: 'Complete', status: 'ready' })
       }
-    }, 2000)
-    
-    return () => {
-      clearInterval(pollInterval)
-      setNarrativePolling(false)
+    },
+    onComplete: () => setNarrativePolling(false),
+  })
+
+  useEffect(() => {
+    const rid = result?.result_id || result?.analysis_id
+    if (!rid) return
+    if (result.narrative_status === 'pending' || result.narrative_status === 'processing') {
+      setNarrativePolling(true)
+      const jobId = `enrich-${rid}`
+      enrichmentJobIdRef.current = jobId
+      trackEnrichmentJob({
+        id: jobId,
+        label: candidateName || `Report #${rid}`,
+        status: 'processing',
+        phase: 'AI enrichment',
+        href: `/report?id=${rid}`,
+      })
     }
-  }, [result?.analysis_id, result?.result_id, result?.narrative_status, result?.interview_kit_status])
+  }, [result?.result_id, result?.analysis_id, result?.narrative_status, candidateName, trackEnrichmentJob])
+
+  useEffect(() => {
+    if (!result || !enrichmentJobIdRef.current) return
+    updateEnrichmentJob(enrichmentJobIdRef.current, {
+      phase: result.interview_kit_status === 'processing'
+        ? 'Interview kit generating'
+        : result.narrative_status === 'processing'
+          ? 'AI insights generating'
+          : result.voice_strategy_status === 'processing'
+            ? 'Voice plan building'
+            : 'Enriching',
+      status: ['ready', 'fallback', 'skipped'].includes(result.interview_kit_status) &&
+        !['pending', 'processing'].includes(result.narrative_status || '')
+        ? 'ready'
+        : 'processing',
+    })
+  }, [result?.narrative_status, result?.interview_kit_status, result?.voice_strategy_status, updateEnrichmentJob])
+
+  const handleAdverseAction = async () => {
+    const resultId = result?.result_id || result?.id
+    if (!resultId) return
+    try {
+      const response = await downloadAdverseAction(resultId)
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${candidateName || 'Candidate'}_Adverse_Action.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      showSuccess('Adverse action letter downloaded')
+    } catch {
+      showSuccess('Could not download adverse action letter')
+    }
+  }
 
   // Load resume blob when entering screen mode
   useEffect(() => {
@@ -1043,42 +1038,7 @@ export default function ReportPage() {
           </div>
         </div>
 
-        {/* AI Enhancement status indicator in sidebar */}
-        {result.narrative_status === 'pending' && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-brand-50 ring-1 ring-brand-200 text-xs font-semibold text-brand-700">
-            <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse shrink-0" />
-            AI analysis in progress
-            <span className="animate-pulse">…</span>
-          </div>
-        )}
-        {result.narrative_status === 'processing' && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 ring-1 ring-blue-200 text-xs font-semibold text-blue-700">
-            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
-            AI enhancing report
-            <span className="animate-pulse">…</span>
-          </div>
-        )}
-        {/* Fallback narrative (not AI-enhanced) - show "Analysis complete" */}
-        {result.narrative_status === 'ready' && result.ai_enhanced === false && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-xs font-semibold text-slate-700">
-            <span className="w-2 h-2 rounded-full bg-slate-500 shrink-0" />
-            Analysis complete
-          </div>
-        )}
-        {/* Real AI-enhanced narrative - show "AI Enhanced Report" */}
-        {result.narrative_status === 'ready' && result.ai_enhanced === true && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 ring-1 ring-green-200 text-xs font-semibold text-green-700">
-            <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-            AI Enhanced Report
-          </div>
-        )}
-        {/* Fallback / Failed status */}
-        {(result.narrative_status === 'fallback' || result.narrative_status === 'failed') && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 ring-1 ring-amber-200 text-xs font-semibold text-amber-700">
-            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-            Using standard analysis
-          </div>
-        )}
+        <AnalysisStageTracker result={result} className="mb-1" />
 
         {/* Score gauge */}
         {hasDeterministicData && (
@@ -1251,6 +1211,20 @@ export default function ReportPage() {
 
         {/* Scrollable result content */}
         <div className="report-content flex-1 overflow-y-auto p-6 space-y-5 print:overflow-visible print:p-4">
+          {!bannerDismissed && (
+            <EnrichmentBanner result={result} onDismiss={() => setBannerDismissed(true)} />
+          )}
+
+          <ActionRail
+            result={result}
+            onScheduleInterview={() => setVoiceScheduleOpen(true)}
+            onDownloadPdf={handleDownload}
+            onDownloadAdverseAction={handleAdverseAction}
+            onShare={handleShare}
+            onRescore={() => setRescoreOpen(true)}
+            isDownloading={isDownloading}
+            copied={copied}
+          />
 
           {/* Score Summary — visible in both screen and PDF */}
           {!hasDeterministicData ? (
@@ -1424,6 +1398,15 @@ export default function ReportPage() {
           preselectedJdId={result?.jd_id || jdContext?.jd_id || null}
         />
       )}
+
+      <RescoreSheet
+        isOpen={rescoreOpen}
+        onClose={() => setRescoreOpen(false)}
+        result={result}
+        onRescoreComplete={(updated) => {
+          setResult((prev) => ({ ...prev, ...updated, fit_score: updated.fit_score ?? prev.fit_score }))
+        }}
+      />
     </div>
   )
 }

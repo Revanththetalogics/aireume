@@ -11,10 +11,12 @@ Provides endpoints for:
 
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
+import uuid
 from typing import Optional, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import Session
 
@@ -105,6 +107,158 @@ async def submit_analysis_job(
         raise HTTPException(status_code=500, detail=f"Failed to submit job: {str(e)}")
 
 
+def _parse_queue_options(
+    scoring_weights: str | None,
+    skill_overrides: str | None,
+    template_id: str | None,
+) -> tuple[dict | None, dict | None, int | None]:
+    weights = None
+    overrides = None
+    tpl_id = None
+    if scoring_weights:
+        try:
+            weights = json.loads(scoring_weights)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid scoring_weights JSON")
+    if skill_overrides:
+        try:
+            overrides = json.loads(skill_overrides)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid skill_overrides JSON")
+    if template_id:
+        try:
+            tpl_id = int(template_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid template_id")
+    return weights, overrides, tpl_id
+
+
+async def _resolve_jd_for_queue(
+    jd_text: str | None,
+    jd_file: UploadFile | None,
+) -> str:
+    from app.backend.routes.analyze import _resolve_jd, _check_jd_length
+
+    jd_bytes = None
+    jd_name = None
+    if jd_file and jd_file.filename:
+        jd_bytes = await jd_file.read()
+        jd_name = jd_file.filename
+    resolved = _resolve_jd(jd_text, jd_bytes, jd_name)
+    _check_jd_length(resolved)
+    return resolved
+
+
+@router.post("/submit-file")
+async def submit_analysis_file(
+    resume_file: UploadFile = File(...),
+    jd_text: str | None = Form(None),
+    jd_file: UploadFile | None = File(None),
+    scoring_weights: str | None = Form(None),
+    skill_overrides: str | None = Form(None),
+    template_id: str | None = Form(None),
+    priority: int = Form(7),
+    current_user: User = Depends(require_active_subscription),
+):
+    """Submit a resume file for background queue analysis (multipart)."""
+    from app.backend.services.queue_analysis_service import prepare_file_for_queue
+
+    if not resume_file.filename:
+        raise HTTPException(status_code=400, detail="Resume filename is required")
+
+    content = await resume_file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Resume file is empty")
+
+    job_description = await _resolve_jd_for_queue(jd_text, jd_file)
+    weights, overrides, tpl_id = _parse_queue_options(scoring_weights, skill_overrides, template_id)
+
+    try:
+        result = await prepare_file_for_queue(
+            content,
+            resume_file.filename,
+            job_description,
+            current_user.tenant_id,
+            current_user.id,
+            scoring_weights=weights,
+            skill_overrides=overrides,
+            template_id=tpl_id,
+            priority=priority,
+        )
+        return {
+            **result,
+            "message": "Analysis job submitted successfully",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to submit job: {str(e)}")
+
+
+@router.post("/submit-batch")
+async def submit_analysis_batch(
+    resume_files: List[UploadFile] = File(...),
+    jd_text: str | None = Form(None),
+    jd_file: UploadFile | None = File(None),
+    scoring_weights: str | None = Form(None),
+    skill_overrides: str | None = Form(None),
+    template_id: str | None = Form(None),
+    priority: int = Form(8),
+    current_user: User = Depends(require_active_subscription),
+):
+    """Submit multiple resume files for background queue processing."""
+    from app.backend.services.queue_analysis_service import prepare_file_for_queue
+
+    if not resume_files:
+        raise HTTPException(status_code=400, detail="At least one resume file is required")
+    if len(resume_files) > 50:
+        raise HTTPException(status_code=400, detail="Maximum 50 files per batch")
+
+    job_description = await _resolve_jd_for_queue(jd_text, jd_file)
+    weights, overrides, tpl_id = _parse_queue_options(scoring_weights, skill_overrides, template_id)
+    batch_id = str(uuid.uuid4())
+    jobs = []
+    errors = []
+
+    for resume_file in resume_files:
+        if not resume_file.filename:
+            errors.append({"filename": "unknown", "error": "Missing filename"})
+            continue
+        try:
+            content = await resume_file.read()
+            if not content:
+                errors.append({"filename": resume_file.filename, "error": "Empty file"})
+                continue
+            result = await prepare_file_for_queue(
+                content,
+                resume_file.filename,
+                job_description,
+                current_user.tenant_id,
+                current_user.id,
+                scoring_weights=weights,
+                skill_overrides=overrides,
+                template_id=tpl_id,
+                priority=priority,
+            )
+            jobs.append({**result, "batch_id": batch_id})
+        except Exception as e:
+            errors.append({"filename": resume_file.filename, "error": str(e)})
+
+    if not jobs:
+        raise HTTPException(status_code=400, detail="No jobs could be queued", headers={"X-Errors": json.dumps(errors)})
+
+    return {
+        "batch_id": batch_id,
+        "total": len(resume_files),
+        "queued": len(jobs),
+        "failed": len(errors),
+        "jobs": jobs,
+        "errors": errors,
+        "status": "queued",
+        "message": f"Queued {len(jobs)} of {len(resume_files)} resumes for background analysis",
+    }
+
+
 # ============================================================================
 # Job Status and Results
 # ============================================================================
@@ -167,6 +321,10 @@ async def get_job_status(
     # Add result reference if completed
     if job.status == 'completed' and job.result_id:
         response["result_id"] = str(job.result_id)
+    if job.job_config and job.job_config.get("screening_result_id"):
+        response["screening_result_id"] = job.job_config["screening_result_id"]
+    if job.job_config and job.job_config.get("filename"):
+        response["filename"] = job.job_config["filename"]
     
     return response
 
@@ -213,6 +371,7 @@ async def get_job_result(
         "job_id": str(job_id),
         "result_id": str(result.id),
         "candidate_id": result.candidate_id,
+        "screening_result_id": (job.job_config or {}).get("screening_result_id"),
         "fit_score": result.fit_score,
         "final_recommendation": result.final_recommendation,
         "risk_level": result.risk_level,
@@ -340,6 +499,8 @@ async def list_jobs(
                 "retry_count": job.retry_count,
                 "candidate_id": job.candidate_id,
                 "result_id": str(job.result_id) if job.result_id else None,
+                "screening_result_id": (job.job_config or {}).get("screening_result_id"),
+                "filename": (job.job_config or {}).get("filename"),
             }
             for job in jobs
         ]

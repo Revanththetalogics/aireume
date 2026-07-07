@@ -4,9 +4,12 @@ import {
   Clock, Zap, CheckCircle2, Globe,
 } from 'lucide-react'
 import {
-  getCandidates, getTemplates,
-  scheduleVoiceCall, initiateRecruiterInterview,
+  getCandidates, getTemplates, getNarrative,
+  createInterviewSession,
 } from '../lib/api'
+import { ModalOverlay } from './motion'
+import { Button } from './ui'
+import { isVoiceStrategyPending, isVoiceStrategyReady } from '../lib/enrichmentUtils'
 
 const DEPTH_OPTIONS = [
   {
@@ -116,7 +119,14 @@ function getTargetOffsetMinutes(timezone, date) {
   }
 }
 
-export default function InterviewInitiateModal({ onClose, onSuccess }) {
+export default function InterviewInitiateModal({
+  onClose,
+  onSuccess,
+  initialCandidateId = '',
+  initialJdId = '',
+  initialPhone = '',
+  screeningResultId = null,
+}) {
   const [candidates, setCandidates] = useState([])
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
@@ -133,6 +143,27 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
   const [scheduleType, setScheduleType] = useState('now') // 'now' | 'later'
   const [scheduledAt, setScheduledAt] = useState('')
   const [timezone, setTimezone] = useState(getDefaultTimezone)
+  const [voiceStrategyStatus, setVoiceStrategyStatus] = useState(null)
+
+  useEffect(() => {
+    if (initialCandidateId) setCandidateId(String(initialCandidateId))
+    if (initialJdId) setJdId(String(initialJdId))
+    if (initialPhone) setPhoneNumber(initialPhone)
+  }, [initialCandidateId, initialJdId, initialPhone])
+
+  useEffect(() => {
+    if (!screeningResultId) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const data = await getNarrative(screeningResultId)
+        if (!cancelled) setVoiceStrategyStatus(data.voice_strategy_status || null)
+      } catch { /* ignore */ }
+    }
+    poll()
+    const t = setInterval(poll, 3000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [screeningResultId])
 
   useEffect(() => {
     async function load() {
@@ -184,26 +215,14 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
       : null
 
     try {
-      if (depth === 'quick') {
-        // Route to Voice Screening API
-        await scheduleVoiceCall(
-          parseInt(candidateId),
-          phoneNumber,
-          parseInt(jdId),
-          scheduledAtUtc
-        )
-      } else {
-        // Route to Recruiter API
-        await initiateRecruiterInterview({
-          candidate_id: parseInt(candidateId),
-          jd_id: parseInt(jdId),
-          duration_minutes: durationMinutes,
-          focus_areas: selectedFocusAreas,
-          phone_number: phoneNumber || undefined,
-          scheduled_at: scheduledAtUtc,
-          timezone,
-        })
-      }
+      await createInterviewSession({
+        candidate_id: parseInt(candidateId, 10),
+        jd_id: parseInt(jdId, 10),
+        depth,
+        phone_number: phoneNumber,
+        scheduled_at: scheduledAtUtc,
+        focus_areas: depth === 'quick' ? undefined : selectedFocusAreas,
+      })
       onSuccess?.()
       onClose()
     } catch (err) {
@@ -213,9 +232,10 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
     }
   }
 
+  const voiceBlocked = screeningResultId && isVoiceStrategyPending({ voice_strategy_status: voiceStrategyStatus })
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+    <ModalOverlay isOpen onClose={onClose} ariaLabel="New AI Interview">
       <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
@@ -234,6 +254,22 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {screeningResultId && voiceStrategyStatus && (
+            <div className={`p-3 rounded-xl text-xs font-semibold ring-1 mb-1 ${
+              isVoiceStrategyReady({ voice_strategy_status: voiceStrategyStatus })
+                ? 'bg-emerald-50 text-emerald-800 ring-emerald-200'
+                : voiceBlocked
+                  ? 'bg-brand-50 text-brand-800 ring-brand-200'
+                  : 'bg-slate-50 text-slate-600 ring-slate-200'
+            }`}>
+              {isVoiceStrategyReady({ voice_strategy_status: voiceStrategyStatus })
+                ? 'Voice interview plan ready — instant dispatch'
+                : voiceBlocked
+                  ? 'Preparing voice interview plan…'
+                  : `Voice plan: ${voiceStrategyStatus}`}
+            </div>
+          )}
+
           {error && (
             <div className="p-3 bg-red-50 ring-1 ring-red-200 rounded-xl">
               <p className="text-sm text-red-700">{error}</p>
@@ -446,24 +482,18 @@ export default function InterviewInitiateModal({ onClose, onSuccess }) {
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-            >
-              Cancel
-            </button>
-            <button
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button
               type="submit"
-              disabled={submitting || loading || !candidateId || !jdId || (depth === 'quick' && !phoneNumber)}
-              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition-colors disabled:opacity-50 shadow-sm shadow-brand-200"
+              variant="brand"
+              loading={submitting}
+              disabled={submitting || loading || !candidateId || !jdId || (depth === 'quick' && !phoneNumber) || voiceBlocked}
             >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
               {scheduleType === 'later' ? 'Schedule Interview' : (depth === 'quick' ? 'Call Now' : 'Start Interview')}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
-    </div>
+    </ModalOverlay>
   )
 }

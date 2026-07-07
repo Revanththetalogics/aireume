@@ -11,8 +11,18 @@ import {
   getCandidate, getCandidateTimeline, updateResultStatus,
   downloadCandidateResume, viewCandidateResume,
   getCandidateNotes, addCandidateNote, deleteCandidateNote,
-  getInterviewSessions
+  getInterviewSessions, gdprExportCandidate, gdprDeleteCandidate,
 } from '../lib/api'
+import { AnalyzeJdSheet, RescoreSheet } from '../components/patterns'
+import { SegmentedControl } from '../components/ui'
+
+const COMMAND_TABS = [
+  { value: 'overview', label: 'Overview' },
+  { value: 'timeline', label: 'Timeline' },
+  { value: 'resume', label: 'Resume' },
+  { value: 'interviews', label: 'Interviews' },
+  { value: 'compliance', label: 'Compliance' },
+]
 
 /** Coerce any value to a render-safe string. Objects become JSON; null/undefined → '' */
 function safeStr(v) {
@@ -281,6 +291,8 @@ export default function CandidateProfilePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState(0)
+  const [commandTab, setCommandTab] = useState('overview')
+  const [rescoreOpen, setRescoreOpen] = useState(false)
   const [toast, setToast] = useState(null)
   const [skillsExpanded, setSkillsExpanded] = useState(false)
   const [riskExpanded, setRiskExpanded] = useState(true)
@@ -290,6 +302,7 @@ export default function CandidateProfilePage() {
   const [newNoteText, setNewNoteText] = useState('')
   const [interviewSessions, setInterviewSessions] = useState([])
   const [interviewsLoading, setInterviewsLoading] = useState(false)
+  const [analyzeJdOpen, setAnalyzeJdOpen] = useState(false)
 
   const loadNotes = async (candidateId) => {
     setNotesLoading(true)
@@ -451,7 +464,47 @@ export default function CandidateProfilePage() {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+              <button
+                type="button"
+                onClick={() => setAnalyzeJdOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-brand-700 ring-1 ring-brand-200 bg-brand-50 hover:bg-brand-100 transition-colors"
+              >
+                <Briefcase className="w-3.5 h-3.5" />
+                Analyze New Role
+              </button>
+              {activeResult && (
+                <button
+                  type="button"
+                  onClick={() => setRescoreOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-slate-700 ring-1 ring-gray-300 hover:bg-gray-50 transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Rescore
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const data = await gdprExportCandidate(candidate.id)
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `candidate_${candidate.id}_export.json`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                    setToast('Data exported')
+                  } catch {
+                    setToast('Export failed')
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-slate-700 ring-1 ring-gray-300 hover:bg-gray-50 transition-colors"
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                Export Data
+              </button>
               {candidate.has_resume && (
                 <>
                   <button
@@ -479,6 +532,13 @@ export default function CandidateProfilePage() {
 
       {/* ── 2-Column Body ── */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="mb-6">
+          <SegmentedControl
+            options={COMMAND_TABS}
+            value={commandTab}
+            onChange={setCommandTab}
+          />
+        </div>
         <div className="flex flex-col lg:flex-row gap-6">
 
           {/* ── Left Sidebar ── */}
@@ -637,7 +697,7 @@ export default function CandidateProfilePage() {
           <div className="flex-1 min-w-0 space-y-4">
 
             {/* Task 47A: Risk/Red Flags Card */}
-            {activeHist && (() => {
+            {commandTab === 'overview' && activeHist && (() => {
               const rs = activeHist.risk_summary || {}
               const flags = rs.risk_flags || []
               const gaps = activeHist.employment_gaps || []
@@ -678,6 +738,7 @@ export default function CandidateProfilePage() {
             })()}
 
             {/* Task 49A: Professional Summary Card with AI badge */}
+            {commandTab === 'overview' && (
             <Card className="relative">
               <CardTitle icon={FileText}>Professional Summary</CardTitle>
               {(() => {
@@ -706,9 +767,10 @@ export default function CandidateProfilePage() {
                 )
               })()}
             </Card>
+            )}
 
             {/* Screening Results Tabs */}
-            {results.length > 0 && (
+            {commandTab === 'overview' && results.length > 0 && (
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                 {/* Tab bar */}
                 <div className="border-b border-gray-200 overflow-x-auto bg-white">
@@ -890,7 +952,7 @@ export default function CandidateProfilePage() {
               </div>
             )}
 
-            {results.length === 0 && (
+            {commandTab === 'overview' && results.length === 0 && (
               <Card className="text-center py-8">
                 <FileText className="w-10 h-10 text-gray-200 mx-auto mb-3" />
                 <p className="text-sm text-slate-500 font-medium">No screening results yet</p>
@@ -899,6 +961,7 @@ export default function CandidateProfilePage() {
             )}
 
             {/* AI Interviews Section */}
+            {commandTab === 'interviews' && (
             <Card>
               <CardTitle icon={Mic} badge={interviewSessions.length > 0 ? interviewSessions.length : undefined}>
                 AI Interviews
@@ -970,8 +1033,10 @@ export default function CandidateProfilePage() {
                 </div>
               )}
             </Card>
+            )}
 
             {/* Task 49B: Work Experience Timeline — Enhanced */}
+            {commandTab === 'resume' && (
             <Card>
               <CardTitle icon={Briefcase}>Work Experience</CardTitle>
               {candidate.parsed_work_exp && candidate.parsed_work_exp.length > 0 ? (
@@ -1018,8 +1083,10 @@ export default function CandidateProfilePage() {
                 </div>
               )}
             </Card>
+            )}
 
             {/* Notes Card */}
+            {commandTab === 'timeline' && (
             <Card>
               <CardTitle icon={MessageSquare} badge={notes.length > 0 ? notes.length : undefined}>Notes</CardTitle>
               {/* Add note form */}
@@ -1117,9 +1184,10 @@ export default function CandidateProfilePage() {
                 </div>
               )}
             </Card>
+            )}
 
             {/* Activity Timeline */}
-            {timeline.length > 0 && (
+            {commandTab === 'timeline' && timeline.length > 0 && (
               <Card>
                 <CardTitle icon={Activity}>Activity</CardTitle>
                 <div className="space-y-0">
@@ -1136,11 +1204,82 @@ export default function CandidateProfilePage() {
                 </div>
               </Card>
             )}
+
+            {commandTab === 'compliance' && (
+              <Card>
+                <CardTitle icon={ShieldAlert}>Data & Compliance</CardTitle>
+                <p className="text-sm text-slate-600 mb-4">
+                  Export or delete this candidate&apos;s data for GDPR and privacy requests.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const data = await gdprExportCandidate(candidate.id)
+                        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = `candidate_${candidate.id}_export.json`
+                        a.click()
+                        URL.revokeObjectURL(url)
+                        setToast('Data exported')
+                      } catch {
+                        setToast('Export failed')
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 ring-1 ring-gray-300 hover:bg-gray-50"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export all data
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!window.confirm('Permanently delete this candidate and all associated data?')) return
+                      try {
+                        await gdprDeleteCandidate(candidate.id)
+                        navigate('/candidates')
+                      } catch {
+                        setToast('Deletion failed')
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-red-700 ring-1 ring-red-200 bg-red-50 hover:bg-red-100"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete candidate data
+                  </button>
+                </div>
+              </Card>
+            )}
           </div>
         </div>
       </div>
 
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+
+      <AnalyzeJdSheet
+        isOpen={analyzeJdOpen}
+        onClose={() => setAnalyzeJdOpen(false)}
+        candidateId={candidate?.id}
+        onComplete={() => {
+          getCandidate(id).then(setCandidate).catch(() => {})
+          getCandidateTimeline(id).then((d) => setTimeline(d.timeline || [])).catch(() => {})
+        }}
+      />
+
+      {activeResult && (
+        <RescoreSheet
+          isOpen={rescoreOpen}
+          onClose={() => setRescoreOpen(false)}
+          result={activeResult}
+          onRescoreComplete={() => {
+            getCandidate(id).then(setCandidate).catch(() => {})
+            setToast('Rescore complete')
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -2,14 +2,14 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Briefcase, Users, BarChart3, Columns,
   Users2, Video, Settings, Shield, LogOut, Sparkles,
-  MoreHorizontal, Phone, Moon, Sun, Brain, Mic,
+  MoreHorizontal, Phone, Moon, Sun, Brain, Mic, FolderKanban,
 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { STATUS_CONFIG } from '../lib/constants'
-import ProgressBadge from './ProgressBadge'
+import JobCenter from './patterns/JobCenter'
 import NotificationBell from './NotificationBell'
 
 /* ── Static config ───────────────────────────────────── */
@@ -22,11 +22,12 @@ const PRIMARY_NAV = [
 
 const USER_MENU_LINKS = [
   { label: 'Analytics', path: '/analytics', icon: BarChart3 },
+  { label: 'Projects', path: '/projects', icon: FolderKanban },
   { label: 'Pipeline', path: '/pipeline', icon: Columns },
   { label: 'Team', path: '/team', icon: Users2 },
   { label: 'Team Skills', path: '/team-skills', icon: Users },
-  { label: 'Interviews', path: '/video', icon: Video },
-  { label: 'AI Interview', path: '/ai-interviews', icon: Mic },
+  { label: 'Video Analysis', path: '/video', icon: Video },
+  { label: 'AI Interviews', path: '/ai-interviews', icon: Mic },
   { label: 'Settings', path: '/settings', icon: Settings },
 ]
 
@@ -319,7 +320,7 @@ export default function NavBar() {
 
           {/* Right: progress + admin link + avatar (desktop) */}
           <div className="hidden md:flex items-center gap-3">
-            <ProgressBadge />
+            <JobCenter />
             <NotificationBell />
             {isPlatformAdmin && (
               <Link
@@ -352,7 +353,7 @@ export default function NavBar() {
 
           {/* Mobile: logo already shown, just show progress + avatar on right */}
           <div className="md:hidden flex items-center gap-2">
-            <ProgressBadge />
+            <JobCenter />
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-600 to-brand-400 flex items-center justify-center text-white text-xs font-bold">
               {initials}
             </div>

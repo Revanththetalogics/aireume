@@ -10,6 +10,7 @@ import {
 import { 
   analyzeResumeStream, 
   analyzeBatchStream, 
+  submitBatchToQueue,
   extractJdFromUrl, 
   getTemplates, 
   createTemplate,
@@ -21,10 +22,14 @@ import {
   parseJdPreviewFromFile,
 } from '../lib/api'
 import { useUsageCheck, useSubscription } from '../hooks/useSubscription'
+import { useNotification } from '../contexts/NotificationContext'
 import WeightSuggestionPanel from '../components/WeightSuggestionPanel'
 import UniversalWeightsPanel from '../components/UniversalWeightsPanel'
 import SkillClassificationEditor from '../components/SkillClassificationEditor'
-import { FitBadge, RecommendBadge, NarrativeStatusBadge } from '../components/Badges'
+import { FitBadge, RecommendBadge, EnrichmentStatusBadges } from '../components/Badges'
+import { StreamStageTracker } from '../components/patterns'
+import { showSuccess } from '../lib/toast'
+import { mergeNarrativePollResult, isNarrativePending, isKitPending } from '../lib/enrichmentUtils'
 
 const DEFAULT_WEIGHTS = {
   core_competencies: 0.30,
@@ -49,6 +54,9 @@ const PRESET_LABELS = {
   'experience-heavy': 'Experience-Heavy',
   'domain-focused': 'Domain-Focused',
 }
+
+const BACKGROUND_BATCH_MIN = 20
+const BACKGROUND_BATCH_AUTO = 50
 
 // ── IndexedDB helpers for JD file caching ──
 const JD_DB_NAME = 'aria_jd_cache'
@@ -107,6 +115,16 @@ export default function AnalyzePage() {
   const location = useLocation()
   const { checkBeforeAnalysis, getRemainingAnalyses } = useUsageCheck()
   const { subscription, refreshAfterAnalysis } = useSubscription()
+  const {
+    startBatchAnalysis,
+    updateProgress,
+    completeBatchAnalysis,
+    trackEnrichmentJob,
+    updateEnrichmentJob,
+    completeEnrichmentJob,
+    addNotification,
+    trackQueueBatch,
+  } = useNotification()
 
   // Step 1: Job Description
   const [jdText, setJdText] = useState('')
@@ -136,8 +154,13 @@ export default function AnalyzePage() {
   const [analysisDone, setAnalysisDone] = useState(false)
   const [fileStatuses, setFileStatuses] = useState([])
   const [batchStartTime, setBatchStartTime] = useState(null)
+  const [runInBackground, setRunInBackground] = useState(false)
 
-  // UI State
+  useEffect(() => {
+    if (files.length >= BACKGROUND_BATCH_AUTO) {
+      setRunInBackground(true)
+    }
+  }, [files.length])
   const [currentStep, setCurrentStep] = useState(1)
   const [draftSaved, setDraftSaved] = useState(false)
   const [showJdLibrary, setShowJdLibrary] = useState(false)
@@ -152,6 +175,8 @@ export default function AnalyzePage() {
   const [parsingJd, setParsingJd]             = useState(false)
   const [skillsConfirmed, setSkillsConfirmed] = useState(false)
   const [parseError, setParseError]           = useState(null)
+  const [streamStage, setStreamStage]         = useState(null)
+  const [singleFileName, setSingleFileName]   = useState(null)
   const debounceRef = useRef(null)
   const skipAutoParseRef = useRef(false)
   const streamingResultsRef = useRef([])
@@ -492,9 +517,7 @@ export default function AnalyzePage() {
 
     const pendingIds = streamingResults
       .filter(item => item.screeningResultId && (
-        item.result?.narrative_pending === true ||
-        item.result?.narrative_status === 'pending' ||
-        item.result?.narrative_status === 'processing'
+        isNarrativePending(item.result) || isKitPending(item.result)
       ))
       .map(item => item.screeningResultId)
 
@@ -510,6 +533,9 @@ export default function AnalyzePage() {
       const stillPending = []
 
       for (const id of pendingIds) {
+        const labelFor = (rid) =>
+          streamingResultsRef.current.find((r) => r.screeningResultId === rid)?.filename || `Report #${rid}`
+
         try {
           const data = await getNarrative(id)
           if (data.status === 'ready' || data.status === 'fallback' || data.status === 'failed') {
@@ -517,14 +543,7 @@ export default function AnalyzePage() {
             const kitPending = kitStatus === 'pending' || kitStatus === 'processing'
             setStreamingResults(prev => prev.map(item => {
               if (item.screeningResultId !== id) return item
-              const updatedResult = {
-                ...item.result,
-                ...(data.narrative || {}),
-                narrative_status: data.status,
-                narrative_pending: kitPending,
-                interview_kit_status: kitStatus,
-                ai_enhanced: data.status === 'ready',
-              }
+              const updatedResult = mergeNarrativePollResult(item.result, data)
               try { sessionStorage.setItem(`report_${id}`, JSON.stringify(updatedResult)) } catch {}
               try {
                 const currentResults = JSON.parse(sessionStorage.getItem('aria_batch_results') || '{}')
@@ -539,18 +558,29 @@ export default function AnalyzePage() {
             }))
             if (kitPending) {
               stillPending.push(id)
+              updateEnrichmentJob(`enrich-${id}`, {
+                phase: kitStatus === 'processing' ? 'Interview kit generating' : 'AI insights ready, kit pending',
+                status: 'processing',
+              })
+            } else {
+              completeEnrichmentJob(`enrich-${id}`, {
+                phase: 'Complete',
+                status: data.status === 'ready' ? 'ready' : 'fallback',
+              })
+              addNotification({
+                type: 'success',
+                title: 'Report enrichment complete',
+                message: `${labelFor(id)} — interview kit ready`,
+                href: `/report?id=${id}`,
+              })
             }
           } else if (data.interview_kit_status === 'ready' || data.interview_kit_status === 'fallback') {
             setStreamingResults(prev => prev.map(item => {
               if (item.screeningResultId !== id) return item
-              const updatedResult = {
-                ...item.result,
-                ...(data.narrative || {}),
-                interview_kit_status: data.interview_kit_status,
-                narrative_pending: false,
-              }
+              const updatedResult = mergeNarrativePollResult(item.result, data)
               return { ...item, result: updatedResult }
             }))
+            completeEnrichmentJob(`enrich-${id}`, { phase: 'Complete', status: 'ready' })
           } else {
             stillPending.push(id)
           }
@@ -810,19 +840,57 @@ export default function AnalyzePage() {
 
       // Run analysis - auto-detect single vs batch
       if (files.length === 1) {
-        // Single analysis
+        setStreamStage('parsing')
+        setSingleFileName(files[0].name)
         const result = await analyzeResumeStream(
           files[0],
           jdMode === 'text' ? jdText : null,
           jdMode === 'file' ? jdFile : null,
           weights,
-          null,  // onStageComplete
+          (event) => {
+            if (event.stage === 'parsing') setStreamStage('parsing')
+            else if (event.stage === 'scoring') setStreamStage('scoring')
+            else if (event.stage === 'complete') setStreamStage('complete')
+          },
           loadedTemplateId,
           skillOverrides,
         )
+        setStreamStage(null)
+        setSingleFileName(null)
+        const resultId = result?.result_id || result?.analysis_id
+        if (resultId) {
+          trackEnrichmentJob({
+            id: `enrich-${resultId}`,
+            label: files[0].name,
+            status: 'processing',
+            phase: 'AI enrichment',
+            href: `/report?id=${resultId}`,
+          })
+        }
         navigate('/report', { state: { result } })
+      } else if (runInBackground && files.length >= BACKGROUND_BATCH_MIN) {
+        const batch = await submitBatchToQueue(
+          files,
+          jdMode === 'text' ? jdText : null,
+          jdMode === 'file' ? jdFile : null,
+          weights,
+          loadedTemplateId,
+          skillOverrides,
+        )
+        trackQueueBatch(batch)
+        showSuccess(`Queued ${batch.queued} resume${batch.queued !== 1 ? 's' : ''} for background analysis`)
+        if (batch.failed > 0) {
+          addNotification({
+            type: 'warning',
+            title: 'Some files could not be queued',
+            message: `${batch.failed} file(s) failed to enqueue. Check file sizes and formats.`,
+          })
+        }
+        setFiles([])
+        await refreshAfterAnalysis(batch.queued || files.length)
       } else {
         // Batch analysis with SSE streaming
+        startBatchAnalysis(files.length)
         setStreamingResults([])
         setStreamingFailed([])
         setAnalysisDone(false)
@@ -844,6 +912,7 @@ export default function AnalyzePage() {
             onProcessing: (index, total, filename) => {
               setIsAnalyzing(true)
               setAnalysisProgress(prev => ({ ...prev, total }))
+              updateProgress(filename, 'processing')
               setFileStatuses(prev => prev.map(fs =>
                 fs.filename === filename
                   ? { ...fs, status: 'processing', startTime: Date.now() }
@@ -866,7 +935,15 @@ export default function AnalyzePage() {
               ))
               if (screeningResultId) {
                 try { sessionStorage.setItem(`report_${screeningResultId}`, JSON.stringify(result)) } catch {}
+                trackEnrichmentJob({
+                  id: `enrich-${screeningResultId}`,
+                  label: filename,
+                  status: 'processing',
+                  phase: 'AI insights generating',
+                  href: `/report?id=${screeningResultId}`,
+                })
               }
+              updateProgress(filename, 'completed')
               // Safety net: persist batch results on every new result
               try {
                 const currentResults = streamingResultsRef.current
@@ -894,7 +971,7 @@ export default function AnalyzePage() {
                   ? { ...fs, status: 'failed', error, endTime: Date.now() }
                   : fs
               ))
-              // Safety net: persist batch results on every failure too
+              updateProgress(filename, 'error')
               try {
                 const currentResults = streamingResultsRef.current
                 const currentFailed = streamingFailedRef.current
@@ -919,6 +996,8 @@ export default function AnalyzePage() {
               } catch {}
               setIsAnalyzing(false)
               setAnalysisProgress({ completed: total, total })
+              completeBatchAnalysis()
+              showSuccess(`${successful} of ${total} resumes analyzed`)
             },
           },
           loadedTemplateId,
@@ -1464,6 +1543,31 @@ export default function AnalyzePage() {
             </div>
           )}
 
+          {streamStage && singleFileName && (
+            <div className="mb-6">
+              <p className="text-xs text-slate-500 mb-2 font-medium">Analyzing {singleFileName}</p>
+              <StreamStageTracker activeStage={streamStage} />
+            </div>
+          )}
+
+          {files.length > 1 && files.length >= BACKGROUND_BATCH_MIN && (
+            <label className="mb-4 flex items-start gap-3 p-4 bg-indigo-50 ring-1 ring-indigo-200 rounded-2xl cursor-pointer">
+              <input
+                type="checkbox"
+                checked={runInBackground}
+                onChange={(e) => setRunInBackground(e.target.checked)}
+                className="mt-1 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <div>
+                <p className="text-sm font-semibold text-indigo-900">Run in background</p>
+                <p className="text-xs text-indigo-700 mt-0.5">
+                  Queue {files.length} resumes for server-side processing. Track progress in Activity Center.
+                  {files.length >= BACKGROUND_BATCH_AUTO && ' (Recommended for 50+ files)'}
+                </p>
+              </div>
+            </label>
+          )}
+
           {/* Navigation */}
           <div className="flex justify-between">
             <button
@@ -1653,7 +1757,7 @@ export default function AnalyzePage() {
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center gap-2">
-                            <NarrativeStatusBadge result={r} />
+                            <EnrichmentStatusBadges result={r} />
                             <button
                               onClick={() => {
                                 // Persist batch results before navigating to report

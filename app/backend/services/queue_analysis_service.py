@@ -1,0 +1,218 @@
+"""
+Queue analysis integration — file upload enqueue + ScreeningResult persistence.
+
+Bridges the job queue with the main hybrid analysis pipeline so background
+jobs produce the same ScreeningResult records as SSE batch/stream analysis.
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import logging
+from typing import Any, Optional
+
+from sqlalchemy.orm import Session
+
+from app.backend.db.database import SessionLocal
+from app.backend.services.queue_manager import get_queue_manager
+
+log = logging.getLogger("aria.queue_analysis")
+
+MAX_INLINE_BYTES = 2 * 1024 * 1024  # 2 MB — store in parsed_resume_cache
+
+
+def _json_default(obj):
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+async def prepare_file_for_queue(
+    content: bytes,
+    filename: str,
+    jd_text: str,
+    tenant_id: int,
+    user_id: int,
+    *,
+    scoring_weights: dict | None = None,
+    skill_overrides: dict | None = None,
+    template_id: int | None = None,
+    priority: int = 7,
+) -> dict[str, Any]:
+    """Parse resume file and enqueue a background analysis job."""
+    from app.backend.routes.analyze import _parse_resume_with_doc_conversion
+
+    parsed_data, _pdf_bytes = await _parse_resume_with_doc_conversion(content, filename)
+    resume_text = parsed_data.get("raw_text") or ""
+    if not resume_text.strip():
+        raise ValueError(f"Could not extract text from {filename}")
+
+    file_hash = hashlib.md5(content).hexdigest()
+    cache: dict[str, Any] = {
+        "parsed_data": parsed_data,
+        "file_hash": file_hash,
+        "filename": filename,
+    }
+    if len(content) <= MAX_INLINE_BYTES:
+        cache["file_content_b64"] = base64.b64encode(content).decode("ascii")
+
+    job_config = {
+        "scoring_weights": scoring_weights,
+        "skill_overrides": skill_overrides,
+        "template_id": template_id,
+        "filename": filename,
+    }
+
+    queue_manager = get_queue_manager()
+    job_id = await queue_manager.enqueue_job(
+        tenant_id=tenant_id,
+        resume_text=resume_text,
+        resume_filename=filename,
+        jd_text=jd_text,
+        user_id=user_id,
+        priority=priority,
+        job_config=job_config,
+        parsed_resume_cache=cache,
+    )
+
+    return {
+        "job_id": str(job_id),
+        "filename": filename,
+        "status": "queued",
+    }
+
+
+async def complete_queue_job(job_id, db: Session) -> bool:
+    """
+    Process a queued job end-to-end: score, persist ScreeningResult, spawn LLM.
+    Returns True on success.
+    """
+    from datetime import datetime, timezone
+
+    from app.backend.models.db_models import AnalysisArtifact, AnalysisJob, AnalysisResult, Candidate
+    from app.backend.routes.analyze import (
+        _get_or_create_candidate,
+        _process_single_resume,
+        _spawn_background_narrative,
+        _store_candidate_profile,
+        _upsert_screening_result,
+    )
+    import time
+
+    job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
+    if not job:
+        raise ValueError(f"Job not found: {job_id}")
+
+    artifact = db.query(AnalysisArtifact).filter(AnalysisArtifact.id == job.artifact_id).first()
+    if not artifact:
+        raise ValueError(f"Artifact not found for job {job_id}")
+
+    start_time = time.time()
+    job_config = job.job_config or {}
+    scoring_weights = job_config.get("scoring_weights")
+    skill_overrides = job_config.get("skill_overrides")
+    template_id = job_config.get("template_id")
+    filename = job_config.get("filename") or artifact.resume_filename
+
+    cache = artifact.parsed_resume_cache or {}
+    content: bytes
+    if cache.get("file_content_b64"):
+        content = base64.b64decode(cache["file_content_b64"])
+    else:
+        content = (artifact.resume_text or "").encode("utf-8")
+
+    job.processing_stage = "scoring"
+    job.progress_percent = 30
+    db.commit()
+
+    raw = await _process_single_resume(
+        content=content,
+        filename=filename,
+        job_description=artifact.jd_text,
+        scoring_weights=scoring_weights,
+        db=db,
+        skill_overrides=skill_overrides,
+    )
+
+    if raw.get("pipeline_errors"):
+        raise ValueError("; ".join(raw["pipeline_errors"]))
+
+    parsed_data = raw.pop("_parsed_data", cache.get("parsed_data") or {})
+    gap_analysis = raw.pop("_gap_analysis", {})
+    raw.pop("_pdf_bytes", None)
+
+    file_hash = cache.get("file_hash") or hashlib.md5(content).hexdigest()
+
+    candidate_id, _ = _get_or_create_candidate(
+        db,
+        parsed_data,
+        job.tenant_id,
+        file_hash=file_hash,
+        gap_analysis=gap_analysis,
+        profile_quality=raw.get("analysis_quality", "medium"),
+        file_content=content,
+        filename=filename,
+        resume_text=parsed_data.get("raw_text", ""),
+    )
+
+    cand = db.get(Candidate, candidate_id)
+    if cand:
+        _store_candidate_profile(
+            cand,
+            parsed_data,
+            gap_analysis,
+            file_hash,
+            raw.get("analysis_quality", "medium"),
+            file_content=content,
+            filename=filename,
+            db=db,
+        )
+
+    db_result = _upsert_screening_result(
+        db,
+        tenant_id=job.tenant_id,
+        candidate_id=candidate_id,
+        role_template_id=template_id,
+        resume_text=parsed_data.get("raw_text", ""),
+        jd_text=artifact.jd_text,
+        parsed_data=json.dumps(parsed_data, default=_json_default),
+        analysis_result=json.dumps(raw, default=_json_default),
+        narrative_status="pending",
+        pipeline_result=raw,
+    )
+
+    screening_result_id = db_result.id
+    _spawn_background_narrative(raw, screening_result_id, job.tenant_id)
+
+    job_config["screening_result_id"] = screening_result_id
+    job_config["filename"] = filename
+    job.job_config = job_config
+    job.candidate_id = candidate_id
+
+    analysis_result = AnalysisResult(
+        job_id=job.id,
+        tenant_id=job.tenant_id,
+        candidate_id=candidate_id,
+        fit_score=raw.get("fit_score") or 0,
+        final_recommendation=raw.get("final_recommendation") or "Pending",
+        risk_level=raw.get("risk_level"),
+        analysis_data=raw,
+        parsed_resume=parsed_data,
+        parsed_jd={},
+        narrative_status="pending",
+        processing_time_ms=int((time.time() - start_time) * 1000),
+        artifact_id=artifact.id,
+    )
+    db.add(analysis_result)
+    db.flush()
+
+    job.status = "completed"
+    job.completed_at = datetime.now(timezone.utc)
+    job.result_id = analysis_result.id
+    job.progress_percent = 100
+    job.processing_stage = "complete"
+    db.commit()
+
+    log.info("Queue job %s completed → screening_result_id=%s", job_id, screening_result_id)
+    return True

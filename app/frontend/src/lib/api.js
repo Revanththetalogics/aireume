@@ -180,10 +180,46 @@ export async function submitAnalysisJob(file, jobDescription, jobFile = null, sc
     formData.append('skill_overrides', JSON.stringify(skillOverrides))
   }
   
-  const response = await api.post('/queue/submit', formData, {
+  const response = await api.post('/queue/submit-file', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
   return response.data // { job_id, status, queued_at }
+}
+
+/**
+ * Submit multiple resumes to the background queue (50+ file batches).
+ */
+export async function submitBatchToQueue(
+  files,
+  jobDescription,
+  jdFile = null,
+  scoringWeights = null,
+  templateId = null,
+  skillOverrides = null,
+  priority = 8,
+) {
+  const formData = new FormData()
+  files.forEach((file) => formData.append('resume_files', file))
+  if (jdFile) {
+    formData.append('jd_file', jdFile)
+  } else {
+    formData.append('jd_text', jobDescription)
+  }
+  if (scoringWeights) {
+    formData.append('scoring_weights', JSON.stringify(scoringWeights))
+  }
+  formData.append('priority', priority.toString())
+  if (templateId) {
+    formData.append('template_id', templateId)
+  }
+  if (skillOverrides) {
+    formData.append('skill_overrides', JSON.stringify(skillOverrides))
+  }
+
+  const response = await api.post('/queue/submit-batch', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return response.data
 }
 
 /**
@@ -1001,6 +1037,91 @@ export async function getQueueMetrics() {
   return response.data
 }
 
+// ─── ATS Integrations ─────────────────────────────────────────────────────────
+
+export async function listATSConnections() {
+  const response = await api.get('/api/ats/connections')
+  return response.data
+}
+
+export async function createATSConnection(data) {
+  const response = await api.post('/api/ats/connections', data)
+  return response.data
+}
+
+export async function updateATSConnection(id, data) {
+  const response = await api.put(`/api/ats/connections/${id}`, data)
+  return response.data
+}
+
+export async function deleteATSConnection(id) {
+  await api.delete(`/api/ats/connections/${id}`)
+}
+
+export async function pushToATS(connectionId, data) {
+  const response = await api.post(`/api/ats/connections/${connectionId}/push`, data)
+  return response.data
+}
+
+export async function pullFromATS(connectionId, data) {
+  const response = await api.post(`/api/ats/connections/${connectionId}/pull`, data)
+  return response.data
+}
+
+export async function getATSSyncLogs(connectionId, limit = 50) {
+  const response = await api.get(`/api/ats/connections/${connectionId}/logs`, { params: { limit } })
+  return response.data
+}
+
+// ─── Screening Projects ───────────────────────────────────────────────────────
+
+export async function listProjects(status = null) {
+  const params = status ? { status } : {}
+  const response = await api.get('/api/projects', { params })
+  return response.data
+}
+
+export async function getProject(projectId) {
+  const response = await api.get(`/api/projects/${projectId}`)
+  return response.data
+}
+
+export async function createProject(data) {
+  const response = await api.post('/api/projects', data)
+  return response.data
+}
+
+export async function updateProject(projectId, data) {
+  const response = await api.put(`/api/projects/${projectId}`, data)
+  return response.data
+}
+
+export async function deleteProject(projectId) {
+  await api.delete(`/api/projects/${projectId}`)
+}
+
+export async function getProjectPipeline(projectId) {
+  const response = await api.get(`/api/projects/${projectId}/pipeline`)
+  return response.data
+}
+
+export async function addCandidatesToProject(projectId, candidateIds, screeningResultIds = null) {
+  const response = await api.post(`/api/projects/${projectId}/candidates`, {
+    candidate_ids: candidateIds,
+    screening_result_ids: screeningResultIds,
+  })
+  return response.data
+}
+
+export async function updateProjectCandidateStatus(projectId, candidateId, status) {
+  const response = await api.put(`/api/projects/${projectId}/candidates/${candidateId}`, { status })
+  return response.data
+}
+
+export async function removeCandidateFromProject(projectId, candidateId) {
+  await api.delete(`/api/projects/${projectId}/candidates/${candidateId}`)
+}
+
 // ─── Transcript Analysis ──────────────────────────────────────────────────────
 
 export async function getTranscriptAnalyses() {
@@ -1017,6 +1138,49 @@ export async function getTranscriptAnalysis(id) {
 
 export async function getNarrative(analysisId) {
   const response = await api.get(`/analysis/${analysisId}/narrative`)
+  return response.data
+}
+
+// ─── Rescore & Re-analyze ─────────────────────────────────────────────────────
+
+export async function rescoreAnalysis(resultId, { required_skills, nice_to_have_skills }) {
+  const response = await api.post(`/analyze/${resultId}/rescore`, {
+    required_skills,
+    nice_to_have_skills: nice_to_have_skills || [],
+  })
+  return response.data
+}
+
+export async function analyzeCandidateJd(candidateId, { job_description, scoring_weights = null }) {
+  const response = await api.post(`/candidates/${candidateId}/analyze-jd`, {
+    job_description,
+    scoring_weights,
+  })
+  return response.data
+}
+
+export async function getTeamGapAnalysis(profileId) {
+  const response = await api.get(`/team/profiles/${profileId}/gap-analysis`)
+  return response.data
+}
+
+export async function verifyEmail(token) {
+  const response = await api.get(`/auth/verify-email/${token}`)
+  return response.data
+}
+
+export async function downloadAdverseAction(resultId) {
+  const response = await api.get(`/export/${resultId}/adverse-action`, { responseType: 'blob' })
+  return response
+}
+
+export async function gdprExportCandidate(candidateId) {
+  const response = await api.get(`/candidates/${candidateId}/gdpr-export`)
+  return response.data
+}
+
+export async function gdprDeleteCandidate(candidateId, reason = 'gdpr_request') {
+  const response = await api.delete(`/candidates/${candidateId}/gdpr-delete`, { params: { reason } })
   return response.data
 }
 

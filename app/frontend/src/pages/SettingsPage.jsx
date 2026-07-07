@@ -25,11 +25,13 @@ import {
   Receipt,
   ArrowLeft,
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  Plug,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
 import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice } from '../lib/api'
+import ATSIntegrationsPanel from '../components/settings/ATSIntegrationsPanel'
 
 function Section({ title, icon: Icon, children, description }) {
   return (
@@ -392,6 +394,7 @@ export default function SettingsPage() {
     { id: 'subscription', label: 'Subscription', icon: CreditCard },
     { id: 'billing', label: 'Billing History', icon: Receipt },
     { id: 'team', label: 'Team & Access', icon: Users },
+    { id: 'integrations', label: 'Integrations', icon: Plug },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
   ]
@@ -944,6 +947,16 @@ export default function SettingsPage() {
                 </div>
               </Section>
             </>
+          )}
+
+          {activeTab === 'integrations' && (
+            <Section
+              title="ATS & External Systems"
+              icon={Plug}
+              description="Push and pull candidate status with your applicant tracking system"
+            >
+              <ATSIntegrationsPanel />
+            </Section>
           )}
 
           {/* Notifications Tab */}

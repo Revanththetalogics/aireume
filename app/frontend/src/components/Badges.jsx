@@ -1,4 +1,4 @@
-import { Loader2, Sparkles } from 'lucide-react'
+import { Loader2, Sparkles, MessageSquare, Mic } from 'lucide-react'
 
 export function FitBadge({ score }) {
   if (score == null)
@@ -49,5 +49,67 @@ export function NarrativeStatusBadge({ result }) {
     )
   }
 
+  if (status === 'fallback') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-md ring-1 ring-amber-200" title="Rule-based analysis">
+        Std
+      </span>
+    )
+  }
+
   return null
+}
+
+export function KitStatusBadge({ result }) {
+  const status = result?.interview_kit_status
+  if (!status || status === 'skipped') return null
+  if (status === 'pending' || status === 'processing') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md ring-1 ring-indigo-200" title="Interview kit generating">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Kit
+      </span>
+    )
+  }
+  if (status === 'ready') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-md ring-1 ring-indigo-200" title="Interview kit ready">
+        <MessageSquare className="w-3 h-3" />
+        Kit
+      </span>
+    )
+  }
+  return null
+}
+
+export function VoiceStrategyBadge({ result }) {
+  const status = result?.voice_strategy_status
+  if (!status || status === 'skipped') return null
+  if (status === 'pending' || status === 'processing') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-md ring-1 ring-violet-200">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Voice
+      </span>
+    )
+  }
+  if (status === 'ready') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded-md ring-1 ring-violet-200" title="Voice interview plan ready">
+        <Mic className="w-3 h-3" />
+        Voice
+      </span>
+    )
+  }
+  return null
+}
+
+export function EnrichmentStatusBadges({ result }) {
+  return (
+    <span className="inline-flex items-center gap-1 flex-wrap">
+      <NarrativeStatusBadge result={result} />
+      <KitStatusBadge result={result} />
+      <VoiceStrategyBadge result={result} />
+    </span>
+  )
 }
