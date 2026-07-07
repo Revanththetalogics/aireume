@@ -351,3 +351,39 @@ class TestAnalyzeWithLLM:
             )
             
             assert result["fit_score"] == 85
+
+
+class TestGeminiAnalysisHelpers:
+    def test_should_run_ollama_sentinel_false_when_gemini_only(self, monkeypatch):
+        from app.backend.services.llm_service import should_run_ollama_sentinel
+
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setenv("OLLAMA_USE_LOCAL_JD_PROFILE", "0")
+        assert should_run_ollama_sentinel() is False
+
+    def test_should_run_ollama_sentinel_true_when_local_jd_enabled(self, monkeypatch):
+        from app.backend.services.llm_service import should_run_ollama_sentinel
+
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setenv("OLLAMA_USE_LOCAL_JD_PROFILE", "1")
+        assert should_run_ollama_sentinel() is True
+
+    @pytest.mark.asyncio
+    async def test_extract_jd_profile_uses_gemini_when_configured(self, monkeypatch):
+        from app.backend.services.llm_service import LLMService
+
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+        svc = LLMService()
+        mock_json = '{"role_title": "Engineer", "domain": "Backend Engineering", "domain_keywords": ["python"], "architecture_signals": ["designed"], "education_fields": [], "min_required_years": 3, "max_required_years": 8, "seniority": "mid", "required_skills": ["Python"], "nice_to_have_skills": []}'
+
+        with patch(
+            "app.backend.services.llm_service.gemini_generate_content",
+            new=AsyncMock(return_value=mock_json),
+        ) as mock_gemini:
+            result = await svc.extract_jd_profile("Senior Python Engineer role")
+
+        mock_gemini.assert_awaited_once()
+        assert result["role_title"] == "Engineer"
+        assert result["domain"] == "Backend Engineering"

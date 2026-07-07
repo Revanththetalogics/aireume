@@ -244,46 +244,59 @@ async def _startup_checks() -> dict:
         results["skills"] = {"ok": False, "label": "Skills registry",
                              "note": str(e)[:30]}
 
-    # ── 3. Ollama reachability ────────────────────────────────────────────────
-    ollama_url    = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    narrative_model = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
-    pulled_models = []
-    hot_models    = []
-    ollama_ok     = False
+    # ── 3–5. Analysis LLM (Gemini or local Ollama) ───────────────────────────
+    from app.backend.services.llm_service import use_gemini_for_analysis, get_gemini_model
 
-    try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
-            r = await client.get(f"{ollama_url}/api/tags")
-            r.raise_for_status()
-            ollama_ok = True
-            pulled_models = [m["name"] for m in r.json().get("models", [])]
-            try:
-                ps = await client.get(f"{ollama_url}/api/ps")
-                if ps.status_code == 200:
-                    hot_models = [m["name"] for m in ps.json().get("models", [])]
-            except Exception:
-                pass
-        results["ollama"] = {"ok": True, "label": "Ollama",
-                             "note": f"reachable  ({ollama_url})"}
-    except Exception as e:
-        results["ollama"] = {"ok": False, "label": "Ollama",
-                             "note": str(e)[:35]}
+    if use_gemini_for_analysis():
+        gemini_model = get_gemini_model()
+        results["analysis_llm"] = {
+            "ok": True,
+            "label": "Analysis LLM",
+            "note": f"Google Gemini ({gemini_model})",
+        }
+        results["jd_cache"] = {
+            "ok": True,
+            "label": "JD profile cache",
+            "note": "Postgres jd_cache table",
+        }
+    else:
+        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        narrative_model = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
+        pulled_models = []
+        hot_models = []
+        ollama_ok = False
 
-    # ── 4. Narrative model pulled ─────────────────────────────────────────────
-    model_pulled = ollama_ok and any(narrative_model in m for m in pulled_models)
-    results["model_pulled"] = {
-        "ok":    model_pulled,
-        "label": "Model (pulled)",
-        "note":  f"{narrative_model}" if model_pulled else f"{narrative_model}  NOT FOUND",
-    }
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                r = await client.get(f"{ollama_url}/api/tags")
+                r.raise_for_status()
+                ollama_ok = True
+                pulled_models = [m["name"] for m in r.json().get("models", [])]
+                try:
+                    ps = await client.get(f"{ollama_url}/api/ps")
+                    if ps.status_code == 200:
+                        hot_models = [m["name"] for m in ps.json().get("models", [])]
+                except Exception:
+                    pass
+            results["ollama"] = {"ok": True, "label": "Ollama",
+                                 "note": f"reachable  ({ollama_url})"}
+        except Exception as e:
+            results["ollama"] = {"ok": False, "label": "Ollama",
+                                 "note": str(e)[:35]}
 
-    # ── 5. Narrative model hot in RAM ─────────────────────────────────────────
-    model_hot = ollama_ok and any(narrative_model in m for m in hot_models)
-    results["model_hot"] = {
-        "ok":    model_hot,
-        "label": "Model (hot/RAM)",
-        "note":  "loaded" if model_hot else "cold — will load on first request",
-    }
+        model_pulled = ollama_ok and any(narrative_model in m for m in pulled_models)
+        results["model_pulled"] = {
+            "ok": model_pulled,
+            "label": "Model (pulled)",
+            "note": f"{narrative_model}" if model_pulled else f"{narrative_model}  NOT FOUND",
+        }
+
+        model_hot = ollama_ok and any(narrative_model in m for m in hot_models)
+        results["model_hot"] = {
+            "ok": model_hot,
+            "label": "Model (hot/RAM)",
+            "note": "loaded" if model_hot else "cold — will load on first request",
+        }
 
     # ── 6. Environment ────────────────────────────────────────────────────────
     env = os.getenv("ENVIRONMENT", "development")
@@ -351,10 +364,13 @@ async def lifespan(app: FastAPI):
         log.exception("Startup checks failed — API will still start: %s", e)
         print(f"\n[ARIA startup ERROR] {type(e).__name__}: {e}\n", flush=True)
 
-    # Start Ollama health sentinel after startup checks
+    # Start Ollama health sentinel only when local/cloud Ollama is used for analysis
     try:
-        llm_service._sentinel = llm_service.OllamaHealthSentinel()
-        await llm_service._sentinel.start()
+        if llm_service.should_run_ollama_sentinel():
+            llm_service._sentinel = llm_service.OllamaHealthSentinel()
+            await llm_service._sentinel.start()
+        else:
+            log.info("Ollama health sentinel skipped — analysis uses Google Gemini")
     except Exception as e:
         log.exception("Failed to start Ollama health sentinel: %s", e)
 

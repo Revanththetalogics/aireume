@@ -1,10 +1,9 @@
 # ─── STAGING — MAIN APP STACK (12 vCore / 48 GB VPS) ───────────────────────
-# Backend, frontend, Postgres, local Ollama (analysis), queue workers.
+# Backend, frontend, Postgres. Resume analysis uses Google Gemini (GEMINI_API_KEY).
 # Voice/LiveKit run on a separate VPS — see docker-compose.voice.staging.yml.
 #
 # Portainer: deploy as stack "aria-staging-main"
-# Set VOICE_AGENT_URL to the voice VPS dispatch endpoint, e.g.:
-#   VOICE_AGENT_URL=http://<voice-vps-public-ip>:8002
+# Required: GEMINI_API_KEY, VOICE_AGENT_URL, STAGING_* secrets
 # ────────────────────────────────────────────────────────────────────────────
 name: aria-staging-main
 
@@ -32,25 +31,6 @@ services:
           memory: 2G
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: staging-ollama
-    environment:
-      - OLLAMA_NUM_THREAD=${OLLAMA_NUM_THREAD:-8}
-      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-2}
-      - OLLAMA_MAX_LOADED_MODELS=1
-      - OLLAMA_FLASH_ATTENTION=1
-      - OLLAMA_KV_CACHE_TYPE=q8_0
-      - OLLAMA_KEEP_ALIVE=-1
-    volumes:
-      - staging_ollama_data:/root/.ollama
-    deploy:
-      resources:
-        limits:
-          cpus: '6'
-          memory: 16G
-    restart: unless-stopped
-
   backend:
     image: revanth2245/resume-backend:staging
     pull_policy: always
@@ -58,36 +38,31 @@ services:
     command: uvicorn app.backend.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-graceful-shutdown 30
     stop_grace_period: 30s
     environment:
-      # Local Ollama for screening/analysis (CPU — qwen2.5:3b recommended on 12-core VPS)
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      # Google Gemini — resume analysis (structured extract, JD profile, narrative, interview kit)
+      - GEMINI_API_KEY=${GEMINI_API_KEY:?GEMINI_API_KEY must be set for staging main stack}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - OLLAMA_USE_LOCAL_JD_PROFILE=${OLLAMA_USE_LOCAL_JD_PROFILE:-0}
+      - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-0}
+      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-120}
+      # Ollama Cloud — voice LLM metadata only (inference runs on voice VPS)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - OLLAMA_MODEL_BACKEND=${OLLAMA_MODEL_BACKEND:-qwen2.5:3b}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-${OLLAMA_MODEL_BACKEND:-qwen2.5:3b}}
-      # When GEMINI_API_KEY is set, resume analysis uses Google Gemini instead of local Ollama
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
-      - OLLAMA_LOCAL_URL=${OLLAMA_LOCAL_URL:-http://ollama:11434}
-      - OLLAMA_MODEL_SKILLS=${OLLAMA_MODEL_SKILLS:-qwen2.5:3b}
-      - OLLAMA_USE_LOCAL_JD_PROFILE=${OLLAMA_USE_LOCAL_JD_PROFILE:-1}
-      # Voice LLM stays on cloud (voice runs on separate VPS)
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemini-2.5-flash}
       - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL_VOICE:-https://ollama.com}
       - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen3.5:cloud}
+      - OLLAMA_MAX_CONCURRENT=${OLLAMA_MAX_CONCURRENT:-4}
       - DATABASE_URL=postgresql://${STAGING_POSTGRES_USER:-aria_staging}:${STAGING_POSTGRES_PASSWORD}@postgres:5432/${STAGING_POSTGRES_DB:-aria_staging_db}
       - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY:?STAGING_JWT_SECRET_KEY must be set}
       - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET must be set}
       - ENVIRONMENT=staging
-      - LLM_NARRATIVE_TIMEOUT=${LLM_NARRATIVE_TIMEOUT:-300}
-      - OLLAMA_STARTUP_REQUIRED=${OLLAMA_STARTUP_REQUIRED:-1}
-      - OLLAMA_MAX_CONCURRENT=${OLLAMA_MAX_CONCURRENT:-2}
       - CORS_ORIGINS=${CORS_ORIGINS:-https://airesume-staging.thetalogics.com}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - BATCH_MAX_CONCURRENT=${BATCH_MAX_CONCURRENT:-15}
       - QUEUE_MAX_CONCURRENT=${QUEUE_MAX_CONCURRENT:-5}
-      # Voice agent dispatch API on the voice VPS (must be reachable from this host)
       - VOICE_AGENT_URL=${VOICE_AGENT_URL:?VOICE_AGENT_URL must point to voice VPS dispatch, e.g. http://voice-ip:8002}
     depends_on:
       - postgres
-      - ollama
     deploy:
       resources:
         limits:
@@ -125,28 +100,6 @@ services:
           memory: 256M
     restart: unless-stopped
 
-  ollama-warmup:
-    image: ollama/ollama:latest
-    container_name: staging-ollama-warmup
-    depends_on:
-      - ollama
-    entrypoint: >
-      /bin/sh -c "
-        echo '=== Staging Main: Ollama Warmup ===';
-        until ollama list > /dev/null 2>&1; do sleep 3; done;
-        ollama pull ${OLLAMA_WARMUP_MODEL:-qwen2.5:3b} || true;
-        ollama run ${OLLAMA_WARMUP_MODEL:-qwen2.5:3b} 'warmup' --nowordwrap;
-        echo 'Warmup complete';
-      "
-    environment:
-      - OLLAMA_HOST=http://ollama:11434
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-    restart: "no"
-
   watchtower:
     image: containrrr/watchtower
     container_name: staging-watchtower
@@ -170,7 +123,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  staging_ollama_data:
   staging_postgres_data:
 
 networks:

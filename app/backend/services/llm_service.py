@@ -19,6 +19,15 @@ def use_gemini_for_analysis() -> bool:
     return bool(os.getenv("GEMINI_API_KEY", "").strip())
 
 
+def should_run_ollama_sentinel() -> bool:
+    """Skip local Ollama warmup probes when analysis runs entirely on Gemini."""
+    if not use_gemini_for_analysis():
+        return True
+    if os.getenv("OLLAMA_USE_LOCAL_JD_PROFILE", "").strip() in ("1", "true", "yes"):
+        return True
+    return False
+
+
 def get_gemini_model() -> str:
     return os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
@@ -306,6 +315,23 @@ class LLMService:
 
         prompt = self._build_jd_profile_prompt(job_description)
         _timeout = (timeout or 60) + 10
+
+        if use_gemini_for_analysis():
+            for attempt in range(self.max_retries + 1):
+                try:
+                    response = await gemini_generate_content(
+                        prompt,
+                        system="Return ONLY a valid JSON object. No markdown, no code fences.",
+                        max_output_tokens=2000,
+                        temperature=0.1,
+                    )
+                    parsed = self._parse_json_response(response)
+                    if parsed:
+                        logger.info("JD profile extracted via Google Gemini (model=%s)", get_gemini_model())
+                        return self._validate_jd_profile(parsed)
+                except Exception as e:
+                    logger.warning("JD profile Gemini extraction failed (attempt %d): %s", attempt + 1, e)
+            logger.info("Falling back to Ollama cloud for JD profile extraction")
 
         # Local model disabled by default: it is too slow on the VPS and adds 70s
         # of latency before falling back. Set OLLAMA_USE_LOCAL_JD_PROFILE=1 to opt-in.
