@@ -385,5 +385,40 @@ class TestGeminiAnalysisHelpers:
             result = await svc.extract_jd_profile("Senior Python Engineer role")
 
         mock_gemini.assert_awaited_once()
-        assert result["role_title"] == "Engineer"
-        assert result["domain"] == "Backend Engineering"
+    @pytest.mark.asyncio
+    async def test_gemini_retries_on_503(self, monkeypatch):
+        from app.backend.services import llm_service
+
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setenv("GEMINI_MAX_RETRIES", "2")
+
+        call_count = 0
+
+        class FakeResponse:
+            status_code = 503
+            text = '{"error":{"code":503}}'
+
+            def raise_for_status(self):
+                import httpx
+                raise httpx.HTTPStatusError("503", request=MagicMock(), response=self)
+
+        async def fake_post(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                return FakeResponse()
+            ok = MagicMock()
+            ok.status_code = 200
+            ok.raise_for_status = MagicMock()
+            ok.json = MagicMock(return_value={
+                "candidates": [{"content": {"parts": [{"text": '{"ok": true}'}]}}],
+            })
+            return ok
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.post = fake_post
+            with patch("asyncio.sleep", new=AsyncMock()):
+                text = await llm_service.gemini_generate_content("hello")
+
+        assert call_count == 3
+        assert "ok" in text

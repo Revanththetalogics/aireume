@@ -5,11 +5,27 @@ import enum
 import asyncio
 import time
 import logging
+import random
+import re
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+
+def _redact_secrets(text: str) -> str:
+    """Strip API keys from error messages before logging."""
+    if not text:
+        return text
+    redacted = re.sub(r"key=[^&\s\"']+", "key=***REDACTED***", text, flags=re.IGNORECASE)
+    redacted = re.sub(r"(Authorization:\s*Bearer\s+)\S+", r"\1***REDACTED***", redacted, flags=re.IGNORECASE)
+    return redacted
+
+
+def use_local_jd_profile() -> bool:
+    """Local CPU Ollama for JD profile — off by default, especially when Gemini is primary."""
+    return os.getenv("OLLAMA_USE_LOCAL_JD_PROFILE", "").strip().lower() in ("1", "true", "yes")
 
 
 # ─── Google Gemini (direct API) ─────────────────────────────────────────────
@@ -23,7 +39,7 @@ def should_run_ollama_sentinel() -> bool:
     """Skip local Ollama warmup probes when analysis runs entirely on Gemini."""
     if not use_gemini_for_analysis():
         return True
-    if os.getenv("OLLAMA_USE_LOCAL_JD_PROFILE", "").strip() in ("1", "true", "yes"):
+    if use_local_jd_profile():
         return True
     return False
 
@@ -56,17 +72,64 @@ async def gemini_generate_content(
     if system:
         body["systemInstruction"] = {"parts": [{"text": system}]}
 
+    max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "3"))
+    last_error: Exception | None = None
+
     async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            url,
-            params={"key": api_key},
-            json=body,
-            headers={"Content-Type": "application/json"},
-        )
-        if response.status_code >= 400:
-            logger.warning("Gemini API error %s: %s", response.status_code, response.text[:500])
-        response.raise_for_status()
-        data = response.json()
+        for attempt in range(max_retries + 1):
+            try:
+                response = await client.post(
+                    url,
+                    params={"key": api_key},
+                    json=body,
+                    headers={"Content-Type": "application/json"},
+                )
+                if response.status_code in (429, 503) and attempt < max_retries:
+                    delay = (2 ** attempt) + random.uniform(0.5, 1.5)
+                    logger.warning(
+                        "Gemini API %s (model=%s), retry %d/%d after %.1fs",
+                        response.status_code,
+                        model,
+                        attempt + 1,
+                        max_retries,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                if response.status_code >= 400:
+                    logger.warning(
+                        "Gemini API error %s: %s",
+                        response.status_code,
+                        response.text[:500],
+                    )
+                response.raise_for_status()
+                data = response.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                status = exc.response.status_code if exc.response else 0
+                if status in (429, 503) and attempt < max_retries:
+                    delay = (2 ** attempt) + random.uniform(0.5, 1.5)
+                    logger.warning(
+                        "Gemini HTTP %s, retry %d/%d after %.1fs",
+                        status,
+                        attempt + 1,
+                        max_retries,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise RuntimeError(
+                    f"Gemini API HTTP {status}: {_redact_secrets(str(exc))[:200]}"
+                ) from exc
+            except Exception as exc:
+                last_error = exc
+                raise
+        else:
+            raise RuntimeError(
+                f"Gemini API unavailable after {max_retries + 1} attempts: "
+                f"{_redact_secrets(str(last_error))[:200] if last_error else 'unknown error'}"
+            )
 
     candidates = data.get("candidates") or []
     if not candidates:
@@ -330,13 +393,30 @@ class LLMService:
                         logger.info("JD profile extracted via Google Gemini (model=%s)", get_gemini_model())
                         return self._validate_jd_profile(parsed)
                 except Exception as e:
-                    logger.warning("JD profile Gemini extraction failed (attempt %d): %s", attempt + 1, e)
-            logger.info("Falling back to Ollama cloud for JD profile extraction")
+                    logger.warning(
+                        "JD profile Gemini extraction failed (attempt %d): %s",
+                        attempt + 1,
+                        _redact_secrets(str(e)[:200]),
+                    )
+            logger.info("Gemini JD profile failed — trying Ollama cloud fallback")
 
-        # Local model disabled by default: it is too slow on the VPS and adds 70s
-        # of latency before falling back. Set OLLAMA_USE_LOCAL_JD_PROFILE=1 to opt-in.
-        use_local = os.getenv("OLLAMA_USE_LOCAL_JD_PROFILE", "").strip() in ("1", "true", "yes")
-        if use_local:
+        # Cloud Ollama before local CPU (fast, works without local ollama container)
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await self._call_ollama(prompt, timeout=_timeout)
+                parsed = self._parse_json_response(response)
+                if parsed:
+                    logger.info("JD profile extracted via Ollama cloud")
+                    return self._validate_jd_profile(parsed)
+            except Exception as e:
+                logger.warning(
+                    "JD profile cloud extraction failed (attempt %d): %s",
+                    attempt + 1,
+                    _redact_secrets(str(e)[:200]),
+                )
+
+        # Local CPU Ollama — opt-in only (OLLAMA_USE_LOCAL_JD_PROFILE=1)
+        if use_local_jd_profile():
             for attempt in range(self.max_retries + 1):
                 try:
                     response = await self._call_ollama_local(prompt, timeout=_timeout)
@@ -344,21 +424,13 @@ class LLMService:
                     if parsed:
                         return self._validate_jd_profile(parsed)
                 except Exception as e:
-                    logger.warning("JD profile local extraction failed (attempt %d): %s", attempt + 1, e)
-            logger.info("Falling back to cloud model for JD profile extraction")
+                    logger.warning(
+                        "JD profile local extraction failed (attempt %d): %s",
+                        attempt + 1,
+                        _redact_secrets(str(e)[:200]),
+                    )
 
-        # Use cloud model for fast, reliable JD profile extraction
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = await self._call_ollama(prompt, timeout=_timeout)
-                parsed = self._parse_json_response(response)
-                if parsed:
-                    return self._validate_jd_profile(parsed)
-            except Exception as e:
-                logger.warning("JD profile cloud extraction failed (attempt %d): %s", attempt + 1, e)
-                if attempt == self.max_retries:
-                    return self._fallback_jd_profile()
-
+        logger.warning("JD profile LLM extraction exhausted — using rules fallback")
         return self._fallback_jd_profile()
 
     # ─── Layer 2: LLM Resume Skill Extraction ───────────────────────────────
