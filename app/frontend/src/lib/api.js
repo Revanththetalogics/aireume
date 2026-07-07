@@ -1040,36 +1040,36 @@ export async function getQueueMetrics() {
 // ─── ATS Integrations ─────────────────────────────────────────────────────────
 
 export async function listATSConnections() {
-  const response = await api.get('/api/ats/connections')
+  const response = await api.get('/ats/connections')
   return response.data
 }
 
 export async function createATSConnection(data) {
-  const response = await api.post('/api/ats/connections', data)
+  const response = await api.post('/ats/connections', data)
   return response.data
 }
 
 export async function updateATSConnection(id, data) {
-  const response = await api.put(`/api/ats/connections/${id}`, data)
+  const response = await api.put(`/ats/connections/${id}`, data)
   return response.data
 }
 
 export async function deleteATSConnection(id) {
-  await api.delete(`/api/ats/connections/${id}`)
+  await api.delete(`/ats/connections/${id}`)
 }
 
 export async function pushToATS(connectionId, data) {
-  const response = await api.post(`/api/ats/connections/${connectionId}/push`, data)
+  const response = await api.post(`/ats/connections/${connectionId}/push`, data)
   return response.data
 }
 
 export async function pullFromATS(connectionId, data) {
-  const response = await api.post(`/api/ats/connections/${connectionId}/pull`, data)
+  const response = await api.post(`/ats/connections/${connectionId}/pull`, data)
   return response.data
 }
 
 export async function getATSSyncLogs(connectionId, limit = 50) {
-  const response = await api.get(`/api/ats/connections/${connectionId}/logs`, { params: { limit } })
+  const response = await api.get(`/ats/connections/${connectionId}/logs`, { params: { limit } })
   return response.data
 }
 
@@ -1077,36 +1077,36 @@ export async function getATSSyncLogs(connectionId, limit = 50) {
 
 export async function listProjects(status = null) {
   const params = status ? { status } : {}
-  const response = await api.get('/api/projects', { params })
+  const response = await api.get('/projects', { params })
   return response.data
 }
 
 export async function getProject(projectId) {
-  const response = await api.get(`/api/projects/${projectId}`)
+  const response = await api.get(`/projects/${projectId}`)
   return response.data
 }
 
 export async function createProject(data) {
-  const response = await api.post('/api/projects', data)
+  const response = await api.post('/projects', data)
   return response.data
 }
 
 export async function updateProject(projectId, data) {
-  const response = await api.put(`/api/projects/${projectId}`, data)
+  const response = await api.put(`/projects/${projectId}`, data)
   return response.data
 }
 
 export async function deleteProject(projectId) {
-  await api.delete(`/api/projects/${projectId}`)
+  await api.delete(`/projects/${projectId}`)
 }
 
 export async function getProjectPipeline(projectId) {
-  const response = await api.get(`/api/projects/${projectId}/pipeline`)
+  const response = await api.get(`/projects/${projectId}/pipeline`)
   return response.data
 }
 
 export async function addCandidatesToProject(projectId, candidateIds, screeningResultIds = null) {
-  const response = await api.post(`/api/projects/${projectId}/candidates`, {
+  const response = await api.post(`/projects/${projectId}/candidates`, {
     candidate_ids: candidateIds,
     screening_result_ids: screeningResultIds,
   })
@@ -1114,12 +1114,12 @@ export async function addCandidatesToProject(projectId, candidateIds, screeningR
 }
 
 export async function updateProjectCandidateStatus(projectId, candidateId, status) {
-  const response = await api.put(`/api/projects/${projectId}/candidates/${candidateId}`, { status })
+  const response = await api.put(`/projects/${projectId}/candidates/${candidateId}`, { status })
   return response.data
 }
 
 export async function removeCandidateFromProject(projectId, candidateId) {
-  await api.delete(`/api/projects/${projectId}/candidates/${candidateId}`)
+  await api.delete(`/projects/${projectId}/candidates/${candidateId}`)
 }
 
 // ─── Transcript Analysis ──────────────────────────────────────────────────────
