@@ -140,7 +140,7 @@ const CATEGORY_META = {
  *   analysisData         — { missing_skills: string[], matched_skills: string[] }
  *   onDebriefGenerated   — optional callback(debrief) after successful debrief generation
  */
-export default function PhoneScreenKit({ interview_questions, resultId, analysisData, onDebriefGenerated }) {
+export default function PhoneScreenKit({ interview_questions, interviewKitStatus, resultId, analysisData, onDebriefGenerated }) {
   const [expandedGuidance, setExpandedGuidance] = useState({})
   const [evaluations, setEvaluations] = useState({})    // key: `${category}_${index}` → { rating, notes, stars }
   const [savingEval, setSavingEval] = useState({})
@@ -248,6 +248,18 @@ export default function PhoneScreenKit({ interview_questions, resultId, analysis
       console.error('Debrief generation failed:', err)
     }
     setSubmittingSummary(false)
+  }
+
+  if (interviewKitStatus === 'pending' || interviewKitStatus === 'processing') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3 p-8">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-500 opacity-70" />
+        <p className="text-sm font-medium text-slate-500">Preparing interview kit…</p>
+        <p className="text-xs text-slate-400 text-center max-w-xs">
+          Targeted screen questions are being generated in the background.
+        </p>
+      </div>
+    )
   }
 
   if (!interview_questions) {

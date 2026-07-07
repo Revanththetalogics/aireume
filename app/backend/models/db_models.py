@@ -201,6 +201,10 @@ class ScreeningResult(Base):
     narrative_json     = Column(Text, nullable=True)    # LLM narrative (generated asynchronously)
     narrative_status   = Column(String(20), default="pending")  # pending | processing | ready | failed
     narrative_error    = Column(Text, nullable=True)            # error details when failed (null when successful)
+    interview_kit_status = Column(String(20), default="pending", server_default="pending")  # pending | processing | ready | fallback | skipped
+    voice_strategy_json = Column(Text, nullable=True)           # Pre-built AI voice interview plan (JSON)
+    voice_strategy_status = Column(String(20), default="pending", server_default="pending")  # pending | processing | ready | fallback | skipped
+    voice_strategy_config_hash = Column(String(64), nullable=True)  # Hash of duration/question config used
     status             = Column(String(50), default="pending")  # pending/shortlisted/rejected/in-review/hired
     is_active          = Column(Boolean, default=True)          # active version for candidate analysis
     version_number     = Column(Integer, default=1)             # version tracking for re-analysis

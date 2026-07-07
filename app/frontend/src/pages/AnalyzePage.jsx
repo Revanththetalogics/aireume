@@ -513,17 +513,19 @@ export default function AnalyzePage() {
         try {
           const data = await getNarrative(id)
           if (data.status === 'ready' || data.status === 'fallback' || data.status === 'failed') {
+            const kitStatus = data.interview_kit_status
+            const kitPending = kitStatus === 'pending' || kitStatus === 'processing'
             setStreamingResults(prev => prev.map(item => {
               if (item.screeningResultId !== id) return item
               const updatedResult = {
                 ...item.result,
                 ...(data.narrative || {}),
                 narrative_status: data.status,
-                narrative_pending: false,
+                narrative_pending: kitPending,
+                interview_kit_status: kitStatus,
                 ai_enhanced: data.status === 'ready',
               }
               try { sessionStorage.setItem(`report_${id}`, JSON.stringify(updatedResult)) } catch {}
-              // Update batch results cache
               try {
                 const currentResults = JSON.parse(sessionStorage.getItem('aria_batch_results') || '{}')
                 if (currentResults.results) {
@@ -533,6 +535,20 @@ export default function AnalyzePage() {
                   sessionStorage.setItem('aria_batch_results', JSON.stringify(currentResults))
                 }
               } catch {}
+              return { ...item, result: updatedResult }
+            }))
+            if (kitPending) {
+              stillPending.push(id)
+            }
+          } else if (data.interview_kit_status === 'ready' || data.interview_kit_status === 'fallback') {
+            setStreamingResults(prev => prev.map(item => {
+              if (item.screeningResultId !== id) return item
+              const updatedResult = {
+                ...item.result,
+                ...(data.narrative || {}),
+                interview_kit_status: data.interview_kit_status,
+                narrative_pending: false,
+              }
               return { ...item, result: updatedResult }
             }))
           } else {

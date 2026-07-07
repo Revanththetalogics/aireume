@@ -663,7 +663,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     setNarrativeError(null)
     pollAttemptRef.current = 0
     
-    const MAX_ATTEMPTS = 36 // ~2.25 min total: 15*2s + 21*5s = 30s + 105s
+    const MAX_ATTEMPTS = 60 // ~3 min: 15*2s + 45*5s
     
     const getPollDelay = (attempt) => {
       // First 15 attempts: 2s interval (covers first 30s for cloud models)
@@ -689,13 +689,36 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         const response = await getNarrative(effectiveAnalysisId)
         
         if (response.status === 'ready' && response.narrative) {
-          // Narrative is ready, stop polling and merge data
           setNarrativeData(response.narrative)
-          stopPolling()
+          const kit = response.interview_kit_status
+          if (kit === 'ready' || kit === 'fallback' || kit === 'skipped' || !kit) {
+            stopPolling()
+          } else {
+            pollAttemptRef.current += 1
+            if (pollAttemptRef.current >= MAX_ATTEMPTS) {
+              stopPolling()
+            } else {
+              scheduleNextPoll()
+            }
+          }
         } else if (response.status === 'fallback' || response.status === 'failed') {
-          // Narrative failed or fallback, use fallback data and show error
           setNarrativeData(response.narrative || {})
           setNarrativeError(response.error || 'AI enhancement failed')
+          const kit = response.interview_kit_status
+          if (kit === 'ready' || kit === 'fallback' || kit === 'skipped' || !kit) {
+            stopPolling()
+          } else {
+            pollAttemptRef.current += 1
+            if (pollAttemptRef.current >= MAX_ATTEMPTS) {
+              stopPolling()
+            } else {
+              scheduleNextPoll()
+            }
+          }
+        } else if (response.interview_kit_status === 'ready' || response.interview_kit_status === 'fallback') {
+          if (response.narrative) {
+            setNarrativeData(response.narrative)
+          }
           stopPolling()
         } else {
           // Still pending, increment attempts and schedule next poll

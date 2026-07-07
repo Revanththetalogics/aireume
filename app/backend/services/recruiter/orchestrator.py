@@ -108,7 +108,22 @@ class RecruiterOrchestrator:
             "duration_minutes": config.get("duration_minutes", 20),
             "question_count": config.get("question_count", 12),
         }
-        strategy = await self.strategy_agent.generate_strategy(context, strategy_config)
+
+        from app.backend.services.background_enrichment import load_cached_voice_strategy
+
+        strategy = load_cached_voice_strategy(
+            self.db,
+            screening_result_id,
+            tenant_id,
+            strategy_config,
+        )
+        if strategy is None:
+            strategy = await self.strategy_agent.generate_strategy(context, strategy_config)
+        else:
+            logger.info(
+                "Using pre-built voice strategy for screening_result_id=%s",
+                screening_result_id,
+            )
 
         # Merge must-ask questions from project config and interview templates
         strategy = self._merge_must_ask_questions(strategy, config, jd_id)

@@ -691,6 +691,7 @@ class TestExplainWithLlm:
 
         mock_llm = MagicMock()
         mock_llm.ainvoke = AsyncMock(return_value=mock_llm_response)
+        mock_llm.bind = MagicMock(return_value=mock_llm)
 
         with patch("app.backend.services.hybrid_pipeline._get_llm", return_value=mock_llm):
             context = {
@@ -708,8 +709,7 @@ class TestExplainWithLlm:
         assert "strengths" in result
         assert len(result["strengths"]) == 2
         assert "weaknesses" in result
-        assert "interview_questions" in result
-        assert len(result["interview_questions"]["technical_questions"]) == 1
+        assert "interview_questions" not in result
 
     @pytest.mark.asyncio
     async def test_llm_unavailable_raises(self):

@@ -4,8 +4,9 @@ Hybrid Analysis Pipeline — Python-first, single LLM call for narrative.
 Architecture:
   Phase 1 (Python, ~1-2s): parse_jd_rules → parse_resume_rules → match_skills
                             → score_education/experience/domain → compute_fit_score
-  Phase 2 (LLM, ~40s):     explain_with_llm (generates strengths, weaknesses,
-                            rationale, interview questions)
+  Phase 2 (LLM, ~40s):     explain_with_llm (narrative only — strengths, concerns,
+                            recommendation rationale)
+  Phase 2b (background):   interview kit + voice strategy generated after narrative
   Fallback:                 if LLM times out, _build_fallback_narrative returns
                             deterministic text — result is ALWAYS returned.
 
@@ -1110,10 +1111,15 @@ def _fix_unescaped_control_chars(text: str) -> str:
 
 
 async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
-    """Single LLM call to generate narrative. Raises on failure for caller to handle."""
+    """Single LLM call to generate narrative (no interview kit). Raises on failure."""
     llm = _get_llm()
     if llm is None:
         raise RuntimeError("LLM not available")
+
+    _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    _narrative_predict = 4000 if _is_ollama_cloud(_base_url) else 1500
+    if hasattr(llm, "bind"):
+        llm = llm.bind(num_predict=_narrative_predict)
 
     jd       = context.get("jd_analysis", {})
     profile  = context.get("candidate_profile", {})
@@ -1262,9 +1268,6 @@ SCORE RATIONALES: {score_rationales_summary}
 EDUCATION: {edu_text}
 CAREER: {career_snippet}
 
-MUST-HAVE SKILLS CONTEXT (for interview question targeting):
-{must_have_ctx}
-
 Return ONLY valid JSON:
 {{
   "candidate_profile_summary": "A 3-4 sentence recruiter-focused summary of this candidate. Describe their professional background, years of experience, key technical strengths, and how they fit (or don't fit) this specific role. Write in third person, professional tone. Example: 'John is a senior backend engineer with 8 years of experience in distributed systems and cloud infrastructure. He demonstrates strong proficiency in Python, Go, and AWS services. His experience aligns well with the Senior Software Engineer role, though he lacks frontend development exposure required for this position.'",
@@ -1284,26 +1287,6 @@ Return ONLY valid JSON:
     "skill_rationale": "skill match quality explanation",
     "experience_rationale": "experience alignment explanation",
     "overall_rationale": "synthesis of all factors"
-  }},
-  "interview_questions": {{
-    "candidate_briefing": {{
-      "profile_snapshot": "2-3 sentence summary: who is this person, current role, domain, years of experience",
-      "strengths_to_confirm": ["top matched must-have skill/experience to validate"],
-      "areas_to_probe": ["specific gap with severity (HIGH/MEDIUM/LOW based on must-have vs nice-to-have) — e.g., 'Kubernetes — HIGH priority gap for container orchestration responsibility'"],
-      "context_notes": ["Why Q1 targets missing skill X — include gap severity and the JD responsibility it maps to", "Why Q4 probes the proficiency gap in Y"]
-    }},
-    "technical_questions": [
-      {{"text": "scenario-based question", "what_to_listen_for": ["competence signal", "red flag"], "follow_ups": ["conditional follow-up"], "scoring_criteria": {{"strong": "Provides specific, detailed example with measurable outcomes and evidence of hands-on depth", "adequate": "Shows general understanding and some relevant experience, but lacks specificity or measurable results", "weak": "Surface-level or theoretical answer only; unable to provide concrete examples or demonstrates no practical experience"}}}}
-    ],
-    "behavioral_questions": [
-      {{"text": "STAR-format question", "what_to_listen_for": ["leadership/ownership signal"], "follow_ups": ["probe deeper"], "scoring_criteria": {{"strong": "Complete STAR response with specific situation, concrete actions, and quantified results showing ownership", "adequate": "Partial STAR structure with relevant experience but vague outcomes or limited personal accountability", "weak": "Generic or hypothetical answer with no real example, or unable to articulate specific actions taken"}}}}
-    ],
-    "culture_fit_questions": [
-      {{"text": "motivation/alignment question", "what_to_listen_for": ["genuine interest signal"], "follow_ups": ["follow-up"], "scoring_criteria": {{"strong": "Demonstrates genuine, well-researched motivation with specific alignment to role/company; self-aware about fit", "adequate": "Shows general interest but lacks specificity about why this role/company; some alignment evident", "weak": "Generic motivation (salary, location); no evidence of research or genuine connection to the role"}}}}
-    ],
-    "experience_deep_dive_questions": [
-      {{"text": "question probing specific past experience", "what_to_listen_for": ["concrete details", "measurable outcomes"], "follow_ups": ["probe for specifics"], "scoring_criteria": {{"strong": "Detailed walkthrough with clear scope, individual contribution, challenges overcome, and quantified business impact", "adequate": "Relevant experience described but vague on individual contribution or outcomes; mixes team and personal achievements", "weak": "Cannot articulate specific project details; relies on generalities or cannot distinguish personal contribution from team effort"}}}}
-    ]
   }}
 }}
 
@@ -1315,54 +1298,6 @@ NARRATIVE QUALITY RULES:
 5. dealbreakers must be based ONLY on MISSING MUST-HAVE SKILLS or RISK FLAGS, not speculation.
 6. differentiators must be grounded in the actual candidate data provided.
 7. hiring_decision.action_items must be SPECIFIC and ACTIONABLE — never generic like 'conduct interview'.
-
-INTERVIEW KIT RULES — generate highly targeted, non-generic questions:
-1. TECHNICAL QUESTIONS (3 questions):
-   a) RULE: Generate at least 1 question per MISSING MUST-HAVE skill. Each question MUST reference the specific JD responsibility that requires this skill. Format: "In this role, you would {{responsibility}}. Tell me about a time you {{scenario requiring that missing skill}}..." or "This position requires {{responsibility}}. Walk me through how you would approach {{task requiring missing skill}}..."
-   b) RULE: For matched must-have skills with proficiency gaps (see MUST-HAVE SKILLS CONTEXT above), ask depth-probing questions. Format: "Tell me about a time you pushed the limits of {{skill}} beyond what was expected..."
-   c) If architecture gaps exist: Include a system design question relevant to the domain.
-   d) Calibrate difficulty by domain and seniority level.
-   For each question, include:
-   - "what_to_listen_for": 2-3 bullet points describing what a strong answer demonstrates.
-   - "follow_ups": 1-2 conditional follow-up questions.
-   - "scoring_criteria": An object with "strong", "adequate", "weak" keys. Each value is a specific description for THIS question:
-     * "strong": What a deep, evidence-backed answer with measurable outcomes sounds like for this specific skill/topic.
-     * "adequate": What general understanding looks like — some relevant experience but lacks specifics or depth.
-     * "weak": What a surface-level, theoretical-only answer looks like — no concrete examples or practical experience.
-
-2. BEHAVIORAL QUESTIONS (2 questions, STAR format):
-   a) Address the biggest risk signal from gap/timeline assessment.
-   b) Target a seniority-specific challenge: senior->leadership/mentorship; mid->ownership; junior->learning agility.
-   c) Probe the role transition motivation.
-   d) Map behavioral questions to JD-stated soft skills. If the role implies "leadership", "team collaboration", "communication", or "cross-functional coordination", the behavioral question must DIRECTLY assess that specific skill — not a generic teamwork question.
-   For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
-
-3. CULTURE-FIT QUESTIONS (1 question):
-   a) Motivation for THIS specific role given career trajectory.
-   b) Work-style alignment tied to role context.
-   c) Growth mindset and continuous learning approach.
-   For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
-
-4. EXPERIENCE DEEP-DIVE QUESTIONS (1-2 questions):
-   a) Ask about the most relevant past project — scope, individual contribution, challenges, measurable outcomes.
-   b) Ask about working outside comfort zone or taking on responsibilities beyond job title.
-   c) Ask how their approach to a key responsibility has evolved over their career.
-   For each question, include "what_to_listen_for", "follow_ups", and "scoring_criteria" (strong/adequate/weak).
-
-5. CANDIDATE BRIEFING (mandatory):
-   Generate a "candidate_briefing" with:
-   - profile_snapshot (2-3 sentences)
-   - strengths_to_confirm (top 2-3 matched must-have skills)
-   - areas_to_probe (top 2-3 gaps with severity: HIGH for missing must-have, MEDIUM for proficiency gap, LOW for missing nice-to-have). Format: "{{skill}} — {{severity}} priority gap for {{JD responsibility}}"
-   - context_notes (why each notable question was generated, referencing specific gap severity and JD responsibility)
-
-6. SCORING GUIDANCE (mandatory for ALL questions):
-   Every question MUST include a "scoring_criteria" object with three keys:
-   - "strong": A concrete description of what a top-tier answer sounds like for THIS SPECIFIC question. Must reference the JD skill/competency being assessed and include examples of measurable outcomes or evidence depth.
-   - "adequate": What a middling answer looks like — relevant but lacking specifics, depth, or evidence of hands-on experience.
-   - "weak": What a poor answer looks like — theoretical only, no concrete examples, or demonstrates the candidate lacks practical experience with the assessed skill/competency.
-
-DO NOT generate generic questions like "Tell me about yourself" or "What are your strengths?". Every question MUST reference specific skills, role responsibilities, or candidate context.
 
 No markdown, no code fences."""
 
@@ -1385,7 +1320,7 @@ RISK FLAGS:
 {risk_flags}
 SCORE RATIONALES: {score_rationales_summary}
 
-Return ONLY valid JSON. Keep all string values under 200 characters. Keep arrays to 3 items max. Each interview question needs only text, what_to_listen_for, and follow_ups:
+Return ONLY valid JSON. Keep all string values under 200 characters. Keep arrays to 3 items max:
 {{
   "candidate_profile_summary": "2-3 sentence recruiter-focused summary",
   "fit_summary": "3-4 sentence executive summary with clear verdict",
@@ -1404,18 +1339,6 @@ Return ONLY valid JSON. Keep all string values under 200 characters. Keep arrays
     "skill_rationale": "1 sentence",
     "experience_rationale": "1 sentence",
     "overall_rationale": "1 sentence"
-  }},
-  "interview_questions": {{
-    "candidate_briefing": {{
-      "profile_snapshot": "1 sentence",
-      "strengths_to_confirm": ["skill 1"],
-      "areas_to_probe": ["gap 1"],
-      "context_notes": ["note 1"]
-    }},
-    "technical_questions": [{{"text": "question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"]}}],
-    "behavioral_questions": [{{"text": "question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"]}}],
-    "culture_fit_questions": [{{"text": "question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"]}}],
-    "experience_deep_dive_questions": [{{"text": "question", "what_to_listen_for": ["signal"], "follow_ups": ["follow-up"]}}]
   }}
 }}
 
@@ -1613,20 +1536,6 @@ No markdown, no code fences."""
     concerns = _ensure_str_list(data.get("concernes", data.get("concerns", data.get("weaknesses", []))))
     weaknesses = _ensure_str_list(data.get("weaknesses", concerns))
 
-    def _ensure_question_list(v) -> list:
-        """Normalize question entries to dicts with text/what_to_listen_for/follow_ups/scoring_criteria."""
-        if not isinstance(v, list):
-            return []
-        result = []
-        for item in v:
-            if isinstance(item, dict):
-                result.append(item)
-            elif isinstance(item, str):
-                result.append({"text": item, "what_to_listen_for": [], "follow_ups": []})
-        return result
-
-    iq = data.get("interview_questions", {})
-
     # Parse new narrative quality fields with safe defaults
     hiring_decision = data.get("hiring_decision", {})
     if not isinstance(hiring_decision, dict):
@@ -1649,13 +1558,6 @@ No markdown, no code fences."""
             "action_items": _ensure_str_list(hiring_decision.get("action_items", [])),
         },
         "explainability":         data.get("explainability", {}),
-        "interview_questions": {
-            "candidate_briefing": iq.get("candidate_briefing", {}),
-            "technical_questions":   _ensure_question_list(iq.get("technical_questions", [])),
-            "behavioral_questions":  _ensure_question_list(iq.get("behavioral_questions", [])),
-            "culture_fit_questions": _ensure_question_list(iq.get("culture_fit_questions", [])),
-            "experience_deep_dive_questions": _ensure_question_list(iq.get("experience_deep_dive_questions", [])),
-        },
     }
 
 
@@ -2877,9 +2779,10 @@ def _merge_llm_into_result(python_result: Dict[str, Any], llm_result: Dict[str, 
         "weaknesses":             final_weaknesses,
         "recommendation_rationale": llm_result.get("recommendation_rationale", ""),
         "explainability":         llm_result.get("explainability", {}),
-        "interview_questions":    llm_result.get("interview_questions"),
         "education_analysis":     llm_result.get("education_analysis", "") or llm_result.get("explainability", {}).get("education_rationale", ""),
     })
+    if llm_result.get("interview_questions") is not None:
+        merged["interview_questions"] = llm_result.get("interview_questions")
     # Remove internal keys
     merged.pop("_required_years", None)
     merged.pop("_scores", None)
@@ -3127,6 +3030,17 @@ async def _background_llm_narrative(
                 screening_result_id,
             )
             await _write_status(narrative_status, narrative_error)
+        else:
+            from app.backend.services.background_enrichment import schedule_post_narrative_enrichment
+
+            schedule_post_narrative_enrichment(
+                screening_result_id,
+                tenant_id,
+                llm_context,
+                python_result,
+                narrative_status=narrative_status,
+                narrative_payload=llm_result,
+            )
 
 
 def _persist_merged_jd_profile(db_session, job_description: str, jd_analysis: Dict[str, Any]) -> None:

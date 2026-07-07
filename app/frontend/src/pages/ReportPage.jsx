@@ -547,35 +547,42 @@ export default function ReportPage() {
     
     const analysisId = result.analysis_id || result.result_id
     const status = result.narrative_status || 'pending'
+    const kitStatus = result.interview_kit_status || 'pending'
     
-    // Only poll if narrative is pending or processing
-    if (status !== 'pending' && status !== 'processing') return
+    const needsNarrativePoll = status === 'pending' || status === 'processing'
+    const needsKitPoll = (status === 'ready' || status === 'fallback') &&
+      (kitStatus === 'pending' || kitStatus === 'processing')
+
+    if (!needsNarrativePoll && !needsKitPoll) return
     
     setNarrativePolling(true)
     let pollCount = 0
-    const maxPolls = 60 // Poll for max 2 minutes (60 * 2s)
+    const maxPolls = 90 // up to ~3 min at 2s intervals
     
     const pollInterval = setInterval(async () => {
       try {
         const narrativeData = await getNarrative(analysisId)
+        const kit = narrativeData.interview_kit_status
         
         if (narrativeData.status === 'ready') {
-          // Merge narrative into result
           setResult(prev => ({
             ...prev,
             ...narrativeData.narrative,
             narrative_status: 'ready',
+            interview_kit_status: kit || prev.interview_kit_status,
             ai_enhanced: true,
           }))
-          setNarrativePolling(false)
-          clearInterval(pollInterval)
+          if (kit === 'ready' || kit === 'fallback' || kit === 'skipped') {
+            setNarrativePolling(false)
+            clearInterval(pollInterval)
+          }
         } else if (narrativeData.status === 'fallback' || narrativeData.status === 'failed') {
-          // Use fallback narrative if available
           if (narrativeData.narrative) {
             setResult(prev => ({
               ...prev,
               ...narrativeData.narrative,
               narrative_status: narrativeData.status,
+              interview_kit_status: kit || prev.interview_kit_status,
               narrative_error: narrativeData.error,
               ai_enhanced: false,
             }))
@@ -583,33 +590,41 @@ export default function ReportPage() {
             setResult(prev => ({
               ...prev,
               narrative_status: narrativeData.status,
+              interview_kit_status: kit || prev.interview_kit_status,
               narrative_error: narrativeData.error,
             }))
           }
+          if (kit === 'ready' || kit === 'fallback' || kit === 'skipped' || !kit) {
+            setNarrativePolling(false)
+            clearInterval(pollInterval)
+          }
+        } else if (narrativeData.status === 'processing') {
+          setResult(prev => ({ ...prev, narrative_status: 'processing' }))
+        } else if (kit === 'ready' || kit === 'fallback') {
+          setResult(prev => ({
+            ...prev,
+            ...(narrativeData.narrative || {}),
+            interview_kit_status: kit,
+          }))
           setNarrativePolling(false)
           clearInterval(pollInterval)
-        } else if (narrativeData.status === 'processing') {
-          // Update status to show processing
-          setResult(prev => ({ ...prev, narrative_status: 'processing' }))
         }
         
         pollCount++
         if (pollCount >= maxPolls) {
-          // Stop polling after max attempts
           setNarrativePolling(false)
           clearInterval(pollInterval)
         }
       } catch (error) {
         console.error('Narrative polling error:', error)
-        // Continue polling on error (might be transient)
       }
-    }, 2000) // Poll every 2 seconds
+    }, 2000)
     
     return () => {
       clearInterval(pollInterval)
       setNarrativePolling(false)
     }
-  }, [result?.analysis_id, result?.result_id, result?.narrative_status])
+  }, [result?.analysis_id, result?.result_id, result?.narrative_status, result?.interview_kit_status])
 
   // Load resume blob when entering screen mode
   useEffect(() => {
@@ -898,6 +913,7 @@ export default function ReportPage() {
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <PhoneScreenKit
                 interview_questions={interviewQs}
+                interviewKitStatus={result?.interview_kit_status}
                 resultId={result?.result_id}
                 analysisData={{
                   missing_skills: result?.analysis_result?.missing_skills || result?.missing_skills || [],

@@ -3621,6 +3621,8 @@ def get_narrative(
             "status": "fallback",
             "error": result.narrative_error or "AI analysis encountered an error",
             "narrative": narrative,
+            "interview_kit_status": getattr(result, "interview_kit_status", None),
+            "voice_strategy_status": getattr(result, "voice_strategy_status", None),
         }
 
     if status == 'failed':
@@ -3635,6 +3637,8 @@ def get_narrative(
             "status": "failed",
             "error": result.narrative_error or "AI analysis encountered an error",
             "narrative": narrative,
+            "interview_kit_status": getattr(result, "interview_kit_status", None),
+            "voice_strategy_status": getattr(result, "voice_strategy_status", None),
         }
 
     if status == 'ready' or (status is None and result.narrative_json):
@@ -3642,12 +3646,26 @@ def get_narrative(
         if result.narrative_json:
             try:
                 narrative = json.loads(result.narrative_json)
-                return {"status": "ready", "narrative": narrative}
+                kit_status = getattr(result, "interview_kit_status", None) or "pending"
+                voice_strategy_status = getattr(result, "voice_strategy_status", None) or "pending"
+                return {
+                    "status": "ready",
+                    "narrative": narrative,
+                    "interview_kit_status": kit_status,
+                    "voice_strategy_status": voice_strategy_status,
+                }
             except json.JSONDecodeError:
                 return {"status": "pending"}
     
     # Still pending or processing
-    return {"status": "pending"}
+    kit_status = getattr(result, "interview_kit_status", None)
+    voice_strategy_status = getattr(result, "voice_strategy_status", None)
+    payload = {"status": status or "pending"}
+    if kit_status:
+        payload["interview_kit_status"] = kit_status
+    if voice_strategy_status:
+        payload["voice_strategy_status"] = voice_strategy_status
+    return payload
 
 
 # ─── JD Templates Endpoints ───────────────────────────────────────────────────
