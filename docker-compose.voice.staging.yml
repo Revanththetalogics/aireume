@@ -89,7 +89,8 @@ services:
       resources:
         limits:
           cpus: '1.5'
-          memory: 2500M
+          # STT+TTS peaks ~2.5GB RSS; 2500M cgroup caused OOM-kill mid-call (dmesg)
+          memory: 3500M
     restart: unless-stopped
 
   voice-agent:
@@ -127,13 +128,14 @@ services:
     restart: unless-stopped
 
   watchtower:
-    image: containrrr/watchtower
+    # Pin version — default tag fails on Docker Engine API >= 1.40 (client 1.25 too old)
+    image: containrrr/watchtower:1.7.1
     container_name: staging-voice-watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: >
       --rolling-restart
-      --interval 60
+      --interval 3600
       --cleanup
       staging-speech-service
       staging-voice-agent

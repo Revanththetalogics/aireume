@@ -178,10 +178,35 @@ def _is_ollama_cloud(base_url: str) -> bool:
     return "ollama.com" in base_url.lower()
 
 
+def _bind_num_predict(llm, num_predict: int):
+    """Override num_predict for one invocation.
+
+    langchain-ollama 1.0+ no longer accepts num_predict as a top-level chat()
+    kwarg. Pass it inside the Ollama ``options`` dict instead.
+    """
+    if not hasattr(llm, "bind"):
+        return llm
+    if "google" in type(llm).__module__.lower():
+        return llm.bind(max_output_tokens=num_predict)
+    opts: dict = {"num_predict": num_predict}
+    for key in ("num_ctx", "temperature", "top_p", "top_k", "repeat_penalty"):
+        val = getattr(llm, key, None)
+        if val is not None:
+            opts[key] = val
+    return llm.bind(options=opts)
+
+
 def _get_llm():
     global _REASONING_LLM
     if _REASONING_LLM is None:
         try:
+            from app.backend.services.llm_service import use_gemini_for_analysis, create_gemini_chat_llm
+
+            if use_gemini_for_analysis():
+                _REASONING_LLM = create_gemini_chat_llm(max_output_tokens=4000)
+                log.info("Using Google Gemini for analysis LLM (model=%s)", os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+                return _REASONING_LLM
+
             from langchain_ollama import ChatOllama
             _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
             _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
@@ -1116,10 +1141,16 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     if llm is None:
         raise RuntimeError("LLM not available")
 
+    from app.backend.services.llm_service import use_gemini_for_analysis
+
     _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    _narrative_predict = 4000 if _is_ollama_cloud(_base_url) else 1500
-    if hasattr(llm, "bind"):
-        llm = llm.bind(num_predict=_narrative_predict)
+    if use_gemini_for_analysis():
+        _narrative_predict = 2000
+    elif _is_ollama_cloud(_base_url):
+        _narrative_predict = 4000
+    else:
+        _narrative_predict = 1500
+    llm = _bind_num_predict(llm, _narrative_predict)
 
     jd       = context.get("jd_analysis", {})
     profile  = context.get("candidate_profile", {})

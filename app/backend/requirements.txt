@@ -64,6 +64,7 @@ openpyxl>=3.1.0
 # LLM Integration
 langchain-core>=0.3.0
 langchain-ollama>=0.3.0
+langchain-google-genai>=2.0.0
 
 # Utilities
 python-dotenv==1.0.1

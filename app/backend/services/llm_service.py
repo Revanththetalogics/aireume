@@ -9,6 +9,77 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+
+# ─── Google Gemini (direct API) ─────────────────────────────────────────────
+
+def use_gemini_for_analysis() -> bool:
+    """When GEMINI_API_KEY is set, analysis LLM calls use Google Gemini instead of Ollama."""
+    return bool(os.getenv("GEMINI_API_KEY", "").strip())
+
+
+def get_gemini_model() -> str:
+    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+
+
+async def gemini_generate_content(
+    prompt: str,
+    *,
+    system: str | None = None,
+    max_output_tokens: int = 1500,
+    temperature: float = 0.1,
+) -> str:
+    """Call Google Gemini generateContent API (AI Studio / API key auth)."""
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not set")
+
+    model = get_gemini_model()
+    url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
+    body: dict = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_output_tokens,
+        },
+    }
+    if system:
+        body["systemInstruction"] = {"parts": [{"text": system}]}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            url,
+            params={"key": api_key},
+            json=body,
+            headers={"Content-Type": "application/json"},
+        )
+        if response.status_code >= 400:
+            logger.warning("Gemini API error %s: %s", response.status_code, response.text[:500])
+        response.raise_for_status()
+        data = response.json()
+
+    candidates = data.get("candidates") or []
+    if not candidates:
+        block = (data.get("promptFeedback") or {}).get("blockReason")
+        raise RuntimeError(f"Gemini returned no candidates (blockReason={block})")
+
+    parts = candidates[0].get("content", {}).get("parts") or []
+    text = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
+    return text.strip()
+
+
+def create_gemini_chat_llm(*, max_output_tokens: int = 4000):
+    """LangChain chat model for Gemini (used by hybrid pipeline ainvoke)."""
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    return ChatGoogleGenerativeAI(
+        model=get_gemini_model(),
+        google_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
+        temperature=0.1,
+        max_output_tokens=max_output_tokens,
+    )
+
 
 # ─── Ollama Cloud Detection & Headers ────────────────────────────────────────
 

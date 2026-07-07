@@ -62,8 +62,10 @@ def _validate_environment() -> None:
             missing_vars.append(var)
 
     # Warn for missing but not critical
-    if not os.getenv("OLLAMA_API_KEY"):
+    if not os.getenv("OLLAMA_API_KEY") and not os.getenv("GEMINI_API_KEY"):
         warnings.append("OLLAMA_API_KEY not set - LLM features will be limited")
+    elif os.getenv("GEMINI_API_KEY"):
+        logger.info("STARTUP: GEMINI_API_KEY set — resume analysis will use Google Gemini")
     if not os.getenv("CORS_ORIGINS"):
         warnings.append("CORS_ORIGINS not set - using default localhost origins")
 

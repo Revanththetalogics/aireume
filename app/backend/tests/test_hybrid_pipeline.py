@@ -664,6 +664,29 @@ class TestExpandSkill:
 # Component 8: explain_with_llm (mocked)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class TestBindNumPredict:
+
+    def test_uses_options_not_top_level_kwarg(self):
+        from langchain_ollama import ChatOllama
+        from langchain_core.messages import HumanMessage
+        from app.backend.services.hybrid_pipeline import _bind_num_predict
+
+        llm = ChatOllama(
+            model="qwen2.5:3b",
+            base_url="http://localhost:11434",
+            num_predict=3000,
+            num_ctx=8192,
+            temperature=0.1,
+        )
+        bound = _bind_num_predict(llm, 1500)
+        params = bound._chat_params(
+            [HumanMessage(content="hi")],
+            options={"num_predict": 1500, "num_ctx": 8192, "temperature": 0.1},
+        )
+        assert "num_predict" not in params
+        assert params["options"]["num_predict"] == 1500
+
+
 class TestExplainWithLlm:
 
     @pytest.mark.asyncio

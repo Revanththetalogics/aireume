@@ -64,6 +64,9 @@ services:
       # Backend model - use cloud for quality, local for testing
       - OLLAMA_MODEL_BACKEND=${OLLAMA_MODEL_BACKEND:-qwen2.5:7b}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-${OLLAMA_MODEL_BACKEND:-qwen2.5:7b}}
+      # Google Gemini — when GEMINI_API_KEY is set, analysis uses Gemini instead of Ollama
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
       # Voice uses local Ollama
       - OLLAMA_BASE_URL_VOICE=${OLLAMA_BASE_URL_VOICE:-http://ollama:11434}
       - OLLAMA_MODEL_VOICE=${OLLAMA_MODEL_VOICE:-qwen2.5:3b}

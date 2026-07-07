@@ -216,18 +216,14 @@ RULES:
 
 
 async def _invoke_llm_prompt(prompt: str, *, num_predict: int) -> str:
-    from app.backend.services.hybrid_pipeline import _get_llm, _is_ollama_cloud
+    from app.backend.services.hybrid_pipeline import _bind_num_predict, _get_llm
     from langchain_core.messages import HumanMessage
 
     llm = _get_llm()
     if llm is None:
         raise RuntimeError("LLM not available")
 
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    is_cloud = _is_ollama_cloud(base_url)
-    bound = llm
-    if hasattr(llm, "bind"):
-        bound = llm.bind(num_predict=num_predict)
+    bound = _bind_num_predict(llm, num_predict)
 
     response = await bound.ainvoke([HumanMessage(content=prompt)])
     raw = response.content if hasattr(response, "content") else str(response)
@@ -262,11 +258,15 @@ def _normalize_interview_kit(data: dict) -> dict:
 async def generate_interview_kit_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     """Generate interview kit JSON only (separate from narrative)."""
     from app.backend.services.hybrid_pipeline import _parse_llm_json_response, _is_ollama_cloud
+    from app.backend.services.llm_service import use_gemini_for_analysis
 
     ctx = build_llm_prompt_context(context)
     prompt = _build_interview_kit_prompt(ctx)
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    num_predict = 2500 if not _is_ollama_cloud(base_url) else 4000
+    if use_gemini_for_analysis():
+        num_predict = 2500
+    else:
+        num_predict = 2500 if not _is_ollama_cloud(base_url) else 4000
 
     raw = await _invoke_llm_prompt(prompt, num_predict=num_predict)
     if not raw or len(raw) < 20:

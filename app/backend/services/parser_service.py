@@ -1986,57 +1986,65 @@ async def _llm_extract_structured(raw_text: str, data: Dict[str, Any]) -> Dict[s
     )
 
     try:
-        from app.backend.services.llm_service import get_ollama_headers
+        from app.backend.services.llm_service import get_ollama_headers, use_gemini_for_analysis, gemini_generate_content
 
-        headers = get_ollama_headers(OLLAMA_BASE_URL)
-
-        async with _httpx.AsyncClient(timeout=50.0) as client:
-            response = await client.post(
-                f"{OLLAMA_BASE_URL}/api/chat",
-                headers=headers,
-                json={
-                    "model": OLLAMA_MODEL,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,
-                        "num_predict": 1500,
-                    },
-                },
+        if use_gemini_for_analysis():
+            llm_output = await gemini_generate_content(
+                user_prompt,
+                system=system_prompt,
+                max_output_tokens=1500,
+                temperature=0.1,
             )
-            response.raise_for_status()
+        else:
+            headers = get_ollama_headers(OLLAMA_BASE_URL)
 
-            result = response.json()
-            llm_output = result.get("message", {}).get("content", "").strip()
+            async with _httpx.AsyncClient(timeout=50.0) as client:
+                response = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/chat",
+                    headers=headers,
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.1,
+                            "num_predict": 1500,
+                        },
+                    },
+                )
+                response.raise_for_status()
 
-            # Strip markdown code blocks
-            if "```json" in llm_output:
-                llm_output = llm_output.split("```json")[1].split("```")[0].strip()
-            elif "```" in llm_output:
-                llm_output = llm_output.split("```")[1].split("```")[0].strip()
+                result = response.json()
+                llm_output = result.get("message", {}).get("content", "").strip()
 
-            # Minimum length check for safety
-            if len(llm_output) < 10:
-                logger.warning("[LLM Structured] Response too short (%d chars), discarding", len(llm_output))
-                return {}
+        # Strip markdown code blocks
+        if "```json" in llm_output:
+            llm_output = llm_output.split("```json")[1].split("```")[0].strip()
+        elif "```" in llm_output:
+            llm_output = llm_output.split("```")[1].split("```")[0].strip()
 
-            parsed = _json.loads(llm_output)
+        # Minimum length check for safety
+        if len(llm_output) < 10:
+            logger.warning("[LLM Structured] Response too short (%d chars), discarding", len(llm_output))
+            return {}
 
-            if not isinstance(parsed, dict):
-                logger.warning("[LLM Structured] Non-dict response: %s", type(parsed).__name__)
-                return {}
+        parsed = _json.loads(llm_output)
 
-            # Keep only requested fields
-            return {k: v for k, v in parsed.items() if k in missing_fields and isinstance(v, list)}
+        if not isinstance(parsed, dict):
+            logger.warning("[LLM Structured] Non-dict response: %s", type(parsed).__name__)
+            return {}
+
+        # Keep only requested fields
+        return {k: v for k, v in parsed.items() if k in missing_fields and isinstance(v, list)}
 
     except _json.JSONDecodeError as e:
         logger.warning("[LLM Structured] JSON parse error: %s", e)
         return {}
     except _httpx.TimeoutException:
-        logger.warning("[LLM Structured] Timed out after 10s")
+        logger.warning("[LLM Structured] Timed out after 50s")
         return {}
     except Exception as e:
         logger.warning("[LLM Structured] Failed: %s: %s", type(e).__name__, str(e)[:200])
