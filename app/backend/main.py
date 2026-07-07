@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
 import json
+import re
 import httpx
 import uuid
 import contextvars
@@ -23,6 +24,32 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("aria")
+
+# Redact API keys and bearer tokens from third-party HTTP client logs (httpx, Gemini SDK)
+_SECRET_LOG_PATTERNS = (
+    (re.compile(r"(key=)[^&\s\"']+", re.IGNORECASE), r"\1***REDACTED***"),
+    (re.compile(r"(Authorization:\s*Bearer\s+)\S+", re.IGNORECASE), r"\1***REDACTED***"),
+    (re.compile(r"(google_api_key[=:]\s*)\S+", re.IGNORECASE), r"\1***REDACTED***"),
+)
+
+
+class _RedactSecretsFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        redacted = message
+        for pattern, replacement in _SECRET_LOG_PATTERNS:
+            redacted = pattern.sub(replacement, redacted)
+        if redacted != message:
+            record.msg = redacted
+            record.args = ()
+        return True
+
+
+for _secret_logger_name in ("httpx", "httpcore", "google_genai", "google.auth"):
+    logging.getLogger(_secret_logger_name).addFilter(_RedactSecretsFilter())
 
 # Production JSON logging
 if os.getenv("ENVIRONMENT") == "production":

@@ -664,6 +664,26 @@ class TestExpandSkill:
 # Component 8: explain_with_llm (mocked)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class TestLlmResponseNeedsCompactRetry:
+
+    def test_accepts_markdown_fenced_json(self):
+        from app.backend.services.hybrid_pipeline import _llm_response_needs_compact_retry
+
+        payload = json.dumps({"fit_summary": "Strong fit", "strengths": ["Python"]})
+        wrapped = f"```json\n{payload}\n```"
+        assert _llm_response_needs_compact_retry(wrapped) is False
+
+    def test_needs_retry_when_json_incomplete(self):
+        from app.backend.services.hybrid_pipeline import _llm_response_needs_compact_retry
+
+        assert _llm_response_needs_compact_retry('{"fit_summary": "partial') is True
+
+    def test_needs_retry_when_empty(self):
+        from app.backend.services.hybrid_pipeline import _llm_response_needs_compact_retry
+
+        assert _llm_response_needs_compact_retry("") is True
+
+
 class TestBindNumPredict:
 
     def test_uses_options_not_top_level_kwarg(self):

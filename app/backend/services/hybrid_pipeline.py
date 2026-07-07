@@ -899,6 +899,59 @@ def _assess_quality(candidate_profile: Dict[str, Any]) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def _strip_llm_markdown_fences(text: str) -> str:
+    """Remove common ```json fences before truncation checks."""
+    clean = (text or "").strip()
+    if clean and clean[0] == "\ufeff":
+        clean = clean[1:].strip()
+    clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\s*```\s*$", "", clean)
+    return clean.strip()
+
+
+def _llm_response_needs_compact_retry(raw: str) -> bool:
+    """Return True only when the response is empty, too short, or genuinely incomplete."""
+    if not raw or len(raw.strip()) < 20:
+        return True
+    if _parse_llm_json_response(raw) is not None:
+        return False
+    stripped = _strip_llm_markdown_fences(raw)
+    if stripped.endswith("}"):
+        return False
+    if _extract_first_balanced_json_object(stripped):
+        return False
+    return True
+
+
+def _build_compact_retry_llm(*, num_predict: int):
+    """LLM for compact narrative retry — stays on Gemini when GEMINI_API_KEY is set."""
+    from app.backend.services.llm_service import use_gemini_for_analysis, create_gemini_chat_llm
+
+    if use_gemini_for_analysis():
+        return create_gemini_chat_llm(max_output_tokens=num_predict)
+
+    from langchain_ollama import ChatOllama
+
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
+    is_cloud = _is_ollama_cloud(base_url)
+    kwargs = {
+        "model": os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b")),
+        "base_url": base_url,
+        "temperature": 0.3,
+        "num_predict": num_predict,
+        "num_ctx": 16384 if is_cloud else 8192,
+        "request_timeout": llm_timeout + 30,
+    }
+    if is_cloud:
+        api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+        if api_key:
+            kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
+    else:
+        kwargs["keep_alive"] = -1
+    return ChatOllama(**kwargs)
+
+
 def _extract_first_balanced_json_object(text: str) -> str | None:
     """
     Return the substring of the first top-level `{ ... }` with balanced braces,
@@ -1145,7 +1198,7 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
 
     _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     if use_gemini_for_analysis():
-        _narrative_predict = 2000
+        _narrative_predict = 3500
     elif _is_ollama_cloud(_base_url):
         _narrative_predict = 4000
     else:
@@ -1426,46 +1479,32 @@ No markdown, no code fences."""
     log.debug("LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
     log.info("LLM response received: %d characters, %d tokens (approx)", len(raw) if raw else 0, len(raw.split()) if raw else 0)
 
-    # Detect empty, ultra-short, or truncated responses. A valid narrative JSON object
-    # must end with '}'. If the model stops mid-string (common with tight output limits
-    # on some cloud models), switch to a compact prompt that fits within the limit.
+    # Retry with compact prompt only when response is empty or genuinely incomplete.
+    # Markdown-wrapped JSON (```json ... ```) is accepted — not treated as truncated.
     _raw_stripped = str(raw).strip() if raw else ""
-    _is_truncated = bool(_raw_stripped and not _raw_stripped.endswith("}"))
-    if not raw or len(_raw_stripped) < 20 or _is_truncated:
-        if _is_truncated:
-            log.warning(f"LLM response appears truncated ({len(_raw_stripped)} chars, does not end with '}}'), retrying with compact prompt...")
-        elif raw and len(_raw_stripped) < 20:
-            log.warning(f"LLM response too short ({len(_raw_stripped)} chars), treating as empty for retry")
+    if _llm_response_needs_compact_retry(raw):
+        if not raw:
+            log.warning("LLM returned empty response, retrying with compact prompt...")
+        elif len(_raw_stripped) < 20:
+            log.warning(
+                "LLM response too short (%d chars), retrying with compact prompt...",
+                len(_raw_stripped),
+            )
         else:
-            log.warning("LLM returned empty response, retrying with higher temperature as fallback...")
-        from langchain_ollama import ChatOllama
-        _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        _llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
-        _is_cloud_retry = _is_ollama_cloud(_base_url)
+            log.warning(
+                "LLM response appears incomplete (%d chars), retrying with compact prompt...",
+                len(_raw_stripped),
+            )
 
-        # num_predict: Reduced for retry since we now generate 7-8 questions
-        _num_predict_retry = 4000 if _is_cloud_retry else 3000
-
-        # Build kwargs for retry LLM - higher temperature as fallback for edge cases
-        _retry_kwargs = {
-            "model": os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b")),
-            "base_url": _base_url,
-            "temperature": 0.3,
-            "num_predict": _num_predict_retry,
-            "num_ctx": 16384 if _is_cloud_retry else 8192,
-            "request_timeout": _llm_timeout + 30,
-        }
-
-        # Add headers for Ollama Cloud authentication
-        if _is_cloud_retry:
-            api_key = os.getenv("OLLAMA_API_KEY", "").strip()
-            if api_key:
-                _retry_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
+        if use_gemini_for_analysis():
+            _num_predict_retry = 2500
         else:
-            # Keep model always hot in RAM (-1 = never unload) — only for local Ollama
-            _retry_kwargs["keep_alive"] = -1
+            _is_cloud_retry = _is_ollama_cloud(_base_url)
+            _num_predict_retry = 4000 if _is_cloud_retry else 3000
 
-        retry_llm = ChatOllama(**_retry_kwargs)
+        retry_llm = _build_compact_retry_llm(num_predict=_num_predict_retry)
+        if use_gemini_for_analysis():
+            log.info("Compact narrative retry using Google Gemini (model=%s)", os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
         compact_messages = [HumanMessage(content=compact_prompt)]
         
         # Wrap retry LLM call with httpx error handling and 429 retry logic
@@ -1492,7 +1531,8 @@ No markdown, no code fences."""
                 else:
                     raise RuntimeError(f"Ollama Cloud HTTP error ({status_code})")
             except httpx.ConnectError:
-                raise RuntimeError(f"Cannot connect to Ollama at {_base_url}")
+                _retry_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+                raise RuntimeError(f"Cannot connect to Ollama at {_retry_base}")
             except httpx.TimeoutException:
                 raise RuntimeError("Ollama request timed out")
             except Exception as e:
@@ -1506,13 +1546,8 @@ No markdown, no code fences."""
                 raise  # Re-raise non-429 exceptions
         log.debug("Retry LLM raw response (first 300 chars): %s", raw[:300] if raw else "<empty>")
 
-    _retry_stripped = str(raw).strip() if raw else ""
-    _retry_truncated = bool(_retry_stripped and not _retry_stripped.endswith("}"))
-    if not raw or len(_retry_stripped) < 20 or _retry_truncated:
-        if _retry_truncated:
-            log.warning("LLM returned truncated response after retry with compact prompt")
-        else:
-            log.warning("LLM returned empty or too-short response after retry")
+    if _llm_response_needs_compact_retry(raw):
+        log.warning("LLM returned empty or incomplete response after compact prompt retry")
         raise ValueError("LLM returned empty response")
 
     data = _parse_llm_json_response(raw)
