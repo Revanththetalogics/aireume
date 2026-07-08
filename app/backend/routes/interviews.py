@@ -131,6 +131,14 @@ async def create_interview_session(
 
     scheduled_at = _parse_scheduled_at(body.scheduled_at)
 
+    phone = (body.phone_number or "").strip() or (candidate.phone or "").strip()
+    if not phone:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Phone number is required — add one to the candidate profile or enter it below.",
+        )
+    body = body.model_copy(update={"phone_number": phone})
+
     if depth == "quick":
         return await _create_quick_session(db, current_user, candidate, body, scheduled_at)
 
@@ -213,14 +221,15 @@ async def _create_recruiter_session(
             screening_result_id = sr.id
 
     # Map unified depth to a concrete duration so the voice agent respects it
-    depth_duration_minutes = {"quick": 5, "standard": 15, "deep": 20}.get(depth, 20)
+    depth_duration_minutes = {"quick": 5, "standard": 15, "deep": 25}
+    duration_minutes = body.duration_minutes or depth_duration_minutes.get(depth, 20)
 
     config: dict[str, Any] = {
         "scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
         "phone_number": body.phone_number,
         "focus_areas": body.focus_areas or [],
         "interview_depth": depth,
-        "duration_minutes": depth_duration_minutes,
+        "duration_minutes": duration_minutes,
     }
 
     orchestrator = RecruiterOrchestrator(db)

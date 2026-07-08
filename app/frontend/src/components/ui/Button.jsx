@@ -15,8 +15,8 @@ import { Loader2 } from 'lucide-react'
 
 const variants = {
   brand: 'bg-brand-600 text-white hover:bg-brand-700 shadow-brand-sm hover:shadow-brand',
-  secondary: 'bg-slate-100 text-slate-700 hover:bg-slate-200',
-  ghost: 'bg-transparent text-slate-600 hover:bg-slate-100',
+  secondary: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-dark-card-elevated dark:text-dark-text-primary dark:hover:bg-dark-card',
+  ghost: 'bg-transparent text-slate-600 hover:bg-slate-100 dark:text-dark-text-secondary dark:hover:bg-dark-card-elevated',
   danger: 'bg-red-600 text-white hover:bg-red-700 shadow-sm',
 }
 

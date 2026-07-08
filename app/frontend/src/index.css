@@ -123,6 +123,99 @@ body::after {
   background: #48484A;
 }
 
+/*
+ * Dark mode compatibility — maps common light-only utilities to semantic tokens.
+ * Root cause: components use bg-white / text-slate-* without dark: variants.
+ * Prefer explicit dark: in new code; this layer keeps existing pages readable.
+ */
+.dark .bg-white {
+  background-color: var(--surface-card);
+}
+
+.dark .bg-white\/95 {
+  background-color: color-mix(in srgb, var(--surface-card) 95%, transparent);
+}
+
+.dark .bg-white\/80 {
+  background-color: color-mix(in srgb, var(--surface-card) 80%, transparent);
+}
+
+.dark .bg-white\/70 {
+  background-color: color-mix(in srgb, var(--surface-card) 70%, transparent);
+}
+
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-brand-100,
+.dark .border-brand-50,
+.dark .border-neutral-200 {
+  border-color: var(--border-default);
+}
+
+.dark .text-slate-900,
+.dark .text-slate-800 {
+  color: var(--text-primary);
+}
+
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: var(--text-secondary);
+}
+
+.dark .text-slate-400 {
+  color: var(--text-tertiary);
+}
+
+.dark .hover\:bg-brand-50:hover,
+.dark .hover\:bg-brand-50\/50:hover,
+.dark .hover\:bg-brand-50\/60:hover,
+.dark .hover\:bg-slate-50:hover {
+  background-color: var(--surface-card-hover);
+}
+
+.dark [role='menu'] {
+  color: var(--text-secondary);
+}
+
+.dark [role='menu'] [role='menuitem'],
+.dark [role='menu'] button:not([class*='text-red']) {
+  color: var(--text-secondary);
+}
+
+.dark [role='menu'] [role='menuitem']:hover,
+.dark [role='menu'] button:not([class*='text-red']):hover {
+  background-color: var(--surface-card-hover);
+  color: var(--text-primary);
+}
+
+.dark [role='menu'] [role='menuitem'] svg,
+.dark [role='menu'] button:not([class*='text-red']) svg {
+  color: var(--text-tertiary);
+}
+
+/* ─── Popover / menu primitives (design system) ─────────────────────────── */
+@layer components {
+  .popover-surface {
+    @apply bg-white/95 dark:bg-dark-card/95 backdrop-blur-2xl border border-brand-100 dark:border-white/10 shadow-brand-lg;
+  }
+
+  .popover-item {
+    @apply w-full flex items-center gap-2.5 px-4 py-2 text-sm text-left transition-colors
+      text-slate-600 dark:text-dark-text-secondary
+      hover:bg-brand-50 dark:hover:bg-dark-card-elevated
+      hover:text-brand-700 dark:hover:text-brand-300;
+  }
+
+  .popover-item-icon {
+    @apply w-4 h-4 shrink-0 text-slate-400 dark:text-dark-text-secondary;
+  }
+
+  .panel-surface {
+    @apply bg-white dark:bg-dark-card border border-slate-100 dark:border-white/10;
+  }
+}
+
 /* ─── Shimmer animation for CTA buttons ──────────────────────────────────── */
 @keyframes shimmer {
   0%   { background-position: -200% center; }

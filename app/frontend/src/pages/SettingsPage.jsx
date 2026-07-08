@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Settings,
   User,
@@ -27,12 +27,14 @@ import {
   ArrowRight,
   ExternalLink,
   Plug,
+  Mic,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
 import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice } from '../lib/api'
-import { sanitizePlanFeatures, TRUST } from '../lib/uxLabels'
+import { sanitizePlanFeatures, TRUST, INTERVIEW } from '../lib/uxLabels'
 import ATSIntegrationsPanel from '../components/settings/ATSIntegrationsPanel'
+import InterviewSettingsPanel from '../components/settings/InterviewSettingsPanel'
 
 function Section({ title, icon: Icon, children, description }) {
   return (
@@ -295,7 +297,9 @@ export default function SettingsPage() {
     isFeatureAvailable,
     getRemainingAnalyses,
   } = useSubscription()
-  const [activeTab, setActiveTab] = useState('subscription')
+  const [searchParams] = useSearchParams()
+  const initialTab = searchParams.get('tab') || 'subscription'
+  const [activeTab, setActiveTab] = useState(initialTab)
   const [saving, setSaving] = useState(false)
   const [actionLoading, setActionLoading] = useState(null)
 
@@ -395,6 +399,7 @@ export default function SettingsPage() {
     { id: 'subscription', label: 'Subscription', icon: CreditCard },
     { id: 'billing', label: 'Billing History', icon: Receipt },
     { id: 'team', label: 'Team & Access', icon: Users },
+    { id: 'interviews', label: 'Interviews', icon: Mic },
     { id: 'integrations', label: 'Integrations', icon: Plug },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'security', label: 'Security', icon: Shield },
@@ -948,6 +953,16 @@ export default function SettingsPage() {
                 </div>
               </Section>
             </>
+          )}
+
+          {activeTab === 'interviews' && (
+            <Section
+              title={INTERVIEW.settingsLink}
+              icon={Mic}
+              description={INTERVIEW.hubSubtitle}
+            >
+              <InterviewSettingsPanel />
+            </Section>
           )}
 
           {activeTab === 'integrations' && (

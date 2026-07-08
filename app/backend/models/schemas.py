@@ -762,9 +762,10 @@ class InterviewCreateRequest(BaseModel):
     candidate_id: int
     jd_id: int
     depth: str = "quick"
-    phone_number: str
+    phone_number: Optional[str] = None
     scheduled_at: Optional[str] = None
     focus_areas: Optional[List[str]] = None
+    duration_minutes: Optional[int] = Field(None, ge=5, le=60)
 
     @field_validator('depth')
     @classmethod

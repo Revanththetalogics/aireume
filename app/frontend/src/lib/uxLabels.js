@@ -30,14 +30,23 @@ export const INTERVIEW = {
   /** AI bot calls the candidate */
   aiScreenCall: 'AI Screen Call',
   aiScreenCallHint: 'ARIA calls the candidate — Quick, Standard, or Deep',
+  newScreenCall: 'New AI Screen Call',
+  newScreenCallSubtitle: 'Pick a candidate and role, then choose call depth',
+  rescheduleCall: 'Reschedule call',
   /** Recruiter calls with kit */
   liveScreenKit: 'Live Screen Kit',
   liveScreenKitHint: 'You call the candidate using ARIA\'s interview questions and scorecard',
   hubTitle: 'Interviews',
-  hubSubtitle: 'AI screen calls and live screen sessions in one place',
+  hubSubtitle: 'AI phone screens — scheduled, in progress, and completed',
   quick: 'Quick Screen',
   standard: 'Standard Interview',
   deep: 'Deep Assessment',
+  viewBySession: 'By session',
+  viewByCandidate: 'By candidate',
+  needsAttention: 'Needs attention',
+  upcoming: 'Upcoming',
+  recent: 'Recent',
+  settingsLink: 'Interview settings',
 }
 
 export const LIVE_SCREEN = {

@@ -59,21 +59,22 @@ function UserMenu({ user, tenant, logout, onClose }) {
 
   return (
     <motion.div
+      role="menu"
       initial={{ opacity: 0, y: -8, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -4, scale: 0.95 }}
       transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-      className="absolute right-0 top-full mt-2 w-64 bg-white/95 dark:bg-dark-card/95 backdrop-blur-2xl border border-brand-100 dark:border-white/10 rounded-2xl shadow-brand-lg py-1.5 z-50"
+      className="absolute right-0 top-full mt-2 w-64 rounded-2xl popover-surface py-1.5 z-50"
     >
       {/* User info */}
-      <div className="px-4 py-3 border-b border-brand-50">
+      <div className="px-4 py-3 border-b border-brand-50 dark:border-white/10">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-600 to-brand-400 flex items-center justify-center text-white text-sm font-bold shrink-0">
             {initials}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-800 truncate">{user?.email}</p>
-            <span className="inline-block mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-brand-600 bg-brand-50 rounded-full px-2 py-0.5">
+            <p className="text-sm font-semibold text-slate-800 dark:text-dark-text-primary truncate">{user?.email}</p>
+            <span className="inline-block mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300 bg-brand-50 dark:bg-brand-900/40 rounded-full px-2 py-0.5">
               {user?.role || 'user'}
             </span>
           </div>
@@ -85,10 +86,11 @@ function UserMenu({ user, tenant, logout, onClose }) {
         {USER_MENU_LINKS.map(item => (
           <button
             key={item.path}
+            role="menuitem"
             onClick={() => handleNav(item.path)}
-            className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-slate-600 hover:bg-brand-50 hover:text-brand-700 transition-colors"
+            className="popover-item"
           >
-            <item.icon className="w-4 h-4 text-slate-400" />
+            <item.icon className="popover-item-icon" />
             {item.label}
           </button>
         ))}
@@ -98,19 +100,21 @@ function UserMenu({ user, tenant, logout, onClose }) {
 
       {/* Theme toggle */}
       <button
+        role="menuitem"
         onClick={toggleTheme}
-        className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-slate-600 dark:text-dark-text-secondary hover:bg-brand-50 dark:hover:bg-dark-card-elevated hover:text-brand-700 transition-colors"
+        className="popover-item"
       >
-        {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+        {theme === 'dark' ? <Sun className="popover-item-icon" /> : <Moon className="popover-item-icon" />}
         {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
       </button>
 
       {/* Logout */}
       <button
+        role="menuitem"
         onClick={() => { onClose(); logout() }}
-        className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+        className="popover-item text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-700 dark:hover:text-red-300"
       >
-        <LogOut className="w-4 h-4" />
+        <LogOut className="w-4 h-4 shrink-0" />
         Sign out
       </button>
     </motion.div>
@@ -150,7 +154,7 @@ function MobileTabBar({ location }) {
       {moreOpen && (
         <div
           ref={sheetRef}
-          className="fixed bottom-16 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-brand-100 rounded-t-2xl shadow-brand-xl z-50 md:hidden animate-fade-up"
+          className="fixed bottom-16 left-0 right-0 popover-surface rounded-t-2xl shadow-brand-xl z-50 md:hidden animate-fade-up border-t-0"
         >
           <MobileMoreSheet onNavigate={() => setMoreOpen(false)} />
         </div>
@@ -245,10 +249,10 @@ function MobileMoreSheet({ onNavigate }) {
 
       </div>
 
-      <div className="mt-4 pt-3 border-t border-brand-50">
+      <div className="mt-4 pt-3 border-t border-brand-50 dark:border-white/10">
         <button
           onClick={() => { onNavigate(); logout() }}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition-colors"
         >
           <LogOut className="w-4 h-4" />
           Sign out
