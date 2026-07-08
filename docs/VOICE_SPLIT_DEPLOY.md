@@ -1,6 +1,26 @@
-# Voice split deployment (staging)
+# Voice deployment (staging)
 
-Run the main app and voice stack on separate VPS instances without changing the monolithic `docker-compose.staging.yml` workflow.
+## Recommended: unified main VPS (48 GB)
+
+As of the Gemini migration, voice screening runs **on the same VPS as the main app**
+via `docker-compose.main.staging.yml`. This removes cross-VPS latency and gives
+speech-service more CPU/RAM for faster STT.
+
+**Requirements on main VPS:**
+- Set `STAGING_LIVEKIT_NODE_IP` to the main VPS public IP
+- Open firewall: TCP `7890`, `7891`, `8002`, `5060`; UDP `7892`, `10000-10100`, `50000-50200`, `5060`
+- Set `GEMINI_API_KEY` for fast voice LLM (single merged turn per answer)
+- `VOICE_AGENT_URL=http://voice-agent:8002` (internal Docker network)
+
+**Latency tuning env vars (voice-agent):**
+- `VAD_SILENCE_MS=750` — end-of-speech detection (default, was 1200ms)
+- `GEMINI_MODEL_VOICE=gemini-2.5-flash` — live interview LLM
+
+---
+
+## Optional: split voice VPS (legacy)
+
+Run the main app and voice stack on separate VPS instances.
 
 ## Architecture
 

@@ -26,7 +26,7 @@ from app.voice_agent.recruiter_conversation import RecruiterConversation, Recrui
 from app.voice_agent.conversation import UnifiedConversation, InterviewContext, InterviewDepth
 from app.voice_agent.vad_segmenter import SpeechSegmenter
 from app.voice_agent.orchestrator import InterviewOrchestrator, OrchestratorContext, InterviewStage
-from app.voice_agent.speech_pipeline import PlaybackGate, barge_in, speak_text
+from app.voice_agent.speech_pipeline import PlaybackGate, barge_in, speak_text, speak_with_filler
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -57,6 +57,8 @@ SIP_TRANSPORT = os.getenv("SIP_TRANSPORT", "SIP_TRANSPORT_TCP")  # auto/udp/tcp/
 AGENT_PORT = int(os.getenv("AGENT_PORT", "8002"))
 # 0 = unlimited (monolithic deploy). Voice VPS should set to 1 on 4c/8GB boxes.
 MAX_CONCURRENT_CALLS = int(os.getenv("MAX_CONCURRENT_CALLS", "0"))
+VAD_SILENCE_MS = int(os.getenv("VAD_SILENCE_MS", "750"))
+VAD_ENERGY_THRESHOLD = float(os.getenv("VAD_ENERGY_THRESHOLD", "300"))
 
 # Conversation settings (defaults, overridden per-call by tenant config)
 DEFAULT_BOT_NAME = "ARIA Assistant"
@@ -806,6 +808,15 @@ def _pcm_to_wav(pcm_data: bytes, sample_rate: int, channels: int = 1, sample_wid
     return header + pcm_data
 
 
+def _make_speech_segmenter(sample_rate: int) -> SpeechSegmenter:
+    """Create a VAD segmenter tuned for phone conversations."""
+    return SpeechSegmenter(
+        sample_rate=sample_rate,
+        energy_threshold=VAD_ENERGY_THRESHOLD,
+        silence_duration_ms=VAD_SILENCE_MS,
+    )
+
+
 async def _notify_backend_complete(session_id: str, result: dict):
     """Notify backend that interview has completed (unified endpoint)."""
     backend_url = os.getenv("BACKEND_URL", ARIA_BACKEND_URL)
@@ -937,7 +948,7 @@ class VoiceAgentWorker:
                     frame_rate = frame.sample_rate
                     if actual_sample_rate is None:
                         actual_sample_rate = frame_rate
-                        segmenter = SpeechSegmenter(sample_rate=frame_rate)
+                        segmenter = _make_speech_segmenter(frame_rate)
                         logger.info("Detected audio track sample rate: %d Hz — VAD segmenter initialized", frame_rate)
 
                     segmenter.add_audio(bytes(frame.data))
@@ -1105,7 +1116,7 @@ class VoiceAgentWorker:
                     frame_rate = frame.sample_rate
                     if actual_sample_rate is None:
                         actual_sample_rate = frame_rate
-                        segmenter = SpeechSegmenter(sample_rate=frame_rate)
+                        segmenter = _make_speech_segmenter(frame_rate)
                         logger.info("Detected audio track sample rate: %d Hz — VAD segmenter initialized", frame_rate)
 
                     # Feed audio to VAD segmenter
@@ -1258,7 +1269,7 @@ class VoiceAgentWorker:
                     frame_rate = frame.sample_rate
                     if actual_sample_rate is None:
                         actual_sample_rate = frame_rate
-                        segmenter = SpeechSegmenter(sample_rate=frame_rate)
+                        segmenter = _make_speech_segmenter(frame_rate)
                         logger.info("Detected audio track sample rate: %d Hz — VAD segmenter initialized", frame_rate)
 
                     segmenter.add_audio(bytes(frame.data))
@@ -1407,8 +1418,12 @@ class VoiceAgentWorker:
                     frame_rate = frame.sample_rate
                     if actual_sample_rate is None:
                         actual_sample_rate = frame_rate
-                        segmenter = SpeechSegmenter(sample_rate=frame_rate)
-                        logger.info("Detected audio track sample rate: %d Hz — VAD segmenter initialized", frame_rate)
+                        segmenter = _make_speech_segmenter(frame_rate)
+                        logger.info(
+                            "Detected audio track sample rate: %d Hz — VAD segmenter initialized (silence=%dms)",
+                            frame_rate,
+                            VAD_SILENCE_MS,
+                        )
 
                     segmenter.add_audio(bytes(frame.data))
 
@@ -1420,18 +1435,19 @@ class VoiceAgentWorker:
                         if text.strip():
                             logger.info("Candidate said: %s", text)
 
-                            bot_text = await orchestrator.handle_candidate_response(text)
+                            filler = orchestrator.pick_filler() if orchestrator.should_play_filler() else ""
+                            bot_text = await speak_with_filler(
+                                filler=filler,
+                                response_coro=orchestrator.handle_candidate_response(text),
+                                speech=speech,
+                                room=room,
+                                audio_source=audio_source,
+                                publish_fn=_publish_audio,
+                                playback_gate=playback_gate,
+                                sample_rate=TTS_SAMPLE_RATE,
+                            )
                             if bot_text:
                                 logger.info("Bot responds: %s", bot_text)
-                                await speak_text(
-                                    bot_text,
-                                    speech,
-                                    room,
-                                    audio_source,
-                                    _publish_audio,
-                                    playback_gate,
-                                    sample_rate=TTS_SAMPLE_RATE,
-                                )
 
                             if orchestrator.is_complete():
                                 logger.info("Interview orchestrator complete, ending call")
@@ -1610,11 +1626,16 @@ class DispatchResponse(BaseModel):
 
 @app.get("/health")
 async def health():
+    from app.voice_agent.voice_llm import get_voice_llm_model, use_gemini_for_voice
+
     return {
         "status": "ok",
         "service": "voice-agent",
         "active_calls": len(worker._active_sessions),
         "max_concurrent_calls": MAX_CONCURRENT_CALLS or None,
+        "voice_llm": "gemini" if use_gemini_for_voice() else "ollama",
+        "voice_llm_model": get_voice_llm_model(),
+        "vad_silence_ms": VAD_SILENCE_MS,
     }
 
 

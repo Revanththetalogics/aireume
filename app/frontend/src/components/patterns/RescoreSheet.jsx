@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Sheet, Button } from '../ui'
 import SkillClassificationEditor from '../SkillClassificationEditor'
 import { rescoreAnalysis } from '../../lib/api'
+import { extractRescoreSkillClassification } from '../../lib/rescoreUtils'
 import { showSuccess, showError } from '../../lib/toast'
 
 export default function RescoreSheet({ isOpen, onClose, result, onRescoreComplete }) {
@@ -9,16 +10,15 @@ export default function RescoreSheet({ isOpen, onClose, result, onRescoreComplet
   const [overrides, setOverrides] = useState(null)
 
   const resultId = result?.result_id || result?.id
-  const initialRequired =
-    result?.required_skills ||
-    result?.analysis_result?.required_skills ||
-    result?.skill_analysis?.required_skills ||
-    []
-  const initialNice =
-    result?.nice_to_have_skills ||
-    result?.analysis_result?.nice_to_have_skills ||
-    result?.skill_analysis?.nice_to_have_skills ||
-    []
+
+  const classificationData = useMemo(
+    () => extractRescoreSkillClassification(result),
+    [result],
+  )
+
+  useEffect(() => {
+    if (isOpen) setOverrides(null)
+  }, [isOpen, resultId])
 
   async function handleRescore(payload = overrides) {
     if (!resultId || !payload) return
@@ -46,13 +46,13 @@ export default function RescoreSheet({ isOpen, onClose, result, onRescoreComplet
           Adjust must-have and nice-to-have skills. Scoring updates instantly — no re-upload or AI call.
         </p>
 
-        <SkillClassificationEditor
-          data={{
-            required_skills: initialRequired,
-            nice_to_have_skills: initialNice,
-          }}
-          onConfirm={setOverrides}
-        />
+        {isOpen && (
+          <SkillClassificationEditor
+            key={resultId}
+            data={classificationData}
+            onConfirm={setOverrides}
+          />
+        )}
 
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-brand-100">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>

@@ -13,6 +13,29 @@ export function isNarrativePending(result) {
   return s === 'pending' || s === 'processing' || result?.narrative_pending === true
 }
 
+/** True when LLM narrative body fields are present on the result object. */
+export function hasNarrativeContent(result) {
+  if (!result) return false
+  return Boolean(
+    (result.fit_summary && String(result.fit_summary).trim()) ||
+    (Array.isArray(result.strengths) && result.strengths.length > 0) ||
+    (Array.isArray(result.concerns) && result.concerns.length > 0) ||
+    (Array.isArray(result.weaknesses) && result.weaknesses.length > 0) ||
+    (result.recommendation_rationale && String(result.recommendation_rationale).trim()) ||
+    (result.explainability && Object.keys(result.explainability).length > 0) ||
+    (result.candidate_profile_summary && String(result.candidate_profile_summary).trim()),
+  )
+}
+
+/** Poll or refetch when narrative is in-flight or marked ready but not yet hydrated in UI state. */
+export function needsNarrativeHydration(result) {
+  if (!result) return false
+  const status = result.narrative_status || 'pending'
+  if (status === 'pending' || status === 'processing') return true
+  if ((status === 'ready' || status === 'fallback') && !hasNarrativeContent(result)) return true
+  return false
+}
+
 export function isKitPending(result) {
   const s = result?.interview_kit_status
   return s === 'pending' || s === 'processing'
@@ -70,10 +93,11 @@ function normalizeVoiceStatus(voice, narrative) {
 export function mergeNarrativePollResult(prev, data) {
   const kit = data.interview_kit_status
   const voice = data.voice_strategy_status
+  const narrativeDone = data.status === 'ready' || data.status === 'fallback' || data.status === 'failed'
   return {
     ...(data.narrative || {}),
     narrative_status: data.status,
-    narrative_pending: kit === 'pending' || kit === 'processing',
+    narrative_pending: !narrativeDone,
     interview_kit_status: kit ?? prev?.interview_kit_status,
     voice_strategy_status: voice ?? prev?.voice_strategy_status,
     narrative_error: data.error ?? prev?.narrative_error,

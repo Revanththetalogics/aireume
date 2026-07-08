@@ -376,10 +376,10 @@ def get_screening_result(
         narrative_fields = {
             "ai_enhanced", "fit_summary", "strengths", "concerns", "weaknesses",
             "recommendation_rationale", "explainability", "interview_questions",
-            "candidate_profile_summary",
+            "candidate_profile_summary", "dealbreakers", "differentiators", "hiring_decision",
         }
         for field in narrative_fields:
-            if field in narrative_data:
+            if field in narrative_data and narrative_data[field] not in (None, '', [], {}):
                 merged_data[field] = narrative_data[field]
 
     # ── Ensure key fields with fallback to parsed_data ──────────────────────
@@ -949,10 +949,10 @@ def get_candidate(
             narrative_fields = {
                 "ai_enhanced", "fit_summary", "strengths", "concerns", "weaknesses",
                 "recommendation_rationale", "explainability", "interview_questions",
-                "candidate_profile_summary"
+                "candidate_profile_summary", "dealbreakers", "differentiators", "hiring_decision",
             }
             for field in narrative_fields:
-                if field in narrative_data:
+                if field in narrative_data and narrative_data[field] not in (None, '', [], {}):
                     merged_data[field] = narrative_data[field]
 
         # ── Ensure key fields exist with fallback to parsed_data ──────────────

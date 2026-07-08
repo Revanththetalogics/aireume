@@ -26,9 +26,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from app.voice_agent.answer_evaluator import AnswerEvaluator
 from app.voice_agent.question_planner import QuestionPlanner
+from app.voice_agent.turn_planner import TurnPlanner
 from app.voice_agent.communication_tracker import CommunicationTracker
+from app.voice_agent.speech_pipeline import pick_immediate_ack
 
 logger = logging.getLogger("voice_agent.orchestrator")
 
@@ -132,17 +133,6 @@ class InterviewOrchestrator:
         # ... publish response via TTS ...
     """
 
-    # Transition phrases for natural conversation
-    _TRANSITIONS = [
-        "Great, thanks for sharing. ",
-        "That's helpful context. ",
-        "Interesting — thanks. ",
-        "Got it. ",
-        "Makes sense. ",
-        "Appreciate that. ",
-        "Thanks for explaining. ",
-    ]
-
     # Edge case markers
     _SILENCE_MARKERS = {"[silence]", "[no speech detected]", ""}
     _DONT_KNOW_MARKERS = ["i don't know", "i'm not sure", "can't think of", "no idea"]
@@ -154,7 +144,7 @@ class InterviewOrchestrator:
         self.ctx = ctx
         self.llm = llm_client
         self.speech = speech_client
-        self.evaluator = AnswerEvaluator()
+        self.turn_planner = TurnPlanner()
         self.planner = QuestionPlanner()
         self.comm_tracker = CommunicationTracker()
 
@@ -181,6 +171,17 @@ class InterviewOrchestrator:
             "stage": "introduction",
         })
         return greeting
+
+    def should_play_filler(self) -> bool:
+        """Play a short ack while the LLM thinks on slow-path turns."""
+        if self.ctx.current_stage == InterviewStage.INTRODUCTION and self._introduction_step < 3:
+            return False
+        if self.ctx.current_stage in (InterviewStage.CLOSING, InterviewStage.ENDED):
+            return False
+        return True
+
+    def pick_filler(self) -> str:
+        return pick_immediate_ack()
 
     async def handle_candidate_response(self, text: str) -> Optional[str]:
         """
@@ -289,70 +290,55 @@ class InterviewOrchestrator:
         # Record communication metrics
         self.comm_tracker.record_answer(self._current_question, text)
 
-        # Evaluate the answer
         full_context = {
             "candidate": self.ctx.candidate_context,
             "role": self.ctx.role_context,
             "screening": self.ctx.screening_result,
         }
-        evaluation = await self.evaluator.evaluate(
-            question=self._current_question,
-            answer=text,
-            stage=self.ctx.current_stage.value,
-            context=full_context,
-        )
-
-        # Store the Q&A with evaluation
-        self.ctx.questions_responses.append({
-            "stage": self.ctx.current_stage.value,
-            "question": self._current_question,
-            "answer": text,
-            "score": evaluation["score"],
-            "reasoning": evaluation.get("reasoning", ""),
-            "difficulty_adjustment": evaluation.get("difficulty_adjustment", "same"),
-            "key_points": evaluation.get("key_points", []),
-            "concerns": evaluation.get("concerns", []),
-            "timestamp": self.ctx.elapsed,
-        })
-        self.ctx.answer_scores.append(evaluation["score"])
-
-        # Resume verification: check for inconsistencies
-        if self.ctx.current_stage == InterviewStage.RESUME_VERIFICATION:
-            self._check_resume_consistency(self._current_question, text)
-
-        # Check time budget
-        if self.ctx.time_remaining < 60:
-            return await self._advance_to_stage(InterviewStage.CLOSING)
-
-        # Check if we should advance to the next stage
-        self._stage_question_count += 1
-        stage_max_questions = self._get_stage_max_questions()
-        if self._stage_question_count >= stage_max_questions:
-            return await self._advance_to_next_stage()
-
-        # Generate the next question with adaptive difficulty
         conversation_history = [
             {"question": qr["question"], "answer": qr["answer"]}
             for qr in self.ctx.questions_responses
         ]
         questions_asked = [qr["question"] for qr in self.ctx.questions_responses]
 
-        next_q = await self.planner.generate_question(
+        turn = await self.turn_planner.plan_next_turn(
+            question=self._current_question,
+            answer=text,
             stage=self.ctx.current_stage.value,
             context=full_context,
             conversation_history=conversation_history,
             answer_scores=self.ctx.answer_scores,
-            difficulty_adjustment=evaluation.get("difficulty_adjustment", "same"),
             questions_asked=questions_asked,
             time_remaining_s=self.ctx.time_remaining,
         )
 
-        # Add a transition phrase
-        import random
-        transition = random.choice(self._TRANSITIONS) if self.ctx.questions_responses else ""
-        response_text = transition + next_q["question"]
+        self.ctx.questions_responses.append({
+            "stage": self.ctx.current_stage.value,
+            "question": self._current_question,
+            "answer": text,
+            "score": turn["score"],
+            "reasoning": turn.get("reasoning", ""),
+            "difficulty_adjustment": turn.get("difficulty_adjustment", "same"),
+            "key_points": turn.get("key_points", []),
+            "concerns": turn.get("concerns", []),
+            "timestamp": self.ctx.elapsed,
+        })
+        self.ctx.answer_scores.append(turn["score"])
 
-        self._current_question = next_q["question"]
+        if self.ctx.current_stage == InterviewStage.RESUME_VERIFICATION:
+            self._check_resume_consistency(self._current_question, text)
+
+        if self.ctx.time_remaining < 60:
+            return await self._advance_to_stage(InterviewStage.CLOSING)
+
+        self._stage_question_count += 1
+        stage_max_questions = self._get_stage_max_questions()
+        if self._stage_question_count >= stage_max_questions:
+            return await self._advance_to_next_stage()
+
+        response_text = turn["question"]
+
+        self._current_question = turn["question"]
         self._question_start_time = time.time()
         self.comm_tracker.record_question_end()
 

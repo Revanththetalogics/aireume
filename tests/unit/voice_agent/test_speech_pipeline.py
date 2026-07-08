@@ -1,7 +1,9 @@
 """Unit tests for voice-agent sentence streaming and barge-in helpers."""
+import asyncio
+
 import pytest
 
-from app.voice_agent.speech_pipeline import PlaybackGate, barge_in, split_sentences, speak_text
+from app.voice_agent.speech_pipeline import PlaybackGate, barge_in, pick_immediate_ack, split_sentences, speak_text, speak_with_filler
 
 
 class TestSplitSentences:
@@ -116,3 +118,62 @@ class TestBargeIn:
         gate.is_playing = True
         await barge_in(gate, settle_ms=0)
         assert gate.cancelled is True
+
+
+class TestSpeakWithFiller:
+    @pytest.mark.asyncio
+    async def test_plays_filler_before_response(self):
+        gate = PlaybackGate()
+        order = []
+
+        class FakeSpeech:
+            async def synthesize(self, text, voice="female"):
+                order.append(f"synth:{text}")
+                return f"{text}-audio".encode()
+
+        async def fake_publish(room, source, audio, rate, playback_gate):
+            order.append(f"play:{audio.decode()}")
+
+        async def slow_response():
+            order.append("llm:start")
+            await asyncio.sleep(0.05)
+            order.append("llm:done")
+            return "Next question?"
+
+        text = await speak_with_filler(
+            filler="Got it.",
+            response_coro=slow_response(),
+            speech=FakeSpeech(),
+            room=None,
+            audio_source=None,
+            publish_fn=fake_publish,
+            playback_gate=gate,
+        )
+        assert text == "Next question?"
+        assert order.index("llm:start") < order.index("llm:done")
+        assert "synth:Got it." in order
+        assert "synth:Next question?" in order
+
+    @pytest.mark.asyncio
+    async def test_prefetches_next_sentence(self):
+        gate = PlaybackGate()
+        synth_order = []
+
+        class FakeSpeech:
+            async def synthesize(self, text, voice="female"):
+                synth_order.append(text)
+                await asyncio.sleep(0.02)
+                return f"{text}-audio".encode()
+
+        async def fake_publish(*args, **kwargs):
+            await asyncio.sleep(0.03)
+
+        await speak_text(
+            "First. Second.",
+            FakeSpeech(),
+            None,
+            None,
+            fake_publish,
+            gate,
+        )
+        assert synth_order == ["First.", "Second."]

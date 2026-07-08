@@ -10,6 +10,7 @@ import SkillsRadar from './SkillsRadar'
 import AnimatedScore from './AnimatedScore'
 import StreamingText from './StreamingText'
 import { generateEmail, getNarrative, recordOutcome, recordOutcomeFeedback } from '../lib/api'
+import { hasNarrativeContent, needsNarrativeHydration, isNarrativePending } from '../lib/enrichmentUtils'
 import { safeStr } from '../lib/utils'
 
 // ─── Small reusable components ────────────────────────────────────────────────
@@ -648,16 +649,48 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
   const isPending = final_recommendation === 'Pending' || fit_score === null || fit_score === undefined
   
   // Determine if narrative is ready (either from polling or already in result)
-  const narrativeReady = narrativeData !== null || (narrative_pending === false && (strengths?.length > 0 || concerns?.length > 0))
+  const narrativeReady = narrativeData !== null || hasNarrativeContent(result)
+
+  // Narrative-only enhancing state — do not conflate with interview kit / voice plan polling
+  const isNarrativeEnhancing =
+    !narrativeReady && (isPolling || isNarrativePending(result) || needsNarrativeHydration(result))
   
   // Check if narrative is AI-enhanced (real LLM response vs fallback)
   // narrativeData comes from polling, result.narrative_json would be from initial result
   const aiEnhanced = narrativeData?.ai_enhanced ?? result?.ai_enhanced ?? null
 
+  const mergedFitSummary = narrativeData?.fit_summary || fit_summary || ''
+  const mergedStrengths = narrativeData?.strengths || strengths || []
+  const mergedConcerns = narrativeData?.concerns || narrativeData?.weaknesses || concerns || weaknesses || []
+  const mergedRecommendationRationale = narrativeData?.recommendation_rationale || recommendation_rationale || ''
+  const mergedExplainability = narrativeData?.explainability || explainability || {}
+  const mergedCandidateSummary = narrativeData?.candidate_profile_summary || result?.candidate_profile_summary || ''
+
+  // Seed local narrative state when parent already merged LLM fields into result
+  useEffect(() => {
+    if (narrativeData || !hasNarrativeContent(result)) return
+    setNarrativeData({
+      ai_enhanced: result.ai_enhanced,
+      fit_summary: result.fit_summary,
+      strengths: result.strengths,
+      concerns: result.concerns,
+      weaknesses: result.weaknesses,
+      recommendation_rationale: result.recommendation_rationale,
+      explainability: result.explainability,
+      candidate_profile_summary: result.candidate_profile_summary,
+    })
+  }, [result, narrativeData])
+
   // Narrative polling effect with adaptive timing
   useEffect(() => {
-    // Only start polling if narrative is pending and we have an effective analysis_id
-    if (!narrative_pending || !effectiveAnalysisId) return
+    if (!effectiveAnalysisId || !needsNarrativeHydration(result)) {
+      setIsPolling(false)
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current)
+        pollingTimeoutRef.current = null
+      }
+      return
+    }
     
     setIsPolling(true)
     setNarrativeError(null)
@@ -690,22 +723,14 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         
         if (response.status === 'ready' && response.narrative) {
           setNarrativeData(response.narrative)
-          const kit = response.interview_kit_status
-          if (kit === 'ready' || kit === 'fallback' || kit === 'skipped' || !kit) {
-            stopPolling()
-          } else {
-            pollAttemptRef.current += 1
-            if (pollAttemptRef.current >= MAX_ATTEMPTS) {
-              stopPolling()
-            } else {
-              scheduleNextPoll()
-            }
-          }
+          stopPolling()
         } else if (response.status === 'fallback' || response.status === 'failed') {
           setNarrativeData(response.narrative || {})
           setNarrativeError(response.error || 'AI enhancement failed')
-          const kit = response.interview_kit_status
-          if (kit === 'ready' || kit === 'fallback' || kit === 'skipped' || !kit) {
+          stopPolling()
+        } else if (response.narrative) {
+          setNarrativeData(response.narrative)
+          if (response.status === 'ready' || response.status === 'fallback' || response.status === 'failed') {
             stopPolling()
           } else {
             pollAttemptRef.current += 1
@@ -715,20 +740,11 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               scheduleNextPoll()
             }
           }
-        } else if (response.interview_kit_status === 'ready' || response.interview_kit_status === 'fallback') {
-          if (response.narrative) {
-            setNarrativeData(response.narrative)
-          }
-          stopPolling()
         } else {
-          // Still pending, increment attempts and schedule next poll
           pollAttemptRef.current += 1
-          
           if (pollAttemptRef.current >= MAX_ATTEMPTS) {
-            // Max attempts reached, stop polling
             stopPolling()
           } else {
-            // Schedule next poll with adaptive delay
             scheduleNextPoll()
           }
         }
@@ -755,7 +771,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         pollingTimeoutRef.current = null
       }
     }
-  }, [narrative_pending, effectiveAnalysisId])
+  }, [result, effectiveAnalysisId])
 
   let badgeColor  = 'bg-amber-100 text-amber-800 ring-amber-200'
   let BadgeIcon   = Target
@@ -770,9 +786,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     BadgeIcon  = AlertTriangle
   }
 
-  // Merge narrative data with existing result data
-  const mergedStrengths = narrativeData?.strengths || strengths || []
-  const mergedConcerns = narrativeData?.concerns || narrativeData?.weaknesses || concerns || weaknesses || []
+  // Merge narrative data with existing result data (merged* vars computed above)
 
   return (
     <>
@@ -802,7 +816,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         {!isPending && (
           <AnalysisSourceBadge
             narrativeReady={narrativeReady}
-            isPolling={isPolling}
+            isPolling={isNarrativeEnhancing}
             analysisQuality={analysis_quality}
             aiEnhanced={aiEnhanced}
           />
@@ -839,7 +853,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         {isPending && <PendingBanner />}
 
         {/* Fit Summary Banner */}
-        {fit_summary && fit_summary.trim() && (
+        {mergedFitSummary.trim() && (
           <div className="bg-gradient-to-r from-indigo-500 to-blue-600 rounded-2xl p-5 text-white shadow-lg">
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
@@ -848,16 +862,23 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
               <div>
                 <h3 className="text-sm font-bold uppercase tracking-wide text-indigo-100 mb-1">Executive Summary</h3>
                 <p className="text-sm leading-relaxed text-white/95">
-                  <StreamingText text={safeStr(fit_summary)} isStreaming={isPolling} />
+                  <StreamingText text={safeStr(mergedFitSummary)} isStreaming={isNarrativeEnhancing} />
                 </p>
               </div>
             </div>
           </div>
         )}
 
+        {mergedCandidateSummary.trim() && (
+          <div className="bg-brand-50 rounded-2xl p-4 ring-1 ring-brand-100">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-brand-700 mb-2">Candidate Profile</h3>
+            <p className="text-sm text-slate-700 leading-relaxed">{safeStr(mergedCandidateSummary)}</p>
+          </div>
+        )}
+
         {/* Score Breakdown */}
         {score_breakdown && Object.keys(score_breakdown).length > 0 && !isPending && (
-          <ScoreBreakdownPanel scoreBreakdown={score_breakdown} recommendationRationale={recommendation_rationale} riskSummary={risk_summary} />
+          <ScoreBreakdownPanel scoreBreakdown={score_breakdown} recommendationRationale={mergedRecommendationRationale} riskSummary={risk_summary} />
         )}
 
         {/* Skills Intel — Tiered display when enhanced skill_analysis is available */}
@@ -1186,13 +1207,13 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         {/* Explainability - uses score_rationales as fallback when explainability is missing */}
         {(() => {
           // Determine which data source to use: prefer explainability, fall back to score_rationales
-          const hasExplainability = explainability && Object.keys(explainability).length > 0
+          const hasExplainability = mergedExplainability && Object.keys(mergedExplainability).length > 0
           const hasScoreRationales = score_rationales && Object.keys(score_rationales).length > 0
           
           if (!hasExplainability && !hasScoreRationales) return null
           
           // Use explainability if it has meaningful content, otherwise use score_rationales
-          const source = hasExplainability ? explainability : score_rationales
+          const source = hasExplainability ? mergedExplainability : score_rationales
           const isFallback = !hasExplainability && hasScoreRationales
           
           return (

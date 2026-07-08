@@ -3,12 +3,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger("voice_agent.speech_pipeline")
 
 PublishFn = Callable[..., Awaitable[None]]
+
+IMMEDIATE_ACKS = [
+    "Got it.",
+    "Thanks.",
+    "Okay.",
+    "I see.",
+    "Right.",
+    "Makes sense.",
+    "Understood.",
+]
 
 
 class PlaybackGate:
@@ -27,6 +38,11 @@ class PlaybackGate:
 
     def cancel(self) -> None:
         self._cancelled = True
+
+
+def pick_immediate_ack() -> str:
+    """Short phrase to play while the LLM is thinking."""
+    return random.choice(IMMEDIATE_ACKS)
 
 
 def split_sentences(text: str) -> list[str]:
@@ -49,7 +65,7 @@ async def speak_text(
     sample_rate: int = 16000,
     voice: str = "female",
 ) -> None:
-    """Synthesize and publish text sentence-by-sentence for lower time-to-first-audio."""
+    """Synthesize and publish text sentence-by-sentence with TTS prefetch."""
     sentences = split_sentences(text)
     if not sentences:
         return
@@ -57,13 +73,33 @@ async def speak_text(
     playback_gate.reset()
     playback_gate.is_playing = True
     try:
-        for sentence in sentences:
+        prefetch_task: asyncio.Task | None = None
+        prefetched_audio: bytes | None = None
+
+        for index, sentence in enumerate(sentences):
             if playback_gate.cancelled:
                 logger.debug("Playback cancelled before sentence TTS")
                 break
-            audio = await speech.synthesize(sentence, voice=voice)
+
+            if prefetch_task is not None:
+                prefetched_audio = await prefetch_task
+                prefetch_task = None
+                audio = prefetched_audio
+            else:
+                audio = await speech.synthesize(sentence, voice=voice)
+
+            next_index = index + 1
+            if next_index < len(sentences) and not playback_gate.cancelled:
+                next_sentence = sentences[next_index]
+                prefetch_task = asyncio.create_task(
+                    speech.synthesize(next_sentence, voice=voice)
+                )
+
             if not audio or playback_gate.cancelled:
+                if prefetch_task:
+                    prefetch_task.cancel()
                 continue
+
             await publish_fn(
                 room,
                 audio_source,
@@ -71,8 +107,63 @@ async def speak_text(
                 sample_rate,
                 playback_gate,
             )
+
+        if prefetch_task and not prefetch_task.done():
+            prefetch_task.cancel()
     finally:
         playback_gate.is_playing = False
+
+
+async def speak_with_filler(
+    *,
+    filler: str,
+    response_coro,
+    speech,
+    room,
+    audio_source,
+    publish_fn: PublishFn,
+    playback_gate: PlaybackGate,
+    sample_rate: int = 16000,
+    voice: str = "female",
+) -> Optional[str]:
+    """
+    Play a short acknowledgment while the LLM runs, then speak the full response.
+
+    Returns the response text (or None).
+    """
+    filler_task: asyncio.Task | None = None
+    if filler:
+        filler_task = asyncio.create_task(
+            speak_text(
+                filler,
+                speech,
+                room,
+                audio_source,
+                publish_fn,
+                playback_gate,
+                sample_rate=sample_rate,
+                voice=voice,
+            )
+        )
+
+    response_text = await response_coro
+
+    if filler_task:
+        await filler_task
+
+    if response_text:
+        await speak_text(
+            response_text,
+            speech,
+            room,
+            audio_source,
+            publish_fn,
+            playback_gate,
+            sample_rate=sample_rate,
+            voice=voice,
+        )
+
+    return response_text
 
 
 async def barge_in(playback_gate: PlaybackGate, *, settle_ms: int = 50) -> None:

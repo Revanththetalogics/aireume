@@ -6,6 +6,8 @@ import {
   mergeNarrativePollResult,
   shouldContinueNarrativePoll,
   getEnrichmentPhaseStatus,
+  hasNarrativeContent,
+  needsNarrativeHydration,
 } from './enrichmentUtils'
 
 describe('enrichmentUtils', () => {
@@ -36,7 +38,17 @@ describe('enrichmentUtils', () => {
     expect(merged.narrative_status).toBe('ready')
     expect(merged.ai_enhanced).toBe(true)
     expect(merged.strengths).toEqual(['Leadership'])
+    expect(merged.narrative_pending).toBe(false)
     expect(merged.interview_kit_status).toBe('processing')
+  })
+
+  it('detects missing narrative hydration when status is ready but body empty', () => {
+    expect(needsNarrativeHydration({ narrative_status: 'ready', strengths: [] })).toBe(true)
+    expect(needsNarrativeHydration({
+      narrative_status: 'ready',
+      fit_summary: 'Strong FP&A background.',
+    })).toBe(false)
+    expect(hasNarrativeContent({ strengths: ['Excel'] })).toBe(true)
   })
 
   it('continues polling while kit is pending', () => {

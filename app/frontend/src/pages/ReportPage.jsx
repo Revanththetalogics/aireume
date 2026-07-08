@@ -23,6 +23,7 @@ import { useNotification } from '../contexts/NotificationContext'
 import { showSuccess } from '../lib/toast'
 import { getFitTierLabel, getScoreHexColor } from '../lib/constants'
 import { getKitReadiness, resolveInterviewKit } from '../lib/liveScreenKitUtils'
+import { hasNarrativeContent, needsNarrativeHydration } from '../lib/enrichmentUtils'
 import { INTERVIEW } from '../lib/uxLabels'
 import api from '../lib/api'
 
@@ -496,7 +497,7 @@ export default function ReportPage() {
       return
     }
 
-    // Try sessionStorage first
+    // Try sessionStorage first — refetch if cache is stale (narrative marked ready but body missing)
     try {
       const stored = sessionStorage.getItem(`report_${id}`)
       if (stored) {
@@ -504,6 +505,15 @@ export default function ReportPage() {
         setResult(parsed)
         setCandidateName(resolveName(parsed))
         setLoading(false)
+        if (needsNarrativeHydration(parsed)) {
+          getScreeningResult(id)
+            .then((data) => {
+              setResult(data)
+              setCandidateName(resolveName(data))
+              try { sessionStorage.setItem(`report_${id}`, JSON.stringify(data)) } catch {}
+            })
+            .catch(() => {})
+        }
         return
       }
     } catch { /* ignore */ }
@@ -557,7 +567,14 @@ export default function ReportPage() {
 
   // Poll for narrative + kit via shared hook
   useEnrichmentPolling(result, (updater) => {
-    setResult((prev) => updater(prev))
+    setResult((prev) => {
+      const next = updater(prev)
+      const rid = next?.result_id || next?.id
+      if (rid && hasNarrativeContent(next)) {
+        try { sessionStorage.setItem(`report_${rid}`, JSON.stringify(next)) } catch {}
+      }
+      return next
+    })
   }, {
     onKitReady: () => {
       addNotification({
