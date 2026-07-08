@@ -184,11 +184,6 @@ function DashboardContent() {
   const navigate = useNavigate()
   const { user } = useAuth()
 
-  // Platform admins default to /admin — redirect if they land on recruiter dashboard
-  if (user?.is_platform_admin === true || !!user?.platform_role) {
-    return <Navigate to="/admin" replace />
-  }
-
   const [summary, setSummary] = useState(null)
   const [activity, setActivity] = useState(null)
   const [interviewStats, setInterviewStats] = useState(null)
@@ -215,8 +210,14 @@ function DashboardContent() {
   }, [])
 
   useEffect(() => {
+    if (user?.is_platform_admin === true || !!user?.platform_role) return
     fetchData()
-  }, [fetchData])
+  }, [fetchData, user])
+
+  // Platform admins default to /admin — redirect if they land on recruiter dashboard
+  if (user?.is_platform_admin === true || !!user?.platform_role) {
+    return <Navigate to="/admin" replace />
+  }
 
   // ─── Early returns ────────────────────────────────────────────────────────
   if (loading && !summary) {
