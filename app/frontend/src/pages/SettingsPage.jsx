@@ -31,6 +31,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
 import { adminResetUsage, adminChangePlan, getUserFriendlyError, getInvoices, getInvoice } from '../lib/api'
+import { sanitizePlanFeatures, TRUST } from '../lib/uxLabels'
 import ATSIntegrationsPanel from '../components/settings/ATSIntegrationsPanel'
 
 function Section({ title, icon: Icon, children, description }) {
@@ -404,7 +405,7 @@ export default function SettingsPage() {
   const remainingAnalyses = getRemainingAnalyses()
 
   // Get plan features list
-  const planFeatures = currentPlan?.plan?.features || []
+  const planFeatures = sanitizePlanFeatures(currentPlan?.plan?.features || [])
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -606,7 +607,7 @@ export default function SettingsPage() {
                             </p>
                             <p className="text-xs text-slate-500 mt-1">{plan.description}</p>
                             <ul className="mt-4 space-y-2">
-                              {plan.features.slice(0, 5).map((feature, i) => (
+                              {sanitizePlanFeatures(plan.features).slice(0, 5).map((feature, i) => (
                                 <li key={i} className="flex items-center gap-2 text-xs text-slate-700">
                                   <div className="w-4 h-4 rounded-full bg-brand-50 flex items-center justify-center shrink-0">
                                     <Check className="w-2.5 h-2.5 text-brand-600" />
@@ -1053,6 +1054,23 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </div>
+              </Section>
+
+              <Section
+                title={TRUST.aiProcessingTitle}
+                icon={Shield}
+                description="How ARIA processes candidate and job data"
+              >
+                <p className="text-sm text-slate-600 leading-relaxed mb-4">{TRUST.aiProcessingBody}</p>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">AI subprocessors</p>
+                <ul className="space-y-1.5">
+                  {TRUST.aiSubprocessors.map((name) => (
+                    <li key={name} className="text-sm text-slate-700 flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
+                      {name}
+                    </li>
+                  ))}
+                </ul>
               </Section>
 
               <Section

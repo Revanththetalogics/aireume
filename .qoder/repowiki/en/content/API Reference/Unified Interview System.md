@@ -49,9 +49,7 @@
 
 ## Introduction
 
-The Unified Interview System is a comprehensive AI-powered recruitment platform developed by ThetaLogics that combines voice screening, AI recruiter interviews, and traditional video analysis into a single, cohesive system. Built as part of the ARIA (AI Resume Intelligence) platform, this system provides modern hiring teams with advanced interview capabilities while maintaining strict data privacy and compliance standards.
-
-Unlike cloud-based solutions that send candidate data to third-party AI services, the Unified Interview System runs entirely on your infrastructure with local LLM inference via Ollama, ensuring that sensitive candidate information never leaves your server. The system supports both Ollama Cloud (default) and fully self-hosted local LLM deployment, giving organizations flexibility between ease of setup and complete data sovereignty.
+The Unified Interview System combines **AI Screen Calls** (bot-led), **Live Screen Kit** (recruiter-led split view on the screening report), and video/transcript analysis in one hub (`/ai-interviews`). ARIA is a managed cloud SaaS: interview and resume content are processed by configured AI providers (Ollama Cloud, optional Gemini, LiveKit for voice) and stored in tenant-isolated PostgreSQL. AI subprocessors are disclosed at onboarding and in Settings → Security.
 
 ## System Architecture
 

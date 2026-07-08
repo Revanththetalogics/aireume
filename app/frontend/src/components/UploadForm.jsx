@@ -407,9 +407,9 @@ export default function UploadForm({
                         </button>
                       ))}
                       <div className="px-3 py-2 bg-brand-50/50 border-t border-brand-100">
-                        <a href="/templates" className="text-xs text-brand-700 font-medium hover:text-brand-800 flex items-center gap-1">
+                        <a href="/jd-library" className="text-xs text-brand-700 font-medium hover:text-brand-800 flex items-center gap-1">
                           <LayoutTemplate className="w-3 h-3" />
-                          Manage all templates →
+                          Manage all roles →
                         </a>
                       </div>
                     </>

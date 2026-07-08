@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Sparkles, Eye, EyeOff, AlertCircle, ArrowRight, Building2 } from 'lucide-react'
+import { TRUST } from '../lib/uxLabels'
 import { useAuth } from '../contexts/AuthContext'
 import { getSSOConfig } from '../lib/api'
 
@@ -213,7 +214,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-6">
-          Enterprise security · On-prem inference · Zero data retention
+          {TRUST.authFooter}
         </p>
       </div>
     </div>

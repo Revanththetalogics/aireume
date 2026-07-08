@@ -26,6 +26,7 @@ import {
   seedSampleData,
 } from '../lib/api'
 import { INDUSTRIES, COMPANY_SIZES } from '../lib/constants'
+import { TRUST, sanitizePlanFeatures } from '../lib/uxLabels'
 
 const TOTAL_STEPS = 4
 
@@ -177,6 +178,7 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
+  const [aiAcknowledged, setAiAcknowledged] = useState(false)
 
   useEffect(() => {
     async function fetchPlans() {
@@ -196,7 +198,7 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
   }, [])
 
   const handleNext = async () => {
-    if (!selectedPlan) return
+    if (!selectedPlan || !aiAcknowledged) return
     setSubmitting(true)
     setError(null)
     try {
@@ -242,7 +244,7 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
             const isFree = plan.name === 'free'
             const isSelected = selectedPlan === plan.id
             const price = plan.price_monthly === 0 ? 'Free' : `$${(plan.price_monthly / 100).toFixed(0)}/mo`
-            const features = Array.isArray(plan.features) ? plan.features : []
+            const features = sanitizePlanFeatures(Array.isArray(plan.features) ? plan.features : [])
 
             return (
               <button
@@ -288,10 +290,20 @@ function StepChoosePlan({ onNext, onBack, onSkip }) {
         </div>
       )}
 
+      <label className="mt-6 flex items-start gap-3 p-4 rounded-xl bg-brand-50/80 ring-1 ring-brand-100 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={aiAcknowledged}
+          onChange={(e) => setAiAcknowledged(e.target.checked)}
+          className="mt-0.5 rounded border-brand-300 text-brand-600 focus:ring-brand-500"
+        />
+        <span className="text-sm text-slate-700 leading-relaxed">{TRUST.aiProcessingAck}</span>
+      </label>
+
       <div className="mt-8 flex flex-col items-center">
         <button
           onClick={handleNext}
-          disabled={!selectedPlan || submitting || loading}
+          disabled={!selectedPlan || !aiAcknowledged || submitting || loading}
           className="w-full max-w-xs flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-brand-600 text-white font-semibold hover:bg-brand-700 transition-colors shadow-brand disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {submitting ? (

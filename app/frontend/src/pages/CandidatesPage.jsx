@@ -129,12 +129,18 @@ function CandidateDetail({ candidateId, onClose }) {
             {candidate.id && (
               <>
                 <button
+                  onClick={() => { onClose(); navigate(`/candidates/${candidate.id}`) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 transition-colors"
+                >
+                  Full profile
+                </button>
+                <button
                   onClick={() => viewCandidateResume(candidate.id).catch(() => alert('Resume not available'))}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50 transition-colors"
                   title="View original resume"
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  View
+                  Resume
                 </button>
                 <button
                   onClick={() => downloadCandidateResume(candidate.id, candidate.name ? `${candidate.name}_resume.pdf` : `resume_${candidate.id}.pdf`).catch(() => alert('Resume not available'))}
@@ -174,7 +180,7 @@ function CandidateDetail({ candidateId, onClose }) {
                 onClick={() => { onClose(); navigate('/report', { state: { result: r } }) }}
                 className="text-xs text-brand-600 hover:text-brand-700 font-bold flex items-center gap-1 hover:underline"
               >
-                View <ChevronRight className="w-3.5 h-3.5" />
+                Report <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
           ))}

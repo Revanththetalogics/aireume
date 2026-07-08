@@ -29,9 +29,9 @@
 9. [Conclusion](#conclusion)
 
 ## Introduction
-ARIA — AI Resume Intelligence by ThetaLogics is a local-first AI-powered SaaS designed to transform how recruiters screen resumes. Built with a modern stack and a focus on privacy and performance, ARIA enables rapid, repeatable analysis of candidates against job descriptions using Ollama (llama3). The platform offers a comprehensive suite of AI-driven insights: fit scores, strengths/weaknesses, employment gap detection, education analysis, risk signal identification, and final recommendations. It supports both single and batch analysis, integrates with a multi-tenant subscription system, and provides a responsive React frontend with live progress indicators.
+ARIA — AI Resume Intelligence by ThetaLogics is a **managed multi-tenant SaaS** platform for recruiters. It combines structured resume parsing, explainable fit scoring, and interview automation (AI screen calls + live screen kits). AI inference runs via **Ollama Cloud** (and optional **Google Gemini**) unless an operator explicitly configures a local Ollama instance for self-managed deployments.
 
-ARIA’s core value proposition is to reduce manual effort, improve consistency, and accelerate hiring decisions while keeping sensitive data on-premises. Its hybrid pipeline combines structured parsing and objective calculations with a narrative-driven LLM to deliver both quantitative scores and qualitative explanations.
+ARIA’s core value proposition is to reduce manual effort, improve consistency, and accelerate hiring decisions with **tenant-isolated storage**, transparent AI processing disclosure, and a hybrid pipeline that combines deterministic scoring with LLM-generated narratives.
 
 ## Project Structure
 The repository is organized into a backend (FastAPI), a React frontend, and infrastructure assets for local and production deployments. The backend encapsulates parsing, gap detection, analysis orchestration, and persistence. The frontend provides an intuitive dashboard for uploading resumes and job descriptions, configuring scoring weights, and reviewing results with explainability and interview kits.

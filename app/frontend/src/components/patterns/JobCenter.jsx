@@ -28,7 +28,7 @@ function JobCenterPanel({ analysisProgress, enrichmentJobs, queueJobs, notificat
   const [tab, setTab] = useState('jobs')
 
   const tabs = [
-    { id: 'jobs', label: 'Jobs' },
+    { id: 'jobs', label: 'Screening' },
     { id: 'enrichment', label: 'Enrichment' },
     { id: 'alerts', label: `Alerts${unreadCount ? ` (${unreadCount})` : ''}` },
   ]

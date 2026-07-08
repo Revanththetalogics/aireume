@@ -1,7 +1,7 @@
 import { useLocation, useNavigate, Link } from 'react-router-dom'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import {
-  ArrowLeft, Share2, Download, CheckCircle, Check,
+  ArrowLeft, CheckCircle, Check,
   ThumbsUp, ThumbsDown, Loader2, Pencil, X as XIcon, Upload, Eye, FileText, Clock,
   PhoneCall, Mic, ExternalLink, Sparkles, Calendar, BarChart2,
 } from 'lucide-react'
@@ -14,13 +14,16 @@ import { labelTrainingExample, updateResultStatus, updateCandidateName, getCandi
 import AnimatedScore from '../components/AnimatedScore'
 import StreamingText from '../components/StreamingText'
 import Skeleton from '../components/Skeleton'
-import PhoneScreenKit from '../components/PhoneScreenKit'
 import EvaluationChecklist from '../components/EvaluationChecklist'
-import VoiceScheduleModal from '../components/VoiceScheduleModal'
-import { EnrichmentBanner, ActionRail, AnalysisStageTracker, RescoreSheet } from '../components/patterns'
+import InterviewInitiateModal from '../components/InterviewInitiateModal'
+import { EnrichmentBanner, ReportActionBar, AnalysisStageTracker, RescoreSheet, LiveScreenCallShell, LiveScreenKitReadinessGate } from '../components/patterns'
+import { useLiveScreenMode } from '../contexts/LiveScreenModeContext'
 import { useEnrichmentPolling } from '../hooks/useEnrichmentPolling'
 import { useNotification } from '../contexts/NotificationContext'
 import { showSuccess } from '../lib/toast'
+import { getFitTierLabel, getScoreHexColor } from '../lib/constants'
+import { getKitReadiness, resolveInterviewKit } from '../lib/liveScreenKitUtils'
+import { INTERVIEW } from '../lib/uxLabels'
 import api from '../lib/api'
 
 /**
@@ -424,8 +427,8 @@ export default function ReportPage() {
   const [auditLogs, setAuditLogs] = useState([])
   const [auditExpanded, setAuditExpanded] = useState(false)
 
-  // ── Voice Screening modal state ──────────────────────────────────────────
-  const [voiceScheduleOpen, setVoiceScheduleOpen] = useState(false)
+  // ── AI Screen Call modal state ───────────────────────────────────────────
+  const [interviewModalOpen, setInterviewModalOpen] = useState(false)
   const [rescoreOpen, setRescoreOpen] = useState(false)
   const [bannerDismissed, setBannerDismissed] = useState(false)
   const { trackEnrichmentJob, updateEnrichmentJob, completeEnrichmentJob, addNotification } = useNotification()
@@ -438,6 +441,9 @@ export default function ReportPage() {
 
   // ── Phone Screen split-view state ─────────────────────────────────────────
   const [screenMode, setScreenMode] = useState(false)
+  const [readinessGateOpen, setReadinessGateOpen] = useState(false)
+  const [forceFallbackKit, setForceFallbackKit] = useState(false)
+  const { setActive: setLiveScreenActive } = useLiveScreenMode()
   const [scorecardKey, setScorecardKey] = useState(0)
   const [resumeBlobUrl, setResumeBlobUrl] = useState(null)
   const [resumeLoading, setResumeLoading] = useState(false)
@@ -809,124 +815,71 @@ export default function ReportPage() {
     || result?.analysis_result?.interview_questions
     || null
   const fitScore = result?.fit_score ?? null
-  const fitLabel = fitScore != null
-    ? (fitScore >= 72 ? 'Strong Fit' : fitScore >= 45 ? 'Moderate Fit' : 'Low Fit')
-    : null
-  const fitBadgeClass = fitScore != null
-    ? (fitScore >= 72 ? 'bg-emerald-100 text-emerald-700' : fitScore >= 45 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700')
-    : 'bg-slate-100 text-slate-500'
+  const fitTier = getFitTierLabel(fitScore)
+
+  const analysisData = useMemo(() => ({
+    missing_skills: result?.analysis_result?.missing_skills || result?.missing_skills || [],
+    matched_skills: result?.analysis_result?.matched_skills || result?.matched_skills || [],
+  }), [result])
+
+  const kitReadiness = useMemo(
+    () => getKitReadiness(
+      result?.interview_kit_status,
+      interviewQs,
+      analysisData,
+      role ? safeStr(role) : '',
+    ),
+    [result?.interview_kit_status, interviewQs, analysisData, role],
+  )
+
+  const activeKit = useMemo(() => {
+    if (forceFallbackKit) {
+      return resolveInterviewKit(null, analysisData, role ? safeStr(role) : '')
+    }
+    if (kitReadiness.kit) {
+      return {
+        kit: kitReadiness.kit,
+        isFallback: kitReadiness.isFallback,
+        totalQ: kitReadiness.totalQ,
+      }
+    }
+    return resolveInterviewKit(interviewQs, analysisData, role ? safeStr(role) : '')
+  }, [forceFallbackKit, kitReadiness, interviewQs, analysisData, role])
+
+  const handleStartLiveScreen = () => {
+    if (kitReadiness.state === 'loading' || kitReadiness.state === 'empty') {
+      setReadinessGateOpen(true)
+      return
+    }
+    setForceFallbackKit(kitReadiness.state === 'fallback')
+    setScreenMode(true)
+  }
+
+  useEffect(() => {
+    setLiveScreenActive(screenMode)
+    return () => setLiveScreenActive(false)
+  }, [screenMode, setLiveScreenActive])
 
   if (screenMode) {
     return (
-      <div className="flex flex-col" style={{ height: '100vh' }}>
-        {/* ── Phone Screen top bar ── */}
-        <div className="h-14 shrink-0 flex items-center justify-between px-5 bg-white border-b border-slate-200 shadow-sm z-20">
-          <div className="flex items-center gap-3 min-w-0">
-            <PhoneCall className="w-4 h-4 text-brand-600 shrink-0" />
-            <span className="font-bold text-slate-900 text-sm truncate">{candidateName || 'Candidate'}</span>
-            {role && <span className="text-xs text-slate-400 truncate hidden sm:block">{safeStr(role)}</span>}
-            {fitScore != null && (
-              <span className={`shrink-0 px-2.5 py-0.5 rounded-full text-xs font-bold ${fitBadgeClass}`}>
-                {fitScore}% · {fitLabel}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {result?.candidate_id && (
-              <button
-                onClick={() => setVoiceScheduleOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold text-white bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 rounded-lg transition-all shrink-0"
-                title="Schedule AI voice screening call"
-              >
-                <PhoneCall className="w-3.5 h-3.5" />
-                Voice Screen
-              </button>
-            )}
-            <button
-              onClick={() => setScreenMode(false)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shrink-0"
-            >
-              <XIcon className="w-4 h-4" />
-              Exit Screen Mode
-            </button>
-          </div>
-        </div>
-
-        {/* ── Split content ── */}
-        <div className="flex-1 flex lg:flex-row flex-col min-h-0">
-
-          {/* Left panel — Resume (40%) */}
-          <div className="lg:w-[40%] w-full border-r border-slate-200 flex flex-col lg:h-full h-[45vh]">
-            <div className="h-9 shrink-0 flex items-center justify-between px-4 bg-slate-50 border-b border-slate-200">
-              <span className="text-xs font-semibold text-slate-600">Resume</span>
-              {result?.candidate_id && (
-                <button
-                  onClick={async () => {
-                    try { await viewCandidateResume(result.candidate_id) } catch { /* silent */ }
-                  }}
-                  className="text-xs text-brand-600 hover:text-brand-800 font-semibold transition-colors flex items-center gap-1"
-                >
-                  <Eye className="w-3 h-3" /> Open in tab
-                </button>
-              )}
-            </div>
-            <div className="flex-1 min-h-0 relative">
-              {resumeLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
-                  <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
-                </div>
-              )}
-              {resumeIsText ? (
-                <div className="absolute inset-0 overflow-y-auto px-5 py-4">
-                  <ResumeTextRenderer text={resumeText} />
-                </div>
-              ) : resumeBlobUrl ? (
-                <iframe
-                  src={resumeBlobUrl}
-                  className="absolute inset-0 w-full h-full border-0"
-                  title="Candidate Resume"
-                />
-              ) : !resumeLoading ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-3 p-6">
-                  <FileText className="w-10 h-10 opacity-30" />
-                  <p className="text-sm">Resume not available for inline preview.</p>
-                  {result?.candidate_id && (
-                    <button
-                      onClick={async () => { try { await viewCandidateResume(result.candidate_id) } catch { /* silent */ } }}
-                      className="px-4 py-2 text-sm font-semibold bg-brand-50 text-brand-700 ring-1 ring-brand-200 rounded-lg hover:bg-brand-100 transition-colors"
-                    >
-                      Open in new tab
-                    </button>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          {/* Right panel — Screen Kit (60%) */}
-          <div className="lg:w-[60%] w-full flex flex-col min-h-0 lg:h-full">
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <PhoneScreenKit
-                interview_questions={interviewQs}
-                interviewKitStatus={result?.interview_kit_status}
-                resultId={result?.result_id}
-                analysisData={{
-                  missing_skills: result?.analysis_result?.missing_skills || result?.missing_skills || [],
-                  matched_skills: result?.analysis_result?.matched_skills || result?.matched_skills || [],
-                }}
-                onDebriefGenerated={() => setScorecardKey(prev => prev + 1)}
-              />
-            </div>
-
-            {/* Scorecard — below the kit, in its own scroll region */}
-            {result?.result_id && (
-              <div className="shrink-0 max-h-[40vh] overflow-y-auto px-5 pb-6 pt-3 border-t border-slate-200 bg-white">
-                <InterviewScorecard key={scorecardKey} resultId={result.result_id} />
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      <LiveScreenCallShell
+        candidateName={candidateName}
+        roleTitle={role ? safeStr(role) : ''}
+        fitScore={fitScore}
+        result={result}
+        kit={activeKit.kit}
+        kitIsFallback={activeKit.isFallback}
+        resumeLoading={resumeLoading}
+        resumeIsText={resumeIsText}
+        resumeText={resumeText}
+        resumeBlobUrl={resumeBlobUrl}
+        ResumeTextRenderer={ResumeTextRenderer}
+        onExit={() => {
+          setScreenMode(false)
+          setForceFallbackKit(false)
+        }}
+        onDebriefGenerated={() => setScorecardKey((prev) => prev + 1)}
+      />
     )
   }
 
@@ -1128,85 +1081,37 @@ export default function ReportPage() {
       {/* ── Right panel: action bar + scrollable content ── */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
 
-        {/* Sticky action bar */}
-        <div className="bg-white/80 backdrop-blur-xl border-b border-brand-100/60 shrink-0 z-10 print:hidden">
-          <div className="px-6 h-14 flex items-center justify-end gap-2">
-            {result?.candidate_id && (
-              <button
-                onClick={() => setVoiceScheduleOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 shadow-brand-sm transition-all"
-                title="Schedule AI voice screening call"
-              >
-                <PhoneCall className="w-4 h-4" />
-                Schedule Voice Screen
-              </button>
-            )}
-            {interviewQs && (
-              <button
-                onClick={() => setScreenMode(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-brand-700 bg-brand-50 ring-1 ring-brand-200 hover:bg-brand-100 transition-colors"
-                title="Open split-view phone screen mode"
-              >
-                <PhoneCall className="w-4 h-4" />
-                Start Phone Screen
-              </button>
-            )}
-            {result?.candidate_id && (
-              <>
-                <button
-                  onClick={async () => {
-                    setResumeActionLoading(true)
-                    try { await viewCandidateResume(result.candidate_id) } catch (e) { alert('Resume not available') }
-                    finally { setResumeActionLoading(false) }
-                  }}
-                  disabled={resumeActionLoading}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl ring-1 ring-brand-200 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition-colors disabled:opacity-50"
-                  title="View original resume"
-                >
-                  <Eye className="w-4 h-4" />
-                  View Resume
-                </button>
-                <button
-                  onClick={async () => {
-                    setResumeActionLoading(true)
-                    try { await downloadCandidateResume(result.candidate_id, result?.candidate_name ? `${result.candidate_name}_resume.pdf` : `resume_${result.candidate_id}.pdf`) } catch (e) { alert('Resume not available') }
-                    finally { setResumeActionLoading(false) }
-                  }}
-                  disabled={resumeActionLoading}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl ring-1 ring-brand-200 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition-colors disabled:opacity-50"
-                  title="Download original resume"
-                >
-                  <FileText className="w-4 h-4" />
-                  Download Resume
-                </button>
-              </>
-            )}
-            <button
-              onClick={handleShare}
-              disabled={!isReportComplete}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl ring-1 ring-brand-200 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {copied ? <Check className="w-4 h-4 text-green-600" /> : <Share2 className="w-4 h-4" />}
-              {copied ? 'Link Copied!' : 'Share'}
-            </button>
-            <button
-              onClick={handleDownload}
-              disabled={isDownloading || !isReportComplete}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white btn-brand shadow-brand-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isDownloading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating PDF...
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  Download PDF
-                </>
-              )}
-            </button>
-          </div>
+        {/* Report actions */}
+        <div className="bg-white/80 backdrop-blur-xl border-b border-brand-100/60 shrink-0 z-10 print:hidden px-6 py-3">
+          <ReportActionBar
+            result={result}
+            onAiScreenCall={result?.candidate_id ? () => setInterviewModalOpen(true) : undefined}
+            onLiveScreenKit={hasDeterministicData ? handleStartLiveScreen : undefined}
+            onViewResume={result?.candidate_id ? async () => {
+              setResumeActionLoading(true)
+              try { await viewCandidateResume(result.candidate_id) } catch { alert('Resume not available') }
+              finally { setResumeActionLoading(false) }
+            } : undefined}
+            onDownloadResume={result?.candidate_id ? async () => {
+              setResumeActionLoading(true)
+              try {
+                await downloadCandidateResume(
+                  result.candidate_id,
+                  result?.candidate_name ? `${result.candidate_name}_resume.pdf` : `resume_${result.candidate_id}.pdf`
+                )
+              } catch { alert('Resume not available') }
+              finally { setResumeActionLoading(false) }
+            } : undefined}
+            onDownloadPdf={handleDownload}
+            onDownloadAdverseAction={handleAdverseAction}
+            onShare={handleShare}
+            onRescore={() => setRescoreOpen(true)}
+            isDownloading={isDownloading}
+            resumeLoading={resumeActionLoading}
+            copied={copied}
+            actionsReady={isReportComplete}
+            liveScreenKitAvailable={hasDeterministicData && kitReadiness.state !== 'loading'}
+          />
         </div>
 
         {/* Scrollable result content */}
@@ -1214,17 +1119,6 @@ export default function ReportPage() {
           {!bannerDismissed && (
             <EnrichmentBanner result={result} onDismiss={() => setBannerDismissed(true)} />
           )}
-
-          <ActionRail
-            result={result}
-            onScheduleInterview={() => setVoiceScheduleOpen(true)}
-            onDownloadPdf={handleDownload}
-            onDownloadAdverseAction={handleAdverseAction}
-            onShare={handleShare}
-            onRescore={() => setRescoreOpen(true)}
-            isDownloading={isDownloading}
-            copied={copied}
-          />
 
           {/* Score Summary — visible in both screen and PDF */}
           {!hasDeterministicData ? (
@@ -1237,12 +1131,11 @@ export default function ReportPage() {
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${
-                    result.fit_score >= 72 ? 'bg-green-500' :
-                    result.fit_score >= 45 ? 'bg-amber-500' : 'bg-red-500'
-                  }`}>
-                    {result.fit_score >= 72 ? 'Strong Fit' :
-                     result.fit_score >= 45 ? 'Moderate Fit' : 'Low Fit'}
+                  <span
+                    className="px-3 py-1 rounded-full text-xs font-bold text-white"
+                    style={{ backgroundColor: getScoreHexColor(result.fit_score) }}
+                  >
+                    {fitTier.label}
                   </span>
                   {result.final_recommendation && (
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-brand-100 text-brand-700 ring-1 ring-brand-200">
@@ -1354,18 +1247,18 @@ export default function ReportPage() {
           )}
 
           {/* Phone Screen CTA — inline banner */}
-          {interviewQs && (
+          {(kitReadiness.totalQ > 0 || kitReadiness.state === 'fallback' || kitReadiness.state === 'empty') && (
             <div className="rounded-2xl ring-1 ring-brand-200 bg-gradient-to-r from-brand-50 to-indigo-50 p-5 flex items-center justify-between gap-4">
               <div>
-                <p className="font-bold text-brand-800 text-sm">Ready to conduct a phone screen?</p>
-                <p className="text-xs text-slate-500 mt-0.5">Split-view mode shows the resume and all screen kit questions side-by-side.</p>
+                <p className="font-bold text-brand-800 text-sm">{INTERVIEW.liveScreenKit}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{INTERVIEW.liveScreenKitHint}</p>
               </div>
               <button
-                onClick={() => setScreenMode(true)}
+                onClick={handleStartLiveScreen}
                 className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 shadow-brand-sm transition-colors"
               >
                 <PhoneCall className="w-4 h-4" />
-                Start Phone Screen
+                Open kit
               </button>
             </div>
           )}
@@ -1385,17 +1278,14 @@ export default function ReportPage() {
       </div>
 
       {/* Voice Screening Schedule Modal */}
-      {voiceScheduleOpen && result?.candidate_id && (
-        <VoiceScheduleModal
-          onClose={() => setVoiceScheduleOpen(false)}
-          onScheduled={() => setVoiceScheduleOpen(false)}
-          preselectedCandidate={{
-            id: result.candidate_id,
-            name: candidateName || result.candidate_name,
-            email: result?.contact_info?.email,
-            phone: result?.contact_info?.phone,
-          }}
-          preselectedJdId={result?.jd_id || jdContext?.jd_id || null}
+      {interviewModalOpen && result?.candidate_id && (
+        <InterviewInitiateModal
+          onClose={() => setInterviewModalOpen(false)}
+          onSuccess={() => setInterviewModalOpen(false)}
+          initialCandidateId={result.candidate_id}
+          initialJdId={result?.jd_id || jdContext?.jd_id || ''}
+          initialPhone={result?.contact_info?.phone || ''}
+          screeningResultId={result?.result_id}
         />
       )}
 
@@ -1406,6 +1296,21 @@ export default function ReportPage() {
         onRescoreComplete={(updated) => {
           setResult((prev) => ({ ...prev, ...updated, fit_score: updated.fit_score ?? prev.fit_score }))
         }}
+      />
+
+      <LiveScreenKitReadinessGate
+        open={readinessGateOpen}
+        onClose={() => setReadinessGateOpen(false)}
+        state={kitReadiness.state === 'empty' ? 'empty' : 'loading'}
+        onStartWithFallback={
+          kitReadiness.state === 'empty'
+            ? () => {
+                setForceFallbackKit(true)
+                setReadinessGateOpen(false)
+                setScreenMode(true)
+              }
+            : undefined
+        }
       />
     </div>
   )

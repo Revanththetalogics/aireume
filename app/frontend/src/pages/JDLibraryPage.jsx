@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { LayoutTemplate, Plus, Trash2, Edit2, X, Save, Sparkles, TrendingUp, Filter, Users, ChevronRight, Briefcase } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
 import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getAllJDStats } from '../lib/api'
+import { ROLES } from '../lib/uxLabels'
+import { PageHeaderCard } from '../components/patterns'
 import { StaggerContainer, StaggerItem } from '../components/motion'
 
 /**
@@ -244,21 +246,20 @@ export default function JDLibraryPage() {
   return (
     <div>
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between card-animate">
-          <div>
-            <h2 className="text-3xl font-extrabold text-brand-900 tracking-tight">JD Library</h2>
-            <p className="text-slate-500 text-sm mt-1 font-medium">
-              Saved job descriptions with AI-optimized scoring weights
-            </p>
-          </div>
-          <button
-            onClick={() => { setEditing(null); setModalOpen(true) }}
-            className="flex items-center gap-2 px-4 py-2.5 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"
-          >
-            <Plus className="w-4 h-4" /> New JD
-          </button>
-        </div>
+        <PageHeaderCard
+          compact
+          icon={Briefcase}
+          title={ROLES.pageTitle}
+          subtitle={ROLES.pageSubtitle}
+          actions={
+            <button
+              onClick={() => { setEditing(null); setModalOpen(true) }}
+              className="flex items-center gap-2 px-4 py-2.5 btn-brand text-white text-sm font-bold rounded-xl shadow-brand-sm"
+            >
+              <Plus className="w-4 h-4" /> {ROLES.createCta}
+            </button>
+          }
+        />
 
         {/* Filters */}
         {templates.length > 0 && (
@@ -361,7 +362,7 @@ export default function JDLibraryPage() {
           ) : (
             <EmptyState
               icon={Briefcase}
-              title="No jobs yet"
+              title="No roles yet"
               description="Create your first job description to start screening candidates with AI."
               actionLabel="Create Job"
               onAction={() => setModalOpen(true)}

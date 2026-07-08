@@ -19,7 +19,6 @@ const HandoffPackage = lazy(() => import('./components/HandoffPackage'))
 const JDCandidatesPage = lazy(() => import('./pages/JDCandidatesPage'))
 
 // Existing pages
-const Dashboard    = lazy(() => import('./pages/Dashboard'))
 const ReportPage   = lazy(() => import('./pages/ReportPage'))
 const LoginPage    = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -39,12 +38,9 @@ const TranscriptPage = lazy(() => import('./pages/TranscriptPage'))
 const VideoPage    = lazy(() => import('./pages/VideoPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AnalyticsPage  = lazy(() => import('./pages/AnalyticsPage'))
-const VoiceScreeningPage = lazy(() => import('./pages/VoiceScreeningPage'))
-const RecruiterInterviewPage = lazy(() => import('./pages/RecruiterInterviewPage'))
-const RecruiterSessionDetailPage = lazy(() => import('./pages/RecruiterSessionDetailPage'))
 const InterviewPage = lazy(() => import('./pages/InterviewPage'))
 const InterviewDetailPage = lazy(() => import('./pages/InterviewDetailPage'))
-const InterviewComparisonPage = lazy(() => import('./pages/InterviewComparisonPage'))
+const RecruiterSessionDetailPage = lazy(() => import('./pages/RecruiterSessionDetailPage'))
 
 // Admin layout + pages
 const AdminLayout        = lazy(() => import('./layouts/AdminLayout'))
@@ -158,12 +154,12 @@ function App() {
               <Route path="/transcript" element={<Shell><OnboardingGate><TranscriptPage /></OnboardingGate></Shell>} />
               <Route path="/video"      element={<Shell><OnboardingGate><VideoPage /></OnboardingGate></Shell>} />
               <Route path="/analytics"  element={<Shell><OnboardingGate><AnalyticsPage /></OnboardingGate></Shell>} />
-              <Route path="/voice-screening" element={<Shell><OnboardingGate><VoiceScreeningPage /></OnboardingGate></Shell>} />
-              <Route path="/recruiter-interviews" element={<Shell><OnboardingGate><RecruiterInterviewPage /></OnboardingGate></Shell>} />
+              <Route path="/voice-screening" element={<Navigate to="/ai-interviews" replace />} />
+              <Route path="/recruiter-interviews" element={<Navigate to="/ai-interviews" replace />} />
               <Route path="/recruiter-interviews/:id" element={<Shell><OnboardingGate><RecruiterSessionDetailPage /></OnboardingGate></Shell>} />
               <Route path="/ai-interviews" element={<Shell><OnboardingGate><InterviewPage /></OnboardingGate></Shell>} />
               <Route path="/ai-interviews/:id" element={<Shell><OnboardingGate><InterviewDetailPage /></OnboardingGate></Shell>} />
-              <Route path="/interviews/comparison" element={<Shell><OnboardingGate><InterviewComparisonPage /></OnboardingGate></Shell>} />
+              <Route path="/interviews/comparison" element={<Navigate to="/compare" replace />} />
               <Route path="/settings"   element={<Shell><OnboardingGate><SettingsPage /></OnboardingGate></Shell>} />
               {/* Admin portal - standalone layout (no recruiter nav) */}
               <Route path="/admin" element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}>
@@ -191,9 +187,7 @@ function App() {
               {/* Legacy redirects for unified AI Interview */}
               <Route path="/batch"      element={<Navigate to="/analyze" replace />} />
               <Route path="/templates"  element={<Navigate to="/jd-library" replace />} />
-              
-              {/* Legacy route for old dashboard (kept for compatibility) */}
-              <Route path="/dashboard-old" element={<Shell><OnboardingGate><Dashboard /></OnboardingGate></Shell>} />
+              <Route path="/dashboard-old" element={<Navigate to="/" replace />} />
               
               {/* Catch all */}
               <Route path="*" element={

@@ -365,10 +365,8 @@ Each item includes:
   - **Files:** `app/backend/models/db_models.py`, `alembic/`, `app/backend/routes/admin.py`
   - **Effort:** L
 
-- [ ] **P2-COMP-06** · LLM processing sends candidate PII to Ollama Cloud without explicit disclosure
-  - **Task:** Add a prominent UI disclosure during tenant onboarding that resume data is sent to Ollama Cloud by default. Provide a toggle for cloud vs. local Ollama. Require explicit acknowledgment.
-  - **Files:** `app/frontend/src/components/OnboardingWizard.jsx`, `app/frontend/src/pages/SettingsPage.jsx`
-  - **Effort:** M
+- [x] **P2-COMP-06** · LLM processing sends candidate PII to Ollama Cloud without explicit disclosure
+  - **Done:** Onboarding acknowledgment checkbox + Settings → Security → AI & data processing section (`uxLabels.TRUST`, `OnboardingWizard`, `SettingsPage`).
 
 ### DevOps — Medium
 

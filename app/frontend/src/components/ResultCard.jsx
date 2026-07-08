@@ -547,7 +547,7 @@ function PendingBanner() {
       <AlertTriangle className="w-5 h-5 text-slate-400 shrink-0" />
       <div>
         <p className="text-sm font-semibold text-slate-600">Automated analysis unavailable</p>
-        <p className="text-xs text-slate-400 mt-0.5">Manual review required — check Ollama service and retry.</p>
+        <p className="text-xs text-slate-400 mt-0.5">Manual review required — try again or contact support if this persists.</p>
       </div>
     </div>
   )

@@ -14,22 +14,22 @@
 </p>
 
 <p align="center">
-  <em>Self-hosted LLM inference — your data never leaves your server.</em>
+  <em>Managed AI screening for modern hiring teams — explainable, tenant-secure, production-ready.</em>
 </p>
 
 ---
 
 ## Overview
 
-ARIA is a comprehensive AI-powered recruitment platform designed for modern hiring teams. Unlike cloud-based solutions that send your candidate data to third-party AI services, ARIA runs entirely on your infrastructure with local LLM inference via Ollama.
+ARIA is a comprehensive AI-powered recruitment platform designed for modern hiring teams. It combines structured resume parsing, explainable fit scoring, and interview automation in a multi-tenant SaaS workspace hosted by ThetaLogics.
 
 ### Key Value Propositions
 
-- **Data Privacy First** — All resume analysis happens locally; sensitive candidate data never leaves your server
-- **AI-Powered Intelligence** — Advanced NLP for skills extraction, gap detection, and fit scoring
-- **Self-Hosted & Open Source** — Full control over your recruitment stack with MIT licensing
+- **Explainable AI Screening** — Fit scores, skill matching, gap detection, and narrative reports recruiters can trust
+- **Tenant Security** — Multi-tenant isolation, RBAC, SSO (Enterprise), and GDPR export/erasure tools
+- **Interview Automation** — AI screen calls and live screen kits integrated with your pipeline
 - **Multi-Tenant SaaS Architecture** — Support for multiple organizations with complete data isolation
-- **Production-Ready** — Comprehensive testing (663 tests), CI/CD pipeline, and monitoring
+- **Production-Ready** — Comprehensive testing, CI/CD pipeline, and monitoring
 
 ---
 
@@ -97,7 +97,17 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 - **Auto-trigger**: Configurable to automatically interview candidates at specific pipeline stages
 - **Independent scorecard** with hiring recommendation (strong_hire → strong_no_hire)
 - **Full transcript viewer** with per-question evaluation annotations
-- Access via: `/recruiter-interviews` or Navigation → "AI Recruiter"
+- Access via: `/ai-interviews` (Navigation → **Interviews**)
+
+### Interview modes (recruiter-facing)
+
+| Mode | Who calls | Where in app |
+|------|-----------|----------------|
+| **AI Screen Call** | ARIA bot → candidate | Report actions, `/ai-interviews` |
+| **Live Screen Kit** | Recruiter → candidate | Report → split view (resume + questions + debrief) |
+| **Video / transcript review** | Async | `/video`, `/transcript` |
+
+The Live Screen Kit requires background **interview kit enrichment**. If questions are still generating, wait for enrichment to complete before starting a live call.
 
 ### Team Collaboration
 - **Multi-User Tenants** — Role-based access control (admin/recruiter/viewer)
@@ -217,7 +227,23 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 
 ---
 
-## Quick Start
+## AI & Data Processing
+
+ARIA is a **managed cloud SaaS** product. Resume, job description, and interview content are processed by configured AI providers to generate scores, narratives, and interview kits.
+
+| Provider | Purpose |
+|----------|---------|
+| **Ollama Cloud** | Narratives, JD profiling, voice metadata (default) |
+| **Google Gemini** | Optional analysis backend when `GEMINI_API_KEY` is set |
+| **LiveKit** | Voice screening calls |
+
+Candidate and screening data are stored in your **tenant-isolated** PostgreSQL workspace. GDPR export and erasure tools are available in the product. Users acknowledge AI processing during onboarding; details appear under **Settings → Security → AI & data processing**.
+
+### Optional: Local Ollama (Advanced)
+
+Local Ollama is supported for **self-managed / lab** deployments only. It is **not** the default for ThetaLogics-hosted staging or production. See [Using Local Ollama (Optional)](#using-local-ollama-optional-advanced) if you operate your own stack.
+
+---
 
 ### Prerequisites
 
@@ -225,7 +251,7 @@ ARIA is a comprehensive AI-powered recruitment platform designed for modern hiri
 - Ollama Cloud API key (get it free from [ollama.com/settings/keys](https://ollama.com/settings/keys))
 - Git
 
-> **Note:** Ollama Cloud is the default. For local Ollama (self-hosted), see [Using Local Ollama](#using-local-ollama-optional) below.
+> **Note:** Ollama Cloud is the default for ThetaLogics SaaS. Local Ollama is an optional advanced path — see [Using Local Ollama (Optional, Advanced)](#using-local-ollama-optional-advanced).
 
 ### Quick Start (Ollama Cloud — Default)
 
@@ -244,9 +270,9 @@ docker-compose up --build
 
 The local Ollama container will still start but won't be used. To disable it entirely, see [Production with Ollama Cloud](#production-with-ollama-cloud).
 
-### Using Local Ollama (Optional)
+### Using Local Ollama (Optional, Advanced)
 
-For self-hosted Ollama with full data privacy:
+For **self-managed** deployments where you operate your own Ollama instance (not standard ThetaLogics SaaS):
 
 1. **Update your `.env` file:**
 ```bash
@@ -269,14 +295,12 @@ docker exec -it resume-screener-ollama ollama pull gemma4:31b
 
 **Pros & Cons:**
 
-| Aspect | Ollama Cloud (Default) | Local Ollama |
-|--------|------------------------|--------------|
-| **Setup** | Instant, no GPU needed | Requires GPU/CPU resources |
-| **Data Privacy** | Data sent to Ollama Cloud | Data never leaves your server |
-| **Model Quality** | Access to 31B+ parameter models (gemma4) | Limited by local hardware |
-| **Cost** | Pay per token | Free (hardware cost) |
-| **Latency** | ~10-20s (cloud) | ~15-60s (local) |
-| **Customization** | Limited customization | Full Modelfile support |
+| Aspect | Ollama Cloud (Default) | Local Ollama (Advanced) |
+|--------|------------------------|-------------------------|
+| **Setup** | Instant, no GPU needed | Requires GPU/CPU resources on your infra |
+| **Data flow** | Inference via Ollama Cloud API | Inference on your network |
+| **Model Quality** | Access to cloud models (e.g. gemma4) | Limited by local hardware |
+| **Typical use** | ThetaLogics SaaS production | Lab, air-gapped, dedicated enterprise |
 
 **Note:** Custom Modelfile fine-tuning (via `/api/training`) is only supported with local Ollama.
 

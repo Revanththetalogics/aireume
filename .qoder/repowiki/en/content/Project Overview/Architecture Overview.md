@@ -31,12 +31,12 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document presents the architecture of Resume AI by ThetaLogics, a local-first AI-powered SaaS for recruiters. The system emphasizes privacy and offline capability by keeping sensitive data on disk and leveraging a local LLM via Ollama. It comprises:
+This document presents the architecture of ARIA by ThetaLogics, a **cloud-managed multi-tenant SaaS** for recruiters. The default stack uses cloud LLM inference (Ollama Cloud / optional Gemini) with tenant-scoped PostgreSQL storage. It comprises:
 - Browser frontend (React) served by Nginx
 - FastAPI backend handling authentication, orchestration, and persistence
-- Ollama AI service for LLM-driven analysis
-- SQLite/PostgreSQL database for tenant-aware storage
-- Docker-based microservices orchestrated via Docker Compose
+- External AI providers for LLM-driven analysis (not on-prem by default)
+- PostgreSQL database for tenant-aware storage
+- Docker-based services orchestrated via Docker Compose
 
 The architecture supports both development and production topologies, with a reverse proxy configuration and health-checked services. It documents data flows from user uploads through parsing, scoring, and AI narrative generation to result delivery.
 

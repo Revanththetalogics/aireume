@@ -124,7 +124,7 @@ function IdlePanel() {
   const features = [
     { icon: Zap,    title: '6-Agent LangGraph Pipeline', desc: 'Parallel extraction → analysis → scoring in 3 stages' },
     { icon: Brain,  title: 'Fully LLM-Driven',           desc: 'No hardcoded rules — semantic matching and scoring' },
-    { icon: Shield, title: 'On-prem, Zero Data Leak',    desc: 'Ollama runs locally — resumes never leave your server' },
+    { icon: Shield, title: 'Tenant-isolated & secure', desc: 'Multi-tenant workspace with encrypted data in transit' },
   ]
   return (
     <div className="flex flex-col gap-4 h-full">
@@ -270,7 +270,7 @@ export default function Dashboard() {
     } catch (err) {
       setError(
         err.message ||
-        'Failed to analyze resume. Please check the Ollama service and try again.'
+        'Failed to analyze resume. Please try again or contact support.'
       )
     } finally {
       setIsLoading(false)

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Sparkles, AlertCircle, ArrowRight, CheckCircle } from 'lucide-react'
 import api from '../lib/api'
+import { TRUST } from '../lib/uxLabels'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
@@ -106,7 +107,7 @@ export default function ForgotPasswordPage() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-6">
-          Enterprise security · On-prem inference · Zero data retention
+          {TRUST.authFooter}
         </p>
       </div>
     </div>

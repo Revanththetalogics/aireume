@@ -1,7 +1,10 @@
 import NavBar from './NavBar'
 import ToastProvider from './ToastProvider'
+import { LiveScreenModeProvider, useLiveScreenMode } from '../contexts/LiveScreenModeContext'
 
-export default function AppShell({ children }) {
+function AppShellInner({ children }) {
+  const { active: liveScreenActive } = useLiveScreenMode()
+
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-surface">
       <a
@@ -10,11 +13,23 @@ export default function AppShell({ children }) {
       >
         Skip to main content
       </a>
-      <NavBar />
+      {!liveScreenActive && <NavBar />}
       <ToastProvider />
-      <main id="main-content" tabIndex={-1} className="flex-1 min-h-0 overflow-y-auto">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className={`flex-1 min-h-0 ${liveScreenActive ? 'overflow-hidden' : 'overflow-y-auto'}`}
+      >
         {children}
       </main>
     </div>
+  )
+}
+
+export default function AppShell({ children }) {
+  return (
+    <LiveScreenModeProvider>
+      <AppShellInner>{children}</AppShellInner>
+    </LiveScreenModeProvider>
   )
 }

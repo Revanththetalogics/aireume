@@ -3,23 +3,23 @@
 **Version**: 2.1.0  
 **Company**: ThetaLogics  
 **License**: MIT (Open Source)  
-**Architecture**: Multi-tenant SaaS, Self-hosted  
+**Architecture**: Multi-tenant SaaS (cloud-managed)  
 **Last Updated**: May 25, 2026
 
 ---
 
 ## Executive Summary
 
-ARIA is an enterprise-grade, AI-powered resume intelligence platform designed for modern hiring teams. ARIA supports both cloud-based LLM inference via Ollama Cloud (default) and fully self-hosted local LLM deployment, giving organizations flexibility between ease of setup and complete data sovereignty.
+ARIA is an enterprise-grade, AI-powered resume intelligence platform designed for modern hiring teams. The default deployment is a managed multi-tenant SaaS stack with cloud LLM inference (Ollama Cloud and/or Google Gemini). Optional dedicated deployment models may be offered for regulated enterprise customers.
 
 ### Core Value Propositions
 
-1. **Flexible Deployment** — Default cloud LLM (Ollama Cloud) for easy setup, OR fully self-hosted local LLM for complete data privacy
-2. **Enterprise-Grade Compliance** — EEOC/GDPR compliant with PII redaction, evidence-based decisions, and full audit trails
+1. **Managed AI Screening** — Cloud-hosted multi-tenant SaaS with explainable fit scores, narratives, and interview automation
+2. **Enterprise-Grade Compliance** — EEOC/GDPR tooling with PII redaction, evidence-based decisions, and full audit trails
 3. **AI-Powered Intelligence** — Advanced NLP for skills extraction, gap detection, fit scoring, and narrative generation
 4. **Multi-Tenant SaaS** — Support for unlimited organizations with complete data isolation
-5. **Self-Hostable Platform** — Full control over application stack; optional local LLM for air-gapped deployments
-6. **Production-Ready** — 65+ tests, CI/CD pipeline, monitoring, and enterprise admin capabilities
+5. **Transparent AI Processing** — Resume and job data processed by configured cloud AI providers (Ollama Cloud, optional Gemini); disclosed at onboarding and in Settings
+6. **Production-Ready** — Comprehensive tests, CI/CD pipeline, monitoring, and enterprise admin capabilities
 
 ---
 
@@ -1074,10 +1074,10 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 ### 26. Competitive Advantages
 
-#### 26.1 Deployment Flexibility
-- **Cloud-First Default**: Ollama Cloud for immediate setup, no GPU required
-- **Self-Hosted Option**: Local Ollama deployment for complete data sovereignty
-- **Hybrid Support**: Switch between cloud and local via environment variables
+#### 26.1 Deployment & AI Processing
+- **Cloud-First Default**: Ollama Cloud (and optional Google Gemini) for immediate setup, no GPU required
+- **Transparent Subprocessors**: AI provider usage disclosed in onboarding and Settings → Security
+- **Optional Local LLM (Advanced)**: Legacy/self-managed path for air-gapped lab environments only — not the default ThetaLogics SaaS deployment
 - **Open Source**: Application code auditable by customers
 - **MIT License**: Permissive licensing
 
@@ -1127,25 +1127,23 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 - **Finance**: Banks, fintech, insurance
 - **Manufacturing**: Production, supply chain
 - **Retail**: E-commerce, brick-and-mortar
-- **Government**: Federal, state, local agencies (requires local LLM deployment)
+- **Government**: Regulated agencies (contact sales for dedicated deployment options)
 - **Education**: Universities, edtech
 
 ### 27.4 Deployment Models
 
-**Cloud LLM Mode (Default)**:
-- LLM Runtime: Ollama Cloud (https://ollama.com)
-- Setup: Requires OLLAMA_API_KEY
-- Use Case: Quick deployment, no GPU hardware needed
-- Data Flow: Resume/JD data sent to Ollama Cloud for inference
-- Privacy: PII redacted before sending to cloud (when enabled)
+**Managed SaaS (Default — ThetaLogics hosted)**:
+- Application: Multi-tenant FastAPI + React on customer-facing cloud infrastructure
+- LLM Runtime: Ollama Cloud (https://ollama.com) and/or Google Gemini when configured
+- Setup: Requires `OLLAMA_API_KEY` (and optional `GEMINI_API_KEY`)
+- Data Flow: Resume/JD/interview content sent to configured AI providers for inference; results persisted in tenant-scoped PostgreSQL
+- Privacy: Tenant isolation, encryption in transit, GDPR export/erasure, optional PII redaction before LLM calls
 
-**Self-Hosted LLM Mode**:
-- LLM Runtime: Local Ollama instance
-- Setup: Requires GPU server, model download
-- Use Case: Air-gapped environments, strict data sovereignty
-- Data Flow: All inference stays on-premises
-- Privacy: Complete data isolation, no external API calls
-- Hardware: 8+ GB VRAM recommended for 31B+ models
+**Optional Local LLM Mode (Advanced / self-managed only)**:
+- Not used in standard ThetaLogics SaaS staging or production stacks
+- LLM Runtime: Local Ollama instance on customer infrastructure
+- Use Case: Lab, air-gapped, or dedicated enterprise deployments negotiated separately
+- Data Flow: Inference stays on customer network when this mode is explicitly configured
 
 ### 28. Pricing Strategy (Reference)
 
@@ -1221,7 +1219,7 @@ ARIA is an enterprise-grade, AI-powered resume intelligence platform designed fo
 
 ### 30. Key Differentiators Summary
 
-1. **Deployment Flexibility**: Cloud-first default with self-hosted option
+1. **Managed SaaS + transparent AI**: Cloud-hosted platform with disclosed AI subprocessors — not a “data never leaves your server” product
 2. **Compliance**: EEOC/GDPR compliant, audit trails, evidence-based
 3. **AI Quality**: Hybrid pipeline, hallucination prevention, PII redaction
 4. **Enterprise-Grade**: Multi-tenant, granular RBAC, webhooks, rate limiting

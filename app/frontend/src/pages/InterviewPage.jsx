@@ -16,6 +16,7 @@ import {
 } from '../lib/api'
 import InterviewInitiateModal from '../components/InterviewInitiateModal'
 import VoiceScheduleModal from '../components/VoiceScheduleModal'
+import { INTERVIEW } from '../lib/uxLabels'
 
 /* ── Depth config ────────────────────────────────────── */
 const DEPTH_CONFIG = {
@@ -369,8 +370,8 @@ export default function InterviewPage() {
               <Mic className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-extrabold text-brand-900 tracking-tight">AI Interview</h1>
-              <p className="text-sm text-slate-500">Unified AI-powered screening &amp; interviews</p>
+              <h1 className="text-3xl font-extrabold text-brand-900 tracking-tight">{INTERVIEW.hubTitle}</h1>
+              <p className="text-sm text-slate-500">{INTERVIEW.hubSubtitle}</p>
             </div>
           </div>
           <button
@@ -378,7 +379,7 @@ export default function InterviewPage() {
             className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white rounded-xl font-semibold text-sm hover:bg-brand-700 transition-all shadow-sm shadow-brand-200"
           >
             <Plus className="w-4 h-4" />
-            New Interview
+            New {INTERVIEW.aiScreenCall}
           </button>
         </div>
 

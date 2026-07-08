@@ -41,7 +41,7 @@
 11. [Conclusion](#conclusion)
 
 ## Introduction
-This guide helps you set up Resume AI by ThetaLogics locally using the cloud-first approach with Ollama Cloud as the default option. You can choose between Ollama Cloud for instant setup or self-hosted Ollama for full data privacy. The platform runs entirely on your infrastructure with local LLM inference via Ollama, supporting both cloud and local deployment modes while maintaining backward compatibility.
+This guide helps you run ARIA locally or on your own infrastructure using the **cloud-first** default (Ollama Cloud API). Optional local Ollama is documented for advanced self-managed setups only — it is not how ThetaLogics-hosted SaaS runs in staging/production.
 
 ## Prerequisites
 - Docker 24.0+ and Docker Compose

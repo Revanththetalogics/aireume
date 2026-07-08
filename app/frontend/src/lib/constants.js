@@ -202,9 +202,24 @@ export function getRecommendation(score) {
   }
 }
 
-/* ────────────────────────────────────────────────────────────────
-   Pipeline / Kanban stages
-   ─────────────────────────────────────────────────────────────── */
+/**
+ * Report-facing fit tier label (aligned with SCORE_THRESHOLDS).
+ */
+export function getFitTierLabel(score) {
+  const rec = getRecommendation(score)
+  if (score == null) return { label: '—', className: 'bg-slate-100 text-slate-600' }
+  if (score >= SCORE_THRESHOLDS.HIGH.min) {
+    return { label: 'Strong Fit', className: 'bg-emerald-100 text-emerald-700' }
+  }
+  if (score >= SCORE_THRESHOLDS.MEDIUM.min) {
+    return { label: 'Moderate Fit', className: 'bg-amber-100 text-amber-700' }
+  }
+  if (score >= SCORE_THRESHOLDS.LOW.min) {
+    return { label: 'Low Fit', className: 'bg-orange-100 text-orange-700' }
+  }
+  return { label: 'Poor Fit', className: 'bg-red-100 text-red-700' }
+}
+
 
 /**
  * Ordered pipeline stages used for Kanban board columns.

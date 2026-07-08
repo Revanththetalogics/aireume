@@ -30,7 +30,7 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-Resume AI by ThetaLogics is a local-first AI-powered SaaS solution designed to screen resumes against job descriptions using an on-premises LLM (Ollama). It offers a complete pipeline from resume parsing to real-time analysis with streaming responses, candidate management, and multi-tenant collaboration. This document showcases the platform’s core features and how they improve recruitment decision-making.
+ARIA by ThetaLogics is a **managed multi-tenant SaaS** for screening resumes against job descriptions using cloud AI inference (Ollama Cloud / optional Gemini). It offers parsing, explainable scoring, live screen kits for recruiter-led calls, AI screen calls, candidate management, and multi-tenant collaboration.
 
 ## Project Structure
 The system follows a clean separation of concerns:

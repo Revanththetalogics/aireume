@@ -1,9 +1,21 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Briefcase, Users, BarChart3, Columns,
-  Users2, Video, Settings, Shield, LogOut, Sparkles,
-  MoreHorizontal, Phone, Moon, Sun, Brain, Mic, FolderKanban,
+  Users2, Settings, Shield, LogOut, Sparkles,
+  MoreHorizontal, Moon, Sun, Mic, FolderKanban, GitCompare, ScanSearch, Video,
 } from 'lucide-react'
+import { NAV } from '../lib/uxLabels'
+
+/** Active state for primary nav items (includes nested routes). */
+function isPrimaryNavActive(pathname, itemPath) {
+  if (itemPath === '/') return pathname === '/'
+  if (itemPath === '/jd-library') return pathname.startsWith('/jd-library')
+  if (itemPath === '/candidates') return pathname.startsWith('/candidates')
+  if (itemPath === '/analyze') {
+    return pathname.startsWith('/analyze') || pathname === '/report'
+  }
+  return pathname === itemPath || pathname.startsWith(`${itemPath}/`)
+}
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
@@ -15,20 +27,21 @@ import NotificationBell from './NotificationBell'
 /* ── Static config ───────────────────────────────────── */
 
 const PRIMARY_NAV = [
-  { label: 'Home', path: '/', icon: LayoutDashboard },
-  { label: 'Jobs', path: '/jd-library', icon: Briefcase },
-  { label: 'Candidates', path: '/candidates', icon: Users },
+  { label: NAV.home, path: '/', icon: LayoutDashboard },
+  { label: NAV.roles, path: '/jd-library', icon: Briefcase },
+  { label: NAV.analyze, path: '/analyze', icon: ScanSearch },
+  { label: NAV.candidates, path: '/candidates', icon: Users },
 ]
 
 const USER_MENU_LINKS = [
-  { label: 'Analytics', path: '/analytics', icon: BarChart3 },
-  { label: 'Projects', path: '/projects', icon: FolderKanban },
-  { label: 'Pipeline', path: '/pipeline', icon: Columns },
-  { label: 'Team', path: '/team', icon: Users2 },
-  { label: 'Team Skills', path: '/team-skills', icon: Users },
-  { label: 'Video Analysis', path: '/video', icon: Video },
-  { label: 'AI Interviews', path: '/ai-interviews', icon: Mic },
-  { label: 'Settings', path: '/settings', icon: Settings },
+  { label: NAV.interviews, path: '/ai-interviews', icon: Mic },
+  { label: NAV.compare, path: '/compare', icon: GitCompare },
+  { label: NAV.pipeline, path: '/pipeline', icon: Columns },
+  { label: NAV.projects, path: '/projects', icon: FolderKanban },
+  { label: NAV.analytics, path: '/analytics', icon: BarChart3 },
+  { label: NAV.team, path: '/team', icon: Users2 },
+  { label: NAV.interviewReview, path: '/video', icon: Video },
+  { label: NAV.settings, path: '/settings', icon: Settings },
 ]
 
 /* ── Desktop user menu dropdown ──────────────────────── */
@@ -124,11 +137,7 @@ function MobileTabBar({ location }) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [moreOpen])
 
-  const tabs = [
-    { label: 'Home', path: '/', icon: LayoutDashboard },
-    { label: 'Jobs', path: '/jd-library', icon: Briefcase },
-    { label: 'Candidates', path: '/candidates', icon: Users },
-  ]
+  const tabs = PRIMARY_NAV
 
   return (
     <>
@@ -151,7 +160,7 @@ function MobileTabBar({ location }) {
       <nav className="fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-dark-card/80 backdrop-blur-2xl border-t border-brand-100/60 dark:border-white/10 z-40 md:hidden">
         <div className="flex items-center justify-around h-16 px-2">
           {tabs.map(tab => {
-            const active = location.pathname === tab.path
+            const active = isPrimaryNavActive(location.pathname, tab.path)
             return (
               <Link
                 key={tab.path}
@@ -291,7 +300,7 @@ export default function NavBar() {
           {/* Desktop primary nav */}
           <nav className="hidden md:flex items-center gap-1">
             {PRIMARY_NAV.map(item => {
-              const active = location.pathname === item.path
+              const active = isPrimaryNavActive(location.pathname, item.path)
               return (
                 <Link
                   key={item.path}
