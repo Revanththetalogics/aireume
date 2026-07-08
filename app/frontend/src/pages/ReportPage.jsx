@@ -675,6 +675,51 @@ export default function ReportPage() {
     }
   }, [screenMode])
 
+  // Kit readiness hooks must run before any early return (Rules of Hooks)
+  const interviewQsForKit = useMemo(
+    () => result?.interview_questions || result?.analysis_result?.interview_questions || null,
+    [result],
+  )
+
+  const analysisData = useMemo(() => ({
+    missing_skills: result?.analysis_result?.missing_skills || result?.missing_skills || [],
+    matched_skills: result?.analysis_result?.matched_skills || result?.matched_skills || [],
+  }), [result])
+
+  const roleForKit = useMemo(() => {
+    const r = result?.job_role
+    return (r && r !== 'Not specified') ? safeStr(r) : ''
+  }, [result?.job_role])
+
+  const kitReadiness = useMemo(
+    () => getKitReadiness(
+      result?.interview_kit_status,
+      interviewQsForKit,
+      analysisData,
+      roleForKit,
+    ),
+    [result?.interview_kit_status, interviewQsForKit, analysisData, roleForKit],
+  )
+
+  const activeKit = useMemo(() => {
+    if (forceFallbackKit) {
+      return resolveInterviewKit(null, analysisData, roleForKit)
+    }
+    if (kitReadiness.kit) {
+      return {
+        kit: kitReadiness.kit,
+        isFallback: kitReadiness.isFallback,
+        totalQ: kitReadiness.totalQ,
+      }
+    }
+    return resolveInterviewKit(interviewQsForKit, analysisData, roleForKit)
+  }, [forceFallbackKit, kitReadiness, interviewQsForKit, analysisData, roleForKit])
+
+  useEffect(() => {
+    setLiveScreenActive(screenMode)
+    return () => setLiveScreenActive(false)
+  }, [screenMode, setLiveScreenActive])
+
   if (!result) {
     if (loading) {
       return (
@@ -811,40 +856,9 @@ export default function ReportPage() {
   }
 
   // ── Phone Screen split-view layout ────────────────────────────────────────
-  const interviewQs = result?.interview_questions
-    || result?.analysis_result?.interview_questions
-    || null
+  const interviewQs = interviewQsForKit
   const fitScore = result?.fit_score ?? null
   const fitTier = getFitTierLabel(fitScore)
-
-  const analysisData = useMemo(() => ({
-    missing_skills: result?.analysis_result?.missing_skills || result?.missing_skills || [],
-    matched_skills: result?.analysis_result?.matched_skills || result?.matched_skills || [],
-  }), [result])
-
-  const kitReadiness = useMemo(
-    () => getKitReadiness(
-      result?.interview_kit_status,
-      interviewQs,
-      analysisData,
-      role ? safeStr(role) : '',
-    ),
-    [result?.interview_kit_status, interviewQs, analysisData, role],
-  )
-
-  const activeKit = useMemo(() => {
-    if (forceFallbackKit) {
-      return resolveInterviewKit(null, analysisData, role ? safeStr(role) : '')
-    }
-    if (kitReadiness.kit) {
-      return {
-        kit: kitReadiness.kit,
-        isFallback: kitReadiness.isFallback,
-        totalQ: kitReadiness.totalQ,
-      }
-    }
-    return resolveInterviewKit(interviewQs, analysisData, role ? safeStr(role) : '')
-  }, [forceFallbackKit, kitReadiness, interviewQs, analysisData, role])
 
   const handleStartLiveScreen = () => {
     if (kitReadiness.state === 'loading' || kitReadiness.state === 'empty') {
@@ -854,11 +868,6 @@ export default function ReportPage() {
     setForceFallbackKit(kitReadiness.state === 'fallback')
     setScreenMode(true)
   }
-
-  useEffect(() => {
-    setLiveScreenActive(screenMode)
-    return () => setLiveScreenActive(false)
-  }, [screenMode, setLiveScreenActive])
 
   if (screenMode) {
     return (
