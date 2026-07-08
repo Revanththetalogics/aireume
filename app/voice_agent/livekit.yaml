@@ -16,8 +16,9 @@ turn:
   external_tls: false
 
 keys:
-  staging_devkey: staging_devsecret_min32chars_long_xyz
-  devkey: devsecret_minimum_32_characters_long_abcdef
+  # Keys are injected at container start by livekit-entrypoint.sh from
+  # LIVEKIT_API_KEY / LIVEKIT_API_SECRET — do not hardcode secrets here.
+  placeholder: placeholder_minimum_32_characters_do_not_use
 
 logging:
   level: info

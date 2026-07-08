@@ -1381,20 +1381,24 @@ class VoiceAgentWorker:
             except Exception:
                 pass
 
-    async def handle_orchestrator_room(self, room_name: str, agent_token: str, orch_ctx: OrchestratorContext):
+    async def handle_orchestrator_room(
+        self,
+        room_name: str,
+        agent_token: str,
+        orch_ctx: OrchestratorContext,
+        orchestrator: Optional["InterviewOrchestrator"] = None,
+    ):
         """
-        Join a LiveKit room and run the Interview Orchestrator.
-        This is the primary handler — replaces handle_unified_room for new interviews.
-        Uses VAD-driven speech segmentation, real-time answer evaluation,
-        and dynamic question planning.
+        Join a LiveKit room and run the interview orchestrator (kit-driven or dynamic).
         """
         from livekit import rtc
 
         room = rtc.Room()
         speech = SpeechClient()
-        llm = LLMClient()
         backend = BackendClient()
-        orchestrator = InterviewOrchestrator(orch_ctx, llm, speech)
+        if orchestrator is None:
+            llm = LLMClient()
+            orchestrator = InterviewOrchestrator(orch_ctx, llm, speech)
 
         TTS_SAMPLE_RATE = 16000
         actual_sample_rate: Optional[int] = None
@@ -1550,6 +1554,19 @@ class VoiceAgentWorker:
             except Exception:
                 pass
 
+    async def dispatch_and_run_kit(self, orch_ctx, orchestrator, room_info: dict):
+        """Run a kit-driven orchestrator in the LiveKit room."""
+        handler = self.handle_orchestrator_room(
+            room_info["room_name"],
+            room_info["agent_token"],
+            orch_ctx,
+            orchestrator=orchestrator,
+        )
+        sid = str(getattr(orch_ctx, "session_id", "unknown"))
+        task = asyncio.create_task(handler)
+        self._active_sessions[sid] = task
+        task.add_done_callback(lambda t: self._active_sessions.pop(sid, None))
+
     async def dispatch_and_run(self, session_ctx, room_info: dict, depth: str = "quick"):
         """Dispatch a call and run the appropriate agent handler in the room."""
         if isinstance(session_ctx, OrchestratorContext):
@@ -1609,6 +1626,8 @@ class DispatchRequest(BaseModel):
     mode: Optional[str] = None  # DEPRECATED — maps to depth for backward compat
     interview_strategy: Optional[dict] = None
     interview_config: Optional[dict] = None
+    interview_kit: Optional[dict] = None
+    screening_result_id: Optional[int] = None
 
     @property
     def effective_depth(self) -> str:
@@ -1636,6 +1655,7 @@ async def health():
         "voice_llm": "gemini" if use_gemini_for_voice() else "ollama",
         "voice_llm_model": get_voice_llm_model(),
         "vad_silence_ms": VAD_SILENCE_MS,
+        "interview_mode": "kit_driven",
     }
 
 
@@ -1696,8 +1716,33 @@ async def dispatch_call(req: DispatchRequest):
             total_duration_s=duration_s,
         )
 
-        # 4. Launch agent worker in the room (non-blocking)
-        await worker.dispatch_and_run(orch_ctx, room_info, depth=depth)
+        kit_questions = []
+        if req.interview_kit and isinstance(req.interview_kit, dict):
+            kit_questions = req.interview_kit.get("questions") or []
+
+        if kit_questions:
+            from app.voice_agent.kit_orchestrator import KitDrivenOrchestrator
+
+            orchestrator = KitDrivenOrchestrator(orch_ctx, kit_questions)
+            logger.info(
+                "Using kit-driven orchestrator: session=%d questions=%d source=%s",
+                req.session_id,
+                len(kit_questions),
+                (req.interview_kit or {}).get("kit_source"),
+            )
+            await worker.dispatch_and_run_kit(
+                orch_ctx,
+                orchestrator,
+                room_info,
+            )
+        else:
+            llm = LLMClient()
+            orchestrator = InterviewOrchestrator(orch_ctx, llm, None)
+            logger.warning(
+                "No interview kit questions — falling back to dynamic orchestrator session=%d",
+                req.session_id,
+            )
+            await worker.dispatch_and_run(orch_ctx, room_info, depth=depth)
 
         return DispatchResponse(
             success=True,
@@ -1733,8 +1778,20 @@ async def main():
     logger.info("════════════════════════════════════════════")
     logger.info("  ARIA Voice Agent — Starting")
     logger.info("  Speech Service: %s", SPEECH_SERVICE_URL)
-    logger.info("  LiveKit: %s", LIVEKIT_URL)
-    logger.info("  Ollama: %s (model: %s)", OLLAMA_BASE_URL, OLLAMA_MODEL)
+    logger.info("  LiveKit: %s (key=%s)", LIVEKIT_URL, LIVEKIT_API_KEY or "unset")
+    if LIVEKIT_API_SECRET and len(LIVEKIT_API_SECRET) < 32:
+        logger.error(
+            "LIVEKIT_API_SECRET is only %d chars — LiveKit requires ≥32. "
+            "Update STAGING_LIVEKIT_API_SECRET in Portainer and restart livekit + voice-agent.",
+            len(LIVEKIT_API_SECRET),
+        )
+    from app.voice_agent.voice_llm import get_voice_llm_model, use_gemini_for_voice
+    logger.info(
+        "  Voice LLM: %s (%s)",
+        "gemini" if use_gemini_for_voice() else "ollama",
+        get_voice_llm_model(),
+    )
+    logger.info("  Ollama fallback: %s (model: %s)", OLLAMA_BASE_URL, OLLAMA_MODEL)
     logger.info("  SIP Trunk: %s (outbound: %s, termination: %s)", SIP_TRUNK_ID, SIP_OUTBOUND_NUMBER, SIP_TERMINATION_ADDRESS)
     logger.info("  Dispatch API: http://0.0.0.0:%d", AGENT_PORT)
     logger.info("════════════════════════════════════════════")

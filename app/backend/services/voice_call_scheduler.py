@@ -201,6 +201,22 @@ def execute_scheduled_call(session_id: int):
         except Exception:
             interview_config = None
 
+        # Resolve interview kit for kit-driven voice flow
+        interview_kit_payload: dict = {"questions": [], "kit_source": "empty"}
+        try:
+            from app.backend.services.interview_kit_loader import resolve_interview_kit_for_voice
+
+            interview_kit_payload = resolve_interview_kit_for_voice(db, session)
+            logger.info(
+                "Interview kit for session=%d: source=%s questions=%d screening_result=%s",
+                session_id,
+                interview_kit_payload.get("kit_source"),
+                len(interview_kit_payload.get("questions") or []),
+                interview_kit_payload.get("screening_result_id"),
+            )
+        except Exception as kit_err:
+            logger.warning("Failed to load interview kit for session %d: %s", session_id, kit_err)
+
         # Dispatch via voice-agent HTTP API
         dispatch_payload = {
             "session_id": session.id,
@@ -212,6 +228,8 @@ def execute_scheduled_call(session_id: int):
             "jd_must_have_skills": [],
             "depth": session.interview_depth or "quick",
             "interview_config": interview_config or {},
+            "interview_kit": interview_kit_payload,
+            "screening_result_id": interview_kit_payload.get("screening_result_id"),
         }
 
         resp = httpx.post(

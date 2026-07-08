@@ -18,7 +18,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
+from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers, use_gemini_for_analysis
 from app.backend.models.db_models import (
     VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry,
     Candidate, RoleTemplate,
@@ -171,6 +171,7 @@ async def generate_post_call_assessment(
     must_have_skills: list = None,
     nice_to_have_skills: list = None,
     detail_level: str = "full",
+    kit_qa: list | None = None,
 ) -> dict:
     """
     Generate a structured post-call assessment from the full transcript.
@@ -195,6 +196,31 @@ async def generate_post_call_assessment(
     skills_str = ", ".join(must_have_skills[:10]) if must_have_skills else "general skills"
     nice_skills_str = ", ".join(nice_to_have_skills[:10]) if nice_to_have_skills else ""
 
+    rubric_block = ""
+    if kit_qa:
+        rubric_lines = []
+        for item in kit_qa[:12]:
+            if not isinstance(item, dict):
+                continue
+            rubric_lines.append(f"Q: {item.get('question', '')}")
+            rubric_lines.append(f"A: {(item.get('answer') or '')[:500]}")
+            criteria = item.get("scoring_criteria") or {}
+            if criteria:
+                rubric_lines.append(
+                    "Rubric: "
+                    + "; ".join(f"{k}={v}" for k, v in criteria.items() if v)
+                )
+            listen = item.get("what_to_listen_for") or []
+            if listen:
+                rubric_lines.append("Listen for: " + "; ".join(listen[:4]))
+            rubric_lines.append("")
+        if rubric_lines:
+            rubric_block = (
+                "\n--- INTERVIEW KIT RUBRIC (score each Q&A as strong|adequate|weak) ---\n"
+                + "\n".join(rubric_lines)
+                + "--- END RUBRIC ---\n"
+            )
+
     detail_instruction = (
         "Provide a FULL assessment with per-question breakdowns, skill-by-skill ratings, "
         "and detailed evidence quotes."
@@ -213,9 +239,10 @@ async def generate_post_call_assessment(
         '  "skill_assessments": [{"skill": "...", "rating": 1-5, "evidence": "quote from transcript"}],\n'
         '  "communication_score": 1-5,\n'
         '  "risk_flags": ["concern1", "concern2"],\n'
-        '  "per_question_assessment": [{"question": "...", "answer_summary": "...", "rating": 1-5, "evidence": "..."}]\n'
+        '  "per_question_assessment": [{"question": "...", "answer_summary": "...", "rating": 1-5, "evidence": "...", "rubric_rating": "strong|adequate|weak"}]\n'
         "}\n\n"
         f"{detail_instruction}\n"
+        "When a rubric is provided, map each answer to strong, adequate, or weak using scoring_criteria.\n"
         "Be objective and evidence-based. Quote specific parts of the transcript."
     )
 
@@ -225,25 +252,37 @@ async def generate_post_call_assessment(
         f"Must-have skills: {skills_str}\n"
         + (f"Nice-to-have skills: {nice_skills_str}\n" if nice_skills_str else "")
         + f"Job description: {jd_text[:1500]}\n\n"
-        f"--- TRANSCRIPT ---\n{transcript_text[:5000]}\n--- END TRANSCRIPT ---"
+        + rubric_block
+        + f"--- TRANSCRIPT ---\n{transcript_text[:5000]}\n--- END TRANSCRIPT ---"
     )
 
     try:
-        semaphore = get_ollama_semaphore()
-        async with semaphore:
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                resp = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": f"{system_prompt}\n\n{user_msg}",
-                        "stream": False,
-                        "options": {"temperature": 0.3, "num_predict": 2048},
-                    },
-                    headers=get_ollama_headers(),
-                )
-                resp.raise_for_status()
-                response_text = resp.json().get("response", "")
+        response_text = ""
+        if use_gemini_for_analysis():
+            from app.backend.services.llm_service import gemini_generate_content
+
+            response_text = await gemini_generate_content(
+                user_msg,
+                system=system_prompt,
+                max_output_tokens=2048,
+                temperature=0.2,
+            )
+        else:
+            semaphore = get_ollama_semaphore()
+            async with semaphore:
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    resp = await client.post(
+                        f"{OLLAMA_BASE_URL}/api/generate",
+                        json={
+                            "model": OLLAMA_MODEL,
+                            "prompt": f"{system_prompt}\n\n{user_msg}",
+                            "stream": False,
+                            "options": {"temperature": 0.3, "num_predict": 2048},
+                        },
+                        headers=get_ollama_headers(),
+                    )
+                    resp.raise_for_status()
+                    response_text = resp.json().get("response", "")
 
         try:
             result = json.loads(response_text)
@@ -385,6 +424,14 @@ async def process_completed_call(db: Session, session_id: int):
 
     transcript = [{"speaker": e.speaker, "text": e.text} for e in entries]
 
+    kit_qa = []
+    if voice_session.transcript_json:
+        try:
+            kit_meta = json.loads(voice_session.transcript_json)
+            kit_qa = kit_meta.get("questions_responses") or []
+        except json.JSONDecodeError:
+            kit_qa = []
+
     if not transcript:
         logger.warning("Session %d has no transcript — skipping assessment", session_id)
         return
@@ -398,6 +445,7 @@ async def process_completed_call(db: Session, session_id: int):
         must_have_skills=ctx["must_have_skills"],
         nice_to_have_skills=ctx.get("nice_to_have_skills", []),
         detail_level=config.assessment_detail_level if config else "full",
+        kit_qa=kit_qa,
     )
 
     # Store assessment

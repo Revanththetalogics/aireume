@@ -111,18 +111,62 @@ Rules for difficulty_adjustment:
         if parsed and parsed.get("question"):
             return self._normalize(parsed, stage)
 
-        logger.warning("Turn planner LLM failed — using heuristic fallback")
-        evaluation = await self._evaluator.evaluate(question, answer, stage, context)
-        next_q = await self._planner.generate_question(
+        logger.warning("Turn planner LLM failed — using local fallback")
+        evaluation = self._evaluator._heuristic_evaluate(question, answer, stage)
+        next_q = self._local_fallback_question(
+            question=question,
+            answer=answer,
             stage=stage,
             context=context,
-            conversation_history=conversation_history,
-            answer_scores=answer_scores,
-            difficulty_adjustment=evaluation.get("difficulty_adjustment", "same"),
             questions_asked=questions_asked,
-            time_remaining_s=time_remaining_s,
         )
         return {**evaluation, **next_q}
+
+    def _local_fallback_question(
+        self,
+        *,
+        question: str,
+        answer: str,
+        stage: str,
+        context: dict[str, Any],
+        questions_asked: list[str],
+    ) -> dict[str, Any]:
+        """Rule-based next question when all LLM providers fail — never repeat verbatim."""
+        word_count = len(answer.split())
+        role = context.get("role", {})
+        skills = role.get("required_skills", []) or []
+        skill = str(skills[0]) if skills else "your core skills"
+
+        if word_count >= 10 and question.strip() in [q.strip() for q in questions_asked]:
+            follow_ups = {
+                "resume_verification": (
+                    "Thanks for sharing that. What was your biggest accomplishment in that role?"
+                ),
+                "technical": (
+                    f"Got it. Can you describe a specific project where you used {skill}?"
+                ),
+                "behavioral": (
+                    "Understood. What was the outcome, and what would you do differently next time?"
+                ),
+            }
+            text = follow_ups.get(
+                stage,
+                "Thanks for explaining. Can you give me one concrete example from that experience?",
+            )
+        elif word_count >= 10:
+            text = (
+                f"Thanks. Building on that, how have you applied {skill} in your recent work?"
+            )
+        else:
+            next_q = self._planner._fallback_question(stage, context, questions_asked)
+            return next_q
+
+        return {
+            "question": text,
+            "category": stage,
+            "context": "Local fallback — LLM unavailable.",
+            "expected_duration_s": 120,
+        }
 
     def _normalize(self, parsed: dict[str, Any], stage: str) -> dict[str, Any]:
         score = max(0, min(100, int(parsed.get("score", 50))))

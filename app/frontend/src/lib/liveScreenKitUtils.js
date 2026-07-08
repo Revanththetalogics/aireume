@@ -34,42 +34,67 @@ export function buildFallbackKit({
   matchedSkills = [],
   roleTitle = '',
 }) {
-  const technical = missingSkills.slice(0, 5).map((skill) => ({
-    text: `Tell me about your experience with ${skill}. Can you walk me through a recent example?`,
+  const technical = missingSkills.slice(0, 3).map((skill) => ({
+    text: `This role requires ${skill}. Walk me through a recent situation where you applied it — what was your role and what was the outcome?`,
     what_to_listen_for: [
-      `Concrete examples of ${skill}`,
-      'Depth of knowledge vs surface familiarity',
+      `Hands-on use of ${skill}`,
+      'Specific contribution and measurable outcome',
     ],
-    follow_ups: [`How would you rate your proficiency in ${skill}?`],
+    follow_ups: [`What was the hardest part of that ${skill} work?`],
+    scoring_criteria: {
+      strong: 'Clear example with personal contribution and outcome',
+      adequate: 'Relevant example but light on detail or personal role',
+      weak: 'Vague or theoretical answer without a concrete example',
+    },
   }))
 
   const behavioral = [
     {
-      text: 'Describe a challenging situation at work and how you handled it.',
-      what_to_listen_for: ['Clear situation, action, and result', 'Ownership and accountability'],
+      text: 'Tell me about a time you had to deliver under a tight deadline. What did you prioritize?',
+      what_to_listen_for: ['Situation, action, result', 'Ownership and trade-offs'],
       follow_ups: ['What would you do differently next time?'],
+      scoring_criteria: {
+        strong: 'Complete STAR with clear priorities and outcome',
+        adequate: 'Relevant story but missing result or detail',
+        weak: 'Generic answer without a real example',
+      },
     },
     {
-      text: 'Tell me about a time you had to influence someone without direct authority.',
-      what_to_listen_for: ['Communication style', 'Outcome achieved'],
+      text: 'Describe a situation where you disagreed with a stakeholder. How did you handle it?',
+      what_to_listen_for: ['Communication', 'Conflict resolution', 'Outcome'],
       follow_ups: [],
+      scoring_criteria: {
+        strong: 'Shows diplomacy and a positive resolution',
+        adequate: 'Describes disagreement but weak resolution',
+        weak: 'Avoids the conflict or blames others',
+      },
     },
   ]
 
   const culture = [
     {
       text: roleTitle
-        ? `Why are you interested in this ${roleTitle} role specifically?`
-        : 'Why are you interested in this position?',
-      what_to_listen_for: ['Motivation', 'Research about the role and company'],
+        ? `What specifically interests you about this ${roleTitle} role?`
+        : 'What specifically interests you about this position?',
+      what_to_listen_for: ['Role-specific motivation', 'Research about company or role'],
       follow_ups: ['What are you looking for in your next role?'],
+      scoring_criteria: {
+        strong: 'Clear motivation tied to role and career goals',
+        adequate: 'Generic interest without role-specific detail',
+        weak: 'Cannot articulate why this role fits',
+      },
     },
   ]
 
-  const experience = matchedSkills.slice(0, 3).map((skill) => ({
-    text: `Your resume mentions ${skill} — how have you applied it in practice?`,
-    what_to_listen_for: ['Verification of resume claims', 'Specificity of examples'],
-    follow_ups: [`What was the most complex project where you used ${skill}?`],
+  const experience = matchedSkills.slice(0, 2).map((skill) => ({
+    text: `Your background mentions ${skill}. Can you describe a project where that was central to your work?`,
+    what_to_listen_for: ['Resume claim verification', 'Depth and specificity'],
+    follow_ups: [`What tools or methods did you use with ${skill}?`],
+    scoring_criteria: {
+      strong: 'Detailed project story that validates resume claim',
+      adequate: 'Some relevant detail but limited depth',
+      weak: 'Cannot substantiate resume claim',
+    },
   }))
 
   if (technical.length === 0 && experience.length === 0) {

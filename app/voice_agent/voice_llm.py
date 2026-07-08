@@ -37,6 +37,8 @@ async def _get_client() -> httpx.AsyncClient:
 
 
 def _parse_json(text: str) -> dict[str, Any] | None:
+    if not text or not text.strip():
+        return None
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -51,6 +53,10 @@ def _parse_json(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _redact_key(text: str) -> str:
+    return re.sub(r"key=[^&\s\"']+", "key=***", text or "")
+
+
 async def generate_json(
     prompt: str,
     *,
@@ -58,16 +64,21 @@ async def generate_json(
     max_output_tokens: int = 384,
     temperature: float = 0.3,
 ) -> dict[str, Any] | None:
-    """Single LLM call returning a parsed JSON object."""
+    """Single LLM call returning a parsed JSON object. Falls back Gemini → Ollama."""
     if use_gemini_for_voice():
-        return await _gemini_json(
+        result = await _gemini_json(
             prompt,
             system=system,
             max_output_tokens=max_output_tokens,
             temperature=temperature,
         )
+        if result:
+            return result
+        logger.warning("Gemini voice LLM unavailable — falling back to Ollama (%s)", OLLAMA_MODEL)
+
     return await _ollama_json(
         prompt,
+        system=system,
         max_output_tokens=max_output_tokens,
         temperature=temperature,
     )
@@ -83,44 +94,69 @@ async def _gemini_json(
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     model = get_voice_llm_model()
     url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
-    body: dict[str, Any] = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": max_output_tokens,
-            "responseMimeType": "application/json",
-        },
-    }
-    if system:
-        body["systemInstruction"] = {"parts": [{"text": system}]}
 
-    client = await _get_client()
-    try:
-        resp = await client.post(
-            url,
-            params={"key": api_key},
-            json=body,
-            headers={"Content-Type": "application/json"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        text = parts[0].get("text", "") if parts else ""
-        return _parse_json(text)
-    except Exception as exc:
-        logger.warning("Gemini voice LLM failed: %s", exc)
-        return None
+    for use_json_mime in (True, False):
+        body: dict[str, Any] = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_output_tokens,
+            },
+        }
+        if use_json_mime:
+            body["generationConfig"]["responseMimeType"] = "application/json"
+        if system:
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+
+        client = await _get_client()
+        try:
+            resp = await client.post(
+                url,
+                params={"key": api_key},
+                json=body,
+                headers={"Content-Type": "application/json"},
+            )
+            if resp.status_code >= 400:
+                logger.warning(
+                    "Gemini voice HTTP %s (model=%s, json_mime=%s): %s",
+                    resp.status_code,
+                    model,
+                    use_json_mime,
+                    _redact_key(resp.text[:400]),
+                )
+                continue
+            data = resp.json()
+            candidates = data.get("candidates") or []
+            if not candidates:
+                block = (data.get("promptFeedback") or {}).get("blockReason")
+                logger.warning("Gemini voice returned no candidates (blockReason=%s)", block)
+                continue
+            parts = candidates[0].get("content", {}).get("parts", [])
+            text = parts[0].get("text", "") if parts else ""
+            parsed = _parse_json(text)
+            if parsed:
+                return parsed
+            logger.warning("Gemini voice response was not valid JSON: %s", text[:200])
+        except Exception as exc:
+            logger.warning("Gemini voice LLM failed (json_mime=%s): %s", use_json_mime, exc)
+
+    return None
 
 
 async def _ollama_json(
     prompt: str,
     *,
+    system: str | None,
     max_output_tokens: int,
     temperature: float,
 ) -> dict[str, Any] | None:
-    headers = {}
+    headers: dict[str, str] = {}
     if OLLAMA_API_KEY.strip():
         headers["Authorization"] = f"Bearer {OLLAMA_API_KEY.strip()}"
+
+    full_prompt = prompt
+    if system:
+        full_prompt = f"{system}\n\n{prompt}"
 
     client = await _get_client()
     try:
@@ -128,7 +164,7 @@ async def _ollama_json(
             f"{OLLAMA_BASE_URL}/api/generate",
             json={
                 "model": OLLAMA_MODEL,
-                "prompt": prompt,
+                "prompt": full_prompt,
                 "stream": False,
                 "format": "json",
                 "options": {
@@ -138,7 +174,14 @@ async def _ollama_json(
             },
             headers=headers,
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            logger.warning(
+                "Ollama voice HTTP %s (model=%s): %s",
+                resp.status_code,
+                OLLAMA_MODEL,
+                resp.text[:300],
+            )
+            return None
         text = resp.json().get("response", "")
         return _parse_json(text)
     except Exception as exc:

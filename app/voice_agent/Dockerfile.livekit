@@ -1,2 +1,4 @@
 FROM livekit/livekit-server:latest
-COPY app/voice_agent/livekit.yaml /etc/livekit.yaml
+COPY app/voice_agent/livekit-entrypoint.sh /livekit-entrypoint.sh
+RUN chmod +x /livekit-entrypoint.sh
+ENTRYPOINT ["/livekit-entrypoint.sh"]

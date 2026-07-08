@@ -1375,6 +1375,15 @@ async def on_interview_complete(
 
     db.commit()
 
+    kit_payload = {
+        "interview_mode": result.get("interview_mode"),
+        "questions_responses": result.get("questions_responses", []),
+        "kit_question_count": result.get("kit_question_count"),
+    }
+    if any(kit_payload.values()):
+        voice_session.transcript_json = json.dumps(kit_payload, default=str)
+        db.commit()
+
     if voice_session.interview_depth == "quick":
         from app.backend.services.voice_screening_service import process_completed_call
         await process_completed_call(db, voice_session_id)
