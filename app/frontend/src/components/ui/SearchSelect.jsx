@@ -3,19 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Search, ChevronDown, Check, X } from 'lucide-react'
 
 /**
- * SearchSelect — design-system combobox with search + rich option rows.
- *
- * Usage:
- *   <SearchSelect
- *     label="Candidate"
- *     placeholder="Search candidates…"
- *     options={candidates}
- *     value={selectedId}
- *     onChange={(id, option) => setSelected(option)}
- *     getOptionValue={(c) => c.id}
- *     getOptionLabel={(c) => c.name || c.email}
- *     renderOption={(c, { selected }) => (...)}
- *   />
+ * SearchSelect — design-system combobox with a single search input + rich option rows.
  */
 export default function SearchSelect({
   label,
@@ -50,7 +38,10 @@ export default function SearchSelect({
 
   useEffect(() => {
     function onDocClick(e) {
-      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false)
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false)
+        setQuery('')
+      }
     }
     document.addEventListener('mousedown', onDocClick)
     return () => document.removeEventListener('mousedown', onDocClick)
@@ -66,7 +57,10 @@ export default function SearchSelect({
     e.stopPropagation()
     onChange?.('', null)
     setQuery('')
+    inputRef.current?.focus()
   }
+
+  const displayValue = open ? query : (selected ? getOptionLabel(selected) : '')
 
   const defaultRender = (option, { selected: isSelected }) => (
     <div className="flex items-center justify-between gap-2 min-w-0">
@@ -86,38 +80,45 @@ export default function SearchSelect({
         </label>
       )}
 
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => {
-          setOpen((v) => !v)
-          setTimeout(() => inputRef.current?.focus(), 50)
-        }}
-        className={`w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl ring-1 text-left transition-all outline-none
+      <div
+        className={`w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl ring-1 text-left transition-all
           ${open ? 'ring-2 ring-brand-500 bg-white dark:bg-dark-card' : 'ring-slate-200 dark:ring-white/10 bg-white dark:bg-dark-card hover:ring-slate-300'}
-          disabled:opacity-50 disabled:cursor-not-allowed`}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={listId}
+          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
         <Search className="w-4 h-4 text-slate-400 shrink-0" />
-        <span className={`flex-1 text-sm truncate ${selected ? 'text-slate-800 dark:text-dark-text-primary font-medium' : 'text-slate-400'}`}>
-          {selected ? getOptionLabel(selected) : placeholder}
-        </span>
+        <input
+          ref={inputRef}
+          type="text"
+          disabled={disabled}
+          value={displayValue}
+          placeholder={placeholder}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setOpen(true)
+          }}
+          onFocus={() => {
+            setOpen(true)
+            if (selected && !query) setQuery('')
+          }}
+          className="flex-1 min-w-0 text-sm bg-transparent outline-none text-slate-800 dark:text-dark-text-primary placeholder-slate-400 font-medium"
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-controls={listId}
+          role="combobox"
+          autoComplete="off"
+        />
         {selected && !disabled && (
-          <span
-            role="button"
-            tabIndex={0}
+          <button
+            type="button"
             onClick={clear}
-            onKeyDown={(e) => e.key === 'Enter' && clear(e)}
             className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-dark-card-elevated text-slate-400"
             aria-label="Clear selection"
           >
             <X className="w-3.5 h-3.5" />
-          </span>
+          </button>
         )}
         <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
+      </div>
 
       <AnimatePresence>
         {open && (
@@ -128,16 +129,6 @@ export default function SearchSelect({
             transition={{ type: 'spring', stiffness: 400, damping: 28 }}
             className="absolute z-50 mt-1 w-full popover-surface rounded-xl py-1 shadow-brand-lg max-h-64 flex flex-col"
           >
-            <div className="px-2 pt-2 pb-1 border-b border-brand-50 dark:border-white/10">
-              <input
-                ref={inputRef}
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={placeholder}
-                className="w-full px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-dark-card-elevated rounded-lg outline-none text-slate-800 dark:text-dark-text-primary placeholder-slate-400"
-              />
-            </div>
             <ul id={listId} role="listbox" className="overflow-y-auto py-1 flex-1">
               {filtered.length === 0 ? (
                 <li className="px-4 py-3 text-sm text-slate-400 text-center">{emptyMessage}</li>

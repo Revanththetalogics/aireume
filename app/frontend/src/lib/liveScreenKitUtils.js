@@ -157,10 +157,59 @@ export function getKitReadiness(interviewKitStatus, interviewQuestions, analysis
 
 export function hasBriefingContent(briefing) {
   if (!briefing) return false
-  if (briefing.profile_snapshot?.trim()) return true
-  if (briefing.strengths_to_confirm?.length) return true
-  if (briefing.areas_to_probe?.length) return true
+  const sanitized = sanitizeBriefingForDisplay(briefing)
+  if (sanitized.profile_snapshot?.trim()) return true
+  if (sanitized.strengths_to_confirm?.length) return true
+  if (sanitized.areas_to_probe?.length) return true
   return false
+}
+
+/** Strip internal fallback diagnostics and shorten probe lines for live screen display. */
+export function sanitizeBriefingForDisplay(briefing) {
+  if (!briefing) return briefing
+  let snapshot = (briefing.profile_snapshot || '').trim()
+  snapshot = snapshot
+    .replace(/Fallback analysis generated[^.]*\.?\s*/gi, '')
+    .replace(/LLM narrative was unavailable\.?\s*/gi, '')
+    .replace(/LLM-enhanced analysis was not available\.?\s*/gi, '')
+    .trim()
+
+  return {
+    ...briefing,
+    profile_snapshot: snapshot,
+    strengths_to_confirm: (briefing.strengths_to_confirm || []).map(sanitizeStrengthLine),
+    areas_to_probe: (briefing.areas_to_probe || []).map(sanitizeProbeLine),
+  }
+}
+
+function sanitizeStrengthLine(line) {
+  if (!line) return line
+  return line
+    .replace(/^Validate\s+/i, 'Confirm ')
+    .replace(/\s*\(matched must-have\)\s*$/i, '')
+}
+
+function sanitizeProbeLine(line) {
+  if (!line || typeof line !== 'string') return line
+  let text = line.trim()
+  const gapIdx = text.search(/\s—\sHIGH priority gap/i)
+  if (gapIdx > 0) text = text.slice(0, gapIdx).trim()
+  text = text.replace(/^\?\s*/, '').replace(/^Probe:\s*/i, '')
+  if (text.length > 48) {
+    const words = text.split(/\s+/)
+    text = words.slice(0, 6).join(' ') + (words.length > 6 ? '…' : '')
+  }
+  return text
+}
+
+/** Keep teleprompter questions scannable during a live call. */
+export function spokenQuestionText(text, maxLen = 220) {
+  if (!text || typeof text !== 'string') return String(text ?? '')
+  const t = text.trim()
+  if (t.length <= maxLen) return t
+  const sentenceEnd = t.search(/[.!?]\s/)
+  if (sentenceEnd > 40 && sentenceEnd < maxLen) return t.slice(0, sentenceEnd + 1)
+  return t.slice(0, maxLen).trimEnd() + '…'
 }
 
 export const CATEGORY_META = {

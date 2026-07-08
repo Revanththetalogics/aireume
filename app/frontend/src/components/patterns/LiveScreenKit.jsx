@@ -14,6 +14,8 @@ import {
   ratingToStars,
   getCategoriesFromKit,
   CATEGORY_META,
+  sanitizeBriefingForDisplay,
+  spokenQuestionText,
 } from '../../lib/liveScreenKitUtils'
 
 function CopyButton({ text }) {
@@ -105,7 +107,10 @@ export default function LiveScreenKit({
   const categories = useMemo(() => getCategoriesFromKit(kit), [kit])
   const totalQ = flatQuestions.length
   const current = flatQuestions[questionIndex]
-  const briefing = kit?.candidate_briefing
+  const briefing = useMemo(
+    () => sanitizeBriefingForDisplay(kit?.candidate_briefing),
+    [kit],
+  )
 
   useEffect(() => {
     if (!resultId || evalLoaded) return
@@ -322,7 +327,7 @@ export default function LiveScreenKit({
             <Card className="p-6 ring-brand-100 shadow-brand-sm">
               <div className="flex items-start justify-between gap-3">
                 <p className="text-lg sm:text-xl font-semibold text-brand-900 leading-snug">
-                  {current.question.text}
+                  {spokenQuestionText(current.question.text)}
                 </p>
                 <CopyButton text={current.question.text} />
               </div>

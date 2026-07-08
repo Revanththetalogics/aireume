@@ -1257,7 +1257,7 @@ export default function ReportPage() {
             )}
           </div>
 
-          {hasDeterministicData && <ResultCard result={result} defaultExpandEducation />}
+          {hasDeterministicData && <ResultCard result={result} defaultExpandEducation skipNarrativePolling />}
 
           {/* Evaluation Checklist */}
           {hasDeterministicData && <EvaluationChecklist result={result} />}

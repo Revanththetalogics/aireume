@@ -586,6 +586,36 @@ class TestBuildFallbackNarrative:
         result = _build_fallback_narrative(python_result, skill_analysis)
         assert result.get("narrative_fallback") is True
 
+    def test_fallback_briefing_avoids_jd_wall_of_text(self):
+        """Fallback briefing must not paste full JD paragraphs into probes or questions."""
+        long_jd = (
+            "You are a detail-oriented finance professional who thrives in a dynamic environment. "
+            "With a strong foundation in financial planning and analysis, you possess curiosity "
+            "and initiative to dig deep into data and uncover insights that drive business decisions."
+        )
+        python_result = {
+            "fit_score": 40,
+            "score_breakdown": {},
+            "_required_years": 5,
+            "candidate_profile": {"name": "Test User", "current_role": "Analyst", "total_effective_years": 8},
+            "jd_analysis": {
+                "key_responsibilities": [long_jd],
+                "required_skills": ["excel"],
+            },
+        }
+        skill_analysis = {
+            "matched_skills": ["excel"],
+            "missing_skills": ["financial planning", "forecasting"],
+            "required_count": 3,
+        }
+        result = _build_fallback_narrative(python_result, skill_analysis)
+        briefing = result["interview_questions"]["candidate_briefing"]
+        assert "Fallback analysis" not in briefing["profile_snapshot"]
+        assert all(len(p) < 80 for p in briefing["areas_to_probe"])
+        for q in result["interview_questions"]["technical_questions"]:
+            assert long_jd not in q["text"]
+            assert len(q["text"]) < 200
+
 
 class TestMergeLlmIntoResult:
     """Tests for _merge_llm_into_result function."""

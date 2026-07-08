@@ -1724,6 +1724,16 @@ def _build_executive_summary(score, recommendation, matched_skills, required_ski
     return " ".join(parts)
 
 
+def _short_resp_label(text: str, max_words: int = 8) -> str:
+    """Return a brief responsibility phrase safe for spoken interview questions."""
+    if not text or not isinstance(text, str):
+        return "this role"
+    clean = " ".join(text.split())
+    if len(clean) > 60 or len(clean.split()) > max_words:
+        return "this role"
+    return clean.rstrip(".,;:")
+
+
 def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dict[str, Any]) -> Dict[str, Any]:
     """Deterministic narrative when LLM is unavailable or timed out."""
     matched  = skill_analysis.get("matched_required") or skill_analysis.get("matched_skills", [])
@@ -1795,16 +1805,19 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
     # Build targeted fallback questions based on deterministic skill data
     top_missing_skills = missing[:3] if missing else []
     top_matched_skills = matched[:3] if matched else []
-    key_resp_list = jd_a.get("key_responsibilities", [])[:3] if jd_a else []
-    primary_resp = key_resp_list[0] if key_resp_list else "this role's core work"
+    key_resp_list = [
+        _short_resp_label(r)
+        for r in (jd_a.get("key_responsibilities", [])[:3] if jd_a else [])
+        if r
+    ]
+    primary_resp = key_resp_list[0] if key_resp_list else "this role"
 
     # Technical questions — targeted to missing skills where possible
     tech_q = []
     # Q1-Q3: One per missing must-have skill
     for i, skill in enumerate(top_missing_skills[:3]):
-        resp = key_resp_list[i] if i < len(key_resp_list) else primary_resp
         tech_q.append({
-            "text": f"This role involves {resp}. Walk me through how you would approach a challenge requiring {skill} — what tools, patterns, or experience would you draw on?",
+            "text": f"Tell me about a recent project where you used {skill}. What was your role and what outcome did you drive?",
             "what_to_listen_for": [
                 f"Familiarity with {skill} concepts and ecosystem",
                 "Practical problem-solving approach despite skill gap",
@@ -1841,9 +1854,9 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
             }
         })
 
-    # Q5: System design / architecture question
+    # Q5: Problem-solving question tied to role context (never paste full JD text)
     tech_q.append({
-        "text": f"How would you design a solution for {primary_resp}? Walk me through your approach, key decisions, and trade-offs.",
+        "text": f"Describe a complex problem you solved in work related to {primary_resp}. What was the situation, your approach, and the result?",
         "what_to_listen_for": [
             "System design thinking relevant to the domain",
             "Consideration of scalability and edge cases",
@@ -1984,23 +1997,21 @@ def _build_fallback_narrative(python_result: Dict[str, Any], skill_analysis: Dic
     ]
 
     # Build targeted candidate_briefing from deterministic skill data
-    briefing_strengths = [f"Validate {s} expertise (matched must-have)" for s in top_matched_skills[:3]] if top_matched_skills else ["Review resume for key strengths before interview"]
-    briefing_probes = []
-    for sk in top_missing_skills[:3]:
-        briefing_probes.append(f"{sk} — HIGH priority gap for {primary_resp}")
+    briefing_strengths = [f"Confirm {s} experience" for s in top_matched_skills[:3]] if top_matched_skills else ["Review resume for key strengths before interview"]
+    briefing_probes = [f"Probe: {sk}" for sk in top_missing_skills[:3]]
     if not briefing_probes:
         briefing_probes = ["Assess overall technical depth and role motivation"]
-    briefing_notes = [f"Q{i+1} targets missing {sk} — HIGH priority gap for {primary_resp}" for i, sk in enumerate(top_missing_skills[:3])]
+    briefing_notes = [f"Ask about hands-on {sk} experience" for sk in top_missing_skills[:3]]
     if top_matched_skills:
-        briefing_notes.append(f"Q{len(top_missing_skills[:3])+1} probes depth of matched skill {top_matched_skills[0]}")
+        briefing_notes.append(f"Validate depth of {top_matched_skills[0]} with a concrete project example")
     if not briefing_notes:
-        briefing_notes = ["Generic questions generated — LLM-enhanced analysis was not available"]
+        briefing_notes = ["Use generated questions to validate resume claims"]
 
     _briefing_name = profile.get("name") or "Candidate"
     _briefing_role = profile.get("current_role") or "current role"
     _briefing_years = profile.get("total_effective_years") or 0
     candidate_briefing = {
-        "profile_snapshot": f"{_briefing_name} is a {_briefing_role} with {_briefing_years} years of experience. Fallback analysis generated — LLM narrative was unavailable.",
+        "profile_snapshot": f"{_briefing_name} is a {_briefing_role} with {_briefing_years} years of experience.",
         "strengths_to_confirm": briefing_strengths,
         "areas_to_probe": briefing_probes,
         "context_notes": briefing_notes,

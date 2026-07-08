@@ -10,15 +10,15 @@ import { mergeNarrativePollResult, shouldContinueNarrativePoll, needsNarrativeHy
  * @param {object} options
  * @param {function} [options.onComplete] - Called when polling finishes
  * @param {function} [options.onKitReady] - Called when interview kit becomes ready
- * @param {number} [options.intervalMs=2000]
- * @param {number} [options.maxPolls=90]
+ * @param {number} [options.intervalMs=5000]
+ * @param {number} [options.maxPolls=60]
  */
 export function useEnrichmentPolling(result, onUpdate, options = {}) {
   const {
     onComplete,
     onKitReady,
-    intervalMs = 2000,
-    maxPolls = 90,
+    intervalMs = 5000,
+    maxPolls = 60,
   } = options
 
   const onUpdateRef = useRef(onUpdate)
@@ -28,14 +28,18 @@ export function useEnrichmentPolling(result, onUpdate, options = {}) {
   onCompleteRef.current = onComplete
   onKitReadyRef.current = onKitReady
 
+  const resultRef = useRef(result)
+  resultRef.current = result
+
   const analysisId = result?.analysis_id || result?.result_id
-  const narrativeStatus = result?.narrative_status || 'pending'
-  const kitStatus = result?.interview_kit_status || 'pending'
 
   useEffect(() => {
     if (!analysisId) return
 
-    const needsNarrativePoll = needsNarrativeHydration(result)
+    const snapshot = resultRef.current
+    const narrativeStatus = snapshot?.narrative_status || 'pending'
+    const kitStatus = snapshot?.interview_kit_status || 'pending'
+    const needsNarrativePoll = needsNarrativeHydration(snapshot)
     const needsKitPoll =
       (narrativeStatus === 'ready' || narrativeStatus === 'fallback') &&
       (kitStatus === 'pending' || kitStatus === 'processing')
@@ -45,6 +49,12 @@ export function useEnrichmentPolling(result, onUpdate, options = {}) {
     let pollCount = 0
     let kitWasPending = needsKitPoll
     let cancelled = false
+    let timerId = null
+    let delayMs = intervalMs
+
+    const schedule = (ms) => {
+      timerId = setTimeout(tick, ms)
+    }
 
     const tick = async () => {
       if (cancelled) return
@@ -52,6 +62,7 @@ export function useEnrichmentPolling(result, onUpdate, options = {}) {
       try {
         const data = await getNarrative(analysisId)
         if (cancelled) return
+        delayMs = intervalMs
 
         onUpdateRef.current?.((prev) => ({
           ...prev,
@@ -66,24 +77,32 @@ export function useEnrichmentPolling(result, onUpdate, options = {}) {
         }
 
         if (!shouldContinueNarrativePoll(data) || pollCount >= maxPolls) {
-          clearInterval(interval)
           onCompleteRef.current?.(data)
+          return
         }
+        schedule(delayMs)
       } catch (err) {
-        console.error('[useEnrichmentPolling]', err)
-        if (pollCount >= maxPolls) {
-          clearInterval(interval)
-          onCompleteRef.current?.(null)
+        const status = err?.response?.status
+        if (status === 429) {
+          const retryAfter = parseInt(err?.response?.headers?.['retry-after'] || '5', 10)
+          delayMs = Math.min(Math.max(retryAfter * 1000, intervalMs), 30000)
+        } else {
+          delayMs = Math.min(Math.round(delayMs * 1.5), 30000)
         }
+        console.debug('[useEnrichmentPolling]', err?.message || err)
+        if (pollCount >= maxPolls) {
+          onCompleteRef.current?.(null)
+          return
+        }
+        schedule(delayMs)
       }
     }
 
-    const interval = setInterval(tick, intervalMs)
     tick()
 
     return () => {
       cancelled = true
-      clearInterval(interval)
+      if (timerId) clearTimeout(timerId)
     }
-  }, [analysisId, narrativeStatus, kitStatus, intervalMs, maxPolls, result])
+  }, [analysisId, intervalMs, maxPolls])
 }

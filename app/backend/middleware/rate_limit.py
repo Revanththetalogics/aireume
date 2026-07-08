@@ -132,7 +132,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _get_rate_limit(self, tenant_id: int) -> int:
         return self._get_rate_limit_config(tenant_id)["rpm"]
 
-    def _consume_token(self, tenant_id: int, rpm: int) -> tuple[bool, float]:
+    def _consume_token(self, tenant_id: int, rpm: int, cost: float = 1.0) -> tuple[bool, float]:
         now = time.time()
         with self.lock:
             bucket = self.buckets.get(tenant_id)
@@ -146,14 +146,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             bucket["tokens"] = min(rpm, bucket["tokens"] + elapsed * refill_rate)
             bucket["last_refill"] = now
 
-            if bucket["tokens"] >= 1:
-                bucket["tokens"] -= 1
+            if bucket["tokens"] >= cost:
+                bucket["tokens"] -= cost
                 return True, 0.0
 
-            # Calculate seconds until next token is available
-            deficit = 1 - bucket["tokens"]
+            # Calculate seconds until enough tokens are available
+            deficit = cost - bucket["tokens"]
             retry_after = deficit / refill_rate if refill_rate > 0 else 60.0
             return False, retry_after
+
+    def _is_narrative_poll_path(self, path: str, method: str) -> bool:
+        """Read-only narrative status polling — lighter RPM cost."""
+        return (
+            method == "GET"
+            and path.startswith("/api/analysis/")
+            and path.endswith("/narrative")
+        )
 
     LLM_PATHS = {
         "/api/analyze",
@@ -202,7 +210,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         config = self._get_rate_limit_config(tenant_id)
         rpm = config["rpm"]
-        allowed, retry_after = self._consume_token(tenant_id, rpm)
+        token_cost = 0.25 if self._is_narrative_poll_path(path, request.method) else 1.0
+        allowed, retry_after = self._consume_token(tenant_id, rpm, cost=token_cost)
 
         if not allowed:
             response = JSONResponse(

@@ -556,7 +556,7 @@ function PendingBanner() {
 
 // ─── Main ResultCard ──────────────────────────────────────────────────────────
 
-export default function ResultCard({ result, defaultExpandEducation = false }) {
+export default function ResultCard({ result, defaultExpandEducation = false, skipNarrativePolling = false }) {
   const [showEmailModal, setShowEmailModal] = useState(false)
 
   // Outcome feedback state
@@ -681,9 +681,9 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
     })
   }, [result, narrativeData])
 
-  // Narrative polling effect with adaptive timing
+  // Narrative polling effect with adaptive timing (skip when parent owns polling)
   useEffect(() => {
-    if (!effectiveAnalysisId || !needsNarrativeHydration(result)) {
+    if (skipNarrativePolling || !effectiveAnalysisId || !needsNarrativeHydration(result)) {
       setIsPolling(false)
       if (pollingTimeoutRef.current) {
         clearTimeout(pollingTimeoutRef.current)
@@ -771,7 +771,7 @@ export default function ResultCard({ result, defaultExpandEducation = false }) {
         pollingTimeoutRef.current = null
       }
     }
-  }, [result, effectiveAnalysisId])
+  }, [result, effectiveAnalysisId, skipNarrativePolling])
 
   let badgeColor  = 'bg-amber-100 text-amber-800 ring-amber-200'
   let BadgeIcon   = Target

@@ -294,15 +294,32 @@ function CreateWizard({
   useEffect(() => {
     if (!screeningResultId) return
     let cancelled = false
+    let timerId = null
+    let delayMs = 10000
+
     const poll = async () => {
+      if (cancelled) return
       try {
         const data = await getNarrative(screeningResultId)
-        if (!cancelled) setVoiceStrategyStatus(data.voice_strategy_status || null)
-      } catch { /* ignore */ }
+        if (cancelled) return
+        const vs = data.voice_strategy_status || null
+        setVoiceStrategyStatus(vs)
+        if (vs === 'ready' || vs === 'fallback' || vs === 'skipped' || vs === 'failed') return
+        delayMs = 10000
+      } catch (err) {
+        if (err?.response?.status === 429) {
+          const retryAfter = parseInt(err?.response?.headers?.['retry-after'] || '10', 10)
+          delayMs = Math.min(Math.max(retryAfter * 1000, 10000), 30000)
+        }
+      }
+      if (!cancelled) timerId = setTimeout(poll, delayMs)
     }
+
     poll()
-    const t = setInterval(poll, 3000)
-    return () => { cancelled = true; clearInterval(t) }
+    return () => {
+      cancelled = true
+      if (timerId) clearTimeout(timerId)
+    }
   }, [screeningResultId])
 
   useEffect(() => {
