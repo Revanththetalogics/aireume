@@ -34,17 +34,18 @@ MOCK_ANALYSIS = {
 }
 
 
-def mock_ollama_transcript():
-    """Return a context-manager-compatible mock that yields MOCK_ANALYSIS."""
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": json.dumps(MOCK_ANALYSIS)}
-    mock_resp.raise_for_status = MagicMock()
+# Patch target for transcript LLM calls (generate_app_json is imported in transcript_service).
+TRANSCRIPT_LLM_PATCH = "app.backend.services.app_llm_client.generate_app_json"
 
-    mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.post = AsyncMock(return_value=mock_resp)
-    return mock_client
+
+def mock_transcript_llm(return_value=MOCK_ANALYSIS, side_effect=None):
+    """Patch transcript analysis LLM to return a fixed JSON result offline."""
+    kwargs = {"new_callable": AsyncMock}
+    if side_effect is not None:
+        kwargs["side_effect"] = side_effect
+    else:
+        kwargs["return_value"] = return_value
+    return patch(TRANSCRIPT_LLM_PATCH, **kwargs)
 
 
 SAMPLE_PLAIN_TRANSCRIPT = (
@@ -135,8 +136,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_analyze_with_plain_text_and_template(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -149,8 +149,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_analyze_response_has_all_fields(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -165,8 +164,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_analyze_with_vtt_file(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post(
                 "/api/transcript/analyze",
                 data={"role_template_id": template_id, "source_platform": "teams"},
@@ -178,8 +176,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_analyze_with_srt_file(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post(
                 "/api/transcript/analyze",
                 data={"role_template_id": template_id},
@@ -191,8 +188,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_analyze_with_txt_file(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post(
                 "/api/transcript/analyze",
                 data={"role_template_id": template_id},
@@ -204,8 +200,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_analyze_stores_record_and_returns_id(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -216,8 +211,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_analyze_echoes_template_name(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -227,8 +221,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_analyze_echoes_source_platform(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -247,8 +240,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_missing_role_template_returns_400(self, setup_template):
         auth_client, _ = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 # no role_template_id
@@ -256,8 +248,7 @@ class TestAnalyzeTranscriptEndpoint:
         assert resp.status_code == 400
 
     def test_nonexistent_template_returns_404(self, auth_client):
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": 99999,
@@ -287,8 +278,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_nonexistent_candidate_returns_404(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -300,10 +290,7 @@ class TestAnalyzeTranscriptEndpoint:
 
     def test_ollama_failure_still_returns_200_with_fallback(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(
-                side_effect=Exception("Ollama unavailable")
-            )
+        with mock_transcript_llm(side_effect=Exception("LLM unavailable")):
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -348,8 +335,7 @@ class TestAnalyzeTranscriptEndpoint:
         token_b = login_b.json()["access_token"]
         client.headers.update({"Authorization": f"Bearer {token_b}"})
 
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id_a,   # belongs to Tenant A
@@ -371,8 +357,7 @@ class TestListTranscriptAnalyses:
 
     def test_list_reflects_created_analysis(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -387,8 +372,7 @@ class TestListTranscriptAnalyses:
 
     def test_list_includes_template_name(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -398,8 +382,7 @@ class TestListTranscriptAnalyses:
 
     def test_list_items_have_required_fields(self, setup_template):
         auth_client, template_id = setup_template
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -413,8 +396,7 @@ class TestListTranscriptAnalyses:
     def test_multiple_analyses_ordered_newest_first(self, setup_template):
         auth_client, template_id = setup_template
         for _ in range(3):
-            with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                       return_value=mock_ollama_transcript()):
+            with mock_transcript_llm():
                 auth_client.post("/api/transcript/analyze", data={
                     "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                     "role_template_id": template_id,
@@ -441,8 +423,7 @@ class TestListTranscriptAnalyses:
         t_resp = client.post("/api/templates", json={"name": "X JD", "jd_text": "Python."})
         template_id_x = t_resp.json()["id"]
 
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id_x,
@@ -462,8 +443,7 @@ class TestListTranscriptAnalyses:
 class TestGetTranscriptAnalysis:
 
     def _create_analysis(self, auth_client, template_id):
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -514,8 +494,7 @@ class TestGetTranscriptAnalysis:
         t_resp = client.post("/api/templates", json={"name": "Alpha JD", "jd_text": "Python."})
         template_id = t_resp.json()["id"]
 
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             create_resp = client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -538,8 +517,7 @@ class TestTranscriptEndToEndFlow:
         auth_client, template_id = setup_template
 
         # 1. Create analysis
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                   return_value=mock_ollama_transcript()):
+        with mock_transcript_llm():
             create_resp = auth_client.post("/api/transcript/analyze", data={
                 "transcript_text": SAMPLE_PLAIN_TRANSCRIPT,
                 "role_template_id": template_id,
@@ -573,8 +551,7 @@ class TestTranscriptEndToEndFlow:
         ]
 
         for filename, content, mime in test_cases:
-            with patch("app.backend.services.transcript_service.httpx.AsyncClient",
-                       return_value=mock_ollama_transcript()):
+            with mock_transcript_llm():
                 resp = auth_client.post(
                     "/api/transcript/analyze",
                     data={"role_template_id": template_id},

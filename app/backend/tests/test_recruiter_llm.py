@@ -27,6 +27,8 @@ async def test_generate_recruiter_json_uses_gemini_when_key_set(monkeypatch):
 async def test_generate_recruiter_llm_falls_back_to_ollama_without_gemini(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
+    import asyncio
+
     from app.backend.services.llm_service import generate_recruiter_llm
 
     mock_response = MagicMock()
@@ -38,7 +40,13 @@ async def test_generate_recruiter_llm_falls_back_to_ollama_without_gemini(monkey
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.backend.services.llm_service.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "app.backend.services.llm_service.get_ollama_semaphore",
+        return_value=asyncio.Semaphore(1),
+    ), patch(
+        "app.backend.services.app_llm_client.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         text = await generate_recruiter_llm("prompt", max_output_tokens=512)
 
     assert text == '{"score": 70}'

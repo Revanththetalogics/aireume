@@ -151,30 +151,14 @@ class TestParseTranscript:
 
 # ─── analyze_transcript ───────────────────────────────────────────────────────
 
+TRANSCRIPT_LLM_PATCH = "app.backend.services.app_llm_client.generate_app_json"
+
+
 class TestAnalyzeTranscript:
-
-    def _make_ollama_mock(self, body: dict):
-        """Return a mock CLASS for httpx.AsyncClient.
-
-        Python resolves __aenter__/__aexit__ through the TYPE, not the instance,
-        so we must configure them on mock_class.return_value (what the class
-        yields when instantiated) rather than on a bare AsyncMock instance.
-        """
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"response": json.dumps(body)}
-        mock_resp.raise_for_status = MagicMock()
-
-        mock_class = MagicMock()
-        ctx = mock_class.return_value          # what httpx.AsyncClient(...) returns
-        ctx.__aenter__ = AsyncMock(return_value=ctx)
-        ctx.__aexit__ = AsyncMock(return_value=None)
-        ctx.post = AsyncMock(return_value=mock_resp)
-        return mock_class
 
     @pytest.mark.asyncio
     async def test_returns_dict_with_required_keys(self):
-        mock_cls = self._make_ollama_mock(OLLAMA_TRANSCRIPT_RESPONSE)
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient", mock_cls):
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, return_value=OLLAMA_TRANSCRIPT_RESPONSE):
             result = await analyze_transcript(
                 transcript="I have six years of Python and Docker experience.",
                 jd_text="Looking for Python and Docker engineers.",
@@ -189,8 +173,7 @@ class TestAnalyzeTranscript:
     @pytest.mark.asyncio
     async def test_fit_score_clamped_0_to_100(self):
         response = {**OLLAMA_TRANSCRIPT_RESPONSE, "fit_score": 150}
-        mock_cls = self._make_ollama_mock(response)
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient", mock_cls):
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, return_value=response):
             result = await analyze_transcript(
                 "I have six years of Python experience building REST APIs and microservices at scale.",
                 "Looking for a senior Python engineer with FastAPI and Docker experience.",
@@ -200,8 +183,7 @@ class TestAnalyzeTranscript:
     @pytest.mark.asyncio
     async def test_negative_score_clamped_to_0(self):
         response = {**OLLAMA_TRANSCRIPT_RESPONSE, "technical_depth": -10}
-        mock_cls = self._make_ollama_mock(response)
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient", mock_cls):
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, return_value=response):
             result = await analyze_transcript(
                 "I have six years of Python experience building REST APIs and microservices at scale.",
                 "Looking for a senior Python engineer with FastAPI and Docker experience.",
@@ -211,8 +193,7 @@ class TestAnalyzeTranscript:
     @pytest.mark.asyncio
     async def test_recommendation_normalised_to_lowercase(self):
         response = {**OLLAMA_TRANSCRIPT_RESPONSE, "recommendation": "PROCEED"}
-        mock_cls = self._make_ollama_mock(response)
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient", mock_cls):
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, return_value=response):
             result = await analyze_transcript(
                 "I have six years of Python experience building REST APIs and microservices at scale.",
                 "Looking for a senior Python engineer.",
@@ -222,8 +203,7 @@ class TestAnalyzeTranscript:
     @pytest.mark.asyncio
     async def test_invalid_recommendation_defaults_to_hold(self):
         response = {**OLLAMA_TRANSCRIPT_RESPONSE, "recommendation": "maybe"}
-        mock_cls = self._make_ollama_mock(response)
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient", mock_cls):
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, return_value=response):
             result = await analyze_transcript(
                 "I have six years of Python experience building REST APIs and microservices at scale.",
                 "Looking for a senior Python engineer.",
@@ -232,8 +212,7 @@ class TestAnalyzeTranscript:
 
     @pytest.mark.asyncio
     async def test_jd_alignment_structure(self):
-        mock_cls = self._make_ollama_mock(OLLAMA_TRANSCRIPT_RESPONSE)
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient", mock_cls):
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, return_value=OLLAMA_TRANSCRIPT_RESPONSE):
             result = await analyze_transcript(
                 "I know Python and Docker very well and have used them in production for five years.",
                 "We need a Python and Docker engineer with production experience.",
@@ -257,8 +236,7 @@ class TestAnalyzeTranscript:
 
     @pytest.mark.asyncio
     async def test_ollama_network_error_returns_fallback(self):
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(side_effect=Exception("connection refused"))
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, side_effect=Exception("connection refused")):
             result = await analyze_transcript(
                 "I have ten years of software engineering experience.",
                 "We need an experienced engineer.",
@@ -268,17 +246,7 @@ class TestAnalyzeTranscript:
 
     @pytest.mark.asyncio
     async def test_ollama_invalid_json_returns_fallback(self):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"response": "not json at all!!!"}
-        mock_resp.raise_for_status = MagicMock()
-
-        mock_class = MagicMock()
-        ctx = mock_class.return_value
-        ctx.__aenter__ = AsyncMock(return_value=ctx)
-        ctx.__aexit__ = AsyncMock(return_value=None)
-        ctx.post = AsyncMock(return_value=mock_resp)
-
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient", mock_class):
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, return_value=None):
             result = await analyze_transcript(
                 "I have experience with Python and cloud infrastructure.",
                 "Looking for Python engineers.",
@@ -287,8 +255,7 @@ class TestAnalyzeTranscript:
 
     @pytest.mark.asyncio
     async def test_bias_note_always_present(self):
-        mock_cls = self._make_ollama_mock(OLLAMA_TRANSCRIPT_RESPONSE)
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient", mock_cls):
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, return_value=OLLAMA_TRANSCRIPT_RESPONSE):
             result = await analyze_transcript(
                 "I have strong Python and FastAPI skills acquired over five years in production environments.",
                 "We are looking for a senior Python and FastAPI developer.",
@@ -302,8 +269,7 @@ class TestAnalyzeTranscript:
             **OLLAMA_TRANSCRIPT_RESPONSE,
             "strengths": [f"strength {i}" for i in range(20)],
         }
-        mock_cls = self._make_ollama_mock(response)
-        with patch("app.backend.services.transcript_service.httpx.AsyncClient", mock_cls):
+        with patch(TRANSCRIPT_LLM_PATCH, new_callable=AsyncMock, return_value=response):
             result = await analyze_transcript(
                 "I have worked with Python, Docker, AWS, React and TypeScript for the past seven years.",
                 "We need a full-stack engineer with Python and cloud expertise.",

@@ -1,7 +1,9 @@
 """Tests for shared application LLM client."""
 
+import asyncio
+
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.mark.asyncio
@@ -29,16 +31,22 @@ async def test_generate_app_llm_falls_back_to_ollama_without_gemini(monkeypatch)
 
     from app.backend.services.app_llm_client import generate_app_llm
 
-    mock_response = type("Resp", (), {})()
-    mock_response.raise_for_status = lambda: None
-    mock_response.json = lambda: {"response": "hello from ollama"}
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"response": "hello from ollama"}
 
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(return_value=mock_response)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "app.backend.services.llm_service.get_ollama_semaphore",
+        return_value=asyncio.Semaphore(1),
+    ), patch(
+        "app.backend.services.app_llm_client.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         text = await generate_app_llm("prompt", max_output_tokens=128)
 
     assert text == "hello from ollama"

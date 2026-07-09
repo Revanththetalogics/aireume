@@ -607,32 +607,25 @@ def sample_mp4_bytes():
 
 @pytest.fixture
 def mock_ollama_transcript():
-    """Mock Ollama returning a valid transcript analysis JSON."""
-    import json as _json
-    response_body = _json.dumps({
-        "fit_score": 78,
-        "technical_depth": 72,
-        "communication_quality": 80,
-        "jd_alignment": [
-            {"requirement": "Python", "demonstrated": True,  "evidence": "5 years Python"},
-            {"requirement": "AWS",    "demonstrated": False, "evidence": None},
-        ],
-        "strengths": ["Strong Python skills", "Good communication"],
-        "areas_for_improvement": ["Cloud experience limited"],
-        "bias_note": "Evaluation based solely on demonstrated skills and knowledge in the transcript.",
-        "recommendation": "proceed",
-    })
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": response_body}
-    mock_resp.raise_for_status = MagicMock()
-
-    with patch("app.backend.services.transcript_service.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client.post = AsyncMock(return_value=mock_resp)
-        mock_client_cls.return_value = mock_client
-        yield mock_client
+    """Mock transcript analysis LLM to return a valid analysis JSON."""
+    with patch(
+        "app.backend.services.app_llm_client.generate_app_json",
+        new_callable=AsyncMock,
+        return_value={
+            "fit_score": 78,
+            "technical_depth": 72,
+            "communication_quality": 80,
+            "jd_alignment": [
+                {"requirement": "Python", "demonstrated": True,  "evidence": "5 years Python"},
+                {"requirement": "AWS",    "demonstrated": False, "evidence": None},
+            ],
+            "strengths": ["Strong Python skills", "Good communication"],
+            "areas_for_improvement": ["Cloud experience limited"],
+            "bias_note": "Evaluation based solely on demonstrated skills and knowledge in the transcript.",
+            "recommendation": "proceed",
+        },
+    ) as mock:
+        yield mock
 
 
 @pytest.fixture
