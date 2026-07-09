@@ -2219,5 +2219,7 @@ def parse_resume(file_bytes: bytes, filename: str) -> Dict[str, Any]:
     parser = ResumeParser()
     out = parser.parse_resume(file_bytes, filename)
     enrich_parsed_resume(out, filename)
+    from app.backend.services.profile_text_sanitizer import sanitize_parsed_resume_data
+    out = sanitize_parsed_resume_data(out)
     RESUME_PARSE_DURATION.observe(time.monotonic() - start)
     return out

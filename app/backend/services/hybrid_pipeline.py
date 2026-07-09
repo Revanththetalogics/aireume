@@ -504,7 +504,9 @@ def parse_jd_rules(jd_text: str, llm_profile: Optional[Dict[str, Any]] = None) -
         if len(resp_lines) >= 6:
             break
 
-    result = {
+    from app.backend.services.profile_text_sanitizer import sanitize_jd_analysis
+
+    result = sanitize_jd_analysis({
         "role_title":        role_title or "Not specified",
         "job_function":      job_function,
         "domain":            domain,
@@ -519,7 +521,7 @@ def parse_jd_rules(jd_text: str, llm_profile: Optional[Dict[str, Any]] = None) -
         "architecture_signals": [],
         "relevant_education_fields": [],
         "_profile_source":   "rules",
-    }
+    })
 
     # Merge LLM profile if available
     if llm_profile:
@@ -622,6 +624,17 @@ def parse_resume_rules(
         if inferred_y > 0:
             total_years = inferred_y
 
+    from app.backend.services.profile_text_sanitizer import (
+        sanitize_candidate_profile,
+        sanitize_skill_list,
+        sanitize_work_experience,
+    )
+
+    work_exp = sanitize_work_experience(work_exp)
+    skills_identified = sanitize_skill_list(skills_identified)
+    structured = sanitize_skill_list(structured)
+    text_only = sanitize_skill_list(text_only)
+
     # Truncate current_role and current_company to 255 chars to prevent DB truncation errors
     _raw_role = work_exp[0].get("title", "") if work_exp else ""
     _raw_company = work_exp[0].get("company", "") if work_exp else ""
@@ -636,7 +649,7 @@ def parse_resume_rules(
 
     career_summary = _build_career_summary(current_role, current_company, total_years)
 
-    return {
+    return sanitize_candidate_profile({
         "name":                  contact.get("name", ""),
         "email":                 contact.get("email", ""),
         "phone":                 contact.get("phone", ""),
@@ -649,7 +662,7 @@ def parse_resume_rules(
         "total_effective_years": total_years,
         "current_role":          current_role,
         "current_company":       current_company,
-    }
+    })
 
 
 def _build_career_summary(role: str, company: str, years: float) -> str:

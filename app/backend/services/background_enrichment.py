@@ -35,6 +35,11 @@ def voice_strategy_config_hash(config: dict[str, Any] | None = None) -> str:
 def build_llm_prompt_context(context: Dict[str, Any]) -> Dict[str, Any]:
     """Shared prompt variables for narrative and interview-kit LLM calls."""
     from app.backend.services.hybrid_pipeline import _sanitize_input
+    from app.backend.services.profile_text_sanitizer import (
+        sanitize_jd_responsibilities,
+        sanitize_profile_text,
+        sanitize_skill_list,
+    )
 
     jd = context.get("jd_analysis", {})
     profile = context.get("candidate_profile", {})
@@ -43,11 +48,19 @@ def build_llm_prompt_context(context: Dict[str, Any]) -> Dict[str, Any]:
     score_rationales = context.get("score_rationales", {})
     risk_summary = context.get("risk_summary", {})
 
-    career_snippet = _sanitize_input((profile.get("career_summary") or "")[:300], 400, "career_snippet")
-    role_title = _sanitize_input(jd.get("role_title") or jd.get("title", "Unknown Role"), 200, "role_title")
-    candidate_name = _sanitize_input(profile.get("name") or "Unknown", 100, "name")
-    current_role = _sanitize_input(profile.get("current_role") or "N/A", 100, "current_role")
-    current_company = _sanitize_input(profile.get("current_company") or "N/A", 100, "current_company")
+    career_snippet = _sanitize_input(
+        sanitize_profile_text((profile.get("career_summary") or "")[:300]), 400, "career_snippet"
+    )
+    role_title = _sanitize_input(
+        sanitize_profile_text(jd.get("role_title") or jd.get("title", "Unknown Role")), 200, "role_title"
+    )
+    candidate_name = _sanitize_input(sanitize_profile_text(profile.get("name") or "Unknown"), 100, "name")
+    current_role = _sanitize_input(
+        sanitize_profile_text(profile.get("current_role") or "N/A"), 100, "current_role"
+    )
+    current_company = _sanitize_input(
+        sanitize_profile_text(profile.get("current_company") or "N/A"), 100, "current_company"
+    )
 
     domain = jd.get("domain", "General")
     seniority = jd.get("seniority", "Not specified")
@@ -60,14 +73,14 @@ def build_llm_prompt_context(context: Dict[str, Any]) -> Dict[str, Any]:
     fit_score = scores.get("fit_score", 0)
     recommendation = scores.get("final_recommendation", "Pending")
 
-    matched_must = skill_a.get("matched_required", [])
-    missing_must = skill_a.get("missing_required", [])
-    matched_nice = skill_a.get("matched_nice_to_have", [])
-    missing_nice = skill_a.get("missing_nice_to_have", [])
+    matched_must = sanitize_skill_list(skill_a.get("matched_required", []))
+    missing_must = sanitize_skill_list(skill_a.get("missing_required", []))
+    matched_nice = sanitize_skill_list(skill_a.get("matched_nice_to_have", []))
+    missing_nice = sanitize_skill_list(skill_a.get("missing_nice_to_have", []))
     nice_match_pct = skill_a.get("nice_to_have_match_pct") or 0
     req_match_pct = skill_a.get("required_match_pct") or 0
 
-    key_resp = jd.get("key_responsibilities", [])[:6]
+    key_resp = sanitize_jd_responsibilities(jd.get("key_responsibilities", [])[:6])
     resp_text = "; ".join(key_resp) if key_resp else "Not specified"
 
     prof_analysis = skill_a.get("proficiency_analysis", {})

@@ -10,6 +10,14 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from app.backend.services.profile_text_sanitizer import (
+    is_actionable_responsibility,
+    sanitize_candidate_profile,
+    sanitize_jd_responsibilities,
+    sanitize_profile_text,
+    sanitize_skill_list,
+)
+
 MAX_QUESTION_LEN = 140
 
 
@@ -24,7 +32,7 @@ def _clamp_question(text: str, max_len: int = MAX_QUESTION_LEN) -> str:
 def _short_label(text: str, max_words: int = 6) -> str:
     if not text or not isinstance(text, str):
         return ""
-    clean = " ".join(text.split())
+    clean = sanitize_profile_text(text)
     words = clean.split()
     if len(words) > max_words:
         return " ".join(words[:max_words])
@@ -32,19 +40,7 @@ def _short_label(text: str, max_words: int = 6) -> str:
 
 
 def _normalize_skill_list(items: list) -> List[str]:
-    out: List[str] = []
-    seen: set[str] = set()
-    for item in items or []:
-        if isinstance(item, str) and item.strip():
-            key = item.strip().lower()
-        elif isinstance(item, dict) and item.get("skill"):
-            key = str(item["skill"]).strip().lower()
-        else:
-            continue
-        if key not in seen:
-            seen.add(key)
-            out.append(item.strip() if isinstance(item, str) else str(item["skill"]).strip())
-    return out
+    return sanitize_skill_list(items)
 
 
 def _work_entries(profile: Dict[str, Any], parsed_data: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -161,12 +157,12 @@ def _production_issue_question(skill: str) -> Dict[str, Any]:
 
 
 def _behavioral_for_role(jd_analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
-    resp = jd_analysis.get("key_responsibilities") or []
+    resp = sanitize_jd_responsibilities(jd_analysis.get("key_responsibilities") or [])
     short_resp = _short_label(resp[0], 8) if resp else ""
     role = _short_label(jd_analysis.get("role_title") or jd_analysis.get("title") or "", 4)
 
     questions: List[Dict[str, Any]] = []
-    if short_resp and len(short_resp) > 10:
+    if short_resp and len(short_resp) > 10 and is_actionable_responsibility(short_resp):
         text = f"Tell me about a time you had to {short_resp.lower()} under pressure."
         questions.append(_question_item(
             text,
@@ -216,8 +212,11 @@ def generate_targeted_interview_kit(
 
     Technical + experience are prioritized; culture fit is omitted.
     """
-    profile = profile or {}
-    jd_analysis = jd_analysis or {}
+    profile = sanitize_candidate_profile(profile or {})
+    jd_analysis = dict(jd_analysis or {})
+    jd_analysis["key_responsibilities"] = sanitize_jd_responsibilities(
+        jd_analysis.get("key_responsibilities") or []
+    )
     skill_analysis = skill_analysis or {}
 
     matched = _normalize_skill_list(

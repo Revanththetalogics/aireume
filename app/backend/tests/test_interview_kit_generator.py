@@ -72,6 +72,35 @@ class TestGenerateTargetedInterviewKit:
         exp_texts = [q["text"] for q in kit["experience_deep_dive_questions"]]
         assert any("Acme Corp" in t for t in exp_texts)
 
+    def test_corrupted_profile_fields_are_cleaned(self):
+        kit = self._kit(
+            profile={
+                "name": "Kalpana {",
+                "current_role": "Recruiter {",
+                "current_company": "ValueLabs {",
+                "total_effective_years": 8,
+                "work_experience": [{"title": "ValueLabs {", "company": ""}],
+            },
+            jd_analysis={
+                "role_title": "Talent Acquisition",
+                "domain": "HR",
+                "required_skills": ["Stakeholder Management"],
+                "key_responsibilities": [
+                    "job description: talent acquisition specialist / lead talent",
+                    "Manage stakeholder expectations during offer negotiations",
+                ],
+            },
+            skill_analysis={
+                "matched_required": [],
+                "missing_required": ["Stakeholder Management", "5-12 years IT recruitment experience"],
+            },
+        )
+        exp_texts = " ".join(q["text"] for q in kit["experience_deep_dive_questions"])
+        assert "{" not in exp_texts
+        assert "ValueLabs" in exp_texts or "your last role" in exp_texts
+        behavioral = " ".join(q["text"] for q in kit["behavioral_questions"])
+        assert "job description:" not in behavioral.lower()
+
     def test_refresh_on_existing_analysis(self):
         analysis = {
             "candidate_profile": {"name": "Test", "current_role": "Dev"},

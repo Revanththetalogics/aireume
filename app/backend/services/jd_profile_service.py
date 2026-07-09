@@ -100,7 +100,8 @@ def merge_jd_profile(rules_jd: Dict[str, Any], llm_profile: Dict[str, Any]) -> D
     merged["relevant_education_fields"] = llm_profile.get("relevant_education_fields", []) or merged.get("relevant_education_fields", [])
 
     merged["_profile_source"] = "merged"
-    return merged
+    from app.backend.services.profile_text_sanitizer import sanitize_jd_analysis
+    return sanitize_jd_analysis(merged)
 
 
 def _dedupe_skills(skills: List[str]) -> List[str]:
