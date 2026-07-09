@@ -377,53 +377,41 @@ def platform_admin_client_with_plans(platform_admin_client, seed_subscription_pl
 
 @pytest.fixture
 def mock_ollama_communication():
-    """Mock Ollama returning a valid communication analysis JSON."""
-    response_body = json.dumps({
-        "communication_score": 78,
-        "confidence_level": "high",
-        "clarity_score": 82,
-        "articulation_score": 75,
-        "key_phrases": ["strong technical background", "team player"],
-        "strengths": ["Clear articulation", "Good pacing"],
-        "red_flags": [],
-        "summary": "Candidate communicates clearly and confidently.",
-    })
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": response_body}
-    mock_resp.raise_for_status = MagicMock()
-
-    with patch("app.backend.services.video_service.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client.post = AsyncMock(return_value=mock_resp)
-        mock_client_cls.return_value = mock_client
-        yield mock_client
+    """Mock communication analysis LLM to return a valid JSON result."""
+    with patch(
+        "app.backend.services.app_llm_client.generate_app_json",
+        new_callable=AsyncMock,
+        return_value={
+            "communication_score": 78,
+            "confidence_level": "high",
+            "clarity_score": 82,
+            "articulation_score": 75,
+            "key_phrases": ["strong technical background", "team player"],
+            "strengths": ["Clear articulation", "Good pacing"],
+            "red_flags": [],
+            "summary": "Candidate communicates clearly and confidently.",
+        },
+    ) as mock:
+        yield mock
 
 
 @pytest.fixture
 def mock_ollama_malpractice():
-    """Mock Ollama returning a valid malpractice analysis JSON."""
-    response_body = json.dumps({
-        "malpractice_score": 15,
-        "malpractice_risk": "low",
-        "reliability_rating": "trustworthy",
-        "flags": [],
-        "positive_signals": ["Natural filler words present", "Self-corrections observed"],
-        "overall_assessment": "No significant malpractice signals detected.",
-        "follow_up_questions": [],
-    })
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": response_body}
-    mock_resp.raise_for_status = MagicMock()
-
-    with patch("app.backend.services.video_service.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client.post = AsyncMock(return_value=mock_resp)
-        mock_client_cls.return_value = mock_client
-        yield mock_client
+    """Mock malpractice analysis LLM to return a valid JSON result."""
+    with patch(
+        "app.backend.services.app_llm_client.generate_app_json",
+        new_callable=AsyncMock,
+        return_value={
+            "malpractice_score": 15,
+            "malpractice_risk": "low",
+            "reliability_rating": "trustworthy",
+            "flags": [],
+            "positive_signals": ["Natural filler words present", "Self-corrections observed"],
+            "overall_assessment": "No significant malpractice signals detected.",
+            "follow_up_questions": [],
+        },
+    ) as mock:
+        yield mock
 
 
 @pytest.fixture
@@ -666,22 +654,16 @@ def sample_plain_transcript():
 
 @pytest.fixture
 def mock_ollama_email():
-    """Mock Ollama returning a valid email JSON."""
-    response_body = json.dumps({
-        "subject": "Your Application — Senior Software Engineer",
-        "body": "Dear John,\n\nCongratulations! We'd like to move forward.\n\nBest regards",
-    })
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": response_body}
-    mock_resp.raise_for_status = MagicMock()
-
-    with patch("app.backend.routes.email_gen.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client.post = AsyncMock(return_value=mock_resp)
-        mock_client_cls.return_value = mock_client
-        yield mock_client
+    """Mock email generation LLM to return a valid JSON result."""
+    with patch(
+        "app.backend.services.app_llm_client.generate_app_json",
+        new_callable=AsyncMock,
+        return_value={
+            "subject": "Your Application — Senior Software Engineer",
+            "body": "Dear John,\n\nCongratulations! We'd like to move forward.\n\nBest regards",
+        },
+    ) as mock:
+        yield mock
 
 
 # ─── Subscription Fixtures ───────────────────────────────────────────────────────

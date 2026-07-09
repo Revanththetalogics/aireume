@@ -6,10 +6,21 @@ Tests for video_service.py:
   - analyze_malpractice (mocked Ollama)
   - _run_full_analysis (mocked transcription + Ollama)
 """
-import json
 import pytest
 import asyncio
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock
+
+VIDEO_LLM_PATCH = "app.backend.services.app_llm_client.generate_app_json"
+
+
+def mock_video_llm(return_value=None, side_effect=None):
+    """Patch video analysis LLM calls to run offline."""
+    kwargs = {"new_callable": AsyncMock}
+    if side_effect is not None:
+        kwargs["side_effect"] = side_effect
+    else:
+        kwargs["return_value"] = return_value
+    return patch(VIDEO_LLM_PATCH, **kwargs)
 
 
 def _arun(coro):
@@ -161,7 +172,7 @@ class TestAnalyzeCommunication:
         assert result["communication_score"] == 50
 
     def test_successful_ollama_response(self):
-        response_body = json.dumps({
+        llm_response = {
             "communication_score": 82,
             "confidence_level": "high",
             "clarity_score": 85,
@@ -170,18 +181,9 @@ class TestAnalyzeCommunication:
             "strengths": ["Clear and concise"],
             "red_flags": [],
             "summary": "Excellent communicator.",
-        })
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"response": response_body}
-        mock_resp.raise_for_status = MagicMock()
+        }
 
-        with patch("app.backend.services.video_service.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client.post = AsyncMock(return_value=mock_resp)
-            MockClient.return_value = mock_client
-
+        with mock_video_llm(llm_response):
             result = _arun(
                 analyze_communication("I have five years of experience building large scale systems at top tech companies.", 60.0)
             )
@@ -192,13 +194,7 @@ class TestAnalyzeCommunication:
         assert "Excellent communicator" in result["summary"]
 
     def test_ollama_failure_returns_default(self):
-        with patch("app.backend.services.video_service.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client.post = AsyncMock(side_effect=Exception("Connection refused"))
-            MockClient.return_value = mock_client
-
+        with mock_video_llm(side_effect=Exception("Connection refused")):
             result = _arun(
                 analyze_communication("Some reasonable transcript with enough words here.", 60.0)
             )
@@ -207,21 +203,18 @@ class TestAnalyzeCommunication:
         assert result["confidence_level"] == "medium"
 
     def test_wpm_calculated_correctly(self):
-        response_body = json.dumps({"communication_score": 70, "confidence_level": "medium",
-                                     "clarity_score": 70, "articulation_score": 70,
-                                     "key_phrases": [], "strengths": [], "red_flags": [],
-                                     "summary": "OK."})
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"response": response_body}
-        mock_resp.raise_for_status = MagicMock()
+        llm_response = {
+            "communication_score": 70,
+            "confidence_level": "medium",
+            "clarity_score": 70,
+            "articulation_score": 70,
+            "key_phrases": [],
+            "strengths": [],
+            "red_flags": [],
+            "summary": "OK.",
+        }
 
-        with patch("app.backend.services.video_service.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client.post = AsyncMock(return_value=mock_resp)
-            MockClient.return_value = mock_client
-
+        with mock_video_llm(llm_response):
             transcript = " ".join(["word"] * 120)  # 120 words
             result = _arun(
                 analyze_communication(transcript, 60.0)  # 60 seconds = 1 minute
@@ -246,7 +239,7 @@ class TestAnalyzeMalpractice:
         assert any(f["type"] == "suspicious_pause" for f in result["flags"])
 
     def test_successful_malpractice_analysis_low_risk(self):
-        response_body = json.dumps({
+        llm_response = {
             "malpractice_score": 10,
             "malpractice_risk": "low",
             "reliability_rating": "trustworthy",
@@ -254,18 +247,9 @@ class TestAnalyzeMalpractice:
             "positive_signals": ["Natural hesitation", "Self-corrections"],
             "overall_assessment": "No malpractice detected.",
             "follow_up_questions": [],
-        })
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"response": response_body}
-        mock_resp.raise_for_status = MagicMock()
+        }
 
-        with patch("app.backend.services.video_service.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client.post = AsyncMock(return_value=mock_resp)
-            MockClient.return_value = mock_client
-
+        with mock_video_llm(llm_response):
             result = _arun(
                 analyze_malpractice(
                     "I um, yeah so basically I have about five years of, uh, experience.",
@@ -281,7 +265,7 @@ class TestAnalyzeMalpractice:
         assert len(result["positive_signals"]) == 2
 
     def test_high_risk_malpractice_with_pauses_merged(self):
-        response_body = json.dumps({
+        llm_response = {
             "malpractice_score": 85,
             "malpractice_risk": "high",
             "reliability_rating": "unreliable",
@@ -289,19 +273,10 @@ class TestAnalyzeMalpractice:
             "positive_signals": [],
             "overall_assessment": "High risk of malpractice.",
             "follow_up_questions": ["Explain your methodology in detail."],
-        })
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"response": response_body}
-        mock_resp.raise_for_status = MagicMock()
+        }
         pauses = [{"at_seconds": 45, "duration_s": 30, "before_text": "explain", "after_text": "sure", "severity": "high", "formatted_at": "0:45"}]
 
-        with patch("app.backend.services.video_service.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client.post = AsyncMock(return_value=mock_resp)
-            MockClient.return_value = mock_client
-
+        with mock_video_llm(llm_response):
             result = _arun(
                 analyze_malpractice(
                     "Every answer is perfectly structured with no hesitation whatsoever.",
@@ -318,13 +293,7 @@ class TestAnalyzeMalpractice:
 
     def test_ollama_failure_returns_pause_default(self):
         pauses = [{"at_seconds": 30, "duration_s": 15, "before_text": "Q", "after_text": "A", "severity": "medium", "formatted_at": "0:30"}]
-        with patch("app.backend.services.video_service.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client.post = AsyncMock(side_effect=Exception("timeout"))
-            MockClient.return_value = mock_client
-
+        with mock_video_llm(side_effect=Exception("timeout")):
             result = _arun(
                 analyze_malpractice("Some transcript text.", pauses,
                                     {"low_confidence_count": 0, "high_no_speech_count": 0, "speech_rate_variance": 0, "total_segments": 3}, 60)
