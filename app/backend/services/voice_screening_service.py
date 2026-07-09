@@ -14,20 +14,15 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers, use_gemini_for_analysis
 from app.backend.models.db_models import (
     VoiceTenantConfig, VoiceScreeningSession, VoiceTranscriptEntry,
     Candidate, RoleTemplate,
 )
 
 logger = logging.getLogger(__name__)
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 
 
 # ─── Dynamic Question Generation ──────────────────────────────────────────────
@@ -62,41 +57,40 @@ async def generate_screening_questions(jd_text: str, must_have_skills: list, jd_
     )
 
     try:
-        semaphore = get_ollama_semaphore()
-        async with semaphore:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": f"{system_prompt}\n\n{user_msg}",
-                        "stream": False,
-                        "options": {"temperature": 0.7, "num_predict": 512},
-                    },
-                    headers=get_ollama_headers(),
-                )
-                resp.raise_for_status()
-                response_text = resp.json().get("response", "")
+        from app.backend.services.app_llm_client import generate_app_llm, parse_json_from_llm
+        import json as _json
 
-        # Try JSON parse first
-        try:
-            questions = json.loads(response_text)
+        response_text = await generate_app_llm(
+            f"{system_prompt}\n\n{user_msg}",
+            max_output_tokens=512,
+            temperature=0.7,
+            timeout=120.0,
+            json_mode=True,
+            log_label="screening_questions",
+        )
+        if response_text:
+            try:
+                questions = _json.loads(response_text)
+            except _json.JSONDecodeError:
+                questions = parse_json_from_llm(response_text)
             if isinstance(questions, list) and all(isinstance(q, str) for q in questions):
                 return questions[:5]
-        except json.JSONDecodeError:
-            pass
-
-        # Fallback: extract question lines
-        lines = [
-            line.strip().lstrip("0123456789.-) ")
-            for line in response_text.split("\n")
-            if line.strip() and "?" in line
-        ]
-        return lines[:5] if lines else [f"Tell me about your experience with {s}." for s in must_have_skills[:3]]
-
+            if isinstance(questions, dict):
+                for key in ("questions", "screening_questions"):
+                    items = questions.get(key)
+                    if isinstance(items, list) and all(isinstance(q, str) for q in items):
+                        return items[:5]
+            lines = [
+                line.strip().lstrip("0123456789.-) ")
+                for line in response_text.split("\n")
+                if line.strip() and "?" in line
+            ]
+            if lines:
+                return lines[:5]
     except Exception as e:
         logger.error("Question generation failed: %s", e, exc_info=True)
-        return [f"Tell me about your experience with {s}." for s in must_have_skills[:3]]
+
+    return [f"Tell me about your experience with {s}." for s in must_have_skills[:3]]
 
 
 # ─── Answer Quality Evaluation ────────────────────────────────────────────────
@@ -129,36 +123,26 @@ async def evaluate_answer_quality(question: str, answer: str, skill: str = "") -
     )
 
     try:
-        semaphore = get_ollama_semaphore()
-        async with semaphore:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": f"{system_prompt}\n\n{user_msg}",
-                        "stream": False,
-                        "options": {"temperature": 0.3, "num_predict": 256},
-                    },
-                    headers=get_ollama_headers(),
-                )
-                resp.raise_for_status()
-                response_text = resp.json().get("response", "")
+        from app.backend.services.app_llm_client import generate_app_json
 
-        try:
-            result = json.loads(response_text)
+        result = await generate_app_json(
+            f"{system_prompt}\n\n{user_msg}",
+            max_output_tokens=256,
+            temperature=0.3,
+            timeout=60.0,
+            log_label="answer_quality",
+        )
+        if result:
             return {
                 "quality": result.get("quality", "adequate"),
                 "score": min(5, max(1, int(result.get("score", 3)))),
                 "should_follow_up": result.get("should_follow_up", False),
                 "follow_up_prompt": result.get("follow_up_prompt"),
             }
-        except (json.JSONDecodeError, ValueError):
-            return {"quality": "adequate", "score": 3, "should_follow_up": False, "follow_up_prompt": None}
-
     except Exception as e:
         logger.error("Answer evaluation failed: %s", e, exc_info=True)
-        return {"quality": "adequate", "score": 3, "should_follow_up": False, "follow_up_prompt": None}
+
+    return {"quality": "adequate", "score": 3, "should_follow_up": False, "follow_up_prompt": None}
 
 
 # ─── Post-Call Assessment ─────────────────────────────────────────────────────
@@ -257,37 +241,24 @@ async def generate_post_call_assessment(
     )
 
     try:
-        response_text = ""
-        if use_gemini_for_analysis():
-            from app.backend.services.llm_service import gemini_generate_content
+        from app.backend.services.app_llm_client import generate_app_llm, parse_json_from_llm
 
-            response_text = await gemini_generate_content(
-                user_msg,
-                system=system_prompt,
-                max_output_tokens=2048,
-                temperature=0.2,
-            )
-        else:
-            semaphore = get_ollama_semaphore()
-            async with semaphore:
-                async with httpx.AsyncClient(timeout=180.0) as client:
-                    resp = await client.post(
-                        f"{OLLAMA_BASE_URL}/api/generate",
-                        json={
-                            "model": OLLAMA_MODEL,
-                            "prompt": f"{system_prompt}\n\n{user_msg}",
-                            "stream": False,
-                            "options": {"temperature": 0.3, "num_predict": 2048},
-                        },
-                        headers=get_ollama_headers(),
-                    )
-                    resp.raise_for_status()
-                    response_text = resp.json().get("response", "")
+        response_text = await generate_app_llm(
+            user_msg,
+            system=system_prompt,
+            max_output_tokens=2048,
+            temperature=0.2,
+            timeout=180.0,
+            json_mode=True,
+            log_label="post_call_assessment",
+        )
+        if not response_text:
+            return _fallback_assessment(candidate_name)
 
         try:
             result = json.loads(response_text)
         except json.JSONDecodeError:
-            result = _fallback_assessment(candidate_name)
+            result = parse_json_from_llm(response_text) or _fallback_assessment(candidate_name)
 
         # Validate and normalize
         valid_recommendations = {"strong_yes", "yes", "maybe", "no", "strong_no"}

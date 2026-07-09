@@ -19,7 +19,6 @@ from app.backend.models.schemas import (
     EvaluatorInfo, ScorecardDimension, ScorecardOut,
     DebriefRequest, DebriefContent, DebriefResponse,
 )
-from app.backend.services.llm_service import LLMService, get_ollama_semaphore
 
 logger = logging.getLogger(__name__)
 
@@ -336,20 +335,19 @@ Generate a JSON response with exactly this structure:
 
 IMPORTANT: Return ONLY valid JSON, no markdown, no explanation."""
 
-    # 6. Call LLM via the same Ollama service used elsewhere
+    # 6. Call LLM (Gemini primary, Ollama fallback)
 
     debrief_data = None
     try:
-        llm_service = LLMService()
-        sem = get_ollama_semaphore()
-        async with sem:
-            llm_response = await llm_service.generate_text(prompt)
-        # Parse JSON response
-        json_match = re.search(r'\{[\s\S]*\}', llm_response)
-        if json_match:
-            debrief_data = json.loads(json_match.group())
-        else:
-            debrief_data = json.loads(llm_response)
+        from app.backend.services.app_llm_client import generate_app_json
+
+        debrief_data = await generate_app_json(
+            prompt,
+            max_output_tokens=1024,
+            temperature=0.3,
+            timeout=60.0,
+            log_label="live_screen_debrief",
+        )
     except Exception as e:
         logger.error("LLM debrief generation failed: %s", e)
         debrief_data = None

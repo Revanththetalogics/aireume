@@ -1,5 +1,6 @@
 """Recruiter orchestrator — main service for AI Recruiter interviews."""
 
+import asyncio
 import json
 import logging
 import uuid
@@ -296,10 +297,12 @@ class RecruiterOrchestrator:
             "jd_text": context.get("role", {}).get("jd_text", ""),
         }
 
-        technical = await technical_eval.evaluate(questions_responses, jd_context)
-        behavioral = await behavioral_eval.evaluate(questions_responses, company_context)
-        communication = await communication_eval.evaluate(transcript, {})
-        cultural = await cultural_eval.evaluate(questions_responses, company_context)
+        technical, behavioral, communication, cultural = await asyncio.gather(
+            technical_eval.evaluate(questions_responses, jd_context),
+            behavioral_eval.evaluate(questions_responses, company_context),
+            communication_eval.evaluate(transcript, {}),
+            cultural_eval.evaluate(questions_responses, company_context),
+        )
 
         # Extract motivation and integrity scores from per-answer data
         motivation_score = self._extract_dimension_score(questions_responses, "motivation", cultural.get("score", 50))
@@ -366,8 +369,14 @@ class RecruiterOrchestrator:
             communication_evidence=json.dumps(communication, default=str),
             cultural_fit_score=cultural.get("score"),
             cultural_fit_evidence=json.dumps(cultural, default=str),
-            risk_signals_validated=json.dumps(adjusted_fitment.get("risks_validated", []), default=str),
-            gaps_explained=json.dumps(adjusted_fitment.get("gaps_explained", []), default=str),
+            risk_signals_validated=json.dumps(
+                {"signals": adjusted_fitment.get("risks_validated", [])},
+                default=str,
+            ),
+            gaps_explained=json.dumps(
+                {"items": adjusted_fitment.get("gaps_explained", [])},
+                default=str,
+            ),
             original_fit_score=original_fitment.get("score"),
             adjusted_fit_score=adjusted_fitment.get("adjusted_score"),
             adjustment_reasoning=adjusted_fitment.get("reasoning"),

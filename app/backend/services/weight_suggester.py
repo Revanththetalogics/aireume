@@ -10,33 +10,12 @@ Analyzes job descriptions and suggests optimal scoring weights based on:
 Provides intelligent, context-aware weight recommendations with reasoning.
 """
 
-import json
 import logging
 from typing import Dict, Optional, Any
-from langchain_ollama import ChatOllama
+
 from app.backend.services.weight_mapper import NEW_DEFAULT_WEIGHTS, normalize_weights
-import os
 
 log = logging.getLogger(__name__)
-
-
-# ─── LLM Configuration ────────────────────────────────────────────────────────
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-# Use same model as main application (gemma4:31b-cloud for Ollama Cloud)
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
-
-def _get_llm() -> ChatOllama:
-    """Get LLM instance for weight suggestion"""
-    return ChatOllama(
-        model=OLLAMA_MODEL,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.0,
-        format="json",
-        num_predict=800,
-        num_ctx=4096,
-        request_timeout=60.0,
-    )
 
 
 # ─── LLM Prompt for Weight Suggestion ────────────────────────────────────────
@@ -103,118 +82,87 @@ GUIDELINES:
 """
 
 
-def suggest_weights_for_jd(jd_text: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
+def _normalize_weight_suggestion(result: dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Validate and normalize a parsed LLM weight suggestion."""
+    required_fields = ["role_category", "suggested_weights", "reasoning"]
+    if not all(field in result for field in required_fields):
+        log.warning("LLM response missing required fields: %s", result)
+        return None
+
+    suggested_weights = result.get("suggested_weights", {})
+    if not isinstance(suggested_weights, dict):
+        log.warning("suggested_weights is not a dictionary")
+        return None
+
+    required_weight_keys = [
+        "core_competencies",
+        "experience",
+        "domain_fit",
+        "education",
+        "career_trajectory",
+        "role_excellence",
+        "risk",
+    ]
+
+    for key in required_weight_keys:
+        if key not in suggested_weights:
+            log.warning("Missing weight key: %s, using default", key)
+            suggested_weights[key] = NEW_DEFAULT_WEIGHTS.get(key, 0.10)
+
+    result["suggested_weights"] = normalize_weights(suggested_weights)
+    result.setdefault("seniority_level", "unknown")
+    result.setdefault("key_requirements", [])
+    result.setdefault("role_excellence_label", "Role-Specific Excellence")
+    result.setdefault("confidence", 0.75)
+    result.setdefault("weight_evidence", {})
+    result.setdefault("weight_delta_reasons", {})
+    for key in required_weight_keys:
+        if key not in result["weight_evidence"]:
+            result["weight_evidence"][key] = []
+        if key not in result["weight_delta_reasons"]:
+            result["weight_delta_reasons"][key] = ""
+
+    log.info(
+        "Weight suggestion successful: %s role, confidence: %s",
+        result["role_category"],
+        result["confidence"],
+    )
+    return result
+
+
+async def suggest_weights_for_jd(jd_text: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
     """
     Analyze job description and suggest optimal scoring weights using LLM.
-    
-    Args:
-        jd_text: Job description text
-        timeout: LLM timeout in seconds
 
-    Returns:
-        Dictionary containing:
-        - role_category: Detected role type
-        - seniority_level: Detected seniority
-        - suggested_weights: Optimal weights for this role
-        - role_excellence_label: Adaptive label for role_excellence factor
-        - reasoning: Explanation for the suggestions
-        - confidence: Confidence score (0.0-1.0)
-
-        Returns None if LLM fails or returns invalid data
+    Returns None if LLM fails or returns invalid data.
     """
     if not jd_text or len(jd_text.strip()) < 50:
         log.warning("JD text too short for weight suggestion, using defaults")
         return None
-    
+
     try:
-        llm = _get_llm()
-        prompt = WEIGHT_SUGGESTER_PROMPT.format(jd_text=jd_text[:3000])  # Limit JD length
-        
+        from app.backend.services.app_llm_client import generate_app_json
+
         log.info("Requesting weight suggestions from LLM")
-        response = llm.invoke(prompt).content
-        
-        if not response or not response.strip():
-            log.warning("Empty response from LLM for weight suggestion")
+        result = await generate_app_json(
+            WEIGHT_SUGGESTER_PROMPT.format(jd_text=jd_text[:3000]),
+            max_output_tokens=800,
+            temperature=0.0,
+            timeout=float(timeout),
+            log_label="weight_suggester",
+        )
+        if not result:
+            log.warning("Empty or invalid response from LLM for weight suggestion")
             return None
-        
-        # Parse JSON response
-        try:
-            result = json.loads(response.strip())
-        except json.JSONDecodeError as e:
-            log.warning(f"Failed to parse LLM weight suggestion as JSON: {e}")
-            # Try to extract JSON from markdown code blocks
-            if "```json" in response:
-                json_start = response.find("```json") + 7
-                json_end = response.find("```", json_start)
-                if json_end > json_start:
-                    try:
-                        result = json.loads(response[json_start:json_end].strip())
-                    except json.JSONDecodeError:
-                        return None
-                else:
-                    return None
-            else:
-                return None
-        
-        # Validate required fields
-        required_fields = ["role_category", "suggested_weights", "reasoning"]
-        if not all(field in result for field in required_fields):
-            log.warning(f"LLM response missing required fields: {result}")
-            return None
-        
-        # Validate and normalize weights
-        suggested_weights = result.get("suggested_weights", {})
-        if not isinstance(suggested_weights, dict):
-            log.warning("suggested_weights is not a dictionary")
-            return None
-        
-        # Ensure all required weight keys are present
-        required_weight_keys = ["core_competencies", "experience", "domain_fit", 
-                                "education", "career_trajectory", "role_excellence", "risk"]
-        
-        for key in required_weight_keys:
-            if key not in suggested_weights:
-                log.warning(f"Missing weight key: {key}, using default")
-                suggested_weights[key] = NEW_DEFAULT_WEIGHTS.get(key, 0.10)
-        
-        # Normalize weights to ensure they sum to 1.0
-        normalized_weights = normalize_weights(suggested_weights)
-        result["suggested_weights"] = normalized_weights
-        
-        # Set defaults for optional fields
-        result.setdefault("seniority_level", "unknown")
-        result.setdefault("key_requirements", [])
-        result.setdefault("role_excellence_label", "Role-Specific Excellence")
-        result.setdefault("confidence", 0.75)
-        
-        # Ensure weight_evidence and weight_delta_reasons exist with defaults
-        result.setdefault("weight_evidence", {})
-        result.setdefault("weight_delta_reasons", {})
-        for key in required_weight_keys:
-            if key not in result["weight_evidence"]:
-                result["weight_evidence"][key] = []
-            if key not in result["weight_delta_reasons"]:
-                result["weight_delta_reasons"][key] = ""
-        
-        log.info(f"Weight suggestion successful: {result['role_category']} role, "
-                f"confidence: {result['confidence']}")
-        
-        return result
-        
+        return _normalize_weight_suggestion(result)
     except Exception as e:
-        log.exception(f"Error getting weight suggestions from LLM: {e}")
+        log.exception("Error getting weight suggestions from LLM: %s", e)
         return None
 
 
 def get_default_weights_for_category(role_category: str) -> Dict[str, float]:
     """
     Get sensible default weights for a role category when LLM is unavailable.
-    
-    Args:
-        role_category: Role type (technical/sales/hr/marketing/etc)
-        
-    Returns:
-        Dictionary of default weights for this category
     """
     defaults = {
         "technical": {
@@ -223,7 +171,7 @@ def get_default_weights_for_category(role_category: str) -> Dict[str, float]:
             "domain_fit": 0.20,
             "education": 0.05,
             "career_trajectory": 0.10,
-            "role_excellence": 0.15,  # Architecture/design
+            "role_excellence": 0.15,
             "risk": -0.10,
         },
         "sales": {
@@ -232,16 +180,16 @@ def get_default_weights_for_category(role_category: str) -> Dict[str, float]:
             "domain_fit": 0.15,
             "education": 0.05,
             "career_trajectory": 0.10,
-            "role_excellence": 0.10,  # Revenue achievement
+            "role_excellence": 0.10,
             "risk": -0.10,
         },
         "hr": {
             "core_competencies": 0.30,
             "experience": 0.25,
             "domain_fit": 0.15,
-            "education": 0.10,  # Certifications matter
+            "education": 0.10,
             "career_trajectory": 0.15,
-            "role_excellence": 0.05,  # Strategic impact
+            "role_excellence": 0.05,
             "risk": -0.10,
         },
         "marketing": {
@@ -250,7 +198,7 @@ def get_default_weights_for_category(role_category: str) -> Dict[str, float]:
             "domain_fit": 0.20,
             "education": 0.05,
             "career_trajectory": 0.10,
-            "role_excellence": 0.10,  # Campaign strategy
+            "role_excellence": 0.10,
             "risk": -0.10,
         },
         "operations": {
@@ -259,33 +207,25 @@ def get_default_weights_for_category(role_category: str) -> Dict[str, float]:
             "domain_fit": 0.15,
             "education": 0.10,
             "career_trajectory": 0.15,
-            "role_excellence": 0.05,  # Process optimization
+            "role_excellence": 0.05,
             "risk": -0.10,
         },
         "leadership": {
             "core_competencies": 0.25,
-            "experience": 0.30,  # Experience critical
+            "experience": 0.30,
             "domain_fit": 0.20,
             "education": 0.05,
             "career_trajectory": 0.10,
-            "role_excellence": 0.10,  # Strategic vision
+            "role_excellence": 0.10,
             "risk": -0.10,
         },
     }
-    
+
     return defaults.get(role_category.lower(), NEW_DEFAULT_WEIGHTS.copy())
 
 
 def get_role_excellence_label(role_category: str) -> str:
-    """
-    Get the appropriate label for role_excellence factor based on role category.
-    
-    Args:
-        role_category: Role type
-        
-    Returns:
-        Human-readable label for role_excellence
-    """
+    """Get the appropriate label for role_excellence factor based on role category."""
     labels = {
         "technical": "System Design & Architecture",
         "sales": "Revenue Achievement & Quota Attainment",
@@ -294,24 +234,14 @@ def get_role_excellence_label(role_category: str) -> str:
         "operations": "Process Optimization & Efficiency",
         "leadership": "Strategic Vision & Leadership Impact",
     }
-    
+
     return labels.get(role_category.lower(), "Role-Specific Excellence")
 
 
 def create_fallback_suggestion(jd_text: str, role_category: str = "technical") -> Dict[str, Any]:
-    """
-    Create a fallback weight suggestion when LLM is unavailable.
-    
-    Args:
-        jd_text: Job description text (for basic analysis)
-        role_category: Assumed role category
-        
-    Returns:
-        Basic weight suggestion with defaults
-    """
-    # Simple keyword-based role detection
+    """Create a fallback weight suggestion when LLM is unavailable."""
     jd_lower = jd_text.lower()
-    
+
     if any(word in jd_lower for word in ["engineer", "developer", "architect", "devops", "backend", "frontend"]):
         detected_category = "technical"
     elif any(word in jd_lower for word in ["sales", "account executive", "bdr", "revenue"]):
@@ -322,7 +252,7 @@ def create_fallback_suggestion(jd_text: str, role_category: str = "technical") -
         detected_category = "marketing"
     else:
         detected_category = role_category
-    
+
     return {
         "role_category": detected_category,
         "seniority_level": "unknown",

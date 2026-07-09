@@ -54,6 +54,7 @@ async def gemini_generate_content(
     system: str | None = None,
     max_output_tokens: int = 1500,
     temperature: float = 0.1,
+    response_mime_type: str | None = None,
 ) -> str:
     """Call Google Gemini generateContent API (AI Studio / API key auth)."""
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -62,12 +63,15 @@ async def gemini_generate_content(
 
     model = get_gemini_model()
     url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
+    generation_config: dict = {
+        "temperature": temperature,
+        "maxOutputTokens": max_output_tokens,
+    }
+    if response_mime_type:
+        generation_config["responseMimeType"] = response_mime_type
     body: dict = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": max_output_tokens,
-        },
+        "generationConfig": generation_config,
     }
     if system:
         body["systemInstruction"] = {"parts": [{"text": system}]}
@@ -158,6 +162,31 @@ def create_gemini_chat_llm(
     if response_mime_type:
         kwargs["response_mime_type"] = response_mime_type
     return ChatGoogleGenerativeAI(**kwargs)
+
+
+def use_gemini_for_recruiter() -> bool:
+    """Recruiter agents use Gemini when GEMINI_API_KEY is set."""
+    return use_gemini_for_analysis()
+
+
+async def generate_recruiter_llm(
+    prompt: str,
+    *,
+    max_output_tokens: int = 1024,
+    temperature: float = 0.2,
+    timeout: float = 120.0,
+) -> str | None:
+    """LLM text generation for recruiter agents (Gemini primary, Ollama fallback)."""
+    from app.backend.services.app_llm_client import generate_app_llm
+
+    return await generate_app_llm(
+        prompt,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+        timeout=timeout,
+        json_mode=True,
+        log_label="recruiter",
+    )
 
 
 # ─── Ollama Cloud Detection & Headers ────────────────────────────────────────
@@ -368,10 +397,16 @@ class LLMService:
         return self._fallback_response("Max retries exceeded")
 
     async def generate_text(self, prompt: str) -> str:
-        """Public interface for text generation via Ollama.
+        """Public interface for text generation (Gemini primary, Ollama fallback)."""
+        from app.backend.services.app_llm_client import generate_app_llm
 
-        Use this instead of _call_ollama for any non-resume-analysis prompts."""
-        return await self._call_ollama(prompt)
+        text = await generate_app_llm(
+            prompt,
+            max_output_tokens=2048,
+            temperature=0.3,
+            log_label="generate_text",
+        )
+        return text or ""
 
     async def extract_jd_profile(self, job_description: str, timeout: Optional[float] = None) -> Dict[str, Any]:
         """Extract a structured, domain-agnostic profile from a job description.

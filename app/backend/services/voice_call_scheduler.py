@@ -235,7 +235,7 @@ def execute_scheduled_call(session_id: int):
         resp = httpx.post(
             f"{VOICE_AGENT_URL}/dispatch",
             json=dispatch_payload,
-            timeout=30.0,
+            timeout=60.0,
         )
         resp.raise_for_status()
         result = resp.json()

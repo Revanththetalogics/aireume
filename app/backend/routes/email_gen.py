@@ -1,10 +1,8 @@
 """
-Email template generation using Ollama — draft shortlist/rejection/screening-call emails.
+Email template generation — draft shortlist/rejection/screening-call emails.
 """
 import json
-import httpx
 import logging
-import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -12,12 +10,11 @@ from app.backend.db.database import get_db
 from app.backend.middleware.auth import get_current_user
 from app.backend.models.db_models import Candidate, ScreeningResult, User
 from app.backend.models.schemas import EmailGenRequest, EmailGenResponse
+from app.backend.services.app_llm_client import generate_app_json
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/email", tags=["email"])
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 EMAIL_PROMPTS = {
     "shortlist": (
@@ -78,24 +75,19 @@ async def generate_email(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={
-                    "model": os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud"),
-                    "prompt": prompt,
-                    "stream": False,
-                    "format": "json",
-                    "options": {"num_predict": 350, "temperature": 0.4},
-                }
-            )
-            resp.raise_for_status()
-            raw = resp.json().get("response", "{}")
-            parsed = json.loads(raw)
+        parsed = await generate_app_json(
+            prompt,
+            max_output_tokens=350,
+            temperature=0.4,
+            timeout=30.0,
+            log_label="email_gen",
+        )
+        if parsed:
             return EmailGenResponse(
                 subject=parsed.get("subject", f"Regarding your application for {role_line}"),
                 body=parsed.get("body", "Thank you for applying. We will be in touch shortly."),
             )
+        raise ValueError("empty email LLM response")
     except Exception as e:
         # Fallback templates
         logger.warning("Ollama email generation failed, using fallback template: %s", e)

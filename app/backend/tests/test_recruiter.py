@@ -84,6 +84,37 @@ class TestRecruiterRoutes:
         assert data["overall_score"] == 80
         assert data["recommendation"] == "hire"
 
+    def test_get_scorecard_legacy_list_risk_signals(self, client, auth_headers, db_session, recruiter_session):
+        """Legacy scorecards stored risk_signals_validated as a JSON list."""
+        import json
+        import uuid
+
+        from app.backend.models.db_models import RecruiterScorecard
+
+        scorecard = RecruiterScorecard(
+            id=str(uuid.uuid4()),
+            session_id=recruiter_session.id,
+            tenant_id=recruiter_session.tenant_id,
+            candidate_id=recruiter_session.candidate_id,
+            overall_score=56,
+            recommendation="maybe",
+            risk_signals_validated=json.dumps(
+                ["Candidate has 12.7y experience vs 5y required"],
+            ),
+        )
+        recruiter_session.status = "completed"
+        db_session.add(scorecard)
+        db_session.commit()
+
+        response = client.get(
+            f"/api/recruiter/sessions/{recruiter_session.id}/scorecard",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["risk_signals_validated"] == {
+            "signals": ["Candidate has 12.7y experience vs 5y required"],
+        }
+
     def test_cancel_session(self, client, auth_headers, recruiter_session):
         """Test cancelling a scheduled session."""
         response = client.post(f"/api/recruiter/sessions/{recruiter_session.id}/cancel", headers=auth_headers)

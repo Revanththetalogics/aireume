@@ -1,18 +1,11 @@
 """Evaluation agents — assess interview responses across dimensions."""
 
-import json
 import logging
-import os
 from typing import Any
 
-import httpx
-
-from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
+from app.backend.services.recruiter.llm_client import generate_recruiter_json
 
 logger = logging.getLogger("aria.recruiter")
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 
 
 def _format_transcript(transcript: list[dict[str, Any]]) -> str:
@@ -22,52 +15,12 @@ def _format_transcript(transcript: list[dict[str, Any]]) -> str:
     )
 
 
-def _parse_json_safely(text: str) -> dict[str, Any] | None:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    import re
-
-    for pattern in (
-        r'```json\s*(\{.*?\})\s*```',
-        r'```\s*(\{.*?\})\s*```',
-        r'(\{.*\})',
-    ):
-        match = re.search(pattern, text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                continue
-    return None
-
-
 async def _call_evaluator_llm(prompt: str, num_predict: int = 1024) -> dict[str, Any] | None:
-    try:
-        semaphore = get_ollama_semaphore()
-        async with semaphore:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False,
-                        "format": "json",
-                        "options": {"temperature": 0.2, "num_predict": num_predict},
-                    },
-                    headers=get_ollama_headers(OLLAMA_BASE_URL),
-                )
-                resp.raise_for_status()
-                response_text = resp.json().get("response", "")
-                parsed = _parse_json_safely(response_text)
-                if parsed:
-                    return parsed
-    except Exception as e:
-        logger.warning("Evaluator LLM call failed: %s", e)
-    return None
+    return await generate_recruiter_json(
+        prompt,
+        max_output_tokens=num_predict,
+        temperature=0.2,
+    )
 
 
 def _format_qa_pairs(questions_responses: list[dict[str, Any]]) -> str:

@@ -208,49 +208,39 @@ class LLMClient:
         self.model = OLLAMA_MODEL
 
     async def chat(self, system_prompt: str, user_message: str, history: list = None) -> str:
-        """Send a chat completion request to Ollama."""
-        messages = [{"role": "system", "content": system_prompt}]
-        if history:
-            messages.extend(history)
-        messages.append({"role": "user", "content": user_message})
+        """Send a chat completion request (Gemini primary, Ollama fallback)."""
+        from app.backend.services.app_llm_client import generate_app_llm
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                f"{self.base_url}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_predict": 512,
-                    },
-                },
-                headers={"Authorization": f"Bearer {self.api_key}"} if self.api_key else {},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("message", {}).get("content", "")
+        parts = []
+        if history:
+            for msg in history:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                parts.append(f"{role.upper()}: {content}")
+        parts.append(f"USER: {user_message}")
+        prompt = "\n".join(parts)
+        text = await generate_app_llm(
+            prompt,
+            system=system_prompt,
+            max_output_tokens=512,
+            temperature=0.7,
+            timeout=120.0,
+            log_label="voice_llm_chat",
+        )
+        return text or ""
 
     async def generate(self, prompt: str) -> str:
-        """Generate a short text completion via Ollama (used for follow-ups)."""
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_predict": 128,
-                    },
-                },
-                headers={"Authorization": f"Bearer {self.api_key}"} if self.api_key else {},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("response", "")
+        """Generate a short text completion."""
+        from app.backend.services.app_llm_client import generate_app_llm
+
+        text = await generate_app_llm(
+            prompt,
+            max_output_tokens=128,
+            temperature=0.7,
+            timeout=60.0,
+            log_label="voice_llm_generate",
+        )
+        return text or ""
 
     async def generate_screening_questions(self, jd_title: str, skills: list) -> list:
         """Generate 3-5 screening questions from JD must-have skills."""
@@ -1551,9 +1541,20 @@ class VoiceAgentWorker:
 
         room.on("track_subscribed", on_track_subscribed)
 
+        warm_task = None
         try:
             if owns_speech:
                 await speech.start()
+
+            warm_phrases = getattr(orch_ctx, "warm_phrases", None) or []
+            if warm_phrases:
+                warm_task = asyncio.create_task(speech.warm_cache(warm_phrases))
+                logger.info(
+                    "TTS warm cache started in background: session=%s phrases=%d",
+                    orch_ctx.session_id,
+                    len(warm_phrases),
+                )
+
             orch_ctx.started_at = time.time()
 
             await room.connect(LIVEKIT_URL, agent_token)
@@ -1572,6 +1573,26 @@ class VoiceAgentWorker:
                 await backend.update_session(int(orch_ctx.session_id), {"status": "in_progress"})
             except Exception:
                 pass
+
+            if warm_task is not None:
+                try:
+                    warmed = await asyncio.wait_for(warm_task, timeout=90.0)
+                    logger.info(
+                        "TTS warm cache ready: session=%s phrases=%d",
+                        orch_ctx.session_id,
+                        warmed,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "TTS warm cache timed out for session=%s; continuing with on-demand synthesis",
+                        orch_ctx.session_id,
+                    )
+                except Exception as warm_err:
+                    logger.warning(
+                        "TTS warm cache failed for session=%s: %s",
+                        orch_ctx.session_id,
+                        warm_err,
+                    )
 
             # Start the interview with the greeting
             greeting = await orchestrator.start()
@@ -1810,20 +1831,12 @@ async def dispatch_call(req: DispatchRequest):
                 len(kit_questions),
                 (req.interview_kit or {}).get("kit_source"),
             )
-            speech = SpeechClient()
-            await speech.start()
-            try:
-                warm_phrases = build_kit_warm_phrases(orch_ctx, kit_questions)
-                await speech.warm_cache(warm_phrases)
-                await worker.dispatch_and_run_kit(
-                    orch_ctx,
-                    orchestrator,
-                    room_info,
-                    speech=speech,
-                )
-            except Exception:
-                await speech.stop()
-                raise
+            orch_ctx.warm_phrases = build_kit_warm_phrases(orch_ctx, kit_questions)
+            await worker.dispatch_and_run_kit(
+                orch_ctx,
+                orchestrator,
+                room_info,
+            )
         else:
             llm = LLMClient()
             orchestrator = InterviewOrchestrator(orch_ctx, llm, None)

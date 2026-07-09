@@ -6,26 +6,14 @@ evaluation of the candidate against the provided job description.
 """
 import json
 import re
-import os
-import httpx
 import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
 from app.backend.services.pii_redaction_service import get_pii_service
 from app.backend.services.evidence_validation_service import get_evidence_service
 
 logger = logging.getLogger(__name__)
-
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
-
-
-def _is_ollama_cloud_local(base_url: str) -> bool:
-    """Check if the base URL points to Ollama Cloud (ollama.com)."""
-    return "ollama.com" in base_url.lower()
 
 
 # ─── Transcript parsers ───────────────────────────────────────────────────────
@@ -303,30 +291,16 @@ async def analyze_transcript(
     prompt = _build_transcript_prompt(transcript, jd_text, candidate_name)
 
     try:
-        sem = get_ollama_semaphore()
-        if sem.locked():
-            logger.info("Waiting for Ollama slot (another request in progress)...")
-        async with sem:
-            headers = get_ollama_headers(OLLAMA_BASE_URL)
-            # Cloud models need more tokens for structured output with evidence
-            _is_cloud = _is_ollama_cloud_local(OLLAMA_BASE_URL)
-            _num_predict = 2000 if _is_cloud else 1000  # Increased for evidence citations
-            async with httpx.AsyncClient(timeout=120.0) as client:  # Increased timeout
-                resp = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    headers=headers,
-                    json={
-                        "model":   OLLAMA_MODEL,
-                        "prompt":  prompt,
-                        "stream":  False,
-                        "format":  "json",
-                        "options": {"num_predict": _num_predict, "temperature": 0.1},
-                    },
-                )
-                resp.raise_for_status()
-                raw = resp.json().get("response", "{}")
-                parsed = _parse_json_response(raw)
-                if parsed:
+        from app.backend.services.app_llm_client import generate_app_json
+
+        parsed = await generate_app_json(
+            prompt,
+            max_output_tokens=2000,
+            temperature=0.1,
+            timeout=120.0,
+            log_label="transcript_analysis",
+        )
+        if parsed:
                     result = _normalize(parsed)
                     
                     # Step 3: Evidence Validation

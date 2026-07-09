@@ -1461,7 +1461,7 @@ async def suggest_weights_endpoint(
     from app.backend.services.weight_suggester import suggest_weights_for_jd, create_fallback_suggestion
 
     try:
-        suggestion = suggest_weights_for_jd(job_description)
+        suggestion = await suggest_weights_for_jd(job_description)
         if suggestion is None:
             # Return fallback suggestion instead of error
             suggestion = create_fallback_suggestion(job_description)

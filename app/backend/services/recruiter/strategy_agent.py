@@ -1,26 +1,15 @@
 """Interview strategy agent — LLM-powered interview plan generation."""
 
-import json
 import logging
-import os
 from typing import Any
 
-import httpx
-
-from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
+from app.backend.services.recruiter.llm_client import generate_recruiter_json, parse_json_safely
 
 logger = logging.getLogger("aria.recruiter")
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 
 
 class InterviewStrategyAgent:
     """LLM-powered interview strategy generation."""
-
-    def __init__(self) -> None:
-        self.base_url = OLLAMA_BASE_URL
-        self.model = OLLAMA_MODEL
 
     async def generate_strategy(
         self,
@@ -34,27 +23,12 @@ class InterviewStrategyAgent:
         prompt = self._build_strategy_prompt(context, config)
 
         try:
-            semaphore = get_ollama_semaphore()
-            async with semaphore:
-                async with httpx.AsyncClient(timeout=180.0) as client:
-                    resp = await client.post(
-                        f"{self.base_url}/api/generate",
-                        json={
-                            "model": self.model,
-                            "prompt": prompt,
-                            "stream": False,
-                            "format": "json",
-                            "options": {
-                                "temperature": 0.4,
-                                "num_predict": 2048,
-                            },
-                        },
-                        headers=get_ollama_headers(self.base_url),
-                    )
-                    resp.raise_for_status()
-                    response_text = resp.json().get("response", "")
-
-            parsed = self._parse_json_response(response_text)
+            parsed = await generate_recruiter_json(
+                prompt,
+                max_output_tokens=2048,
+                temperature=0.4,
+                timeout=180.0,
+            )
             if parsed:
                 strategy = self._normalize_strategy(parsed, context, config)
                 logger.info("Interview strategy generated via LLM")
@@ -292,35 +266,7 @@ JSON:"""
         }
 
     def _parse_json_response(self, response: str) -> dict[str, Any] | None:
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            pass
-
-        import re
-
-        json_match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        json_match = re.search(r'```\s*(\{.*?\})\s*```', response, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        json_match = re.search(r'(\{.*\})', response, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        return None
+        return parse_json_safely(response)
 
     def _normalize_strategy(
         self,

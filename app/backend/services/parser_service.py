@@ -1916,12 +1916,6 @@ async def _llm_extract_structured(raw_text: str, data: Dict[str, Any]) -> Dict[s
     requesting only the missing fields as JSON.
     Graceful 10 s timeout — if LLM is unavailable, returns empty dict.
     """
-    import json as _json
-    import httpx as _httpx
-
-    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
-
     # --- Heuristic gap detection ---
     needs_work = False
     needs_education = False
@@ -1986,66 +1980,21 @@ async def _llm_extract_structured(raw_text: str, data: Dict[str, Any]) -> Dict[s
     )
 
     try:
-        from app.backend.services.llm_service import get_ollama_headers, use_gemini_for_analysis, gemini_generate_content
+        from app.backend.services.app_llm_client import generate_app_json
 
-        if use_gemini_for_analysis():
-            llm_output = await gemini_generate_content(
-                user_prompt,
-                system=system_prompt,
-                max_output_tokens=1500,
-                temperature=0.1,
-            )
-        else:
-            headers = get_ollama_headers(OLLAMA_BASE_URL)
-
-            async with _httpx.AsyncClient(timeout=50.0) as client:
-                response = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/chat",
-                    headers=headers,
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.1,
-                            "num_predict": 1500,
-                        },
-                    },
-                )
-                response.raise_for_status()
-
-                result = response.json()
-                llm_output = result.get("message", {}).get("content", "").strip()
-
-        # Strip markdown code blocks
-        if "```json" in llm_output:
-            llm_output = llm_output.split("```json")[1].split("```")[0].strip()
-        elif "```" in llm_output:
-            llm_output = llm_output.split("```")[1].split("```")[0].strip()
-
-        # Minimum length check for safety
-        if len(llm_output) < 10:
-            logger.warning("[LLM Structured] Response too short (%d chars), discarding", len(llm_output))
+        parsed = await generate_app_json(
+            user_prompt,
+            system=system_prompt,
+            max_output_tokens=1500,
+            temperature=0.1,
+            timeout=50.0,
+            log_label="structured_extract",
+        )
+        if not parsed or not isinstance(parsed, dict):
             return {}
 
-        parsed = _json.loads(llm_output)
-
-        if not isinstance(parsed, dict):
-            logger.warning("[LLM Structured] Non-dict response: %s", type(parsed).__name__)
-            return {}
-
-        # Keep only requested fields
         return {k: v for k, v in parsed.items() if k in missing_fields and isinstance(v, list)}
 
-    except _json.JSONDecodeError as e:
-        logger.warning("[LLM Structured] JSON parse error: %s", e)
-        return {}
-    except _httpx.TimeoutException:
-        logger.warning("[LLM Structured] Timed out after 50s")
-        return {}
     except Exception as e:
         logger.warning("[LLM Structured] Failed: %s: %s", type(e).__name__, str(e)[:200])
         return {}
@@ -2053,75 +2002,65 @@ async def _llm_extract_structured(raw_text: str, data: Dict[str, Any]) -> Dict[s
 
 async def enrich_parsed_resume_async(data: Dict[str, Any], filename: Optional[str] = None) -> None:
     """Fill gaps in parser output in-place using LLM + NER + regex fallbacks."""
+    import asyncio
+
     from app.backend.services.llm_contact_extractor import extract_contact_with_llm, merge_contact_info
-    
+
     contact = data.setdefault("contact_info", {})
     raw = (data.get("raw_text") or "").strip()
-    
-    # --- Contact enrichment (skip if already complete) ---
+
+    # --- Contact: deterministic tiers before LLM ---
     if not (contact.get("name") and contact.get("email")):
-        # Tier 0.5: Structured header parsing (highest confidence — explicit labels)
         if raw:
             label_contact = _extract_contact_from_labels(raw)
             if label_contact:
-                # Merge: only fill gaps, don't overwrite existing values
-                for key in ('name', 'email', 'phone', 'address'):
+                for key in ("name", "email", "phone", "address"):
                     if label_contact.get(key) and not contact.get(key):
                         contact[key] = label_contact[key]
 
-        # Try LLM extraction next (handles all edge cases)
-        llm_contact = None
-        if raw:
-            try:
-                llm_contact = await extract_contact_with_llm(raw, timeout=8.0)
-            except Exception as e:
-                logger.warning("LLM contact extraction failed, using fallbacks: %s", e)
-        
-        # Merge LLM results with existing regex results
-        if llm_contact:
-            contact.update(merge_contact_info(contact, llm_contact))
-        
-        # If still no name, try traditional fallbacks
         if not contact.get("name"):
             guess = None
-            
-            # Tier 1: Try spaCy NER
             if raw:
                 guess = _extract_name_ner(raw)
-            
-            # Tier 2: Fallback to email-based extraction
             if not guess:
                 email = (contact.get("email") or "").strip()
                 guess = _name_from_email(email)
-            
-            # Tier 3: Fallback to relaxed header scan
             if not guess and raw:
                 guess = _extract_name_relaxed(raw)
-            
-            # Tier 4: Fallback to filename-based extraction
             if not guess and filename:
                 guess = _name_from_filename(filename)
-            
             if guess:
                 contact["name"] = guess
-    
-    # --- LLM fallback for structured field gaps ---
-    try:
-        llm_fields = await _llm_extract_structured(
-            data.get("raw_text", ""), data)
-        
-        # Merge: only fill gaps, don't overwrite deterministic results
+
+    contact_needs_llm = bool(raw and not (contact.get("name") and contact.get("email")))
+
+    async def _contact_llm_task():
+        if not contact_needs_llm:
+            return None
+        try:
+            return await extract_contact_with_llm(raw, timeout=8.0)
+        except Exception as e:
+            logger.warning("LLM contact extraction failed, using fallbacks: %s", e)
+            return None
+
+    llm_contact, llm_fields = await asyncio.gather(
+        _contact_llm_task(),
+        _llm_extract_structured(raw, data),
+    )
+
+    if llm_contact:
+        contact.update(merge_contact_info(contact, llm_contact))
+
+    if isinstance(llm_fields, dict):
         if "work_experience" in llm_fields:
             llm_jobs = llm_fields["work_experience"]
             if isinstance(llm_jobs, list) and len(llm_jobs) > len(data.get("work_experience", [])):
                 data["work_experience"] = llm_jobs
-        
+
         if "education" in llm_fields:
             llm_edu = llm_fields["education"]
             if isinstance(llm_edu, list) and len(llm_edu) > len(data.get("education", [])):
                 data["education"] = llm_edu
-    except Exception:
-        pass  # Graceful failure
 
 
 def enrich_parsed_resume(data: Dict[str, Any], filename: Optional[str] = None) -> None:

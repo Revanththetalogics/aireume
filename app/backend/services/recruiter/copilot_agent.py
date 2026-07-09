@@ -8,27 +8,16 @@ After each candidate answer, generates:
 - Suggested Follow-up: what a human recruiter should ask next
 """
 
-import json
 import logging
-import os
 from typing import Any
 
-import httpx
-
-from app.backend.services.llm_service import get_ollama_semaphore, get_ollama_headers
+from app.backend.services.recruiter.llm_client import generate_recruiter_json, parse_json_safely
 
 logger = logging.getLogger("aria.recruiter")
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 
 
 class CopilotAgent:
     """Generates recruiter-facing observations for each interview answer."""
-
-    def __init__(self):
-        self.base_url = OLLAMA_BASE_URL
-        self.model = OLLAMA_MODEL
 
     async def generate_observation(
         self,
@@ -74,25 +63,14 @@ Return ONLY a JSON object:
 JSON:"""
 
         try:
-            semaphore = get_ollama_semaphore()
-            async with semaphore:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.post(
-                        f"{self.base_url}/api/generate",
-                        json={
-                            "model": self.model,
-                            "prompt": prompt,
-                            "stream": False,
-                            "format": "json",
-                            "options": {"temperature": 0.3, "num_predict": 256},
-                        },
-                        headers=get_ollama_headers(self.base_url),
-                    )
-                    resp.raise_for_status()
-                    response_text = resp.json().get("response", "")
-                    parsed = self._parse_json(response_text)
-                    if parsed:
-                        return self._normalize(parsed)
+            parsed = await generate_recruiter_json(
+                prompt,
+                max_output_tokens=256,
+                temperature=0.3,
+                timeout=30.0,
+            )
+            if parsed:
+                return self._normalize(parsed)
         except Exception as e:
             logger.warning("Copilot LLM call failed: %s", e)
 
@@ -100,19 +78,7 @@ JSON:"""
         return self._fallback_observation(question, answer, answer_score)
 
     def _parse_json(self, text: str) -> dict[str, Any] | None:
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-        import re
-        for pattern in (r'```json\s*(\{.*?\})\s*```', r'(\{.*\})'):
-            match = re.search(pattern, text, re.DOTALL)
-            if match:
-                try:
-                    return json.loads(match.group(1))
-                except json.JSONDecodeError:
-                    continue
-        return None
+        return parse_json_safely(text)
 
     def _normalize(self, parsed: dict[str, Any]) -> dict[str, Any]:
         confidence = parsed.get("confidence_level", "medium")

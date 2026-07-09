@@ -23,6 +23,11 @@ INTERVIEW_KIT_TIMEOUT = float(os.getenv("LLM_INTERVIEW_KIT_TIMEOUT", os.getenv("
 VOICE_STRATEGY_TIMEOUT = float(os.getenv("LLM_VOICE_STRATEGY_TIMEOUT", "180"))
 
 
+def _prebuild_voice_strategy_enabled() -> bool:
+    """Pre-build recruiter voice strategy during analysis (off by default to save LLM calls)."""
+    return os.getenv("PREBUILD_VOICE_STRATEGY", "0").strip().lower() in ("1", "true", "yes")
+
+
 def voice_strategy_config_hash(config: dict[str, Any] | None = None) -> str:
     cfg = config or DEFAULT_VOICE_STRATEGY_CONFIG
     normalized = {
@@ -537,7 +542,7 @@ def schedule_post_narrative_enrichment(
             background_interview_kit(screening_result_id, tenant_id, llm_context, python_result)
         )
 
-    if recommendation in ("Shortlist", "Consider"):
+    if recommendation in ("Shortlist", "Consider") and _prebuild_voice_strategy_enabled():
         _update_screening_fields(screening_result_id, tenant_id, voice_strategy_status="pending")
         asyncio.create_task(background_voice_strategy(screening_result_id, tenant_id))
     else:

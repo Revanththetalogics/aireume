@@ -96,6 +96,21 @@ def _load_json(raw: Optional[str], default: Any = None) -> Any:
         return default
 
 
+def _normalize_scorecard_collection(
+    raw: Optional[str],
+    *,
+    list_key: str,
+    default: Optional[dict] = None,
+) -> dict:
+    """Parse a scorecard JSON field; legacy rows may store a bare list."""
+    parsed = _load_json(raw, default=default if default is not None else {})
+    if isinstance(parsed, list):
+        return {list_key: parsed}
+    if isinstance(parsed, dict):
+        return parsed
+    return default if default is not None else {}
+
+
 def _require_recruiter_or_admin(current_user: User) -> None:
     """Raise 403 if the user is not a recruiter or admin."""
     if current_user.role not in _RECRUITER_ADMIN_ROLES:
@@ -357,8 +372,14 @@ def get_recruiter_scorecard(
     data["communication_evidence"] = _load_json(scorecard.communication_evidence, default={}) or {}
     data["cultural_fit_evidence"] = _load_json(scorecard.cultural_fit_evidence, default={}) or {}
     data["motivation_evidence"] = _load_json(scorecard.motivation_evidence, default={}) or {}
-    data["risk_signals_validated"] = _load_json(scorecard.risk_signals_validated, default={}) or {}
-    data["gaps_explained"] = _load_json(scorecard.gaps_explained, default={}) or {}
+    data["risk_signals_validated"] = _normalize_scorecard_collection(
+        scorecard.risk_signals_validated,
+        list_key="signals",
+    )
+    data["gaps_explained"] = _normalize_scorecard_collection(
+        scorecard.gaps_explained,
+        list_key="items",
+    )
 
     return RecruiterScorecardOut.model_validate(data)
 

@@ -139,25 +139,17 @@ Return ONLY a JSON object:
 JSON:"""
 
         try:
-            semaphore = _get_ollama_semaphore()
-            async with semaphore:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.post(
-                        f"{self.base_url}/api/generate",
-                        json={
-                            "model": self.model,
-                            "prompt": prompt,
-                            "stream": False,
-                            "format": "json",
-                            "options": {"temperature": 0.5, "num_predict": 256},
-                        },
-                        headers=_get_ollama_headers(),
-                    )
-                    resp.raise_for_status()
-                    response_text = resp.json().get("response", "")
-                    parsed = self._parse_json(response_text)
-                    if parsed:
-                        return self._normalize(parsed, stage)
+            from app.backend.services.app_llm_client import generate_app_json
+
+            parsed = await generate_app_json(
+                prompt,
+                max_output_tokens=256,
+                temperature=0.5,
+                timeout=30.0,
+                log_label="question_planner",
+            )
+            if parsed:
+                return self._normalize(parsed, stage)
         except Exception as e:
             logger.warning("Question planning LLM call failed: %s", e)
 

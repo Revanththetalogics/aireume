@@ -95,6 +95,7 @@ class OrchestratorContext:
     questions_responses: list[dict[str, Any]] = field(default_factory=list)
     answer_scores: list[int] = field(default_factory=list)
     resume_inconsistencies: list[dict[str, str]] = field(default_factory=list)
+    warm_phrases: list[str] = field(default_factory=list)
 
     @property
     def elapsed(self) -> float:

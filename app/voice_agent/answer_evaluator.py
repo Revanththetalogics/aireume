@@ -122,25 +122,17 @@ Rules for difficulty_adjustment:
 JSON:"""
 
         try:
-            semaphore = _get_ollama_semaphore()
-            async with semaphore:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.post(
-                        f"{self.base_url}/api/generate",
-                        json={
-                            "model": self.model,
-                            "prompt": prompt,
-                            "stream": False,
-                            "format": "json",
-                            "options": {"temperature": 0.2, "num_predict": 512},
-                        },
-                        headers=_get_ollama_headers(),
-                    )
-                    resp.raise_for_status()
-                    response_text = resp.json().get("response", "")
-                    parsed = self._parse_json(response_text)
-                    if parsed:
-                        return self._normalize(parsed)
+            from app.backend.services.app_llm_client import generate_app_json
+
+            parsed = await generate_app_json(
+                prompt,
+                max_output_tokens=512,
+                temperature=0.2,
+                timeout=30.0,
+                log_label="answer_evaluator",
+            )
+            if parsed:
+                return self._normalize(parsed)
         except Exception as e:
             logger.warning("Answer evaluation LLM call failed: %s", e)
 
