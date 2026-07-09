@@ -1,4 +1,6 @@
 export { default as AnalysisStageTracker, StreamStageTracker } from './AnalysisStageTracker'
+export { default as BatchAnalysisProgress } from './BatchAnalysisProgress'
+export { default as AnalysisSetupSummary } from './AnalysisSetupSummary'
 export { default as EnrichmentBanner } from './EnrichmentBanner'
 export { default as ActionRail } from './ActionRail'
 export { default as JobCenter } from './JobCenter'

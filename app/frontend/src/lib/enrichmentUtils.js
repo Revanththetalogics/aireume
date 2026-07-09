@@ -1,5 +1,7 @@
 /** Shared enrichment phase helpers for narrative, interview kit, and voice strategy. */
 
+import { countKitQuestions } from './liveScreenKitUtils'
+
 export const ENRICHMENT_PHASES = [
   { key: 'parsing', label: 'Parsing resume' },
   { key: 'scoring', label: 'Scoring fit' },
@@ -39,6 +41,28 @@ export function needsNarrativeHydration(result) {
 export function isKitPending(result) {
   const s = result?.interview_kit_status
   return s === 'pending' || s === 'processing'
+}
+
+/** True when kit status says done but question arrays are missing or empty in UI state. */
+export function needsKitHydration(result) {
+  if (!result) return false
+  const status = result.interview_kit_status
+  if (status !== 'ready' && status !== 'fallback') return false
+  return countKitQuestions(result.interview_questions) === 0
+}
+
+/** Refetch report when narrative body or interview kit questions are not hydrated. */
+export function needsEnrichmentRefetch(result) {
+  return needsNarrativeHydration(result) || needsKitHydration(result)
+}
+
+export function isReportCacheable(result) {
+  if (!result) return false
+  if (needsNarrativeHydration(result)) return false
+  const kitStatus = result.interview_kit_status
+  if (kitStatus === 'pending' || kitStatus === 'processing') return false
+  if ((kitStatus === 'ready' || kitStatus === 'fallback') && needsKitHydration(result)) return false
+  return true
 }
 
 export function isVoiceStrategyPending(result) {
@@ -90,12 +114,27 @@ function normalizeVoiceStatus(voice, narrative) {
   return 'waiting'
 }
 
+function resolveInterviewQuestions(narrative, prev) {
+  const fromNarrative = narrative?.interview_questions
+  if (fromNarrative && countKitQuestions(fromNarrative) > 0) {
+    return fromNarrative
+  }
+  if (prev?.interview_questions && countKitQuestions(prev.interview_questions) > 0) {
+    return prev.interview_questions
+  }
+  return fromNarrative ?? prev?.interview_questions
+}
+
 export function mergeNarrativePollResult(prev, data) {
   const kit = data.interview_kit_status
   const voice = data.voice_strategy_status
+  const narrative = data.narrative || {}
   const narrativeDone = data.status === 'ready' || data.status === 'fallback' || data.status === 'failed'
+  const interviewQuestions = resolveInterviewQuestions(narrative, prev)
+
   return {
-    ...(data.narrative || {}),
+    ...narrative,
+    ...(interviewQuestions != null ? { interview_questions: interviewQuestions } : {}),
     narrative_status: data.status,
     narrative_pending: !narrativeDone,
     interview_kit_status: kit ?? prev?.interview_kit_status,
@@ -107,10 +146,14 @@ export function mergeNarrativePollResult(prev, data) {
 
 export function shouldContinueNarrativePoll(data) {
   const narrativeDone = data.status === 'ready' || data.status === 'fallback' || data.status === 'failed'
+  const kitStatus = data.interview_kit_status
   const kitDone =
-    !data.interview_kit_status ||
-    data.interview_kit_status === 'ready' ||
-    data.interview_kit_status === 'fallback' ||
-    data.interview_kit_status === 'skipped'
-  return !(narrativeDone && kitDone)
+    !kitStatus ||
+    kitStatus === 'ready' ||
+    kitStatus === 'fallback' ||
+    kitStatus === 'skipped'
+  const kitHasQuestions =
+    kitStatus === 'skipped' ||
+    countKitQuestions(data.narrative?.interview_questions) > 0
+  return !(narrativeDone && kitDone && kitHasQuestions)
 }

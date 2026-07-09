@@ -8,6 +8,9 @@ import {
   getEnrichmentPhaseStatus,
   hasNarrativeContent,
   needsNarrativeHydration,
+  needsKitHydration,
+  needsEnrichmentRefetch,
+  isReportCacheable,
 } from './enrichmentUtils'
 
 describe('enrichmentUtils', () => {
@@ -56,10 +59,66 @@ describe('enrichmentUtils', () => {
       status: 'ready',
       interview_kit_status: 'processing',
     })).toBe(true)
+  })
+
+  it('stops polling when narrative and kit are both ready with questions', () => {
     expect(shouldContinueNarrativePoll({
       status: 'ready',
       interview_kit_status: 'ready',
+      narrative: {
+        interview_questions: { technical_questions: [{ text: 'Q1' }] },
+      },
     })).toBe(false)
+  })
+
+  it('continues polling when kit status is ready but questions are empty', () => {
+    expect(shouldContinueNarrativePoll({
+      status: 'ready',
+      interview_kit_status: 'ready',
+      narrative: { interview_questions: { technical_questions: [] } },
+    })).toBe(true)
+  })
+
+  it('detects kit hydration gap when status is ready but questions missing', () => {
+    expect(needsKitHydration({ interview_kit_status: 'ready' })).toBe(true)
+    expect(needsKitHydration({
+      interview_kit_status: 'ready',
+      interview_questions: { technical_questions: [{ text: 'Q1' }] },
+    })).toBe(false)
+    expect(needsEnrichmentRefetch({
+      narrative_status: 'ready',
+      fit_summary: 'Done',
+      interview_kit_status: 'ready',
+    })).toBe(true)
+  })
+
+  it('preserves interview questions when poll narrative omits them', () => {
+    const prev = {
+      interview_questions: {
+        technical_questions: [{ text: 'Stored Q' }],
+      },
+    }
+    const merged = mergeNarrativePollResult(prev, {
+      status: 'ready',
+      interview_kit_status: 'ready',
+      narrative: { strengths: ['Excel'] },
+    })
+    expect(merged.interview_questions.technical_questions[0].text).toBe('Stored Q')
+    expect(merged.strengths).toEqual(['Excel'])
+  })
+
+  it('does not cache report until kit questions exist', () => {
+    expect(isReportCacheable({
+      narrative_status: 'ready',
+      fit_summary: 'Summary',
+      interview_kit_status: 'ready',
+    })).toBe(false)
+    expect(isReportCacheable({
+      narrative_status: 'ready',
+      fit_summary: 'Summary',
+      interview_kit_status: 'ready',
+      interview_questions: { technical_questions: [{ text: 'Q' }] },
+    })).toBe(true)
   })
 
   it('maps enrichment phases from result', () => {

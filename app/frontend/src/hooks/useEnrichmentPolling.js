@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { getNarrative } from '../lib/api'
-import { mergeNarrativePollResult, shouldContinueNarrativePoll, needsNarrativeHydration } from '../lib/enrichmentUtils'
+import { mergeNarrativePollResult, shouldContinueNarrativePoll, needsNarrativeHydration, needsKitHydration, isKitPending } from '../lib/enrichmentUtils'
 
 /**
  * Poll GET /analysis/{id}/narrative until narrative + interview kit settle.
@@ -41,13 +41,15 @@ export function useEnrichmentPolling(result, onUpdate, options = {}) {
     const kitStatus = snapshot?.interview_kit_status || 'pending'
     const needsNarrativePoll = needsNarrativeHydration(snapshot)
     const needsKitPoll =
-      (narrativeStatus === 'ready' || narrativeStatus === 'fallback') &&
-      (kitStatus === 'pending' || kitStatus === 'processing')
+      isKitPending(kitStatus) ||
+      needsKitHydration(snapshot) ||
+      ((narrativeStatus === 'ready' || narrativeStatus === 'fallback') &&
+        (kitStatus === 'pending' || kitStatus === 'processing'))
 
     if (!needsNarrativePoll && !needsKitPoll) return
 
     let pollCount = 0
-    let kitWasPending = needsKitPoll
+    let kitWasPending = isKitPending(kitStatus) || needsKitHydration(snapshot)
     let cancelled = false
     let timerId = null
     let delayMs = intervalMs

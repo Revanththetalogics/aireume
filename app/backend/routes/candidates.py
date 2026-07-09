@@ -472,6 +472,8 @@ def get_screening_result(
         "status_updated_at":    result.status_updated_at,
         "narrative_status":     result.narrative_status or "pending",
         "narrative_error":      result.narrative_error,
+        "interview_kit_status": getattr(result, "interview_kit_status", None) or "pending",
+        "voice_strategy_status": getattr(result, "voice_strategy_status", None) or "pending",
         "ai_enhanced":          result.narrative_status == "ready" and result.narrative_json is not None,
         "narrative_pending":    result.narrative_status in ("pending", "processing"),
     }
@@ -483,6 +485,8 @@ def get_screening_result(
     response_data["deterministic_score"] = result.deterministic_score
     response_data["status_updated_at"] = result.status_updated_at
     response_data["role_template_id"] = result.role_template_id
+    response_data["interview_kit_status"] = getattr(result, "interview_kit_status", None) or "pending"
+    response_data["voice_strategy_status"] = getattr(result, "voice_strategy_status", None) or "pending"
 
     return response_data
 
@@ -1056,6 +1060,8 @@ def get_candidate(
             # Narrative status fields (for UI polling)
             "narrative_status":     r.narrative_status or "pending",
             "narrative_error":      r.narrative_error,
+            "interview_kit_status": getattr(r, "interview_kit_status", None) or "pending",
+            "voice_strategy_status": getattr(r, "voice_strategy_status", None) or "pending",
             "ai_enhanced":          r.narrative_status == "ready" and r.narrative_json is not None,
             "narrative_pending":    r.narrative_status in ("pending", "processing"),
         }
@@ -1076,6 +1082,8 @@ def get_candidate(
         result_item["deterministic_score"] = r.deterministic_score
         result_item["status_updated_at"] = r.status_updated_at
         result_item["role_template_id"] = r.role_template_id
+        result_item["interview_kit_status"] = getattr(r, "interview_kit_status", None) or "pending"
+        result_item["voice_strategy_status"] = getattr(r, "voice_strategy_status", None) or "pending"
 
         history.append(result_item)
 

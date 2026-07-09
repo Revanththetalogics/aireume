@@ -5,7 +5,7 @@ import {
   Upload, FileText, X, Loader2, AlertCircle, CheckCircle, 
   Sparkles, ChevronRight, BookOpen, LayoutTemplate, Link2, 
   FileUp, Type, Save, Clock, Trophy, Eye, Download, CheckCircle2, ArrowLeft,
-  FileCheck, XCircle, Hourglass, RefreshCw, ShieldCheck, Settings, ChevronDown
+  XCircle, RefreshCw, ShieldCheck, Settings, ChevronDown
 } from 'lucide-react'
 import { 
   analyzeResumeStream, 
@@ -27,9 +27,24 @@ import WeightSuggestionPanel from '../components/WeightSuggestionPanel'
 import UniversalWeightsPanel from '../components/UniversalWeightsPanel'
 import SkillClassificationEditor from '../components/SkillClassificationEditor'
 import { FitBadge, RecommendBadge, EnrichmentStatusBadges } from '../components/Badges'
-import { StreamStageTracker } from '../components/patterns'
+import {
+  StreamStageTracker,
+  BatchAnalysisProgress,
+  AnalysisSetupSummary,
+  PageHeader,
+} from '../components/patterns'
+import EmptyState from '../components/EmptyState'
+import { Button, Badge, Card } from '../components/ui'
 import { showSuccess } from '../lib/toast'
-import { mergeNarrativePollResult, isNarrativePending, isKitPending } from '../lib/enrichmentUtils'
+import { mergeNarrativePollResult, isNarrativePending, isKitPending, isReportCacheable } from '../lib/enrichmentUtils'
+import {
+  ANALYZE_STEPS,
+  buildSetupSummary,
+  getActiveAnalyzeStep,
+  isAnalyzeStepComplete,
+  canNavigateToAnalyzeStep,
+  getEffectiveBatchTotal,
+} from '../lib/analyzeBatchUtils'
 
 const DEFAULT_WEIGHTS = {
   core_competencies: 0.30,
@@ -155,6 +170,9 @@ export default function AnalyzePage() {
   const [fileStatuses, setFileStatuses] = useState([])
   const [batchStartTime, setBatchStartTime] = useState(null)
   const [runInBackground, setRunInBackground] = useState(false)
+  const [batchStuckError, setBatchStuckError] = useState(null)
+  const [setupSummaryExpanded, setSetupSummaryExpanded] = useState(false)
+  const [queuedBatchInfo, setQueuedBatchInfo] = useState(null)
 
   useEffect(() => {
     if (files.length >= BACKGROUND_BATCH_AUTO) {
@@ -270,10 +288,17 @@ export default function AnalyzePage() {
           const batch = JSON.parse(savedBatch)
           // Only restore if less than 30 minutes old
           if (batch.timestamp && (Date.now() - batch.timestamp) < 30 * 60 * 1000) {
-            setStreamingResults(batch.results || [])
-            setStreamingFailed(batch.failed || [])
-            setAnalysisProgress(batch.progress || { completed: 0, total: 0 })
+            const results = batch.results || []
+            const failed = batch.failed || []
+            if (results.length === 0 && failed.length === 0) {
+              sessionStorage.removeItem('aria_batch_results')
+              return
+            }
+            setStreamingResults(results)
+            setStreamingFailed(failed)
+            setAnalysisProgress(batch.progress || { completed: results.length + failed.length, total: results.length + failed.length })
             setAnalysisDone(true)
+            setCurrentStep(3)
             // Also restore batch context (JD text, skill overrides, etc.)
             const savedContext = sessionStorage.getItem('aria_batch_context')
             if (savedContext) {
@@ -544,7 +569,11 @@ export default function AnalyzePage() {
             setStreamingResults(prev => prev.map(item => {
               if (item.screeningResultId !== id) return item
               const updatedResult = mergeNarrativePollResult(item.result, data)
-              try { sessionStorage.setItem(`report_${id}`, JSON.stringify(updatedResult)) } catch {}
+              try {
+                if (isReportCacheable(updatedResult)) {
+                  sessionStorage.setItem(`report_${id}`, JSON.stringify(updatedResult))
+                }
+              } catch {}
               try {
                 const currentResults = JSON.parse(sessionStorage.getItem('aria_batch_results') || '{}')
                 if (currentResults.results) {
@@ -879,6 +908,11 @@ export default function AnalyzePage() {
         )
         trackQueueBatch(batch)
         showSuccess(`Queued ${batch.queued} resume${batch.queued !== 1 ? 's' : ''} for background analysis`)
+        addNotification({
+          type: 'success',
+          title: 'Batch queued',
+          message: `${batch.queued} resume${batch.queued !== 1 ? 's' : ''} scoring in the background. Open Activity in the nav to track progress.`,
+        })
         if (batch.failed > 0) {
           addNotification({
             type: 'warning',
@@ -886,17 +920,21 @@ export default function AnalyzePage() {
             message: `${batch.failed} file(s) failed to enqueue. Check file sizes and formats.`,
           })
         }
+        setQueuedBatchInfo({ count: batch.queued || files.length })
         setFiles([])
+        setCurrentStep(2)
         await refreshAfterAnalysis(batch.queued || files.length)
       } else {
         // Batch analysis with SSE streaming
+        setBatchStuckError(null)
+        setCurrentStep(3)
         startBatchAnalysis(files.length)
         setStreamingResults([])
         setStreamingFailed([])
         setAnalysisDone(false)
-        setAnalysisProgress({ completed: 0, total: 0 })
+        setAnalysisProgress({ completed: 0, total: files.length })
         setBatchStartTime(Date.now())
-        // Initialize per-file status tracking
+        // Initialize per-file status tracking immediately
         setFileStatuses(files.map((f, i) => ({
           filename: f.name,
           status: 'queued',
@@ -934,7 +972,11 @@ export default function AnalyzePage() {
                   : fs
               ))
               if (screeningResultId) {
-                try { sessionStorage.setItem(`report_${screeningResultId}`, JSON.stringify(result)) } catch {}
+                try {
+                  if (isReportCacheable(result)) {
+                    sessionStorage.setItem(`report_${screeningResultId}`, JSON.stringify(result))
+                  }
+                } catch {}
                 trackEnrichmentJob({
                   id: `enrich-${screeningResultId}`,
                   label: filename,
@@ -1018,9 +1060,22 @@ export default function AnalyzePage() {
         err.message ||
         'Analysis failed'
       )
+      if (files.length > 1) {
+        setBatchStuckError('Analysis failed before completing. You can retry or start a new batch.')
+      }
     } finally {
       setIsAnalyzing(false)
     }
+  }
+
+  const handleRetryBatch = () => {
+    setBatchStuckError(null)
+    setError('')
+    if (files.length > 0 && skillsConfirmed) {
+      handleAnalyze()
+      return
+    }
+    handleNewBatch()
   }
 
   const isStep1Complete = (jdMode === 'text' ? jdText.trim().length > 50 : jdFile !== null) && skillsConfirmed
@@ -1028,8 +1083,32 @@ export default function AnalyzePage() {
 
   const remainingAnalyses = getRemainingAnalyses()
 
+  // Detect batch start stuck state (no SSE progress after 5s)
+  useEffect(() => {
+    if (!isAnalyzing || analysisProgress.total > 0) {
+      return undefined
+    }
+    const timer = setTimeout(() => {
+      setBatchStuckError('The analysis service did not respond. Check your connection and try again.')
+      setIsAnalyzing(false)
+    }, 5000)
+    return () => clearTimeout(timer)
+  }, [isAnalyzing, analysisProgress.total])
+
   // Determine if results area should be visible
-  const showResults = isAnalyzing || analysisDone || streamingResults.length > 0 || streamingFailed.length > 0
+  const showResults = isAnalyzing || analysisDone || streamingResults.length > 0 || streamingFailed.length > 0 || Boolean(batchStuckError)
+
+  const activeStep = getActiveAnalyzeStep(showResults, currentStep)
+  const setupSummary = buildSetupSummary({
+    roleCategory,
+    jdParseResult,
+    skillOverrides,
+    fileCount: getEffectiveBatchTotal(analysisProgress, fileStatuses),
+    jdMode,
+    jdFile,
+  })
+  const topCandidate = streamingResults[0]
+  const batchPreparing = isAnalyzing && analysisProgress.total <= 0 && fileStatuses.length === 0
 
   // Reset for new batch
   const handleNewBatch = () => {
@@ -1040,55 +1119,81 @@ export default function AnalyzePage() {
     setAnalysisProgress({ completed: 0, total: 0 })
     setFileStatuses([])
     setBatchStartTime(null)
+    setBatchStuckError(null)
+    setSetupSummaryExpanded(false)
     setFiles([])
     setCurrentStep(2)
     sessionStorage.removeItem('aria_batch_context')
+    sessionStorage.removeItem('aria_batch_results')
   }
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-extrabold text-brand-900 tracking-tight">New Analysis</h1>
-        <p className="text-slate-500 text-sm mt-1 font-medium">
-          Follow the 2-step process to analyze resumes with AI-powered scoring
-          {remainingAnalyses !== undefined && remainingAnalyses !== Infinity && (
-            <span className="ml-2 text-brand-600 font-semibold">
-              ({remainingAnalyses} analyses remaining)
-            </span>
-          )}
-        </p>
-      </div>
+      <PageHeader
+        className="mb-8"
+        title="New Analysis"
+        subtitle="Score resumes against a role in three steps — job description, upload, then ranked results."
+        icon={Sparkles}
+        actions={
+          remainingAnalyses !== undefined && remainingAnalyses !== Infinity ? (
+            <Badge color="brand">{remainingAnalyses} analyses left</Badge>
+          ) : null
+        }
+      />
 
       {/* Progress Steps */}
-      <div className="mb-8 flex items-center justify-between">
-        {[
-          { num: 1, label: 'JD & Skills', complete: isStep1Complete },
-          { num: 2, label: 'Upload & Analyze', complete: isStep2Complete }
-        ].map((step, idx) => (
-          <div key={step.num} className="flex items-center flex-1">
-            <button
-              onClick={() => setCurrentStep(step.num)}
-              className={`flex items-center gap-3 ${currentStep === step.num ? 'opacity-100' : 'opacity-60 hover:opacity-80'} transition-opacity`}
-            >
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all ${
-                step.complete 
-                  ? 'bg-green-500 text-white ring-4 ring-green-100' 
-                  : currentStep === step.num
-                  ? 'bg-brand-600 text-white ring-4 ring-brand-100'
-                  : 'bg-slate-200 text-slate-600'
-              }`}>
-                {step.complete ? <CheckCircle className="w-5 h-5" /> : step.num}
-              </div>
-              <span className={`text-sm font-semibold ${currentStep === step.num ? 'text-brand-900' : 'text-slate-600'}`}>
-                {step.label}
-              </span>
-            </button>
-            {idx < 1 && (
-              <ChevronRight className="w-5 h-5 text-slate-300 mx-2 flex-shrink-0" />
-            )}
-          </div>
-        ))}
+      <div className="mb-8 flex items-center justify-between gap-2">
+        {ANALYZE_STEPS.map((step, idx) => {
+          const isComplete = isAnalyzeStepComplete(step.num, {
+            isStep1Complete,
+            isStep2Complete,
+            showResults,
+            analysisDone,
+          })
+          const isActive = activeStep === step.num
+          const canNavigate = canNavigateToAnalyzeStep(step.num, { isAnalyzing, showResults })
+
+          return (
+            <div key={step.num} className="flex items-center flex-1 min-w-0">
+              <button
+                type="button"
+                disabled={!canNavigate}
+                onClick={() => {
+                  if (!canNavigate) return
+                  if (step.num === 3) return
+                  setCurrentStep(step.num)
+                }}
+                className={`flex items-center gap-2 sm:gap-3 min-w-0 ${
+                  isActive ? 'opacity-100' : 'opacity-60 hover:opacity-80'
+                } ${canNavigate ? '' : 'cursor-default'} transition-opacity`}
+              >
+                <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all shrink-0 ${
+                  isComplete
+                    ? 'bg-emerald-500 text-white ring-4 ring-emerald-100'
+                    : isActive
+                    ? 'bg-brand-600 text-white ring-4 ring-brand-100'
+                    : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {isComplete && step.num !== 3 ? (
+                    <CheckCircle className="w-5 h-5" />
+                  ) : isActive && step.num === 3 && !analysisDone ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : isComplete && step.num === 3 ? (
+                    <CheckCircle className="w-5 h-5" />
+                  ) : (
+                    step.num
+                  )}
+                </div>
+                <span className={`text-xs sm:text-sm font-semibold truncate ${isActive ? 'text-brand-900' : 'text-slate-600'}`}>
+                  {step.label}
+                </span>
+              </button>
+              {idx < ANALYZE_STEPS.length - 1 && (
+                <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5 text-slate-300 mx-1 sm:mx-2 flex-shrink-0" />
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {/* Draft saved indicator */}
@@ -1429,6 +1534,18 @@ export default function AnalyzePage() {
         <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand-xl p-6 md:p-8 card-animate">
           <h2 className="text-xl font-bold text-brand-900 mb-6">Step 2: Upload & Analyze</h2>
 
+          {queuedBatchInfo && (
+            <Card className="mb-6 p-6 ring-emerald-100 bg-emerald-50/40">
+              <EmptyState
+                icon={CheckCircle2}
+                title={`${queuedBatchInfo.count} resume${queuedBatchInfo.count !== 1 ? 's' : ''} queued`}
+                description="Scoring runs in the background. Open Activity in the top navigation to track progress."
+                actionLabel="Upload another batch"
+                onAction={() => setQueuedBatchInfo(null)}
+              />
+            </Card>
+          )}
+
           {/* Analysis Type Indicator */}
           <div className="mb-6 p-4 bg-brand-50 rounded-2xl ring-1 ring-brand-200">
             <div className="flex items-center gap-3">
@@ -1598,128 +1715,103 @@ export default function AnalyzePage() {
         </div>
       )}
 
-      {/* Step 4: Batch Analysis Results */}
+      {/* Step 3: Batch Analysis Results */}
       {showResults && (
-        <div className="space-y-6 card-animate">
-          {/* Header with back button */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handleNewBatch}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-xl transition-colors ring-1 ring-brand-200"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              New Batch
-            </button>
-            {analysisDone && (
-              <button
-                onClick={() => navigate('/candidates')}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition-colors shadow-brand-sm"
-              >
-                <Eye className="w-4 h-4" />
-                View All Candidates
-              </button>
+        <div className="space-y-5 card-animate">
+          <AnalysisSetupSummary
+            roleTitle={setupSummary.roleTitle}
+            requiredCount={setupSummary.requiredCount}
+            fileCount={setupSummary.fileCount}
+            sourceLabel={setupSummary.sourceLabel}
+            jdText={jdMode === 'text' ? jdText : ''}
+            expanded={setupSummaryExpanded}
+            onToggle={() => setSetupSummaryExpanded((v) => !v)}
+          />
+
+          {/* Results toolbar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" size="sm" onClick={handleNewBatch}>
+                <ArrowLeft className="w-4 h-4" />
+                New batch
+              </Button>
+            </div>
+            {analysisDone && topCandidate && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const id = topCandidate.screeningResultId
+                    const r = topCandidate.result
+                    if (!id) return
+                    try {
+                      sessionStorage.setItem('aria_batch_results', JSON.stringify({
+                        results: streamingResults,
+                        failed: streamingFailed,
+                        progress: analysisProgress,
+                        timestamp: Date.now(),
+                      }))
+                    } catch {}
+                    navigate(`/report?id=${id}&from=analyze`, { state: { from: '/analyze', result: r } })
+                  }}
+                >
+                  <Trophy className="w-4 h-4" />
+                  View top candidate
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => navigate('/candidates')}>
+                  <Eye className="w-4 h-4" />
+                  All candidates
+                </Button>
+              </div>
             )}
           </div>
 
-          {/* Analysis Progress Section */}
-          {(isAnalyzing || analysisDone || streamingResults.length > 0) && (
-            <div className="p-4 bg-indigo-50 ring-1 ring-indigo-200 rounded-2xl space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-indigo-900">
-                    {analysisDone
-                      ? `Analysis Complete: ${streamingResults.length} successful${streamingFailed.length ? `, ${streamingFailed.length} failed` : ''}`
-                      : `Analyzing: ${analysisProgress.completed} of ${analysisProgress.total}...`
-                    }
-                  </h3>
-                  {/* Time estimate */}
-                  {!analysisDone && batchStartTime && analysisProgress.completed > 0 && (
-                    <p className="text-xs text-indigo-600 mt-0.5">
-                      {(() => {
-                        const elapsed = Date.now() - batchStartTime
-                        const avgPerFile = elapsed / analysisProgress.completed
-                        const remaining = analysisProgress.total - analysisProgress.completed
-                        const etaMs = avgPerFile * remaining
-                        if (etaMs < 5000) return 'Almost done...'
-                        if (etaMs < 60000) return `~${Math.ceil(etaMs / 1000)}s remaining`
-                        return `~${Math.ceil(etaMs / 60000)}min remaining`
-                      })()}
-                    </p>
-                  )}
-                </div>
-                {!analysisDone && (
-                  <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
-                )}
-                {analysisDone && (
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                )}
-              </div>
-              {!analysisDone && analysisProgress.total > 0 && (
-                <div className="w-full bg-indigo-100 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className="bg-indigo-500 h-full transition-all duration-500 ease-out"
-                    style={{ width: `${analysisProgress.total > 0 ? (analysisProgress.completed / analysisProgress.total) * 100 : 0}%` }}
-                  />
-                </div>
-              )}
-
-              {/* Per-file status cards */}
-              {fileStatuses.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {fileStatuses.map((fs) => {
-                    const isQueued = fs.status === 'queued'
-                    const isProcessing = fs.status === 'processing'
-                    const isCompleted = fs.status === 'completed'
-                    const isFailed = fs.status === 'failed'
-                    return (
-                      <div
-                        key={fs.filename}
-                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-300 ${
-                          isQueued ? 'bg-slate-100 text-slate-500 ring-1 ring-slate-200' :
-                          isProcessing ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 shadow-sm' :
-                          isCompleted ? 'bg-green-50 text-green-800 ring-1 ring-green-200' :
-                          'bg-red-50 text-red-700 ring-1 ring-red-200'
-                        }`}
-                      >
-                        <div className="shrink-0">
-                          {isQueued && <Hourglass className="w-4 h-4" />}
-                          {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-                          {isCompleted && <FileCheck className="w-4 h-4 text-green-600" />}
-                          {isFailed && <XCircle className="w-4 h-4 text-red-600" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate">{fs.filename}</p>
-                          {isCompleted && fs.result?.fit_score != null && (
-                            <p className="text-[10px] opacity-80">
-                              Score: <span className="font-bold">{fs.result.fit_score}</span>
-                              {' · '}
-                              {fs.result.final_recommendation || '—'}
-                            </p>
-                          )}
-                          {isFailed && fs.error && (
-                            <p className="text-[10px] opacity-80 truncate">{fs.error}</p>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+          {/* Analysis Progress */}
+          {(isAnalyzing || analysisDone || fileStatuses.length > 0 || batchStuckError) && (
+            <BatchAnalysisProgress
+              analysisDone={analysisDone}
+              analysisProgress={analysisProgress}
+              batchStartTime={batchStartTime}
+              fileStatuses={fileStatuses}
+              successfulCount={streamingResults.length}
+              failedCount={streamingFailed.length}
+              preparing={batchPreparing}
+              stuck={Boolean(batchStuckError)}
+              stuckMessage={batchStuckError}
+              onRetry={handleRetryBatch}
+            />
           )}
 
-          {/* Results header */}
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <h3 className="text-xl font-extrabold text-brand-900 tracking-tight">Ranked Shortlist</h3>
-              <p className="text-sm text-slate-500 font-medium">
-                {streamingResults.length} successful{streamingFailed.length ? `, ${streamingFailed.length} failed` : ''} candidates analyzed
-              </p>
-            </div>
-          </div>
+          {/* Waiting for first result */}
+          {!analysisDone && streamingResults.length === 0 && !batchStuckError && (
+            <Card className="p-8">
+              <div className="flex flex-col items-center text-center py-4">
+                <Loader2 className="w-10 h-10 text-brand-600 animate-spin mb-4" />
+                <h3 className="text-lg font-bold text-brand-900 mb-1">Waiting for first result</h3>
+                <p className="text-sm text-slate-500 max-w-sm">
+                  {analysisProgress.total > 0
+                    ? `Scoring ${analysisProgress.total} resume${analysisProgress.total !== 1 ? 's' : ''}. Results will appear here as each completes.`
+                    : 'Connecting to the analysis service…'}
+                </p>
+              </div>
+            </Card>
+          )}
 
-          {/* Results Table */}
+          {/* Results header + table */}
           {streamingResults.length > 0 && (
+            <>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h3 className="text-xl font-extrabold text-brand-900 tracking-tight">Ranked Shortlist</h3>
+                  <p className="text-sm text-slate-500 font-medium">
+                    {streamingResults.length} scored
+                    {!analysisDone && analysisProgress.total > streamingResults.length
+                      ? ` · ${analysisProgress.total - streamingResults.length} still processing`
+                      : ''}
+                    {streamingFailed.length ? ` · ${streamingFailed.length} failed` : ''}
+                  </p>
+                </div>
+              </div>
             <div className="bg-white/90 backdrop-blur-md rounded-3xl ring-1 ring-brand-100 shadow-brand overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-brand-50 border-b border-brand-100">
@@ -1796,6 +1888,24 @@ export default function AnalyzePage() {
                 </tbody>
               </table>
             </div>
+            </>
+          )}
+
+          {/* All failed / zero scored */}
+          {analysisDone && streamingResults.length === 0 && !batchStuckError && (
+            <Card className="p-8">
+              <EmptyState
+                icon={AlertCircle}
+                title="No resumes were scored"
+                description={
+                  streamingFailed.length > 0
+                    ? `${streamingFailed.length} file${streamingFailed.length !== 1 ? 's' : ''} could not be processed. Review errors below or upload again.`
+                    : 'The batch finished without any successful results. Try uploading again or check your job description.'
+                }
+                actionLabel="Start new batch"
+                onAction={handleNewBatch}
+              />
+            </Card>
           )}
 
           {/* Failed Resumes Section */}

@@ -3,6 +3,7 @@
 from app.backend.services.interview_kit_generator import (
     generate_targeted_interview_kit,
     refresh_interview_questions_in_analysis,
+    count_kit_questions,
 )
 
 
@@ -117,3 +118,8 @@ class TestGenerateTargetedInterviewKit:
         iq = analysis["interview_questions"]
         assert iq["culture_fit_questions"] == []
         assert "isn't on your resume" in iq["technical_questions"][0]["text"]
+
+    def test_count_kit_questions(self):
+        assert count_kit_questions(None) == 0
+        assert count_kit_questions({"technical_questions": [], "behavioral_questions": []}) == 0
+        assert count_kit_questions({"technical_questions": [{"text": "Q1"}, {"text": "Q2"}]}) == 2

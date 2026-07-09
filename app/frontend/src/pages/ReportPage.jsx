@@ -23,7 +23,7 @@ import { useNotification } from '../contexts/NotificationContext'
 import { showSuccess } from '../lib/toast'
 import { getFitTierLabel, getScoreHexColor } from '../lib/constants'
 import { getKitReadiness, resolveInterviewKit } from '../lib/liveScreenKitUtils'
-import { hasNarrativeContent, needsNarrativeHydration } from '../lib/enrichmentUtils'
+import { hasNarrativeContent, needsEnrichmentRefetch, isReportCacheable } from '../lib/enrichmentUtils'
 import { INTERVIEW } from '../lib/uxLabels'
 import api from '../lib/api'
 
@@ -472,6 +472,17 @@ export default function ReportPage() {
   }, [])
 
   useEffect(() => {
+    const applyFetchedResult = (data) => {
+      setResult(data)
+      setCandidateName(resolveName(data))
+      try {
+        if (isReportCacheable(data)) {
+          const rid = data?.result_id || data?.id
+          if (rid) sessionStorage.setItem(`report_${rid}`, JSON.stringify(data))
+        }
+      } catch { /* ignore */ }
+    }
+
     // Check if result from location.state is a COMPLETE result (not just a partial card summary)
     const isCompleteResult = result && (
       result.analysis_result ||
@@ -481,23 +492,28 @@ export default function ReportPage() {
       result.score_breakdown
     )
 
+    const params = new URLSearchParams(location.search)
+    const id = params.get('id') || result?.id || result?.result_id
+
     if (isCompleteResult) {
       setCandidateName(resolveName(result))
       setLoading(false)
+      if (id && needsEnrichmentRefetch(result)) {
+        getScreeningResult(id)
+          .then(applyFetchedResult)
+          .catch(() => {})
+      }
       return
     }
 
     // Extract ID from either the partial result or URL params
-    const params = new URLSearchParams(location.search)
-    const id = params.get('id') || result?.id || result?.result_id
-
     if (!id) {
       setNoResult(true)
       setLoading(false)
       return
     }
 
-    // Try sessionStorage first — refetch if cache is stale (narrative marked ready but body missing)
+    // Try sessionStorage first — refetch if narrative or kit is not fully hydrated
     try {
       const stored = sessionStorage.getItem(`report_${id}`)
       if (stored) {
@@ -505,13 +521,9 @@ export default function ReportPage() {
         setResult(parsed)
         setCandidateName(resolveName(parsed))
         setLoading(false)
-        if (needsNarrativeHydration(parsed)) {
+        if (needsEnrichmentRefetch(parsed)) {
           getScreeningResult(id)
-            .then((data) => {
-              setResult(data)
-              setCandidateName(resolveName(data))
-              try { sessionStorage.setItem(`report_${id}`, JSON.stringify(data)) } catch {}
-            })
+            .then(applyFetchedResult)
             .catch(() => {})
         }
         return
@@ -521,11 +533,7 @@ export default function ReportPage() {
     // Fetch full data from API
     setLoading(true)
     getScreeningResult(id)
-      .then(data => {
-        setResult(data)
-        setCandidateName(resolveName(data))
-        try { sessionStorage.setItem(`report_${id}`, JSON.stringify(data)) } catch {}
-      })
+      .then(applyFetchedResult)
       .catch(() => {
         setNoResult(true)
       })
@@ -570,7 +578,7 @@ export default function ReportPage() {
     setResult((prev) => {
       const next = updater(prev)
       const rid = next?.result_id || next?.id
-      if (rid && hasNarrativeContent(next)) {
+      if (rid && isReportCacheable(next)) {
         try { sessionStorage.setItem(`report_${rid}`, JSON.stringify(next)) } catch {}
       }
       return next
@@ -585,6 +593,20 @@ export default function ReportPage() {
       })
       if (enrichmentJobIdRef.current) {
         completeEnrichmentJob(enrichmentJobIdRef.current, { phase: 'Complete', status: 'ready' })
+      }
+      const rid = result?.result_id || result?.id
+      if (rid) {
+        getScreeningResult(rid)
+          .then((data) => {
+            setResult(data)
+            setCandidateName(resolveName(data))
+            try {
+              if (isReportCacheable(data)) {
+                sessionStorage.setItem(`report_${rid}`, JSON.stringify(data))
+              }
+            } catch { /* ignore */ }
+          })
+          .catch(() => {})
       }
     },
     onComplete: () => setNarrativePolling(false),
@@ -701,6 +723,8 @@ export default function ReportPage() {
   const analysisData = useMemo(() => ({
     missing_skills: result?.analysis_result?.missing_skills || result?.missing_skills || [],
     matched_skills: result?.analysis_result?.matched_skills || result?.matched_skills || [],
+    work_experience: result?.work_experience || result?.candidate_profile?.work_experience || [],
+    candidate_profile: result?.candidate_profile,
   }), [result])
 
   const roleForKit = useMemo(() => {

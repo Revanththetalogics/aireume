@@ -315,3 +315,20 @@ def refresh_interview_questions_in_analysis(
     )
     analysis["interview_questions"] = kit
     return kit
+
+
+def count_kit_questions(interview_questions: Optional[Dict[str, Any]]) -> int:
+    """Count total questions across standard kit categories."""
+    if not interview_questions or not isinstance(interview_questions, dict):
+        return 0
+    total = 0
+    for key in (
+        "technical_questions",
+        "behavioral_questions",
+        "culture_fit_questions",
+        "experience_deep_dive_questions",
+    ):
+        items = interview_questions.get(key)
+        if isinstance(items, list):
+            total += len(items)
+    return total

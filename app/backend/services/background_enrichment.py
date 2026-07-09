@@ -396,6 +396,7 @@ async def background_interview_kit(
 ) -> None:
     """Background task: generate interview kit and merge into stored report."""
     from app.backend.services.hybrid_pipeline import _build_fallback_narrative
+    from app.backend.services.interview_kit_generator import count_kit_questions
 
     log.info("Interview kit background task started for screening_result_id=%s", screening_result_id)
     _update_screening_fields(
@@ -415,8 +416,17 @@ async def background_interview_kit(
                 timeout=INTERVIEW_KIT_TIMEOUT,
             )
         interview_questions = kit
-        kit_status = "ready"
-        log.info("Interview kit LLM succeeded for screening_result_id=%s", screening_result_id)
+        if count_kit_questions(kit) > 0:
+            kit_status = "ready"
+            log.info("Interview kit LLM succeeded for screening_result_id=%s", screening_result_id)
+        else:
+            log.warning(
+                "Interview kit LLM returned no questions for screening_result_id=%s — using deterministic fallback",
+                screening_result_id,
+            )
+            fallback = _build_fallback_narrative(python_result, python_result.get("skill_analysis", {}))
+            interview_questions = fallback.get("interview_questions", {})
+            kit_status = "fallback"
     except Exception as err:
         log.warning(
             "Interview kit LLM failed for screening_result_id=%s: %s: %s",
@@ -505,6 +515,8 @@ def schedule_post_narrative_enrichment(
     narrative_payload: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Chain background interview kit + voice strategy after narrative is persisted."""
+    from app.backend.services.interview_kit_generator import count_kit_questions
+
     recommendation = (
         python_result.get("final_recommendation")
         or llm_context.get("scores", {}).get("final_recommendation")
@@ -513,8 +525,8 @@ def schedule_post_narrative_enrichment(
 
     if narrative_status == "fallback" and narrative_payload:
         kit = narrative_payload.get("interview_questions")
-        if kit:
-            _update_screening_fields(screening_result_id, tenant_id, interview_kit_status="ready")
+        if kit and count_kit_questions(kit) > 0:
+            _merge_interview_kit(screening_result_id, tenant_id, kit, "fallback")
         else:
             asyncio.create_task(
                 background_interview_kit(screening_result_id, tenant_id, llm_context, python_result)
