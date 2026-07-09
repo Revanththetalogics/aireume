@@ -171,13 +171,15 @@ services:
     container_name: staging-speech-service
     environment:
       - STT_ENGINE=${STT_ENGINE:-faster_whisper}
-      - STT_MODEL=${STT_MODEL:-base}
+      # small: better phone-call accuracy; needs ~8G limit (revert to base + 6G if OOM/latency issues)
+      - STT_MODEL=${STT_MODEL:-small}
       - STT_COMPUTE_TYPE=${STT_COMPUTE_TYPE:-int8}
+      - TTS_ALLOW_EDGE=false
     deploy:
       resources:
         limits:
-          cpus: '3'
-          memory: 4G
+          cpus: '4'
+          memory: 8G
     restart: unless-stopped
 
   voice-agent:
@@ -199,7 +201,7 @@ services:
       - ARIA_BACKEND_URL=http://backend:8000
       - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET must match main stack}
       - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-2}
-      - VAD_SILENCE_MS=${VAD_SILENCE_MS:-750}
+      - VAD_SILENCE_MS=${VAD_SILENCE_MS:-600}
       - SIP_TRUNK_ID=${SIP_TRUNK_ID:-twilio-aria}
       - SIP_OUTBOUND_NUMBER=${SIP_OUTBOUND_NUMBER:-+18722789563}
       - SIP_TERMINATION_ADDRESS=${SIP_TERMINATION_ADDRESS:-aria-staging.pstn.twilio.com}

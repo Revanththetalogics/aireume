@@ -59,6 +59,7 @@ class SpeechSegmenter:
         self._silence_samples = 0
         self._total_samples = 0
         self._completed_segments: deque = deque()
+        self.last_segment_meta: dict = {}
 
         # Derived constants
         self._min_speech_samples = int(sample_rate * min_speech_duration_ms / 1000)
@@ -142,6 +143,11 @@ class SpeechSegmenter:
 
         if segment:
             duration = len(segment) // 2 / self.sample_rate
+            speech_ms = round(duration * 1000, 1)
+            self.last_segment_meta = {
+                "speech_ms": speech_ms,
+                "silence_ms": self.silence_duration_ms,
+            }
             logger.info(
                 "Speech segment: %.1fs (%d bytes, %dHz)",
                 duration, len(segment), self.sample_rate,

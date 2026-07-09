@@ -62,3 +62,9 @@ class TestKitDrivenOrchestrator:
 
         assert len(ctx.questions_responses) == 2
         assert ctx.questions_responses[0]["question"] == "Describe your Excel experience."
+
+    @pytest.mark.asyncio
+    async def test_no_filler_during_kit_questions(self):
+        ctx = OrchestratorContext(session_id="1", candidate_name="Alex", total_duration_s=600)
+        orch = KitDrivenOrchestrator(ctx, [{"id": "t1", "category": "technical", "text": "Q1?"}])
+        assert orch.should_play_filler() is False

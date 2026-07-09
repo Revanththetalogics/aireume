@@ -13,8 +13,31 @@ speech-service more CPU/RAM for faster STT.
 - `VOICE_AGENT_URL=http://voice-agent:8002` (internal Docker network)
 
 **Latency tuning env vars (voice-agent):**
-- `VAD_SILENCE_MS=750` — end-of-speech detection (default, was 1200ms)
+- `VAD_SILENCE_MS=600` — end-of-speech detection (default; was 750ms / 1200ms)
 - `GEMINI_MODEL_VOICE=gemini-2.5-flash` — live interview LLM
+
+**Speech-service (unified main VPS, 45 GB RAM):**
+- `STT_MODEL=small` — better recognition on phone audio (uses more RAM than `base`)
+- Memory limit **8G**, 4 CPUs — headroom for `small` + Kokoro + 2 concurrent calls
+- `TTS_ALLOW_EDGE=false` — Kokoro only; fails loud if TTS is down
+
+### Rollback if `small` / 8G causes issues
+
+Symptoms: container OOM/restart, STT latency >3s, or calls failing at speech-service.
+
+In Portainer env or stack file, revert to:
+
+```env
+STT_MODEL=base
+```
+
+And in `docker-compose.main.staging.yml` speech-service deploy limits:
+
+```yaml
+memory: 6G
+```
+
+Redeploy `staging-speech-service` only. No image rebuild required for rollback.
 
 ---
 

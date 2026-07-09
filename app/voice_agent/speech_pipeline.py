@@ -5,7 +5,11 @@ import asyncio
 import logging
 import random
 import re
-from typing import Awaitable, Callable, Optional
+import time
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional
+
+if TYPE_CHECKING:
+    from app.voice_agent.turn_telemetry import TurnTelemetryCollector
 
 logger = logging.getLogger("voice_agent.speech_pipeline")
 
@@ -45,6 +49,19 @@ def pick_immediate_ack() -> str:
     return random.choice(IMMEDIATE_ACKS)
 
 
+def clean_tts_text(text: str) -> str:
+    """Strip markdown and URLs so TTS sounds natural on phone calls."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\*+([^*]+)\*+", r"\1", text)
+    text = re.sub(r"#+\s*", "", text)
+    text = re.sub(r"`[^`]+`", "", text)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def split_sentences(text: str) -> list[str]:
     """Split bot text into speakable sentence chunks."""
     text = (text or "").strip()
@@ -64,14 +81,18 @@ async def speak_text(
     *,
     sample_rate: int = 16000,
     voice: str = "female",
+    telemetry: Optional["TurnTelemetryCollector"] = None,
 ) -> None:
     """Synthesize and publish text sentence-by-sentence with TTS prefetch."""
+    text = clean_tts_text(text)
     sentences = split_sentences(text)
     if not sentences:
         return
 
     playback_gate.reset()
     playback_gate.is_playing = True
+    total_tts_ms = 0.0
+    total_playback_ms = 0.0
     try:
         prefetch_task: asyncio.Task | None = None
         prefetched_audio: bytes | None = None
@@ -86,7 +107,9 @@ async def speak_text(
                 prefetch_task = None
                 audio = prefetched_audio
             else:
+                tts_start = time.monotonic()
                 audio = await speech.synthesize(sentence, voice=voice)
+                total_tts_ms += (time.monotonic() - tts_start) * 1000
 
             next_index = index + 1
             if next_index < len(sentences) and not playback_gate.cancelled:
@@ -100,6 +123,7 @@ async def speak_text(
                     prefetch_task.cancel()
                 continue
 
+            playback_start = time.monotonic()
             await publish_fn(
                 room,
                 audio_source,
@@ -107,11 +131,17 @@ async def speak_text(
                 sample_rate,
                 playback_gate,
             )
+            total_playback_ms += (time.monotonic() - playback_start) * 1000
 
         if prefetch_task and not prefetch_task.done():
             prefetch_task.cancel()
     finally:
         playback_gate.is_playing = False
+        if telemetry is not None:
+            if total_tts_ms:
+                telemetry.record("tts_ms", round(total_tts_ms, 1))
+            if total_playback_ms:
+                telemetry.record("playback_ms", round(total_playback_ms, 1))
 
 
 async def speak_with_filler(

@@ -7,6 +7,7 @@ post-call evaluation against kit scoring_criteria.
 from __future__ import annotations
 
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -22,7 +23,19 @@ _CATEGORY_INTROS = {
     "experience_deep_dive": "I'd like to dig deeper into your experience. ",
 }
 
-_MIN_ANSWER_WORDS = 12
+_MIN_ANSWER_WORDS = 10
+
+_THIN_ANSWER_MARKERS = {
+    "yes", "yeah", "yep", "sure", "okay", "ok",
+    "no", "nope", "nah",
+    "not sure", "i don't know", "dont know", "no idea",
+}
+
+_TRANSITION_PHRASES = [
+    "Thanks for sharing. ",
+    "Got it. ",
+    "Understood. ",
+]
 
 
 @dataclass
@@ -65,10 +78,8 @@ class KitDrivenOrchestrator:
         )
 
     def should_play_filler(self) -> bool:
-        return self._introduction_step >= 3 and self.ctx.current_stage not in (
-            InterviewStage.CLOSING,
-            InterviewStage.ENDED,
-        )
+        # Kit responses are deterministic — filler only adds dead air.
+        return False
 
     def pick_filler(self) -> str:
         from app.voice_agent.speech_pipeline import pick_immediate_ack
@@ -188,6 +199,8 @@ class KitDrivenOrchestrator:
         if question.category != self._last_category:
             prefix = _CATEGORY_INTROS.get(question.category, "")
             self._last_category = question.category
+        elif self._question_index > 0:
+            prefix = random.choice(_TRANSITION_PHRASES)
 
         response = prefix + question.text
         self._record_bot(response, question.category)
@@ -200,6 +213,12 @@ class KitDrivenOrchestrator:
 
         self._record_candidate(text, question.category)
         word_count = len(text.split())
+        lower = text.lower().strip()
+        is_thin = (
+            word_count < _MIN_ANSWER_WORDS
+            or lower in _THIN_ANSWER_MARKERS
+            or (word_count <= 4 and "?" not in text)
+        )
 
         entry = {
             "stage": question.category,
@@ -216,7 +235,7 @@ class KitDrivenOrchestrator:
 
         if (
             not self._awaiting_follow_up
-            and word_count < _MIN_ANSWER_WORDS
+            and is_thin
             and question.follow_ups
         ):
             self._awaiting_follow_up = True
@@ -258,7 +277,7 @@ class KitDrivenOrchestrator:
         return self.ctx.current_stage == InterviewStage.ENDED
 
     def get_result(self) -> dict[str, Any]:
-        return {
+        result = {
             "session_id": self.ctx.session_id,
             "duration_seconds": int(self.ctx.elapsed),
             "consent_recorded": self.ctx.consent_recorded,
@@ -278,3 +297,7 @@ class KitDrivenOrchestrator:
             "kit_question_count": len(self.questions),
             "kit_questions_answered": len(self.ctx.questions_responses),
         }
+        telemetry = getattr(self.ctx, "turn_telemetry", None)
+        if telemetry is not None and hasattr(telemetry, "as_result_payload"):
+            result["turn_telemetry"] = telemetry.as_result_payload()
+        return result

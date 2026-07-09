@@ -35,6 +35,7 @@ stt_model_name: str | None = None
 vad_model = None
 vad_utils = None
 kokoro_pipeline = None
+TTS_ALLOW_EDGE = os.getenv("TTS_ALLOW_EDGE", "false").strip().lower() in ("1", "true", "yes")
 
 SAMPLE_RATE = 16000  # All models use 16 kHz
 KOKORO_SAMPLE_RATE = 24000  # Kokoro outputs at 24 kHz
@@ -314,7 +315,7 @@ async def transcribe_audio(request: Request):
 @app.post("/tts/synthesize")
 async def synthesize_speech(request: Request):
     """
-    Synthesize text to audio using Kokoro TTS (primary) or Edge TTS (fallback).
+    Synthesize text to audio using Kokoro TTS (local CPU).
     Body JSON: {"text": "...", "voice": "female"|"male", "speed": 1.0}
     Returns: WAV audio bytes at 16kHz mono.
     """
@@ -326,15 +327,20 @@ async def synthesize_speech(request: Request):
     voice_key = body.get("voice", "female")
     speed = body.get("speed", 1.0)
 
-    # Try Kokoro TTS first (local, CPU-based, professional voice)
-    if kokoro_pipeline is not None:
-        try:
-            return await _synthesize_kokoro(text, voice_key, speed)
-        except Exception as e:
-            logger.warning("Kokoro TTS failed, falling back to Edge TTS: %s", e)
+    if kokoro_pipeline is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Kokoro TTS is not loaded. Speech synthesis unavailable.",
+        )
 
-    # Fallback: Edge TTS (cloud-based)
-    return await _synthesize_edge(text, voice_key, speed)
+    try:
+        return await _synthesize_kokoro(text, voice_key, speed)
+    except Exception as e:
+        logger.error("Kokoro TTS failed: %s", e, exc_info=True)
+        if TTS_ALLOW_EDGE:
+            logger.warning("Falling back to Edge TTS because TTS_ALLOW_EDGE=true")
+            return await _synthesize_edge(text, voice_key, speed)
+        raise HTTPException(status_code=503, detail=f"Kokoro TTS synthesis failed: {e}") from e
 
 
 async def _synthesize_kokoro(text: str, voice_key: str, speed: float) -> StreamingResponse:

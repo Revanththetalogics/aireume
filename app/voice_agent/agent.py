@@ -57,7 +57,7 @@ SIP_TRANSPORT = os.getenv("SIP_TRANSPORT", "SIP_TRANSPORT_TCP")  # auto/udp/tcp/
 AGENT_PORT = int(os.getenv("AGENT_PORT", "8002"))
 # 0 = unlimited (monolithic deploy). Voice VPS should set to 1 on 4c/8GB boxes.
 MAX_CONCURRENT_CALLS = int(os.getenv("MAX_CONCURRENT_CALLS", "0"))
-VAD_SILENCE_MS = int(os.getenv("VAD_SILENCE_MS", "750"))
+VAD_SILENCE_MS = int(os.getenv("VAD_SILENCE_MS", "600"))
 VAD_ENERGY_THRESHOLD = float(os.getenv("VAD_ENERGY_THRESHOLD", "300"))
 
 # Conversation settings (defaults, overridden per-call by tenant config)
@@ -111,6 +111,7 @@ class SpeechClient:
     def __init__(self, base_url: str = SPEECH_SERVICE_URL):
         self.base_url = base_url
         self._client: Optional[httpx.AsyncClient] = None
+        self._cache: dict[str, bytes] = {}
 
     async def start(self):
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=30.0)
@@ -140,6 +141,15 @@ class SpeechClient:
 
     async def synthesize(self, text: str, voice: str = "female") -> bytes:
         """Send text to TTS, return WAV audio bytes. Retries once on failure."""
+        from app.voice_agent.speech_pipeline import clean_tts_text
+
+        text = clean_tts_text(text)
+        if not text:
+            return b""
+        cached = self._cache.get(text)
+        if cached:
+            return cached
+
         for attempt in range(2):
             try:
                 resp = await self._client.post(
@@ -147,7 +157,10 @@ class SpeechClient:
                     json={"text": text, "voice": voice},
                 )
                 resp.raise_for_status()
-                return await resp.aread()
+                audio = await resp.aread()
+                if audio:
+                    self._cache[text] = audio
+                return audio
             except Exception as e:
                 if attempt == 0:
                     logger.warning("TTS attempt 1 failed: %s — retrying", e)
@@ -155,6 +168,18 @@ class SpeechClient:
                 else:
                     logger.error("TTS attempt 2 failed: %s", e)
                     return b""
+
+    async def warm_cache(self, texts: list[str], voice: str = "female") -> int:
+        """Pre-synthesize phrases to remove first-response latency."""
+        warmed = 0
+        for text in texts:
+            if not text or text in self._cache:
+                continue
+            audio = await self.synthesize(text, voice=voice)
+            if audio:
+                warmed += 1
+        logger.info("TTS warm cache: %d phrases ready (%d total cached)", warmed, len(self._cache))
+        return warmed
 
     async def detect_speech(self, audio_bytes: bytes) -> dict:
         """Send audio to VAD, return speech detection result."""
@@ -1387,15 +1412,20 @@ class VoiceAgentWorker:
         agent_token: str,
         orch_ctx: OrchestratorContext,
         orchestrator: Optional["InterviewOrchestrator"] = None,
+        speech: Optional[SpeechClient] = None,
     ):
         """
         Join a LiveKit room and run the interview orchestrator (kit-driven or dynamic).
         """
         from livekit import rtc
+        from app.voice_agent.turn_telemetry import TurnTelemetryCollector
 
         room = rtc.Room()
-        speech = SpeechClient()
+        owns_speech = speech is None
+        speech = speech or SpeechClient()
         backend = BackendClient()
+        telemetry = TurnTelemetryCollector()
+        orch_ctx.turn_telemetry = telemetry
         if orchestrator is None:
             llm = LLMClient()
             orchestrator = InterviewOrchestrator(orch_ctx, llm, speech)
@@ -1433,23 +1463,62 @@ class VoiceAgentWorker:
 
                     for segment_pcm in segmenter.get_speech_segments():
                         await barge_in(playback_gate)
+                        turn_started = time.monotonic()
+                        telemetry.begin_turn()
+                        seg_meta = getattr(segmenter, "last_segment_meta", {}) or {}
+                        if seg_meta:
+                            telemetry.record("segment_speech_ms", seg_meta.get("speech_ms"))
+                            telemetry.record("vad_silence_ms", seg_meta.get("silence_ms"))
+
                         wav_data = _pcm_to_wav(segment_pcm, frame_rate)
+                        stt_start = time.monotonic()
                         text = await speech.transcribe(wav_data, "audio/wav")
+                        telemetry.record("stt_ms", round((time.monotonic() - stt_start) * 1000, 1))
                         segment_duration = len(segment_pcm) // 2 / frame_rate
                         if text.strip():
                             logger.info("Candidate said: %s", text)
+                            telemetry.record("candidate_chars", len(text.strip()))
 
-                            filler = orchestrator.pick_filler() if orchestrator.should_play_filler() else ""
-                            bot_text = await speak_with_filler(
-                                filler=filler,
-                                response_coro=orchestrator.handle_candidate_response(text),
-                                speech=speech,
-                                room=room,
-                                audio_source=audio_source,
-                                publish_fn=_publish_audio,
-                                playback_gate=playback_gate,
-                                sample_rate=TTS_SAMPLE_RATE,
+                            think_start = time.monotonic()
+                            if orchestrator.should_play_filler():
+                                filler = orchestrator.pick_filler()
+                                bot_text = await speak_with_filler(
+                                    filler=filler,
+                                    response_coro=orchestrator.handle_candidate_response(text),
+                                    speech=speech,
+                                    room=room,
+                                    audio_source=audio_source,
+                                    publish_fn=_publish_audio,
+                                    playback_gate=playback_gate,
+                                    sample_rate=TTS_SAMPLE_RATE,
+                                )
+                            else:
+                                bot_text = await orchestrator.handle_candidate_response(text)
+                                telemetry.record(
+                                    "think_ms",
+                                    round((time.monotonic() - think_start) * 1000, 1),
+                                )
+                                if bot_text:
+                                    await speak_text(
+                                        bot_text,
+                                        speech,
+                                        room,
+                                        audio_source,
+                                        _publish_audio,
+                                        playback_gate,
+                                        sample_rate=TTS_SAMPLE_RATE,
+                                        telemetry=telemetry,
+                                    )
+                            telemetry.record(
+                                "turn_gap_ms",
+                                round((time.monotonic() - turn_started) * 1000, 1),
                             )
+                            telemetry.end_turn()
+                            logger.info(
+                                "Turn telemetry: %s",
+                                telemetry.turns[-1] if telemetry.turns else {},
+                            )
+
                             if bot_text:
                                 logger.info("Bot responds: %s", bot_text)
 
@@ -1483,7 +1552,8 @@ class VoiceAgentWorker:
         room.on("track_subscribed", on_track_subscribed)
 
         try:
-            await speech.start()
+            if owns_speech:
+                await speech.start()
             orch_ctx.started_at = time.time()
 
             await room.connect(LIVEKIT_URL, agent_token)
@@ -1536,6 +1606,8 @@ class VoiceAgentWorker:
             )
 
             result = orchestrator.get_result()
+            if telemetry.turns:
+                logger.info("Final turn telemetry summary: %s", telemetry.summary())
             await _notify_backend_complete(orch_ctx.session_id, result)
 
         except Exception as e:
@@ -1554,13 +1626,20 @@ class VoiceAgentWorker:
             except Exception:
                 pass
 
-    async def dispatch_and_run_kit(self, orch_ctx, orchestrator, room_info: dict):
+    async def dispatch_and_run_kit(
+        self,
+        orch_ctx,
+        orchestrator,
+        room_info: dict,
+        speech: Optional[SpeechClient] = None,
+    ):
         """Run a kit-driven orchestrator in the LiveKit room."""
         handler = self.handle_orchestrator_room(
             room_info["room_name"],
             room_info["agent_token"],
             orch_ctx,
             orchestrator=orchestrator,
+            speech=speech,
         )
         sid = str(getattr(orch_ctx, "session_id", "unknown"))
         task = asyncio.create_task(handler)
@@ -1722,6 +1801,7 @@ async def dispatch_call(req: DispatchRequest):
 
         if kit_questions:
             from app.voice_agent.kit_orchestrator import KitDrivenOrchestrator
+            from app.voice_agent.tts_warmup import build_kit_warm_phrases
 
             orchestrator = KitDrivenOrchestrator(orch_ctx, kit_questions)
             logger.info(
@@ -1730,11 +1810,20 @@ async def dispatch_call(req: DispatchRequest):
                 len(kit_questions),
                 (req.interview_kit or {}).get("kit_source"),
             )
-            await worker.dispatch_and_run_kit(
-                orch_ctx,
-                orchestrator,
-                room_info,
-            )
+            speech = SpeechClient()
+            await speech.start()
+            try:
+                warm_phrases = build_kit_warm_phrases(orch_ctx, kit_questions)
+                await speech.warm_cache(warm_phrases)
+                await worker.dispatch_and_run_kit(
+                    orch_ctx,
+                    orchestrator,
+                    room_info,
+                    speech=speech,
+                )
+            except Exception:
+                await speech.stop()
+                raise
         else:
             llm = LLMClient()
             orchestrator = InterviewOrchestrator(orch_ctx, llm, None)
