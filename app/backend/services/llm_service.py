@@ -141,16 +141,23 @@ async def gemini_generate_content(
     return text.strip()
 
 
-def create_gemini_chat_llm(*, max_output_tokens: int = 4000):
+def create_gemini_chat_llm(
+    *,
+    max_output_tokens: int = 4000,
+    response_mime_type: str | None = None,
+):
     """LangChain chat model for Gemini (used by hybrid pipeline ainvoke)."""
     from langchain_google_genai import ChatGoogleGenerativeAI
 
-    return ChatGoogleGenerativeAI(
-        model=get_gemini_model(),
-        google_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-        temperature=0.1,
-        max_output_tokens=max_output_tokens,
-    )
+    kwargs: dict = {
+        "model": get_gemini_model(),
+        "google_api_key": os.getenv("GEMINI_API_KEY", "").strip(),
+        "temperature": 0.1,
+        "max_output_tokens": max_output_tokens,
+    }
+    if response_mime_type:
+        kwargs["response_mime_type"] = response_mime_type
+    return ChatGoogleGenerativeAI(**kwargs)
 
 
 # ─── Ollama Cloud Detection & Headers ────────────────────────────────────────

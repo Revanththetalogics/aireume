@@ -923,33 +923,119 @@ def _llm_response_needs_compact_retry(raw: str) -> bool:
     return True
 
 
-def _build_compact_retry_llm(*, num_predict: int):
-    """LLM for compact narrative retry — stays on Gemini when GEMINI_API_KEY is set."""
+def _narrative_output_token_limit() -> int:
+    """Cap narrative output tokens — crisp JSON needs far fewer than full essays."""
+    from app.backend.services.llm_service import use_gemini_for_analysis
+
+    if use_gemini_for_analysis():
+        return int(os.getenv("GEMINI_NARRATIVE_MAX_TOKENS", "2200"))
+    if _is_ollama_cloud(os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")):
+        return int(os.getenv("OLLAMA_NARRATIVE_MAX_TOKENS", "1800"))
+    return int(os.getenv("OLLAMA_NARRATIVE_MAX_TOKENS", "1200"))
+
+
+def _create_narrative_llm(*, max_output_tokens: int):
+    """LLM tuned for short structured narrative JSON."""
     from app.backend.services.llm_service import use_gemini_for_analysis, create_gemini_chat_llm
 
     if use_gemini_for_analysis():
-        return create_gemini_chat_llm(max_output_tokens=num_predict)
+        return create_gemini_chat_llm(
+            max_output_tokens=max_output_tokens,
+            response_mime_type="application/json",
+        )
 
-    from langchain_ollama import ChatOllama
+    llm = _get_llm()
+    if llm is None:
+        return None
+    return _bind_num_predict(llm, max_output_tokens)
 
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    llm_timeout = float(os.getenv("LLM_NARRATIVE_TIMEOUT", "500"))
-    is_cloud = _is_ollama_cloud(base_url)
-    kwargs = {
-        "model": os.getenv("OLLAMA_MODEL_BACKEND", os.getenv("OLLAMA_MODEL", "qwen2.5:7b")),
-        "base_url": base_url,
-        "temperature": 0.3,
-        "num_predict": num_predict,
-        "num_ctx": 16384 if is_cloud else 8192,
-        "request_timeout": llm_timeout + 30,
-    }
-    if is_cloud:
-        api_key = os.getenv("OLLAMA_API_KEY", "").strip()
-        if api_key:
-            kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
+
+def _build_compact_retry_llm(*, num_predict: int):
+    """LLM for compact narrative retry — stays on Gemini when GEMINI_API_KEY is set."""
+    return _create_narrative_llm(max_output_tokens=num_predict)
+
+
+def _build_narrative_prompt(
+    *,
+    lang_prefix: str,
+    role_title: str,
+    domain: str,
+    seniority: str,
+    candidate_name: str,
+    years: float | int,
+    current_role: str,
+    current_company: str,
+    skill_score: int,
+    exp_score: int,
+    edu_score: int,
+    timeline_score: int,
+    fit_score: int,
+    recommendation: str,
+    matched_must: list,
+    missing_must: list,
+    matched_nice: list,
+    missing_nice: list,
+    req_match_pct: float,
+    nice_match_pct: float,
+    risk_flags: str,
+    score_rationales_summary: str,
+    ultra_compact: bool = False,
+) -> str:
+    """Cost-efficient narrative prompt — terse input, strict output length caps."""
+    matched_req = ", ".join(str(s) for s in matched_must[:6]) or "None"
+    missing_req = ", ".join(str(s) for s in missing_must[:4]) or "None"
+    matched_nice_s = ", ".join(str(s) for s in matched_nice[:3]) or "None"
+    missing_nice_s = ", ".join(str(s) for s in missing_nice[:2]) or "None"
+
+    if ultra_compact:
+        limits = (
+            "STRICT: fit_summary max 220 chars. candidate_profile_summary max 160 chars. "
+            "Arrays max 2 items, each max 70 chars. One sentence per explainability field."
+        )
+        schema = """{
+  "candidate_profile_summary": "2 short sentences, who they are + role fit",
+  "fit_summary": "2-3 sentences: strengths, gaps, clear INTERVIEW or PASS verdict",
+  "strengths": ["skill-specific", "skill-specific"],
+  "concerns": ["gap-specific", "gap-specific"],
+  "dealbreakers": ["must-have gap or empty array"],
+  "differentiators": ["one differentiator or empty array"],
+  "recommendation_rationale": "one sentence",
+  "hiring_decision": {"verdict": "Shortlist|Reject|Consider", "confidence": 0.0, "key_factors": ["f1", "f2"], "action_items": ["a1"]},
+  "explainability": {"skill_rationale": "one line", "experience_rationale": "one line", "overall_rationale": "one line"}
+}"""
     else:
-        kwargs["keep_alive"] = -1
-    return ChatOllama(**kwargs)
+        limits = (
+            "Keep copy tight. fit_summary max 380 chars. candidate_profile_summary max 240 chars. "
+            "Arrays max 3 items, each max 90 chars. No markdown."
+        )
+        schema = """{
+  "candidate_profile_summary": "2 sentences: background + fit for this role",
+  "fit_summary": "3 sentences: top strengths, top gaps, INTERVIEW or PASS with reason",
+  "strengths": ["specific, cite matched skills"],
+  "concerns": ["specific, cite missing skills or risks"],
+  "dealbreakers": ["critical must-have gap or []"],
+  "differentiators": ["unique positive or negative signal or []"],
+  "recommendation_rationale": "1-2 sentences tied to scores",
+  "hiring_decision": {"verdict": "Shortlist|Reject|Consider", "confidence": 0.0, "key_factors": ["up to 3"], "action_items": ["up to 2 concrete next steps"]},
+  "explainability": {"skill_rationale": "one line", "experience_rationale": "one line", "overall_rationale": "one line"}
+}"""
+
+    return f"""You are ARIA, a recruitment analyst. Return ONLY valid JSON.{lang_prefix}
+{limits}
+Use ONLY skills and facts from the data below — never invent employers, projects, or skills.
+
+ROLE: {role_title} ({domain}, {seniority})
+CANDIDATE: {candidate_name} | {years}y | {current_role} @ {current_company}
+SCORES: skill={skill_score} exp={exp_score} edu={edu_score} timeline={timeline_score} fit={fit_score}/100
+RECOMMENDATION: {recommendation}
+MUST-HAVE: {len(matched_must)}/{len(matched_must) + len(missing_must)} ({req_match_pct:.0f}%) — matched [{matched_req}] missing [{missing_req}]
+NICE-TO-HAVE: {len(matched_nice)}/{len(matched_nice) + len(missing_nice)} ({nice_match_pct:.0f}%) — matched [{matched_nice_s}] missing [{missing_nice_s}]
+RISKS:
+{risk_flags}
+RATIONALES: {score_rationales_summary}
+
+JSON schema:
+{schema}"""
 
 
 def _extract_first_balanced_json_object(text: str) -> str | None:
@@ -1190,20 +1276,10 @@ def _fix_unescaped_control_chars(text: str) -> str:
 
 async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     """Single LLM call to generate narrative (no interview kit). Raises on failure."""
-    llm = _get_llm()
+    _narrative_predict = _narrative_output_token_limit()
+    llm = _create_narrative_llm(max_output_tokens=_narrative_predict)
     if llm is None:
         raise RuntimeError("LLM not available")
-
-    from app.backend.services.llm_service import use_gemini_for_analysis
-
-    _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    if use_gemini_for_analysis():
-        _narrative_predict = 3500
-    elif _is_ollama_cloud(_base_url):
-        _narrative_predict = 4000
-    else:
-        _narrative_predict = 1500
-    llm = _bind_num_predict(llm, _narrative_predict)
 
     jd       = context.get("jd_analysis", {})
     profile  = context.get("candidate_profile", {})
@@ -1212,16 +1288,10 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     score_rationales = context.get("score_rationales", {})
     risk_summary     = context.get("risk_summary", {})
 
-    # Cap career_summary to 300 chars — it's already extracted by Python,
-    # we only need context, not the full text (saves ~100 input tokens).
-    career_snippet = (profile.get("career_summary") or "")[:300]
-
-    # Sanitize text fields that go into the LLM prompt
     role_title = _sanitize_input(jd.get("role_title") or jd.get("title", "Unknown Role"), 200, "role_title")
     candidate_name = _sanitize_input(profile.get("name") or "Unknown", 100, "name")
     current_role = _sanitize_input(profile.get("current_role") or "N/A", 100, "current_role")
     current_company = _sanitize_input(profile.get("current_company") or "N/A", 100, "current_company")
-    career_snippet = _sanitize_input(career_snippet, 400, "career_snippet")
 
     # Extract domain and seniority
     domain = jd.get("domain", "General")
@@ -1243,193 +1313,67 @@ async def explain_with_llm(context: Dict[str, Any]) -> Dict[str, Any]:
     missing_must = skill_a.get("missing_required", [])
     matched_nice = skill_a.get("matched_nice_to_have", [])
     missing_nice = skill_a.get("missing_nice_to_have", [])
-    matched = skill_a.get("matched_skills", [])
-    missing = skill_a.get("missing_skills", [])
     nice_match_pct = skill_a.get("nice_to_have_match_pct") or 0
     req_match_pct = skill_a.get("required_match_pct") or 0
 
-    # Key responsibilities from JD (full list, capped at 6 for prompt size)
-    key_resp = jd.get("key_responsibilities", [])[:6]
-    resp_text = "; ".join(key_resp) if key_resp else "Not specified"
-
-    # Proficiency gap details (required level vs candidate estimated level)
-    prof_analysis = skill_a.get("proficiency_analysis", {})
-    prof_lines = []
-    for sname, pdata in prof_analysis.items():
-        prof_lines.append(f"{sname}: req={pdata.get('required','?')} cand={pdata.get('estimated_candidate','?')}")
-    prof_text = "; ".join(prof_lines[:8]) if prof_lines else "Not assessed"
-
-    # Education details
-    education = profile.get("education", [])
-    edu_parts = []
-    for edu in (education if isinstance(education, list) else [])[:3]:
-        deg = edu.get("degree", "") if isinstance(edu, dict) else ""
-        fld = edu.get("field", "") if isinstance(edu, dict) else ""
-        inst = edu.get("institution", "") if isinstance(edu, dict) else ""
-        if deg or fld:
-            part = f"{deg} {fld}".strip()
-            if inst:
-                part = f"{part} ({inst})"
-            edu_parts.append(part)
-        elif inst:
-            edu_parts.append(inst)
-    edu_text = "; ".join(edu_parts) if edu_parts else "Not available"
-
-    # Extract seniority alignment from risk_summary
-    seniority_alignment = risk_summary.get("seniority_alignment", "Not assessed")
-
-    # Format risk flags — structured list with severity (not condensed string)
+    # Format risk flags — keep terse for token efficiency
     risk_flags_list = risk_summary.get("risk_flags", [])
     if risk_flags_list:
         risk_flags = "\n".join(
-            f"  - {rf.get('flag', 'Unknown')}: {rf.get('detail', '')} (severity: {rf.get('severity', 'low')})"
-            for rf in risk_flags_list[:6]
+            f"  - {rf.get('flag', 'Unknown')}: {_sanitize_input(str(rf.get('detail', '')), 80, 'risk')}"
+            for rf in risk_flags_list[:4]
         )
     else:
         risk_flags = "  None identified"
 
-    # Format score rationales — NO truncation (removed 60-char cap for richer context)
+    # Score rationales — one-line each, capped
     if score_rationales:
         rationales_parts = []
-        for key in ["skill_rationale", "experience_rationale", "education_rationale", "timeline_rationale"]:
+        for key in ("skill_rationale", "experience_rationale", "overall_rationale"):
             val = score_rationales.get(key, "")
             if val:
-                rationales_parts.append(f"{key.split('_')[0]}: {val}")
+                rationales_parts.append(
+                    f"{key.split('_')[0]}: {_sanitize_input(str(val), 120, key)}"
+                )
         score_rationales_summary = " | ".join(rationales_parts) if rationales_parts else "Not available"
     else:
         score_rationales_summary = "Not available"
 
-    # Build the must-have skill context lines for interview kit targeting
-    must_have_ctx_lines = []
-    for i, sk in enumerate(missing_must[:6]):
-        # Find a relevant responsibility for this skill
-        best_resp = key_resp[0] if key_resp else "this role"
-        prof_entry = prof_analysis.get(sk, {})
-        cand_lvl = prof_entry.get("estimated_candidate", "not assessed") if prof_entry else "not assessed"
-        must_have_ctx_lines.append(
-            f"- {sk}: MISSING | Candidate level: {cand_lvl} | Needed for: \"{best_resp}\""
-        )
-    for i, sk in enumerate(matched_must[:4]):
-        prof_entry = prof_analysis.get(sk, {})
-        req_lvl = prof_entry.get("required", "not specified") if prof_entry else "not specified"
-        cand_lvl = prof_entry.get("estimated_candidate", "not assessed") if prof_entry else "not assessed"
-        gap_note = ""
-        if prof_entry and prof_entry.get("match_factor", 1.0) < 1.0:
-            gap_note = " [PROFICIENCY GAP]"
-        best_resp = key_resp[0] if key_resp else "this role"
-        must_have_ctx_lines.append(
-            f"- {sk}: Matched{gap_note} | Required: {req_lvl}, Candidate: {cand_lvl} | Needed for: \"{best_resp}\""
-        )
-    must_have_ctx = "\n".join(must_have_ctx_lines) if must_have_ctx_lines else "  No must-have skills data available"
-
-    # Build the recruiter-focused prompt with explicit JSON instruction
     # Inject language instruction for multi-language support if detected
     _lang_ctx = context.get("language_context", {})
     _lang_instruction = _lang_ctx.get("llm_instruction", "")
     _lang_prefix = f"\n{_lang_instruction}\n" if _lang_instruction else ""
 
-    prompt = f"""IMPORTANT: You must respond with ONLY a valid JSON object. No explanation, no markdown, no code blocks. Start with {{ and end with }}.{_lang_prefix}
-
-You are ARIA, an AI recruitment analyst. Produce a JSON assessment explaining
-WHY this candidate is/isn't suited for this role. Be specific — reference
-actual skills, scores, and gaps. Write as if advising a hiring manager.
-
-ROLE: {role_title} | {domain} | {seniority}
-CANDIDATE: {candidate_name} | {years}y experience | {current_role} at {current_company}
-SCORES: skill={skill_score} exp={exp_score} edu={edu_score} timeline={timeline_score} fit={fit_score} /100
-RECOMMENDATION: {recommendation}
-MUST-HAVE MATCH: {len(matched_must)}/{len(matched_must)+len(missing_must)} required ({req_match_pct:.0f}%) | NICE-TO-HAVE MATCH: {len(matched_nice)}/{len(matched_nice)+len(missing_nice)} ({nice_match_pct:.0f}%)
-MATCHED MUST-HAVE: {', '.join(matched_must[:10]) if matched_must else 'None'}
-MISSING MUST-HAVE: {', '.join(missing_must[:6]) if missing_must else 'None'}
-MATCHED NICE-TO-HAVE: {', '.join(matched_nice[:6]) if matched_nice else 'None'}
-MISSING NICE-TO-HAVE: {', '.join(missing_nice[:4]) if missing_nice else 'None'}
-KEY RESPONSIBILITIES: {resp_text}
-PROFICIENCY GAPS: {prof_text}
-SENIORITY FIT: {seniority_alignment}
-RISK FLAGS:
-{risk_flags}
-SCORE RATIONALES: {score_rationales_summary}
-EDUCATION: {edu_text}
-CAREER: {career_snippet}
-
-Return ONLY valid JSON:
-{{
-  "candidate_profile_summary": "A 3-4 sentence recruiter-focused summary of this candidate. Describe their professional background, years of experience, key technical strengths, and how they fit (or don't fit) this specific role. Write in third person, professional tone. Example: 'John is a senior backend engineer with 8 years of experience in distributed systems and cloud infrastructure. He demonstrates strong proficiency in Python, Go, and AWS services. His experience aligns well with the Senior Software Engineer role, though he lacks frontend development exposure required for this position.'",
-  "fit_summary": "4-6 sentence executive summary for hiring manager that MUST include: 1) Candidate name, current role, total years of experience 2) What makes them a strong/weak fit for THIS specific role (reference JD requirements and key responsibilities) 3) Top 2-3 technical strengths relevant to the role (cite specific matched must-have skills) 4) Top 2-3 technical gaps or concerns (cite specific missing must-have skills and proficiency gaps) 5) Clear INTERVIEW/PASS verdict with the single most important reason. Be decisive and specific — never generic.",
-  "strengths": ["specific strength tied to role requirements. Reference actual skills and scores."],
-  "concerns": ["specific concern tied to role gaps. Reference actual missing skills or risk flags."],
-  "dealbreakers": ["If the candidate fails any MUST-HAVE requirement from the role, list it here with evidence. If no dealbreakers, return empty array."],
-  "differentiators": ["What makes this candidate UNIQUE compared to a typical applicant — positive OR negative. Be specific. Examples: 'Only candidate with Fortune 500 SaaS experience' or 'Unusually short tenure in last 3 roles (avg 11 months)'"],
-  "recommendation_rationale": "why this recommendation, referencing scores and dealbreakers if any",
-  "hiring_decision": {{
-    "verdict": "Shortlist|Reject|Consider",
-    "confidence": 0.0-1.0,
-    "key_factors": ["top 3 factors that drove this decision"],
-    "action_items": ["what the hiring manager should do next: e.g., 'Schedule technical interview focusing on system design', 'Request portfolio of past pre-sales decks', 'Verify enterprise SaaS exposure with references'"]
-  }},
-  "explainability": {{
-    "skill_rationale": "skill match quality explanation",
-    "experience_rationale": "experience alignment explanation",
-    "overall_rationale": "synthesis of all factors"
-  }}
-}}
-
-NARRATIVE QUALITY RULES:
-1. NEVER hallucinate skills not in MATCHED MUST-HAVE/MISSING MUST-HAVE or NICE-TO-HAVE lists.
-2. NEVER invent candidate background details (company names, project names, degrees).
-3. If you don't have enough information, say so explicitly rather than guessing.
-4. Use the EXACT skill names from MATCHED/MISSING SKILLS — don't paraphrase.
-5. dealbreakers must be based ONLY on MISSING MUST-HAVE SKILLS or RISK FLAGS, not speculation.
-6. differentiators must be grounded in the actual candidate data provided.
-7. hiring_decision.action_items must be SPECIFIC and ACTIONABLE — never generic like 'conduct interview'.
-
-No markdown, no code fences."""
-
-    # Compact fallback prompt used when the full narrative response is truncated.
-    # It keeps the same JSON schema but omits verbose scoring_criteria and caps
-    # array lengths so the model can complete the response within tight output
-    # limits (common with some cloud-hosted models).
-    compact_prompt = f"""IMPORTANT: Respond with ONLY a valid JSON object. No markdown, no code blocks. Keep the response concise and complete.{_lang_prefix}
-
-ROLE: {role_title} | {domain} | {seniority}
-CANDIDATE: {candidate_name} | {years}y experience | {current_role} at {current_company}
-SCORES: skill={skill_score} exp={exp_score} edu={edu_score} timeline={timeline_score} fit={fit_score} /100
-RECOMMENDATION: {recommendation}
-MUST-HAVE MATCH: {len(matched_must)}/{len(matched_must)+len(missing_must)} required ({req_match_pct:.0f}%) | NICE-TO-HAVE MATCH: {len(matched_nice)}/{len(matched_nice)+len(missing_nice)} ({nice_match_pct:.0f}%)
-MATCHED MUST-HAVE: {', '.join(matched_must[:10]) if matched_must else 'None'}
-MISSING MUST-HAVE: {', '.join(missing_must[:6]) if missing_must else 'None'}
-MATCHED NICE-TO-HAVE: {', '.join(matched_nice[:6]) if matched_nice else 'None'}
-MISSING NICE-TO-HAVE: {', '.join(missing_nice[:4]) if missing_nice else 'None'}
-RISK FLAGS:
-{risk_flags}
-SCORE RATIONALES: {score_rationales_summary}
-
-Return ONLY valid JSON. Keep all string values under 200 characters. Keep arrays to 3 items max:
-{{
-  "candidate_profile_summary": "2-3 sentence recruiter-focused summary",
-  "fit_summary": "3-4 sentence executive summary with clear verdict",
-  "strengths": ["specific strength tied to role"],
-  "concerns": ["specific concern tied to gap"],
-  "dealbreakers": ["missing must-have dealbreaker or empty array"],
-  "differentiators": ["what makes this candidate unique"],
-  "recommendation_rationale": "why this recommendation in 1-2 sentences",
-  "hiring_decision": {{
-    "verdict": "Shortlist|Reject|Consider",
-    "confidence": 0.0-1.0,
-    "key_factors": ["factor 1", "factor 2", "factor 3"],
-    "action_items": ["action 1", "action 2"]
-  }},
-  "explainability": {{
-    "skill_rationale": "1 sentence",
-    "experience_rationale": "1 sentence",
-    "overall_rationale": "1 sentence"
-  }}
-}}
-
-No markdown, no code fences."""
+    _prompt_kwargs = dict(
+        lang_prefix=_lang_prefix,
+        role_title=role_title,
+        domain=domain,
+        seniority=seniority,
+        candidate_name=candidate_name,
+        years=years,
+        current_role=current_role,
+        current_company=current_company,
+        skill_score=skill_score,
+        exp_score=exp_score,
+        edu_score=edu_score,
+        timeline_score=timeline_score,
+        fit_score=fit_score,
+        recommendation=recommendation,
+        matched_must=matched_must,
+        missing_must=missing_must,
+        matched_nice=matched_nice,
+        missing_nice=missing_nice,
+        req_match_pct=req_match_pct,
+        nice_match_pct=nice_match_pct,
+        risk_flags=risk_flags,
+        score_rationales_summary=score_rationales_summary,
+    )
+    prompt = _build_narrative_prompt(**_prompt_kwargs, ultra_compact=False)
+    compact_prompt = _build_narrative_prompt(**_prompt_kwargs, ultra_compact=True)
 
     import httpx  # For specific error handling
     
+    from app.backend.services.llm_service import use_gemini_for_analysis
     from langchain_core.messages import HumanMessage
     messages = [HumanMessage(content=prompt)]
     
@@ -1497,10 +1441,11 @@ No markdown, no code fences."""
             )
 
         if use_gemini_for_analysis():
-            _num_predict_retry = 2500
+            _num_predict_retry = _narrative_predict
         else:
+            _base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
             _is_cloud_retry = _is_ollama_cloud(_base_url)
-            _num_predict_retry = 4000 if _is_cloud_retry else 3000
+            _num_predict_retry = min(_narrative_predict, 1400) if _is_cloud_retry else min(_narrative_predict, 1000)
 
         retry_llm = _build_compact_retry_llm(num_predict=_num_predict_retry)
         if use_gemini_for_analysis():
