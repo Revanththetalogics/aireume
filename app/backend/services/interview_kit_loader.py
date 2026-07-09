@@ -142,31 +142,38 @@ def _build_analysis_fallback_kit(
     role_title: str = "",
 ) -> dict[str, Any]:
     """Build a better-than-frontend-template kit from deterministic analysis."""
-    from app.backend.services.hybrid_pipeline import _build_fallback_narrative
+    from app.backend.services.interview_kit_generator import generate_targeted_interview_kit
 
     try:
         analysis = json.loads(result.analysis_result or "{}")
     except json.JSONDecodeError:
         analysis = {}
 
+    try:
+        parsed = json.loads(result.parsed_data or "{}")
+    except json.JSONDecodeError:
+        parsed = {}
+
     skill_analysis = analysis.get("skill_analysis") or analysis.get("skills") or {}
     if not isinstance(skill_analysis, dict):
         skill_analysis = {}
 
-    python_result = {
-        "skill_analysis": skill_analysis,
-        "fit_score": analysis.get("fit_score", analysis.get("overall_score", 50)),
-        "candidate_profile": {"name": analysis.get("candidate_name", "Candidate")},
-        "jd_analysis": {
-            "title": role_title or analysis.get("role_title", "the role"),
-            "key_responsibilities": analysis.get("key_responsibilities", []),
-            "required_skills": analysis.get("required_skills", []),
-        },
-        "score_breakdown": analysis.get("score_breakdown", {}),
-        "final_recommendation": analysis.get("final_recommendation", "Pending"),
+    profile = analysis.get("candidate_profile") or {}
+    if not profile.get("work_experience") and parsed:
+        profile = {**profile, "work_experience": parsed.get("work_experience") or []}
+
+    jd_analysis = analysis.get("jd_analysis") or {
+        "title": role_title or analysis.get("role_title", "the role"),
+        "key_responsibilities": analysis.get("key_responsibilities", []),
+        "required_skills": analysis.get("required_skills", []),
     }
-    fallback = _build_fallback_narrative(python_result, skill_analysis)
-    return fallback.get("interview_questions", {})
+
+    return generate_targeted_interview_kit(
+        profile=profile,
+        jd_analysis=jd_analysis,
+        skill_analysis=skill_analysis,
+        parsed_data=parsed,
+    )
 
 
 def resolve_interview_kit_for_voice(

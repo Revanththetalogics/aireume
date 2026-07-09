@@ -13,6 +13,16 @@ from app.backend.services.risk_calculator import compute_risk_penalty
 log = logging.getLogger(__name__)
 
 
+def scalar_breakdown_score(val: Any, default: int = 50) -> int:
+    """Extract numeric score from a score_breakdown dimension (dict or legacy int)."""
+    if isinstance(val, dict):
+        score = val.get("score", default)
+        return int(score) if score is not None else default
+    if isinstance(val, (int, float)):
+        return int(val)
+    return default
+
+
 def _compute_team_gap_bonus(matched_skills: list, team_gaps: list) -> float:
     """Bonus score (0-100) for candidates who fill team skill gaps."""
     if not team_gaps:
@@ -110,8 +120,8 @@ def compute_fit_score(
     else:
         w = DEFAULT_WEIGHTS.copy()
 
-    skill_score    = scores.get("skill_score",    50)
-    exp_score      = scores.get("exp_score",       50)
+    skill_score    = scalar_breakdown_score(scores.get("skill_score", 50))
+    exp_score      = scalar_breakdown_score(scores.get("exp_score", 50))
     arch_score     = scores.get("arch_score",      50)
     edu_score      = scores.get("edu_score",       60)
     timeline_score = scores.get("timeline_score", 85)

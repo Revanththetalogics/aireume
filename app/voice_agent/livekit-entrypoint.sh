@@ -46,4 +46,4 @@ redis:
 EOF
 
 echo "LiveKit config written (key=${KEY}, secret_len=${#SECRET}, node_ip=${NODE_IP:-unset})"
-exec livekit-server --config /etc/livekit.yaml
+exec /livekit-server --config /etc/livekit.yaml

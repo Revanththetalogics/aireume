@@ -58,7 +58,8 @@ from app.backend.services.hybrid_pipeline import (
 # It creates deep interview sessions via the recruiter orchestrator, which is
 # also used by the unified routes/interviews.py. No functional change needed.
 from app.backend.services.recruiter.auto_trigger import RecruiterAutoTrigger
-from app.backend.services.fit_scorer import compute_fit_score
+from app.backend.services.fit_scorer import compute_fit_score, scalar_breakdown_score
+from app.backend.services.interview_kit_generator import refresh_interview_questions_in_analysis
 from app.backend.services.weight_mapper import convert_to_new_schema
 from app.backend.services.skill_matcher import JD_CACHE_VERSION
 from app.backend.routes.subscription import _ensure_monthly_reset, _get_plan_limits, record_usage
@@ -3426,15 +3427,30 @@ def rescore_endpoint(
 
     # ── 7. Recalculate fit_score using compute_fit_score() ────────────────────
     sb = analysis.get("score_breakdown", {})
+    exp_match_raw = sb.get("experience_match", 50)
+    candidate_profile = analysis.get("candidate_profile", {})
+    if isinstance(exp_match_raw, dict):
+        exp_score = scalar_breakdown_score(exp_match_raw, 50)
+        actual_years = exp_match_raw.get("actual_years")
+        if actual_years is None:
+            actual_years = candidate_profile.get("total_effective_years", 0)
+        required_years = exp_match_raw.get("required_years")
+        if required_years is None:
+            required_years = candidate_profile.get("required_years", 0)
+    else:
+        exp_score = scalar_breakdown_score(exp_match_raw, 50)
+        actual_years = candidate_profile.get("total_effective_years", 0)
+        required_years = candidate_profile.get("required_years", 0)
+
     all_scores = {
         "skill_score":     skill_score,
-        "exp_score":       sb.get("experience_match", 50),
+        "exp_score":       exp_score,
         "arch_score":      sb.get("architecture", 50),
         "edu_score":       sb.get("education", 60),
         "timeline_score":  sb.get("stability", sb.get("timeline", 85)),
         "domain_score":    sb.get("domain_fit", 60),
-        "actual_years":    analysis.get("candidate_profile", {}).get("total_effective_years", 0),
-        "required_years":  analysis.get("candidate_profile", {}).get("required_years", 0),
+        "actual_years":    actual_years,
+        "required_years":  required_years,
         "matched_skills":  matched_skills,
         "missing_skills":  missing_skills,
         "required_count":  len(required_skills),
@@ -3546,6 +3562,8 @@ def rescore_endpoint(
         skill_analysis["proficiency_analysis"] = proficiency_analysis
 
     # Top-level fields
+    refresh_interview_questions_in_analysis(analysis, parsed_data=parsed_data)
+
     analysis.update({
         "skill_analysis":        skill_analysis,
         "jd_analysis":          jd_analysis,

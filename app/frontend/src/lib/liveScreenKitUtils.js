@@ -33,83 +33,77 @@ export function buildFallbackKit({
   missingSkills = [],
   matchedSkills = [],
   roleTitle = '',
+  workExperience = [],
 }) {
-  const technical = missingSkills.slice(0, 3).map((skill) => ({
-    text: `This role requires ${skill}. Walk me through a recent situation where you applied it — what was your role and what was the outcome?`,
-    what_to_listen_for: [
-      `Hands-on use of ${skill}`,
-      'Specific contribution and measurable outcome',
-    ],
-    follow_ups: [`What was the hardest part of that ${skill} work?`],
-    scoring_criteria: {
-      strong: 'Clear example with personal contribution and outcome',
-      adequate: 'Relevant example but light on detail or personal role',
-      weak: 'Vague or theoretical answer without a concrete example',
-    },
-  }))
+  const company = workExperience[0]?.company?.trim()
+  const title = workExperience[0]?.title?.trim()
 
-  const behavioral = [
-    {
-      text: 'Tell me about a time you had to deliver under a tight deadline. What did you prioritize?',
-      what_to_listen_for: ['Situation, action, result', 'Ownership and trade-offs'],
-      follow_ups: ['What would you do differently next time?'],
+  const technical = [
+    ...missingSkills.slice(0, 3).map((skill) => ({
+      text: `${skill} isn't on your resume — have you used it for ${roleTitle || 'this role'}?`,
+      what_to_listen_for: [`Honest ${skill} exposure`, 'Adjacent experience'],
+      follow_ups: [`What ${skill} work have you done hands-on?`],
       scoring_criteria: {
-        strong: 'Complete STAR with clear priorities and outcome',
-        adequate: 'Relevant story but missing result or detail',
-        weak: 'Generic answer without a real example',
+        strong: `Clear ${skill} example with context`,
+        adequate: 'Some adjacent experience',
+        weak: 'No exposure and no transferable example',
       },
-    },
-    {
-      text: 'Describe a situation where you disagreed with a stakeholder. How did you handle it?',
-      what_to_listen_for: ['Communication', 'Conflict resolution', 'Outcome'],
+    })),
+    ...matchedSkills.slice(0, 2).map((skill) => ({
+      text: company
+        ? `At ${company}, what did you personally deliver with ${skill}?`
+        : `You list ${skill} — walk me through one real project where you used it.`,
+      what_to_listen_for: [`Hands-on ${skill}`, 'Personal contribution', 'Outcome'],
+      follow_ups: [`What was the hardest part of that ${skill} work?`],
+      scoring_criteria: {
+        strong: `Detailed ${skill} example with ownership`,
+        adequate: 'Relevant but light on detail',
+        weak: 'Cannot substantiate resume claim',
+      },
+    })),
+  ]
+
+  const experience = []
+  if (company && title) {
+    experience.push({
+      text: `At ${company} as ${title}, what modules or integrations did you own?`,
+      what_to_listen_for: ['Scope owned', 'Tools used', 'Outcome'],
+      follow_ups: ['What broke in production and how did you fix it?'],
+    })
+  }
+  if (matchedSkills[0]) {
+    experience.push({
+      text: `What's the toughest live issue you've fixed involving ${matchedSkills[0]}?`,
+      what_to_listen_for: ['Root cause', 'Resolution steps', 'Impact'],
       follow_ups: [],
-      scoring_criteria: {
-        strong: 'Shows diplomacy and a positive resolution',
-        adequate: 'Describes disagreement but weak resolution',
-        weak: 'Avoids the conflict or blames others',
-      },
-    },
-  ]
+    })
+  }
 
-  const culture = [
-    {
-      text: roleTitle
-        ? `What specifically interests you about this ${roleTitle} role?`
-        : 'What specifically interests you about this position?',
-      what_to_listen_for: ['Role-specific motivation', 'Research about company or role'],
-      follow_ups: ['What are you looking for in your next role?'],
-      scoring_criteria: {
-        strong: 'Clear motivation tied to role and career goals',
-        adequate: 'Generic interest without role-specific detail',
-        weak: 'Cannot articulate why this role fits',
-      },
-    },
-  ]
-
-  const experience = matchedSkills.slice(0, 2).map((skill) => ({
-    text: `Your background mentions ${skill}. Can you describe a project where that was central to your work?`,
-    what_to_listen_for: ['Resume claim verification', 'Depth and specificity'],
-    follow_ups: [`What tools or methods did you use with ${skill}?`],
-    scoring_criteria: {
-      strong: 'Detailed project story that validates resume claim',
-      adequate: 'Some relevant detail but limited depth',
-      weak: 'Cannot substantiate resume claim',
-    },
-  }))
+  const behavioral = roleTitle
+    ? [{
+        text: `Describe a go-live or UAT issue you handled as a ${roleTitle}.`,
+        what_to_listen_for: ['Problem clarity', 'Stakeholder handling', 'Resolution'],
+        follow_ups: ['Who did you coordinate with?'],
+      }]
+    : [{
+        text: 'Describe a deadline slip — what did you do to recover?',
+        what_to_listen_for: ['Ownership', 'Prioritization', 'Outcome'],
+        follow_ups: [],
+      }]
 
   if (technical.length === 0 && experience.length === 0) {
     technical.push({
-      text: 'Walk me through your most relevant experience for this role.',
+      text: 'Walk me through your most relevant project for this role — what did you own?',
       what_to_listen_for: ['Role alignment', 'Specific accomplishments'],
       follow_ups: [],
     })
   }
 
   return {
-    technical_questions: technical,
-    behavioral_questions: behavioral,
-    culture_fit_questions: culture,
-    experience_deep_dive_questions: experience,
+    technical_questions: technical.slice(0, 5),
+    behavioral_questions: behavioral.slice(0, 1),
+    culture_fit_questions: [],
+    experience_deep_dive_questions: experience.slice(0, 3),
     _fallback: true,
   }
 }
@@ -125,6 +119,9 @@ export function resolveInterviewKit(interviewQuestions, analysisData, roleTitle)
     missingSkills: analysisData?.missing_skills || [],
     matchedSkills: analysisData?.matched_skills || [],
     roleTitle,
+    workExperience: analysisData?.work_experience
+      || analysisData?.candidate_profile?.work_experience
+      || [],
   })
   const fallbackCount = countKitQuestions(fallback)
   if (fallbackCount > 0) {

@@ -562,9 +562,18 @@ class TestBuildFallbackNarrative:
         python_result = {"fit_score": 60, "score_breakdown": {}, "_required_years": 3}
         skill_analysis = {"matched_skills": ["python"], "missing_skills": ["java", "spring"], "required_count": 3}
         result = _build_fallback_narrative(python_result, skill_analysis)
-        assert len(result["interview_questions"]["technical_questions"]) >= 1
-        assert len(result["interview_questions"]["behavioral_questions"]) >= 1
-        assert len(result["interview_questions"]["culture_fit_questions"]) >= 1
+        iq = result["interview_questions"]
+        assert len(iq["technical_questions"]) >= 1
+        assert len(iq["experience_deep_dive_questions"]) >= 0
+        assert iq["culture_fit_questions"] == []
+        total = (
+            len(iq["technical_questions"])
+            + len(iq["behavioral_questions"])
+            + len(iq["experience_deep_dive_questions"])
+        )
+        assert 5 <= total <= 10
+        texts = [q["text"] for q in iq["technical_questions"] + iq["experience_deep_dive_questions"]]
+        assert all(len(t) <= 140 for t in texts)
 
     def test_rationale_mentions_score(self):
         python_result = {"fit_score": 72, "score_breakdown": {}, "_required_years": 5}

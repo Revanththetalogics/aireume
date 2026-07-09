@@ -28,6 +28,7 @@ from app.backend.services.audit_service import log_field_change
 # It creates deep interview sessions via the recruiter orchestrator, which is
 # also used by the unified routes/interviews.py. No functional change needed.
 from app.backend.services.recruiter.auto_trigger import RecruiterAutoTrigger
+from app.backend.services.interview_kit_generator import refresh_interview_questions_in_analysis
 from app.backend.services.outcome_service import (
     record_outcome, record_feedback, get_outcome_for_result, get_outcomes_for_jd, compute_skill_patterns
 )
@@ -410,6 +411,8 @@ def get_screening_result(
 
     if not merged_data.get("work_experience"):
         merged_data["work_experience"] = parsed.get("work_experience", [])
+
+    refresh_interview_questions_in_analysis(merged_data, parsed_data=parsed)
 
     # Set defaults for all fields expected by ReportPage / ResultCard
     merged_data.setdefault("fit_score", None)
@@ -986,6 +989,8 @@ def get_candidate(
 
         if not merged_data.get("work_experience"):
             merged_data["work_experience"] = parsed.get("work_experience", [])
+
+        refresh_interview_questions_in_analysis(merged_data, parsed_data=parsed)
 
         # Ensure all fields expected by ReportPage / ResultCard have defaults
         merged_data.setdefault("fit_score", None)

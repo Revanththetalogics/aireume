@@ -209,8 +209,13 @@ Generate a targeted interview kit. Return ONLY this JSON:
 }}
 
 RULES:
-- 3 technical, 2 behavioral, 1 culture-fit, 1-2 experience deep-dive questions.
-- Every question must reference specific skills, gaps, or JD responsibilities.
+- 8-10 total questions. Prioritize technical and experience; skip culture_fit (return empty array).
+- Keep every question under 140 characters — recruiters ask them live on a call.
+- No overlapping templates (do not repeat "tell me about a project" across categories).
+- Technical: gap-probe missing must-haves ("X isn't on resume — have you used it?") AND validate matched skills with resume context (company/role).
+- Experience: anchor to candidate's companies/roles from resume — modules owned, integrations, production issues.
+- Behavioral: max 1 short question tied to a JD responsibility, not generic leadership/conflict.
+- Every question must reference specific skills, gaps, or resume context.
 - No generic questions like "Tell me about yourself".
 - Keep scoring_criteria concise (one sentence per level)."""
 

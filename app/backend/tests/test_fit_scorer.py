@@ -246,3 +246,18 @@ class TestComputeFitScore:
         assert result["risk_penalty"] == 0
         expected = round(100 * 0.30 + 100 * 0.20 + 100 * 0.15 + 100 * 0.10 + 100 * 0.10 + 100 * 0.10)
         assert result["fit_score"] == expected
+
+    def test_dict_breakdown_scores_accepted(self):
+        """score_breakdown dict format (experience_match/skill_match) must not crash fit scoring."""
+        scores = {
+            "skill_score": {"score": 80, "confidence_weighted": True, "avg_confidence": 0.9},
+            "exp_score": {"score": 75, "actual_years": 5.0, "required_years": 3.0},
+            "arch_score": 70,
+            "edu_score": 60,
+            "timeline_score": 85,
+            "domain_score": 65,
+        }
+        result = compute_fit_score(scores)
+        assert isinstance(result["fit_score"], int)
+        assert 0 <= result["fit_score"] <= 100
+        assert result["score_breakdown"]["experience_match"]["score"] == 75
