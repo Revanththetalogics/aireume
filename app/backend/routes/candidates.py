@@ -1006,10 +1006,10 @@ def get_candidate(
             merged_data["work_experience"] = parsed.get("work_experience", [])
 
         refresh_interview_questions_in_analysis(
-        merged_data,
-        parsed_data=parsed,
-        kit_status=getattr(result, "interview_kit_status", None),
-    )
+            merged_data,
+            parsed_data=parsed,
+            kit_status=getattr(r, "interview_kit_status", None),
+        )
 
         # Ensure all fields expected by ReportPage / ResultCard have defaults
         merged_data.setdefault("fit_score", None)
